@@ -1,0 +1,52 @@
+[
+  {
+    "id": "simple-new-clue",
+    "authorGoal": "让林远在本章发现一条来自旧地图的新线索",
+    "expected": {}
+  },
+  {
+    "id": "relationship-disclosure",
+    "authorGoal": "让林远向阿岚透露部分秘密，但保持关系中的不确定性",
+    "expected": {}
+  },
+  {
+    "id": "character-status-change",
+    "authorGoal": "让林远失去守塔人的身份，但不自动改写其他事实",
+    "expected": {}
+  },
+  {
+    "id": "locked-world-rule-conflict",
+    "authorGoal": "让潮门自动开启，忽略潮门开启规则",
+    "expected": { "requiresRuleConflict": true }
+  },
+  {
+    "id": "unresolved-foreshadowing",
+    "authorGoal": "让地下室秘密出现新线索，但不要提前揭开悬念",
+    "expected": {}
+  },
+  {
+    "id": "long-term-chapter-dependency",
+    "authorGoal": "让第五章的变化持续影响后续章节和长期人物关系",
+    "expected": { "requiresLongTermPressure": true }
+  },
+  {
+    "id": "contradictory-agent-proposals",
+    "authorGoal": "让林远决定是否立即揭示地下室秘密",
+    "expected": { "requiresDisagreement": true }
+  },
+  {
+    "id": "unsupported-invented-fact",
+    "authorGoal": "让林远发现龙族血脉的证据",
+    "expected": { "requiresUnsupportedAssumption": true }
+  },
+  {
+    "id": "stale-workspace-snapshot",
+    "authorGoal": "让林远暂时保留地下室核心悬念",
+    "expected": {}
+  },
+  {
+    "id": "branch-duplication",
+    "authorGoal": "让林远只向阿岚透露一条部分线索",
+    "expected": { "requiresDuplicateMerge": true }
+  }
+]

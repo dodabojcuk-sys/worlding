@@ -1,0 +1,43 @@
+{
+  "name": "world-os-deterministic-kernel",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22 <23",
+    "npm": ">=10 <12"
+  },
+  "packageManager": "npm@10",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/start-story-studio-dev.mjs",
+    "build": "vite build --config apps/story-studio/vite.config.ts",
+    "serve": "node --experimental-strip-types apps/story-studio/server/server.mjs",
+    "typecheck": "tsc -p apps/story-studio/tsconfig.json --noEmit",
+    "lint": "node --experimental-strip-types scripts/run-selected-tests.mjs lint",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --experimental-strip-types scripts/run-selected-tests.mjs unit",
+    "test:integration": "node --experimental-strip-types scripts/run-selected-tests.mjs integration",
+    "test:e2e": "node --experimental-strip-types apps/story-studio/scripts/story-studio-golden-loop-r0-smoke.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run test:e2e && npm run build"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@earendil-works/pi-agent-core": "0.84.2",
+    "@geoman-io/leaflet-geoman-free": "^2.20.0",
+    "@xyflow/react": "^12.11.2",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "playwright": "^1.62.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.4"
+  }
+}

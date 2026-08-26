@@ -1,0 +1,176 @@
+{
+  "schemaVersion": "tianyan-mainline-lineage-capability-reality-map/r0",
+  "recordedAt": "2026-08-25T12:00:00+08:00",
+  "verdict": "NORMAL_ROUTE_ON_CURRENT_DEVELOPMENT_BRANCH_DEFAULT_BRANCH_NOT_PROVEN",
+  "git": {
+    "configuredDefaultBranchName": "main",
+    "localDefaultBranchRefPresent": false,
+    "remoteRefsPresent": false,
+    "defaultBranchHead": null,
+    "currentDevelopmentBranch": "codex/tianyan-tianyi-primary-workspace-recovery-r0",
+    "currentDevelopmentHead": "05c10af4b84d743b2a4ea7f5faf4a79960f703b6",
+    "currentDevelopmentTree": "08316c38f83c3a5d8b8c4d6e8179e87b6d42782a",
+    "nearestLocalIntegrationBranch": "codex/tianyan-founder-target-integration-r0",
+    "nearestLocalIntegrationHead": "4dce934157bcaa6d90fd5b812d8ea5aeacd2050b",
+    "mergeBaseWithNearestLocalIntegrationBranch": "4dce934157bcaa6d90fd5b812d8ea5aeacd2050b",
+    "commitsAheadOfNearestLocalIntegrationBranch": 97,
+    "commitsBehindNearestLocalIntegrationBranch": 0,
+    "defaultBranchAheadBehindAvailable": false,
+    "localDefaultRefFreshness": "UNAVAILABLE_NO_LOCAL_OR_REMOTE_DEFAULT_REF",
+    "mainlineMergePerformed": false
+  },
+  "capabilities": [
+    {
+      "id": "tianyi-two-modes",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY",
+      "normalUrl": "/tianyi?mode=creative|conversation",
+      "requiresFixture": false,
+      "owner": "existing Tianyi Session and Archive",
+      "introductionCommit": "5bf1293fdc6bbd2eddbaac166adc42fe922b25d6",
+      "conclusion": "Normal development route exists; formal default-branch presence is not proven."
+    },
+    {
+      "id": "contextual-work-dock",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY",
+      "normalUrl": "all eight desktop spaces",
+      "requiresFixture": false,
+      "owner": "shared Tianyi Session and page context; presentation only",
+      "introductionCommit": "5bf1293fdc6bbd2eddbaac166adc42fe922b25d6",
+      "conclusion": "Normal development surface exists; formal default-branch presence is not proven."
+    },
+    {
+      "id": "event-semantic-hierarchy",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY",
+      "normalUrl": "/event-line",
+      "requiresFixture": false,
+      "owner": "existing Event owner and read projections",
+      "introductionCommit": "296ed214e1350068e1647c5e96f93d09e7b2e5e3",
+      "conclusion": "Normal development route exists; formal default-branch presence is not proven."
+    },
+    {
+      "id": "normal-project-event-creation-handoff",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "defaultBranchReality": "NOT_PROVEN_ON_DEFAULT_BRANCH",
+      "productReality": "CURRENT_DEVELOPMENT_BRANCH_NORMAL_ROUTE",
+      "normalUrl": "/event-line → /creation",
+      "requiresFixture": false,
+      "owner": "existing Workspace Operations, AuthorControl, WorkVersion Authority, and OutputArtifact owner",
+      "introductionCommit": null,
+      "conclusion": "The normal Event Line route coordinates existing Candidate, Impact, and AuthorControl owners and passes stable Story Unit and Event identities to Creation; no Fixture or Nuwa Run identity is accepted."
+    },
+    {
+      "id": "character-fate",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "FIXTURE_ONLY_UI",
+      "normalUrl": "/data",
+      "requiresFixture": true,
+      "owner": "read-only Character and Event projections",
+      "introductionCommit": "b83e42aabd762c7f0f93041016a4ae8c19605dc9",
+      "conclusion": "The Character Fate journey requires fixture=character-fate."
+    },
+    {
+      "id": "character-state",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "FIXTURE_ONLY_UI",
+      "normalUrl": "/library",
+      "requiresFixture": true,
+      "owner": "read-only Character, Event, WorldState, Relation and Source projections",
+      "introductionCommit": "1fb487012f8ceab5011a76d02e515843629ac194",
+      "conclusion": "The implemented view uses deterministic fixture identities and the fixture impact adapter."
+    },
+    {
+      "id": "nuwa-bounded-rehearsal",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "FIXTURE_ONLY_UI",
+      "normalUrl": "/nuwa",
+      "requiresFixture": true,
+      "owner": "existing RunPack for rehearsal only",
+      "introductionCommit": "b48d9d1adbb93b4207123e3c0e2369544e7eb08e",
+      "conclusion": "The bounded rehearsal UI requires fixture=nuwa-bounded; the separate legacy /nuwa surface is non-authoritative and unaccepted."
+    },
+    {
+      "id": "work-version-authority",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "SHARED_SERVICE_ONLY",
+      "normalUrl": null,
+      "requiresFixture": false,
+      "owner": "StoryStudioWorkVersionAuthority",
+      "introductionCommit": "a9cdce95d7fafaca777f152ee84c5aa598badac9",
+      "conclusion": "The persistent authority exists under each Project, but no normal product API or route exposes root lifecycle."
+    },
+    {
+      "id": "multiverse-single-derived",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "productReality": "FIXTURE_ONLY_UI",
+      "normalUrl": "/multiverse",
+      "requiresFixture": true,
+      "owner": "StoryStudioWorkVersionAuthority plus existing review owners",
+      "introductionCommit": "d6398b3f65089c70296c89cbb58fe95b00222ee6",
+      "conclusion": "The authoritative bounded WorkVersion journey requires fixture=multiverse-single-derived; the normal route is an older Story Unit derived-line surface."
+    },
+    {
+      "id": "creation-work-version-source",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "defaultBranchReality": "NOT_PROVEN_ON_DEFAULT_BRANCH",
+      "productReality": "NORMAL_ROUTE_ON_CURRENT_DEVELOPMENT_BRANCH",
+      "normalUrl": "/creation",
+      "requiresFixture": false,
+      "owner": "existing OutputArtifact and WorkVersion authorities",
+      "introductionCommit": "7a051788452422ed088bd2d90eba8337fdfd0455",
+      "conclusion": "The normal development route resolves the selected Project, reuses the WorkVersion and OutputArtifact owners, and persists a root-bound source without a fixture loader; formal default-branch presence is not proven."
+    },
+    {
+      "id": "creation-source-reconciliation",
+      "gitClassification": "DEVELOPMENT_BRANCH_ONLY",
+      "defaultBranchReality": "NOT_PROVEN_ON_DEFAULT_BRANCH",
+      "productReality": "NORMAL_ROUTE_ON_CURRENT_DEVELOPMENT_BRANCH",
+      "normalUrl": "/creation",
+      "requiresFixture": false,
+      "owner": "existing OutputArtifact and WorkVersion authorities; compare is read-only",
+      "introductionCommit": "27ca25a4edfef218c58266da443cfc4b14116165",
+      "conclusion": "Compare, keep-old, author confirmation, repin, source history and restart recovery are available on the normal development route through the shared project-scoped source port."
+    }
+  ],
+  "spaces": [
+    { "id": "world", "normalUrl": "/world", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY" },
+    { "id": "tianyi", "normalUrl": "/tianyi", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY" },
+    { "id": "event-line", "normalUrl": "/event-line", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "NORMAL_ROUTE_ON_DEV_BRANCH_ONLY" },
+    { "id": "multiverse", "normalUrl": "/multiverse", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "FIXTURE_ONLY_UI" },
+    { "id": "nuwa", "normalUrl": "/nuwa", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "FIXTURE_ONLY_UI" },
+    { "id": "library", "normalUrl": "/library", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "FIXTURE_ONLY_UI" },
+    { "id": "creation", "normalUrl": "/creation", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "NORMAL_ROUTE_ON_CURRENT_DEVELOPMENT_BRANCH", "defaultBranchReality": "NOT_PROVEN_ON_DEFAULT_BRANCH" },
+    { "id": "data", "normalUrl": "/data", "normalCoreOnDevelopmentBranch": true, "specialCapabilityReality": "FIXTURE_ONLY_UI" }
+  ],
+  "creationDependencyAudit": {
+    "directNuwaImportCount": 0,
+    "transitiveNuwaDependency": "NO_NORMAL_ROUTE_DEPENDENCY_LEGACY_ADAPTER_QUARANTINED",
+    "usesNuwaRunIdentity": false,
+    "usesFixtureOnlyLoaderForWorkVersionSource": false,
+    "normalCoreRouteAvailable": true,
+    "productionOutputArtifactPersistenceAvailable": true,
+    "normalWorkVersionLifecycleApiAvailable": true,
+    "normalWorkVersionBoundNeutralStoryPackageAvailable": true
+  },
+  "implementationGate": {
+    "passed": true,
+    "blockers": [
+      "Formal default-branch integration remains unproven and was not performed; this does not block the explicitly authorized current-development-branch pilot."
+    ],
+    "creationNormalRoutePilot": "PASS_ON_CURRENT_DEVELOPMENT_BRANCH",
+    "formalDefaultBranchStatus": "NOT_PROVEN_ON_DEFAULT_BRANCH"
+  },
+  "fixedBoundaries": {
+    "nuwaReferenceRole": "NON_AUTHORITATIVE_HISTORICAL_EXPERIMENT",
+    "nuwaProductUxAccepted": false,
+    "nuwaUiReuseAuthorized": false,
+    "nuwaAutomaticMergeAuthorized": false,
+    "multiverseExpansion": "HOLD",
+    "derivedVersionToCreationHandoff": "HOLD",
+    "realProviderCalls": 0,
+    "realProjectWrites": 0,
+    "mainlineMergePerformed": false
+  }
+}

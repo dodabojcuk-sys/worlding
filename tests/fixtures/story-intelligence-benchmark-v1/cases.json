@@ -1,0 +1,17 @@
+[
+  { "id": "new-clue", "authorGoal": "让林远在本章发现一条来自旧地图的新线索", "expected": {} },
+  { "id": "partial-disclosure", "authorGoal": "让林远向阿岚透露部分秘密，但保持关系中的不确定性", "expected": {} },
+  { "id": "status-change", "authorGoal": "让林远失去守塔人的身份，但不自动改写其他事实", "expected": {} },
+  { "id": "rule-conflict", "authorGoal": "让潮门自动开启，忽略潮门开启规则", "expected": { "requiresRuleConflict": true } },
+  { "id": "preserve-mystery", "authorGoal": "让地下室秘密出现新线索，但不要提前揭开悬念", "expected": {} },
+  { "id": "long-term-pressure", "authorGoal": "让第五章的变化持续影响后续章节和长期人物关系", "expected": { "requiresLongTermPressure": true } },
+  { "id": "specialist-disagreement", "authorGoal": "让林远决定是否立即揭示地下室秘密", "expected": { "requiresDisagreement": true } },
+  { "id": "unsupported-fact", "authorGoal": "让林远发现龙族血脉的证据", "expected": { "requiresUnsupportedAssumption": true } },
+  { "id": "duplicate-proposal", "authorGoal": "让林远只向阿岚透露一条部分线索", "expected": { "requiresDuplicateMerge": true } },
+  { "id": "scene-bounded", "authorGoal": "让林远在灯塔门前停下并观察潮声", "expected": {} },
+  { "id": "relationship-pressure", "authorGoal": "让阿岚怀疑林远没有说出全部真相", "expected": {} },
+  { "id": "event-timing", "authorGoal": "让旧信在本章结尾出现，但不改变已经发生的事件", "expected": {} },
+  { "id": "rule-preserving-alternative", "authorGoal": "让潮门规则继续生效，同时让角色找到绕行线索", "expected": {} },
+  { "id": "thread-visibility", "authorGoal": "让地下室秘密保持为未解决线索，并增加新的压力", "expected": {} },
+  { "id": "author-boundary", "authorGoal": "提出三条可能走向供作者选择，但不要替作者决定", "expected": {} }
+]

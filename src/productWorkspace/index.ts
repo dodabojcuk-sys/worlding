@@ -1,0 +1,21 @@
+export {
+  createProductWorkspace,
+  createWorkspaceState,
+  extendProductWorkspace,
+  switchWorkspaceMode,
+  switchWorkspaceSpace,
+  validateWorkspaceState,
+  type AiSpaceConcept,
+  type CoreWorkspaceSpaceId,
+  type CreateSpaceConcept,
+  type ExtendSpaceConcept,
+  type InspectSpaceConcept,
+  type ProductWorkspace,
+  type ProductWorkspaceSpace,
+  type WorkspaceConcept,
+  type WorkspaceMode,
+  type WorkspaceSpaceId,
+  type WorkspaceState,
+  type WorkspaceStateValidation,
+  type WorldSpaceConcept
+} from "./productWorkspaceModel.ts";

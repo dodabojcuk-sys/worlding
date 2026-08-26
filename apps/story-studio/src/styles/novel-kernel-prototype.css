@@ -1,0 +1,100 @@
+.novel-kernel-prototype {
+  min-height: 100vh;
+  background: #09110f;
+  color: #edf3ed;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.novel-kernel-prototype-header { display: flex; min-height: 60px; align-items: center; justify-content: space-between; border-bottom: 1px solid rgb(237 243 237 / 0.1); padding: 0 24px; }
+.novel-kernel-project, .novel-kernel-header-actions, .novel-kernel-header-actions button, .novel-kernel-canvas-header, .novel-kernel-canvas-header > div, .novel-kernel-canvas-header button, .novel-kernel-dock header, .novel-kernel-diff footer { display: flex; align-items: center; }
+.novel-kernel-project { gap: 8px; color: rgb(237 243 237 / 0.62); font-size: 13px; }
+.novel-kernel-project svg { width: 17px; color: #dba260; }
+.novel-kernel-project strong { color: #f8faf6; font: 600 15px Georgia, "Songti SC", serif; }
+.novel-kernel-header-actions { gap: 14px; color: rgb(237 243 237 / 0.52); font-size: 12px; }
+.novel-kernel-header-actions button, .novel-kernel-canvas-header button, .novel-kernel-dock header button { gap: 7px; border: 1px solid rgb(237 243 237 / 0.14); border-radius: 6px; background: transparent; color: rgb(237 243 237 / 0.78); padding: 8px 10px; }
+.novel-kernel-header-actions svg, .novel-kernel-canvas-header svg, .novel-kernel-dock header svg { width: 15px; height: 15px; }
+.novel-kernel-prototype-layout { display: grid; min-height: calc(100vh - 60px); grid-template-columns: 244px minmax(620px, 1fr); }
+.novel-kernel-prototype.is-dock-open .novel-kernel-prototype-layout { grid-template-columns: 48px minmax(620px, 1fr) minmax(304px, 360px); }
+.novel-kernel-outline { overflow: auto; border-right: 1px solid rgb(237 243 237 / 0.09); background: rgb(3 8 7 / 0.42); padding: 18px 12px; }
+.novel-kernel-outline > header { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 8px; margin-bottom: 18px; }
+.novel-kernel-outline-toggle { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid rgb(237 243 237 / 0.12); border-radius: 5px; background: transparent; color: rgb(237 243 237 / 0.6); }
+.novel-kernel-outline-toggle svg { width: 15px; }
+.novel-kernel-outline header strong { font: 600 17px Georgia, "Songti SC", serif; }
+.novel-kernel-outline header span { display: block; margin-top: 2px; color: rgb(237 243 237 / 0.42); font-size: 11px; }
+.novel-kernel-tree { display: grid; gap: 4px; }
+.novel-kernel-tree-row { display: contents; }
+.novel-kernel-tree-row > button { display: flex; min-width: 0; align-items: center; gap: 5px; border: 0; border-radius: 5px; background: transparent; color: rgb(237 243 237 / 0.62); padding: 7px 8px 7px calc(8px + var(--tree-depth) * 12px); text-align: left; }
+.novel-kernel-tree-row > button:hover, .novel-kernel-tree-row > button.is-selected { background: rgb(210 147 73 / 0.16); color: #f6d09d; }
+.novel-kernel-tree-row > button svg { width: 13px; flex: 0 0 auto; opacity: 0.45; }
+.novel-kernel-tree-row > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.novel-kernel-tree-row.is-volume > button span, .novel-kernel-tree-row.is-chapter > button span { font-weight: 650; }
+.novel-kernel-tree-row.is-paragraph > button span { font-size: 12px; }
+.novel-kernel-outline-compact { display: grid; gap: 8px; }
+.novel-kernel-outline-compact button { width: 30px; height: 30px; border: 1px solid rgb(237 243 237 / 0.14); border-radius: 5px; background: rgb(255 255 255 / 0.03); color: #d6ad76; font-family: Georgia, "Songti SC", serif; }
+.novel-kernel-canvas { position: relative; min-width: 0; padding: 28px clamp(26px, 5vw, 88px) 68px; }
+.novel-kernel-canvas-header { justify-content: space-between; gap: 20px; max-width: 820px; margin: 0 auto 42px; }
+.novel-kernel-canvas-header > div { gap: 8px; flex-wrap: wrap; }
+.novel-kernel-canvas-header small { color: rgb(237 243 237 / 0.44); font-size: 12px; }
+.novel-kernel-canvas-header strong { color: rgb(237 243 237 / 0.88); font-size: 13px; }
+.novel-kernel-suggestion-trigger { border-color: rgb(215 157 83 / 0.55) !important; color: #f1c88b !important; }
+.novel-kernel-prose { width: min(100%, 820px); min-width: min(620px, 100%); margin: 0 auto; font: 20px/2.05 Georgia, "Songti SC", STFangsong, serif; letter-spacing: 0.015em; }
+.novel-kernel-block.is-volume { margin-bottom: 60px; }
+.novel-kernel-block.is-chapter { margin: 44px 0; }
+.novel-kernel-block.is-scene { margin: 30px 0; }
+.novel-kernel-prose h1, .novel-kernel-prose h2, .novel-kernel-prose h3 { margin: 0; color: #f5f3e9; font-family: Georgia, "Songti SC", serif; font-weight: 500; }
+.novel-kernel-prose h1 { font-size: 38px; line-height: 1.2; }
+.novel-kernel-prose h2 { padding-bottom: 12px; border-bottom: 1px solid rgb(237 243 237 / 0.11); font-size: 27px; line-height: 1.35; }
+.novel-kernel-prose h3 { color: #d8ad75; font-size: 15px; letter-spacing: 0.1em; }
+.novel-kernel-prose p { position: relative; margin: 16px 0; border-radius: 4px; color: rgb(244 246 240 / 0.9); padding: 2px 9px; outline: none; }
+.novel-kernel-prose p:hover, .novel-kernel-prose p.is-selected { background: rgb(101 140 126 / 0.1); box-shadow: inset 2px 0 0 rgb(103 195 181 / 0.7); }
+.novel-kernel-object-ref { display: inline-block; border-radius: 4px; background: rgb(78 146 135 / 0.18); color: #94dbce; padding: 0 4px; font-family: Inter, ui-sans-serif, sans-serif; font-size: 0.75em; line-height: 1.55; vertical-align: 0.08em; }
+.novel-kernel-object-ref.is-location { background: rgb(210 147 73 / 0.18); color: #f0c785; }
+.novel-kernel-object-ref.is-event { background: rgb(172 123 203 / 0.2); color: #d6b6ed; }
+.novel-kernel-reference-menu { position: absolute; z-index: 3; top: 86px; right: clamp(26px, 5vw, 88px); display: grid; width: 230px; overflow: hidden; border: 1px solid rgb(237 243 237 / 0.16); border-radius: 8px; background: #101a18; box-shadow: 0 18px 48px rgb(0 0 0 / 0.35); }
+.novel-kernel-reference-menu header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgb(237 243 237 / 0.1); padding: 10px 12px; font-size: 13px; }
+.novel-kernel-reference-menu header button { border: 0; background: transparent; color: rgb(237 243 237 / 0.6); }
+.novel-kernel-reference-menu header svg { width: 15px; }
+.novel-kernel-reference-menu > button { display: flex; gap: 9px; border: 0; background: transparent; color: #e8efea; padding: 10px 12px; text-align: left; }
+.novel-kernel-reference-menu > button:hover { background: rgb(255 255 255 / 0.05); }
+.novel-kernel-reference-menu > button span { color: rgb(237 243 237 / 0.46); font-size: 11px; }
+.novel-kernel-dock { overflow: auto; border-left: 1px solid rgb(237 243 237 / 0.11); background: #0b1412; padding: 18px; }
+.novel-kernel-dock header { justify-content: space-between; gap: 12px; }
+.novel-kernel-dock header small { display: block; color: #dca05c; font-size: 11px; }
+.novel-kernel-dock header strong { display: block; margin-top: 3px; font: 600 17px Georgia, "Songti SC", serif; }
+.novel-kernel-dock header button { display: grid; width: 32px; height: 32px; place-items: center; padding: 0; }
+.novel-kernel-diff { display: grid; gap: 14px; margin-top: 32px; }
+.novel-kernel-diff > small { color: #dca05c; font-size: 11px; letter-spacing: 0.08em; }
+.novel-kernel-diff p { margin: 0; border-radius: 6px; padding: 14px; font: 16px/1.9 Georgia, "Songti SC", serif; }
+.novel-kernel-diff-before { background: rgb(219 112 100 / 0.1); color: rgb(244 210 204 / 0.68); text-decoration: line-through; }
+.novel-kernel-diff-after { background: rgb(100 184 166 / 0.13); color: #d7f4ec; }
+.novel-kernel-diff footer { justify-content: flex-end; gap: 8px; }
+.novel-kernel-diff footer button { border-radius: 5px; padding: 9px 11px; }
+.novel-kernel-diff-sections { display: grid; gap: 8px; }
+.novel-kernel-diff-sections > div { display: grid; gap: 4px; }
+.novel-kernel-diff-sections span, .novel-kernel-diff-technical summary { color: #9ea6b8; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.novel-kernel-diff-sections p { min-height: 28px; }
+.novel-kernel-diff-summary { color: #e7eaf0; font: 13px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important; }
+.novel-kernel-diff-technical { color: #8f97aa; font: 12px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.novel-kernel-diff-technical p { border: 0; padding: 0; color: inherit; font: inherit; }
+.novel-kernel-reject { border: 1px solid rgb(237 243 237 / 0.16); background: transparent; color: rgb(237 243 237 / 0.72); }
+.novel-kernel-accept { border: 1px solid #ca853f; background: #b97331; color: #fff8ec; }
+.novel-kernel-dock-empty { display: grid; justify-items: start; gap: 10px; margin-top: 80px; color: rgb(237 243 237 / 0.62); }
+.novel-kernel-dock-empty svg { color: #dca05c; }
+.novel-kernel-dock-empty strong { color: #edf3ed; font: 500 18px Georgia, "Songti SC", serif; }
+.novel-kernel-dock-empty p { margin: 0; font-size: 13px; line-height: 1.7; }
+@media (max-width: 1240px) {
+  .novel-kernel-prototype-layout { grid-template-columns: 48px minmax(620px, 1fr); }
+  .novel-kernel-outline { padding-inline: 9px; }
+  .novel-kernel-outline > header { grid-template-columns: 30px; }
+  .novel-kernel-outline > header > strong, .novel-kernel-outline > header > span, .novel-kernel-tree { display: none; }
+  .novel-kernel-outline-compact { display: grid; }
+  .novel-kernel-prototype.is-dock-open .novel-kernel-prototype-layout { grid-template-columns: 42px minmax(620px, 1fr) 304px; }
+  .novel-kernel-prose { font-size: 19px; }
+}
+@media (max-width: 1180px) {
+  .novel-kernel-prototype.is-dock-open .novel-kernel-prototype-layout { grid-template-columns: 42px minmax(0, 1fr) 286px; }
+  .novel-kernel-canvas { padding-inline: 22px; }
+  .novel-kernel-prose { min-width: 0; }
+  .novel-kernel-canvas-header { margin-bottom: 28px; }
+  .novel-kernel-canvas-header > div:last-child button:not(.novel-kernel-suggestion-trigger) { display: none; }
+  .novel-kernel-dock { padding: 14px; }
+}
