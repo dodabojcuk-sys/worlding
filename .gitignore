@@ -12,6 +12,12 @@ reports/
 .playwright-cli/
 .DS_Store
 evidence/
+!src/domainTemplates/storyWorld/evidence/
+src/domainTemplates/storyWorld/evidence/*
+!src/domainTemplates/storyWorld/evidence/evidenceProjection.ts
+!src/domainTemplates/storyWorld/evidence/evidenceResolver.ts
+!src/domainTemplates/storyWorld/evidence/evidenceTypes.ts
+!src/domainTemplates/storyWorld/evidence/index.ts
 packet1-browser/
 artifacts/
 apps/story-studio/dist/
