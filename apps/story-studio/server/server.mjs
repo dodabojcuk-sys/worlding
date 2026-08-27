@@ -98,6 +98,7 @@ import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleD
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
+import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = path.join(appRoot, "dist");
@@ -149,6 +150,7 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
     : {})
 });
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
+const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });
 const providerAppDataRoot = resolveProviderAppDataRoot();
 const providerProfileStore = createPersistentProviderProfileStore({ appDataRoot: providerAppDataRoot });
@@ -3077,6 +3079,10 @@ async function handleTianyiRequest(request, response, url) {
     "creative/candidate/edit": [["projectId", "sessionId", "candidateId", "operationId", "expectedRevision", "title", "summary", "uncertainties"], () => tianyi.editTianyiCreativeCandidate(body)],
     "creative/candidate/decision": [["projectId", "sessionId", "candidateId", "operationId", "decision"], () => tianyi.decideTianyiCreativeCandidate(body)],
     "creative/candidate/handoff": [["projectId", "sessionId", "candidateId", "operationId"], () => handoffTianyiCreativeCandidate(body)],
+    "creative/candidate/event-review": [["projectId", "sessionId", "candidateId"], () => readTianyiCreativeEventReview(body)],
+    "creative/candidate/event-review/begin-impact": [["projectId", "sessionId", "candidateId"], () => beginTianyiCreativeEventImpact(body)],
+    "creative/candidate/event-review/reject": [["projectId", "sessionId", "candidateId"], () => rejectTianyiCreativeEvent(body)],
+    "creative/candidate/event-review/confirm": [["projectId", "sessionId", "candidateId", "optionId"], () => confirmTianyiCreativeEvent(body)],
     "creative/pause": [["projectId", "sessionId", "operationId"], () => tianyi.pauseTianyiCreativeSession(body)],
     "creative/provider-unavailable": [["projectId", "sessionId", "operationId", "stage", "message"], () => tianyi.markTianyiCreativeProviderUnavailable(body)],
     "creative/recover": [["projectId", "sessionId", "operationId"], () => tianyi.recoverTianyiCreativeSession(body)],
@@ -3134,6 +3140,25 @@ async function handoffTianyiCreativeCandidate(body) {
   const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
   const candidate = projection?.candidates.find((item) => item.candidateId === body.candidateId);
   if (!candidate) throw productError("创意候选不存在。", 404);
+  if (candidate.targetOwnerKind === "candidate-review" && candidate.kind === "event") {
+    const input = { sessionId: body.sessionId, candidateId: body.candidateId };
+    const prepared = tianyiCreativeEventPort.createCandidate(project.id, input, projection);
+    const handedOff = candidate.ownerReceipt
+      ? projection
+      : (await tianyi.decideTianyiCreativeCandidate({
+          projectId: project.id,
+          sessionId: body.sessionId,
+          candidateId: body.candidateId,
+          operationId: body.operationId,
+          decision: "handed-off",
+          ownerReceipt: { owner: "candidate-review", id: prepared.review.id, revision: null }
+        })).projection;
+    return {
+      projection: handedOff,
+      ownerReceipt: { owner: "candidate-review", id: prepared.review.id, revision: null },
+      eventReview: tianyiCreativeEventPort.state(project.id, input, handedOff)
+    };
+  }
   if (candidate.targetOwnerKind !== "agent-recognition-proposal") throw productError("该候选没有可用的现有 Agent/Object Owner；它会继续保留为待处理候选。", 409);
   const source = candidate.sourceRefs[0];
   if (!source || source.sessionId !== body.sessionId) throw productError("创意候选来源不属于当前 Session。", 409);
@@ -3175,6 +3200,34 @@ async function handoffTianyiCreativeCandidate(body) {
     ownerReceipt: { owner: "agent-recognition-proposal", id: proposalResult.proposal.proposalId, revision: proposalResult.proposal.revision }
   });
   return { projection: handedOff.projection, ownerReceipt: { owner: "agent-recognition-proposal", id: proposalResult.proposal.proposalId, revision: proposalResult.proposal.revision } };
+}
+
+async function readTianyiCreativeEventReview(body) {
+  const project = requireProject(body.projectId);
+  const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
+  return tianyiCreativeEventPort.state(project.id, { sessionId: body.sessionId, candidateId: body.candidateId }, projection);
+}
+
+async function beginTianyiCreativeEventImpact(body) {
+  const project = requireProject(body.projectId);
+  const input = { sessionId: body.sessionId, candidateId: body.candidateId };
+  const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
+  tianyiCreativeEventPort.beginImpact(project.id, input, projection);
+  return tianyiCreativeEventPort.state(project.id, input, projection);
+}
+
+async function rejectTianyiCreativeEvent(body) {
+  const project = requireProject(body.projectId);
+  const input = { sessionId: body.sessionId, candidateId: body.candidateId };
+  const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
+  return tianyiCreativeEventPort.reject(project.id, input, projection);
+}
+
+async function confirmTianyiCreativeEvent(body) {
+  const project = requireProject(body.projectId);
+  const input = { sessionId: body.sessionId, candidateId: body.candidateId };
+  const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
+  return tianyiCreativeEventPort.confirm(project.id, input, projection, body.optionId);
 }
 
 function requireToken(request) {

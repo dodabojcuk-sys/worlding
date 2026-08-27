@@ -8,7 +8,8 @@ test("Creative workspace keeps canvas-first desktop, drawer-based mid-width, and
   assert.match(component, /data-testid="tianyi-creative-workspace"/u);
   assert.match(component, /待审候选 \{projection\?\.pendingCount/u);
   assert.match(component, /tianyi-mobile-review-close/u);
-  assert.match(component, /后续归属：\{selectedCandidate\.targetOwnerKind === "agent-recognition-proposal" \? "现有资料审核" : "继续保留为候选"\}/u);
+  assert.match(component, /selectedCandidate\.targetOwnerKind === "candidate-review" \? "事件候选审查" : "继续保留为候选"/u);
+  assert.match(component, /作者确认并写入事件线/u);
   assert.match(component, /先保存原话；Provider 可用时/u);
   assert.match(component, /每个结果都先作为候选/u);
   assert.match(styles, /\.tianyi-creative-canvas \{ display: grid/u);

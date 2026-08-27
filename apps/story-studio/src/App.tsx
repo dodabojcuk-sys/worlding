@@ -284,6 +284,10 @@ import {
   getTianyiCreativeProjection,
   decideTianyiCreativeCandidate,
   handoffTianyiCreativeCandidate,
+  getTianyiCreativeEventReview,
+  beginTianyiCreativeEventImpact,
+  rejectTianyiCreativeEvent,
+  confirmTianyiCreativeEvent,
   editTianyiCreativeCandidate,
   pauseTianyiCreativeSession,
   markTianyiCreativeProviderUnavailable,
@@ -4172,6 +4176,10 @@ export function App() {
     readCreative: getTianyiCreativeProjection,
     decideCreative: decideTianyiCreativeCandidate,
     handoffCreative: handoffTianyiCreativeCandidate,
+    readCreativeEventReview: getTianyiCreativeEventReview,
+    beginCreativeEventImpact: beginTianyiCreativeEventImpact,
+    rejectCreativeEvent: rejectTianyiCreativeEvent,
+    confirmCreativeEvent: confirmTianyiCreativeEvent,
     editCreative: editTianyiCreativeCandidate,
     pauseCreative: pauseTianyiCreativeSession,
     markCreativeProviderUnavailable: markTianyiCreativeProviderUnavailable,
@@ -5236,6 +5244,14 @@ export function App() {
         providerStatus={modelServiceStatus}
         onOpenLibrary={openMobileDrawer}
         onOpenWriting={() => void chooseProductMode("writing")}
+        onOpenEventLine={(eventId) => {
+          void chooseProductMode("event-line").then(() => {
+            const next = new URL(window.location.href); next.pathname = "/event-line"; next.search = "";
+            next.searchParams.set("event", eventId);
+            window.history.replaceState({ ...(window.history.state ?? {}), workspace: "event-line" }, "", `${next.pathname}${next.search}`);
+            window.dispatchEvent(new PopStateEvent("popstate"));
+          });
+        }}
         onCreateFromTianyi={() => void openCreationFromTianyi()}
         onReturnProject={() => void returnFromTianyi()}
         onOpenWorkDock={() => openWorkTianyi()}

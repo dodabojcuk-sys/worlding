@@ -6,6 +6,7 @@ import {
   type StoryExploration,
   type TianyiContextRequest,
   type TianyiCreativeProjection,
+  type TianyiCreativeEventReview,
   type TianyiCreativeSourceRef,
   type TianyiGroundedAnswerResult,
   type TianyiAgentRunProjection,
@@ -127,7 +128,11 @@ export type TianyiV2Operations = {
   readCreative(projectId: string, sessionId: string, token: string): Promise<TianyiCreativeProjection | null>;
   editCreative(input: { projectId: string; sessionId: string; candidateId: string; operationId: string; expectedRevision: number; title: string; summary: string; uncertainties: string[]; token: string }): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }>;
   decideCreative(input: { projectId: string; sessionId: string; candidateId: string; operationId: string; decision: "rejected" | "deferred"; token: string }): Promise<{ projection: TianyiCreativeProjection }>;
-  handoffCreative(input: { projectId: string; sessionId: string; candidateId: string; operationId: string; token: string }): Promise<{ projection: TianyiCreativeProjection; ownerReceipt: { owner: string; id: string; revision: number } }>;
+  handoffCreative(input: { projectId: string; sessionId: string; candidateId: string; operationId: string; token: string }): Promise<{ projection: TianyiCreativeProjection; ownerReceipt: { owner: string; id: string; revision: number | null }; eventReview?: TianyiCreativeEventReview }>;
+  readCreativeEventReview(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview>;
+  beginCreativeEventImpact(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview>;
+  rejectCreativeEvent(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview>;
+  confirmCreativeEvent(input: { projectId: string; sessionId: string; candidateId: string; optionId: string; token: string }): Promise<TianyiCreativeEventReview>;
   pauseCreative(projectId: string, sessionId: string, operationId: string, token: string): Promise<{ projection: TianyiCreativeProjection }>;
   markCreativeProviderUnavailable(input: { projectId: string; sessionId: string; operationId: string; stage: "response" | "extraction"; message?: string; token: string }): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }>;
   recoverCreative(projectId: string, sessionId: string, operationId: string, token: string): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }>;

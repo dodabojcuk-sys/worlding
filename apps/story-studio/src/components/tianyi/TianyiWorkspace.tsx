@@ -41,6 +41,7 @@ export function TianyiWorkspace(props: {
   providerStatus?: ModelServiceStatus | null;
   onOpenLibrary(): void;
   onOpenWriting(): void;
+  onOpenEventLine(eventId: string): void;
   onCreateFromTianyi(): void;
   onReturnProject(): void;
   onOpenWorkDock(): void;
@@ -118,7 +119,7 @@ export function TianyiWorkspace(props: {
       </aside> : null}
       {railOpen && <button className="tianyi-mobile-backdrop" type="button" aria-label="关闭会话栏" onClick={() => setRailOpen(false)} />}
       <main className="tianyi-conversation-main" aria-live="polite">
-        {props.mode === "creative" ? <TianyiCreativeWorkspace projectId={props.projectId} token={props.token} sessionId={props.sharedSessionId} operations={props.operations} onSessionId={props.onSharedSessionId} sharedDraft={props.sharedDraft} onDraft={props.onSharedDraft} withConnection={props.withConnection} /> : <>
+        {props.mode === "creative" ? <TianyiCreativeWorkspace projectId={props.projectId} token={props.token} sessionId={props.sharedSessionId} operations={props.operations} onSessionId={props.onSharedSessionId} sharedDraft={props.sharedDraft} onDraft={props.onSharedDraft} onOpenEventLine={props.onOpenEventLine} withConnection={props.withConnection} /> : <>
         {controller.loading && <div className="tianyi-conversation-loading"><LoaderCircle className="is-spinning" /><strong>正在恢复可继续的天意对话</strong></div>}
         {!controller.loading && contextUnavailable && <MissingContextState onOpenWriting={props.onOpenWriting} />}
         {!controller.loading && !contextUnavailable && <>
