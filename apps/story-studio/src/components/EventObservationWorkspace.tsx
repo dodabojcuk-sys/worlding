@@ -9,7 +9,14 @@ import { eventLineEventMetadata, type EventLineEventSummary, type VerifiedCanonE
 import { EventLineWorkbench } from "./EventLineWorkbench";
 import { StoryObservationCanvas, type StoryObservationReviewSubmission } from "./story-observation/StoryObservationCanvas";
 import type { StoryObservationProposalPatch } from "../../../../src/storyContracts/storyObservationProposalPatch";
-import { resolveEventObservationView, type EventObservationView } from "./event-observation/eventObservationRoute";
+import {
+  resolveEventObservationRoute,
+  resolveEventObservationRouteAvailability,
+  resolveEventObservationView,
+  serializeEventObservationRoute,
+  type EventObservationRouteRequest,
+  type EventObservationView
+} from "./event-observation/eventObservationRoute";
 
 export type { EventObservationView } from "./event-observation/eventObservationRoute";
 
@@ -19,6 +26,13 @@ function setCanonicalView(view: EventObservationView): void {
   url.searchParams.set("view", view);
   url.searchParams.delete("storyCanvas");
   window.history.replaceState({ ...(window.history.state ?? {}), workspace: "event-line", view }, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function replaceEventRoute(eventId: string | null): EventObservationRouteRequest {
+  const url = new URL(window.location.href);
+  url.search = serializeEventObservationRoute(url.search, eventId);
+  window.history.replaceState({ ...(window.history.state ?? {}), workspace: "event-line", selectedEventId: eventId }, "", `${url.pathname}${url.search}${url.hash}`);
+  return resolveEventObservationRoute(url.search);
 }
 
 /** One formal /event-line host. It owns only presentation state: projection,
@@ -47,10 +61,11 @@ export function EventObservationWorkspace(props: {
   returnToData?: { label: string; onReturn(): void } | null;
 }) {
   const initial = resolveEventObservationView(window.location.search, props.storedView);
+  const initialEventRoute = resolveEventObservationRoute(window.location.search);
   const [view, setView] = useState<EventObservationView>(() => initial.view);
+  const [eventRoute, setEventRoute] = useState<EventObservationRouteRequest>(() => initialEventRoute);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(() => {
-    const requested = new URL(window.location.href).searchParams.get("event");
-    if (requested) return requested;
+    if (initialEventRoute.status === "selected") return initialEventRoute.eventId;
     return new URL(window.location.href).searchParams.get("fixture") === "event-hierarchy" ? props.events[0]?.id ?? null : null;
   });
   const [roleLens, setRoleLens] = useState<string | null>(null);
@@ -69,20 +84,22 @@ export function EventObservationWorkspace(props: {
   }, [props.projectId, props.storedView]);
 
   useEffect(() => {
-    const requestedEventId = new URL(window.location.href).searchParams.get("event");
-    if (requestedEventId && props.events.some((event) => event.id === requestedEventId)) {
-      if (selectedEventId !== requestedEventId) setSelectedEventId(requestedEventId);
-      return;
-    }
-    if (selectedEventId && !props.events.some((event) => event.id === selectedEventId)) setSelectedEventId(null);
-  }, [props.events, selectedEventId]);
+    const syncEventRoute = () => {
+      let requested = resolveEventObservationRoute(window.location.search);
+      if (requested.status === "selected" && requested.needsCanonicalization) requested = replaceEventRoute(requested.eventId);
+      setEventRoute(requested);
+      setSelectedEventId(requested.status === "selected" ? requested.eventId : null);
+    };
+    syncEventRoute();
+    window.addEventListener("popstate", syncEventRoute);
+    return () => window.removeEventListener("popstate", syncEventRoute);
+  }, [props.projectId]);
 
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (selectedEventId) url.searchParams.set("event", selectedEventId);
-    else url.searchParams.delete("event");
-    window.history.replaceState({ ...(window.history.state ?? {}), workspace: "event-line", selectedEventId }, "", `${url.pathname}${url.search}${url.hash}`);
-  }, [selectedEventId]);
+  const chooseEvent = (eventId: string | null) => {
+    setSelectedEventId(eventId);
+    setEventRoute(replaceEventRoute(eventId));
+  };
+  const routeAvailability = resolveEventObservationRouteAvailability(eventRoute, props.listState, props.events.map((event) => event.id));
 
   const chooseView = (next: EventObservationView) => {
     setView(next);
@@ -100,7 +117,7 @@ export function EventObservationWorkspace(props: {
     window.requestAnimationFrame(() => document.getElementById(`event-observation-${next}-tab`)?.focus());
   };
 
-  return <section className="workbench event-observation-workspace" data-testid="event-observation-workspace" data-event-observation-view={view} data-selected-event-id={selectedEventId || ""}>
+  return <section className="workbench event-observation-workspace" data-testid="event-observation-workspace" data-event-observation-view={view} data-event-route-state={routeAvailability.status} data-selected-event-id={selectedEventId || ""}>
     <WorkspaceHeader
       projectTitle={props.projectTitle}
       sectionLabel="事件线"
@@ -120,6 +137,12 @@ export function EventObservationWorkspace(props: {
         <label className="event-observation-role-lens"><UserRound /><span className="sr-only">角色视角</span><select value={roleLens ?? ""} onChange={(event) => setRoleLens(event.target.value || null)} aria-label="角色视角"><option value="">全部 / 主线</option>{roleLabels.map((label) => <option value={label} key={label}>{label}视角</option>)}</select></label>
       </div>}
     />
+    {routeAvailability.status === "loading" ? <p className="event-line-state" data-testid="event-line-route-loading">正在核验路由中的已确认事件…</p> : null}
+    {routeAvailability.status === "invalid" || routeAvailability.status === "not-found" || routeAvailability.status === "unavailable" ? <div className="event-line-state is-error" role="alert" data-testid="event-line-route-error" data-route-error-kind={routeAvailability.status === "invalid" ? routeAvailability.reason : routeAvailability.status}>
+      <strong>{routeAvailability.status === "invalid" ? "事件地址无效或存在冲突" : routeAvailability.status === "not-found" ? "当前项目中没有这个已确认事件" : "暂时无法核验事件地址"}</strong>
+      <span>{routeAvailability.status === "invalid" ? "请返回事件线后重新选择事件；冲突参数不会被静默采用。" : routeAvailability.status === "not-found" ? "该事件可能属于其他项目、已失效，或尚未进入 Canon。" : "本地 Canon 读取失败，当前地址未被当作空事件。"}</span>
+      <button type="button" onClick={() => chooseEvent(null)}>返回事件线</button>
+    </div> : null}
     <div className="event-observation-layout">
       <div id="event-observation-renderer" className="event-observation-renderer" role="tabpanel" aria-labelledby={`event-observation-${view}-tab`}>
         {view === "spine" ? <EventLineWorkbench
@@ -137,7 +160,7 @@ export function EventObservationWorkspace(props: {
         currentUnitLabel={props.currentUnitLabel}
         selectedEventId={selectedEventId}
         roleLens={roleLens}
-        onSelectedEventId={setSelectedEventId}
+        onSelectedEventId={chooseEvent}
         onOpenTianyi={props.onOpenTianyi}
         onCreateFromEvent={props.onCreateFromEvent}
         onCreateEvent={props.onCreateEvent}
@@ -147,7 +170,7 @@ export function EventObservationWorkspace(props: {
         projectionMode={view === "canvas" ? "event-line" : "timeline"}
         selectedEventId={selectedEventId}
         roleLens={roleLens}
-        onSelectedEventId={setSelectedEventId}
+        onSelectedEventId={chooseEvent}
         projectId={props.projectId}
         projectTitle={props.projectTitle}
         events={props.events}

@@ -6,6 +6,7 @@ import { NewObjectDialog, type AgentDraftApplication, type AgentDraftEditInput, 
 import { profileFieldDefinitions } from "./components/ObjectProfileEditor";
 import type { StoryStudioObjectProfile } from "../../../src/storyContracts/storyStudioObjectProfile.ts";
 import { EventObservationWorkspace, type EventObservationView } from "./components/EventObservationWorkspace";
+import { resolveEventObservationRoute } from "./components/event-observation/eventObservationRoute";
 import { createEventLineFixture, createMultiverseConfirmedEventLineFixture, createNuwaConfirmedEventLineFixture, readEventLineFixture } from "./components/event-observation/eventLineFixture";
 import { EventAuthoringDialog, type EventAuthoringDraft } from "./components/EventAuthoringDialog";
 import { verifiedCanonEventSummaries } from "./components/eventLineCommittedEvents";
@@ -420,6 +421,7 @@ const ambienceOptions = [
 
 export function App() {
   const currentUrl = new URL(window.location.href);
+  const eventObservationRoute = resolveEventObservationRoute(currentUrl.search);
   const isNovelKernelPrototypeRoute = currentUrl.pathname.replace(/\/+$/u, "") === "/creation" && currentUrl.searchParams.get("prototype") === "novel-kernel-r1";
   if (import.meta.env.DEV && NovelAuthoringKernelPrototype && isNovelKernelPrototypeRoute) return <Suspense fallback={<LoadingScreen />}><NovelAuthoringKernelPrototype /></Suspense>;
   const diagnosticService = useRef(createLocalDiagnosticService({ storage: getBrowserPreferenceStorage() })).current;
@@ -4653,7 +4655,7 @@ export function App() {
           });
         }}
         onOpenWorkDock={(prompt) => openWorkTianyi(prompt)}
-      /> : productMode === "event-line" && !fixtureKind && !creationSourceReturn && !currentUrl.searchParams.has("event") && !storyExploration && normalEventCreationRoute ? <NormalEventCreationWorkspace
+      /> : productMode === "event-line" && !fixtureKind && !creationSourceReturn && eventObservationRoute.status === "none" && !storyExploration && normalEventCreationRoute ? <NormalEventCreationWorkspace
         projectId={activeProject.id}
         load={(input = {}) => getNormalEventCreationState({ projectId: activeProject.id, ...input })}
         operate={async (action, input = {}) => {

@@ -93,7 +93,7 @@ export function EventLineWorkbench(props: {
   const spineRef = useRef<HTMLDivElement>(null);
   const pendingSpineAnchorRef = useRef<{ eventId: string | null; offset: number; scrollTop: number } | null>(null);
   const scopeTriggerRef = useRef<HTMLButtonElement>(null);
-  const initialRouteEventIdRef = useRef(new URL(window.location.href).searchParams.get("event"));
+  const initialRouteEventIdRef = useRef(props.selectedEventId ?? null);
   const initialRouteDockOpenedRef = useRef(false);
   const onReadEvent = useRef(props.onReadEvent);
   onReadEvent.current = props.onReadEvent;
@@ -106,8 +106,6 @@ export function EventLineWorkbench(props: {
   useEffect(() => {
     if (props.selectedEventId === undefined) {
       setLocalSelectedEventId((current) => props.events.some((event) => event.id === current) ? current : null);
-    } else if (props.listState.status === "ready" && props.selectedEventId && !props.events.some((event) => event.id === props.selectedEventId)) {
-      props.onSelectedEventId?.(null);
     }
     setDetailsById((current) => Object.fromEntries(Object.entries(current).filter(([id]) => props.events.some((event) => event.id === id))));
   }, [eventIds, props.projectId, props.events, props.selectedEventId, props.onSelectedEventId]);
@@ -131,6 +129,12 @@ export function EventLineWorkbench(props: {
       return;
     }
     if (!props.events.some((event) => event.id === selectedEventId)) {
+      if (props.listState.status === "loading") {
+        setDetailLoading(true);
+        setDetailError(null);
+        return;
+      }
+      setDetailLoading(false);
       setDetailError({ kind: "invalid-record", message: "所选事件已不在当前已确认记录中。" });
       return;
     }
@@ -158,7 +162,7 @@ export function EventLineWorkbench(props: {
         if (!cancelled && sequence === requestSequence.current) setDetailLoading(false);
       });
     return () => { cancelled = true; };
-  }, [detailsById, eventIds, props.events, props.projectId, selectedEventId]);
+  }, [detailsById, eventIds, props.events, props.listState.status, props.projectId, selectedEventId]);
 
   useEffect(() => {
     if (!scopeOpen) return;

@@ -21,7 +21,7 @@ test("one Event Observation host renders the retained spine plus canvas and time
   assert.match(host, /data-testid="event-observation-workspace"/);
   for (const view of ["spine", "canvas", "timeline"]) assert.match(host, new RegExp(`view === "${view}"|\"${view}\"`));
   assert.match(host, /selectedEventId=\{selectedEventId\}/);
-  assert.match(host, /onSelectedEventId=\{setSelectedEventId\}/);
+  assert.match(host, /onSelectedEventId=\{chooseEvent\}/);
   assert.match(spine, /open: Boolean\(props\.selectedEventId\), activeLens: "detail"/);
   assert.match(canvas, /open: Boolean\(props\.selectedEventId\), activeLens: "detail"/);
   assert.match(spine, /data-testid="confirmed-story-spine"/);
