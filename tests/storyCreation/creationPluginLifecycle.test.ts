@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { terminateChildProcess, waitForChildExit } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 
 import {
   CREATION_PLUGIN_TRANSACTION_SCHEMA,
@@ -16,6 +19,8 @@ import {
 import { createInstalledCreationPluginAdapter } from "../../src/storyCreation/creationPluginHost.mjs";
 
 const PLATFORM = process.platform === "darwin" ? "darwin" : process.platform === "linux" ? "linux" : process.platform === "win32" ? "win32" : process.platform;
+const repositoryRoot = realpathSync(fileURLToPath(new URL("../..", import.meta.url)));
+const temporaryRoots: string[] = [];
 
 function packageFixture(version = "1.0.0", releaseSequence = 1, options: { hostSource?: string; manifestPatch?: Record<string, unknown> } = {}) {
   const bytes = createTyPluginPackage({
@@ -73,6 +78,7 @@ function lifecycleFor(root: string, fixture: { bytes: Buffer; manifest: Record<s
 
 function lifecycleFixture(version = "1.0.0", releaseSequence = 1, options: { hostSource?: string; manifestPatch?: Record<string, unknown>; testHooks?: Record<string, (value: unknown) => unknown> } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-plugin-lifecycle-"));
+  temporaryRoots.push(root);
   const fixture = packageFixture(version, releaseSequence, options);
   return { root, ...lifecycleFor(root, fixture, { testHooks: options.testHooks }) };
 }
@@ -154,7 +160,7 @@ function serverEnvironment(root: string, extra: Record<string, string>) {
 
 async function startServer(root: string, extra: Record<string, string>) {
   const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
-    cwd: "/Users/m4-zhi/Documents/codex-workspace/天衍2",
+    cwd: repositoryRoot,
     env: serverEnvironment(root, { PORT: "0", ...extra }),
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -179,12 +185,16 @@ async function startServer(root: string, extra: Record<string, string>) {
       }
     });
   });
-  return { child, output: () => output, port: await started };
+  try {
+    return { child, output: () => output, port: await started };
+  } catch (cause) {
+    await stopServer(child);
+    throw cause;
+  }
 }
 
 async function stopServer(child: ReturnType<typeof spawn>) {
-  if (child.exitCode === null) child.kill("SIGTERM");
-  await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  await terminateChildProcess(child, { label: "Creation plugin lifecycle test server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
 }
 
 test("Lifecycle V2 installs atomically, binds receipt identity, stays fail-closed, rolls back, and preserves outputs/audit receipts", async () => {
@@ -359,15 +369,17 @@ test("catalog override is rejected by default/production and the server execute 
   writeFileSync(catalogPath, JSON.stringify([{ manifest: fixture.fixture.manifest, packagePath: fixture.packageFile }]));
 
   const rejected = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
-    cwd: "/Users/m4-zhi/Documents/codex-workspace/天衍2",
+    cwd: repositoryRoot,
     env: serverEnvironment(fixture.root, { NODE_ENV: "production", TIANYAN_CREATION_PLUGIN_CATALOG_PATH: catalogPath, PORT: "0" }),
     stdio: ["ignore", "pipe", "pipe"]
   });
   let rejectedOutput = "";
   rejected.stdout.on("data", (chunk) => { rejectedOutput += chunk.toString(); });
   rejected.stderr.on("data", (chunk) => { rejectedOutput += chunk.toString(); });
-  const rejectedCode = await new Promise<number>((resolve) => rejected.once("exit", (code) => resolve(code ?? 1)));
-  assert.notEqual(rejectedCode, 0);
+  const rejectedExit = await waitForChildExit(rejected, 5_000);
+  if (!rejectedExit.exited) await terminateChildProcess(rejected, { label: "Rejected Creation plugin production server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
+  assert.equal(rejectedExit.exited, true);
+  assert.notEqual(rejectedExit.exitCode, 0);
   assert.match(rejectedOutput, /only in explicit test or development mode/u);
 
   const server = await startServer(fixture.root, { NODE_ENV: "test", TIANYAN_CREATION_PLUGIN_TEST_MODE: "1", TIANYAN_CREATION_PLUGIN_CATALOG_PATH: catalogPath });
@@ -386,3 +398,22 @@ test("catalog override is rejected by default/production and the server execute 
     await stopServer(server.child);
   }
 });
+
+test.after(async () => {
+  for (const root of temporaryRoots) removeTemporaryRoot(root);
+});
+
+function removeTemporaryRoot(root: string): void {
+  if (!existsSync(root)) return;
+  makeWritable(root);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function makeWritable(target: string): void {
+  const details = lstatSync(target);
+  if (details.isSymbolicLink()) return;
+  chmodSync(target, details.isDirectory() ? 0o700 : 0o600);
+  if (details.isDirectory()) {
+    for (const entry of readdirSync(target)) makeWritable(path.join(target, entry));
+  }
+}

@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { accessSync, constants as fsConstants, statSync } from "node:fs";
+import path from "node:path";
 
 import { STORY_MEMORY_RECALL_SKILL_ID } from "../skillControl/storyMemoryRecallSkillManifest.ts";
 import { runDeterministicNuwaTask } from "./nuwaRunner.ts";
@@ -149,8 +150,8 @@ const PROFILE_LIMITS: Record<NuwaExecutionProfile, { maxConcurrent: number; maxA
 
 export function discoverNuwaCodexCliCapabilities(input: { executable?: string; env?: NodeJS.ProcessEnv } = {}): NuwaCodexCliCapabilities {
   const env = input.env ?? process.env;
-  const executable = input.executable || env.WORLD_OS_NUWA_CODEX_PATH || findKnownCodexExecutable();
-  if (!executable || !existsSync(executable)) {
+  const resolved = resolveCodexExecutable(input.executable, env);
+  if (!resolved.executable) {
     return {
       executable: null,
       execAvailable: false,
@@ -158,9 +159,10 @@ export function discoverNuwaCodexCliCapabilities(input: { executable?: string; e
       structuredOutput: false,
       ephemeral: false,
       safeExperimentalPath: false,
-      diagnostic: "Codex CLI executable was not found."
+      diagnostic: resolved.diagnostic
     };
   }
+  const executable = resolved.executable;
   return {
     executable,
     execAvailable: true,
@@ -457,7 +459,60 @@ export function sanitizeDiagnostic(value: string): string {
     .slice(0, 240);
 }
 
+function resolveCodexExecutable(explicit: string | undefined, env: NodeJS.ProcessEnv): { executable: string | null; diagnostic: string } {
+  const configured = typeof explicit === "string"
+    ? { source: "Explicit Codex CLI configuration", value: explicit }
+    : typeof env.WORLD_OS_NUWA_CODEX_PATH === "string"
+      ? { source: "WORLD_OS_NUWA_CODEX_PATH", value: env.WORLD_OS_NUWA_CODEX_PATH }
+      : null;
+  if (configured) {
+    const candidate = normalizeExecutablePath(configured.value);
+    if (!candidate || !isExecutableFile(candidate)) return { executable: null, diagnostic: `${configured.source} is empty, missing, or not executable.` };
+    return { executable: candidate, diagnostic: `${configured.source} resolved.` };
+  }
+
+  const fromPath = findCodexOnPath(env);
+  if (fromPath) return { executable: fromPath, diagnostic: "Codex CLI executable resolved from PATH." };
+  const known = findKnownCodexExecutable();
+  if (known) return { executable: known, diagnostic: "Codex CLI executable resolved from a known platform installation." };
+  return { executable: null, diagnostic: "Codex CLI executable was not found or is not executable." };
+}
+
+function findCodexOnPath(env: NodeJS.ProcessEnv): string | null {
+  const pathValue = env.PATH || env.Path || "";
+  const extensions = process.platform === "win32"
+    ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+    : [""];
+  for (const entry of pathValue.split(path.delimiter)) {
+    if (!entry.trim()) continue;
+    for (const extension of extensions) {
+      const candidate = path.resolve(entry, `codex${extension}`);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
 function findKnownCodexExecutable(): string | null {
-  const candidate = "/Applications/ChatGPT.app/Contents/Resources/codex";
-  return existsSync(candidate) ? candidate : null;
+  const candidates = process.platform === "darwin"
+    ? ["/Applications/ChatGPT.app/Contents/Resources/codex"]
+    : process.platform === "linux"
+      ? ["/usr/lib/chatgpt/resources/codex"]
+      : [];
+  return candidates.find(isExecutableFile) || null;
+}
+
+function normalizeExecutablePath(value: string): string | null {
+  const normalized = value.trim();
+  return normalized ? path.resolve(normalized) : null;
+}
+
+function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!statSync(candidate).isFile()) return false;
+    accessSync(candidate, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }

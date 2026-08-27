@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,11 +17,14 @@ const fixtureRoot = path.join(process.cwd(), "tests", "fixtures", "story-markdow
 const roots: string[] = [];
 
 test("Codex backend is experimentally unsafe and normal tests make zero process calls", async () => {
-  const capabilities = discoverNuwaCodexCliCapabilities();
+  const codexExecutable = fakeCodexExecutable("available", "codex");
+  const controlledEnvironment = { PATH: path.dirname(codexExecutable) };
+  const capabilities = discoverNuwaCodexCliCapabilities({ env: controlledEnvironment });
   assert.equal(capabilities.execAvailable, true);
+  assert.equal(capabilities.executable, codexExecutable);
   assert.equal(capabilities.safeExperimentalPath, false);
   assert.match(capabilities.diagnostic, /EXPERIMENTALLY_UNSAFE/);
-  const descriptor = listNuwaExecutionBackends().find((item) => item.id === "codex-cli");
+  const descriptor = listNuwaExecutionBackends({ env: controlledEnvironment }).find((item) => item.id === "codex-cli");
   assert.equal(descriptor?.availability, "unavailable");
 
   const workspacePath = copyWorkspace("Codex Disabled");
@@ -30,7 +33,7 @@ test("Codex backend is experimentally unsafe and normal tests make zero process 
   let processCalls = 0;
   const backend = createNuwaExecutionBackend({
     id: "codex-cli",
-    env: { WORLD_OS_NUWA_CODEX_ENABLED: "1", API_KEY: "must-not-pass" },
+    env: { WORLD_OS_NUWA_CODEX_ENABLED: "1", WORLD_OS_NUWA_CODEX_PATH: codexExecutable, API_KEY: "must-not-pass" },
     executeCodex: async () => { processCalls += 1; return { exitCode: 0, stdout: "", stderr: "" }; }
   });
   const outcome = await executeNuwaPlanWithBackend({ plan, snapshot, backend });
@@ -38,6 +41,32 @@ test("Codex backend is experimentally unsafe and normal tests make zero process 
   assert.equal(outcome.results.length, 0);
   assert.equal(outcome.executions.every((item) => item.status === "rejected"), true);
   assert.equal(outcome.missingRequiredRoles.length > 0, true);
+});
+
+test("Codex executable discovery is explicit-first, PATH-aware, and fail-closed for invalid configuration", () => {
+  const explicit = fakeCodexExecutable("explicit");
+  const configured = fakeCodexExecutable("configured");
+  const onPath = fakeCodexExecutable("path", "codex");
+  const pathEnvironment = { PATH: path.dirname(onPath), WORLD_OS_NUWA_CODEX_PATH: configured };
+
+  assert.equal(discoverNuwaCodexCliCapabilities({ executable: explicit, env: pathEnvironment }).executable, explicit);
+  assert.equal(discoverNuwaCodexCliCapabilities({ env: pathEnvironment }).executable, configured);
+  assert.equal(discoverNuwaCodexCliCapabilities({ env: { PATH: path.dirname(onPath) } }).executable, onPath);
+
+  const missing = path.join(path.dirname(explicit), "missing-codex");
+  const nonExecutable = fakeCodexExecutable("non-executable", "codex-disabled", false);
+  const directory = path.join(path.dirname(explicit), "codex-directory");
+  mkdirSync(directory);
+  for (const invalid of ["", missing, nonExecutable, directory]) {
+    const capabilities = discoverNuwaCodexCliCapabilities({ executable: invalid, env: { PATH: path.dirname(onPath) } });
+    assert.equal(capabilities.execAvailable, false);
+    assert.equal(capabilities.executable, null);
+    assert.match(capabilities.diagnostic, /empty, missing, or not executable/u);
+  }
+
+  const invalidConfigured = discoverNuwaCodexCliCapabilities({ env: { WORLD_OS_NUWA_CODEX_PATH: missing, PATH: path.dirname(onPath) } });
+  assert.equal(invalidConfigured.execAvailable, false);
+  assert.match(invalidConfigured.diagnostic, /WORLD_OS_NUWA_CODEX_PATH.*not executable/u);
 });
 
 test("hostile goals and workspace paths remain inert while Codex process integration is disabled", async () => {
@@ -75,6 +104,8 @@ test("Codex backend source has no process launcher, shell execution, or parent e
   assert.doesNotMatch(source, /node:child_process|\bspawn\(|\bexec\(|shell\s*:\s*true/);
   assert.doesNotMatch(source, /process\.env\s*[,}]/);
   assert.match(source, /filesystem read isolation and an isolated authentication HOME are not proven/);
+  assert.match(source, /Applications\/ChatGPT\.app\/Contents\/Resources\/codex/u);
+  assert.match(source, /usr\/lib\/chatgpt\/resources\/codex/u);
 });
 
 test.after(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -85,4 +116,13 @@ function copyWorkspace(name: string): string {
   roots.push(root);
   cpSync(fixtureRoot, workspacePath, { recursive: true });
   return workspacePath;
+}
+
+function fakeCodexExecutable(name: string, filename = `codex-${name}`, executable = true): string {
+  const root = mkdtempSync(path.join(tmpdir(), `nuwa-codex-executable-${name}-`));
+  const target = path.join(root, filename);
+  roots.push(root);
+  writeFileSync(target, "#!/bin/sh\nexit 97\n", "utf8");
+  chmodSync(target, executable ? 0o700 : 0o600);
+  return target;
 }
