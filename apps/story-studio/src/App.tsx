@@ -12,7 +12,7 @@ import { verifiedCanonEventSummaries } from "./components/eventLineCommittedEven
 import { IntelligenceWorkbench, type IntelligenceDocument } from "./components/IntelligenceWorkbench";
 import { NuwaPrimaryWorkspace, type NuwaPageDockLens } from "./components/NuwaPrimaryWorkspace";
 import { NuwaBoundedScenarioWorkspace } from "./components/nuwa-bounded/NuwaBoundedScenarioWorkspace";
-import { resolveNuwaRouteRequest, resolveNuwaWorkspaceStage, type NuwaWorkspaceStage } from "./components/nuwaRouteState";
+import { resolveNuwaRouteRequest, resolveNuwaWorkspaceStage, shouldClearNuwaRecoveryNotice, type NuwaWorkspaceStage } from "./components/nuwaRouteState";
 import { VisualDocumentDialog } from "./components/VisualDocumentDialog";
 import { VisualWorkbench } from "./components/VisualWorkbench";
 import { WorldLibraryPanel } from "./components/WorldLibraryPanel";
@@ -544,6 +544,7 @@ export function App() {
   const [nuwaSourceLabel, setNuwaSourceLabel] = useState("来源页面");
   const [nuwaStage, setNuwaStage] = useState<NuwaWorkspaceStage>("rehearsal");
   const [nuwaRecoveryNotice, setNuwaRecoveryNotice] = useState<string | null>(null);
+  const nuwaRecoveryNoticeProjectRef = useRef<string | null>(null);
   const [controlCenterPreferences, setControlCenterPreferences] = useState<ControlCenterPreferences>(() => readControlCenterPreferences(getBrowserPreferenceStorage()));
 
   useEffect(() => {
@@ -734,7 +735,7 @@ export function App() {
         if (!runtime) {
           if (requestedRunId && !runScopedControlStage) replaceNuwaRouteParameters(["run"]);
           setNuwaSceneRuntime(null);
-          if (requestedRunId && !runScopedControlStage) setNuwaRecoveryNotice("该场景 Run 已不存在或不属于当前作品；已返回主 Run。");
+          if (requestedRunId && !runScopedControlStage) showNuwaRecoveryNotice("该场景 Run 已不存在或不属于当前作品；已返回主 Run。", library.project.id);
           return;
         }
         setNuwaSceneRuntime(runtime);
@@ -784,7 +785,7 @@ export function App() {
     const malformedProject = routeParameters.has("project") && !request.projectId;
     if (malformedProject) {
       replaceNuwaRouteParameters(["project"]);
-      setNuwaRecoveryNotice("原工作上下文已失效，已返回当前作品。");
+      showNuwaRecoveryNotice("原工作上下文已失效，已返回当前作品。", library.project.id);
     } else if (request.projectId && request.projectId !== library.project.id) {
       const requestedProject = bootstrap.projects.find((project) => project.id === request.projectId);
       if (requestedProject) {
@@ -792,7 +793,7 @@ export function App() {
         return;
       }
       replaceNuwaRouteParameters(["project"]);
-      setNuwaRecoveryNotice("原工作上下文已失效，已返回当前作品。");
+      showNuwaRecoveryNotice("原工作上下文已失效，已返回当前作品。", library.project.id);
     }
     const currentUnit = executionBrief?.authorApprovalState === "approved" && storyExploration && bridgeExplorationId === storyExploration.id
       ? storyExploration
@@ -815,7 +816,7 @@ export function App() {
         ...(invalidRun ? ["run"] : []),
         ...(invalidReview ? ["review"] : [])
       ]);
-      setNuwaRecoveryNotice("该记录已不存在或不属于当前作品；已返回当前 Unit。");
+      showNuwaRecoveryNotice("该记录已不存在或不属于当前作品；已返回当前 Unit。", library.project.id);
     }
     const nextStage = invalidUnit || invalidRun || invalidReview
       ? "rehearsal"
@@ -1048,6 +1049,16 @@ export function App() {
     }
   }
 
+  function showNuwaRecoveryNotice(message: string, projectId: string): void {
+    nuwaRecoveryNoticeProjectRef.current = projectId;
+    setNuwaRecoveryNotice(message);
+  }
+
+  function dismissNuwaRecoveryNotice(): void {
+    nuwaRecoveryNoticeProjectRef.current = null;
+    setNuwaRecoveryNotice(null);
+  }
+
   async function loadLibrary(projectId: string): Promise<void> {
     if (executionBrief && executionBrief.sourceProject.projectId !== projectId) {
       setExecutionBrief(null);
@@ -1190,7 +1201,7 @@ export function App() {
     setBridgeExplorationId(null);
     setNuwaPageDockState({ open: false, activeLens: "context" });
     setNuwaStage("rehearsal");
-    setNuwaRecoveryNotice(null);
+    if (shouldClearNuwaRecoveryNotice(nuwaRecoveryNoticeProjectRef.current, projectId)) dismissNuwaRecoveryNotice();
     setImpactReview(null);
     setAuthorChangeSet(null);
     setStoryExploration(null);
@@ -2771,7 +2782,7 @@ export function App() {
         }
         if (action === "candidate") {
           const result = await buildNuwaSceneCandidate(projectId, runId, connectedToken);
-          setNuwaRecoveryNotice(`候选已进入现有 Candidate Review：${result.review.id}。仍需影响评审与作者确认。`);
+          showNuwaRecoveryNotice(`候选已进入现有 Candidate Review：${result.review.id}。仍需影响评审与作者确认。`, projectId);
           setCandidateReviewHistory(await listGoldenLoopCandidateReviews(projectId));
           return nuwaSceneRuntime;
         }
@@ -5142,7 +5153,7 @@ export function App() {
         stage={nuwaStage}
         onStageChange={selectNuwaStage}
         recoveryNotice={nuwaRecoveryNotice}
-        onDismissRecoveryNotice={() => setNuwaRecoveryNotice(null)}
+        onDismissRecoveryNotice={dismissNuwaRecoveryNotice}
       /> : (productMode === "nuwa" || productMode === "tianyi") && tianyiSurface === "intelligence" ? <IntelligenceWorkbench
         projectTitle={activeProjectTitle}
         currentScene={writing?.activeDocument || null}

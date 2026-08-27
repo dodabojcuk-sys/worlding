@@ -30,6 +30,12 @@ export function resolveNuwaWorkspaceStage(request: NuwaRouteRequest, storedStage
   return request.stage || storedStage || "rehearsal";
 }
 
+/** A recovery receipt belongs to the Project that was safely restored. A
+ * repeated read of that same Project must not erase the author-facing result. */
+export function shouldClearNuwaRecoveryNotice(noticeProjectId: string | null, nextProjectId: string): boolean {
+  return noticeProjectId !== null && noticeProjectId !== nextProjectId;
+}
+
 export function isNuwaWorkspaceStage(value: unknown): value is NuwaWorkspaceStage {
   return typeof value === "string" && (NUWA_WORKSPACE_STAGES as readonly string[]).includes(value);
 }

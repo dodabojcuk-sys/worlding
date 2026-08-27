@@ -4,7 +4,8 @@ import test from "node:test";
 
 import {
   resolveNuwaRouteRequest,
-  resolveNuwaWorkspaceStage
+  resolveNuwaWorkspaceStage,
+  shouldClearNuwaRecoveryNotice
 } from "../../apps/story-studio/src/components/nuwaRouteState.ts";
 
 test("Nuwa route requests keep a valid explicit stage ahead of per-project presentation continuity", () => {
@@ -28,6 +29,12 @@ test("Nuwa route parsing never guesses malformed or cross-project object identif
   assert.equal(resolveNuwaWorkspaceStage(request, "comparison"), "comparison");
 });
 
+test("Nuwa recovery receipt survives a repeated read of its restored Project and clears only for another Project", () => {
+  assert.equal(shouldClearNuwaRecoveryNotice("project.current", "project.current"), false);
+  assert.equal(shouldClearNuwaRecoveryNotice("project.previous", "project.current"), true);
+  assert.equal(shouldClearNuwaRecoveryNotice(null, "project.current"), false);
+});
+
 test("Nuwa App treats Project, Unit, Run, and Review URL recovery as presentation validation rather than a second owner", () => {
   const app = readFileSync("apps/story-studio/src/App.tsx", "utf8");
   const workspace = readFileSync("apps/story-studio/src/components/NuwaPrimaryWorkspace.tsx", "utf8");
@@ -42,6 +49,8 @@ test("Nuwa App treats Project, Unit, Run, and Review URL recovery as presentatio
   assert.match(app, /该记录已不存在或不属于当前作品；已返回当前 Unit。/);
   assert.match(app, /readNuwaStage\(library\.project\.id\)/);
   assert.match(app, /rememberNuwaStage\(library\.project\.id, stage\)/);
+  assert.match(app, /shouldClearNuwaRecoveryNotice\(nuwaRecoveryNoticeProjectRef\.current, projectId\)/);
+  assert.match(app, /function showNuwaRecoveryNotice\(message: string, projectId: string\)/);
   assert.match(app, /setBridgeExplorationId\(null\)/);
   assert.match(app, /setNuwaPageDockState\(\{ open: false, activeLens: "context" \}\)/);
   assert.doesNotMatch(workspace, /fetch\(|localStorage|createNuwaRun|createNuwaReview|applyAuthorChangeSet/);
