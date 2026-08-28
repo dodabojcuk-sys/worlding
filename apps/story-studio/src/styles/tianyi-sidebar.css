@@ -1,0 +1,89 @@
+.tianyi-sidebar {
+  grid-area: tianyi;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+}
+.tianyi-sidebar > header { min-height: 3.625rem; display: flex; align-items: center; justify-content: space-between; padding-inline: var(--space-4); }
+.tianyi-sidebar > header div { display: flex; align-items: center; gap: var(--space-2); }
+.tianyi-sidebar > header svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.tianyi-sidebar > header button { inline-size: 2rem; block-size: 2rem; display: grid; place-items: center; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.tianyi-mode-switch { display: grid; grid-template-columns: 1fr 1fr; margin: 0 var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
+.tianyi-mode-switch button { min-height: 2.25rem; color: var(--color-text-muted); background: transparent; border: 0; cursor: pointer; }
+.tianyi-mode-switch button[aria-selected="true"] { color: var(--color-text-on-structure); background: var(--color-accent); }
+.tianyi-sidebar-stage { min-height: 0; flex: 1; display: grid; overflow: auto; padding: var(--space-4); }
+.tianyi-sidebar-empty,
+.tianyi-agent-stage { align-self: center; display: grid; gap: var(--space-3); color: var(--color-text-muted); line-height: 1.65; }
+.tianyi-sidebar-empty > svg { inline-size: 2rem; block-size: 2rem; color: var(--color-accent); }
+.tianyi-sidebar-empty strong,
+.tianyi-agent-stage strong { color: var(--color-text); font-size: var(--font-size-lg); }
+.tianyi-sidebar-empty p,
+.tianyi-agent-stage p { margin: 0; }
+.tianyi-sidebar-empty small,
+.tianyi-agent-stage small { font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+
+.tianyi-sidebar-composer { position: relative; display: flex; flex-direction: column; margin: var(--space-3); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.tianyi-sidebar-composer textarea { width: 100%; resize: none; padding: var(--space-3); color: var(--color-text); background: transparent; border: 0; outline: 0; }
+.tianyi-sidebar-composer > output { padding-inline: var(--space-3); color: var(--color-accent); font-size: var(--font-size-xs); }
+.tianyi-sidebar-composer > footer { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-2); }
+.composer-flex-spacer { flex: 1; }
+.composer-icon-control,
+.composer-send-control,
+.composer-runtime-control > button { min-height: 2rem; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); padding-inline: var(--space-2); color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.composer-icon-control { inline-size: 2rem; padding: 0; }
+.composer-send-control { inline-size: 2rem; padding: 0; color: var(--color-text-on-structure); background: var(--color-accent); border-radius: 50%; }
+.composer-send-control:disabled,
+.composer-icon-control:disabled { opacity: 0.5; cursor: not-allowed; }
+.composer-runtime-control { position: relative; }
+.composer-runtime-control > button span { max-width: 5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); }
+.composer-runtime-control svg,
+.composer-icon-control svg,
+.composer-send-control svg { inline-size: 0.875rem; block-size: 0.875rem; }
+.composer-runtime-control > section,
+.capability-menu { position: absolute; inset-inline-start: 0; inset-block-end: calc(100% + var(--space-2)); width: min(20rem, calc(100vw - var(--rail-current) - var(--space-8))); max-height: min(28rem, 70vh); padding: var(--space-3); overflow: auto; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); z-index: 20; }
+.composer-runtime-control > section { width: min(18rem, calc(100vw - var(--rail-current) - var(--space-8))); }
+.composer-runtime-control > section > strong { display: block; margin-block-end: var(--space-2); }
+.permission-control section > button,
+.model-selector section > button { width: 100%; display: grid; gap: var(--space-1); padding: var(--space-2); color: var(--color-text); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
+.permission-control section > button:hover,
+.model-selector section > button:hover { background: var(--color-surface-muted); }
+.permission-control section > button:disabled { color: var(--color-text-muted); cursor: not-allowed; }
+.permission-control section small { color: var(--color-text-muted); line-height: 1.4; }
+.context-control dl { margin: 0; }
+.context-control dl div { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding-block: var(--space-2); border-block-end: 1px solid var(--color-border); }
+.context-control dt { color: var(--color-text-muted); }
+.context-control dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
+.tianyi-task-chip { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2); margin: var(--space-2); padding: var(--space-2); color: var(--color-accent); background: var(--color-accent-soft); border-radius: var(--radius-sm); }
+.tianyi-task-chip small { color: var(--color-text-muted); }
+.tianyi-task-chip button { display: grid; place-items: center; color: var(--color-text-muted); background: transparent; border: 0; }
+.tianyi-task-chip svg { inline-size: 0.75rem; block-size: 0.75rem; }
+.capability-launcher { position: relative; }
+.capability-menu > label { display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.capability-menu > label svg { inline-size: 0.875rem; block-size: 0.875rem; }
+.capability-menu input { min-width: 0; flex: 1; min-height: 2.25rem; color: var(--color-text); background: transparent; border: 0; outline: 0; }
+.capability-menu > p { margin: var(--space-3) var(--space-1) var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.capability-menu [role="menu"] { display: grid; gap: var(--space-1); }
+.capability-menu [role="menu"] button { min-height: 2.5rem; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); color: var(--color-text); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
+.capability-menu [role="menu"] button:hover,
+.capability-menu [role="menu"] button:focus-visible { background: var(--color-accent-soft); }
+.capability-menu [role="menu"] svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.capability-menu [role="menu"] small { color: var(--color-warning); font-size: var(--font-size-xs); }
+.capability-browse-all,
+.capability-manage { width: 100%; min-height: 2.25rem; margin-block-start: var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.capability-manage { color: var(--color-text-muted); border-color: transparent; }
+
+@media (max-width: 100rem) {
+  .tianyi-sidebar { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; width: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current))); z-index: 8; box-shadow: var(--shadow-panel); }
+}
+
+@media (max-width: 50rem) {
+  .tianyi-sidebar { inset-inline: var(--rail-current) 0; width: auto; z-index: 11; }
+  .composer-runtime-control > button span { display: none; }
+  .tianyi-sidebar-composer > footer { gap: 0; }
+  .capability-menu,
+  .composer-runtime-control > section { width: min(21rem, calc(100vw - var(--rail-current) - var(--space-6))); max-height: 58vh; }
+}

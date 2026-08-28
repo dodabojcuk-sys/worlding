@@ -1,0 +1,101 @@
+.dock-panel-stack {
+  grid-area: dock;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.dock-panel-stack-item { min-height: 0; display: flex; flex-direction: column; }
+.dock-panel-stack-item:last-child { flex: 1; }
+.dock-panel-frame { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.dock-panel-frame > header {
+  min-height: 3.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-inline: var(--space-4);
+  border-block-end: 1px solid var(--color-border);
+}
+.dock-panel-frame > header div { min-width: 0; display: grid; gap: var(--space-1); }
+.dock-panel-frame > header strong { font-size: var(--font-size-md); }
+.dock-panel-frame > header small { color: var(--color-text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.dock-panel-frame > header button { inline-size: 2rem; block-size: 2rem; display: grid; place-items: center; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.dock-panel-frame > header button:hover { background: var(--color-surface-muted); color: var(--color-text); }
+.dock-panel-frame > header svg { inline-size: 0.875rem; block-size: 0.875rem; }
+.dock-panel-content { min-height: 0; flex: 1; overflow: auto; }
+
+.dock-tool-rail {
+  grid-area: tools;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-3);
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+  z-index: 6;
+}
+.dock-tool-rail button {
+  width: calc(100% - var(--space-1));
+  max-width: 3.5rem;
+  min-height: 4.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-1);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.dock-tool-rail button:hover,
+.dock-tool-rail button[aria-pressed="true"] { color: var(--color-accent); background: var(--color-accent-soft); border-color: var(--color-border); }
+.dock-tool-rail svg { inline-size: 1.125rem; block-size: 1.125rem; }
+.dock-tool-rail span { font-size: 0.5625rem; line-height: 1.25; text-align: center; overflow-wrap: anywhere; }
+.dock-tool-rail small { color: var(--color-warning); font-size: 0.5rem; }
+
+.dock-resize-handle { block-size: 0.75rem; flex: 0 0 0.75rem; display: grid; place-items: center; padding: 0; background: var(--color-surface-muted); border: 0; border-block: 1px solid var(--color-border); cursor: row-resize; }
+.dock-resize-handle span { inline-size: 2rem; border-block-start: 2px dotted var(--color-border-strong); }
+.engineering-log-panel,
+.expert-analysis-panel,
+.page-tool-not-connected { padding: var(--space-4); }
+.page-tool-filter-row { display: flex; justify-content: space-between; gap: var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.page-tool-filter-row button { padding: var(--space-1) var(--space-2); color: var(--color-text); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.engineering-log-stream { margin: var(--space-4) 0 0; padding: 0; list-style: none; }
+.engineering-log-stream li { position: relative; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr) auto; gap: var(--space-2); padding: 0 0 var(--space-5) var(--space-3); font-size: var(--font-size-xs); border-inline-start: 1px solid var(--color-border); }
+.engineering-log-stream li::before { content: ""; position: absolute; inline-size: 0.5rem; block-size: 0.5rem; inset-inline-start: -0.28125rem; inset-block-start: 0.2rem; border-radius: 50%; background: var(--color-accent); }
+.engineering-log-stream div { display: grid; gap: var(--space-1); }
+.engineering-log-stream div span { color: var(--color-text-muted); }
+.engineering-log-stream em { align-self: start; padding: 0.125rem var(--space-1); color: var(--color-success); background: var(--color-accent-soft); border-radius: var(--radius-sm); font-style: normal; }
+.engineering-log-stream em[data-status="hint"] { color: var(--color-warning); }
+.expert-analysis-panel article { padding: var(--space-4); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.expert-analysis-panel p { margin: 0 0 var(--space-3); line-height: 1.65; }
+.expert-analysis-panel small { color: var(--color-text-muted); line-height: 1.6; }
+.expert-analysis-panel footer { display: flex; gap: var(--space-2); margin-block-start: var(--space-4); }
+.expert-analysis-panel button { padding: var(--space-2) var(--space-3); color: var(--color-text); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.expert-analysis-panel button:first-child { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.expert-analysis-panel output { display: block; margin-block-start: var(--space-3); color: var(--color-accent); font-size: var(--font-size-xs); }
+
+@media (max-width: 100rem) {
+  .dock-panel-stack { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: var(--panel-controls-width); width: min(var(--dock-stack-width), calc(100vw - var(--rail-current) - var(--panel-controls-width))); z-index: 7; box-shadow: var(--shadow-panel); }
+  .tianyan-r0-shell[data-tianyi-open="true"] .dock-panel-stack { inset-inline-end: calc(var(--panel-controls-width) + var(--tianyi-sidebar-width)); }
+}
+
+@media (max-width: 50rem) {
+  .dock-panel-stack,
+  .tianyan-r0-shell[data-tianyi-open="true"] .dock-panel-stack { inset-inline: var(--rail-current) 0; width: auto; z-index: 10; }
+  .dock-tool-rail { position: fixed; inset-inline: var(--rail-current) 0; inset-block-end: 0; block-size: 4rem; flex-direction: row; justify-content: space-evenly; padding: var(--space-1); overflow-x: auto; border-block-start: 1px solid var(--color-border); }
+  .dock-tool-rail button { min-width: 3.25rem; min-height: 3.25rem; }
+  .dock-tool-rail span { display: none; }
+  .shell-workspace { padding-block-end: 4rem; }
+}

@@ -1,4 +1,7 @@
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
+
+import type { TianyiContextualSpaceId } from "../../../../src/storyAgent/contextualCapabilityRegistry.ts";
+import { TianyiSidebar } from "../components/tianyi/sidebar/TianyiSidebar";
 
 import {
   resolveStoryStudioShellLocation,
@@ -13,10 +16,11 @@ import {
 } from "./navigation/responsiveRailState";
 import { ProductShellNavigation } from "./navigation/ProductShellNavigation";
 import { GlobalStatusBar } from "./topbar/GlobalStatusBar";
-import { ProjectDirectorySlot, RightPanelDock, ShellPanelControls } from "./panels/ShellPanelSlots";
+import { ProjectDirectoryPanel } from "./project-directory/ProjectDirectoryPanel";
+import { RightDock } from "./right-dock/RightDock";
+import { useDockLayoutState } from "./right-dock/useDockLayoutState";
 import { ShellCommandPalette } from "./commands/ShellCommandPalette";
 import { ShellWorkspaceOutlet } from "./workspace/ShellWorkspaceOutlet";
-import { createInitialShellLayout, reduceShellLayout } from "./layoutProtocol";
 import { resolveInitialShellTheme, type ShellTheme } from "./theme/theme";
 import { useI18n } from "./i18n/I18nProvider";
 
@@ -31,11 +35,11 @@ export function TianyanR0Shell() {
   const [autoCollapseRail, setAutoCollapseRail] = useState(() => window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY).matches);
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [canShowParallelPanels, setCanShowParallelPanels] = useState(() => window.matchMedia("(min-width: 100rem)").matches);
-  const [lastRightPanel, setLastRightPanel] = useState<"global-tianyi" | "page-inspector">("page-inspector");
-  const [layout, dispatchLayout] = useReducer(reduceShellLayout, shellLab && window.matchMedia("(min-width: 100rem)").matches, createInitialShellLayout);
+  const [directoryOpen, setDirectoryOpen] = useState(true);
+  const showAcceptanceState = shellLab || new URLSearchParams(window.location.search).get("dock") === "both";
+  const dock = useDockLayoutState(showAcceptanceState);
   const activeDestination = storyStudioShellDestinationById(activeId);
-  const rightPanelCount = Number(layout["global-tianyi"].visible) + Number(layout["page-inspector"].visible);
+  const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
 
   useEffect(() => {
@@ -51,19 +55,6 @@ export function TianyanR0Shell() {
     media.addEventListener("change", updateAutoCollapse);
     return () => media.removeEventListener("change", updateAutoCollapse);
   }, []);
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 100rem)");
-    const updateParallelCapability = () => {
-      setCanShowParallelPanels(media.matches);
-      if (!media.matches && layout["global-tianyi"].visible && layout["page-inspector"].visible) {
-        dispatchLayout({ type: "hide", panel: lastRightPanel === "global-tianyi" ? "page-inspector" : "global-tianyi" });
-      }
-    };
-    updateParallelCapability();
-    media.addEventListener("change", updateParallelCapability);
-    return () => media.removeEventListener("change", updateParallelCapability);
-  }, [lastRightPanel, layout]);
 
   useEffect(() => {
     const openCommandPalette = (event: KeyboardEvent) => {
@@ -89,20 +80,7 @@ export function TianyanR0Shell() {
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
   const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
 
-  const togglePanel = (panel: "project-directory" | "global-tianyi" | "page-inspector") => {
-    if (panel === "project-directory" || canShowParallelPanels) {
-      dispatchLayout({ type: "toggle", panel });
-      return;
-    }
-    const other = panel === "global-tianyi" ? "page-inspector" : "global-tianyi";
-    setLastRightPanel(panel);
-    if (layout[panel].visible) {
-      dispatchLayout({ type: "hide", panel });
-      return;
-    }
-    dispatchLayout({ type: "hide", panel: other });
-    dispatchLayout({ type: "show", panel });
-  };
+  const togglePanel = (panel: "project-directory" | "global-tianyi") => panel === "project-directory" ? setDirectoryOpen((open) => !open) : dock.toggleTianyi();
 
   return <div
     className="tianyan-r0-shell"
@@ -110,8 +88,9 @@ export function TianyanR0Shell() {
     data-theme={theme}
     data-locale={locale}
     data-rail-collapsed={railCollapsed}
-    data-directory-visible={layout["project-directory"].visible}
-    data-right-panel-count={rightPanelCount}
+    data-directory-visible={directoryOpen}
+    data-dock-panel-count={dock.state.openPanelIds.length}
+    data-tianyi-open={dock.state.isTianyiOpen}
   >
     <ProductShellNavigation
       active={activeId}
@@ -122,27 +101,17 @@ export function TianyanR0Shell() {
       onSettings={() => undefined}
       onAccount={() => undefined}
     />
-    <GlobalStatusBar theme={theme} onToggleTheme={toggleTheme} />
-    {layout["project-directory"].visible && <ProjectDirectorySlot onClose={() => dispatchLayout({ type: "hide", panel: "project-directory" })} />}
+    <GlobalStatusBar theme={theme} directoryOpen={directoryOpen} tianyiOpen={dock.state.isTianyiOpen} onToggleTheme={toggleTheme} onToggleDirectory={() => setDirectoryOpen((open) => !open)} onToggleTianyi={dock.toggleTianyi} />
+    {directoryOpen && <ProjectDirectoryPanel onClose={() => setDirectoryOpen(false)} />}
     <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} />
-    <RightPanelDock
-      layout={layout}
-      onCloseGlobalTianyi={() => dispatchLayout({ type: "hide", panel: "global-tianyi" })}
-      onClosePageInspector={() => dispatchLayout({ type: "hide", panel: "page-inspector" })}
-    />
-    <ShellPanelControls
-      layout={layout}
-      onToggleProjectDirectory={() => togglePanel("project-directory")}
-      onToggleGlobalTianyi={() => togglePanel("global-tianyi")}
-      onTogglePageInspector={() => togglePanel("page-inspector")}
-    />
+    <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />
+    {dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} sharedSessionIdentity="shared-current-session" onClose={() => dock.setTianyiOpen(false)} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}
       panelVisibility={{
-        "project-directory": layout["project-directory"].visible,
-        "global-tianyi": layout["global-tianyi"].visible,
-        "page-inspector": layout["page-inspector"].visible
+        "project-directory": directoryOpen,
+        "global-tianyi": dock.state.isTianyiOpen
       }}
       theme={theme}
       onClose={() => setCommandOpen(false)}

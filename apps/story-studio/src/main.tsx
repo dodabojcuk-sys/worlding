@@ -4,6 +4,9 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./product-shell/theme/tokens.css";
 import "./styles/tianyan-r0-shell.css";
+import "./styles/project-directory.css";
+import "./styles/right-dock.css";
+import "./styles/tianyi-sidebar.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Story Studio root element is missing.");

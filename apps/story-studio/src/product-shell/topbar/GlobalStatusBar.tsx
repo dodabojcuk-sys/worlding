@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Languages, MoonStar, Settings2, SunMedium } from "lucide-react";
+import { Check, ChevronDown, FolderTree, Languages, MoonStar, Settings2, Sparkles, SunMedium } from "lucide-react";
 import { useState } from "react";
 
 import { useI18n } from "../i18n/I18nProvider";
@@ -6,7 +6,11 @@ import type { ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
   theme: ShellTheme;
+  directoryOpen: boolean;
+  tianyiOpen: boolean;
   onToggleTheme(): void;
+  onToggleDirectory(): void;
+  onToggleTianyi(): void;
 }) {
   const { t, toggleLocale } = useI18n();
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -20,6 +24,8 @@ export function GlobalStatusBar(props: {
     </div>
     <div className="shell-topbar-actions">
       <div className="shell-runtime-status" title={t("topbar.status")}><Check aria-hidden="true" /><span>{t("topbar.localOnly")}</span></div>
+      <button type="button" className="shell-topbar-panel-toggle" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("panel.projectDirectory")}</span></button>
+      <button type="button" className="shell-topbar-panel-toggle" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} title={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("space.tianyi")}</span></button>
       <div className="shell-tools-menu">
         <button type="button" className="shell-tools-trigger" aria-label={t("topbar.tools")} title={t("topbar.tools")} aria-expanded={toolsOpen} onClick={() => setToolsOpen((open) => !open)}>
           <Settings2 aria-hidden="true" />

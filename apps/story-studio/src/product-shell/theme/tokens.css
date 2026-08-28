@@ -43,6 +43,8 @@
   --directory-width: 15rem;
   --panel-width: 15rem;
   --panel-controls-width: 3.75rem;
+  --dock-stack-width: 17rem;
+  --tianyi-sidebar-width: 19rem;
   --motion-fast: 160ms ease;
 }
 

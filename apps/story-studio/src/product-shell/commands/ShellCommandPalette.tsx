@@ -1,4 +1,4 @@
-import { Archive, BookOpen, Database, Feather, GitBranch, Globe2, Languages, LibraryBig, MoonStar, Orbit, PanelLeftClose, PanelLeftOpen, PanelRight, Search, Sparkles, SunMedium, X, type LucideIcon } from "lucide-react";
+import { Archive, BookOpen, Database, Feather, GitBranch, Globe2, Languages, LibraryBig, MoonStar, Orbit, PanelLeftClose, PanelLeftOpen, Search, Sparkles, SunMedium, X, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TianyanR0PanelId } from "../../../../../src/storyContracts/tianyanR0ShellContract.ts";
@@ -57,18 +57,16 @@ export function ShellCommandPalette(props: {
       icon: destinationIcons[destination.icon],
       run: () => props.onNavigate(destination)
     }));
-    const panelCommands: ShellCommand[] = (["project-directory", "global-tianyi", "page-inspector"] as const).map((panel) => {
+    const panelCommands: ShellCommand[] = (["project-directory", "global-tianyi"] as const).map((panel) => {
       const visible = props.panelVisibility[panel];
       const labelKey = panel === "project-directory"
         ? visible ? "panel.closeProjectDirectory" : "panel.openProjectDirectory"
-        : panel === "global-tianyi"
-          ? visible ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi"
-          : visible ? "panel.closePageInspector" : "panel.openPageInspector";
+        : visible ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi";
       return {
         id: `panel:${panel}`,
         group: "command.groupPanels",
         label: t(labelKey),
-        icon: panel === "project-directory" ? PanelLeftOpen : panel === "global-tianyi" ? Sparkles : PanelRight,
+        icon: panel === "project-directory" ? PanelLeftOpen : Sparkles,
         run: () => props.onTogglePanel(panel)
       };
     });
