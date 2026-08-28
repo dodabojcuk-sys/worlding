@@ -20,6 +20,16 @@ export type TianyanR0PanelPlacement = {
 
 export type TianyanR0ShellLayoutState = Record<TianyanR0PanelId, TianyanR0PanelPlacement>;
 
+/** R0.1 command panel acts on shell presentation only, never business data or indexes. */
+export const TIAN_YAN_R0_COMMAND_PANEL_SCOPE = {
+  destinations: "registry-only",
+  rail: "visibility-only",
+  panels: "visibility-only",
+  locale: "presentation-only",
+  theme: "presentation-only",
+  businessSearch: false
+} as const;
+
 export const TIAN_YAN_R0_DEFAULT_LAYOUT: TianyanR0ShellLayoutState = {
   "project-directory": {
     id: "project-directory",

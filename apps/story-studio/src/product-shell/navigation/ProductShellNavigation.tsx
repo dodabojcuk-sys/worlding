@@ -9,14 +9,14 @@ import {
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
-  Settings,
+  Search,
   Sparkles,
-  UserRound,
   type LucideIcon
 } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
 
 import { useI18n } from "../i18n/I18nProvider";
+import { BrandMarkSlot } from "../brand/BrandMarkSlot";
 import type { TranslationKey } from "../i18n/translations";
 import {
   STORY_STUDIO_SHELL_NAVIGATION_REGISTRY,
@@ -41,8 +41,7 @@ export function ProductShellNavigation(props: {
   collapsed: boolean;
   onSelect(destination: StoryStudioShellDestination): void;
   onToggleCollapsed(): void;
-  onSettings(): void;
-  onAccount(): void;
+  onOpenCommand(): void;
 }) {
   const { t } = useI18n();
   const navRef = useRef<HTMLElement>(null);
@@ -83,25 +82,23 @@ export function ProductShellNavigation(props: {
   };
 
   return <nav ref={navRef} className="shell-space-rail" aria-label={t("nav.label")} data-collapsed={props.collapsed}>
-    <button type="button" className="shell-brand" title={t("brand.name")} aria-label={t("brand.name")} onClick={() => props.onSelect(primary[0])}>
-      <strong>{t("brand.name")}</strong>
-      <span>{t("brand.romanized")}</span>
+    <div className="shell-rail-header">
+      <button type="button" className="shell-brand-home" title={t("brand.home")} aria-label={t("brand.home")} onClick={() => props.onSelect(primary[0])}>
+        <BrandMarkSlot />
+        <span className="shell-brand-copy"><strong>{t("brand.name")}</strong><span>{t("brand.romanized")}</span></span>
+      </button>
+      <button type="button" className="shell-rail-collapse" aria-label={t(props.collapsed ? "nav.expand" : "nav.collapse")} title={t(props.collapsed ? "nav.expand" : "nav.collapse")} onClick={props.onToggleCollapsed}>
+        {props.collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+      </button>
+    </div>
+    <button type="button" className="shell-command-trigger" aria-label={t("nav.command")} title={t("nav.command")} onClick={props.onOpenCommand}>
+      <Search aria-hidden="true" />
+      <span className="shell-command-trigger-label">{t("nav.command")}</span>
+      <kbd>⌘K</kbd>
     </button>
     <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
     <div className="shell-space-divider" role="separator" />
     <div className="shell-space-section is-derived" aria-label={t("nav.derivative")}>{derived.map(renderDestination)}</div>
     <div className="shell-rail-spacer" />
-    <div className="shell-rail-utility">
-      <button type="button" className="shell-space-link" aria-label={t("nav.account")} title={t("nav.account")} onClick={props.onAccount}>
-        <span className="shell-space-icon" aria-hidden="true"><UserRound /></span><span className="shell-space-label">{t("nav.account")}</span>
-      </button>
-      <button type="button" className="shell-space-link" aria-label={t("nav.settings")} title={t("nav.settings")} onClick={props.onSettings}>
-        <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
-      </button>
-      <button type="button" className="shell-space-link shell-collapse-control" aria-label={t(props.collapsed ? "nav.expand" : "nav.collapse")} title={t(props.collapsed ? "nav.expand" : "nav.collapse")} onClick={props.onToggleCollapsed}>
-        <span className="shell-space-icon" aria-hidden="true">{props.collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</span>
-        <span className="shell-space-label">{t(props.collapsed ? "nav.expand" : "nav.collapse")}</span>
-      </button>
-    </div>
   </nav>;
 }

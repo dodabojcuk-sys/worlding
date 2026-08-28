@@ -37,12 +37,12 @@
   --radius-sm: 0.375rem;
   --radius-md: 0.625rem;
   --radius-lg: 1rem;
-  --topbar-height: 4rem;
-  --space-rail-width: 8.75rem;
-  --space-rail-collapsed-width: 4.625rem;
+  --topbar-height: 3.125rem;
+  --space-rail-width: 8.25rem;
+  --space-rail-collapsed-width: 3.5rem;
   --directory-width: 15rem;
   --panel-width: 15rem;
-  --panel-controls-width: 4.5rem;
+  --panel-controls-width: 3.75rem;
   --motion-fast: 160ms ease;
 }
 

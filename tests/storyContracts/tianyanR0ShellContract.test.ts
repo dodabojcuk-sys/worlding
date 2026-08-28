@@ -8,7 +8,7 @@ import {
   STORY_STUDIO_WORKSPACE_REGISTRY,
   resolveStoryStudioShellLocation
 } from "../../src/storyContracts/storyStudioWorkspaceRegistry.ts";
-import { TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
+import { TIAN_YAN_R0_COMMAND_PANEL_SCOPE, TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
 import { createInitialShellLayout, reduceShellLayout } from "../../apps/story-studio/src/product-shell/layoutProtocol.ts";
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
 
@@ -46,6 +46,30 @@ test("panel protocol keeps directory, Global Tianyi, and page inspector independ
   assert.equal(next["page-inspector"].visible, true);
 });
 
+test("R0.1 command panel is a global shell entry, not a business search surface", () => {
+  assert.deepEqual(TIAN_YAN_R0_COMMAND_PANEL_SCOPE, {
+    destinations: "registry-only",
+    rail: "visibility-only",
+    panels: "visibility-only",
+    locale: "presentation-only",
+    theme: "presentation-only",
+    businessSearch: false
+  });
+
+  const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
+  const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
+  const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
+  const commandPalette = readFileSync("apps/story-studio/src/product-shell/commands/ShellCommandPalette.tsx", "utf8");
+
+  assert.match(shell, /Ctrl|ctrlKey/);
+  assert.match(shell, /ShellCommandPalette/);
+  assert.match(navigation, /BrandMarkSlot/);
+  assert.match(navigation, /shell-command-trigger/);
+  assert.match(commandPalette, /STORY_STUDIO_SHELL_NAVIGATION_REGISTRY/);
+  assert.doesNotMatch(commandPalette, /localTransport|providerGateway|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
+  assert.doesNotMatch(topbar, /shell-global-search|type="search"/);
+});
+
 test("active R0 shell is split by responsibility and imports no business transport or Provider", () => {
   const app = readFileSync("apps/story-studio/src/App.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
@@ -66,8 +90,12 @@ test("active R0 shell is split by responsibility and imports no business transpo
 
 test("component stylesheet consumes semantic tokens and defines no component-local colors", () => {
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
+  const tokens = readFileSync("apps/story-studio/src/product-shell/theme/tokens.css", "utf8");
   assert.doesNotMatch(styles, /#[\da-f]{3,8}\b|rgba?\(/iu);
   assert.match(styles, /var\(--color-workspace-background\)/);
   assert.match(styles, /focus-visible/);
   assert.match(styles, /prefers-reduced-motion/);
+  assert.match(styles, /shell-command-palette/);
+  assert.match(tokens, /--space-rail-collapsed-width: 3.5rem/);
+  assert.match(tokens, /--topbar-height: 3.125rem/);
 });
