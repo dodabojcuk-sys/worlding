@@ -1,22 +1,49 @@
-# 天衍 R0 外壳合同
+# 天衍 R0 全局外壳合同
 
-本合同定义 Founder 看图确认前的唯一产品外壳。它不接入领域数据、会话、Provider、持久化或写入操作。
+本合同定义 Founder 人工体验验收前的全局 UI 外壳。它只建立导航、全局状态、中央工作区和面板边界，不接入领域数据、会话、Provider、Pi Agent、持久化或写入操作。
 
-## 八空间
+`19893b1` 是可取证的错误方向技术草稿，不是 Founder 已验收 UI 基线。
 
-世界、天意、事件线、多元、女娲、资料、创作、数据按此固定顺序出现在全局导航。合册属于“创作”的工程目录项，不能成为第九空间。
+## 产品入口
 
-天意页面的中央工作区只承载对话；其他面板只能辅助其上下文、工具或日志，不能替代主对话。
+全局作者空间由 `src/storyContracts/storyStudioWorkspaceRegistry.ts` 唯一声明，顺序为：世界、天意、事件线、多元、女娲、资料、创作、数据。
 
-## 目录与状态
+“合册”是文章完成后的派生产物空间，必须作为独立入口呈现，不属于创作，也不成为第九个故事事实 owner。R0 只渲染其入口与空工作区，不实现内部功能。
 
-跨页面工程目录由 `src/storyContracts/tianyanR0ShellContract.ts` 唯一声明。每个目录项显式标为：已确定、待确定或可扩展。它是引用与导航模型，不持有故事数据。
+全局导航必须由统一 registry 渲染，名称、顺序、路由或增减入口不得要求重写外壳。桌面端使用最左侧可收起空间轨，顶部横向 Tab 不是主导航。
 
-## 布局与面板
+## 区域职责
 
-每页拥有统一工具轨和默认开启的页面日志；二者均可关闭。全局天意面板与页面工具面板是两个独立表现面板，可并列打开。
+| 区域 | 唯一职责 | R0 内容 |
+| --- | --- | --- |
+| 全局空间轨 | 全局空间与合册入口 | 图标、翻译文字、当前状态、收起、键盘导航 |
+| 顶部状态区 | 真正跨页面信息 | 当前作品、版本/分支、全局搜索、本地外壳运行状态、语言、主题、设置/账户入口 |
+| 中央工作区 | 当前路由的页面主场 | 干净 outlet/slot；不在 App root 写业务页面 |
+| 左侧工程目录 | 作品级浏览与引用边界 | 空结构插槽；不设计目录、状态、数量或实体详情 |
+| 全局天意面板 | 共享天意能力的呈现宿主 | 独立空插槽；不创建会话、上下文或假 Agent 状态 |
+| 页面专属右栏 | 当前页面将来的 Inspector/工具/日志宿主 | 独立空插槽；不实现页面工具或日志内容 |
 
-`apps/story-studio/src/product-shell/layoutProtocol.ts` 声明停靠、浮动、换边所需的协议。R0 仅实现停靠/隐藏，不实现拖拽、吸附或布局持久化。
+左侧目录、全局天意、页面右栏是三种不同概念，不共享业务状态。两个右侧面板必须可以并列。
+
+## 面板协议
+
+`apps/story-studio/src/product-shell/layoutProtocol.ts` 只定义瞬时表现协议：
+
+- 面板：`project-directory`、`global-tianyi`、`page-inspector`。
+- 可见性：开启/关闭。
+- 未来能力：停靠、浮动、换边、磁吸。
+- R0 实现：开启/关闭与并列。
+- R0 不实现：拖拽、磁吸、浮动、换边、布局持久化。
+
+Shell Lab 可以用中性边界同时展示三个插槽，但不得进入正式导航、渲染业务数据或假装功能已完成。
+
+## 主题、多语种与无障碍
+
+- 组件只使用语义令牌：背景、表面、文字、次级文字、边框、强调、成功、警告、危险、焦点，以及字号、间距、圆角、阴影、轨道和面板宽度。
+- 所有可见外壳文字通过 `zh-CN` / `en-US` 翻译 key 渲染，不依赖中文长度固定布局。
+- 优先使用逻辑方向 CSS 属性。
+- 全局导航可键盘操作，焦点环清晰，图标按钮有可访问名称和 tooltip。
+- 125% 缩放和英文长标签不得遮挡持久控件。
 
 ## Owner 表
 
@@ -25,8 +52,8 @@
 | Canon 写入与作者确认 | `src/storyControlSurface/storyStudioAuthorControl.ts` | 不接入 |
 | WorldState 与 Event 事实 | `src/storyControlSurface/storyStudioWorkspaceOperations.ts` | 不接入 |
 | 天意会话、上下文与记忆 | `src/storyContinuity/` | 不接入 |
-| Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 仅定义合同，不执行 |
+| Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 不运行 |
+| 全局导航 registry | `src/storyContracts/storyStudioWorkspaceRegistry.ts` | 静态表现元数据 |
 | 页面布局与可见性 | `apps/story-studio/src/product-shell/TianyanR0Shell.tsx` | 仅瞬时 UI 状态 |
-| 工程目录信息架构 | `src/storyContracts/tianyanR0ShellContract.ts` | 静态合同，不含事实 |
 
-Pi Agent、Provider、插件和 UI 不拥有故事事实、会话事实或作者确认权；它们只能在领域层授权后返回候选与回执。
+Pi Agent、Provider、插件和 UI 均不拥有故事事实、会话事实或作者确认权。
