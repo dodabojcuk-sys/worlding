@@ -31,10 +31,15 @@ test("Tianyi Event candidate reaches the existing review and sole Event writer w
     assert.ok(candidate);
     const handoff = await post(`${base}/__local/story-studio/tianyi/creative/candidate/handoff`, { projectId, sessionId, candidateId: candidate.candidateId, operationId: "event-handoff" }, headers);
     assert.equal(handoff.status, 200);
-    const handoffData = (await handoff.json() as { data: { ownerReceipt: { owner: string }; eventReview: { proposal: { origin: { sessionId: string }; unknowns: string[] } } } }).data;
+    const handoffData = (await handoff.json() as { data: { ownerReceipt: { owner: string }; eventReview: { proposal: { origin: { sessionId: string }; unknowns: string[] }; reviewContext: { project: { displayName: string }; source: { versionLabel: string; freshness: string }; writeTarget: { displayName: string }; safety: string } } } }).data;
     assert.equal(handoffData.ownerReceipt.owner, "candidate-review");
     assert.equal(handoffData.eventReview.proposal.origin.sessionId, sessionId);
     assert.deepEqual(handoffData.eventReview.proposal.unknowns, ["钥匙用途尚未确认"]);
+    assert.equal(handoffData.eventReview.reviewContext.project.displayName, "天意事件 M0");
+    assert.match(handoffData.eventReview.reviewContext.source.versionLabel, /^当前来源版本/u);
+    assert.equal(handoffData.eventReview.reviewContext.source.freshness, "current");
+    assert.equal(handoffData.eventReview.reviewContext.writeTarget.displayName, "当前作品 · 事件线");
+    assert.equal(handoffData.eventReview.reviewContext.safety, "候选，不会自动写入故事事实");
     const impact = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review/begin-impact`, { projectId, sessionId, candidateId: candidate.candidateId }, headers);
     assert.equal(impact.status, 200);
     const impactData = (await impact.json() as { data: { impact: { options: Array<{ id: string }> } } }).data;
@@ -45,6 +50,11 @@ test("Tianyi Event candidate reaches the existing review and sole Event writer w
     const retry = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review/confirm`, { projectId, sessionId, candidateId: candidate.candidateId, optionId: impactData.impact.options[0].id }, headers);
     assert.equal(retry.status, 200);
     assert.equal((await retry.json() as { data: { confirmedEvents: unknown[] } }).data.confirmedEvents.length, 1);
+    const newerSource = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "event-newer-source", submissionId: "event-newer-submission", text: "钟楼记录被重新发现，需要重新整理。", collaborate: false }, headers);
+    assert.equal(newerSource.status, 200);
+    const staleReview = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review`, { projectId, sessionId, candidateId: candidate.candidateId }, headers);
+    assert.equal(staleReview.status, 400, "A stale source must not re-enter the Event review or confirmation path.");
+    assert.match(JSON.stringify(await staleReview.json()), /来源版本已过期/u);
     const detail = await fetch(`${base}/__local/story-studio/event-line/event?projectId=${projectId}&eventId=${finalData.confirmedEvents[0].id}`, { headers });
     assert.equal(detail.status, 200);
     assert.equal((await detail.json() as { data: { status: string } }).data.status, "ready");

@@ -69,6 +69,7 @@ try {
     if (response.status() >= 400) failedRequests.push({ type: "http", status: response.status(), url: response.url() });
   });
   await installDeterministicProviderRoutes(page);
+  const tianyiEventM0Acceptance = await runTianyiEventM0BrowserAcceptance(browser);
 
   await page.goto(baseUrl, { waitUntil: "networkidle" });
   await page.getByTestId("world-home").waitFor();
@@ -399,6 +400,7 @@ try {
     eventLineResponsiveDockPriority: "PASS",
     normalProjectWorldEventCreationGoldenLoop: normalGoldenLoop,
     normalGoldenLoopVideos: videos,
+    tianyiEventM0BrowserAcceptance: tianyiEventM0Acceptance,
     consoleErrorsAndWarnings: consoleErrors.length,
     failedRequests: failedRequests.length,
     expectedAbortedRequests: expectedAbortedRequests.length,
@@ -408,6 +410,119 @@ try {
 } finally {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Golden Loop smoke server" });
+}
+
+async function runTianyiEventM0BrowserAcceptance(browser) {
+  const founderDir = process.env.TIANYAN_M0_FOUNDER_REVIEW_DIR || path.join(tmpdir(), `tianyan-m0-founder-review-${Date.now()}`);
+  mkdirSync(founderDir, { recursive: true });
+  const results = [];
+  for (const run of [1, 2]) {
+    const m0ProjectId = `tianyi-event-m0-browser-${run}`;
+    const m0ProjectTitle = `天意事件浏览器验收 ${run}`;
+    operations.createProject({ title: m0ProjectTitle, folderSlug: m0ProjectId, genre: "mystery", ambience: "rain-lighthouse" });
+    operations.openProject({ projectId: m0ProjectId });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    const consoleErrors = [];
+    const failedRequests = [];
+    page.on("console", (message) => { if (["error", "warning"].includes(message.type())) consoleErrors.push(`${message.type()}: ${message.text()}`); });
+    page.on("pageerror", (error) => consoleErrors.push(error.message));
+    page.on("requestfailed", (request) => failedRequests.push({ url: request.url(), error: request.failure()?.errorText || "unknown" }));
+    page.on("response", (response) => { if (response.status() >= 400) failedRequests.push({ url: response.url(), error: `HTTP ${response.status()}` }); });
+    try {
+      await page.goto(`${baseUrl}/tianyi`, { waitUntil: "networkidle" });
+      await page.getByTestId("tianyi-workspace").waitFor();
+      await page.getByRole("tab", { name: "创意", exact: true }).click();
+      await page.getByTestId("tianyi-creative-workspace").waitFor();
+      const captureResponse = page.waitForResponse((response) => response.url().includes("/tianyi/creative/capture") && response.request().method() === "POST");
+      await page.locator(".tianyi-creative-composer textarea").fill(`第 ${run} 次验收：钟楼熄灯后，守夜人将钥匙交给阿岚。`);
+      await page.getByRole("button", { name: "只记录", exact: true }).click();
+      const captured = await (await captureResponse).json();
+      const source = captured.data?.source;
+      assert.ok(source?.sessionId && source?.eventId && source?.contentHash, "Creative source must return the session, source event and immutable content hash.");
+      const extraction = await page.evaluate(async ({ source: currentSource, runIndex }) => {
+        const response = await fetch("/__local/story-studio/tianyi/creative/extract", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId: `tianyi-event-m0-browser-${runIndex}`,
+            sessionId: currentSource.sessionId,
+            operationId: `m0-browser-extract-${runIndex}`,
+            source: currentSource,
+            fixture: {
+              reply: "将带来源的 Event 候选交给作者审查。",
+              summary: "钟楼钥匙转交事件。",
+              themes: ["来源可追溯"],
+              openQuestions: ["钥匙用途尚待确认"],
+              candidates: [{ kind: "event", title: `钟楼钥匙转交 ${runIndex}`, summary: "守夜人把钥匙交给阿岚，等待作者确认其后果。", uncertainties: ["钥匙用途尚待确认"] }]
+            }
+          })
+        });
+        return { status: response.status, body: await response.json() };
+      }, { source, runIndex: run });
+      assert.equal(extraction.status, 200, `Deterministic Tianyi proposal injection must use the existing protected adapter route: ${JSON.stringify(extraction.body)}`);
+      await page.getByRole("tab", { name: "对话", exact: true }).click();
+      await page.getByRole("tab", { name: "创意", exact: true }).click();
+      await page.getByRole("button", { name: new RegExp(`^钟楼钥匙转交 ${run} 待审$`, "u") }).waitFor();
+      await page.getByText("事件候选 · 第 1/3 步", { exact: true }).waitFor();
+      if (run === 1) await page.screenshot({ path: path.join(founderDir, "01-tianyi-event-candidate.png"), fullPage: true });
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), new RegExp(`当前作品\\s*天意事件浏览器验收 ${run}`, "u"));
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /故事来源[\s\S]*天意作者原话/u);
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /来源版本[\s\S]*当前来源版本/u);
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /确认后写入[\s\S]*当前作品 · 事件线/u);
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /候选，不会自动写入故事事实/u);
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /钥匙用途尚待确认/u);
+      await page.getByRole("button", { name: "编辑", exact: true }).click();
+      await page.getByLabel("候选说明").fill(`编辑后：守夜人把钥匙交给阿岚，且必须先核对钟楼记录。`);
+      await page.getByRole("button", { name: "保存编辑", exact: true }).click();
+      await page.getByText(/编辑后：守夜人把钥匙交给阿岚/u).waitFor();
+      await page.getByRole("button", { name: "审查这个候选", exact: true }).click();
+      await page.getByText("事件候选 · 第 1/3 步", { exact: true }).waitFor();
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /候选正在等待影响审查；尚未写入故事事实/u);
+      assert.equal(await page.getByRole("button", { name: "确认并写入事件线", exact: true }).count(), 0, "Impact Review is mandatory before confirmation.");
+      if (run === 1) await page.screenshot({ path: path.join(founderDir, "02-candidate-review.png"), fullPage: true });
+      await page.getByRole("button", { name: "查看影响审查", exact: true }).click();
+      await page.getByText("影响审查 · 第 2/3 步", { exact: true }).waitFor();
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /候选摘要：编辑后：守夜人把钥匙交给阿岚/u);
+      await page.setViewportSize({ width: 1024, height: 768 });
+      assert.equal(await horizontalOverflow(page), 0, "M0 review actions must remain accessible without horizontal overflow at 1024px.");
+      assert.equal(await page.getByRole("button", { name: "进入作者确认", exact: true }).isVisible(), true, "The 1024px review primary action must remain visible.");
+      await page.setViewportSize({ width: 1440, height: 900 });
+      if (run === 1) await page.screenshot({ path: path.join(founderDir, "03-impact-review.png"), fullPage: true });
+      await page.getByRole("button", { name: "进入作者确认", exact: true }).click();
+      await page.getByText("作者确认 · 第 3/3 步", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "确认并写入事件线", exact: true }).dblclick();
+      await page.getByText("作者确认回执", { exact: true }).waitFor();
+      assert.match(await page.getByTestId("tianyi-creative-workspace").innerText(), /已写入 Event：/u);
+      await page.getByRole("button", { name: "打开事件线", exact: true }).click();
+      await page.getByTestId("event-observation-workspace").waitFor();
+      const eventUrl = new URL(page.url());
+      const eventId = eventUrl.searchParams.get("event");
+      assert.ok(eventId, `Canonical Event Line URL must use ?event=: ${page.url()}`);
+      assert.equal(eventUrl.searchParams.has("eventId"), false);
+      await page.getByRole("button", { name: new RegExp(`^查看正式事件：钟楼钥匙转交 ${run}`, "u") }).click();
+      await page.getByTestId("event-line-detail").waitFor();
+      assert.match(await page.getByTestId("event-line-detail").innerText(), /Canon 读取已核验/u);
+      await page.getByTestId("event-line-detail-loading").waitFor({ state: "hidden" });
+      assert.match(await page.getByTestId("event-line-detail").innerText(), /来源与技术详情/u);
+      if (run === 1) await page.screenshot({ path: path.join(founderDir, "04-event-line-confirmed.png"), fullPage: true });
+      await page.reload({ waitUntil: "networkidle" });
+      await page.getByTestId("event-line-detail").waitFor();
+      const verified = await page.evaluate(async ({ projectId, stableEventId }) => {
+        const response = await fetch(`/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(projectId)}`);
+        return { status: response.status, body: await response.json(), stableEventId };
+      }, { projectId: m0ProjectId, stableEventId: eventId });
+      assert.equal(verified.status, 200);
+      assert.deepEqual(verified.body.data.eventIds, [eventId], "Each isolated project must retain exactly one confirmed Event after refresh and repeat-safe confirmation.");
+      results.push({ run, projectId: m0ProjectId, eventId, consoleErrors, failedRequests });
+    } finally {
+      await context.close();
+    }
+  }
+  operations.openProject({ projectId });
+  assert.deepEqual(results.map((result) => result.consoleErrors), [[], []], "M0 browser acceptance must not produce console errors or warnings.");
+  assert.deepEqual(results.map((result) => result.failedRequests), [[], []], "M0 browser acceptance must not produce failed requests.");
+  return { runs: results.map(({ consoleErrors, failedRequests, ...result }) => result), founderScreenshots: ["01-tianyi-event-candidate.png", "02-candidate-review.png", "03-impact-review.png", "04-event-line-confirmed.png"].map((name) => path.join(founderDir, name)) };
 }
 
 async function runNormalProjectWorldEventCreationGoldenLoop(page, {

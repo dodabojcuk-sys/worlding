@@ -5245,7 +5245,11 @@ export function App() {
         onOpenLibrary={openMobileDrawer}
         onOpenWriting={() => void chooseProductMode("writing")}
         onOpenEventLine={(eventId) => {
-          void chooseProductMode("event-line").then(() => {
+          void Promise.all([getWorldLibrary(activeProject.id), refreshEventLineRead(activeProject.id)]).then(([nextLibrary]) => {
+            setLibrary(nextLibrary);
+            setVisibleObjects(nextLibrary.objects);
+            return chooseProductMode("event-line");
+          }).then(() => {
             const next = new URL(window.location.href); next.pathname = "/event-line"; next.search = "";
             next.searchParams.set("event", eventId);
             window.history.replaceState({ ...(window.history.state ?? {}), workspace: "event-line" }, "", `${next.pathname}${next.search}`);

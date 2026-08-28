@@ -55,7 +55,8 @@ export function createTianyiCreativeEventPort({ operations, authorControl }) {
     const planning = planningFor(projectId, input);
     const candidateReview = reviewFor(projectId, input);
     const impact = currentImpact(projectId, planning);
-    const changeSet = impact ? authorControl.readAuthorChangeSet({ projectId }) : null;
+    const latestChangeSet = impact ? authorControl.readAuthorChangeSet({ projectId }) : null;
+    const changeSet = latestChangeSet?.reviewId === impact?.id ? latestChangeSet : null;
     const confirmedEvents = confirmedFor(projectId, planning);
     return {
       version: "tianyan-tianyi-event-review-bridge/r0",
@@ -67,6 +68,16 @@ export function createTianyiCreativeEventPort({ operations, authorControl }) {
         writeTarget: { storyId: `story.${project.id}`, version: source.contentHash, owner: "story-studio-event-owner" },
         evidence: [{ sourceRef: `${source.sessionId}:${source.eventId}:${source.contentHash}`, excerpt: candidate.sourceExcerpt }],
         unknowns: candidate.uncertainties
+      },
+      reviewContext: {
+        project: { id: project.id, displayName: project.title },
+        source: {
+          displayName: `天意作者原话 · 会话 ${source.sessionId}`,
+          versionLabel: `当前来源版本 · ${source.contentHash.slice(0, 12)}`,
+          freshness: "current"
+        },
+        writeTarget: { id: `story.${project.id}`, displayName: "当前作品 · 事件线" },
+        safety: "候选，不会自动写入故事事实"
       },
       planning: planning ? { id: planning.id, title: planning.title, revision: planning.revisionToken } : null,
       candidateReview,
