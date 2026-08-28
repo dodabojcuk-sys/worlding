@@ -99,6 +99,8 @@ export function TianyanR0Shell() {
       onSelect={navigate}
       onToggleCollapsed={() => setRailCollapsed((current) => !current)}
       onOpenCommand={() => setCommandOpen(true)}
+      onSettings={() => undefined}
+      onAccount={() => undefined}
     />
     <GlobalStatusBar theme={theme} onToggleTheme={toggleTheme} />
     {layout["project-directory"].visible && <ProjectDirectorySlot onClose={() => dispatchLayout({ type: "hide", panel: "project-directory" })} />}

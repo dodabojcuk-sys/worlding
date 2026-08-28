@@ -70,6 +70,28 @@ test("R0.1 command panel is a global shell entry, not a business search surface"
   assert.doesNotMatch(topbar, /shell-global-search|type="search"/);
 });
 
+test("account and settings remain independent rail utilities", () => {
+  const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
+  const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
+  const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
+
+  assert.equal(STORY_STUDIO_SHELL_NAVIGATION_REGISTRY.some((item) => item.id === "account" || item.id === "settings"), false);
+  assert.equal(zhCN["nav.account"], "个人中心");
+  assert.equal(zhCN["nav.settings"], "设置");
+  assert.equal(enUS["nav.account"], "Personal center");
+  assert.equal(enUS["nav.settings"], "Settings");
+  assert.match(navigation, /shell-rail-utility/);
+  assert.match(navigation, /data-shell-utility="account"/);
+  assert.match(navigation, /data-shell-utility="settings"/);
+  assert.match(navigation, /onAccount\(\): void/);
+  assert.match(navigation, /onSettings\(\): void/);
+  assert.match(shell, /onAccount=\{\(\) => undefined\}/);
+  assert.match(shell, /onSettings=\{\(\) => undefined\}/);
+  assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
+  assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
+  assert.doesNotMatch(navigation, /shell-collapse-control/);
+});
+
 test("active R0 shell is split by responsibility and imports no business transport or Provider", () => {
   const app = readFileSync("apps/story-studio/src/App.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");

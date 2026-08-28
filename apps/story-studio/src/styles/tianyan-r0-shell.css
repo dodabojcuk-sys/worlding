@@ -280,9 +280,24 @@ input:focus-visible {
   color: var(--color-text-on-structure);
 }
 
-.shell-rail-spacer {
-  flex: 1;
-  min-height: var(--space-4);
+.shell-rail-navigation {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.shell-rail-utility {
+  flex: 0 0 auto;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-block-start: 1px solid var(--color-structure-surface);
+}
+
+.shell-rail-utility .shell-space-link {
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
 }
 
 .shell-space-rail[data-collapsed="true"] .shell-rail-header {
@@ -299,7 +314,8 @@ input:focus-visible {
 }
 
 .shell-space-rail[data-collapsed="true"] .shell-space-section,
-.shell-space-rail[data-collapsed="true"] .shell-command-trigger {
+.shell-space-rail[data-collapsed="true"] .shell-command-trigger,
+.shell-space-rail[data-collapsed="true"] .shell-rail-utility {
   padding-inline: var(--space-2);
 }
 
@@ -860,7 +876,8 @@ input:focus-visible {
   }
 
   .shell-space-rail .shell-space-section,
-  .shell-space-rail .shell-command-trigger {
+  .shell-space-rail .shell-command-trigger,
+  .shell-space-rail .shell-rail-utility {
     padding-inline: var(--space-2);
   }
 

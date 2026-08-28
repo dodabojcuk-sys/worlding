@@ -10,7 +10,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings,
   Sparkles,
+  UserRound,
   type LucideIcon
 } from "lucide-react";
 import { useRef, type KeyboardEvent } from "react";
@@ -42,6 +44,8 @@ export function ProductShellNavigation(props: {
   onSelect(destination: StoryStudioShellDestination): void;
   onToggleCollapsed(): void;
   onOpenCommand(): void;
+  onSettings(): void;
+  onAccount(): void;
 }) {
   const { t } = useI18n();
   const navRef = useRef<HTMLElement>(null);
@@ -96,9 +100,18 @@ export function ProductShellNavigation(props: {
       <span className="shell-command-trigger-label">{t("nav.command")}</span>
       <kbd>⌘K</kbd>
     </button>
-    <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
-    <div className="shell-space-divider" role="separator" />
-    <div className="shell-space-section is-derived" aria-label={t("nav.derivative")}>{derived.map(renderDestination)}</div>
-    <div className="shell-rail-spacer" />
+    <div className="shell-rail-navigation">
+      <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
+      <div className="shell-space-divider" role="separator" />
+      <div className="shell-space-section is-derived" aria-label={t("nav.derivative")}>{derived.map(renderDestination)}</div>
+    </div>
+    <div className="shell-rail-utility" aria-label={t("nav.utility")}>
+      <button type="button" className="shell-space-link" aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
+        <span className="shell-space-icon" aria-hidden="true"><UserRound /></span><span className="shell-space-label">{t("nav.account")}</span>
+      </button>
+      <button type="button" className="shell-space-link" aria-label={t("nav.settings")} title={t("nav.settings")} data-shell-utility="settings" onClick={props.onSettings}>
+        <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
+      </button>
+    </div>
   </nav>;
 }
