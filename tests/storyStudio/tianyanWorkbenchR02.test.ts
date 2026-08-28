@@ -20,11 +20,14 @@ test("project directory uses Classified as its main section and Pending review a
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });
 
-test("page tools keep Engineering Log first and allow a bounded multi-panel stack", () => {
+test("page-tool rail order is independent from the user-owned multi-panel stack", () => {
   assert.equal(PAGE_TOOL_REGISTRY[0]?.id, "engineering-log");
-  const initial = createInitialDockLayout(true);
-  assert.deepEqual(initial.openPanelIds, ["expert-analysis", "engineering-log"]);
-  assert.deepEqual(toggleDockPanel(initial, "expert-analysis").openPanelIds, ["engineering-log"]);
+  const initial = createInitialDockLayout();
+  assert.deepEqual(initial.openPanelIds, []);
+  const expertFirst = toggleDockPanel(initial, "expert-analysis");
+  const logSecond = toggleDockPanel(expertFirst, "engineering-log");
+  assert.deepEqual(logSecond.openPanelIds, ["expert-analysis", "engineering-log"]);
+  assert.deepEqual(toggleDockPanel(logSecond, "expert-analysis").openPanelIds, ["engineering-log"]);
   assert.equal(clampDockPanelSize(1), 160);
   assert.equal(clampDockPanelSize(900), 640);
   const stack = source("apps/story-studio/src/product-shell/right-dock/DockPanelStack.tsx");

@@ -1,0 +1,207 @@
+.shell-workspace-event-line {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-workspace-background);
+}
+
+.shell-workspace-event-line .event-line-workbench,
+.shell-workspace-event-line .event-line-shell,
+.shell-workspace-event-line .event-line-spine-main {
+  min-width: 0;
+  min-height: 0;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.shell-workspace-event-line .event-line-workbench,
+.shell-workspace-event-line .event-line-shell {
+  display: flex;
+}
+
+.shell-workspace-event-line .event-line-spine-main {
+  overflow: auto;
+  padding: clamp(1.5rem, 3vw, 3rem);
+}
+
+.shell-workspace-event-line .event-line-spine-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  max-inline-size: 66rem;
+  margin: 0 auto var(--space-6);
+  padding-block-end: var(--space-5);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.shell-workspace-event-line .event-line-spine-toolbar > div:first-child {
+  min-width: 0;
+}
+
+.shell-workspace-event-line .event-line-spine-toolbar .eyebrow,
+.shell-workspace-event-line .event-line-unit header small,
+.shell-workspace-event-line .event-line-set-point header small {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.08em;
+}
+
+.shell-workspace-event-line .event-line-spine-toolbar h1 {
+  margin: var(--space-2) 0;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.shell-workspace-event-line .event-line-spine-toolbar p:not(.eyebrow),
+.shell-workspace-event-line .event-line-spine-node p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.65;
+}
+
+.shell-workspace-event-line .event-line-view-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-2);
+}
+
+.shell-workspace-event-line .event-line-view-actions button,
+.shell-workspace-event-line .event-line-empty-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: 2.5rem;
+  padding-inline: var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.shell-workspace-event-line .event-line-view-actions button:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.shell-workspace-event-line .event-line-spine {
+  position: relative;
+  display: grid;
+  gap: var(--space-5);
+  max-inline-size: 66rem;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.shell-workspace-event-line .event-line-unit,
+.shell-workspace-event-line .event-line-set-point {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.shell-workspace-event-line .event-line-unit > header,
+.shell-workspace-event-line .event-line-set-point > header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.shell-workspace-event-line .event-line-unit > header > span,
+.shell-workspace-event-line .event-line-set-point > header > span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-radius: 50%;
+}
+
+.shell-workspace-event-line .event-line-unit h2,
+.shell-workspace-event-line .event-line-set-point h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.shell-workspace-event-line .event-line-unit > header > strong,
+.shell-workspace-event-line .event-line-set-point > header > strong {
+  margin-inline-start: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.shell-workspace-event-line .event-line-set-point ol {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 0 0 var(--space-5);
+  list-style: none;
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.shell-workspace-event-line .event-line-set-point li {
+  position: relative;
+}
+
+.shell-workspace-event-line .event-line-spine-node {
+  position: absolute;
+  inset-inline-start: calc(var(--space-5) * -1 - 0.375rem);
+  inset-block-start: var(--space-4);
+  display: grid;
+  place-items: center;
+  inline-size: 0.75rem;
+  block-size: 0.75rem;
+  overflow: hidden;
+  color: transparent;
+  background: var(--color-accent);
+  border-radius: 50%;
+}
+
+.shell-workspace-event-line .event-line-spine-node + button {
+  inline-size: 100%;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: start;
+}
+
+.shell-workspace-event-line .event-line-spine-node + button:hover,
+.shell-workspace-event-line li.is-selected .event-line-spine-node + button {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.shell-workspace-event-line .event-line-spine-node + button > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.shell-workspace-event-line .event-line-spine-node + button h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+@media (max-width: 75rem) {
+  .shell-workspace-event-line .event-line-spine-main {
+    padding: var(--space-4);
+  }
+
+  .shell-workspace-event-line .event-line-spine-toolbar {
+    gap: var(--space-3);
+  }
+}

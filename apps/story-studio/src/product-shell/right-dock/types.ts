@@ -2,7 +2,6 @@ export type DockToolId = "engineering-log" | "expert-analysis" | "reader-appreci
 
 export type DockLayoutState = {
   openPanelIds: DockToolId[];
-  panelOrder: DockToolId[];
   panelSizes: Partial<Record<DockToolId, number>>;
   activeToolId: DockToolId | null;
   isTianyiOpen: boolean;

@@ -2,12 +2,11 @@ import { useState } from "react";
 
 import { DOCK_PANEL_MAX_SIZE, DOCK_PANEL_MIN_SIZE, type DockLayoutState, type DockToolId } from "./types.ts";
 
-export function createInitialDockLayout(showAcceptanceState = false): DockLayoutState {
+export function createInitialDockLayout(): DockLayoutState {
   return {
-    openPanelIds: showAcceptanceState ? ["expert-analysis", "engineering-log"] : ["engineering-log"],
-    panelOrder: ["expert-analysis", "engineering-log", "reader-appreciation", "language-check", "history", "extensions"],
+    openPanelIds: [],
     panelSizes: { "expert-analysis": 260, "engineering-log": 320 },
-    activeToolId: showAcceptanceState ? "expert-analysis" : "engineering-log",
+    activeToolId: null,
     isTianyiOpen: true
   };
 }
@@ -20,7 +19,7 @@ export function toggleDockPanel(state: DockLayoutState, toolId: DockToolId): Doc
   const isOpen = state.openPanelIds.includes(toolId);
   const openPanelIds = isOpen
     ? state.openPanelIds.filter((id) => id !== toolId)
-    : state.panelOrder.filter((id) => id === toolId || state.openPanelIds.includes(id));
+    : [...state.openPanelIds, toolId];
   return {
     ...state,
     openPanelIds,
@@ -32,8 +31,8 @@ export function resizeDockPanel(state: DockLayoutState, toolId: DockToolId, next
   return { ...state, panelSizes: { ...state.panelSizes, [toolId]: clampDockPanelSize(nextSize) } };
 }
 
-export function useDockLayoutState(showAcceptanceState: boolean) {
-  const [state, setState] = useState(() => createInitialDockLayout(showAcceptanceState));
+export function useDockLayoutState() {
+  const [state, setState] = useState(createInitialDockLayout);
   return {
     state,
     togglePanel: (toolId: DockToolId) => setState((current) => toggleDockPanel(current, toolId)),

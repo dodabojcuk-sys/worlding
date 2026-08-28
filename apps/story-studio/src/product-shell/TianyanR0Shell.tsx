@@ -36,8 +36,7 @@ export function TianyanR0Shell() {
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);
   const [commandOpen, setCommandOpen] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(true);
-  const showAcceptanceState = shellLab || new URLSearchParams(window.location.search).get("dock") === "both";
-  const dock = useDockLayoutState(showAcceptanceState);
+  const dock = useDockLayoutState();
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
@@ -103,7 +102,7 @@ export function TianyanR0Shell() {
     />
     <GlobalStatusBar theme={theme} directoryOpen={directoryOpen} tianyiOpen={dock.state.isTianyiOpen} onToggleTheme={toggleTheme} onToggleDirectory={() => setDirectoryOpen((open) => !open)} onToggleTianyi={dock.toggleTianyi} />
     {directoryOpen && <ProjectDirectoryPanel onClose={() => setDirectoryOpen(false)} />}
-    <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} />
+    <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} onOpenTianyi={() => dock.setTianyiOpen(true)} />
     <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />
     {dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} sharedSessionIdentity="shared-current-session" onClose={() => dock.setTianyiOpen(false)} />}
     <ShellCommandPalette

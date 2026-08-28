@@ -7,6 +7,7 @@ import "./styles/tianyan-r0-shell.css";
 import "./styles/project-directory.css";
 import "./styles/right-dock.css";
 import "./styles/tianyi-sidebar.css";
+import "./styles/event-line-projection.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Story Studio root element is missing.");
