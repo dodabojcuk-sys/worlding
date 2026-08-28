@@ -8,8 +8,8 @@ import {
   STORY_STUDIO_WORKSPACE_REGISTRY,
   resolveStoryStudioShellLocation
 } from "../../src/storyContracts/storyStudioWorkspaceRegistry.ts";
-import { TIAN_YAN_R0_COMMAND_PANEL_SCOPE, TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
-import { createInitialShellLayout, reduceShellLayout } from "../../apps/story-studio/src/product-shell/layoutProtocol.ts";
+import { TIAN_YAN_R0_2_WORKBENCH_ORDER, TIAN_YAN_R0_COMMAND_PANEL_SCOPE, TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
+import { createInitialDockLayout, resizeDockPanel, toggleDockPanel } from "../../apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts";
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
 import {
   nextShellRailPreference,
@@ -37,18 +37,18 @@ test("zh-CN and en-US contain exactly the same shell translation keys", () => {
   }
 });
 
-test("panel protocol keeps directory, Global Tianyi, and page inspector independent", () => {
-  assert.deepEqual(Object.keys(TIAN_YAN_R0_DEFAULT_LAYOUT), ["project-directory", "global-tianyi", "page-inspector"]);
+test("R0.2 workbench keeps global panels separate from the composable page-tool Dock", () => {
+  assert.deepEqual(Object.keys(TIAN_YAN_R0_DEFAULT_LAYOUT), ["project-directory", "global-tianyi"]);
   assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["project-directory"].visible, true);
-  assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["global-tianyi"].visible, false);
-  assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["page-inspector"].visible, false);
+  assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["global-tianyi"].visible, true);
+  assert.deepEqual(TIAN_YAN_R0_2_WORKBENCH_ORDER, ["global-space-rail", "project-directory", "central-workspace", "page-tool-stack", "page-tool-rail", "global-tianyi"]);
 
-  const lab = createInitialShellLayout(true);
-  assert.equal(lab["global-tianyi"].visible, true);
-  assert.equal(lab["page-inspector"].visible, true);
-  const next = reduceShellLayout(lab, { type: "hide", panel: "global-tianyi" });
-  assert.equal(next["global-tianyi"].visible, false);
-  assert.equal(next["page-inspector"].visible, true);
+  const acceptance = createInitialDockLayout(true);
+  assert.deepEqual(acceptance.openPanelIds, ["expert-analysis", "engineering-log"]);
+  assert.equal(acceptance.isTianyiOpen, true);
+  assert.deepEqual(toggleDockPanel(acceptance, "expert-analysis").openPanelIds, ["engineering-log"]);
+  assert.equal(resizeDockPanel(acceptance, "expert-analysis", 20).panelSizes["expert-analysis"], 160);
+  assert.equal(resizeDockPanel(acceptance, "expert-analysis", 900).panelSizes["expert-analysis"], 640);
 });
 
 test("R0.1 command panel is a global shell entry, not a business search surface", () => {
@@ -122,20 +122,24 @@ test("active R0 shell is split by responsibility and imports no business transpo
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
   const workspace = readFileSync("apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "utf8");
-  const panels = readFileSync("apps/story-studio/src/product-shell/panels/ShellPanelSlots.tsx", "utf8");
-  const activeSources = [app, shell, navigation, topbar, workspace, panels].join("\n");
+  const directory = readFileSync("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "utf8");
+  const dock = readFileSync("apps/story-studio/src/product-shell/right-dock/RightDock.tsx", "utf8");
+  const tianyi = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
+  const activeSources = [app, shell, navigation, topbar, workspace, directory, dock, tianyi].join("\n");
 
   assert.match(app, /I18nProvider/);
   assert.match(shell, /ProductShellNavigation/);
   assert.match(shell, /GlobalStatusBar/);
   assert.match(shell, /ShellWorkspaceOutlet/);
-  assert.match(shell, /RightPanelDock/);
+  assert.match(shell, /ProjectDirectoryPanel/);
+  assert.match(shell, /RightDock/);
+  assert.match(shell, /TianyiSidebar/);
   assert.doesNotMatch(activeSources, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
-  assert.doesNotMatch([shell, navigation, topbar, workspace, panels].join("\n"), /[\u3400-\u9fff]/u);
+  assert.doesNotMatch([shell, navigation, topbar, workspace, directory, dock, tianyi].join("\n"), /[\u3400-\u9fff]/u);
 });
 
-test("component stylesheet consumes semantic tokens and defines no component-local colors", () => {
-  const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
+test("component stylesheets consume semantic tokens and define no component-local colors", () => {
+  const styles = ["tianyan-r0-shell.css", "project-directory.css", "right-dock.css", "tianyi-sidebar.css"].map((name) => readFileSync(`apps/story-studio/src/styles/${name}`, "utf8")).join("\n");
   const tokens = readFileSync("apps/story-studio/src/product-shell/theme/tokens.css", "utf8");
   assert.doesNotMatch(styles, /#[\da-f]{3,8}\b|rgba?\(/iu);
   assert.match(styles, /var\(--color-workspace-background\)/);

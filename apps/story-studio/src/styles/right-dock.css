@@ -89,12 +89,18 @@
 @media (max-width: 100rem) {
   .dock-panel-stack { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: var(--panel-controls-width); width: min(var(--dock-stack-width), calc(100vw - var(--rail-current) - var(--panel-controls-width))); z-index: 7; box-shadow: var(--shadow-panel); }
   .tianyan-r0-shell[data-tianyi-open="true"] .dock-panel-stack { inset-inline-end: calc(var(--panel-controls-width) + var(--tianyi-sidebar-width)); }
+  .dock-tool-rail { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; inline-size: var(--panel-controls-width); }
+  .tianyan-r0-shell[data-tianyi-open="true"] .dock-tool-rail { inset-inline-end: var(--tianyi-sidebar-width); }
+  .dock-tool-rail button { min-height: 3.25rem; }
+  .dock-tool-rail span,
+  .dock-tool-rail small { display: none; }
 }
 
 @media (max-width: 50rem) {
   .dock-panel-stack,
   .tianyan-r0-shell[data-tianyi-open="true"] .dock-panel-stack { inset-inline: var(--rail-current) 0; width: auto; z-index: 10; }
-  .dock-tool-rail { position: fixed; inset-inline: var(--rail-current) 0; inset-block-end: 0; block-size: 4rem; flex-direction: row; justify-content: space-evenly; padding: var(--space-1); overflow-x: auto; border-block-start: 1px solid var(--color-border); }
+  .dock-tool-rail,
+  .tianyan-r0-shell[data-tianyi-open="true"] .dock-tool-rail { position: fixed; inset-inline: var(--rail-current) 0; inset-block: auto 0; inline-size: auto; block-size: 4rem; flex-direction: row; justify-content: space-evenly; padding: var(--space-1); overflow-x: auto; border-block-start: 1px solid var(--color-border); }
   .dock-tool-rail button { min-width: 3.25rem; min-height: 3.25rem; }
   .dock-tool-rail span { display: none; }
   .shell-workspace { padding-block-end: 4rem; }

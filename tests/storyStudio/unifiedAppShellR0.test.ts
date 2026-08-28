@@ -83,7 +83,7 @@ test("right-dock host keeps page context and Tianyi in separately owned slots", 
 
 test("Tianyi page is conversation-first while the global Dock keeps bounded contextual modes", () => {
   const workspace = source("apps/story-studio/src/components/tianyi/TianyiWorkspace.tsx");
-  const composer = source("apps/story-studio/src/components/tianyi/TianyiComposer.tsx");
+  const composer = source("apps/story-studio/src/components/tianyi/composer/TianyiComposer.tsx");
   const app = source("apps/story-studio/src/App.tsx");
   const dock = source("apps/story-studio/src/components/TianyiQuickAssistant.tsx");
 

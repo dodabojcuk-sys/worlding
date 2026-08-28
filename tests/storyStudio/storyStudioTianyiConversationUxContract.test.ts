@@ -271,7 +271,7 @@ test("Session sidebar counts only the messages the shared thread can actually re
 test("conversation-first leaf keeps one Composer, a temporary Source Inspector, and a props-only session rail", () => {
   const workspace = readFileSync("apps/story-studio/src/components/tianyi/TianyiWorkspace.tsx", "utf8");
   const thread = readFileSync("apps/story-studio/src/components/tianyi/TianyiConversationThread.tsx", "utf8");
-  const composer = readFileSync("apps/story-studio/src/components/tianyi/TianyiComposer.tsx", "utf8");
+  const composer = readFileSync("apps/story-studio/src/components/tianyi/composer/TianyiComposer.tsx", "utf8");
   const inspector = readFileSync("apps/story-studio/src/components/tianyi/TianyiSourceInspector.tsx", "utf8");
   const sidebar = readFileSync("apps/story-studio/src/components/tianyi/TianyiConversationRail.tsx", "utf8");
   assert.equal((workspace.match(/<TianyiComposer/g) || []).length, 1);

@@ -2,6 +2,7 @@
 
 - 涉及产品、功能、体验、信息架构或故事语义的任务，开始前必须完整阅读根目录的 `TIANYAN_PRODUCT_CORE.md`；它是唯一产品核心。
 - 新增、移动、拆分或定位代码前，必须阅读根目录的 `项目目录导航.md`；责任区、入口、所有者或验证路径改变时必须同步更新导航。
+- 新增 Shell 功能前必须先定位唯一责任目录；`App.tsx` 只做顶层组装，`TianyanR0Shell.tsx` 只做区域组合，禁止继续向两者堆菜单、Dock 状态、业务数据或执行逻辑。
 - 产品入口是 `apps/story-studio`。
 - 使用 `package.json` 定义的十个脚本：`dev`、`build`、`serve`、`typecheck`、`lint`、`test`、`test:unit`、`test:integration`、`test:e2e`、`verify`。
 - 保持唯一的 Canon 写入者、World 事实所有者与 Event 投影所有者。

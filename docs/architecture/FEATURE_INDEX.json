@@ -1,6 +1,6 @@
 {
   "version": "tianyan-feature-index/v1",
-  "sourceCommit": "35b73b72900619927c110acc0b433d3a9f157181",
+  "sourceCommit": "19f3f276f3ae2eecf54198aa6294e366097574af",
   "boundaries": {
     "canonWriters": ["src/storyControlSurface/storyStudioAuthorControl.ts"],
     "worldStateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
@@ -13,16 +13,16 @@
     {
       "id": "tianyan-r0-static-shell",
       "status": "FOUNDER_REVIEW",
-      "maturity": "modular-responsive-global-shell-without-domain-data",
+      "maturity": "r0.2-responsive-workbench-with-transient-directory-dock-and-tianyi-controls",
       "entrypoints": ["apps/story-studio/src/App.tsx", "apps/story-studio/src/product-shell/TianyanR0Shell.tsx"],
-      "sourceFiles": ["src/storyContracts/storyStudioWorkspaceRegistry.ts", "src/storyContracts/tianyanR0ShellContract.ts", "apps/story-studio/src/product-shell/brand/BrandMarkSlot.tsx", "apps/story-studio/src/product-shell/commands/ShellCommandPalette.tsx", "apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "apps/story-studio/src/product-shell/panels/ShellPanelSlots.tsx", "apps/story-studio/src/product-shell/i18n/I18nProvider.tsx", "apps/story-studio/src/product-shell/theme/tokens.css", "apps/story-studio/src/product-shell/layoutProtocol.ts", "apps/story-studio/src/styles/tianyan-r0-shell.css", "docs/architecture/TIANYAN_R0_SHELL_CONTRACT.md"],
+      "sourceFiles": ["src/storyContracts/storyStudioWorkspaceRegistry.ts", "src/storyContracts/tianyanR0ShellContract.ts", "src/storyContracts/projectDirectoryContract.ts", "apps/story-studio/src/product-shell/brand/BrandMarkSlot.tsx", "apps/story-studio/src/product-shell/commands/ShellCommandPalette.tsx", "apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "apps/story-studio/src/product-shell/right-dock/RightDock.tsx", "apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "apps/story-studio/src/components/page-tools/EngineeringLogPanel.tsx", "apps/story-studio/src/components/page-tools/ExpertAnalysisPanel.tsx", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "apps/story-studio/src/components/tianyi/composer/TianyiSidebarComposer.tsx", "apps/story-studio/src/components/tianyi/capability-launcher/CapabilityLauncher.tsx", "apps/story-studio/src/product-shell/i18n/I18nProvider.tsx", "apps/story-studio/src/product-shell/theme/tokens.css", "apps/story-studio/src/styles/tianyan-r0-shell.css", "apps/story-studio/src/styles/project-directory.css", "apps/story-studio/src/styles/right-dock.css", "apps/story-studio/src/styles/tianyi-sidebar.css", "docs/architecture/TIANYAN_R0_SHELL_CONTRACT.md"],
       "domainOwners": [],
       "stateOwners": [],
       "persistenceOwner": "None. R0 has only transient presentation state; Canon, Event, WorldState, sessions and author confirmation remain in their existing owners and are not connected.",
       "providerDependency": "none",
-      "tests": ["tests/storyContracts/tianyanR0ShellContract.test.ts"],
+      "tests": ["tests/storyContracts/tianyanR0ShellContract.test.ts", "tests/storyContracts/projectDirectoryContract.test.ts", "tests/storyStudio/tianyanWorkbenchR02.test.ts"],
       "legacyProvenance": ["Founder R0 shell direction; 19893b1 and the prior app are evidence only, not an accepted UI baseline"],
-      "remainingGap": "Founder independent experience approval is required before any domain data, sessions, Provider calls, persistence, dragging, magnetism or floating behavior may be connected."
+      "remainingGap": "Founder independent experience approval is required before domain data, real sessions, Provider calls, Skill/workflow execution, persistence, dragging, magnetism or floating behavior may be connected."
     },
     {
       "id": "project-scoped-work-version-authority-r0",

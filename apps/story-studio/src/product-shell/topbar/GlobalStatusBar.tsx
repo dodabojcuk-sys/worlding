@@ -18,7 +18,7 @@ export function GlobalStatusBar(props: {
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context">
       <button type="button" className="shell-context-control" title={t("topbar.project")}>
-        <span><strong>{t("topbar.projectName")}</strong><i aria-hidden="true">·</i><em>{t("topbar.versionName")}</em></span>
+        <span><strong>{t("topbar.projectName")}</strong></span>
         <ChevronDown aria-hidden="true" />
       </button>
     </div>

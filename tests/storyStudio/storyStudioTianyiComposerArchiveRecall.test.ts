@@ -5,7 +5,7 @@ import test from "node:test";
 
 const workspacePath = path.join(process.cwd(), "apps", "story-studio", "src", "components", "tianyi", "TianyiWorkspace.tsx");
 const workspace = readFileSync(workspacePath, "utf8");
-const composer = readFileSync(path.join(process.cwd(), "apps", "story-studio", "src", "components", "tianyi", "TianyiComposer.tsx"), "utf8");
+const composer = readFileSync(path.join(process.cwd(), "apps", "story-studio", "src", "components", "tianyi", "composer", "TianyiComposer.tsx"), "utf8");
 const transport = readFileSync(path.join(process.cwd(), "apps", "story-studio", "src", "lib", "localTransport.ts"), "utf8");
 
 test("conversation-first Tianyi exposes one bounded Composer without reviving the retired companion UI", () => {

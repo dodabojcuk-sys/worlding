@@ -1,5 +1,5 @@
 import { Braces, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 
@@ -16,7 +16,16 @@ export type TianyiComposerContextViewModel = {
 export function ContextControl(props: { context: TianyiComposerContextViewModel }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  return <div className="composer-runtime-control context-control">
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => !rootRef.current?.contains(event.target as Node) && setOpen(false);
+    const closeEscape = (event: globalThis.KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape); };
+  }, [open]);
+  return <div className="composer-runtime-control context-control" ref={rootRef}>
     <button type="button" aria-expanded={open} aria-label={t("context.title")} title={t("context.title")} onClick={() => setOpen((value) => !value)}><Braces aria-hidden="true" /><span>{t("context.label")}</span><ChevronDown aria-hidden="true" /></button>
     {open && <section role="dialog" aria-label={t("context.title")}>
       <strong>{t("context.title")}</strong>

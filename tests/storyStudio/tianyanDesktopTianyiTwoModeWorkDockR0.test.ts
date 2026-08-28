@@ -7,21 +7,19 @@ import { TOP_LEVEL_DESTINATION_REGISTRY } from "../../apps/story-studio/src/prod
 
 const source = (path: string) => readFileSync(path, "utf8");
 
-test("Tianyi has exactly two author modes and relocates bounded work to the desktop Dock", () => {
+test("Tianyi keeps the primary two author modes while the R0.2 sidebar exposes dialogue and Agent", () => {
   const workspace = source("apps/story-studio/src/components/tianyi/TianyiWorkspace.tsx");
-  const dock = source("apps/story-studio/src/components/TianyiQuickAssistant.tsx");
-  const app = source("apps/story-studio/src/App.tsx");
+  const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
+  const modes = source("apps/story-studio/src/components/tianyi/sidebar/TianyiModeSwitch.tsx");
   assert.match(workspace, /TianyiCollaborationMode = "creative" \| "conversation"/);
   assert.doesNotMatch(workspace, /mode === "agent"|label: "Agent"|TianyiAgentManagementSurface/);
   assert.match(workspace, /onOpenWorkDock/);
-  assert.match(dock, /TianyiDockMode = "dialogue" \| "work"/);
-  assert.match(dock, />对话</);
-  assert.match(dock, />工作</);
-  assert.doesNotMatch(dock, />Agent<|tianyi-dock-agent-panel/);
-  assert.match(dock, /getTianyiContextualCapability/);
-  assert.match(dock, /presentation="dock"/);
-  assert.match(app, /requestedMode === "agent"/);
-  assert.match(app, /url\.searchParams\.set\("dock", "work"\)/);
+  assert.match(modes, /TianyiSidebarMode = "dialogue" \| "agent"/);
+  assert.match(modes, /t\("tianyi\.dialogue"\)/);
+  assert.match(modes, /t\("tianyi\.agent"\)/);
+  assert.match(sidebar, /data-shared-session-id=\{props\.sharedSessionIdentity\}/);
+  assert.match(sidebar, /setMode\("agent"\)/);
+  assert.doesNotMatch(sidebar, /createSession|newSession|providerGateway|localTransport/);
 });
 
 test("the contextual registry covers eight spaces without becoming a semantic owner", () => {

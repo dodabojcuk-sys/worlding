@@ -1,5 +1,5 @@
 import { ChevronDown, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
@@ -15,8 +15,17 @@ const options: readonly { id: CapabilityPermissionIntent; labelKey: TranslationK
 export function PermissionControl(props: { value: CapabilityPermissionIntent; onIntent(value: CapabilityPermissionIntent): void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const current = options.find((item) => item.id === props.value)!;
-  return <div className="composer-runtime-control permission-control">
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => !rootRef.current?.contains(event.target as Node) && setOpen(false);
+    const closeEscape = (event: globalThis.KeyboardEvent) => event.key === "Escape" && setOpen(false);
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape); };
+  }, [open]);
+  return <div className="composer-runtime-control permission-control" ref={rootRef}>
     <button type="button" aria-expanded={open} aria-label={t("permission.title")} title={t("permission.title")} onClick={() => setOpen((value) => !value)}><ShieldCheck aria-hidden="true" /><span>{t(current.labelKey)}</span><ChevronDown aria-hidden="true" /></button>
     {open && <section role="dialog" aria-label={t("permission.title")}>
       <strong>{t("permission.title")}</strong>
