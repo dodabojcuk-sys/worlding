@@ -16,7 +16,7 @@ import {
   type TianyiVisibleMessage
 } from "../../lib/localTransport";
 import { selectResumableTianyiSession, selectSharedTianyiSession } from "../tianyiSessionResume";
-import type { TianyiComposerSendMode } from "./TianyiComposer";
+import type { TianyiComposerSendMode } from "./composer/TianyiComposer";
 import { deriveTianyiThreadBriefDraft, mapTianyiThreadBriefChanges, type TianyiThreadBriefDraft } from "./tianyiConversationBrief";
 import type { TianyiTransportState } from "./tianyiTransportPresentation";
 

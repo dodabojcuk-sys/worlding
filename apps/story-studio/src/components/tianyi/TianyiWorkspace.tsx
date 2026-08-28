@@ -5,7 +5,7 @@ import type { TianyiShellContext } from "../tianyiShellContext";
 import type { ModelServiceStatus, StoryExploration, TianyiContextRequest, TianyiNuwaExecutionBrief, TianyiReceiptRead } from "../../lib/localTransport";
 import { WorkspaceHeader } from "../../product-shell/WorkspaceHeader";
 import { TianyiBriefReview } from "./TianyiBriefReview";
-import { TianyiComposer } from "./TianyiComposer";
+import { TianyiComposer } from "./composer/TianyiComposer";
 import { TianyiConversationRail } from "./TianyiConversationRail";
 import { TianyiConversationThread } from "./TianyiConversationThread";
 import { TianyiCreativeWorkspace } from "./TianyiCreativeWorkspace";
