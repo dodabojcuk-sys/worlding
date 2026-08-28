@@ -5,6 +5,12 @@ import {
   storyStudioShellDestinationById,
   type StoryStudioShellDestination
 } from "./navigation/topLevelDestinationRegistry";
+import {
+  nextShellRailPreference,
+  resolveShellRailCollapsed,
+  SHELL_RAIL_AUTO_COLLAPSE_QUERY,
+  type ShellRailPreference
+} from "./navigation/responsiveRailState";
 import { ProductShellNavigation } from "./navigation/ProductShellNavigation";
 import { GlobalStatusBar } from "./topbar/GlobalStatusBar";
 import { ProjectDirectorySlot, RightPanelDock, ShellPanelControls } from "./panels/ShellPanelSlots";
@@ -18,7 +24,11 @@ export function TianyanR0Shell() {
   const { locale, t, toggleLocale } = useI18n();
   const shellLab = new URLSearchParams(window.location.search).get("shellLab") === "1";
   const [activeId, setActiveId] = useState(() => resolveStoryStudioShellLocation(window.location.pathname));
-  const [railCollapsed, setRailCollapsed] = useState(() => new URLSearchParams(window.location.search).get("rail") === "collapsed");
+  const [railPreference, setRailPreference] = useState<ShellRailPreference>(() => {
+    const requested = new URLSearchParams(window.location.search).get("rail");
+    return requested === "collapsed" || requested === "expanded" ? requested : "auto";
+  });
+  const [autoCollapseRail, setAutoCollapseRail] = useState(() => window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY).matches);
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);
   const [commandOpen, setCommandOpen] = useState(false);
   const [canShowParallelPanels, setCanShowParallelPanels] = useState(() => window.matchMedia("(min-width: 100rem)").matches);
@@ -26,11 +36,20 @@ export function TianyanR0Shell() {
   const [layout, dispatchLayout] = useReducer(reduceShellLayout, shellLab && window.matchMedia("(min-width: 100rem)").matches, createInitialShellLayout);
   const activeDestination = storyStudioShellDestinationById(activeId);
   const rightPanelCount = Number(layout["global-tianyi"].visible) + Number(layout["page-inspector"].visible);
+  const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
 
   useEffect(() => {
     const handlePopState = () => setActiveId(resolveStoryStudioShellLocation(window.location.pathname));
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY);
+    const updateAutoCollapse = () => setAutoCollapseRail(media.matches);
+    updateAutoCollapse();
+    media.addEventListener("change", updateAutoCollapse);
+    return () => media.removeEventListener("change", updateAutoCollapse);
   }, []);
 
   useEffect(() => {
@@ -68,6 +87,7 @@ export function TianyanR0Shell() {
   };
 
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
+  const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
 
   const togglePanel = (panel: "project-directory" | "global-tianyi" | "page-inspector") => {
     if (panel === "project-directory" || canShowParallelPanels) {
@@ -97,7 +117,7 @@ export function TianyanR0Shell() {
       active={activeId}
       collapsed={railCollapsed}
       onSelect={navigate}
-      onToggleCollapsed={() => setRailCollapsed((current) => !current)}
+      onToggleCollapsed={toggleRail}
       onOpenCommand={() => setCommandOpen(true)}
       onSettings={() => undefined}
       onAccount={() => undefined}
@@ -127,7 +147,7 @@ export function TianyanR0Shell() {
       theme={theme}
       onClose={() => setCommandOpen(false)}
       onNavigate={navigate}
-      onToggleRail={() => setRailCollapsed((current) => !current)}
+      onToggleRail={toggleRail}
       onTogglePanel={togglePanel}
       onToggleLocale={toggleLocale}
       onToggleTheme={toggleTheme}

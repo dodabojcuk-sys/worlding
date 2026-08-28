@@ -11,6 +11,11 @@ import {
 import { TIAN_YAN_R0_COMMAND_PANEL_SCOPE, TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
 import { createInitialShellLayout, reduceShellLayout } from "../../apps/story-studio/src/product-shell/layoutProtocol.ts";
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
+import {
+  nextShellRailPreference,
+  resolveShellRailCollapsed,
+  SHELL_RAIL_AUTO_COLLAPSE_QUERY
+} from "../../apps/story-studio/src/product-shell/navigation/responsiveRailState.ts";
 
 test("R0 has one ordered workspace registry and an independent Collections destination", () => {
   assert.deepEqual(STORY_STUDIO_WORKSPACE_REGISTRY.map((space) => space.displayName), ["世界", "天意", "事件线", "多元", "女娲", "资料", "创作", "数据"]);
@@ -90,6 +95,25 @@ test("account and settings remain independent rail utilities", () => {
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
   assert.doesNotMatch(navigation, /shell-collapse-control/);
+});
+
+test("responsive rail resolves to complete expanded labels or a 56px icon rail", () => {
+  const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
+  const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
+  const labelRule = styles.match(/\.shell-space-label\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+  assert.equal(SHELL_RAIL_AUTO_COLLAPSE_QUERY, "(max-width: 75rem)");
+  assert.equal(resolveShellRailCollapsed("auto", true), true);
+  assert.equal(resolveShellRailCollapsed("auto", false), false);
+  assert.equal(resolveShellRailCollapsed("expanded", true), false);
+  assert.equal(resolveShellRailCollapsed("collapsed", false), true);
+  assert.equal(nextShellRailPreference(true), "expanded");
+  assert.equal(nextShellRailPreference(false), "collapsed");
+  assert.match(shell, /data-rail-collapsed=\{railCollapsed\}/);
+  assert.match(shell, /onToggleCollapsed=\{toggleRail\}/);
+  assert.doesNotMatch(labelRule, /text-overflow\s*:\s*ellipsis/);
+  assert.doesNotMatch(styles, /@media \(max-width: 75rem\)[\s\S]*?--space-rail-width\s*:\s*7\.75rem/);
+  assert.doesNotMatch(styles, /--space-rail-collapsed-width\s*:\s*3\.75rem/);
 });
 
 test("active R0 shell is split by responsibility and imports no business transport or Provider", () => {

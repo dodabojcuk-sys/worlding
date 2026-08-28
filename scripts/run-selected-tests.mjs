@@ -95,7 +95,8 @@ if (mode === "lint") {
     "apps/story-studio/scripts/story-studio-golden-loop-r0-smoke.mjs",
     "apps/story-studio/scripts/story-studio-agent-assisted-core-library-objects-r0-smoke.mjs",
     "apps/story-studio/scripts/library-home-compact-rail-r0-smoke.mjs",
-    "apps/story-studio/scripts/tianyi-primary-conversation-workspace-recovery-r0-smoke.mjs"
+    "apps/story-studio/scripts/tianyi-primary-conversation-workspace-recovery-r0-smoke.mjs",
+    "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"
   ]);
   const trackedStoryStudioScripts = execFileSync("git", ["ls-files", "apps/story-studio/scripts"], { encoding: "utf8" })
     .split("\n")

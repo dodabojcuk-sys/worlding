@@ -263,11 +263,9 @@ input:focus-visible {
 
 .shell-space-label {
   min-width: 0;
-  overflow: hidden;
   font-size: var(--font-size-sm);
   font-weight: 550;
   line-height: 1.2;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -823,7 +821,6 @@ input:focus-visible {
 
 @media (max-width: 75rem) {
   :root {
-    --space-rail-width: 7.75rem;
     --directory-width: 13.5rem;
     --panel-width: 13.75rem;
   }
@@ -854,41 +851,16 @@ input:focus-visible {
 
 @media (max-width: 50rem) {
   :root {
-    --space-rail-width: var(--space-rail-collapsed-width);
     --directory-width: 0rem;
     --topbar-height: 3.625rem;
   }
 
   .tianyan-r0-shell {
-    --rail-current: var(--space-rail-collapsed-width);
     --directory-current: 0rem;
     grid-template-columns: var(--rail-current) minmax(0, 1fr) var(--panel-controls-width);
     grid-template-areas:
       "rail topbar topbar"
       "rail workspace controls";
-  }
-
-  .shell-space-rail .shell-brand-home,
-  .shell-space-rail .shell-command-trigger-label,
-  .shell-space-rail .shell-command-trigger kbd,
-  .shell-space-rail .shell-space-label {
-    display: none;
-  }
-
-  .shell-space-rail .shell-space-section,
-  .shell-space-rail .shell-command-trigger,
-  .shell-space-rail .shell-rail-utility {
-    padding-inline: var(--space-2);
-  }
-
-  .shell-space-rail .shell-command-trigger {
-    justify-content: center;
-    margin-inline: var(--space-2);
-  }
-
-  .shell-space-rail .shell-space-link {
-    justify-content: center;
-    padding-inline: var(--space-2);
   }
 
   .shell-project-directory {
@@ -916,7 +888,6 @@ input:focus-visible {
 
 @media (max-width: 35rem) {
   :root {
-    --space-rail-collapsed-width: 3.75rem;
     --panel-controls-width: 3.25rem;
   }
 

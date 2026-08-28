@@ -1,64 +1,54 @@
-# Tianyan Global Shell Rebuild R0 — Design QA
+# Tianyan R0.1.2 Zoom Fix — Design QA
 
 **Comparison target**
 
-- Source visual truth (primary geometry): `/tmp/codex-clipboard-acaec6cc-7093-4e0a-bc83-6134e28e6eb2.png`
-- Source visual truth (secondary tone and density): `/tmp/codex-clipboard-fa56aca9-ef69-4913-ab80-14a317eb7b3a.png`
-- Rendered implementation: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍全局外壳重建R0/截图/01-中文默认-1440x900.png`
-- Route and state: `/tianyi`, `zh-CN`, `cloud-ink`, expanded global rail, neutral production slots
-- CSS viewport: `1440 × 900`; implementation pixels: `1440 × 900`; device pixel ratio: `1`
-- Primary source pixels: `1586 × 992`, proportionally resized and center-cropped to `1440 × 900` for equal-size comparison
-- Secondary source pixels: `1560 × 975`; used as a qualitative reference for paper tone and editorial density, not as the geometry target
-- Full-view comparison evidence: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍全局外壳重建R0/验证/qa-comparison-full.png`
-- Focused region evidence: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍全局外壳重建R0/验证/qa-comparison-nav-topbar.png`
+- Source visual truth: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍全局账户设置恢复R0_1_1/截图/03-125缩放等效-1152x720.png`
+- Rendered implementation: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍R0_1_2缩放修复与公开同步/截图/01-中文自动折叠-1152x720.png`
+- Additional long-label state: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍R0_1_2缩放修复与公开同步/截图/02-英文长标签展开-1152x720.png`
+- CSS viewport and pixel dimensions: source `1152 × 720`, implementation `1152 × 720`, device pixel ratio `1`; no density normalization required
+- State: `/world`, `cloud-ink`; Chinese automatic responsive state and English explicit `rail=expanded` state
+- Full-view comparison evidence: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍R0_1_2缩放修复与公开同步/验证/qa-comparison-full.png`
+- Focused rail comparison evidence: `/home/beelink/Documents/Codex/worlding.world-天衍/data/2026-08-28_天衍R0_1_2缩放修复与公开同步/验证/qa-comparison-rail.png`
 
 **Findings**
 
-- No actionable P0, P1, or P2 mismatch remains within the R0 shell scope. The implementation preserves the primary reference's macro composition: a persistent dark space rail, restrained global topbar, warm-paper central workspace, separate project-directory boundary, and independent right-side control region.
-- The production view intentionally omits the references' directory records, chat history, character details, work logs, analysis tools, and other business content. This is a product-scope constraint, not incomplete visual fidelity: R0 authoritatively requires neutral slots and forbids simulated business data.
-- The topbar adds global search and local runtime status that are required by the R0 contract but not equally prominent in the reference. Their weight remains subordinate to the workspace.
+- No actionable P0, P1, or P2 issue remains. At `1152 × 720`, automatic responsive behavior now resolves to a strict `56px` icon rail; no partial labels or ellipsis are visible.
+- Manual expansion overrides automatic collapse. Chinese uses the complete normal-width rail; English uses the existing long-label width, and every visible navigation and utility label has `scrollWidth <= clientWidth` with computed `text-overflow: clip`.
+- All collapsed destination and utility buttons retain non-empty `title` and `aria-label` values.
 
 **Required fidelity surfaces**
 
-- Fonts and typography: local `Noto Serif CJK SC` display text and `Noto Sans CJK SC` interface text reproduce the editorial serif/sans hierarchy. Chinese and English use the same semantic scale, with wrapping and truncation verified at `1440 × 900`, `1280 × 800`, and an equivalent 125% zoom viewport (`1152 × 720`).
-- Spacing and layout rhythm: the implementation follows the source's rail/topbar/workspace/panel hierarchy and preserves a visibly dominant center. Grid tracks, panel widths, gaps, borders, radii, shadows, and compact action-rail density are tokenized. No viewport overflow or clipped persistent controls remained in verified states.
-- Colors and visual tokens: deep ink-blue structure, warm paper surfaces, restrained jade accent, text, muted text, borders, focus, success, warning, and danger are all mapped through semantic tokens. Switching to `night-paper` changes the visual system without component rewrites.
-- Image quality and asset fidelity: the R0 shell owns no photographic, illustrative, logo, or avatar assets. The source's business-content imagery is explicitly outside this build. Existing Lucide icons are used consistently; no emoji, placeholder drawings, CSS art, or handcrafted SVG substitutes were introduced.
-- Copy and content: all visible shell copy is meaningful, scoped to the shell, and supplied through complete `zh-CN` and `en-US` translation dictionaries. No fake story entities, logs, chat messages, or completed-feature cards appear in production routes.
-- Icons and interaction states: navigation, search, theme, locale, panel close/reopen, collapse, profile, and settings controls use one line-icon family, accessible names, tooltips where needed, visible focus, hover/active states, and reduced-motion handling.
-- Responsiveness and accessibility: the global rail remains usable when collapsed; English labels do not clip; keyboard navigation supports Arrow keys, Home, and End; panel slots remain independently closable and can coexist in Shell Lab; browser console warnings/errors were empty.
+- Fonts and typography: unchanged from R0.1.1. The fix removes visible ellipsis from space labels; expanded labels retain the established Noto interface typography and line height.
+- Spacing and layout rhythm: the prior 7.75rem intermediate rail is gone. The only compact width is the `3.5rem` semantic token; the workspace, directory, topbar, and right controls retain their existing geometry.
+- Colors and visual tokens: unchanged. The fix uses the existing semantic width tokens and introduces no component-local color.
+- Image quality and asset fidelity: no image or brand asset changed. Existing line icons remain sharp and centered in the 56px rail.
+- Copy and content: Chinese and English strings are unchanged; no label is abbreviated or replaced.
+- Accessibility and behavior: automatic collapse, explicit manual expansion, tooltip/accessibility names, zero horizontal overflow, and keyboard-capable controls were checked. Browser console warnings/errors: none.
 
 **Comparison history**
 
-1. Initial browser comparison found two P2 issues: long English navigation labels clipped in the expanded rail, and the right action rail was too narrow for Chinese labels. The space rail and action rail widths were increased using semantic sizing tokens, labels were allowed to wrap safely, and compact-mode behavior was retained.
-2. Post-fix captures were produced at the same viewport/state. Evidence: `02-英文状态-1440x900.png`, `03-收起空间轨-1280x800.png`, and the refreshed full/focused comparison images above. No clipping, overlap, or page overflow remained.
+1. Earlier P2: the `75rem` media query reduced an expanded rail to `7.75rem`, while `.shell-space-label` used `text-overflow: ellipsis`; Chinese destinations and Personal center rendered as partial text plus an ellipsis.
+2. Fix: responsive state now resolves through `auto | collapsed | expanded`; the `75rem` breakpoint drives automatic collapse, manual expansion overrides it, the 7.75rem state and narrower CSS overrides were removed, and collapsed width remains exactly 56px.
+3. Post-fix evidence: the full and focused comparisons above show the truncated mixed state replaced by icon-only navigation; the English expanded screenshot proves long labels remain complete at the same viewport.
 
 **Primary interactions tested**
 
-- Global navigation selection and URL transition, including independent `/collections`
-- ArrowDown, Home, and End navigation focus behavior
-- Space rail expand/collapse
-- `zh-CN` / `en-US` locale switching
-- `cloud-ink` / `night-paper` theme switching
-- Independent close/reopen behavior for Global Tianyi and page-inspector slots
-- Shell Lab parallel panel state
-- Browser console warning/error check: none
+- Automatic rail collapse at `1152 × 720`
+- Manual expansion override at `1152 × 720`
+- Chinese and English label measurement
+- Tooltip and accessible-name presence in collapsed mode
+- Horizontal overflow and browser console checks
 
 **Open questions**
 
-- Founder experience acceptance remains a separate manual activity; this technical visual QA does not replace it.
-- Detailed project-directory content and page-specific right-panel experiences remain deliberately unstarted.
+- None for this regression. Founder experience acceptance remains independent from technical QA.
 
 **Implementation checklist**
 
-- [x] Correct the independent Collections boundary.
-- [x] Drive the global rail from one registry.
-- [x] Separate topbar, workspace outlet, directory slot, Global Tianyi slot, and page-inspector slot.
-- [x] Verify Chinese, English, collapsed rail, Shell Lab, 125% zoom equivalent, keyboard behavior, and alternate theme.
-- [x] Re-capture and compare after P2 fixes.
-
-**Follow-up polish**
-
-- P3: after Founder review, tune the central title's optical size and starting position if the preferred balance should lean more strongly toward either reference image.
+- [x] Remove the intermediate compressed-label state.
+- [x] Preserve exactly 56px for collapsed mode.
+- [x] Preserve full labels during manual expansion.
+- [x] Add a durable browser smoke assertion for 1152×720.
+- [x] Capture and compare post-fix Chinese and English states.
 
 final result: passed
