@@ -1,22 +1,26 @@
-/** Presentation-only placement protocol. It persists no story or session data. */
-export type R0PanelId = "directory" | "page-tools" | "global-tianyi" | "page-log";
-export type R0DockEdge = "left" | "right" | "bottom";
-export type R0PanelMode = "docked" | "floating" | "hidden";
+import {
+  TIAN_YAN_R0_DEFAULT_LAYOUT,
+  type TianyanR0PanelId,
+  type TianyanR0ShellLayoutState
+} from "../../../../src/storyContracts/tianyanR0ShellContract.ts";
 
-export type R0PanelPlacement = {
-  panel: R0PanelId;
-  mode: R0PanelMode;
-  edge: R0DockEdge;
-  width: "narrow" | "regular" | "wide";
-};
+export type ShellLayoutAction =
+  | { type: "toggle"; panel: TianyanR0PanelId }
+  | { type: "show"; panel: TianyanR0PanelId }
+  | { type: "hide"; panel: TianyanR0PanelId };
 
-/**
- * R0 only renders docked/hidden panels. `floating` is intentionally a protocol
- * value for the next stage; it has no drag or persistence behavior yet.
- */
-export const R0_DEFAULT_PANEL_PLACEMENTS: readonly R0PanelPlacement[] = [
-  { panel: "directory", mode: "docked", edge: "left", width: "regular" },
-  { panel: "page-tools", mode: "docked", edge: "right", width: "narrow" },
-  { panel: "global-tianyi", mode: "docked", edge: "right", width: "regular" },
-  { panel: "page-log", mode: "docked", edge: "bottom", width: "wide" }
-];
+export function createInitialShellLayout(shellLab: boolean): TianyanR0ShellLayoutState {
+  if (!shellLab) return structuredClone(TIAN_YAN_R0_DEFAULT_LAYOUT);
+  return {
+    ...structuredClone(TIAN_YAN_R0_DEFAULT_LAYOUT),
+    "global-tianyi": { ...TIAN_YAN_R0_DEFAULT_LAYOUT["global-tianyi"], visible: true },
+    "page-inspector": { ...TIAN_YAN_R0_DEFAULT_LAYOUT["page-inspector"], visible: true }
+  };
+}
+
+/** R0 changes visibility only; dock, float, side, snap, and persistence remain protocol values. */
+export function reduceShellLayout(state: TianyanR0ShellLayoutState, action: ShellLayoutAction): TianyanR0ShellLayoutState {
+  const current = state[action.panel];
+  const visible = action.type === "show" ? true : action.type === "hide" ? false : !current.visible;
+  return { ...state, [action.panel]: { ...current, visible } };
+}

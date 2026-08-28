@@ -11,7 +11,8 @@ export type StoryStudioWorkspaceIcon =
   | "multiverse"
   | "library"
   | "writing"
-  | "data";
+  | "data"
+  | "collections";
 
 export type StoryStudioWorkspaceGroup = "world" | "intelligence" | "authoring";
 export type StoryStudioWorkspaceVisibility = "primary" | "more" | "hidden";
@@ -21,6 +22,8 @@ export type StoryStudioWorkspaceDefinition = {
   id: string;
   route: string;
   displayName: string;
+  labelKey: string;
+  summaryKey: string;
   icon: StoryStudioWorkspaceIcon;
   order: number;
   group: StoryStudioWorkspaceGroup;
@@ -34,18 +37,53 @@ export type StoryStudioWorkspaceDefinition = {
 };
 
 export const STORY_STUDIO_WORKSPACE_REGISTRY = [
-  { id: "world", route: "/world", displayName: "世界", icon: "world", order: 1, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
-  { id: "tianyi", route: "/tianyi", displayName: "天意", icon: "tianyi", order: 2, group: "intelligence", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
-  { id: "event-line", route: "/event-line", displayName: "事件线", icon: "event-line", order: 3, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
-  { id: "multiverse", route: "/multiverse", displayName: "多元", icon: "multiverse", order: 4, group: "authoring", visibility: { desktop: "primary", mobile: "more" }, authorNavigation: "global", enabled: true },
-  { id: "nuwa", route: "/nuwa", displayName: "女娲", icon: "nuwa", order: 5, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
-  { id: "library", route: "/library", displayName: "资料", icon: "library", order: 6, group: "world", visibility: { desktop: "primary", mobile: "more" }, authorNavigation: "global", enabled: true },
-  { id: "writing", route: "/creation", displayName: "创作", icon: "writing", order: 7, group: "authoring", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
-  { id: "data", route: "/data", displayName: "数据", icon: "data", order: 8, group: "world", visibility: { desktop: "primary", mobile: "hidden" }, authorNavigation: "global", enabled: true }
+  { id: "world", route: "/world", displayName: "世界", labelKey: "space.world", summaryKey: "space.world.summary", icon: "world", order: 1, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
+  { id: "tianyi", route: "/tianyi", displayName: "天意", labelKey: "space.tianyi", summaryKey: "space.tianyi.summary", icon: "tianyi", order: 2, group: "intelligence", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
+  { id: "event-line", route: "/event-line", displayName: "事件线", labelKey: "space.eventLine", summaryKey: "space.eventLine.summary", icon: "event-line", order: 3, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
+  { id: "multiverse", route: "/multiverse", displayName: "多元", labelKey: "space.multiverse", summaryKey: "space.multiverse.summary", icon: "multiverse", order: 4, group: "authoring", visibility: { desktop: "primary", mobile: "more" }, authorNavigation: "global", enabled: true },
+  { id: "nuwa", route: "/nuwa", displayName: "女娲", labelKey: "space.nuwa", summaryKey: "space.nuwa.summary", icon: "nuwa", order: 5, group: "world", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
+  { id: "library", route: "/library", displayName: "资料", labelKey: "space.library", summaryKey: "space.library.summary", icon: "library", order: 6, group: "world", visibility: { desktop: "primary", mobile: "more" }, authorNavigation: "global", enabled: true },
+  { id: "writing", route: "/creation", displayName: "创作", labelKey: "space.creation", summaryKey: "space.creation.summary", icon: "writing", order: 7, group: "authoring", visibility: { desktop: "primary", mobile: "primary" }, authorNavigation: "global", enabled: true },
+  { id: "data", route: "/data", displayName: "数据", labelKey: "space.data", summaryKey: "space.data.summary", icon: "data", order: 8, group: "world", visibility: { desktop: "primary", mobile: "hidden" }, authorNavigation: "global", enabled: true }
 ] as const satisfies readonly StoryStudioWorkspaceDefinition[];
 
 export type StoryStudioWorkspaceId = typeof STORY_STUDIO_WORKSPACE_REGISTRY[number]["id"];
 export type StoryStudioWorkspace = typeof STORY_STUDIO_WORKSPACE_REGISTRY[number];
+
+export type StoryStudioDerivedDestination = {
+  id: "collections";
+  route: "/collections";
+  displayName: "合册";
+  labelKey: "space.collections";
+  summaryKey: "space.collections.summary";
+  icon: "collections";
+  order: 1;
+  kind: "derived";
+  enabled: true;
+};
+
+export const STORY_STUDIO_DERIVED_DESTINATION_REGISTRY: readonly StoryStudioDerivedDestination[] = [{
+  id: "collections",
+  route: "/collections",
+  displayName: "合册",
+  labelKey: "space.collections",
+  summaryKey: "space.collections.summary",
+  icon: "collections",
+  order: 1,
+  kind: "derived",
+  enabled: true
+}];
+
+export type StoryStudioShellDestinationId = StoryStudioWorkspaceId | StoryStudioDerivedDestination["id"];
+export type StoryStudioShellDestination =
+  | (StoryStudioWorkspace & { kind: "workspace" })
+  | StoryStudioDerivedDestination;
+
+/** The sole navigation registry consumed by the R0 shell. */
+export const STORY_STUDIO_SHELL_NAVIGATION_REGISTRY: readonly StoryStudioShellDestination[] = [
+  ...STORY_STUDIO_WORKSPACE_REGISTRY.map((workspace) => ({ ...workspace, kind: "workspace" as const })),
+  ...STORY_STUDIO_DERIVED_DESTINATION_REGISTRY
+];
 
 export const STORY_STUDIO_WORKSPACE_IDS: readonly StoryStudioWorkspaceId[] = STORY_STUDIO_WORKSPACE_REGISTRY.map((workspace) => workspace.id) as StoryStudioWorkspaceId[];
 
@@ -100,6 +138,22 @@ export function storyStudioWorkspaceRoute(id: StoryStudioWorkspaceId): string {
 
 export function storyStudioWorkspaceDisplayName(id: StoryStudioWorkspaceId): string {
   return storyStudioWorkspaceById(id).displayName;
+}
+
+export function storyStudioShellDestinationById(id: StoryStudioShellDestinationId): StoryStudioShellDestination {
+  const destination = STORY_STUDIO_SHELL_NAVIGATION_REGISTRY.find((item) => item.id === id);
+  if (!destination) throw new Error(`Unknown Story Studio shell destination: ${id}`);
+  return destination;
+}
+
+export function resolveStoryStudioShellLocation(pathname: string): StoryStudioShellDestinationId {
+  const normalized = normalizePathname(pathname);
+  return STORY_STUDIO_SHELL_NAVIGATION_REGISTRY.find((item) => item.route === normalized)?.id
+    ?? resolveStoryStudioWorkspaceLocation({ pathname: normalized, search: windowSafeSearch() }).id;
+}
+
+function windowSafeSearch(): string {
+  return typeof window === "undefined" ? "" : window.location.search;
 }
 
 /**
