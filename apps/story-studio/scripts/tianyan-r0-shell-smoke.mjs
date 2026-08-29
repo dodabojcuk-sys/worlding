@@ -46,12 +46,15 @@ try {
   const consoleProblems = [];
   page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
   page.on("pageerror", (error) => consoleProblems.push(error.message));
+  page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await page.goto(`${baseUrl}/world`, { waitUntil: "networkidle" });
   await page.getByTestId("tianyan-r0-shell").waitFor();
   await assertCollapsedIconRail(page);
   await assertPermissionProjection(page);
   await assertCharacterDirectoryAndInspector(page);
+  await assertCharacterCreationDurability(page);
+  await assertExactlyOneActiveDestination(page);
   if (visualEvidenceDirectory) await captureCharacterDirectoryEvidence(page, consoleProblems);
 
   if (!visualEvidenceState) {
@@ -101,6 +104,78 @@ async function assertCharacterDirectoryAndInspector(page) {
   assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
 }
 
+async function assertCharacterCreationDurability(page) {
+  await waitForCharacterDirectoryIdle(page);
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.getByRole("dialog", { name: "新建角色" }).waitFor();
+  await page.getByRole("button", { name: "创建角色", exact: true }).click();
+  await page.getByRole("alert").waitFor();
+  assert.match(await page.getByRole("alert").textContent(), /请填写角色姓名/u, "The create form must validate its required name field");
+  await page.getByLabel("姓名").fill("沈砚");
+  await page.getByLabel("角色层级").selectOption("main");
+  await page.getByLabel("别名").fill("阿砚, 小砚");
+  await page.getByLabel("人物摘要").fill("负责追查旧港失踪案的调查者。");
+  await page.getByLabel("分类").fill("main-characters");
+  await page.getByRole("textbox", { name: "标签", exact: true }).fill("调查, 主线");
+  await page.getByRole("button", { name: "创建角色", exact: true }).dblclick();
+  await page.getByTestId("character-inspector").waitFor();
+  await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("沈砚"));
+  assert.match(page.url(), /directoryObject=character\./u, "The created object must be selected through its stable object ID in the URL");
+  const createdOption = page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" });
+  await waitForCharacterDirectoryIdle(page);
+  await createdOption.waitFor();
+  assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
+  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByTestId("character-directory").waitFor();
+  assert.equal(await page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a browser refresh");
+  const freshContext = await browser.newContext({ viewport: { width: 1152, height: 720 } });
+  const freshSession = await freshContext.newPage();
+  try {
+    await freshSession.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
+    await freshSession.getByTestId("character-directory").waitFor();
+    assert.equal(await freshSession.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a new Shell session");
+  } finally {
+    await freshContext.close();
+  }
+}
+
+async function waitForCharacterDirectoryIdle(page) {
+  await page.waitForFunction(() => !document.querySelector(".character-directory-list")?.textContent?.includes("正在加载…"));
+}
+
+async function assertExactlyOneActiveDestination(page) {
+  const ids = ["world", "tianyi", "event-line", "multiverse", "nuwa", "library", "writing", "data", "collections"];
+  for (const id of ids) {
+    await page.locator(`[data-shell-destination="${id}"]`).click();
+    await page.waitForFunction((destination) => document.querySelectorAll("[data-shell-destination][aria-current='page']").length === 1 && document.querySelector(`[data-shell-destination="${destination}"]`)?.getAttribute("aria-current") === "page", id);
+  }
+  await page.locator('[data-shell-destination="world"]').click();
+  const visual = await page.evaluate(() => {
+    const world = document.querySelector("[data-shell-destination='world']");
+    const collections = document.querySelector("[data-shell-destination='collections']");
+    const tianyi = document.querySelector("[data-shell-destination='tianyi']");
+    if (!(world instanceof HTMLElement) || !(collections instanceof HTMLElement) || !(tianyi instanceof HTMLElement)) throw new Error("Navigation controls are unavailable.");
+    const worldStyle = getComputedStyle(world);
+    const collectionsStyle = getComputedStyle(collections);
+    const tianyiStyle = getComputedStyle(tianyi);
+    return {
+      activeCount: document.querySelectorAll("[data-shell-destination][aria-current='page']").length,
+      collectionsActive: collections.classList.contains("is-active"),
+      worldBackground: worldStyle.backgroundColor,
+      collectionsBackground: collectionsStyle.backgroundColor,
+      collectionsColor: collectionsStyle.color,
+      inactiveColor: tianyiStyle.color
+    };
+  });
+  assert.equal(visual.activeCount, 1, "Every route must expose exactly one current navigation destination");
+  assert.equal(visual.collectionsActive, false, "Collections must not retain the active class while World is selected");
+  assert.notEqual(visual.worldBackground, visual.collectionsBackground, "The active World control must have a distinct structural background");
+  assert.equal(visual.collectionsColor, visual.inactiveColor, "The derived Collections control must share the ordinary inactive visual weight");
+}
+
 /** Optional external evidence only; this is never a production screenshot fixture. */
 async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   mkdirSync(visualEvidenceDirectory, { recursive: true });
@@ -113,8 +188,25 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     await page.reload({ waitUntil: "networkidle" });
     await page.locator('[data-directory-node="directory.library.character"]').click();
     await page.getByTestId("character-directory").waitFor();
+    await waitForCharacterDirectoryIdle(page);
     const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
     await currentCharacter.waitFor();
+    if (state === "form" || state === "required" || state === "created" || state === "refreshed") {
+      await page.getByRole("button", { name: "新建", exact: true }).click();
+      await page.getByRole("dialog", { name: "新建角色" }).waitFor();
+    }
+    if (state === "required") await page.getByRole("button", { name: "创建角色", exact: true }).click();
+    if (state === "created" || state === "refreshed") {
+      await page.getByLabel("姓名").fill(`新建角色${viewport.width}`);
+      await page.getByLabel("人物摘要").fill("用于浏览器视觉验收的本地隔离角色。");
+      await page.getByLabel("分类").fill("visual-check");
+      await page.getByRole("button", { name: "创建角色", exact: true }).click();
+      await page.getByTestId("character-inspector").waitFor();
+      if (state === "refreshed") await page.reload({ waitUntil: "networkidle" });
+    }
+    if (state === "world-active") {
+      await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    }
     if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
     if (state === "compact") await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "缩略版", exact: true }).click();
     if (state === "multi" || state === "archive") await page.getByRole("button", { name: "多选", exact: true }).click();
@@ -130,7 +222,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     captures.push({ filename, viewport, state, projectId: "r05-character-directory", workVersionId: null, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
   };
   const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
-  const states = ["standard", "inspector", "compact", "multi", "archive"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  const states = ["standard", "form", "required", "created", "refreshed", "inspector", "compact", "multi", "archive", "world-active"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
   for (const viewport of viewports) {
     for (const state of states) await capture(viewport, state);
   }

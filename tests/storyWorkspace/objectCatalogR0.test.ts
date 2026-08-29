@@ -26,3 +26,9 @@ test("catalog persists directory metadata only and rejects stale revisions", () 
   const stored = readFileSync(path.join(root, ".world-os", "object-catalog", "work.root.json"), "utf8");
   assert.doesNotMatch(stored, /"title"|"summary"|"tags"|"relations"|"events"|"canon"|"image"/iu);
 });
+
+test("catalog accepts durable Unicode WorldObject identifiers without storing character fields", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-catalog-")); const catalog = createObjectCatalog(root);
+  const saved = catalog.setCategory({ projectId: "project.demo", workVersionId: "work.root", expectedRevision: 0, objectType: "character", objectIds: ["character.沈砚"], categoryId: "main-characters" });
+  assert.deepEqual(saved.records.map((record) => ({ objectId: record.objectId, categoryId: record.categoryId })), [{ objectId: "character.沈砚", categoryId: "main-characters" }]);
+});

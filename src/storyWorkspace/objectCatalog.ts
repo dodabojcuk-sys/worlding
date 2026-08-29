@@ -13,7 +13,8 @@ export type ObjectCatalogState = {
   revision: number; records: ObjectCatalogRecord[];
 };
 
-const SAFE_ID = /^[A-Za-z0-9._:-]{1,180}$/u;
+/** Object IDs are generated from author-facing titles and therefore may contain Unicode letters or numbers. */
+const SAFE_ID = /^[\p{L}\p{N}._:-]{1,180}$/u;
 const nowIso = () => new Date().toISOString();
 
 /** Owns directory organization and trash metadata only; WorldObject fields remain outside this repository. */

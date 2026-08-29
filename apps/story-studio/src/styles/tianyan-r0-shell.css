@@ -246,6 +246,11 @@ input:focus-visible {
   background: var(--color-structure-surface);
 }
 
+.shell-space-link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
 .shell-space-link.is-active {
   color: var(--color-text-on-structure);
   background: var(--color-structure-surface);
@@ -280,7 +285,7 @@ input:focus-visible {
 }
 
 .shell-space-section.is-derived .shell-space-link {
-  color: var(--color-text-on-structure);
+  color: var(--color-text-on-structure-muted);
 }
 
 .shell-rail-navigation {
