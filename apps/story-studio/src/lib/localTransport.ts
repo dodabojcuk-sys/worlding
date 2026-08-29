@@ -225,6 +225,24 @@ export type ModelServiceStatus = {
     ready: boolean;
     reason: "provider-unconfigured" | null;
   };
+  agentRuntime?: {
+    state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";
+    requestedPluginId: string | null;
+    activePluginId: string | null;
+    fallbackFromPluginId: string | null;
+    message: string | null;
+    manifest: {
+      id: string;
+      pluginVersion: string;
+      upstreamVersion: string;
+      hostApiRange: string;
+      capabilities: string[];
+    } | null;
+    health: {
+      status: "healthy" | "degraded" | "unavailable";
+      message: string | null;
+    };
+  };
 };
 
 export type ProviderProfileProjection = {

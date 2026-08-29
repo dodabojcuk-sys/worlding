@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -33,10 +34,7 @@ export type TianyiAgentContextManifest = {
   };
 };
 
-export type TianyiAgentStreamEvent =
-  | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
-  | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
-  | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };
+export type TianyiAgentStreamEvent = AgentRuntimeStreamEvent;
 
 export type TianyiAgentPlanStep = {
   stepId: string;
@@ -270,7 +268,7 @@ export type TianyiAgentRuntimeDependencies = {
   now?: () => string;
   persistence: TianyiAgentRuntimePersistence;
   buildContextManifest(input: { projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextRequest?: Record<string, unknown> }): Promise<TianyiAgentContextManifest>;
-  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: TianyiAgentStreamEvent): Promise<void> }): Promise<{ providerId: string; profileId: string; modelId: string; text: string; providerCalls: number; traceId: string | null; latencyMs: number; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }>;
+  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string }>;
   cancelProvider?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<boolean> | boolean;
   fixtureResponse?(input: { task: string; contextManifest: TianyiAgentContextManifest; steering: string[] }): Promise<{ text: string; candidates: TianyiAgentCandidate[] }>;
   handoffCandidate?(input: { projectId: string; sessionId: string; runId: string; candidate: TianyiAgentCandidate; operationId: string }): Promise<{ owner: string; id: string; revision: number | null }>;

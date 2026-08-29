@@ -95,7 +95,8 @@ import {
 } from "../../../src/storyContracts/storyObservationProposalPatch.ts";
 import { createDeterministicStoryStudioAgentDraft } from "../../../src/storyContracts/storyStudioAgentDraft.ts";
 import { createTianyiAgentRuntimePort, validateTianyiAgentToolCall } from "../../../src/storyAgent/tianyiAgentRuntimePort.ts";
-import { createPiTextAgentAdapter } from "../../../src/storyAgent/piAgentAdapter.ts";
+import { agentRuntimePluginStatusProjection, createAgentRuntimePluginRegistry } from "../../../src/storyAgent/agentRuntimePluginRegistry.ts";
+import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin } from "../../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
@@ -201,7 +202,15 @@ const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootP
 const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || process.env.TIANYAN_AGENT_DRAFT_FIXTURE_MODE === "1";
 const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
 const agentFakeProviderToolScenario = agentFakeProviderStreamAllowed && process.env.TIANYAN_AGENT_FAKE_PROVIDER_TOOL_SCENARIO === "create-artifact" ? "create-artifact" : null;
-const piTextAgent = createPiTextAgentAdapter();
+const agentRuntimePluginRegistry = createAgentRuntimePluginRegistry({
+  plugins: [createBuiltinPiAgentRuntimePlugin()],
+  defaultPluginId: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID
+});
+const agentRuntimePluginResolution = agentRuntimePluginRegistry.activate({
+  pluginId: process.env.TIANYAN_AGENT_RUNTIME_PLUGIN || BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID,
+  enabled: process.env.TIANYAN_AGENT_RUNTIME_DISABLED !== "1",
+  fallbackPluginId: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID
+});
 const workspacePathPolicy = createWorkspacePathPolicy();
 const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   persistence: {
@@ -246,6 +255,13 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     };
   },
   async runProvider(input) {
+    if (!agentRuntimePluginResolution.runtime) {
+      const error = new Error(agentRuntimePluginResolution.message || "Agent Runtime 当前不可用。");
+      error.name = "ProviderUnavailable";
+      error.code = "provider-unavailable";
+      error.retryable = false;
+      throw error;
+    }
     const metadata = providerGateway.metadata();
     const profile = agentFakeProviderStreamAllowed
       ? { id: "local-fake-agent-stream", providerId: "local-fake", modelId: "deterministic-text-fixture" }
@@ -265,7 +281,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       unresolvedQuestions: input.contextManifest.unresolvedQuestions,
       steering: input.steering
     };
-    const result = await piTextAgent.run({
+    const result = await agentRuntimePluginResolution.runtime.run({
       runId: input.runId,
       projectId: input.projectId,
       workVersionId: input.workVersionId,
@@ -360,7 +376,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     });
     return { providerId: profile.providerId, profileId: profile.id, modelId: profile.modelId, ...result, text: result.text.slice(0, 6_000) };
   },
-  cancelProvider(input) { return piTextAgent.cancel(input); },
+  cancelProvider(input) { return agentRuntimePluginResolution.runtime?.cancel(input) ?? false; },
   ...(agentDraftFixtureAllowed ? { async fixtureResponse(input) {
     const sourceRefs = input.contextManifest.authorSourceRefs.length ? input.contextManifest.authorSourceRefs : input.contextManifest.sourceRefs.slice(0, 2).map((source) => source.id);
     const steeringHint = input.steering.at(-1) ? `；已按作者纠正“${input.steering.at(-1).slice(0, 80)}”` : "";
@@ -2602,6 +2618,10 @@ async function handleModelServiceRequest(request, response, url) {
         tianyiDialogue: {
           ready: configured,
           reason: configured ? null : "provider-unconfigured"
+        },
+        agentRuntime: {
+          ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),
+          health: await agentRuntimePluginRegistry.health()
         }
       }
     });

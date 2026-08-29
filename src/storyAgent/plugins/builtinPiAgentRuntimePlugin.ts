@@ -1,4 +1,25 @@
-/** Replaceable Pi infrastructure adapter; product facts stay in AgentRuntimePort. */
+/**
+ * Built-in, allowlisted Pi runtime plugin. This is the sole Agent Runtime
+ * module that imports Pi SDK packages; product code only sees the host ABI.
+ */
+import type { AgentRuntimePlugin } from "../agentRuntimePlugin.ts";
+
+export const BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID = "agent.builtin.pi" as const;
+
+export function createBuiltinPiAgentRuntimePlugin(): AgentRuntimePlugin {
+  return Object.freeze({
+    manifest: Object.freeze({
+      id: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID,
+      pluginVersion: "0.1.0",
+      upstreamVersion: "0.84.2",
+      hostApiRange: "^1.0.0",
+      capabilities: Object.freeze(["text-stream", "native-tool-frames", "cancel", "resume", "author-approval"] as const)
+    }),
+    createRuntime() { return createPiTextAgentAdapter(); },
+    health() { return { status: "healthy" as const, message: null }; },
+    async dispose(runtime) { await runtime.dispose?.(); }
+  });
+}
 export type PiTextStreamEvent =
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
   | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }

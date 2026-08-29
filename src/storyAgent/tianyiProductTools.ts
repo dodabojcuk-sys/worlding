@@ -1,4 +1,4 @@
-import type { PiTextAgentTool } from "./piAgentAdapter.ts";
+import type { AgentRuntimeTool } from "./agentRuntimePlugin.ts";
 import type { WorkspacePathPolicy } from "../storyWorkspace/workspacePathPolicy.ts";
 
 type Scope = { projectId: string; workVersionId: string; sessionId: string; runId: string };
@@ -8,7 +8,7 @@ export function createTianyiProductTools(input: {
   workspacePathPolicy?: WorkspacePathPolicy;
   createArtifact(command: { projectId: string; workVersionId: string; type: string; title: string; content: string; generationBrief: Record<string, unknown> }): Promise<{ id: string; relativeId: string }> | { id: string; relativeId: string };
   createEntityProposal(command: { projectId: string; sessionId: string; runId: string; workVersionId: string; kind: "character" | "item" | "location"; title: string; sourceReceiptId: string }): Promise<{ proposalId: string; status: string }>;
-}): PiTextAgentTool[] {
+}): AgentRuntimeTool[] {
   const scope = structuredClone(input.scope);
   return [{
     name: "create_artifact",

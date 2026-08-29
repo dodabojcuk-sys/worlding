@@ -62,7 +62,7 @@
 | WorldState 与 Event 事实 | `src/storyControlSurface/storyStudioWorkspaceOperations.ts` | 不接入 |
 | 天意会话、上下文与记忆 | `src/storyContinuity/` | R0.3 读取/调用既有 Question 合同；刷新提示不是第二会话 owner |
 | Tianyi Agent Runtime | `src/storyAgent/tianyiAgentRuntimePort.ts` | R0.3 仅调用现有受控 Run、恢复与候选交接合同 |
-| Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 不新增接入，不改变 owner |
+| Agent Runtime 插件宿主与 Pi 执行适配 | `src/storyAgent/agentRuntimePlugin.ts`、`src/storyAgent/agentRuntimePluginRegistry.ts`、`src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts` | 只允许内置白名单选择；不新增领域 owner |
 | 全局导航 registry | `src/storyContracts/storyStudioWorkspaceRegistry.ts` | 静态表现元数据 |
 | 页面布局与可见性 | `apps/story-studio/src/product-shell/TianyanR0Shell.tsx` | 仅瞬时 UI 状态 |
 | Dock 面板顺序、开关与尺寸 | `apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts` | 仅瞬时 UI 状态，不持久化 |

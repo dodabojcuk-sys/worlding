@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPiTextAgentAdapter, PiAgentAdapterError, type PiTextAgentRequest, type PiTextProviderEvent } from "../../src/storyAgent/piAgentAdapter.ts";
+import { createPiTextAgentAdapter, PiAgentAdapterError, type PiTextAgentRequest, type PiTextProviderEvent } from "../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 
 function request(overrides: Partial<PiTextAgentRequest> = {}): PiTextAgentRequest {
   return {

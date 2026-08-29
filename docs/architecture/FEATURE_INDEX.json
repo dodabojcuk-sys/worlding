@@ -7,7 +7,8 @@
     "eventOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
     "agentRecognitionProposalOwner": "src/storyIntelligence/agentRecognitionProposalRepository.ts",
     "agentRuntimePortOwner": "src/storyAgent/tianyiAgentRuntimePort.ts",
-    "piInfrastructureAdapter": "src/storyAgent/piAgentAdapter.ts",
+    "agentRuntimePluginHost": "src/storyAgent/agentRuntimePlugin.ts",
+    "piInfrastructureAdapter": "src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts",
     "providerBoundary": "apps/story-studio/server/providerGateway/aiProviderGateway.mjs",
     "candidateReviewOwner": "src/storyControlSurface/storyStudioAuthorControl.ts"
   },
@@ -17,13 +18,13 @@
       "status": "LOCAL_REVIEW",
       "maturity": "provider-gateway-routed-streaming-with-session-replay",
       "entrypoints": ["src/storyAgent/tianyiAgentRuntimePort.ts", "apps/story-studio/server/server.mjs"],
-      "sourceFiles": ["src/storyAgent/piAgentAdapter.ts", "src/storyAgent/tianyiProductTools.ts", "src/storyWorkspace/workspacePathPolicy.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "apps/story-studio/src/settings/agent/INTEGRATION_REQUEST.md", "docs/architecture/TIANYAN_R0_6_AGENT_TEXT_VERTICAL_SLICE_PRE_IMPLEMENTATION_MAP.md"],
+      "sourceFiles": ["src/storyAgent/agentRuntimePlugin.ts", "src/storyAgent/agentRuntimePluginRegistry.ts", "src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts", "src/storyAgent/tianyiProductTools.ts", "src/storyWorkspace/workspacePathPolicy.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "apps/story-studio/src/settings/agent/INTEGRATION_REQUEST.md", "docs/architecture/TIANYAN_R0_6_AGENT_TEXT_VERTICAL_SLICE_PRE_IMPLEMENTATION_MAP.md"],
       "domainOwners": ["src/storyAgent/tianyiAgentRuntimePort.ts"],
       "stateOwners": ["src/storyContinuity", "src/storyControlSurface/storyStudioTianyiOperations.ts"],
       "persistenceOwner": "Existing Tianyi Session/Archive runtime-changed events store project/work-version/session-scoped run snapshots and normalized stream events; Pi owns no product state",
       "providerDependency": "Existing Provider Gateway and configured SiliconFlow adapter only; tests inject deterministic streams and make zero real model calls",
-      "tests": ["tests/storyAgent/piAgentTextAdapter.test.ts", "tests/storyAgent/tianyiAgentRuntimePort.test.ts", "tests/storyAgent/tianyiProductTools.test.ts", "tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts", "tests/storyWorkspace/tianyanR06StorageAgentRoundtrip.test.ts"],
-      "legacyProvenance": ["@earendil-works/pi-agent-core@0.84.2 pinned; direct server-to-pi-ai Provider dispatch replaced"],
+      "tests": ["tests/storyAgent/agentRuntimePluginRegistry.test.ts", "tests/storyAgent/piAgentTextAdapter.test.ts", "tests/storyAgent/tianyiAgentRuntimePort.test.ts", "tests/storyAgent/tianyiProductTools.test.ts", "tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts", "tests/storyWorkspace/tianyanR06StorageAgentRoundtrip.test.ts"],
+      "legacyProvenance": ["@earendil-works/pi-agent-core@0.84.2 pinned inside built-in Pi plugin; host ABI registry has no dynamic loader or external executable plugin install"],
       "remainingGap": "A real Provider call remains author-triggered and was not run in R0.6; Provider Gateway currently exposes normalized text chunks, so production model-originated tool-call frames remain unavailable until that existing gateway contract is extended"
     },
     {
