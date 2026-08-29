@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -125,6 +125,21 @@ test("native fake Provider tool frames cannot write an artifact before author ap
     assert.equal(rejectedRequest.requested.toolCalls.at(-1).status, "requested");
     assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
     await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/reject`, { projectId: "agent-tool-boundary", workVersionId: rejectedRequest.workVersionId, sessionId: rejectedRequest.started.sessionId, runId: rejectedRequest.started.runId, stepId: rejectedStep.stepId, reason: "拒绝写入", operationId: "operation.tool.reject.decision" }, headers);
+    assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
+
+    const cancelledRequest = await requestTool(await openSession("operation.tool.cancel.session"), "cancel");
+    const cancelled = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/cancel`, { projectId: "agent-tool-boundary", workVersionId: cancelledRequest.workVersionId, sessionId: cancelledRequest.started.sessionId, runId: cancelledRequest.started.runId, reason: "作者取消", operationId: "operation.tool.cancel.decision" }, headers);
+    assert.equal(cancelled.status, 200);
+    assert.equal((await cancelled.json() as { data: any }).data.status, "cancelled");
+    assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
+    assert.deepEqual(await readdir(path.join(rootPath, "agent-tool-boundary", "artifacts")).catch(() => []), [], "cancellation before approval must leave no partial artifact file");
+
+    const staleSessionId = await openSession("operation.tool.stale.session");
+    const staleStart = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId: "work-version.other", sessionId: staleSessionId, task: "越界产物", currentPage: "/creation", operationId: "operation.tool.stale.start" }, headers);
+    const staleProjection = (await staleStart.json() as { data: any }).data;
+    const staleApproval = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-tool-boundary", workVersionId: "work-version.other", sessionId: staleSessionId, runId: staleProjection.runId, stepId: staleProjection.plan[0].stepId, operationId: "operation.tool.stale.context" }, headers);
+    assert.equal(staleApproval.status, 200);
+    assert.match((await staleApproval.json() as { data: any }).data.error.message, /工作版本|WorkVersion/u);
     assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
 
     const acceptedRequest = await requestTool(await openSession("operation.tool.accept.session"), "accept");

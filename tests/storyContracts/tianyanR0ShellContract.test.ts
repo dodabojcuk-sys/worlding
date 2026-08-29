@@ -94,23 +94,14 @@ test("R0.6 uses one global search engine while the legacy command panel remains 
   assert.doesNotMatch(commandPalette, /localTransport|providerGateway|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
 });
 
-test("desktop topbar exposes presentation controls and honest runtime states without a duplicate settings menu", () => {
+test("desktop topbar keeps exactly one global search entry and one directory toggle", () => {
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
-  const theme = readFileSync("apps/story-studio/src/product-shell/theme/theme.ts", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 
-  assert.match(topbar, /SHELL_THEME_REGISTRY/);
-  assert.match(theme, /SHELL_THEME_REGISTRY/);
-  assert.match(topbar, /CloudOff/);
-  assert.match(topbar, /topbar\.localStatus/);
-  assert.match(topbar, /topbar\.syncStatus/);
-  assert.match(topbar, /shell-topbar-text-control/);
-  assert.doesNotMatch(topbar, /Settings2|shell-tools-popover|shell-tools-menu/);
-  assert.ok(topbar.indexOf("topbar.languageValue") < topbar.indexOf("{themeLabel}"));
-  assert.ok(topbar.indexOf("{themeLabel}") < topbar.indexOf("topbar.localStatus"));
-  assert.ok(topbar.indexOf("topbar.localStatus") < topbar.indexOf("topbar.syncStatus"));
-  assert.ok(topbar.indexOf("topbar.syncStatus") < topbar.indexOf("directory.label"));
-  assert.match(styles, /shell-topbar-divider/);
+  assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/<button\b/gu) ?? []).length, 1);
+  assert.match(topbar, /data-panel-toggle="project-directory"/);
+  assert.doesNotMatch(topbar, /toggleLocale|onToggleTheme|onToggleTianyi|CloudOff|Sparkles|shell-runtime-status|shell-topbar-text-control/u);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
 });
 
@@ -149,7 +140,7 @@ test("account and settings remain independent rail utilities", () => {
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
   assert.match(shell, /onAccount=\{\(\) => undefined\}/);
-  assert.match(shell, /onSettings=\{\(\) => undefined\}/);
+  assert.match(shell, /onSettings=\{\(\) => window\.location\.assign\("\/settings\/storage"\)\}/);
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
   assert.doesNotMatch(navigation, /shell-collapse-control/);
@@ -206,7 +197,7 @@ test("active R0 shell is split by responsibility and confines runtime transport 
 });
 
 test("component stylesheets consume semantic tokens and define no component-local colors", () => {
-  const styles = ["tianyan-r0-shell.css", "project-directory.css", "right-dock.css", "tianyi-sidebar.css", "event-line-projection.css"].map((name) => readFileSync(`apps/story-studio/src/styles/${name}`, "utf8")).join("\n");
+  const styles = ["tianyan-r0-shell.css", "project-directory.css", "right-dock.css", "tianyi-sidebar.css", "event-line-projection.css", "settings.css"].map((name) => readFileSync(`apps/story-studio/src/styles/${name}`, "utf8")).join("\n");
   const tokens = readFileSync("apps/story-studio/src/product-shell/theme/tokens.css", "utf8");
   assert.doesNotMatch(styles, /#[\da-f]{3,8}\b|rgba?\(/iu);
   assert.match(styles, /var\(--color-workspace-background\)/);

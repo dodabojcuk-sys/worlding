@@ -4,5 +4,6 @@ import { SettingsStorageRoute } from "./settings/storage/SettingsStorageRoute";
 
 /** Top-level dependency assembly only. */
 export function App() {
-  return <I18nProvider>{window.location.pathname === "/settings/storage" ? <SettingsStorageRoute /> : <TianyanShellRuntime />}</I18nProvider>;
+  const utilityRoute = window.location.pathname === "/settings" || window.location.pathname.startsWith("/settings/");
+  return <I18nProvider>{utilityRoute ? <SettingsStorageRoute /> : <TianyanShellRuntime />}</I18nProvider>;
 }

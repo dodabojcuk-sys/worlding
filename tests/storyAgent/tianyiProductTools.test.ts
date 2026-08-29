@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createTianyiProductTools } from "../../src/storyAgent/tianyiProductTools.ts";
+import { createWorkspacePathPolicy } from "../../src/storyWorkspace/workspacePathPolicy.ts";
 
 const scope = { projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.fixture", runId: "run.fixture" };
 const approvalReceiptId = `receipt.tianyi-agent-approval.${"a".repeat(24)}`;
@@ -22,9 +23,18 @@ test("artifact tool writes only after approval through the Workspace owner and k
   assert.equal(writes.length, 1);
   assert.equal(checked.length, 1);
   assert.deepEqual((writes[0] as any).generationBrief, { owner: "tianyi-agent-runtime", projectId: scope.projectId, workVersionId: scope.workVersionId, runId: scope.runId, sourceReceiptId: approvalReceiptId });
+  assert.equal((writes[0] as any).workVersionId, scope.workVersionId);
   assert.equal((result as any).relativeId, "artifacts/fixture.md");
   assert.equal((result as any).canonStatus, "not-canon");
   assert.equal(JSON.stringify(result).includes("/home/"), false);
+});
+
+test("storage-owned WorkspacePathPolicy rejects traversal, absolute paths and non-artifact roots", () => {
+  const policy = createWorkspacePathPolicy();
+  assert.doesNotThrow(() => policy.assertArtifactRelativePath({ projectId: "project-fixture", artifactId: "artifact.fixture", relativeId: "artifacts/artifact.fixture.md" }));
+  assert.throws(() => policy.assertArtifactRelativePath({ projectId: "project-fixture", artifactId: "artifact.fixture", relativeId: "/tmp/artifact.fixture.md" }), /relative path/iu);
+  assert.throws(() => policy.assertArtifactRelativePath({ projectId: "project-fixture", artifactId: "artifact.fixture", relativeId: "artifacts/../secrets/artifact.fixture.md" }), /relative path/iu);
+  assert.throws(() => policy.assertArtifactRelativePath({ projectId: "project-fixture", artifactId: "artifact.fixture", relativeId: "world/artifact.fixture.md" }), /artifacts boundary/iu);
 });
 
 test("entity tool only hands approved character/item/location proposals to pending owner", async () => {

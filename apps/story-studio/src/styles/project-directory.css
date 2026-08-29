@@ -67,6 +67,12 @@
 .pending-review-panel article > header { display: grid; gap: 2px; padding: 0; }
 .pending-review-panel article strong { overflow-wrap: anywhere; font-size: var(--font-size-sm); }
 .pending-review-panel article small, .pending-review-panel article > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.45; }
+.pending-agent-editor { padding-block-start: var(--space-2); border-block-start: 1px solid var(--color-border); }
+.pending-agent-editor summary { color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-xs); }
+.pending-agent-editor form { display: grid; gap: var(--space-2); margin-block-start: var(--space-2); }
+.pending-agent-editor label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.pending-agent-editor input, .pending-agent-editor textarea { width: 100%; padding: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); resize: vertical; }
+.pending-agent-editor button { justify-self: start; min-height: 2rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
 .pending-review-panel article > footer { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .pending-review-panel article > footer button { min-height: 2rem; display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-2); color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
 .pending-review-panel article > footer button:hover { color: var(--color-text); background: var(--color-surface-muted); }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   decideSourceImportCandidate,
+  editAgentRecognitionProposal,
   getGoldenLoopCandidateReview,
   ignoreAgentRecognitionProposal,
   listAgentRecognitionProposals,
@@ -25,6 +26,27 @@ type PendingItem = {
   candidateId?: string;
   proposal?: AgentRecognitionProposal;
 };
+
+function AgentProposalEditor(props: { proposal: AgentRecognitionProposal; busy: boolean; onSave(name: string, uncertainties: string[]): Promise<void> }) {
+  const { t } = useI18n();
+  const [name, setName] = useState(props.proposal.suggestedName);
+  const [uncertainties, setUncertainties] = useState(props.proposal.uncertainties.join("\n"));
+  useEffect(() => {
+    setName(props.proposal.suggestedName);
+    setUncertainties(props.proposal.uncertainties.join("\n"));
+  }, [props.proposal.proposalId, props.proposal.revision, props.proposal.suggestedName, props.proposal.uncertainties]);
+  return <details className="pending-agent-editor">
+    <summary>{t("pending.edit")}</summary>
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      void props.onSave(name, uncertainties.split("\n").map((value) => value.trim()).filter(Boolean));
+    }}>
+      <label>{t("pending.editName")}<input value={name} maxLength={120} required onChange={(event) => setName(event.target.value)} /></label>
+      <label>{t("pending.editUncertainties")}<textarea value={uncertainties} maxLength={2_000} rows={3} onChange={(event) => setUncertainties(event.target.value)} /></label>
+      <button type="submit" disabled={props.busy}>{t("pending.saveEdit")}</button>
+    </form>
+  </details>;
+}
 
 /**
  * A directory-local review projection. It orchestrates existing formal ports
@@ -120,6 +142,10 @@ export function PendingReviewPanel(props: {
       <header><strong>{item.title}</strong><small>{item.source}</small></header>
       <p>{item.summary}</p>
       {item.duplicateTargetId && <small className="pending-duplicate">{t("pending.duplicate")}</small>}
+      {item.kind === "agent" && item.proposal && <AgentProposalEditor proposal={item.proposal} busy={busy === item.id} onSave={(suggestedName, uncertainties) => perform(item.id, async () => {
+        const proposal = item.proposal!;
+        await props.runtime.withConnection((token) => editAgentRecognitionProposal({ projectId: props.runtime.project!.id, proposalId: proposal.proposalId, expectedRevision: proposal.revision, suggestedName, suggestedFields: proposal.suggestedFields, uncertainties, duplicateMatches: proposal.duplicateMatches, token }));
+      })} />}
       <footer>
         {item.kind === "source" && <button type="button" onClick={() => openSource(item)}><Eye aria-hidden="true" />{t("pending.viewSource")}</button>}
         {item.kind === "source" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => decideSourceImportCandidate({ projectId: props.runtime.project!.id, sourceDocumentId: item.sourceDocumentId!, candidateId: item.candidateId!, decision: "accepted", token })); })}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}

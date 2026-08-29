@@ -48,7 +48,7 @@ export function validatePortableWorkspacePackage(value) {
 function list(root, relative = "") { const current = path.join(root, relative); return readdirSync(current, { withFileTypes: true }).flatMap((entry) => { const child = relative ? `${relative}/${entry.name}` : entry.name; if (entry.isSymbolicLink()) throw new Error(`Export rejects symlink: ${child}`); return entry.isDirectory() ? list(root, child) : [child]; }); }
 function isSafeRelative(value) {
   const root = value.split("/")[0];
-  const allowedRoots = new Set(["project.md", "world", "chapters", "scenes", "story-units", "planning", "reviews", "artifacts", "assets", "documents", "manuscripts", ".world-os"]);
+  const allowedRoots = new Set(["project.md", "world", "chapters", "scenes", "story-units", "planning", "reviews", "artifacts", "assets", "documents", "manuscripts", "continuity", ".world-os"]);
   return value.length > 0 && !path.isAbsolute(value) && !value.split("/").includes("..") && !value.includes("\\") && allowedRoots.has(root);
 }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }

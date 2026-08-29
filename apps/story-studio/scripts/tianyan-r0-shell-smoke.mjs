@@ -382,9 +382,39 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
     await page.evaluate(() => window.localStorage.removeItem("story-studio:ai-control-center:v1"));
     await page.reload({ waitUntil: "networkidle" });
-    await page.locator('[data-directory-node="directory.library.character"]').click();
-    await page.getByTestId("character-directory").waitFor();
-    await waitForCharacterDirectoryIdle(page);
+    if (state === "settings") {
+      await page.goto(`${baseUrl}/settings/storage`, { waitUntil: "networkidle" });
+      await page.locator(".settings-utility-route").waitFor();
+    }
+    if (state === "agent-flow") {
+      await page.evaluate(() => window.sessionStorage.clear());
+      await page.reload({ waitUntil: "networkidle" });
+      await startAgentFakeProviderStream(page, `R0.6 Agent 流视觉验收 ${viewport.width}`);
+    }
+    if (state === "pending-review") {
+      const toggle = page.locator(".shell-topbar-panel-toggle");
+      if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
+      await page.getByRole("tab", { name: /待确认/u }).click();
+      await page.locator(".pending-review-panel").waitFor();
+    }
+    if (state === "character-directory") {
+      const toggle = page.locator(".shell-topbar-panel-toggle");
+      if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
+      await page.locator('[data-directory-node="directory.library.character"]').click();
+      await page.getByTestId("character-directory").waitFor();
+      await waitForCharacterDirectoryIdle(page);
+      await page.getByRole("option", { name: new RegExp(characterName, "u") }).click();
+    }
+    if (state === "data-scroll") {
+      await page.locator('[data-shell-destination="data"]').click();
+      await page.waitForFunction(() => document.querySelector('[data-shell-destination="data"]')?.getAttribute("aria-current") === "page");
+      await page.evaluate(() => { const target = document.querySelector(".shell-workspace-stage"); if (target instanceof HTMLElement) target.scrollTop = target.scrollHeight; });
+    }
+    if (!["settings", "agent-flow", "pending-review", "character-directory", "data-scroll"].includes(state)) {
+      await page.locator('[data-directory-node="directory.library.character"]').click();
+      await page.getByTestId("character-directory").waitFor();
+      await waitForCharacterDirectoryIdle(page);
+    }
     const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
     if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive" || state === "profile-editor") await currentCharacter.waitFor();
     if (state === "form" || state === "required" || state === "created" || state === "refreshed") {
@@ -434,10 +464,10 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await currentCharacter.click();
       await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "恢复", exact: true }).click();
     }
-    if (state === "agent-stream") await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
+    if (state === "agent-stream" || state === "agent-flow") await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
   };
   const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
-  const states = ["standard", "compact", "sort", "filter", "multi", "archive", "inspector-expanded", "profile-editor", "pending", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  const states = ["settings", "agent-flow", "pending-review", "character-directory", "data-scroll"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
   for (const viewport of viewports) {
     for (const state of states) await capture(viewport, state);
   }
@@ -531,6 +561,19 @@ async function setupCharacterFixture() {
   for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }]) {
     await postFixture(`${base}/characters/create`, { projectId: "r05-character-directory", title: character.title, mode: "freeform", subtype: character.subtype });
   }
+  await postFixture(`${base}/agent-recognition/drafts/create`, {
+    projectId: "r05-character-directory",
+    operationId: "operation.r06.visual-pending",
+    requestedObjectType: "character",
+    mode: "extract",
+    authorIntent: "许灯",
+    sourceScope: "fixture:r06-visual-pending",
+    sourceText: "守灯人许灯在潮声中留下了一页未确认的记录。",
+    existingObjectSummaries: [],
+    allowedFieldSchema: ["story-role", "summary", "life"],
+    noWritePolicy: true,
+    fixtureMode: "deterministic"
+  });
 }
 
 async function postFixture(url, body) {

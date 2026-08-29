@@ -6,7 +6,7 @@ type Scope = { projectId: string; workVersionId: string; sessionId: string; runI
 export function createTianyiProductTools(input: {
   scope: Scope;
   workspacePathPolicy?: WorkspacePathPolicy;
-  createArtifact(command: { projectId: string; type: string; title: string; content: string; generationBrief: Record<string, unknown> }): Promise<{ id: string; relativeId: string }> | { id: string; relativeId: string };
+  createArtifact(command: { projectId: string; workVersionId: string; type: string; title: string; content: string; generationBrief: Record<string, unknown> }): Promise<{ id: string; relativeId: string }> | { id: string; relativeId: string };
   createEntityProposal(command: { projectId: string; sessionId: string; runId: string; workVersionId: string; kind: "character" | "item" | "location"; title: string; sourceReceiptId: string }): Promise<{ proposalId: string; status: string }>;
 }): PiTextAgentTool[] {
   const scope = structuredClone(input.scope);
@@ -22,6 +22,7 @@ export function createTianyiProductTools(input: {
       const content = requireBoundedString(call.arguments.content, "普通产物正文", 12_000);
       const artifact = await input.createArtifact({
         projectId: scope.projectId,
+        workVersionId: scope.workVersionId,
         type,
         title,
         content,

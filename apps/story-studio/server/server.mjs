@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createWorkspacePackagePort } from "../../../src/storyWorkspace/workspacePackagePort.mjs";
+import { createWorkspacePathPolicy } from "../../../src/storyWorkspace/workspacePathPolicy.ts";
 import { createTianyiProductTools } from "../../../src/storyAgent/tianyiProductTools.ts";
 import { createCreationPluginLifecycle } from "../../../src/storyCreation/creationPluginLifecycle.mjs";
 import { DEFAULT_CURATED_CREATION_PLUGIN_CATALOG } from "../../../src/storyCreation/curatedCreationPluginCatalog.mjs";
@@ -201,6 +202,7 @@ const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || proces
 const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
 const agentFakeProviderToolScenario = agentFakeProviderStreamAllowed && process.env.TIANYAN_AGENT_FAKE_PROVIDER_TOOL_SCENARIO === "create-artifact" ? "create-artifact" : null;
 const piTextAgent = createPiTextAgentAdapter();
+const workspacePathPolicy = createWorkspacePathPolicy();
 const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   persistence: {
     appendEvent: (event) => tianyi.appendTianyiAgentRuntimeEvent({
@@ -284,7 +286,12 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         async execute() { return contextPayload; }
       }, ...createTianyiProductTools({
         scope: { projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId },
-        createArtifact(command) { return operations.createOutputArtifact(command); },
+        workspacePathPolicy,
+        createArtifact(command) {
+          const active = creationSourceSelectionPort.resolveRootWorkVersion(command.projectId)?.identity.workVersionId ?? "work-version.unversioned";
+          if (active !== command.workVersionId) throw new Error("Agent artifact target WorkVersion is no longer active; no file was created.");
+          return operations.createOutputArtifact(command);
+        },
         async createEntityProposal(command) {
           const project = requireProject(command.projectId);
           const result = await createAgentRecognitionProposal({
