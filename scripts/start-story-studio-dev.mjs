@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import { assertCanonicalRuntime } from "./canonical-runtime.mjs";
 import { verifyStoryStudioCanonicalPreflight } from "./verify-story-studio-canonical.mjs";
 
+assertCanonicalRuntime();
 verifyStoryStudioCanonicalPreflight();
 
 const children = [

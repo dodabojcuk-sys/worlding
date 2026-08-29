@@ -1,19 +1,23 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
+import { createTianyanE2eFixture, removeTianyanE2eFixture } from "../../../scripts/tianyan-e2e-fixture.mjs";
+import { assertCanonicalRuntime } from "../../../scripts/canonical-runtime.mjs";
 
+assertCanonicalRuntime();
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const port = 4396;
 const apiPort = 4397;
 const baseUrl = `http://127.0.0.1:${port}`;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
-const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "tianyan-r0-shell-smoke-"));
+const fixture = createTianyanE2eFixture();
+const fixtureRoot = fixture.fixtureRoot;
+const fixtureProjectId = fixture.projectId;
 const controlToken = "tianyan-r0-shell-smoke-token";
 const visualEvidenceDirectory = process.env.TIANYAN_R05_EVIDENCE_DIR || null;
 const visualEvidenceViewport = Number(process.env.TIANYAN_R05_EVIDENCE_VIEWPORT || "0");
@@ -74,7 +78,7 @@ try {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
-  rmSync(fixtureRoot, { recursive: true, force: true });
+  removeTianyanE2eFixture(fixture);
 }
 
 async function assertPermissionProjection(page) {
@@ -214,7 +218,7 @@ async function assertCharacterCreationDurability(page) {
     await freshContext.close();
   }
   await assertCreatedCharacterIsProjectIsolated();
-  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: "r05-character-directory" });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
   await page.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
@@ -236,7 +240,7 @@ async function assertCharacterCreationDurability(page) {
 }
 
 async function assertCreatedCharacterIsProjectIsolated() {
-  const projectId = "r05-character-directory-isolated";
+  const projectId = `${fixtureProjectId}-isolated`;
   const base = `${apiUrl}/__local/story-studio`;
   await postFixture(`${base}/projects/create`, { title: "隔离项目", folderSlug: projectId });
   const response = await fetch(`${base}/world-library?projectId=${encodeURIComponent(projectId)}`);
@@ -374,7 +378,7 @@ async function startAgentFakeProviderStream(page, task) {
 /** Optional external evidence only; this is never a production screenshot fixture. */
 async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   mkdirSync(visualEvidenceDirectory, { recursive: true });
-  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: "r05-character-directory" });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
   const captures = [];
   const capture = async (viewport, state) => {
     const characterName = "林昭";
@@ -459,7 +463,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     }
     const filename = `${viewport.width}x${viewport.height}-${state}.png`;
     await page.screenshot({ path: path.join(visualEvidenceDirectory, filename), fullPage: true });
-    captures.push({ filename, viewport, state, projectId: "r05-character-directory", workVersionId: null, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
+    captures.push({ filename, viewport, state, projectId: fixtureProjectId, workVersionId: null, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
     if (state === "archive") {
       await currentCharacter.click();
       await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "恢复", exact: true }).click();
@@ -557,13 +561,13 @@ async function waitForApiServer() {
 
 async function setupCharacterFixture() {
   const base = `${apiUrl}/__local/story-studio`;
-  await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: "r05-character-directory" });
+  await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: fixtureProjectId });
   for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }]) {
-    await postFixture(`${base}/characters/create`, { projectId: "r05-character-directory", title: character.title, mode: "freeform", subtype: character.subtype });
+    await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype });
   }
   await postFixture(`${base}/agent-recognition/drafts/create`, {
-    projectId: "r05-character-directory",
-    operationId: "operation.r06.visual-pending",
+    projectId: fixtureProjectId,
+    operationId: `operation.${fixture.fixtureId}.visual-pending`,
     requestedObjectType: "character",
     mode: "extract",
     authorIntent: "许灯",
