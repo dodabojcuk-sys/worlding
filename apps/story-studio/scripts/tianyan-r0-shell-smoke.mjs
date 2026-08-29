@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,6 +15,9 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "tianyan-r0-shell-smoke-"));
 const controlToken = "tianyan-r0-shell-smoke-token";
+const visualEvidenceDirectory = process.env.TIANYAN_R05_EVIDENCE_DIR || null;
+const visualEvidenceViewport = Number(process.env.TIANYAN_R05_EVIDENCE_VIEWPORT || "0");
+const visualEvidenceState = process.env.TIANYAN_R05_EVIDENCE_STATE || null;
 let server;
 let apiServer;
 let browser;
@@ -49,14 +52,16 @@ try {
   await assertCollapsedIconRail(page);
   await assertPermissionProjection(page);
   await assertCharacterDirectoryAndInspector(page);
+  if (visualEvidenceDirectory) await captureCharacterDirectoryEvidence(page, consoleProblems);
 
-  await page.locator(".shell-rail-collapse").click();
-  await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
-  await page.waitForTimeout(200);
-  await assertExpandedLabels(page, "zh-CN");
-
-  await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
-  await assertExpandedLabels(page, "en-US");
+  if (!visualEvidenceState) {
+    await page.locator(".shell-rail-collapse").click();
+    await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
+    await page.waitForTimeout(200);
+    await assertExpandedLabels(page, "zh-CN");
+    await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
+    await assertExpandedLabels(page, "en-US");
+  }
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
 } finally {
@@ -94,6 +99,43 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.getByRole("button", { name: "多选", exact: true }).click();
   assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
   assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
+}
+
+/** Optional external evidence only; this is never a production screenshot fixture. */
+async function captureCharacterDirectoryEvidence(page, consoleProblems) {
+  mkdirSync(visualEvidenceDirectory, { recursive: true });
+  const captures = [];
+  const capture = async (viewport, state) => {
+    const characterName = viewport.width === 1920 ? "林昭" : viewport.width === 1440 ? "阿芜" : "陆衍";
+    await page.setViewportSize(viewport);
+    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    await page.evaluate(() => window.localStorage.removeItem("story-studio:ai-control-center:v1"));
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator('[data-directory-node="directory.library.character"]').click();
+    await page.getByTestId("character-directory").waitFor();
+    const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
+    await currentCharacter.waitFor();
+    if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
+    if (state === "compact") await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "缩略版", exact: true }).click();
+    if (state === "multi" || state === "archive") await page.getByRole("button", { name: "多选", exact: true }).click();
+    if (state === "archive") {
+      await currentCharacter.click();
+      await page.locator(".character-selection-bar").getByRole("button", { name: "归档", exact: true }).click();
+      await page.waitForTimeout(250);
+      await page.getByRole("button", { name: "完成", exact: true }).click();
+      await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "归档", exact: true }).click();
+    }
+    const filename = `${viewport.width}x${viewport.height}-${state}.png`;
+    await page.screenshot({ path: path.join(visualEvidenceDirectory, filename), fullPage: true });
+    captures.push({ filename, viewport, state, projectId: "r05-character-directory", workVersionId: null, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
+  };
+  const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
+  const states = ["standard", "inspector", "compact", "multi", "archive"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  for (const viewport of viewports) {
+    for (const state of states) await capture(viewport, state);
+  }
+  const suffix = visualEvidenceViewport && visualEvidenceState ? `${visualEvidenceViewport}-${visualEvidenceState}` : "all";
+  writeFileSync(path.join(visualEvidenceDirectory, `capture-manifest-${suffix}.json`), `${JSON.stringify(captures, null, 2)}\n`, "utf8");
 }
 
 async function assertCollapsedIconRail(page) {

@@ -4,7 +4,8 @@
 
 - Branch: `main`.
 - R0.5 reference base: `758790fd8a41bdddfe22d0f7823cc034ba2998bc`.
-- Final HEAD: resolve with `git rev-parse HEAD` after the local R0.5 documentation commit.
+- `R0_5_IMPLEMENTATION_HEAD=dd7034cd72d4edf0f1d0a536cdb4137505dd349e`.
+- `HANDOFF_READER_MUST_RESOLVE_CURRENT_HEAD_WITH=git rev-parse HEAD`.
 - Pre-existing `CORE.md` and `data/` changes remain outside R0.5 commits.
 - Push, deploy and Provider/model calls: zero.
 
@@ -36,9 +37,17 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 - Standard/compact density is a browser UI preference scoped by user and object type, not character data.
 - Deleted R0.3 character UI stays deleted.
 
+## Founder visual evidence
+
+- Stable reference: `/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`.
+- Reference SHA-256: `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`.
+- Implementation screenshots and their per-capture manifests: `/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/`.
+- Visual capture used the repository's installed Playwright browser with isolated test data at 1920×1000, 1440×900 and 1152×720; console warnings/errors were zero. Founder visual status remains `REVIEW_REQUIRED` until independent review.
+- Validation environment was Node `v24.16.0`; the project navigation still records Node 22 as its target runtime.
+
 ## Verification and known gaps
 
-Final test results and browser evidence must be read from the R0.5 completion report and final `git log`. Known gaps: full character workspace, named category-definition management, first-appearance sorting, complete delete-impact enumeration, and permanent delete.
+Final test results and browser evidence must be read from the R0.5 completion report and final `git log`. Permanent deletion remains safely blocked in UI. Known gaps: full character workspace, named category-definition management, first-appearance sorting, complete delete-impact enumeration, and permanent delete.
 
 ## Memory handoff
 
