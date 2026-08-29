@@ -8,6 +8,8 @@ import {
 export const CONTROL_CENTER_PREFERENCES_KEY = "story-studio:ai-control-center:v1";
 export const OBJECT_DIRECTORY_PREFERENCES_KEY = "story-studio:object-directory-ui:v1";
 export type ObjectDirectoryDensity = "standard" | "compact";
+export type ObjectDirectorySort = "manual" | "name-asc" | "name-desc" | "recent" | "appearance-asc" | "appearance-desc" | "role-level";
+type ObjectDirectoryPreference = { density?: ObjectDirectoryDensity; sort?: ObjectDirectorySort };
 
 export const TIANYI_PANEL_MIN_WIDTH_PX = 360;
 export const TIANYI_PANEL_DEFAULT_WIDTH_PX = 380;
@@ -59,18 +61,39 @@ export type ControlCenterPreferences = {
 export type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;
 
 export function readObjectDirectoryDensity(storage: PreferenceStorage | null | undefined, userId: string, objectType: string): ObjectDirectoryDensity {
-  try {
-    const parsed = JSON.parse(storage?.getItem(OBJECT_DIRECTORY_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
-    return parsed[`${userId}:${objectType}`] === "compact" ? "compact" : "standard";
-  } catch { return "standard"; }
+  const preference = readObjectDirectoryPreference(storage, userId, objectType);
+  return preference.density === "compact" ? "compact" : "standard";
 }
 
 export function saveObjectDirectoryDensity(storage: PreferenceStorage | null | undefined, userId: string, objectType: string, density: ObjectDirectoryDensity) {
+  return saveObjectDirectoryPreference(storage, userId, objectType, { density }).density ?? density;
+}
+
+export function readObjectDirectorySort(storage: PreferenceStorage | null | undefined, userId: string, objectType: string): ObjectDirectorySort {
+  const sort = readObjectDirectoryPreference(storage, userId, objectType).sort;
+  return sort && ["manual", "name-asc", "name-desc", "recent", "appearance-asc", "appearance-desc", "role-level"].includes(sort) ? sort : "manual";
+}
+
+export function saveObjectDirectorySort(storage: PreferenceStorage | null | undefined, userId: string, objectType: string, sort: ObjectDirectorySort) {
+  return saveObjectDirectoryPreference(storage, userId, objectType, { sort }).sort ?? sort;
+}
+
+function readObjectDirectoryPreference(storage: PreferenceStorage | null | undefined, userId: string, objectType: string): ObjectDirectoryPreference {
   try {
     const parsed = JSON.parse(storage?.getItem(OBJECT_DIRECTORY_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
-    storage?.setItem(OBJECT_DIRECTORY_PREFERENCES_KEY, JSON.stringify({ ...parsed, [`${userId}:${objectType}`]: density }));
+    const legacy = parsed[`${userId}:${objectType}`];
+    if (legacy === "compact" || legacy === "standard") return { density: legacy };
+    return legacy && typeof legacy === "object" && !Array.isArray(legacy) ? legacy as ObjectDirectoryPreference : {};
+  } catch { return {}; }
+}
+
+function saveObjectDirectoryPreference(storage: PreferenceStorage | null | undefined, userId: string, objectType: string, patch: ObjectDirectoryPreference): ObjectDirectoryPreference {
+  const next = { ...readObjectDirectoryPreference(storage, userId, objectType), ...patch };
+  try {
+    const parsed = JSON.parse(storage?.getItem(OBJECT_DIRECTORY_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
+    storage?.setItem(OBJECT_DIRECTORY_PREFERENCES_KEY, JSON.stringify({ ...parsed, [`${userId}:${objectType}`]: next }));
   } catch { /* Display preferences never block project data. */ }
-  return density;
+  return next;
 }
 
 /** Browser-only storage for UI preferences and non-sensitive provider drafts. */

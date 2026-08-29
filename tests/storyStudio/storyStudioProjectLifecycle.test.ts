@@ -29,7 +29,8 @@ test("Story Studio development command starts both the local server and Vite", (
   const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: { dev: string } };
   const devSource = readFileSync("scripts/start-story-studio-dev.mjs", "utf8");
 
-  assert.equal(packageJson.scripts.dev, "node scripts/start-story-studio-dev.mjs");
+  assert.equal(packageJson.scripts.dev, "node scripts/run-with-canonical-runtime.mjs scripts/start-story-studio-dev.mjs");
+  assert.match(devSource, /assertCanonicalRuntime/);
   assert.match(devSource, /apps\/story-studio\/server\/server\.mjs/);
   assert.match(devSource, /apps\/story-studio\/vite\.config\.ts/);
 });

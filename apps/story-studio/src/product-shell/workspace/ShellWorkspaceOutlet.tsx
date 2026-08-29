@@ -2,10 +2,16 @@ import type { StoryStudioShellDestination } from "../navigation/topLevelDestinat
 import { R0EventLineProjection } from "../../components/event-observation/R0EventLineProjection";
 import { useI18n } from "../i18n/I18nProvider";
 import type { TranslationKey } from "../i18n/translations";
+import { SettingsStorageRoute } from "../../settings/storage/SettingsStorageRoute";
+import { AccountCenterWorkspace } from "./AccountCenterWorkspace";
+import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
   shellLab: boolean;
+  settingsOpen: boolean;
+  accountOpen: boolean;
+  runtime: TianyanShellRuntimeState;
   onOpenTianyi(): void;
   directoryObjectId: string | null;
 }) {
@@ -14,9 +20,12 @@ export function ShellWorkspaceOutlet(props: {
   const summary = props.shellLab ? t("shellLab.description") : t(props.destination.summaryKey as TranslationKey);
   const note = props.shellLab ? t("workspace.boundary") : null;
 
+  if (props.settingsOpen) return <SettingsStorageRoute presentation="workspace" />;
+  if (props.accountOpen) return <AccountCenterWorkspace />;
+
   if (!props.shellLab && props.destination.id === "event-line") {
     return <main className="shell-workspace shell-workspace-event-line" aria-label={t(props.destination.labelKey as TranslationKey)}>
-      <R0EventLineProjection onOpenTianyi={props.onOpenTianyi} selectedEventId={props.directoryObjectId} />
+      <R0EventLineProjection runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} selectedEventId={props.directoryObjectId} />
     </main>;
   }
 

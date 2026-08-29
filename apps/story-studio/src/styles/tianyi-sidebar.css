@@ -27,6 +27,10 @@
 .tianyi-agent-stage p { margin: 0; }
 .tianyi-sidebar-empty small,
 .tianyi-agent-stage small { font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.tianyi-provider-unavailable { display: grid; gap: var(--space-2); padding: var(--space-3); color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-md); line-height: 1.55; }
+.tianyi-provider-unavailable strong { color: var(--color-text); }
+.tianyi-provider-unavailable p { margin: 0; }
+.tianyi-provider-unavailable button { justify-self: start; min-height: 2rem; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
 .tianyi-sidebar-conversation { min-height: 0; display: grid; align-content: start; gap: var(--space-3); }
 .tianyi-sidebar-message { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .tianyi-sidebar-message.is-author { background: var(--color-accent-soft); }
@@ -39,6 +43,18 @@
 .tianyi-agent-confirm { min-height: 2.25rem; display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
 .tianyi-agent-confirm:disabled { opacity: 0.6; cursor: wait; }
 .tianyi-agent-confirm svg { inline-size: 0.875rem; block-size: 0.875rem; }
+.tianyi-agent-confirm.is-stop { color: var(--color-danger); background: transparent; border-color: var(--color-danger); }
+.tianyi-agent-approval { display: grid; gap: var(--space-2); padding: var(--space-3); color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-xs); }
+.tianyi-agent-approval > strong { color: var(--color-text); font-size: var(--font-size-sm); }
+.tianyi-agent-approval dl { display: grid; gap: var(--space-1); margin: 0; }
+.tianyi-agent-approval dl div { display: grid; grid-template-columns: minmax(4rem, auto) minmax(0, 1fr); gap: var(--space-2); }
+.tianyi-agent-approval dt { color: var(--color-text-muted); }
+.tianyi-agent-approval dd { margin: 0; overflow-wrap: anywhere; color: var(--color-text); }
+.tianyi-agent-approval-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tianyi-agent-approval-actions .tianyi-agent-confirm { flex: 1 1 10rem; }
+.tianyi-agent-reject { min-height: 2.25rem; flex: 1 1 7rem; padding: var(--space-2) var(--space-3); color: var(--color-danger); background: transparent; border: 1px solid var(--color-danger); border-radius: var(--radius-sm); cursor: pointer; }
+.tianyi-agent-streaming { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: var(--space-3); color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-xs); line-height: 1.6; }
+.tianyi-agent-streaming svg { inline-size: .875rem; block-size: .875rem; flex: 0 0 auto; margin-block-start: .15rem; color: var(--color-accent); }
 .tianyi-agent-candidate-summary { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); }
 .tianyi-agent-candidate-summary > strong { color: var(--color-text); font-size: var(--font-size-xs); }
 .tianyi-agent-candidate-summary article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); }

@@ -9,7 +9,6 @@ import {
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Settings,
   Sparkles,
   UserRound,
@@ -40,10 +39,11 @@ const destinationIcons: Record<StoryStudioShellDestination["icon"], LucideIcon> 
 
 export function ProductShellNavigation(props: {
   active: StoryStudioShellDestinationId;
+  settingsOpen: boolean;
+  accountOpen: boolean;
   collapsed: boolean;
   onSelect(destination: StoryStudioShellDestination): void;
   onToggleCollapsed(): void;
-  onOpenCommand(): void;
   onSettings(): void;
   onAccount(): void;
 }) {
@@ -68,7 +68,7 @@ export function ProductShellNavigation(props: {
   const renderDestination = (destination: StoryStudioShellDestination) => {
     const Icon = destinationIcons[destination.icon];
     const label = t(destination.labelKey as TranslationKey);
-    const active = props.active === destination.id;
+    const active = !props.settingsOpen && !props.accountOpen && props.active === destination.id;
     return <button
       type="button"
       className={`shell-space-link ${active ? "is-active" : ""}`}
@@ -85,6 +85,10 @@ export function ProductShellNavigation(props: {
     </button>;
   };
 
+  const settingsControl = <button type="button" className={`shell-space-link ${props.settingsOpen ? "is-active" : ""}`} aria-current={props.settingsOpen ? "page" : undefined} aria-label={t("nav.settings")} title={t("nav.settings")} data-shell-utility="settings" onClick={props.onSettings}>
+    <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
+  </button>;
+
   return <nav ref={navRef} className="shell-space-rail" aria-label={t("nav.label")} data-collapsed={props.collapsed}>
     <div className="shell-rail-header">
       <button type="button" className="shell-brand-home" title={t("brand.home")} aria-label={t("brand.home")} onClick={() => props.onSelect(primary[0])}>
@@ -95,22 +99,15 @@ export function ProductShellNavigation(props: {
         {props.collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
       </button>
     </div>
-    <button type="button" className="shell-command-trigger" aria-label={t("nav.command")} title={t("nav.command")} onClick={props.onOpenCommand}>
-      <Search aria-hidden="true" />
-      <span className="shell-command-trigger-label">{t("nav.command")}</span>
-      <kbd>⌘K</kbd>
-    </button>
     <div className="shell-rail-navigation">
       <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
       <div className="shell-space-divider" role="separator" />
       <div className="shell-space-section is-derived" aria-label={t("nav.derivative")}>{derived.map(renderDestination)}</div>
     </div>
     <div className="shell-rail-utility" aria-label={t("nav.utility")}>
-      <button type="button" className="shell-space-link" aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
+      {settingsControl}
+      <button type="button" className={`shell-space-link ${props.accountOpen ? "is-active" : ""}`} aria-current={props.accountOpen ? "page" : undefined} aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
         <span className="shell-space-icon" aria-hidden="true"><UserRound /></span><span className="shell-space-label">{t("nav.account")}</span>
-      </button>
-      <button type="button" className="shell-space-link" aria-label={t("nav.settings")} title={t("nav.settings")} data-shell-utility="settings" onClick={props.onSettings}>
-        <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
       </button>
     </div>
   </nav>;

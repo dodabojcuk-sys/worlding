@@ -8,15 +8,20 @@ import { clampDockPanelSize, createInitialDockLayout, toggleDockPanel } from "..
 
 const source = (path: string) => readFileSync(path, "utf8");
 
-test("project directory uses Classified as its main section and Pending review as a small inbox", () => {
+test("project directory keeps Classified and Pending review in the same navigation slot", () => {
   const panel = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx");
-  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewEntry.tsx");
+  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx");
   const contract = source("src/storyContracts/projectDirectoryContract.ts");
   assert.match(panel, /directory\.classified/);
-  assert.match(panel, /PendingReviewEntry/);
+  assert.match(panel, /PendingReviewPanel/);
   assert.doesNotMatch(panel, /全部.*资料.*创作.*参考/su);
-  assert.match(pending, /pending-review-entry/);
+  assert.match(pending, /decideSourceImportCandidate/);
+  assert.match(pending, /confirmAgentRecognitionObject/);
   assert.match(panel, /data-story-fact-owner="false"/);
+  assert.match(panel, /project-directory-tabs/);
+  assert.doesNotMatch(panel, /project-directory-search-entry/);
+  assert.match(panel, /project-directory-close/);
+  assert.doesNotMatch(panel, /type="search"|filterProjectDirectory/);
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });
 
@@ -45,23 +50,27 @@ test("page-tool rail order is independent from the user-owned multi-panel stack"
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);
 });
 
-test("page-tool rail is collapsed by default and expands without mutating the Dock layout", () => {
+test("page-tool rail starts compact at the narrow breakpoint and keeps tool availability visually grouped", () => {
   const dock = source("apps/story-studio/src/product-shell/right-dock/RightDock.tsx");
   const rail = source("apps/story-studio/src/product-shell/right-dock/DockToolRail.tsx");
   const styles = source("apps/story-studio/src/styles/right-dock.css");
   const tokens = source("apps/story-studio/src/product-shell/theme/tokens.css");
 
-  assert.match(dock, /useState\(false\)/);
+  assert.match(dock, /window\.matchMedia\("\(max-width: 75rem\)"\)/);
+  assert.match(dock, /collapseForCompactViewport/);
   assert.match(dock, /expanded=\{toolRailExpanded\}/);
   assert.match(dock, /onToggleExpanded/);
   assert.doesNotMatch(dock, /setToolRailExpanded\([^)]*props\.layout/);
   assert.match(rail, /aria-expanded=\{props\.expanded\}/);
   assert.match(rail, /dock\.expandTools/);
   assert.match(rail, /dock\.collapseTools/);
+  assert.match(rail, /dock-tool-rail-list/);
+  assert.doesNotMatch(rail, /tool\.available|tool\.extensionTools/);
+  assert.doesNotMatch(rail, /tool\.notConnected/);
   for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
   assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
   assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
-  assert.match(tokens, /--panel-controls-expanded-width: 9rem/);
+  assert.match(tokens, /--panel-controls-expanded-width: 8\.5rem/);
 });
 
 test("composer bottom controls use the unified fixed overlay rather than the clipped sidebar", () => {

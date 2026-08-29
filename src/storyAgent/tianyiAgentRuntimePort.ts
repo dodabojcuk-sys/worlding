@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -16,6 +17,7 @@ export type TianyiAgentPermissionProfile = "step-by-step" | "conservative" | "pr
 export type TianyiAgentContextManifest = {
   version: "tianyi-agent-context-manifest/v1";
   projectId: string;
+  workVersionId: string;
   sessionId: string;
   currentPage: string;
   selectedObjectIds: string[];
@@ -32,10 +34,12 @@ export type TianyiAgentContextManifest = {
   };
 };
 
+export type TianyiAgentStreamEvent = AgentRuntimeStreamEvent;
+
 export type TianyiAgentPlanStep = {
   stepId: string;
   title: string;
-  kind: "read-context" | "model-analysis" | "candidate-proposal" | "owner-handoff";
+  kind: "read-context" | "model-analysis" | "candidate-proposal" | "owner-handoff" | "product-tool";
   classification: TianyiAgentToolClassification;
   requiredPermission: "none" | "author-approval";
   status: "pending" | "awaiting_author" | "approved" | "rejected" | "completed" | "failed";
@@ -72,6 +76,7 @@ export type TianyiAgentRunProjection = {
   version: "tianyi-agent-run-projection/v1";
   runId: string;
   projectId: string;
+  workVersionId: string;
   sessionId: string;
   task: string;
   currentPage: string;
@@ -81,6 +86,7 @@ export type TianyiAgentRunProjection = {
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
   budget: { maxProviderCalls: number; maxOutputTokens: number; providerCalls: number; estimatedTokens: number };
+  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number; completionTokens: number; totalTokens: number; streamEventCount: number };
   permissionProfile: TianyiAgentPermissionProfile;
   plan: TianyiAgentPlanStep[];
   toolCalls: TianyiAgentToolCall[];
@@ -89,7 +95,7 @@ export type TianyiAgentRunProjection = {
   candidates: TianyiAgentCandidate[];
   receipts: Array<{ receiptId: string; kind: "tool" | "runtime" | "owner" | "compaction"; label: string; operationId: string; recordedAt: string }>;
   stopReason: string | null;
-  error: { category: "provider-unavailable" | "tool-failed" | "invalid-tool-call" | "conflict" | "cancelled" | "unknown"; message: string; retryable: boolean } | null;
+  error: { category: "provider-unavailable" | "provider-failed" | "tool-failed" | "invalid-tool-call" | "conflict" | "cancelled" | "unknown"; code: string; message: string; retryable: boolean; retryBoundary: "none" | "author-explicit" } | null;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -98,8 +104,10 @@ export type TianyiAgentRunProjection = {
 export type TianyiAgentRuntimeEvent = {
   version: "tianyi-agent-runtime-event/v1";
   runId: string;
+  workVersionId: string;
   operationId: string;
-  kind: "snapshot" | "tool-call" | "approval" | "steering" | "receipt";
+  kind: "snapshot" | "stream" | "tool-call" | "approval" | "steering" | "receipt";
+  streamEvent?: TianyiAgentStreamEvent;
   projection: TianyiAgentRunProjection;
   recordedAt: string;
 };
@@ -162,6 +170,17 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
     idempotency: "operation-id"
   },
   {
+    name: "read_event_focus_context",
+    label: "查看事件焦点关联",
+    classification: "read",
+    owner: "tianyi-context",
+    requiredPermission: "none",
+    scope: "current-project",
+    timeoutMs: 3_000,
+    inputSchema: { type: "object", required: [], properties: {} },
+    idempotency: "operation-id"
+  },
+  {
     name: "read_pending_candidates",
     label: "查看待确认候选",
     classification: "read",
@@ -184,6 +203,17 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
     idempotency: "operation-id"
   },
   {
+    name: "create_artifact",
+    label: "创建普通创作产物",
+    classification: "proposal",
+    owner: "story-control-surface",
+    requiredPermission: "author-approval",
+    scope: "current-project",
+    timeoutMs: 5_000,
+    inputSchema: { type: "object", required: ["type", "title", "content"], properties: { type: { type: "string", maxLength: 32 }, title: { type: "string", maxLength: 100 }, content: { type: "string", maxLength: 12_000 } } },
+    idempotency: "operation-id"
+  },
+  {
     name: "propose_entity_candidate",
     label: "准备人物或资料候选",
     classification: "proposal",
@@ -203,6 +233,17 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
     scope: "current-project",
     timeoutMs: 5_000,
     inputSchema: { type: "object", required: ["title"], properties: { title: { type: "string", maxLength: 160 } } },
+    idempotency: "operation-id"
+  },
+  {
+    name: "submit_event_graph_candidate",
+    label: "提交事件关系候选",
+    classification: "proposal",
+    owner: "story-control-surface",
+    requiredPermission: "author-approval",
+    scope: "current-project",
+    timeoutMs: 5_000,
+    inputSchema: { type: "object", required: ["sourceEventId", "targetEventId", "relationTypeId"], properties: { sourceEventId: { type: "string", maxLength: 160 }, targetEventId: { type: "string", maxLength: 160 }, relationTypeId: { type: "string", maxLength: 160 }, direction: { type: "string", maxLength: 16 } } },
     idempotency: "operation-id"
   },
   {
@@ -242,46 +283,52 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
 
 export type TianyiAgentRuntimePersistence = {
   appendEvent(event: TianyiAgentRuntimeEvent): Promise<{ alreadyCompleted: boolean; receiptId: string }>;
-  readEvents(input: { projectId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
+  readEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
 };
 
 export type TianyiAgentRuntimeDependencies = {
   now?: () => string;
   persistence: TianyiAgentRuntimePersistence;
-  buildContextManifest(input: { projectId: string; sessionId: string; currentPage: string; task: string; contextRequest?: Record<string, unknown> }): Promise<TianyiAgentContextManifest>;
-  runProvider?(input: { runId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal }): Promise<{ providerId: string; profileId: string; modelId: string; text: string; providerCalls: number }>;
+  buildContextManifest(input: { projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextRequest?: Record<string, unknown> }): Promise<TianyiAgentContextManifest>;
+  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string }>;
+  cancelProvider?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<boolean> | boolean;
   fixtureResponse?(input: { task: string; contextManifest: TianyiAgentContextManifest; steering: string[] }): Promise<{ text: string; candidates: TianyiAgentCandidate[] }>;
   handoffCandidate?(input: { projectId: string; sessionId: string; runId: string; candidate: TianyiAgentCandidate; operationId: string }): Promise<{ owner: string; id: string; revision: number | null }>;
 };
 
 export type TianyiAgentRuntimePort = {
-  startRun(input: { projectId: string; sessionId: string; task: string; currentPage: string; contextRequest?: Record<string, unknown>; permissionProfile?: TianyiAgentPermissionProfile; operationId: string }): Promise<TianyiAgentRunProjection>;
-  continueRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; signal?: AbortSignal }): Promise<TianyiAgentRunProjection>;
-  steerRun(input: { projectId: string; sessionId: string; runId: string; instruction: string; operationId: string }): Promise<TianyiAgentRunProjection>;
-  approveStep(input: { projectId: string; sessionId: string; runId: string; stepId: string; operationId: string; signal?: AbortSignal }): Promise<TianyiAgentRunProjection>;
-  rejectStep(input: { projectId: string; sessionId: string; runId: string; stepId: string; reason?: string; operationId: string }): Promise<TianyiAgentRunProjection>;
-  pauseRun(input: { projectId: string; sessionId: string; runId: string; operationId: string }): Promise<TianyiAgentRunProjection>;
-  resumeRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; signal?: AbortSignal }): Promise<TianyiAgentRunProjection>;
-  cancelRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; reason?: string }): Promise<TianyiAgentRunProjection>;
-  recoverRun(input: { projectId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
-  getRunProjection(input: { projectId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
+  startRun(input: { projectId: string; workVersionId: string; sessionId: string; task: string; currentPage: string; contextRequest?: Record<string, unknown>; permissionProfile?: TianyiAgentPermissionProfile; operationId: string }): Promise<TianyiAgentRunProjection>;
+  continueRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; signal?: AbortSignal; onEvent?(event: TianyiAgentStreamEvent): Promise<void> | void }): Promise<TianyiAgentRunProjection>;
+  steerRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; instruction: string; operationId: string }): Promise<TianyiAgentRunProjection>;
+  approveStep(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; stepId: string; operationId: string; signal?: AbortSignal }): Promise<TianyiAgentRunProjection>;
+  rejectStep(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; stepId: string; reason?: string; operationId: string }): Promise<TianyiAgentRunProjection>;
+  pauseRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string }): Promise<TianyiAgentRunProjection>;
+  resumeRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; signal?: AbortSignal }): Promise<TianyiAgentRunProjection>;
+  cancelRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; reason?: string }): Promise<TianyiAgentRunProjection>;
+  recoverRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
+  getRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
+  readRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
 };
 
-export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDependencies): TianyiAgentRuntimePort & { readonly adapterId: "pi.agent-core"; readonly adapterVersion: "r0"; handoffCandidate(input: { projectId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> } {
+export type AgentRuntimePort = TianyiAgentRuntimePort;
+
+export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDependencies): AgentRuntimePort & { readonly runtimeId: "tianyi.agent-runtime"; readonly runtimeVersion: "r0.6"; handoffCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> } {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const cache = new Map<string, TianyiAgentRunProjection>();
 
-  async function load(input: { projectId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null> {
-    const key = runKey(input.projectId, input.sessionId, input.runId);
+  async function load(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null> {
+    const key = runKey(input.projectId, input.workVersionId, input.sessionId, input.runId);
     const current = cache.get(key);
     if (current) return structuredClone(current);
     const events = await dependencies.persistence.readEvents(input);
-    const latest = events.at(-1)?.projection ?? null;
+    const latestEvent = events.at(-1);
+    const latest = latestEvent ? normalizeRecoveredProjection(latestEvent.projection, input.workVersionId) : null;
+    if (latest && latest.workVersionId !== input.workVersionId) return null;
     if (latest) cache.set(key, latest);
     return latest ? structuredClone(latest) : null;
   }
 
-  async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot"): Promise<TianyiAgentRunProjection> {
+  async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
     const recordedAt = now();
     const receiptId = deterministicId("receipt.tianyi-agent-runtime", projection.runId, operationId, String(projection.revision + 1));
     const next = structuredClone({
@@ -291,24 +338,24 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
       receipts: [...projection.receipts, {
         receiptId,
         kind: "runtime" as const,
-        label: kind === "snapshot" ? "运行状态回执" : kind === "tool-call" ? "工具回执" : kind === "approval" ? "审批回执" : kind === "steering" ? "纠正回执" : "运行回执",
+        label: kind === "snapshot" ? "运行状态回执" : kind === "stream" ? "流式事件回执" : kind === "tool-call" ? "工具回执" : kind === "approval" ? "审批回执" : kind === "steering" ? "纠正回执" : "运行回执",
         operationId,
         recordedAt
       }]
     });
-    const receipt = await dependencies.persistence.appendEvent({ version: "tianyi-agent-runtime-event/v1", runId: next.runId, operationId, kind, projection: next, recordedAt });
+    const receipt = await dependencies.persistence.appendEvent({ version: "tianyi-agent-runtime-event/v1", runId: next.runId, workVersionId: next.workVersionId, operationId, kind, ...(streamEvent ? { streamEvent } : {}), projection: next, recordedAt });
     if (receipt.alreadyCompleted) {
-      const existing = await load({ projectId: next.projectId, sessionId: next.sessionId, runId: next.runId });
+      const existing = await load({ projectId: next.projectId, workVersionId: next.workVersionId, sessionId: next.sessionId, runId: next.runId });
       if (existing) return existing;
     }
-    cache.set(runKey(next.projectId, next.sessionId, next.runId), next);
+    cache.set(runKey(next.projectId, next.workVersionId, next.sessionId, next.runId), next);
     return structuredClone(next);
   }
 
-  async function requireRun(input: { projectId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection> {
+  async function requireRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection> {
     const run = await load(input);
     if (!run) throw new Error("Agent 运行尚未开始。");
-    if (run.projectId !== input.projectId || run.sessionId !== input.sessionId) throw new Error("Agent Run 不属于当前 Session。");
+    if (run.projectId !== input.projectId || run.workVersionId !== input.workVersionId || run.sessionId !== input.sessionId) throw new Error("Agent Run 不属于当前项目、工作版本或 Session。");
     return run;
   }
 
@@ -324,15 +371,17 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     const task = normalizeTask(input.task);
     const currentPage = normalizeCurrentPage(input.currentPage);
     const permissionProfile = normalizePermissionProfile(input.permissionProfile);
-    const runId = deterministicId("tianyi-agent-run", input.sessionId, input.operationId);
-    const existing = await load({ projectId: input.projectId, sessionId: input.sessionId, runId });
+    const workVersionId = normalizeWorkVersionId(input.workVersionId);
+    const runId = deterministicId("tianyi-agent-run", input.projectId, workVersionId, input.sessionId, input.operationId);
+    const existing = await load({ projectId: input.projectId, workVersionId, sessionId: input.sessionId, runId });
     if (existing) return existing;
     const timestamp = now();
     const projection: TianyiAgentRunProjection = {
-      version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, sessionId: input.sessionId, task,
+      version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, workVersionId, sessionId: input.sessionId, task,
       currentPage, contextRequest: input.contextRequest ?? null, status: "planning", contextManifest: null, resultSummary: null,
-      model: { providerId: null, profileId: null, modelId: null, runtime: "fixture" },
+      model: { providerId: null, profileId: null, modelId: null, runtime: dependencies.runProvider ? "pi" : "fixture" },
       budget: { maxProviderCalls: 6, maxOutputTokens: 512, providerCalls: 0, estimatedTokens: 0 },
+      observability: { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
       permissionProfile, plan: planFor(runId), toolCalls: [], approvals: [], steering: [], candidates: [], receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp
     };
     return save({ ...projection, status: "awaiting_author" }, input.operationId);
@@ -341,12 +390,14 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
   async function executeContextStep(run: TianyiAgentRunProjection, operationId: string): Promise<TianyiAgentRunProjection> {
     const step = run.plan.find((item) => item.kind === "read-context");
     if (!step) return run;
-    const manifest = await dependencies.buildContextManifest({ projectId: run.projectId, sessionId: run.sessionId, currentPage: run.currentPage, task: run.task, contextRequest: run.contextRequest ?? undefined });
+    const manifest = await dependencies.buildContextManifest({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, currentPage: run.currentPage, task: run.task, contextRequest: run.contextRequest ?? undefined });
+    if (manifest.projectId !== run.projectId || manifest.workVersionId !== run.workVersionId || manifest.sessionId !== run.sessionId) throw new Error("Agent 上下文投影跨越了项目、工作版本或 Session 边界。");
     const toolSpecs = run.currentPage === "/event-line"
       ? [
         ["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }],
         ["read_story_selection", { selectedObjectIds: manifest.selectedObjectIds }],
         ["read_event_line_projection", { sourceRefs: manifest.sourceRefs.map((source) => source.id), narrativeTime: "read-only" }],
+        ["read_event_focus_context", { selectedEventIds: manifest.selectedObjectIds, relationBoundary: "formal-relation-owner" }],
         ["read_open_questions", { unresolvedQuestions: manifest.unresolvedQuestions }]
       ] as const
       : [["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }]] as const;
@@ -360,7 +411,7 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     return save(next, operationId, "tool-call");
   }
 
-  async function executeAnalysis(run: TianyiAgentRunProjection, operationId: string, signal?: AbortSignal): Promise<TianyiAgentRunProjection> {
+  async function executeAnalysis(run: TianyiAgentRunProjection, operationId: string, signal?: AbortSignal, onEvent?: (event: TianyiAgentStreamEvent) => Promise<void> | void): Promise<TianyiAgentRunProjection> {
     if (!run.contextManifest) throw new Error("必须先读取当前引用范围。");
     const step = run.plan.find((item) => item.kind === "model-analysis");
     if (!step || step.status === "completed") return run;
@@ -370,13 +421,52 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     let providerCalls = 0;
     if (dependencies.runProvider && run.budget.providerCalls < run.budget.maxProviderCalls) {
       try {
-        const result = await dependencies.runProvider({ runId: run.runId, currentPage: run.currentPage, task: run.task, contextManifest: run.contextManifest, steering: run.steering.map((item) => item.instruction), maxOutputTokens: run.budget.maxOutputTokens, retry: run.budget.providerCalls > 0, signal });
+        const result = await dependencies.runProvider({
+          runId: run.runId,
+          attemptId: operationId,
+          projectId: run.projectId,
+          workVersionId: run.workVersionId,
+          sessionId: run.sessionId,
+          currentPage: run.currentPage,
+          task: run.task,
+          contextManifest: run.contextManifest,
+          steering: run.steering.map((item) => item.instruction),
+          maxOutputTokens: run.budget.maxOutputTokens,
+          retry: run.status === "failed" || run.budget.providerCalls > 0 || run.toolCalls.some((call) => call.status === "approved"),
+          signal,
+          async authorizeTool(call) {
+            const definition = validateTianyiAgentToolCall(call);
+            if (definition.name === "read_context_manifest") {
+              const approval = run.approvals.find((item) => item.stepId === `${run.runId}.context` && item.decision === "approved");
+              return approval ? { allowed: true, approvalReceiptId: approval.receiptId } : { allowed: false, reason: "当前引用范围尚未获得作者批准。", approvalRequired: true };
+            }
+            if (definition.classification === "read") return { allowed: true };
+            const matching = run.toolCalls.find((item) => item.toolName === call.toolName && stableArguments(item.arguments) === stableArguments(call.arguments));
+            if (matching?.status === "approved" && matching.receiptId) return { allowed: true, approvalReceiptId: matching.receiptId };
+            if (matching?.status === "rejected") return { allowed: false, reason: "作者已拒绝这次工具调用。" };
+            return { allowed: false, reason: "这次受控产品工具必须先获得作者审批。", approvalRequired: true };
+          },
+          async onEvent(event) {
+            const toolCalls = event.type === "tool-call-end"
+              ? run.toolCalls.map((call) => call.toolName === event.toolName && call.status === "approved" ? { ...call, status: event.isError ? "failed" as const : "completed" as const, error: event.isError ? "受控产品工具执行失败。" : null, completedAt: event.recordedAt } : call)
+              : run.toolCalls;
+            run = await save({ ...run, toolCalls, observability: { ...run.observability, streamEventCount: run.observability.streamEventCount + 1 } }, `${operationId}.stream.${event.sequence}`, "stream", event);
+            await onEvent?.(event);
+          }
+        });
         text = result.text;
         providerCalls = result.providerCalls;
         runtime = "pi";
-        run = { ...run, model: { providerId: result.providerId, profileId: result.profileId, modelId: result.modelId, runtime }, budget: { ...run.budget, providerCalls: run.budget.providerCalls + providerCalls } };
+        run = {
+          ...run,
+          model: { providerId: result.providerId, profileId: result.profileId, modelId: result.modelId, runtime },
+          budget: { ...run.budget, providerCalls: run.budget.providerCalls + providerCalls },
+          observability: { ...run.observability, traceId: result.traceId, latencyMs: result.latencyMs, ...result.usage }
+        };
       } catch (cause) {
-        if (!(cause instanceof Error && cause.name === "ProviderUnavailable") || !dependencies.fixtureResponse) throw cause;
+        const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
+        if (!(cause instanceof Error && cause.name === "ProviderUnavailable") && code !== "provider-unavailable") throw cause;
+        throw cause;
       }
     }
     if (!text && dependencies.fixtureResponse) {
@@ -395,14 +485,30 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     try {
       if (run.status === "paused") run = { ...run, status: "running", error: null };
       if (run.status === "awaiting_author" && run.plan.some((step) => step.status === "awaiting_author")) return run;
-      if (!run.contextManifest) return executeContextStep(run, input.operationId);
-      if (run.plan.some((step) => step.kind === "model-analysis" && step.status !== "completed")) return executeAnalysis(run, input.operationId, input.signal);
+      if (!run.contextManifest) return await executeContextStep(run, input.operationId);
+      if (run.plan.some((step) => step.kind === "model-analysis" && step.status !== "completed")) return await executeAnalysis(run, input.operationId, input.signal, input.onEvent);
       const next = { ...run, status: "completed" as const, stopReason: "作者可继续审查候选；本次 Agent 分析已完成。" };
       return save(next, input.operationId);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Agent 运行未完成。";
-      const category: NonNullable<TianyiAgentRunProjection["error"]>["category"] = input.signal?.aborted || (cause instanceof Error && cause.name === "AbortError") ? "cancelled" : cause instanceof Error && cause.name === "ProviderUnavailable" ? "provider-unavailable" : "tool-failed";
-      return save({ ...run, status: category === "cancelled" ? "paused" : "failed", stopReason: category === "cancelled" ? "作者停止了本次运行。" : null, error: { category, message, retryable: category !== "cancelled" } }, input.operationId);
+      const source = cause as { code?: unknown; retryable?: unknown; toolCall?: { toolName?: unknown; arguments?: unknown } } | null;
+      const code = typeof source?.code === "string" ? source.code : "unknown";
+      if (code === "tool-approval-required" && source?.toolCall && typeof source.toolCall.toolName === "string" && source.toolCall.arguments && typeof source.toolCall.arguments === "object" && !Array.isArray(source.toolCall.arguments)) {
+        const definition = validateTianyiAgentToolCall({ toolName: source.toolCall.toolName, arguments: source.toolCall.arguments });
+        const callId = deterministicId("tianyi-agent-provider-tool", run.runId, definition.name, stableArguments(source.toolCall.arguments as Record<string, unknown>));
+        const stepId = `${run.runId}.tool.${callId}`;
+        const existingCall = run.toolCalls.find((item) => item.callId === callId);
+        const toolCall: TianyiAgentToolCall = existingCall ?? { callId, toolName: definition.name, classification: definition.classification, status: "requested", arguments: structuredClone(source.toolCall.arguments as Record<string, unknown>), output: null, receiptId: null, error: null, startedAt: now(), completedAt: null };
+        const step: TianyiAgentPlanStep = { stepId, title: definition.label, kind: "product-tool", classification: definition.classification, requiredPermission: "author-approval", status: "awaiting_author", toolName: definition.name, error: null };
+        return save({ ...run, status: "awaiting_author", toolCalls: [...run.toolCalls.filter((item) => item.callId !== callId), toolCall], plan: [...run.plan.filter((item) => item.stepId !== stepId), step], stopReason: "受控产品工具正在等待作者审批。", error: null }, input.operationId, "tool-call");
+      }
+      const category: NonNullable<TianyiAgentRunProjection["error"]>["category"] = input.signal?.aborted || (cause instanceof Error && cause.name === "AbortError") || code === "cancelled" ? "cancelled" : cause instanceof Error && cause.name === "ProviderUnavailable" || code === "provider-unavailable" ? "provider-unavailable" : code === "provider-failed" ? "provider-failed" : code === "invalid-tool-call" ? "invalid-tool-call" : "tool-failed";
+      if (category === "cancelled") {
+        const latest = await load({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId });
+        if (latest?.status === "cancelled") return latest;
+      }
+      const retryable = category !== "cancelled" && source?.retryable !== false;
+      return save({ ...run, status: category === "cancelled" ? "paused" : "failed", stopReason: category === "cancelled" ? "作者停止了本次运行。" : null, error: { category, code, message, retryable, retryBoundary: retryable ? "author-explicit" : "none" } }, input.operationId);
     }
   }
 
@@ -412,16 +518,16 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     if (!step) throw new Error("Agent 步骤不存在。");
     const previous = run.approvals.find((item) => item.stepId === step.stepId && item.decision === "approved");
     const approval = previous ?? { stepId: step.stepId, decision: "approved" as const, operationId: input.operationId, receiptId: deterministicId("receipt.tianyi-agent-approval", run.runId, step.stepId), recordedAt: now() };
-    run = { ...run, approvals: [...run.approvals.filter((item) => item.stepId !== step.stepId), approval], plan: run.plan.map((item) => item.stepId === step.stepId ? { ...item, status: "approved" as const } : item), status: "running", error: null };
+    run = { ...run, approvals: [...run.approvals.filter((item) => item.stepId !== step.stepId), approval], plan: run.plan.map((item) => item.stepId === step.stepId ? { ...item, status: "approved" as const } : item), toolCalls: step.kind === "product-tool" ? run.toolCalls.map((call) => call.toolName === step.toolName && call.status === "requested" ? { ...call, status: "approved" as const, receiptId: approval.receiptId } : call) : run.toolCalls, status: "running", error: null };
     run = await save(run, input.operationId, "approval");
-    return continueRun({ projectId: input.projectId, sessionId: input.sessionId, runId: input.runId, operationId: `${input.operationId}.continue`, signal: input.signal });
+    return continueRun({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId, operationId: `${input.operationId}.continue`, signal: input.signal });
   }
 
   async function rejectStep(input: Parameters<TianyiAgentRuntimePort["rejectStep"]>[0]): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
     const step = run.plan.find((item) => item.stepId === input.stepId);
     if (!step) throw new Error("Agent 步骤不存在。");
-    const next = { ...run, plan: run.plan.map((item) => item.stepId === step.stepId ? { ...item, status: "rejected" as const, error: input.reason || "作者拒绝了这一步。" } : item), status: "paused" as const, stopReason: input.reason || "作者拒绝了这一步。" };
+    const next = { ...run, plan: run.plan.map((item) => item.stepId === step.stepId ? { ...item, status: "rejected" as const, error: input.reason || "作者拒绝了这一步。" } : item), toolCalls: step.kind === "product-tool" ? run.toolCalls.map((call) => call.toolName === step.toolName && call.status === "requested" ? { ...call, status: "rejected" as const, error: input.reason || "作者拒绝了这一步。", completedAt: now() } : call) : run.toolCalls, status: "paused" as const, stopReason: input.reason || "作者拒绝了这一步。" };
     return save(next, input.operationId, "approval");
   }
 
@@ -449,10 +555,11 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
   async function cancelRun(input: Parameters<TianyiAgentRuntimePort["cancelRun"]>[0]): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
     if (run.status === "cancelled") return run;
-    return save({ ...run, status: "cancelled", stopReason: input.reason || "作者取消了运行。", error: { category: "cancelled", message: input.reason || "作者取消了运行。", retryable: false } }, input.operationId);
+    await dependencies.cancelProvider?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId });
+    return save({ ...run, status: "cancelled", stopReason: input.reason || "作者取消了运行。", error: { category: "cancelled", code: "cancelled", message: input.reason || "作者取消了运行。", retryable: false, retryBoundary: "none" } }, input.operationId);
   }
 
-  async function handoffCandidate(input: { projectId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> {
+  async function handoffCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
     const candidate = run.candidates.find((item) => item.candidateId === input.candidateId);
     if (!candidate) throw new Error("Agent 候选不存在。");
@@ -463,15 +570,27 @@ export function createPiAgentRuntimeAdapter(dependencies: TianyiAgentRuntimeDepe
     return save(next, input.operationId, "receipt");
   }
 
-  return Object.freeze({ adapterId: "pi.agent-core" as const, adapterVersion: "r0" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, handoffCandidate });
+  const readRunEvents = (input: { projectId: string; workVersionId: string; sessionId: string; runId: string }) => dependencies.persistence.readEvents(input);
+  return Object.freeze({ runtimeId: "tianyi.agent-runtime" as const, runtimeVersion: "r0.6" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, readRunEvents, handoffCandidate });
 }
 
-function runKey(projectId: string, sessionId: string, runId: string): string { return `${projectId}:${sessionId}:${runId}`; }
+function runKey(projectId: string, workVersionId: string, sessionId: string, runId: string): string { return `${projectId}:${workVersionId}:${sessionId}:${runId}`; }
 function normalizeTask(value: unknown): string { const text = typeof value === "string" ? value.trim() : ""; if (!text || text.length > 4_000) throw new Error("Agent 任务不能为空或过长。"); return text; }
+function normalizeWorkVersionId(value: unknown): string { const text = typeof value === "string" ? value.trim() : ""; if (!text || text.length > 160 || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iu.test(text)) throw new Error("Agent 工作版本无效。"); return text; }
 function normalizeCurrentPage(value: unknown): string { const page = typeof value === "string" && value.trim() ? value.trim() : "/tianyi"; if (!/^\/(?:tianyi|world|event-line|library|creation|nuwa)(?:[/?#]|$)/u.test(page)) throw new Error("Agent 当前页面不在受控工作区内。"); return page.slice(0, 240); }
 function normalizePermissionProfile(value: unknown): TianyiAgentPermissionProfile { return value === undefined || value === null ? "step-by-step" : value === "step-by-step" || value === "conservative" || value === "proactive" ? value : (() => { throw new Error("Agent 权限档案不受支持。"); })(); }
 function deterministicId(prefix: string, ...parts: string[]): string { return `${prefix}.${createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24)}`; }
+function stableArguments(value: Record<string, unknown>): string { return JSON.stringify(Object.keys(value).sort().reduce<Record<string, unknown>>((result, key) => { result[key] = value[key]; return result; }, {})); }
 function abortError(): Error { const error = new Error("Provider 请求已停止。"); error.name = "AbortError"; return error; }
+function normalizeRecoveredProjection(projection: TianyiAgentRunProjection, workVersionId: string): TianyiAgentRunProjection {
+  const legacy = projection as TianyiAgentRunProjection & { workVersionId?: string; observability?: TianyiAgentRunProjection["observability"] };
+  return {
+    ...projection,
+    workVersionId: legacy.workVersionId ?? workVersionId,
+    contextManifest: projection.contextManifest ? { ...projection.contextManifest, workVersionId: projection.contextManifest.workVersionId ?? workVersionId } : null,
+    observability: legacy.observability ?? { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 }
+  };
+}
 function parseCandidateText(text: string, manifest: TianyiAgentContextManifest): TianyiAgentCandidate[] {
   const title = text.trim().slice(0, 80) || "待作者确认的分析建议";
   return [{ candidateId: deterministicId("candidate.tianyi-agent", title, manifest.sessionId), kind: "unknown", title, summary: text.trim().slice(0, 800) || "当前没有可安全归类的建议。", sourceRefs: manifest.authorSourceRefs.slice(0, 8), uncertainties: ["候选类型和正式归属仍需作者确认。"], targetOwnerKind: "candidate-only", state: "pending", ownerReceipt: null }];
@@ -482,6 +601,12 @@ export function validateTianyiAgentToolCall(input: { toolName: string; arguments
   if (!definition) throw new Error("未声明的 Agent 工具已被拒绝。");
   if (!input.arguments || typeof input.arguments !== "object" || Array.isArray(input.arguments)) throw new Error("Agent 工具参数必须是 JSON 对象。");
   const args = input.arguments as Record<string, unknown>;
+  if (definition.name === "create_artifact" && !["screenplay", "storyboard", "comic", "motion-comic", "interactive-drama"].includes(String(args.type ?? ""))) throw new Error("Agent 普通产物类型不受支持。");
+  if (definition.name === "propose_entity_candidate" && !["character", "item", "location"].includes(String(args.kind ?? ""))) throw new Error("Agent 候选类型没有安全的现有资料 Owner。");
+  if (definition.name === "submit_event_graph_candidate") {
+    if (args.sourceEventId === args.targetEventId) throw new Error("事件关系候选必须连接两条不同的正式事件。");
+    if (args.direction !== undefined && !["forward", "reverse", "both", "none"].includes(String(args.direction))) throw new Error("事件关系方向不受支持。");
+  }
   const keys = Object.keys(args);
   const allowed = new Set(Object.keys(definition.inputSchema.properties));
   if (keys.some((key) => !allowed.has(key))) throw new Error("Agent 工具包含未声明字段。");

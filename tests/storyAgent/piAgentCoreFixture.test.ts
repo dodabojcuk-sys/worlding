@@ -1,54 +1,47 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("pinned Pi agent-core runs a Tianyi read-only tool loop without network or coding tools", async () => {
-  const [{ Agent }, { AssistantMessageEventStream, Type, contentText }] = await Promise.all([
-    import("@earendil-works/pi-agent-core"),
-    import("@earendil-works/pi-ai")
-  ]);
-  const model = {
-    id: "fixture-model",
-    name: "Fixture Model",
-    api: "openai-completions",
-    provider: "tianyi-fixture",
-    baseUrl: "http://127.0.0.1:9/v1",
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 4_096,
-    maxTokens: 128
-  };
-  let streamCalls = 0;
-  const events: string[] = [];
-  const streamFn = () => {
-    streamCalls += 1;
-    const stream = new AssistantMessageEventStream();
-    queueMicrotask(() => {
-      const hasToolResult = agent.state.messages.some((message) => message.role === "toolResult");
-      const partial = hasToolResult
-        ? { role: "assistant", content: [{ type: "text", text: "已读取当前引用范围，建议保持候选待作者确认。" }], api: "openai-completions", provider: "tianyi-fixture", model: "fixture-model", usage: { input: 1, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 9, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() }
-        : { role: "assistant", content: [{ type: "toolCall", id: "toolcall.fixture", name: "read_context_manifest", arguments: {} }], api: "openai-completions", provider: "tianyi-fixture", model: "fixture-model", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "toolUse", timestamp: Date.now() };
-      stream.push({ type: "start", partial });
-      stream.push({ type: "done", reason: partial.stopReason, message: partial });
-      stream.end(partial);
-    });
-    return stream;
-  };
-  const agent = new Agent({
-    initialState: {
-      systemPrompt: "只读天意夹具。",
-      model,
-      thinkingLevel: "off",
-      tools: [{ name: "read_context_manifest", label: "查看当前引用范围", description: "只读工具", parameters: Type.Object({}), execute: async () => ({ content: [{ type: "text", text: "source.fixture" }], details: { sourceCount: 1 } }) }]
-    },
-    streamFn,
-    toolExecution: "sequential"
+import { createBuiltinPiAgentRuntimePlugin } from "../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
+
+test("built-in Pi plugin runs a host-scoped read-only tool loop without network or coding tools", async () => {
+  const runtime = createBuiltinPiAgentRuntimePlugin().createRuntime({ version: "1.0.0" });
+  let providerCalls = 0;
+  let toolCalls = 0;
+  const result = await runtime.run({
+    runId: "run.fixture",
+    projectId: "project.fixture",
+    workVersionId: "work-version.fixture",
+    sessionId: "session.fixture",
+    prompt: "检查当前引用范围",
+    systemPrompt: "只读天意夹具。",
+    providerId: "fixture-provider",
+    profileId: "fixture-profile",
+    modelId: "fixture-model",
+    maxOutputTokens: 128,
+    retry: false,
+    tools: [{
+      name: "read_context_manifest",
+      label: "查看当前引用范围",
+      description: "只读工具",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async execute() { toolCalls += 1; return { sourceCount: 1 }; }
+    }],
+    async authorizeTool() { return { allowed: true }; },
+    async openProviderStream() {
+      providerCalls += 1;
+      const firstTurn = providerCalls === 1;
+      const frames = firstTurn
+        ? [
+            { type: "tool-call-start" as const, id: "tool.fixture", name: "read_context_manifest", index: 0 },
+            { type: "tool-call-delta" as const, id: "tool.fixture", name: "read_context_manifest", index: 0, argumentsDelta: "{}" },
+            { type: "tool-call-end" as const, id: "tool.fixture", name: "read_context_manifest", index: 0, argumentsJson: "{}", arguments: {} },
+            { type: "done" as const }
+          ]
+        : [{ type: "chunk" as const, text: "已读取当前引用范围，建议保持候选待作者确认。", finishReason: "stop", usage: { promptTokens: 1, completionTokens: 8, totalTokens: 9 } }];
+      return { traceId: "trace.fixture", events: (async function* () { for (const frame of frames) yield frame; })() };
+    }
   });
-  agent.subscribe((event) => { events.push(event.type); });
-  await agent.prompt("检查当前引用范围");
-  assert.equal(streamCalls, 2);
-  assert.ok(events.includes("tool_execution_start"));
-  const finalAssistant = agent.state.messages.slice().reverse().find((message) => message.role === "assistant");
-  assert.equal(finalAssistant ? contentText(finalAssistant.content) : "", "已读取当前引用范围，建议保持候选待作者确认。");
-  assert.equal(agent.state.tools.some((tool) => tool.name === "bash"), false);
+  assert.equal(providerCalls, 2);
+  assert.equal(toolCalls, 1);
+  assert.equal(result.text, "已读取当前引用范围，建议保持候选待作者确认。");
 });

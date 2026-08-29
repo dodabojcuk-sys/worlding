@@ -100,7 +100,7 @@ test("automatic local storage session creates Markdown without exposing the cont
     assert.equal(statusBody.data.libraryPath, rootPath);
     assert.equal(statusBody.data.persistenceState, "verified-local");
     assert.equal(statusBody.data.backupMode, "manual-folder-copy");
-    assert.equal(statusBody.data.fullExportState, "not-implemented");
+    assert.equal(statusBody.data.fullExportState, "blocked-backup-root-required");
     assert.doesNotMatch(JSON.stringify(statusBody), new RegExp(controlToken));
 
     const missingStatus = await fetch(`${baseUrl}/__local/story-studio/storage/status?projectId=missing-world`, {

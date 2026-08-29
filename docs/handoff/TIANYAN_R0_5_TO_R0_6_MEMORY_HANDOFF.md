@@ -35,8 +35,8 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 - Character directory replaces only the light project-directory slot.
 - Selecting a character opens a new read-only right inspector overlay and writes stable focus to the URL.
 - The central workspace, Tianyi Session and draft are not remounted or resized by selection.
-- Full character workspace is not implemented; its inspector entry reports an honest unavailable state.
-- Standard/compact density is a browser UI preference scoped by user and object type, not character data.
+- Full character workspace is not implemented. The inspector can expand to a larger read-only overlay using existing WorldObject/Card Presentation/relation/event projections, but “在资料中编辑” remains disabled until a stable editor route exists.
+- Standard/compact density and directory sort are browser UI preferences scoped by user and object type, not character data. Both controls remain discoverable in the character-directory toolbar.
 - Deleted R0.3 character UI stays deleted.
 
 ## Founder visual evidence
@@ -52,9 +52,15 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 - WorldObjects follow the existing project-scoped projection rule. ObjectCatalog category/trash metadata is project-and-work-version scoped; no character title, summary, aliases or tags are copied into it. Founder visual status remains `REVIEW_REQUIRED` until independent review.
 - Validation environment was Node `v24.16.0`; the project navigation still records Node 22 as its target runtime.
 
+## R0.6 character-directory repair notes
+
+- Display summaries reuse `readStoryCardContent` / `parseStoryCardSections`; the directory and inspector must never render section anchors, internal comments, content references or section IDs. This is a read-only presentation projection and must not rewrite source Markdown.
+- Custom role levels are values in the existing WorldObject `subtype` field. Authors can select built-ins, existing project values, or a validated new value at character creation. Global rename/delete of a role level is not implemented.
+- Category definitions use project-scoped `workspaceLayoutRepository` folders with `kind=custom-category`; ObjectCatalog retains only a project-and-work-version-scoped folder ID assignment. Unknown historic IDs display “未知分类”, never the internal ID. Do not add a CategoryStore or migration without a new owner contract.
+
 ## Verification and known gaps
 
-Final test results and browser evidence must be read from the R0.5 completion report and final `git log`. Permanent deletion remains safely blocked in UI. Known gaps: full character workspace, named category-definition management, first-appearance sorting, complete delete-impact enumeration, and permanent delete.
+Final test results and browser evidence must be read from the R0.5 completion report and final `git log`. Permanent deletion remains safely blocked in UI. Known gaps: full character workspace/editor route, global role-level rename/delete, first-appearance sorting (no authoritative projection), complete delete-impact enumeration, and permanent delete.
 
 ## Memory handoff
 

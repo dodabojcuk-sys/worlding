@@ -11,10 +11,10 @@ export const SILICONFLOW_MODEL_METADATA = Object.freeze([
   Object.freeze({
     id: "Qwen/Qwen3.5-35B-A3B",
     label: "Qwen 3.5 35B A3B",
-    capabilities: Object.freeze(["chat", "streaming", "json-object"])
+    capabilities: Object.freeze(["chat", "streaming", "json-object", "tool-calls"])
   }),
-  Object.freeze({ id: "Qwen/Qwen3.5-9B", label: "Qwen 3.5 9B", capabilities: Object.freeze(["chat", "streaming", "json-object"]) }),
-  Object.freeze({ id: "Qwen/Qwen3.5-4B", label: "Qwen 3.5 4B", capabilities: Object.freeze(["chat", "streaming", "json-object"]) })
+  Object.freeze({ id: "Qwen/Qwen3.5-9B", label: "Qwen 3.5 9B", capabilities: Object.freeze(["chat", "streaming", "json-object", "tool-calls"]) }),
+  Object.freeze({ id: "Qwen/Qwen3.5-4B", label: "Qwen 3.5 4B", capabilities: Object.freeze(["chat", "streaming", "json-object", "tool-calls"]) })
 ]);
 
 const MAX_SSE_EVENT_BYTES = 256 * 1024;
@@ -144,6 +144,7 @@ export function createSiliconFlowAdapter(options = {}) {
             max_tokens: input.maxOutputTokens,
             temperature: input.temperature,
             enable_thinking: input.enableThinking === true,
+            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
             ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
           }),
           signal: controller.signal
@@ -220,6 +221,8 @@ async function* parseSse(body, signal, onUsage) {
   const decoder = new TextDecoder();
   let buffer = "";
   let completed = false;
+  const toolCalls = new Map();
+  let toolFinishSeen = false;
   try {
     while (!completed) {
       const result = await readWithAbort(reader, signal);
@@ -234,19 +237,34 @@ async function* parseSse(body, signal, onUsage) {
         if (Buffer.byteLength(source) > MAX_SSE_EVENT_BYTES) throw providerGatewayError("invalid-response");
         const event = parseSseEvent(source);
         if (event?.type === "done") {
+          for (const call of [...toolCalls.values()].filter((item) => !item.ended).sort((left, right) => left.order - right.order)) {
+            call.ended = true;
+            yield Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason: "missing-completion" });
+          }
           completed = true;
           yield event;
           break;
         }
-        if (event) {
-          if (event.type === "chunk" && event.usage) onUsage?.(event.usage);
-          yield event;
+        if (event?.type === "provider-payload") {
+          const normalized = normalizeProviderPayload(event.payload, toolCalls, toolFinishSeen);
+          if (normalized.toolFinishSeen) toolFinishSeen = true;
+          for (const item of normalized.events) {
+            if (item.type === "chunk" && item.usage) onUsage?.(item.usage);
+            yield item;
+          }
         }
         boundary = buffer.indexOf("\n\n");
       }
       if (Buffer.byteLength(buffer) > MAX_SSE_EVENT_BYTES) throw providerGatewayError("invalid-response");
     }
     if (!completed) throw providerGatewayError("invalid-response");
+  } catch (error) {
+    if (signal.aborted) {
+      for (const call of [...toolCalls.values()].filter((item) => !item.ended).sort((left, right) => left.order - right.order)) {
+        yield Object.freeze({ type: "tool-call-aborted", id: call.id || null, name: call.name || null, index: call.index, reason: "cancelled" });
+      }
+    }
+    throw error;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
@@ -273,13 +291,78 @@ function parseSseEvent(source) {
   const text = typeof choice?.delta?.content === "string" ? choice.delta.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
   const usage = normalizeUsage(payload?.usage);
-  if (!text && !finishReason && !usage) return null;
-  return Object.freeze({
-    type: "chunk",
-    text,
-    finishReason,
-    usage
-  });
+  return Object.freeze({ type: "provider-payload", payload });
+}
+
+function normalizeProviderPayload(payload, toolCalls, toolFinishSeen) {
+  const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
+  const text = typeof choice?.delta?.content === "string" ? choice.delta.content : "";
+  const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
+  const usage = normalizeUsage(payload?.usage);
+  const rawCalls = Array.isArray(choice?.delta?.tool_calls) ? choice.delta.tool_calls : [];
+  const events = [];
+  if (text || (finishReason && finishReason !== "tool_calls") || usage) events.push(Object.freeze({ type: "chunk", text, finishReason: finishReason === "tool_calls" ? null : finishReason, usage }));
+  for (const raw of rawCalls) {
+    const index = Number.isInteger(raw?.index) && raw.index >= 0 ? raw.index : null;
+    if (index === null) {
+      events.push(Object.freeze({ type: "tool-call-malformed", id: null, name: null, index: -1, argumentsJson: "", reason: "missing-index" }));
+      continue;
+    }
+    let call = toolCalls.get(index);
+    if (!call) {
+      call = { index, id: "", name: "", argumentsJson: "", started: false, ended: false, order: toolCalls.size };
+      toolCalls.set(index, call);
+    }
+    if (call.ended) {
+      events.push(Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index, argumentsJson: call.argumentsJson, reason: "delta-after-end" }));
+      continue;
+    }
+    if (typeof raw.id === "string" && raw.id) call.id = appendProviderField(call.id, raw.id);
+    if (typeof raw.function?.name === "string" && raw.function.name) call.name = appendProviderField(call.name, raw.function.name);
+    const fragment = typeof raw.function?.arguments === "string" ? raw.function.arguments : "";
+    if (!call.started && call.id && call.name) {
+      call.started = true;
+      events.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index }));
+      if (call.argumentsJson) events.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index, argumentsDelta: call.argumentsJson }));
+    }
+    if (fragment) {
+      call.argumentsJson += fragment;
+      if (call.argumentsJson.length > MAX_SSE_EVENT_BYTES) {
+        events.push(Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index, argumentsJson: "", reason: "arguments-too-large" }));
+        call.ended = true;
+      } else if (call.started) {
+        events.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index, argumentsDelta: fragment }));
+      }
+    }
+  }
+  if (finishReason === "tool_calls") {
+    if (toolFinishSeen) {
+      events.push(Object.freeze({ type: "tool-call-malformed", id: null, name: null, index: -1, argumentsJson: "", reason: "duplicate-completion" }));
+    } else {
+      for (const call of [...toolCalls.values()].sort((left, right) => left.order - right.order)) {
+        if (call.ended) continue;
+        call.ended = true;
+        if (!call.id || !call.name) {
+          events.push(Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason: "missing-field" }));
+          continue;
+        }
+        let parsed;
+        try { parsed = JSON.parse(call.argumentsJson || "{}"); } catch { parsed = null; }
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          events.push(Object.freeze({ type: "tool-call-malformed", id: call.id, name: call.name, index: call.index, argumentsJson: call.argumentsJson, reason: "malformed-arguments" }));
+          continue;
+        }
+        events.push(Object.freeze({ type: "tool-call-end", id: call.id, name: call.name, index: call.index, argumentsJson: call.argumentsJson || "{}", arguments: parsed }));
+      }
+    }
+    return { events, toolFinishSeen: true };
+  }
+  return { events, toolFinishSeen };
+}
+
+function appendProviderField(current, fragment) {
+  if (!current) return fragment;
+  return fragment === current || current.endsWith(fragment) ? current : `${current}${fragment}`;
 }
 
 function normalizeUsage(value) {

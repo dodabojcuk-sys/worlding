@@ -13,7 +13,9 @@ import { createInitialDockLayout, resizeDockPanel, toggleDockPanel } from "../..
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
 import {
   nextShellRailPreference,
+  resolveInitialDirectoryOpen,
   resolveShellRailCollapsed,
+  SHELL_DIRECTORY_OVERLAY_QUERY,
   SHELL_RAIL_AUTO_COLLAPSE_QUERY
 } from "../../apps/story-studio/src/product-shell/navigation/responsiveRailState.ts";
 
@@ -59,7 +61,7 @@ test("R0.2 workbench keeps global panels separate from the composable page-tool 
   assert.doesNotMatch(dockState, /panelOrder|expert-first|pinned|priority/ui);
 });
 
-test("R0.1 command panel is a global shell entry, not a business search surface", () => {
+test("R0.6 uses one global search engine while the legacy command panel remains shell-controls only", () => {
   assert.deepEqual(TIAN_YAN_R0_COMMAND_PANEL_SCOPE, {
     destinations: "registry-only",
     rail: "visibility-only",
@@ -72,35 +74,55 @@ test("R0.1 command panel is a global shell entry, not a business search surface"
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
+  const directory = readFileSync("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "utf8");
+  const characters = readFileSync("apps/story-studio/src/product-shell/project-directory/character/CharacterDirectoryPanel.tsx", "utf8");
+  const search = readFileSync("apps/story-studio/src/product-shell/global-search/globalSearchEngine.ts", "utf8");
   const commandPalette = readFileSync("apps/story-studio/src/product-shell/commands/ShellCommandPalette.tsx", "utf8");
 
   assert.match(shell, /Ctrl|ctrlKey/);
   assert.match(shell, /ShellCommandPalette/);
+  assert.match(shell, /requestSearch\("characters"\)/);
   assert.match(navigation, /BrandMarkSlot/);
-  assert.match(navigation, /shell-command-trigger/);
+  assert.doesNotMatch(navigation, /shell-global-search-entry/);
+  assert.match(topbar, /GlobalSearchControl/);
+  assert.match(topbar, /createGlobalSearchEngine/);
+  assert.match(directory, /PendingReviewPanel/);
+  assert.match(directory, /project-directory-tabs/);
+  assert.doesNotMatch(directory, /project-directory-search-entry/);
+  assert.match(directory, /project-directory-close/);
+  assert.doesNotMatch(directory, /type="search"|filterProjectDirectory/);
+  assert.match(characters, /onRequestScopedSearch/);
+  assert.match(search, /neither writes data nor builds an index or embedding store/);
   assert.match(commandPalette, /STORY_STUDIO_SHELL_NAVIGATION_REGISTRY/);
   assert.doesNotMatch(commandPalette, /localTransport|providerGateway|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
-  assert.doesNotMatch(topbar, /shell-global-search|type="search"/);
 });
 
-test("desktop topbar exposes presentation controls and honest runtime states without a duplicate settings menu", () => {
+test("desktop topbar preserves every global control while keeping one search and one directory toggle", () => {
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
-  const theme = readFileSync("apps/story-studio/src/product-shell/theme/theme.ts", "utf8");
+  const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
+  const runtime = readFileSync("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 
-  assert.match(topbar, /SHELL_THEME_REGISTRY/);
-  assert.match(theme, /SHELL_THEME_REGISTRY/);
+  assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="global-tianyi"/gu) ?? []).length, 1);
+  assert.match(topbar, /data-panel-toggle="project-directory"/);
+  assert.match(topbar, /toggleLocale/);
+  assert.match(topbar, /onToggleTheme/);
+  assert.match(topbar, /onToggleTianyi/);
   assert.match(topbar, /CloudOff/);
-  assert.match(topbar, /topbar\.localStatus/);
-  assert.match(topbar, /topbar\.syncStatus/);
-  assert.match(topbar, /shell-topbar-text-control/);
-  assert.doesNotMatch(topbar, /Settings2|shell-tools-popover|shell-tools-menu/);
-  assert.ok(topbar.indexOf("topbar.languageValue") < topbar.indexOf("{themeLabel}"));
-  assert.ok(topbar.indexOf("{themeLabel}") < topbar.indexOf("topbar.localStatus"));
-  assert.ok(topbar.indexOf("topbar.localStatus") < topbar.indexOf("topbar.syncStatus"));
-  assert.ok(topbar.indexOf("topbar.syncStatus") < topbar.indexOf("panel.projectDirectory"));
-  assert.match(styles, /shell-topbar-divider/);
+  assert.match(topbar, /shell-runtime-status/);
+  assert.match(topbar, /shell-project-selector-menu/);
+  assert.match(topbar, /role="menuitemradio"/);
+  assert.match(shell, /projectId=\{props\.runtime\.project\?\.id \?\? null\}/);
+  assert.match(shell, /onOpenProject=\{props\.runtime\.openProject\}/);
+  assert.match(runtime, /openProject\(projectId: string\): Promise<void>/);
+  assert.match(runtime, /openProject\(projectId, token\)/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
+  assert.match(topbar, /shell-topbar-overflow-menu/);
+  assert.match(topbar, /aria-controls="shell-topbar-overflow-menu"/);
+  assert.match(topbar, /data-panel-toggle="project-directory"[\s\S]*data-panel-toggle="global-tianyi"/);
+  assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-secondary \{ display: none; \}[\s\S]*shell-topbar-more \{ display: block; \}/);
 });
 
 test("Tianyi keeps the shared-session mode tabs in its title row with a light active indicator", () => {
@@ -122,7 +144,7 @@ test("Tianyi keeps the shared-session mode tabs in its title row with a light ac
   assert.doesNotMatch(activeModeRule, /background: var\(--color-accent\)/);
 });
 
-test("account and settings remain independent rail utilities", () => {
+test("settings sits above personal center and changes the Shell workspace without a route jump", () => {
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
@@ -135,12 +157,22 @@ test("account and settings remain independent rail utilities", () => {
   assert.match(navigation, /shell-rail-utility/);
   assert.match(navigation, /data-shell-utility="account"/);
   assert.match(navigation, /data-shell-utility="settings"/);
+  assert.match(navigation, /settingsControl[\s\S]*data-shell-utility="settings"/);
+  assert.match(navigation, /shell-rail-utility[\s\S]*settingsControl[\s\S]*data-shell-utility="account"/);
+  assert.match(navigation, /!props\.settingsOpen && !props\.accountOpen && props\.active === destination\.id/);
+  assert.doesNotMatch(navigation, /is-utility-priority|shell-settings-link/);
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
-  assert.match(shell, /onAccount=\{\(\) => undefined\}/);
-  assert.match(shell, /onSettings=\{\(\) => undefined\}/);
+  assert.match(shell, /const openAccount = \(\) => \{/);
+  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*setDirectoryOpen\(false\)/);
+  assert.match(shell, /const openSettings = \(\) => \{/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*dock\.setTianyiOpen\(false\)/);
+  assert.match(shell, /data-settings-open=\{settingsOpen\}/);
+  assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
+  assert.match(shell, /accountOpen=\{accountOpen\}/);
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
+  assert.match(styles, /\.tianyan-r0-shell\[data-settings-open="true"\][\s\S]*--directory-current: 0rem[\s\S]*--tianyi-current: 0rem/);
   assert.doesNotMatch(navigation, /shell-collapse-control/);
 });
 
@@ -150,6 +182,9 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   const labelRule = styles.match(/\.shell-space-label\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
   assert.equal(SHELL_RAIL_AUTO_COLLAPSE_QUERY, "(max-width: 75rem)");
+  assert.equal(SHELL_DIRECTORY_OVERLAY_QUERY, "(max-width: 50rem)");
+  assert.equal(resolveInitialDirectoryOpen(true), false);
+  assert.equal(resolveInitialDirectoryOpen(false), true);
   assert.equal(resolveShellRailCollapsed("auto", true), true);
   assert.equal(resolveShellRailCollapsed("auto", false), false);
   assert.equal(resolveShellRailCollapsed("expanded", true), false);
@@ -157,6 +192,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   assert.equal(nextShellRailPreference(true), "expanded");
   assert.equal(nextShellRailPreference(false), "collapsed");
   assert.match(shell, /data-rail-collapsed=\{railCollapsed\}/);
+  assert.match(shell, /useDockLayoutState\(!window\.matchMedia\(SHELL_DIRECTORY_OVERLAY_QUERY\)\.matches\)/);
   assert.match(shell, /onToggleCollapsed=\{toggleRail\}/);
   assert.doesNotMatch(labelRule, /text-overflow\s*:\s*ellipsis/);
   assert.doesNotMatch(styles, /@media \(max-width: 75rem\)[\s\S]*?--space-rail-width\s*:\s*7\.75rem/);
@@ -195,7 +231,7 @@ test("active R0 shell is split by responsibility and confines runtime transport 
 });
 
 test("component stylesheets consume semantic tokens and define no component-local colors", () => {
-  const styles = ["tianyan-r0-shell.css", "project-directory.css", "right-dock.css", "tianyi-sidebar.css", "event-line-projection.css"].map((name) => readFileSync(`apps/story-studio/src/styles/${name}`, "utf8")).join("\n");
+  const styles = ["tianyan-r0-shell.css", "project-directory.css", "right-dock.css", "tianyi-sidebar.css", "event-line-projection.css", "settings.css"].map((name) => readFileSync(`apps/story-studio/src/styles/${name}`, "utf8")).join("\n");
   const tokens = readFileSync("apps/story-studio/src/product-shell/theme/tokens.css", "utf8");
   assert.doesNotMatch(styles, /#[\da-f]{3,8}\b|rgba?\(/iu);
   assert.match(styles, /var\(--color-workspace-background\)/);

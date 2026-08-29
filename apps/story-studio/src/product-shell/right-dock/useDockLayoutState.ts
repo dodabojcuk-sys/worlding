@@ -31,8 +31,8 @@ export function resizeDockPanel(state: DockLayoutState, toolId: DockToolId, next
   return { ...state, panelSizes: { ...state.panelSizes, [toolId]: clampDockPanelSize(nextSize) } };
 }
 
-export function useDockLayoutState() {
-  const [state, setState] = useState(createInitialDockLayout);
+export function useDockLayoutState(initialTianyiOpen = true) {
+  const [state, setState] = useState(() => ({ ...createInitialDockLayout(), isTianyiOpen: initialTianyiOpen }));
   return {
     state,
     togglePanel: (toolId: DockToolId) => setState((current) => toggleDockPanel(current, toolId)),

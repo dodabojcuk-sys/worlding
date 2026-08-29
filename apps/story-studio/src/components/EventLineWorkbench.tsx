@@ -13,6 +13,7 @@ import {
   LocateFixed,
   MapPin,
   MessageCircle,
+  Network,
   PanelRight,
   RefreshCw,
   ScanLine,
@@ -46,6 +47,8 @@ import {
 } from "./eventLineCommittedEvents";
 import { PageContextDock, type PageContextDockLens, type PageContextDockState } from "./PageContextDock";
 import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../src/storyContracts/eventSemanticHierarchy";
+import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
+import type { RelationReadProjectionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review";
 type EventLineFilter =
@@ -63,6 +66,7 @@ export function EventLineWorkbench(props: {
   projectId: string;
   projectTitle: string;
   events: EventLineEventSummary[];
+  relations?: RelationReadProjectionR0[];
   listState: VerifiedCanonEventListRead | { status: "loading" };
   onReadEvent(eventId: string): Promise<VerifiedCanonEventDetailRead>;
   onRetry(): void;
@@ -77,6 +81,7 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onCreateEvent?(): void;
+  onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
   onContinueReview(): void;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
@@ -87,6 +92,7 @@ export function EventLineWorkbench(props: {
   const [detailError, setDetailError] = useState<CanonReadFailure | null>(null);
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
   const [compact, setCompact] = useState(false);
+  const [projectionMode, setProjectionMode] = useState<"spine" | "graph">("spine");
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
   const requestSequence = useRef(0);
@@ -197,6 +203,7 @@ export function EventLineWorkbench(props: {
     ? createStoryStudioEventReference({ projectId: props.projectId, event: selectedEvent, requestedUse: "constraint" })
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
+  const formalRelations = props.relations ?? [];
 
   const requestDockState = useCallback((next: PageContextDockState<EventLinePageDockLens>, anchorEventId = selectedEventId) => {
     if (next.open) window.dispatchEvent(new Event("story-studio-close-mobile-context"));
@@ -257,7 +264,7 @@ export function EventLineWorkbench(props: {
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
     { id: "detail", label: "详情", icon: <FileText />, content: <EventDetailDock event={selectedEvent} detail={selectedDetail} loading={detailLoading} error={detailError} metadata={selectedEvent ? metadataById[selectedEvent.id] : null} onOpenTianyi={() => props.onOpenTianyi(selectedEventRef ?? undefined)} onCreateFromEvent={props.onCreateFromEvent} /> },
-    { id: "relations", label: "关联", icon: <Link2 />, content: <EventRelationsDock event={selectedEvent} incoming={relations.incoming} outgoing={relations.outgoing} /> },
+    { id: "relations", label: "关联", icon: <Link2 />, content: <EventRelationsDock event={selectedEvent} incoming={relations.incoming} outgoing={relations.outgoing} formalRelations={formalRelations.filter((relation) => relation.reviewState === "confirmed" && (relation.sourceObjectId === selectedEvent?.id || relation.targetObjectId === selectedEvent?.id))} /> },
     { id: "branches", label: "候选", icon: <GitBranch />, badge: pendingCandidateCount, content: <EventBranchesDock candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} selectedId={selectedCandidateId} onSelect={openCandidate} /> },
     { id: "review", label: "评审", icon: <ShieldCheck />, badge: pendingCandidateCount, content: <EventReviewDock candidate={selectedCandidate} status={selectedCandidate ? candidateStatus(selectedCandidate.id, props.rejectedCandidateIds, props.acceptedCandidateIds) : null} onContinueReview={props.onContinueReview} /> }
   ];
@@ -299,11 +306,12 @@ export function EventLineWorkbench(props: {
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar">
           <div><p className="eyebrow">已确认事件</p><h1>故事已经发生了什么</h1><p>这里展示已由作者确认的事实；相邻顺序不自动等于因果。</p></div>
-          <div className="event-line-view-actions">{props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}<button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button><button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
+          <div className="event-line-view-actions">{props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}<button type="button" aria-pressed={projectionMode === "graph"} onClick={() => setProjectionMode((value) => value === "spine" ? "graph" : "spine")}><Network />{projectionMode === "graph" ? "故事脊柱" : "关系图"}</button>{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button> : null}<button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
         </header>
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
-        {props.listState.status === "ready" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的正式事件</strong><p>筛选不会改变或隐藏底层 Canon；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
-        {props.listState.status === "ready" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="已确认故事脊柱">
+        {props.listState.status === "ready" && projectionMode === "graph" && props.events.length > 0 ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openEvent} onCreateRelation={props.onCreateGraphRelation ? (connection) => { void props.onCreateGraphRelation!(connection).catch(() => undefined); } : undefined} /> : null}
+        {projectionMode === "spine" && props.listState.status === "ready" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的正式事件</strong><p>筛选不会改变或隐藏底层 Canon；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
+        {projectionMode === "spine" && props.listState.status === "ready" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="已确认故事脊柱">
           {groupedEvents.map((group) => <section className="event-line-unit" key={group.label} data-current-unit={group.label === props.currentUnitLabel ? "true" : "false"}>
             <header><span><Layers3 /></span><div><small>{group.label === props.currentUnitLabel ? "故事单元 · 当前故事范围" : "故事单元"}</small><h2>{group.label}</h2></div><strong>{group.setPoints.reduce((count, item) => count + item.events.length, 0)} 个已确认事件</strong></header>
             {group.setPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode
@@ -319,7 +327,7 @@ export function EventLineWorkbench(props: {
               />)}</ol></section>)}
           </section>)}
         </div> : null}
-        <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} />
+        {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
       <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} />
     </div>
@@ -417,9 +425,9 @@ function EventDetailDock(props: { event: EventLineEventSummary | null; detail: E
   </div>;
 }
 
-function EventRelationsDock(props: { event: EventLineEventSummary | null; incoming: readonly EventLineEventSummary[]; outgoing: readonly EventLineEventSummary[] }) {
+function EventRelationsDock(props: { event: EventLineEventSummary | null; incoming: readonly EventLineEventSummary[]; outgoing: readonly EventLineEventSummary[]; formalRelations: readonly RelationReadProjectionR0[] }) {
   if (!props.event) return <DockEmpty icon={<Link2 />} title="先选择正式事件" body="关联面只显示已保存的正式关系投影。" />;
-  return <div className="event-line-dock-stack"><section><small>关系边界</small><h2>{props.event.title}</h2><p>相邻顺序不是因果；以下只展示正式详情中已经存在的 Event 关联。</p></section><RelationGroup label="关联到本事件" events={props.incoming} /><RelationGroup label="本事件关联到" events={props.outgoing} />{props.incoming.length + props.outgoing.length === 0 ? <section className="is-empty"><Link2 /><strong>没有已记录的正式关联</strong><p>事件线没有为这条记录补造因果边。</p></section> : null}</div>;
+  return <div className="event-line-dock-stack"><section><small>关系边界</small><h2>{props.event.title}</h2><p>相邻顺序不是因果；以下只展示现有 Relation owner 的已确认记录。</p></section><RelationGroup label="关联到本事件" events={props.incoming} /><RelationGroup label="本事件关联到" events={props.outgoing} />{props.formalRelations.map((relation) => <section key={relation.relationId}><small>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</small><p><Link2 />{relation.sourceObjectId === props.event!.id ? "本事件 → " : "→ 本事件 · "}{relation.sourceObjectId === props.event!.id ? relation.targetObjectId : relation.sourceObjectId}</p><small>{relation.evidenceWarnings.length ? `${relation.evidenceWarnings.length} 条证据待核验` : "关系证据已由 Owner 投影"}</small></section>)}{props.incoming.length + props.outgoing.length + props.formalRelations.length === 0 ? <section className="is-empty"><Link2 /><strong>没有已记录的正式关联</strong><p>事件线没有为这条记录补造因果边。</p></section> : null}</div>;
 }
 
 function RelationGroup(props: { label: string; events: readonly EventLineEventSummary[] }) {

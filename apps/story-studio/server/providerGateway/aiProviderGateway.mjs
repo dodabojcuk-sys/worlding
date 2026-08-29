@@ -41,6 +41,8 @@ export const DEFAULT_MODEL_PROFILES = Object.freeze([
 const MAX_MESSAGES = 24;
 const MAX_MESSAGE_CHARACTERS = 24_000;
 const MAX_TOTAL_MESSAGE_CHARACTERS = 64_000;
+const MAX_TOOLS = 16;
+const MAX_TOOL_SCHEMA_CHARACTERS = 16_000;
 
 export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PROFILES, budgetLedger = null, receiptEnvelopeStore = null }) {
   const adapterMap = new Map(adapters.map((adapter) => [adapter.id, adapter]));
@@ -74,9 +76,12 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       if (!profile) throw providerGatewayError("invalid-request");
       const adapter = adapterMap.get(profile.providerId);
       const messages = validateMessages(input?.messages);
+      const tools = validateTools(input?.tools);
+      const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? profile.maxOutputTokens, 1, profile.maxOutputTokens);
       if (adapter.status().configured !== true) return adapter.openChatStream({
-        modelId: profile.modelId, messages, maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature,
-        timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking
+        modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
+        timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
+        ...(tools.length ? { tools, toolChoice: "auto" } : {})
       });
       const reservation = reserveBudget(budgetLedger, input, "generation", profile.id);
       let receipt = null;
@@ -86,12 +91,13 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         const stream = await adapter.openChatStream({
           modelId: profile.modelId,
           messages,
-          maxOutputTokens: profile.maxOutputTokens,
+          maxOutputTokens,
           temperature: profile.temperature,
           timeoutMs: profile.timeoutMs,
           signal: input?.signal,
           responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
-          enableThinking: profile.enableThinking
+          enableThinking: profile.enableThinking,
+          ...(tools.length ? { tools, toolChoice: "auto" } : {})
         });
         if (!reservation && !receipt) return stream;
         return Object.freeze({
@@ -212,6 +218,7 @@ async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEn
         if (event.usage) usage = event.usage;
         if (typeof event.finishReason === "string") finishReason = event.finishReason;
       }
+      if (event?.type === "tool-call-delta" && typeof event.argumentsDelta === "string") responseBody += event.argumentsDelta;
       yield event;
     }
     freezeReceiptResponse(receiptEnvelopeStore, receipt, { responseBody, traceId, usage, finishReason });
@@ -352,14 +359,61 @@ function validateMessages(value) {
   let totalCharacters = 0;
   const messages = value.map((message) => {
     if (!message || typeof message !== "object") throw providerGatewayError("invalid-request");
-    if (!new Set(["system", "user", "assistant"]).has(message.role)) throw providerGatewayError("invalid-request");
+    if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw providerGatewayError("invalid-request");
     const content = typeof message.content === "string" ? message.content.trim() : "";
-    if (!content || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
+    const toolCalls = message.role === "assistant" ? validateAssistantToolCalls(message.toolCalls) : [];
+    const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160) : null;
+    const name = message.role === "tool" ? boundedToolName(message.name) : null;
+    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
     totalCharacters += content.length;
+    if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content: content || null, tool_calls: toolCalls });
+    if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, name, content });
     return Object.freeze({ role: message.role, content });
   });
   if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
   return Object.freeze(messages);
+}
+
+function validateTools(value) {
+  if (value == null) return Object.freeze([]);
+  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw providerGatewayError("invalid-request");
+  const names = new Set();
+  return Object.freeze(value.map((tool) => {
+    const definition = tool?.type === "function" ? tool.function : tool;
+    const name = boundedToolName(definition?.name);
+    if (names.has(name)) throw providerGatewayError("invalid-request");
+    names.add(name);
+    const description = boundedToolString(definition?.description, 1_000);
+    const parameters = definition?.parameters;
+    if (!parameters || typeof parameters !== "object" || Array.isArray(parameters) || parameters.type !== "object") throw providerGatewayError("invalid-request");
+    const serialized = JSON.stringify(parameters);
+    if (serialized.length > MAX_TOOL_SCHEMA_CHARACTERS || /"(?:__proto__|prototype|constructor)"\s*:/u.test(serialized)) throw providerGatewayError("invalid-request");
+    return Object.freeze({ type: "function", function: Object.freeze({ name, description, parameters: structuredClone(parameters) }) });
+  }));
+}
+
+function validateAssistantToolCalls(value) {
+  if (value == null) return Object.freeze([]);
+  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw providerGatewayError("invalid-request");
+  return Object.freeze(value.map((call) => Object.freeze({
+    id: boundedToolString(call?.id, 160),
+    type: "function",
+    function: Object.freeze({
+      name: boundedToolName(call?.name ?? call?.function?.name),
+      arguments: boundedToolString(call?.argumentsJson ?? call?.function?.arguments, MAX_MESSAGE_CHARACTERS)
+    })
+  })));
+}
+
+function boundedToolName(value) {
+  const name = boundedToolString(value, 96);
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) throw providerGatewayError("invalid-request");
+  return name;
+}
+
+function boundedToolString(value, maximum) {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw providerGatewayError("invalid-request");
+  return value.trim();
 }
 
 function requiredString(value) {

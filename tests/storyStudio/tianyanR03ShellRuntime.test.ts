@@ -11,8 +11,8 @@ import { createActionPermissionBroker } from "../../src/storyControlSurface/acti
 test("R0.3 session and Agent recovery keys stay project- and session-scoped", () => {
   assert.equal(tianyiShellSessionStorageKey("project-a"), "tianyi-shell-session:project-a");
   assert.notEqual(tianyiShellSessionStorageKey("project-a"), tianyiShellSessionStorageKey("project-b"));
-  assert.equal(tianyiAgentRunStorageKey("project-a", "session-a"), "tianyi-agent-run:project-a:session-a");
-  assert.notEqual(tianyiAgentRunStorageKey("project-a", "session-a"), tianyiAgentRunStorageKey("project-a", "session-b"));
+  assert.equal(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), "tianyi-agent-run:project-a:work-version.a:session-a");
+  assert.notEqual(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), tianyiAgentRunStorageKey("project-a", "work-version.b", "session-a"));
 });
 
 test("R0.3 author submission gate prevents duplicate session or run dispatch before UI state updates", () => {

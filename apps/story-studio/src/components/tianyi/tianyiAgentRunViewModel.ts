@@ -2,8 +2,8 @@ import type { AgentPermissionProfile, TianyiAgentRunProjection } from "../../lib
 import type { CapabilityPermissionIntent } from "./capability-launcher/capabilityMenuTypes";
 
 /** Shared presentation selectors for full Tianyi and the compact shell projection. */
-export function tianyiAgentRunStorageKey(projectId: string, sessionId: string | null): string {
-  return `tianyi-agent-run:${projectId}:${sessionId ?? "none"}`;
+export function tianyiAgentRunStorageKey(projectId: string, workVersionId: string, sessionId: string | null): string {
+  return `tianyi-agent-run:${projectId}:${workVersionId}:${sessionId ?? "none"}`;
 }
 
 export function currentTianyiAgentStep(run: TianyiAgentRunProjection | null) {

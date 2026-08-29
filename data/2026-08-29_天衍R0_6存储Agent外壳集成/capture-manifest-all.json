@@ -1,0 +1,197 @@
+[
+  {
+    "filename": "1920x1000-settings.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "settings",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/settings/storage",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1920x1000-agent-flow.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "agent-flow",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1920x1000-pending-review.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "pending-review",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryReview=pending",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1920x1000-character-directory.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "character-directory",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters&directoryObject=character.%E6%9E%97%E6%98%AD&directoryType=character",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1920x1000-data-scroll.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "data-scroll",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/data",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1440x900-settings.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "settings",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/settings/storage",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1440x900-agent-flow.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "agent-flow",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1440x900-pending-review.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "pending-review",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryReview=pending",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1440x900-character-directory.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "character-directory",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters&directoryObject=character.%E6%9E%97%E6%98%AD&directoryType=character",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1440x900-data-scroll.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "data-scroll",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/data",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1152x720-settings.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "settings",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/settings/storage",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1152x720-agent-flow.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "agent-flow",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1152x720-pending-review.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "pending-review",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryReview=pending",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1152x720-character-directory.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "character-directory",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters&directoryObject=character.%E6%9E%97%E6%98%AD&directoryType=character",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  },
+  {
+    "filename": "1152x720-data-scroll.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "data-scroll",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/data",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  }
+]
