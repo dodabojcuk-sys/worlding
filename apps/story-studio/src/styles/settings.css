@@ -213,6 +213,20 @@
   gap: var(--space-1);
 }
 
+.agent-runtime-plugin-status {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.agent-runtime-plugin-status > div:first-child { display: grid; gap: var(--space-1); }
+.agent-runtime-plugin-status > div:first-child p,
+.agent-runtime-plugin-status > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; }
+.agent-runtime-plugin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.agent-runtime-plugin-actions small { flex: 1 1 18rem; line-height: 1.5; }
+
 .agent-provider-profile {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

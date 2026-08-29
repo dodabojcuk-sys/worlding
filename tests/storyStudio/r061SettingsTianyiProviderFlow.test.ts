@@ -28,6 +28,17 @@ test("Tianyi blocks unconfigured Providers before a request and exposes the exis
   assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady\}/);
 });
 
+test("Settings expose the selected built-in Agent Runtime ABI without enabling external loading", () => {
+  const settings = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
+
+  assert.match(settings, /data-agent-runtime-plugin=/);
+  assert.match(settings, /agentRuntime\?\.manifest\?\.pluginVersion/);
+  assert.match(settings, /agentRuntime\?\.manifest\?\.upstreamVersion/);
+  assert.match(settings, /agentRuntime\?\.manifest\?\.hostApiRange/);
+  assert.match(settings, /data-agent-runtime-update="check"/);
+  assert.match(settings, /不会自动下载或执行第三方代码/);
+});
+
 test("Tool approval names its scope and supports an explicit author rejection", () => {
   const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
 

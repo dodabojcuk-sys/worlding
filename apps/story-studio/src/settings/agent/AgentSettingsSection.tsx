@@ -26,6 +26,7 @@ export function AgentSettingsSection(props: {
   const configured = providers.filter((provider) => provider.configured);
   const selected = props.status?.profile.profile;
   const credential = props.status?.profile.credential;
+  const agentRuntime = props.status?.agentRuntime;
   const credentialInput = useRef<HTMLInputElement>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerNotice, setProviderNotice] = useState("");
@@ -83,6 +84,22 @@ export function AgentSettingsSection(props: {
       <div><dt>Pi Agent</dt><dd>{props.status?.tianyiDialogue.ready ? "已接入 Provider Gateway" : "等待 Provider 配置"}</dd></div>
     </dl>
     {!configured.length && <p role="status">尚未配置真实 Provider；Agent 不会用 fixture 冒充成功。</p>}
+    <section className="agent-runtime-plugin-status" aria-labelledby="agent-runtime-plugin-title" data-agent-runtime-plugin={agentRuntime?.activePluginId ?? "unavailable"}>
+      <div>
+        <strong id="agent-runtime-plugin-title">Agent Runtime 插件</strong>
+        <p>仅加载宿主白名单中的内置运行时；不会自动下载或执行第三方代码。</p>
+      </div>
+      <dl>
+        <div><dt>运行时 ID</dt><dd>{agentRuntime?.activePluginId ?? "未启用"}</dd></div>
+        <div><dt>插件版本</dt><dd>{agentRuntime?.manifest?.pluginVersion ?? "—"}</dd></div>
+        <div><dt>上游 Pi 版本</dt><dd>{agentRuntime?.manifest?.upstreamVersion ?? "—"}</dd></div>
+        <div><dt>Host API 兼容范围</dt><dd>{agentRuntime?.manifest?.hostApiRange ?? "—"}</dd></div>
+        <div><dt>启用状态</dt><dd>{agentRuntime?.state ?? "正在读取"}</dd></div>
+        <div><dt>健康状态</dt><dd>{agentRuntime?.health.status ?? "unknown"}</dd></div>
+      </dl>
+      {agentRuntime?.message && <p role="status">{agentRuntime.message}</p>}
+      <div className="agent-runtime-plugin-actions"><button type="button" data-agent-runtime-update="check" disabled={props.busy || !props.onRefresh} onClick={props.onRefresh}>检查内置运行时状态</button><small>升级必须由产品更新流程显式提供并通过 ABI 兼容测试；此处不会拉取外部代码。</small></div>
+    </section>
     <form className="agent-provider-profile" onSubmit={saveProvider} key={props.status?.profile.revision ?? "initial"}>
       <div>
         <strong>Provider 配置</strong>
