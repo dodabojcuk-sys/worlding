@@ -50,13 +50,14 @@ test("page-tool rail order is independent from the user-owned multi-panel stack"
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);
 });
 
-test("page-tool rail is expanded by default and keeps tool availability visually grouped", () => {
+test("page-tool rail starts compact at the narrow breakpoint and keeps tool availability visually grouped", () => {
   const dock = source("apps/story-studio/src/product-shell/right-dock/RightDock.tsx");
   const rail = source("apps/story-studio/src/product-shell/right-dock/DockToolRail.tsx");
   const styles = source("apps/story-studio/src/styles/right-dock.css");
   const tokens = source("apps/story-studio/src/product-shell/theme/tokens.css");
 
-  assert.match(dock, /useState\(true\)/);
+  assert.match(dock, /window\.matchMedia\("\(max-width: 75rem\)"\)/);
+  assert.match(dock, /collapseForCompactViewport/);
   assert.match(dock, /expanded=\{toolRailExpanded\}/);
   assert.match(dock, /onToggleExpanded/);
   assert.doesNotMatch(dock, /setToolRailExpanded\([^)]*props\.layout/);

@@ -116,15 +116,7 @@
 }
 
 @media (max-width: 75rem) {
-  .tianyan-r0-shell:has(.dock-tool-rail[data-expanded="true"]) { --panel-controls-width: 3.75rem; }
-  .dock-tool-rail[data-expanded="true"] { align-items: center; padding-inline: var(--space-2); }
-  .dock-tool-rail[data-expanded="true"] .dock-tool-rail-header { width: 100%; justify-content: center; }
-  .dock-tool-rail[data-expanded="true"] .dock-tool-rail-header strong,
-  .dock-tool-rail[data-expanded="true"] .dock-tool-rail-group-label,
-  .dock-tool-rail[data-expanded="true"] button[data-tool-id] span,
-  .dock-tool-rail[data-expanded="true"] button[data-tool-id] small { display: none; }
-  .dock-tool-rail[data-expanded="true"] .dock-tool-rail-group { width: 100%; justify-items: center; }
-  .dock-tool-rail[data-expanded="true"] button[data-tool-id] { width: 2.75rem; justify-content: center; }
+  .tianyan-r0-shell:has(.dock-tool-rail[data-expanded="true"]) { --panel-controls-width: var(--panel-controls-expanded-width); }
 }
 
 @media (max-width: 50rem) {
