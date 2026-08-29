@@ -34,6 +34,7 @@ import {
 } from "../storyCreation/workVersionBoundOutputArtifact.ts";
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
+import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
 
 import {
   createWorkspaceNote,
@@ -1508,6 +1509,22 @@ export function createStoryStudioWorkspaceOperations(input: {
       rememberObject(projectPath, current.relativePath);
       recordCanonicalRevision(projectPath, { kind: "object", id: current.id }, "save");
       return readProductObject(projectPath, current.id);
+    },
+
+    readObjectCatalog(input: { projectId: string; workVersionId: string }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return clone(createObjectCatalog(projectPath).read(input.projectId, input.workVersionId));
+    },
+
+    updateObjectCatalog(input: { projectId: string; workVersionId: string; expectedRevision: number; operation: "set-category" | "trash" | "restore"; objectType: string; objectIds: string[]; categoryId?: string | null; trashedFrom?: CatalogLifecycleSource }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      const catalog = createObjectCatalog(projectPath);
+      if (input.operation === "set-category") return clone(catalog.setCategory({ ...input, categoryId: input.categoryId ?? null }));
+      if (input.operation === "trash") {
+        if (input.trashedFrom !== "active" && input.trashedFrom !== "archived") throw new Error("Trash source state is required.");
+        return clone(catalog.moveToTrash({ ...input, trashedFrom: input.trashedFrom }));
+      }
+      return clone(catalog.restoreFromTrash(input));
     },
 
     duplicateWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {

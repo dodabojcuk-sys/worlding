@@ -570,6 +570,12 @@ export type WorldLibraryBootstrap = {
   source: "markdown";
 };
 
+export type ObjectCatalogRecord = {
+  projectId: string; workVersionId: string; objectType: string; objectId: string; categoryId: string | null;
+  trashedAt: string | null; trashedFrom: "active" | "archived" | null; displayOrder: number | null; createdAt: string; updatedAt: string;
+};
+export type ObjectCatalogState = { schemaVersion: "tianyan-object-catalog/v1"; projectId: string; workVersionId: string; revision: number; records: ObjectCatalogRecord[] };
+
 export type CanonReadFailureKind = "authority-failure" | "parse-failure" | "invalid-record" | "repository-io" | "project-boundary";
 export type CanonReadFailure = { kind: CanonReadFailureKind; message: string };
 export type VerifiedCanonEventListRead =
@@ -1403,6 +1409,15 @@ export async function openProject(projectId: string, token: string): Promise<Sto
 
 export async function getWorldLibrary(projectId: string): Promise<WorldLibraryBootstrap> {
   return request<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function getObjectCatalog(projectId: string, workVersionId: string): Promise<ObjectCatalogState> {
+  return request<ObjectCatalogState>(`${basePath}/object-catalog?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}`);
+}
+
+export async function updateObjectCatalog(input: { projectId: string; workVersionId: string; expectedRevision: number; operation: "set-category" | "trash" | "restore"; objectType: string; objectIds: string[]; categoryId?: string | null; trashedFrom?: "active" | "archived"; token: string }): Promise<ObjectCatalogState> {
+  const { token, ...body } = input;
+  return request<ObjectCatalogState>(`${basePath}/object-catalog/update`, { method: "POST", token, body });
 }
 
 export async function listRelations(input: { projectId: string; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {

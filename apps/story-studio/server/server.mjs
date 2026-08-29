@@ -1024,6 +1024,20 @@ async function handleProductRequest(request, response, url) {
     })) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/object-catalog") {
+    const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = requireQueryValue(url, "workVersionId");
+    sendJson(response, 200, { data: runProductOperation(() => operations.readObjectCatalog({ projectId, workVersionId })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/object-catalog/update") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "expectedRevision", "operation", "objectType", "objectIds", "categoryId", "trashedFrom"]);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "object-catalog", body.objectIds);
+    sendJson(response, 200, { data: runProductOperation(() => operations.updateObjectCatalog(body)) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/world-objects/open") {
     requireToken(request);
     const body = await readJsonBody(request);

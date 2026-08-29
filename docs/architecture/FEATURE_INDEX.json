@@ -25,6 +25,20 @@
       "remainingGap": "Founder independent experience approval is required before expanding the current read-only projections into broader authoring, adding Skills/workflow execution, or changing established persistence and owner boundaries."
     },
     {
+      "id": "object-catalog-character-directory-r0",
+      "status": "FOUNDER_REVIEW",
+      "maturity": "r0.5-character-directory-read-inspector-and-version-scoped-trash-metadata",
+      "entrypoints": ["apps/story-studio/src/product-shell/project-directory/character/CharacterDirectoryPanel.tsx"],
+      "sourceFiles": ["apps/story-studio/src/product-shell/project-directory/character/CharacterInspectorCard.tsx", "apps/story-studio/src/product-shell/project-directory/character/useCharacterDirectory.ts", "apps/story-studio/src/styles/character-directory.css", "apps/story-studio/src/lib/controlCenterPreferences.ts", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/server/server.mjs", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "src/storyWorkspace/objectCatalog.ts", "docs/architecture/TIANYAN_MEMORY_AND_MODEL_CAPABILITY_BOUNDARIES_R0.md"],
+      "domainOwners": ["src/storyWorkspace/objectCatalog.ts"],
+      "stateOwners": ["src/storyWorkspace/objectCatalog.ts"],
+      "persistenceOwner": "ObjectCatalog owns project/work-version scoped category identity and trash metadata only; WorldObject continues to own character fields, tags and archive state",
+      "providerDependency": "none; all automated and browser tests make zero Provider, embedding or image-generation calls",
+      "tests": ["tests/storyWorkspace/objectCatalogR0.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
+      "legacyProvenance": ["Founder-authorized replacement for the incorrect assumption that an active right character card already existed"],
+      "remainingGap": "Permanent deletion stays blocked until reference enumeration is complete; full character workspace and category-definition management remain separate work"
+    },
+    {
       "id": "project-scoped-work-version-authority-r0",
       "status": "PRODUCTION_CONNECTED",
       "maturity": "immutable-snapshot-manifest-append-only-revision-ledger",
