@@ -179,9 +179,12 @@ export type StorageTransparency = {
   persistenceState: "verified-local" | "unavailable";
   revealSupported: boolean;
   revealLabel: string;
-  backupMode: "manual-folder-copy";
-  fullExportState: "not-implemented";
+  backupMode: "configured-separate-directory" | "manual-folder-copy";
+  fullExportState: "available" | "blocked-backup-root-required";
 };
+
+export type WorkspaceExportReceipt = { packageName: string; packagePath: string; fileCount: number; exportedAt: string };
+export type WorkspaceImportReceipt = { projectId: string; fileCount: number; importedAt: string };
 
 export type AgentPermissionProfile = "general" | "auto-review" | "full-access";
 export type AgentActionKind = "read-context" | "draft-write" | "library-write" | "temporary-character" | "rehearsal-run" | "event-impact-review" | "confirmed-event" | "permanent-delete" | "branch-merge" | "external-action";
@@ -1195,6 +1198,14 @@ export async function getStorageTransparency(projectId: string): Promise<Storage
 
 export async function revealStorageProject(projectId: string): Promise<void> {
   await request<{ revealed: true }>(`${basePath}/storage/reveal`, { method: "POST", body: { projectId } });
+}
+
+export async function exportStorageProject(input: { projectId: string; workVersionIds?: string[]; token: string }): Promise<WorkspaceExportReceipt> {
+  return request<WorkspaceExportReceipt>(`${basePath}/storage/export`, { method: "POST", token: input.token, body: { projectId: input.projectId, workVersionIds: input.workVersionIds ?? [] } });
+}
+
+export async function importStorageProject(input: { packageText: string; token: string }): Promise<WorkspaceImportReceipt> {
+  return request<WorkspaceImportReceipt>(`${basePath}/storage/import`, { method: "POST", token: input.token, body: { packageText: input.packageText } });
 }
 
 export async function getModelServiceStatus(token: string): Promise<ModelServiceStatus> {

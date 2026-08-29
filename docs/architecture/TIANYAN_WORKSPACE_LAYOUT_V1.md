@@ -1,0 +1,15 @@
+# Tianyan Workspace Layout V1
+
+## PRE_IMPLEMENTATION_MAP
+
+The library root is resolved once in `apps/story-studio/server/server.mjs` from `WORLD_OS_STORY_STUDIO_ROOT`; project roots are resolved by `storyStudioWorkspaceOperations.resolveProjectWorkspacePath`. Global runtime state uses `WORLD_OS_STORY_STUDIO_STATE_FILE`. The Markdown repository is `src/storyWorkspace/storyWorkspaceRepository.mjs`; ObjectCatalog, WorkspaceLayout and WorkVersion are respectively `objectCatalog.ts`, `workspaceLayoutRepository.mjs`, and `workVersionAuthority.ts`. Source reviews are under `.world-os/author-control`; continuity Session/Archive is owned by `src/storyContinuity`; Agent Runs by `src/storyAgent`. Cache/locks/runs use `.world-os/cache`, `.world-os/locks`, `.world-os/runs`. Provider credentials remain in server app-data via `providerCredentialBackend`, never project storage. Existing create/open/reveal/status routes are server `projects/*` and `storage/*`; settings remains unwired because navigation passes an empty callback. Existing `safePath`, realpath/symlink checks, atomic no-replace publication and `execFile` reveal are reusable.
+
+## Contract
+
+Library root contains only project roots, `.story-studio/` (server state) and `.tianyan-staging/` (package-port transient staging). A project root permits `project.md`, `world/`, `chapters/`, `scenes/`, `story-units/`, `planning/`, `reviews/`, `artifacts/`, `assets/`, `documents/`, `manuscripts/` and `.world-os/`; author-visible durable files are all except `.world-os/`. `.world-os/state.json`, object catalog, author-control/source review, continuity Session/Archive, work-version metadata and agent-run receipts are durable and included. Cache, locks and staging are transient and excluded. Unknown project-root files are rejected by package validation. No credential, global setting, cache, lock, staging file or symlink enters an export.
+
+## Package and ownership
+
+`.tianyan` is UTF-8 JSON with `tianyan-package/v1` manifest: project id, work-version ids, export time, application format, exclusions, and a complete `{path,size,sha256}` list. Payload file bytes are base64. Export writes a same-directory temporary file, reads it back through manifest/hash validation, then renames it; failures remove the temporary file. Import only expands to server-owned `.tianyan-staging`, rejects absolute/traversal/repeated/symlink paths and size limits, materializes contractual empty directories, runs `validateStoryWorkspace`, then atomically renames to a previously absent project id. A collision stops; it never replaces an existing project.
+
+Directory owners are: `storyWorkspaceRepository` (author files and baseline directories), `objectCatalog`, `workspaceLayoutRepository`, `workVersionAuthority`, `storyContinuity`, `storyAgent`, and `workspacePackagePort` (library staging and package files). The package port is passed roots only by the existing workspace operations; it cannot use an arbitrary browser path. Backup configuration is process-owned at `TIANYAN_BACKUP_ROOT` until a secure native chooser port is available, and must be outside the library to prevent recursion.

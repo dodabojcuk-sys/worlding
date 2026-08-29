@@ -104,12 +104,7 @@ export function createStoryWorkspace({ rootPath, title, genre, ambience }) {
   const projectPath = path.join(root, "project.md");
   if (existsSync(projectPath)) throw new Error(`Workspace already exists: ${root}`);
 
-  for (const directory of WORKSPACE_DIRECTORIES) {
-    ensureDirectoryInsideRoot(root, directory);
-  }
-  for (const directory of VISUAL_WORKSPACE_DIRECTORIES) {
-    ensureDirectoryInsideRoot(root, directory);
-  }
+  ensureWorkspaceDirectories(root);
 
   const project = writeNewNote(root, {
     id: `project.${safeIdSegment(title)}`,
@@ -127,6 +122,12 @@ export function createStoryWorkspace({ rootPath, title, genre, ambience }) {
   appendOperation(root, "workspace-created", "project.md", 1);
 
   return openStoryWorkspace(root);
+}
+
+/** Materializes contractual empty directories after a portable import. */
+export function ensureWorkspaceDirectories(rootPath) {
+  const root = prepareWorkspaceRoot(rootPath, { create: true });
+  for (const directory of [...WORKSPACE_DIRECTORIES, ...VISUAL_WORKSPACE_DIRECTORIES]) ensureDirectoryInsideRoot(root, directory);
 }
 
 export function openStoryWorkspace(rootPath) {

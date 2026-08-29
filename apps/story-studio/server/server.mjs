@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createWorkspacePackagePort } from "../../../src/storyWorkspace/workspacePackagePort.mjs";
 import { createCreationPluginLifecycle } from "../../../src/storyCreation/creationPluginLifecycle.mjs";
 import { DEFAULT_CURATED_CREATION_PLUGIN_CATALOG } from "../../../src/storyCreation/curatedCreationPluginCatalog.mjs";
 import { createInstalledCreationPluginAdapter } from "../../../src/storyCreation/creationPluginHost.mjs";
@@ -127,8 +128,15 @@ const LOCAL_SESSION_COOKIE = "story_studio_local_session";
 const tianyiAgentId = process.env.WORLD_OS_TIANYI_AGENT_ID || "agent.tianyi";
 const port = Number(process.env.PORT || 4192);
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
+const MAX_PORTABLE_PACKAGE_BODY_BYTES = 700 * 1024 * 1024;
 const MAX_CONTINUITY_JSON_BODY_BYTES = 64 * 1024;
 const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+const workspacePackagePort = createWorkspacePackagePort({
+  libraryRoot: rootPath,
+  resolveProjectPath: ({ projectId }) => operations.resolveProjectWorkspacePath({ projectId }),
+  // This is process configuration only. Browser input never becomes a filesystem path.
+  backupRoot: process.env.TIANYAN_BACKUP_ROOT || null
+});
 const actionPermissionBroker = createActionPermissionBroker({
   resolveProjectPath: (projectId) => operations.resolveProjectWorkspacePath({ projectId })
 });
@@ -445,8 +453,8 @@ async function handleProductRequest(request, response, url) {
         persistenceState: existsSync(path.join(projectPath, "project.md")) ? "verified-local" : "unavailable",
         revealSupported: Boolean(reveal),
         revealLabel: reveal?.label || "打开故事文件夹",
-        backupMode: "manual-folder-copy",
-        fullExportState: "not-implemented"
+        backupMode: process.env.TIANYAN_BACKUP_ROOT ? "configured-separate-directory" : "manual-folder-copy",
+        fullExportState: process.env.TIANYAN_BACKUP_ROOT ? "available" : "blocked-backup-root-required"
       }
     });
     return;
@@ -480,6 +488,24 @@ async function handleProductRequest(request, response, url) {
     const project = requireProject(body.projectId);
     await revealLocalPath(path.join(rootPath, project.id));
     sendJson(response, 200, { data: { revealed: true } });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/storage/export") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionIds"]);
+    const project = requireProject(body.projectId);
+    const workVersionIds = Array.isArray(body.workVersionIds) && body.workVersionIds.every((value) => typeof value === "string") ? body.workVersionIds : [];
+    sendJson(response, 201, { data: runProductOperation(() => workspacePackagePort.exportProject({ projectId: project.id, workVersionIds })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/storage/import") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_PORTABLE_PACKAGE_BODY_BYTES);
+    requireAllowedKeys(body, ["packageText"]);
+    const imported = runProductOperation(() => workspacePackagePort.importProject({ packageText: body.packageText }));
+    operations.openProject({ projectId: imported.projectId });
+    sendJson(response, 201, { data: imported });
     return;
   }
   if (pathname.startsWith("/__local/story-studio/intelligence-bridge/")) {
