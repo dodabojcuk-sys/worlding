@@ -50,9 +50,7 @@
   padding-inline: var(--space-1);
 }
 .dock-tool-rail-header strong { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 700; white-space: nowrap; }
-.dock-tool-rail-group { display: grid; gap: var(--space-1); }
-.dock-tool-rail-group + .dock-tool-rail-group { padding-block-start: var(--space-3); border-block-start: 1px solid var(--color-border); }
-.dock-tool-rail-group-label { padding-inline: var(--space-2); color: var(--color-text-muted); font-size: 0.625rem; font-weight: 700; letter-spacing: 0.08em; }
+.dock-tool-rail-list { display: grid; gap: var(--space-1); }
 .dock-tool-rail button {
   width: 100%;
   min-height: 2.875rem;
@@ -78,9 +76,8 @@
 .dock-tool-rail:not([data-expanded="true"]) { align-items: center; padding-inline: var(--space-2); }
 .dock-tool-rail:not([data-expanded="true"]) .dock-tool-rail-header { width: 100%; justify-content: center; }
 .dock-tool-rail:not([data-expanded="true"]) .dock-tool-rail-header strong,
-.dock-tool-rail:not([data-expanded="true"]) .dock-tool-rail-group-label,
 .dock-tool-rail:not([data-expanded="true"]) button[data-tool-id] span { display: none; }
-.dock-tool-rail:not([data-expanded="true"]) .dock-tool-rail-group { width: 100%; justify-items: center; }
+.dock-tool-rail:not([data-expanded="true"]) .dock-tool-rail-list { width: 100%; justify-items: center; }
 .dock-tool-rail:not([data-expanded="true"]) button[data-tool-id] { width: 2.75rem; justify-content: center; }
 
 .dock-resize-handle { block-size: 0.75rem; flex: 0 0 0.75rem; display: grid; place-items: center; padding: 0; background: var(--color-surface-muted); border: 0; border-block: 1px solid var(--color-border); cursor: row-resize; }
@@ -125,7 +122,6 @@
   .dock-tool-rail button { min-width: 3.25rem; min-height: 3.25rem; }
   .dock-tool-rail-toggle { min-width: 2rem !important; }
   .dock-tool-rail-header strong,
-  .dock-tool-rail-group-label,
   .dock-tool-rail span,
   .dock-tool-rail[data-expanded="true"] button[data-tool-id] span { display: none; }
   .shell-workspace { padding-block-end: 4rem; }
