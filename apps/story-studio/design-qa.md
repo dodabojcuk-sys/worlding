@@ -38,11 +38,12 @@
 
 final result: needs correction
 
-## R0.5 Founder visual closure
+## R0.5 Founder rejection repair
 
-- 捕获方式：仓库既有 Playwright smoke（隔离项目 `r05-character-directory`、真实应用组件、`PROVIDER_MODE=MOCK_OR_LOCAL_FAKE_ONLY`）；每张捕获的 URL、视口、项目与控制台状态在同目录的 `capture-manifest-*.json` 中。
-- 证据目录：`data/2026-08-29_天衍R0_5创始人视觉收口/`。完整 15 张状态截图覆盖 `1920×1000`、`1440×900`、`1152×720` 各自的标准、检查器、缩略、多选和归档状态。
-- 代表截图：`1920x1000-standard.png`、`1920x1000-inspector.png`、`1920x1000-multi.png`、`1920x1000-archive.png`、`1152x720-inspector.png`。
-- 三档结果：目录只替换浅色目录槽；深色主导航与中央天意未被重载或挤压；检查器是右侧覆盖层；标准/缩略、多选、归档状态均可见。所有捕获的 `consoleProblems` 为空。
-- `P0=none`；`P1=none`；`P2=归档状态下底部低频操作在窄目录中偏紧，但无裁切、溢出或关键操作遮挡，本轮不扩大范围重排`；`P3=像素级风格微调留待 Founder 后续反馈`。
-- `R0_5_TECHNICAL_STATUS=PASS`。视觉证据已准备，Founder 视觉裁定仍需人工确认；这不覆盖上方历史 R0.2 的体验结论。
+- `FOUNDER_VISUAL_VERDICT=REJECTED`；此前的“视觉证据已准备”不是 Founder 通过，原始 R0.5 结论已改为 `REPAIR_REQUIRED`。
+- 唯一权威参考现已随代码保存为 `docs/design/references/tianyan-r0-5-founder-character-directory.png`（1561×1008；SHA-256 `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`；purpose=`R0.5角色目录与检查器视觉权威参考`）。来源副本仍保留在 `data/2026-08-29_天衍R0_5创始人视觉收口/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`，未移动或删除。
+- 捕获方式：仓库既有 Playwright smoke，隔离项目 `r05-character-directory`、真实应用组件、`PROVIDER_MODE=MOCK_OR_LOCAL_FAKE_ONLY`；每张捕获的 URL、视口、项目与控制台状态在同目录 `capture-manifest-*.json` 中。
+- 修复后浏览器证据只作为外部工作产物保存于 `data/2026-08-29_天衍R0_5创始人退回修复/截图/`，不随源码提交。覆盖 `1920×1000`、`1440×900`、`1152×720`；状态包括标准目录、新建表单、必填错误、创建成功、刷新后存在、检查器、缩略、多选、归档和世界选中。
+- 对照结论：角色目录仍只覆盖浅色目录槽；主导航、中央工作区与天意没有重挂载。标题与数量分离，角色行使用头像、名称、层级和次信息；缩略版不显示头像；检查器为只读右侧覆盖层，显示摘要、本卷状态及事件/关系投影；低频底部工具不抢主操作。`世界` 选中时 `合册` 复用普通未选中视觉权重。
+- 自检：`P0=none`；`P1=none`；`P2=像素级字距、色值和个别空投影的文案可在 Founder 复验后再微调`；`P3=完整角色资料工作台仍不在 R0.5 范围`。该自检不替代人工裁定。
+- `R0_5_TECHNICAL_STATUS=PASS`；`R0_5_FOUNDER_VISUAL_STATUS=REVIEW_REQUIRED`；控制台 warning/error 为零。

@@ -5,6 +5,7 @@
 - Branch: `main`.
 - R0.5 reference base: `758790fd8a41bdddfe22d0f7823cc034ba2998bc`.
 - `R0_5_IMPLEMENTATION_HEAD=dd7034cd72d4edf0f1d0a536cdb4137505dd349e`.
+- `R0_5_FOUNDER_REPAIR_BASE_HEAD=334e20a4fb7acc45c30ff794c25d7e28831a52e9`; it only relocated the previous external visual-evidence paths and is an ancestor-preserving documentation correction.
 - `HANDOFF_READER_MUST_RESOLVE_CURRENT_HEAD_WITH=git rev-parse HEAD`.
 - Pre-existing `CORE.md` and `data/` changes remain outside R0.5 commits.
 - Push, deploy and Provider/model calls: zero.
@@ -39,10 +40,14 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 
 ## Founder visual evidence
 
-- Stable reference: `data/2026-08-29_天衍R0_5创始人视觉收口/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`.
+- Founder rejected the pre-repair R0.5 directory and inspector. `FOUNDER_VISUAL_VERDICT=REJECTED`; the repair's self-check does not change the required independent Founder verdict.
+- Stable tracked reference: `docs/design/references/tianyan-r0-5-founder-character-directory.png`.
+- Source-path copy preserved outside the tracked design asset: `data/2026-08-29_天衍R0_5创始人视觉收口/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`.
 - Reference SHA-256: `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`.
-- Implementation screenshots and their per-capture manifests: `data/2026-08-29_天衍R0_5创始人视觉收口/`.
-- Visual capture used the repository's installed Playwright browser with isolated test data at 1920×1000, 1440×900 and 1152×720; console warnings/errors were zero. Founder visual status remains `REVIEW_REQUIRED` until independent review.
+- Repair evidence screenshots and per-capture manifests: `data/2026-08-29_天衍R0_5创始人退回修复/截图/`; they remain external work evidence and are deliberately not Git-tracked.
+- The installed Playwright browser verified isolated test data at 1920×1000, 1440×900 and 1152×720. It exercises real creation, required-field recovery, refresh and new-Shell durability, compact/multi/archive states, inspector selection and exact one-navigation-current behavior; console warnings/errors were zero.
+- Creation uses the existing `createCharacterCard` → WorldObject/Card Presentation owner. The dialog receives the returned stable `object.id`, reloads the directory projection, then writes URL focus and opens the read-only inspector. Category is a separate ObjectCatalog metadata write: failure leaves the created character intact and exposes retry; it never deletes to roll back.
+- WorldObjects follow the existing project-scoped projection rule. ObjectCatalog category/trash metadata is project-and-work-version scoped; no character title, summary, aliases or tags are copied into it. Founder visual status remains `REVIEW_REQUIRED` until independent review.
 - Validation environment was Node `v24.16.0`; the project navigation still records Node 22 as its target runtime.
 
 ## Verification and known gaps
