@@ -1,6 +1,6 @@
 # 天衍 R0 全局外壳合同
 
-本合同定义 Founder 人工体验验收前的全局 UI 外壳。它只建立导航、全局状态、中央工作区和面板边界，不接入领域数据、会话、Provider、Pi Agent、持久化或写入操作。
+本合同定义 Founder 人工体验验收前的全局 UI 外壳。R0.3 允许它通过受限适配层读取既有 bootstrap、作品版本、天意 Session、权限、上下文、Provider 配置与 Agent Run 投影；它不创建新的领域 owner，也不直接写入 Canon、WorldState 或 Event。
 
 `19893b1` 是可取证的错误方向技术草稿，不是 Founder 已验收 UI 基线。
 
@@ -17,12 +17,12 @@
 | 区域 | 唯一职责 | R0 内容 |
 | --- | --- | --- |
 | 全局空间轨 | 全局空间与合册入口、全局入口能力 | 图标、翻译文字、当前状态、收起、键盘导航、搜索/命令入口，以及底部全局 utility 区 |
-| 顶部状态区 | 真正跨页面信息 | 单行当前作品与版本、真实本地状态、紧凑工具菜单 |
+| 顶部状态区 | 真正跨页面信息 | 单行当前作品与既有作品版本投影、真实本地状态、紧凑工具菜单 |
 | 中央工作区 | 当前路由的页面主场 | 干净 outlet/slot；不在 App root 写业务页面 |
 | 左侧工程目录 | 作品级浏览与引用边界 | “已分类”目录树与小型“待确认”入口；只读投影，不拥有故事事实 |
 | 页面工具面板栈 | 当前页面的工具呈现宿主 | 多工具可同时开启、上下拼接、有限高度调整；仅瞬时 UI 状态 |
 | 页面工具轨 | 页面工具开关 | 默认纯图标；可在当前 UI 会话中轻量展开为图标加名称，固定顺序为工程日志、专家分析、读者鉴赏、语言检查、历史记录、扩展应用 |
-| 全局天意面板 | 共享天意能力的呈现宿主 | “对话 / Agent”两个侧栏模式和输入区控制；共享既有会话 owner |
+| 全局天意面板 | 共享天意能力的呈现宿主 | “对话 / Agent”两个侧栏模式、输入区控制与既有 Tianyi runtime 的紧凑投影；共享既有会话 owner |
 
 工程目录、页面工具 Dock、全局天意和 AI 上下文是不同概念，不共享业务状态。宽屏权威顺序为：全局空间轨、工程目录、中央页面、页面工具面板栈、工具轨、全局天意。
 
@@ -42,7 +42,7 @@
 
 工程日志是连续的倒序活动回执投影，不按“今天/昨天”分组，也不成为业务日志 owner。专家分析只通过注入回调记录采纳或忽略意图，不直接写入 Canon 或 Event。
 
-右侧天意只有“对话 / Agent”两个模式；切换不创建第二套会话。“＋”能力菜单由 UI 注册表映射既有能力边界，最多优先展示四项推荐，推演、前瞻规划、资料、创建、引用、Skills 和工作流从这里进入。权限、上下文和模型位于输入框底栏，不属于“＋”；无 Provider 或真实统计时显示未连接/待连接。
+右侧天意只有“对话 / Agent”两个模式；切换不创建第二套会话、草稿、来源或 Agent Run。对话发送调用既有 Tianyi Question 链；Agent 发送调用既有 Tianyi Agent Runtime，当前任务、状态、必要确认和候选摘要留在侧栏，步骤、来源与回执收进详情。候选只能交给既有 Candidate Review 或 Agent Recognition Proposal owner，不能从侧栏直接写入故事事实。“＋”能力菜单由 UI 注册表映射既有能力边界，最多优先展示四项推荐，推演、前瞻规划、资料、创建、引用、Skills 和工作流从这里进入。权限、上下文和模型位于输入框底栏，不属于“＋”；权限与模型只读既有投影，无 Provider 或真实统计时显示未连接/待连接。
 
 天意输入栏的“＋”、权限、上下文和模型弹层使用统一的 `document.body` fixed overlay 层，而不是作为会被天意侧栏 `overflow` 裁剪的后代。该层位于工作区、工具轨、Dock 与天意之上，但低于系统级 tooltip/modal；弹层向上优先定位，并在视口边缘翻转或横向调整。它们保留 Escape、点击外部关闭和焦点返回，并且同一时刻只允许一个当前活动弹层。四者均为紧凑菜单：默认“＋”只展示最多四个推荐能力和“全部能力…”；完整可搜索列表、返回和管理入口只在后续完整视图中出现。权限在菜单底部只展示当前或聚焦项的单条说明；上下文为紧凑键值摘要；无 Provider 的模型菜单只诚实显示未连接状态。
 
@@ -60,11 +60,12 @@
 | --- | --- | --- |
 | Canon 写入与作者确认 | `src/storyControlSurface/storyStudioAuthorControl.ts` | 不接入 |
 | WorldState 与 Event 事实 | `src/storyControlSurface/storyStudioWorkspaceOperations.ts` | 不接入 |
-| 天意会话、上下文与记忆 | `src/storyContinuity/` | 不接入 |
-| Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 不运行 |
+| 天意会话、上下文与记忆 | `src/storyContinuity/` | R0.3 仅读取/调用既有 Question 合同，不创建 owner |
+| Tianyi Agent Runtime | `src/storyAgent/tianyiAgentRuntimePort.ts` | R0.3 仅调用现有受控 Run、恢复与候选交接合同 |
+| Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 不新增接入，不改变 owner |
 | 全局导航 registry | `src/storyContracts/storyStudioWorkspaceRegistry.ts` | 静态表现元数据 |
 | 页面布局与可见性 | `apps/story-studio/src/product-shell/TianyanR0Shell.tsx` | 仅瞬时 UI 状态 |
 | Dock 面板顺序、开关与尺寸 | `apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts` | 仅瞬时 UI 状态，不持久化 |
 | 天意能力领域注册 | `src/storyAgent/contextualCapabilityRegistry.ts`、`src/skillControl/`、`src/skillRuntime/` | UI 只做映射，本轮不执行 |
 
-Pi Agent、Provider、插件和 UI 均不拥有故事事实、会话事实或作者确认权。
+Pi Agent、Provider、插件和 UI 均不拥有故事事实、会话事实或作者确认权。自动测试不调用真实 Provider；任何真实调用只能由作者在界面中明确触发。

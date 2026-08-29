@@ -130,7 +130,7 @@ test("Tianyi capability launcher is registry-driven and runtime controls stay ou
   assert.doesNotMatch(model, /OpenAI|Claude|Gemini|GPT-/u);
   assert.match(context, /usage \?\? t\("common\.pendingConnection"\)/);
   assert.doesNotMatch(context, /\d+%/);
-  assert.match(composer, /data-provider-calls="0"/);
+  assert.match(composer, /data-automatic-provider-calls="0"/);
 });
 
 test("responsive shell has no intermediate truncated space-rail state", () => {

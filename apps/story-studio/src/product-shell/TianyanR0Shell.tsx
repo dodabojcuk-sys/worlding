@@ -23,8 +23,9 @@ import { ShellCommandPalette } from "./commands/ShellCommandPalette";
 import { ShellWorkspaceOutlet } from "./workspace/ShellWorkspaceOutlet";
 import { resolveInitialShellTheme, type ShellTheme } from "./theme/theme";
 import { useI18n } from "./i18n/I18nProvider";
+import type { TianyanShellRuntimeState } from "./runtime/TianyanShellRuntime";
 
-export function TianyanR0Shell() {
+export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
   const shellLab = new URLSearchParams(window.location.search).get("shellLab") === "1";
   const [activeId, setActiveId] = useState(() => resolveStoryStudioShellLocation(window.location.pathname));
@@ -100,11 +101,11 @@ export function TianyanR0Shell() {
       onSettings={() => undefined}
       onAccount={() => undefined}
     />
-    <GlobalStatusBar theme={theme} directoryOpen={directoryOpen} tianyiOpen={dock.state.isTianyiOpen} onToggleTheme={toggleTheme} onToggleDirectory={() => setDirectoryOpen((open) => !open)} onToggleTianyi={dock.toggleTianyi} />
+    <GlobalStatusBar theme={theme} projectName={props.runtime.project?.title} workVersionLabel={props.runtime.workVersionLabel} directoryOpen={directoryOpen} tianyiOpen={dock.state.isTianyiOpen} onToggleTheme={toggleTheme} onToggleDirectory={() => setDirectoryOpen((open) => !open)} onToggleTianyi={dock.toggleTianyi} />
     {directoryOpen && <ProjectDirectoryPanel onClose={() => setDirectoryOpen(false)} />}
     <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} onOpenTianyi={() => dock.setTianyiOpen(true)} />
     <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />
-    {dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} sharedSessionIdentity="shared-current-session" onClose={() => dock.setTianyiOpen(false)} />}
+    {dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} onClose={() => dock.setTianyiOpen(false)} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}

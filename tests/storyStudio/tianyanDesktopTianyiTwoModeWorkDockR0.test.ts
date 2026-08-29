@@ -17,9 +17,11 @@ test("Tianyi keeps the primary two author modes while the R0.2 sidebar exposes d
   assert.match(modes, /TianyiSidebarMode = "dialogue" \| "agent"/);
   assert.match(modes, /t\("tianyi\.dialogue"\)/);
   assert.match(modes, /t\("tianyi\.agent"\)/);
-  assert.match(sidebar, /data-shared-session-id=\{props\.sharedSessionIdentity\}/);
+  assert.match(sidebar, /data-shared-session-id=\{props\.runtime\.sharedSessionId/);
   assert.match(sidebar, /setMode\("agent"\)/);
-  assert.doesNotMatch(sidebar, /createSession|newSession|providerGateway|localTransport/);
+  assert.match(sidebar, /runTianyiQuestion/);
+  assert.match(sidebar, /startTianyiAgentRun/);
+  assert.doesNotMatch(sidebar, /providerGateway|TianyiAgentManagementSurface/);
 });
 
 test("the contextual registry covers eight spaces without becoming a semantic owner", () => {

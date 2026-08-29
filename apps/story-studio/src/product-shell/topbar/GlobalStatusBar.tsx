@@ -5,6 +5,8 @@ import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
   theme: ShellTheme;
+  projectName?: string;
+  workVersionLabel: string | null;
   directoryOpen: boolean;
   tianyiOpen: boolean;
   onToggleTheme(): void;
@@ -17,7 +19,7 @@ export function GlobalStatusBar(props: {
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context">
       <button type="button" className="shell-context-control" title={t("topbar.project")}>
-        <span><strong>{t("topbar.projectName")}</strong></span>
+        <span><strong>{props.projectName ?? t("topbar.projectName")}</strong>{props.workVersionLabel && <i>{props.workVersionLabel}</i>}</span>
         <ChevronDown aria-hidden="true" />
       </button>
     </div>

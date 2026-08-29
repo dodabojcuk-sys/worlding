@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { TianyiAgentRunProjection, TianyiContextRequest, TianyiCreativeEventReview, TianyiCreativeProjection } from "../../lib/localTransport";
 import { ReviewContextSummary, type ReviewContextStage } from "./ReviewContextSummary";
+import { currentTianyiAgentStep, tianyiAgentRunStorageKey } from "./tianyiAgentRunViewModel";
 import type { TianyiV2Operations } from "./useTianyiSessionController";
 
 function authorFacingWorkCopy(value: string): string {
@@ -142,7 +143,7 @@ export function TianyiAgentManagementSurface(props: TianyiAgentSurfaceProps) {
   const [steering, setSteering] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const runStorageKey = `tianyi-agent-run:${props.projectId}:${props.sessionId ?? "none"}`;
+  const runStorageKey = tianyiAgentRunStorageKey(props.projectId, props.sessionId);
   const operationId = (label: string) => `operation.tianyi-agent.${label}.${Date.now().toString(36)}`;
   const withToken = <T,>(action: (token: string) => Promise<T>): Promise<T> => props.withConnection ? props.withConnection(action) : action(props.token);
   const dockPresentation = props.presentation === "dock";
@@ -200,12 +201,12 @@ export function TianyiAgentManagementSurface(props: TianyiAgentSurfaceProps) {
       token
     }));
     setRunId(next.runId);
-    if (typeof window !== "undefined") window.sessionStorage.setItem(`tianyi-agent-run:${props.projectId}:${sessionId}`, next.runId);
+    if (typeof window !== "undefined") window.sessionStorage.setItem(tianyiAgentRunStorageKey(props.projectId, sessionId), next.runId);
     props.onDraft("");
     return next;
   });
 
-  const currentAwaitingStep = projection?.plan.find((step) => step.status === "awaiting_author") ?? null;
+  const currentAwaitingStep = currentTianyiAgentStep(projection);
   const approve = () => void withBusy(async () => {
     if (!projection || !currentAwaitingStep || !props.sessionId) throw new Error("当前没有等待作者确认的步骤。");
     return withToken((token) => props.operations.approveAgentStep({ projectId: props.projectId, sessionId: props.sessionId!, runId: projection.runId, stepId: currentAwaitingStep.stepId, operationId: operationId("approve"), token }));

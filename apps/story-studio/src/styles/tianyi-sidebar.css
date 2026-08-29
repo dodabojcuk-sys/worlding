@@ -27,6 +27,30 @@
 .tianyi-agent-stage p { margin: 0; }
 .tianyi-sidebar-empty small,
 .tianyi-agent-stage small { font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.tianyi-sidebar-conversation { min-height: 0; display: grid; align-content: start; gap: var(--space-3); }
+.tianyi-sidebar-message { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.tianyi-sidebar-message.is-author { background: var(--color-accent-soft); }
+.tianyi-sidebar-message small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-sidebar-message p { margin: 0; font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.tianyi-agent-compact { align-self: stretch; align-content: start; }
+.tianyi-agent-run-status { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.tianyi-agent-run-status strong { font-size: var(--font-size-sm); }
+.tianyi-agent-run-status span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-agent-confirm { min-height: 2.25rem; display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
+.tianyi-agent-confirm:disabled { opacity: 0.6; cursor: wait; }
+.tianyi-agent-confirm svg { inline-size: 0.875rem; block-size: 0.875rem; }
+.tianyi-agent-candidate-summary { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-muted); }
+.tianyi-agent-candidate-summary > strong { color: var(--color-text); font-size: var(--font-size-xs); }
+.tianyi-agent-candidate-summary article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); }
+.tianyi-agent-candidate-summary article span { min-width: 0; overflow-wrap: anywhere; }
+.tianyi-agent-candidate-summary article small { color: var(--color-text-muted); }
+.tianyi-agent-candidate-summary article button { padding: var(--space-1) var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
+.tianyi-agent-compact details { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-agent-compact summary { color: var(--color-accent); cursor: pointer; }
+.tianyi-agent-compact dl { margin: var(--space-2) 0 0; }
+.tianyi-agent-compact dl div { display: flex; justify-content: space-between; gap: var(--space-2); padding-block: var(--space-1); border-block-end: 1px solid var(--color-border); }
+.tianyi-agent-compact dd { max-width: 60%; margin: 0; overflow-wrap: anywhere; text-align: end; }
+.tianyi-error { margin: var(--space-2) 0 0; color: var(--color-danger); font-size: var(--font-size-xs); line-height: 1.5; }
 
 .tianyi-sidebar-composer { position: relative; display: flex; flex-direction: column; margin: var(--space-3); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .tianyi-sidebar-composer textarea { width: 100%; resize: none; padding: var(--space-3); color: var(--color-text); background: transparent; border: 0; outline: 0; }

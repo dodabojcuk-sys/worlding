@@ -163,7 +163,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   assert.doesNotMatch(styles, /--space-rail-collapsed-width\s*:\s*3\.75rem/);
 });
 
-test("active R0 shell is split by responsibility and imports no business transport or Provider", () => {
+test("active R0 shell is split by responsibility and confines runtime transport to its adapter", () => {
   const app = readFileSync("apps/story-studio/src/App.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
@@ -173,6 +173,7 @@ test("active R0 shell is split by responsibility and imports no business transpo
   const directory = readFileSync("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "utf8");
   const dock = readFileSync("apps/story-studio/src/product-shell/right-dock/RightDock.tsx", "utf8");
   const tianyi = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
+  const runtime = readFileSync("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx", "utf8");
   const activeSources = [app, shell, navigation, topbar, workspace, eventLine, directory, dock, tianyi].join("\n");
 
   assert.match(app, /I18nProvider/);
@@ -185,7 +186,10 @@ test("active R0 shell is split by responsibility and imports no business transpo
   assert.match(workspace, /R0EventLineProjection/);
   assert.match(eventLine, /EventLineWorkbench/);
   assert.match(eventLine, /createEventLineFixture/);
-  assert.doesNotMatch(activeSources, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
+  assert.doesNotMatch(app, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
+  assert.doesNotMatch([shell, navigation, topbar, workspace, eventLine, directory, dock].join("\n"), /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
+  assert.match(runtime, /localTransport/);
+  assert.doesNotMatch(runtime, /providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.doesNotMatch([shell, navigation, topbar, workspace, eventLine, directory, dock, tianyi].join("\n"), /[\u3400-\u9fff]/u);
 });
 
