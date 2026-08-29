@@ -4,13 +4,13 @@ import test from "node:test";
 
 const source = (file: string) => readFileSync(file, "utf8");
 
-test("settings is an independent utility route wired to storage, transfer, Provider and Pi permissions", () => {
+test("settings changes the Shell workspace while keeping a direct utility-route fallback", () => {
   const app = source("apps/story-studio/src/App.tsx");
   const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
   const agent = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
   assert.match(app, /pathname\.startsWith\("\/settings\/"\)/);
-  assert.match(route, /data-settings-route="utility"/);
+  assert.match(route, /data-settings-route=\{presentation\}/);
   assert.doesNotMatch(route, /settings-utility-nav/);
   assert.match(route, /当前作品：/);
   assert.match(route, /SettingsStorageSection/);
@@ -22,7 +22,9 @@ test("settings is an independent utility route wired to storage, transfer, Provi
   assert.match(agent, /data-agent-runtime="pi"/);
   assert.match(agent, /Provider Gateway/);
   assert.match(agent, /agent-default-permission/);
-  assert.match(shell, /window\.location\.assign\("\/settings\/storage"\)/);
+  assert.match(shell, /onSettings=\{openSettings\}/);
+  assert.match(shell, /settingsOpen=\{settingsOpen\}/);
+  assert.match(shell, /!settingsOpen && directoryOpen/);
   assert.doesNotMatch(shell, /SettingsStorageSection|SettingsTransferSection|AgentSettingsSection|getModelServiceStatus|getAgentPermissionState|setAgentPermissionProfile/);
   assert.match(shell, /requested === "collapsed" \|\| requested === "expanded" \? requested : "expanded"/);
 });

@@ -144,7 +144,7 @@ test("Tianyi keeps the shared-session mode tabs in its title row with a light ac
   assert.doesNotMatch(activeModeRule, /background: var\(--color-accent\)/);
 });
 
-test("settings remains an independent priority rail utility while account stays in the lower utility area", () => {
+test("settings sits above personal center and changes the Shell workspace without a route jump", () => {
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
@@ -158,12 +158,15 @@ test("settings remains an independent priority rail utility while account stays 
   assert.match(navigation, /data-shell-utility="account"/);
   assert.match(navigation, /data-shell-utility="settings"/);
   assert.match(navigation, /settingsControl[\s\S]*data-shell-utility="settings"/);
-  assert.match(navigation, /is-utility-priority[\s\S]*settingsControl[\s\S]*nav\.primary/);
-  assert.doesNotMatch(navigation, /shell-rail-utility[\s\S]*data-shell-utility="settings"/);
+  assert.match(navigation, /shell-rail-utility[\s\S]*settingsControl[\s\S]*data-shell-utility="account"/);
+  assert.doesNotMatch(navigation, /is-utility-priority|shell-settings-link/);
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
   assert.match(shell, /onAccount=\{\(\) => undefined\}/);
-  assert.match(shell, /onSettings=\{\(\) => window\.location\.assign\("\/settings\/storage"\)\}/);
+  assert.match(shell, /const openSettings = \(\) => \{/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*dock\.setTianyiOpen\(false\)/);
+  assert.match(shell, /data-settings-open=\{settingsOpen\}/);
+  assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
   assert.doesNotMatch(navigation, /shell-collapse-control/);

@@ -18,14 +18,15 @@ test("Provider settings submit only a one-time credential to the server owner an
   assert.match(route, /disableProviderProfile/);
 });
 
-test("Tianyi blocks unconfigured Providers before a request and exposes the existing settings route", () => {
+test("Tianyi blocks unconfigured Providers before a request and opens Shell settings", () => {
   const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
   const server = source("apps/story-studio/server/server.mjs");
 
   assert.match(sidebar, /const providerReady = props\.runtime\.modelStatus\?\.tianyiDialogue\.ready === true/);
   assert.ok(sidebar.indexOf("if (!providerReady)") < sidebar.indexOf("runTianyiQuestion({"), "Provider gate must precede dialogue execution");
   assert.match(sidebar, /data-provider-state="unconfigured"/);
-  assert.match(sidebar, /href="\/settings\/agent#agent"/);
+  assert.match(sidebar, /onOpenSettings\(\): void/);
+  assert.match(sidebar, /onClick=\{props\.onOpenSettings\}/);
   assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady\}/);
   assert.match(server, /const tianyiDialogueReady = configured \|\| agentFakeProviderStreamAllowed/);
   assert.match(server, /process\.env\.NODE_ENV !== "production" && process\.env\.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1"/);

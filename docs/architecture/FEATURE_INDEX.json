@@ -30,8 +30,8 @@
     {
       "id": "portable-workspace-settings-r0.6",
       "status": "LOCAL_REVIEW",
-      "maturity": "standalone-settings-route-with-portable-roundtrip",
-      "entrypoints": ["apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx", "apps/story-studio/server/server.mjs"],
+      "maturity": "shell-workspace-settings-with-direct-route-fallback-and-portable-roundtrip",
+      "entrypoints": ["apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx", "apps/story-studio/server/server.mjs"],
       "sourceFiles": ["apps/story-studio/src/settings/storage/SettingsStorageSection.tsx", "apps/story-studio/src/settings/storage/SettingsTransferSection.tsx", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "src/storyWorkspace/workspacePackagePort.mjs", "src/storyWorkspace/portableWorkspacePackage.mjs", "src/storyWorkspace/workspaceLayoutV1.ts"],
       "domainOwners": ["src/storyWorkspace/storyWorkspaceRepository.mjs"],
       "stateOwners": ["src/storyWorkspace/storyWorkspaceRepository.mjs", "src/storyContinuity"],

@@ -22,7 +22,8 @@ import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
 
 /** Independent utility route. It composes settings adapters without mounting the product Shell. */
-export function SettingsStorageRoute() {
+export function SettingsStorageRoute(props: { presentation?: "utility" | "workspace" } = {}) {
+  const presentation = props.presentation ?? "utility";
   const storageProvider = useRef(new LocalFolderProvider()).current;
   const fileInput = useRef<HTMLInputElement>(null);
   const [project, setProject] = useState<StoryStudioProject | null>(null);
@@ -90,10 +91,10 @@ export function SettingsStorageRoute() {
     input.click();
   });
 
-  return <main className="settings-utility-route" data-route="settings-storage" data-settings-route="utility">
+  return <main className={`settings-utility-route ${presentation === "workspace" ? "settings-workspace-route" : ""}`} data-route="settings-storage" data-settings-route={presentation}>
     <div className="settings-utility-content">
       <header className="settings-utility-heading">
-        <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>
+        {presentation === "utility" && <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>}
         <div className="settings-heading-copy"><p>设置</p><h1>本地工作区设置</h1><span><strong>{project?.title ? `当前作品：${project.title}` : "尚未打开作品"}</strong> 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
       </header>
       <div id="storage"><SettingsStorageSection

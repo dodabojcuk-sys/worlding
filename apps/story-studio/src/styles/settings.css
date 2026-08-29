@@ -5,6 +5,16 @@
   overflow: auto;
 }
 
+.settings-workspace-route {
+  grid-area: workspace;
+  min-width: 0;
+  min-height: 0;
+}
+
+.settings-workspace-route .settings-utility-content {
+  min-height: 100%;
+}
+
 .settings-back-link {
   display: flex;
   align-items: center;

@@ -30,7 +30,7 @@
 .tianyi-provider-unavailable { display: grid; gap: var(--space-2); padding: var(--space-3); color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-md); line-height: 1.55; }
 .tianyi-provider-unavailable strong { color: var(--color-text); }
 .tianyi-provider-unavailable p { margin: 0; }
-.tianyi-provider-unavailable a { justify-self: start; min-height: 2rem; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--color-accent); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-xs); text-decoration: none; }
+.tianyi-provider-unavailable button { justify-self: start; min-height: 2rem; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
 .tianyi-sidebar-conversation { min-height: 0; display: grid; align-content: start; gap: var(--space-3); }
 .tianyi-sidebar-message { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .tianyi-sidebar-message.is-author { background: var(--color-accent-soft); }
