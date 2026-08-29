@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, FilePlus2, GitBranch, Plus, Quote, Search, Telescope, Workflow } from "lucide-react";
+import { ArrowLeft, BookOpen, Boxes, FilePlus2, GitBranch, Plus, Quote, Search, Telescope, Workflow } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
@@ -34,9 +34,9 @@ export function CapabilityLauncher(props: {
     window.requestAnimationFrame(() => triggerRef.current?.focus());
   };
   useEffect(() => {
-    if (!open) return;
+    if (!open || !showAll) return;
     window.requestAnimationFrame(() => searchRef.current?.focus());
-  }, [open]);
+  }, [open, showAll]);
   const keyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") { event.preventDefault(); close(); return; }
     if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
@@ -51,8 +51,11 @@ export function CapabilityLauncher(props: {
   return <div className="capability-launcher">
     <button ref={triggerRef} type="button" className="composer-icon-control" aria-label={t("capability.open")} title={t("capability.open")} aria-expanded={open} onClick={() => setOpen((current) => !current)}><Plus aria-hidden="true" /></button>
     {open && <ComposerPopover anchorRef={triggerRef} ariaLabel={t("capability.title")} className="capability-popover capability-menu" onClose={close} onKeyDown={keyDown}>
-      <label><Search aria-hidden="true" /><span className="shell-visually-hidden">{t("capability.search")}</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("capability.search")} /></label>
-      <p>{normalized || showAll ? t("capability.all") : t("capability.recommended")}</p>
+      {showAll && <>
+        <div className="capability-full-header"><button type="button" aria-label={t("capability.back")} title={t("capability.back")} onClick={() => { setShowAll(false); setQuery(""); }}><ArrowLeft aria-hidden="true" /></button><strong>{t("capability.all")}</strong></div>
+        <label><Search aria-hidden="true" /><span className="shell-visually-hidden">{t("capability.search")}</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("capability.search")} /></label>
+      </>}
+      {!showAll && <p>{t("capability.recommended")}</p>}
       <div role="menu">
         {visible.map((item) => {
           const Icon = icons[item.icon];
@@ -62,8 +65,8 @@ export function CapabilityLauncher(props: {
           </button>;
         })}
       </div>
-      {!normalized && !showAll && <button type="button" className="capability-browse-all" onClick={() => setShowAll(true)}>{t("capability.browseAll")}</button>}
-      <button type="button" className="capability-manage" onClick={() => { props.onManageMore(); close(); }}>{t("capability.manageMore")}</button>
+      {!showAll && <button type="button" className="capability-browse-all" onClick={() => setShowAll(true)}>{t("capability.browseAll")}</button>}
+      {showAll && <button type="button" className="capability-manage" onClick={() => { props.onManageMore(); close(); }}>{t("capability.manageMore")}</button>}
     </ComposerPopover>}
   </div>;
 }

@@ -1,4 +1,4 @@
-import { ChevronDown, ShieldCheck } from "lucide-react";
+import { Check, ChevronDown, ShieldCheck } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
@@ -16,6 +16,7 @@ const options: readonly { id: CapabilityPermissionIntent; labelKey: TranslationK
 export function PermissionControl(props: { value: CapabilityPermissionIntent; onIntent(value: CapabilityPermissionIntent): void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [focusedOption, setFocusedOption] = useState<CapabilityPermissionIntent>(props.value);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const current = options.find((item) => item.id === props.value)!;
   const close = () => { setOpen(false); window.requestAnimationFrame(() => triggerRef.current?.focus()); };
@@ -23,9 +24,10 @@ export function PermissionControl(props: { value: CapabilityPermissionIntent; on
     <button ref={triggerRef} type="button" aria-expanded={open} aria-label={t("permission.title")} title={t("permission.title")} onClick={() => setOpen((value) => !value)}><ShieldCheck aria-hidden="true" /><span>{t(current.labelKey)}</span><ChevronDown aria-hidden="true" /></button>
     {open && <ComposerPopover anchorRef={triggerRef} ariaLabel={t("permission.title")} className="composer-runtime-popover permission-popover" onClose={close}>
       <strong>{t("permission.title")}</strong>
-      {options.map((option) => <button type="button" key={option.id} disabled={option.disabled} aria-pressed={props.value === option.id} onClick={() => { props.onIntent(option.id); close(); }}>
-        <span>{t(option.labelKey)}</span><small>{t(option.descriptionKey)}</small>
+      {options.map((option) => <button type="button" key={option.id} disabled={option.disabled} aria-pressed={props.value === option.id} onFocus={() => setFocusedOption(option.id)} onClick={() => { props.onIntent(option.id); close(); }}>
+        <span>{t(option.labelKey)}</span>{props.value === option.id && <Check aria-label={t("permission.selected")} />}{option.disabled && <small>{t("permission.unavailable")}</small>}
       </button>)}
+      <p>{t(options.find((option) => option.id === focusedOption)!.descriptionKey)}</p>
     </ComposerPopover>}
   </div>;
 }

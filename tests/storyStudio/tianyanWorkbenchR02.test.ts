@@ -74,6 +74,7 @@ test("composer bottom controls use the unified fixed overlay rather than the cli
 
   assert.match(popover, /createPortal[\s\S]*document\.body/);
   assert.match(popover, /getBoundingClientRect/);
+  assert.match(popover, /ResizeObserver/);
   assert.match(popover, /position\(\)/);
   assert.match(popover, /pointerdown/);
   assert.match(popover, /Escape/);
@@ -82,6 +83,29 @@ test("composer bottom controls use the unified fixed overlay rather than the cli
   assert.match(styles, /\.composer-popover \{ position: fixed/);
   assert.match(styles, /z-index: var\(--layer-popover\)/);
   assert.doesNotMatch(styles, /\.composer-runtime-control > section/);
+});
+
+test("composer popovers keep compact quick views while preserving their honest boundaries", () => {
+  const launcher = source("apps/story-studio/src/components/tianyi/capability-launcher/CapabilityLauncher.tsx");
+  const permission = source("apps/story-studio/src/components/tianyi/composer/PermissionControl.tsx");
+  const context = source("apps/story-studio/src/components/tianyi/composer/ContextControl.tsx");
+  const model = source("apps/story-studio/src/components/tianyi/composer/ModelSelector.tsx");
+  const styles = source("apps/story-studio/src/styles/tianyi-sidebar.css");
+
+  assert.match(launcher, /showAll && <>/);
+  assert.match(launcher, /!showAll && <p>/);
+  assert.match(launcher, /\{showAll && <button[^>]*capability-manage/);
+  assert.match(launcher, /capability-full-header/);
+  assert.match(launcher, /slice\(0, normalized \|\| showAll \? registry\.length : 4\)/);
+  assert.match(permission, /focusedOption/);
+  assert.match(permission, /permission\.unavailable/);
+  assert.doesNotMatch(permission, /<small>\{t\(option\.descriptionKey\)\}<\/small>/);
+  assert.match(context, /context\.manage/);
+  assert.match(model, /model\.noProvider/);
+  assert.match(styles, /\.capability-menu \{ width: min\(15rem/);
+  assert.match(styles, /\.permission-popover \{ width: min\(15rem/);
+  assert.match(styles, /\.context-popover \{ width: min\(16rem/);
+  assert.match(styles, /\.model-popover \{ width: min\(14rem/);
 });
 
 test("Tianyi capability launcher is registry-driven and runtime controls stay outside the plus menu", () => {

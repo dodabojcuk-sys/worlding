@@ -33,7 +33,7 @@ export function TianyiSidebarComposer(props: {
     <footer>
       <CapabilityLauncher workspace={props.workspace} onSelect={props.onTask} onManageMore={() => setNotice(t("capability.manageNotice"))} />
       <PermissionControl value={permission} onIntent={setPermission} />
-      <ContextControl context={props.context} />
+      <ContextControl context={props.context} onManage={() => setNotice(t("context.manageNotice"))} />
       <ModelSelector value={model} options={[]} onIntent={setModel} />
       <span className="composer-flex-spacer" />
       <button type="button" className="composer-icon-control" aria-label={t("tianyi.microphone")} title={t("tianyi.microphone")} disabled><Mic aria-hidden="true" /></button>

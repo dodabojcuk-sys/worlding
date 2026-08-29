@@ -14,7 +14,7 @@ export type TianyiComposerContextViewModel = {
   budget: string | null;
 };
 
-export function ContextControl(props: { context: TianyiComposerContextViewModel }) {
+export function ContextControl(props: { context: TianyiComposerContextViewModel; onManage(): void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -32,6 +32,7 @@ export function ContextControl(props: { context: TianyiComposerContextViewModel 
         <div><dt>{t("context.usage")}</dt><dd>{props.context.usage ?? t("common.pendingConnection")}</dd></div>
         <div><dt>{t("context.budget")}</dt><dd>{props.context.budget ?? t("common.pendingConnection")}</dd></div>
       </dl>
+      <button type="button" className="context-manage" onClick={() => { props.onManage(); close(); }}>{t("context.manage")}</button>
     </ComposerPopover>}
   </div>;
 }

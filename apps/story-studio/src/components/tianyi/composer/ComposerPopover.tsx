@@ -38,9 +38,15 @@ export function ComposerPopover(props: ComposerPopoverProps) {
       popover.style.left = `${left}px`;
     };
     position();
+    const resizeObserver = new ResizeObserver(position);
+    resizeObserver.observe(popoverRef.current!);
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
-    return () => { window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
   }, [props.anchorRef]);
 
   useEffect(() => {
