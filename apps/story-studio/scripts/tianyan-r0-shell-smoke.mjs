@@ -129,10 +129,10 @@ async function assertCharacterDirectoryAndInspector(page) {
   await characterSearch.locator("input[type='search']").fill("林昭");
   await characterSearch.getByRole("option", { name: /林昭/u }).waitFor();
   await characterSearch.getByRole("button", { name: "关闭", exact: true }).click();
-  const filterTrigger = page.locator(".character-directory-filter-trigger");
+  const filterTrigger = page.getByRole("button", { name: "筛选", exact: true });
   await filterTrigger.click();
   assert.equal(await filterTrigger.getAttribute("aria-expanded"), "true", "Filter trigger must expose its expanded state");
-  await page.getByLabel("角色层级筛选").selectOption("main");
+  await page.getByLabel("角色层级筛选").selectOption("主要角色");
   assert.equal(await page.locator(".character-directory-filter-chips").count(), 1, "Effective filters must surface removable chips");
   await page.keyboard.press("Escape");
   assert.equal(await filterTrigger.getAttribute("aria-expanded"), "false", "Escape must close the filter popover and update aria-expanded");
@@ -144,6 +144,9 @@ async function assertCharacterDirectoryAndInspector(page) {
   assert.deepEqual(workspaceAfter, workspaceBefore, "Opening the inspector must not remount or resize the central workspace");
   assert.match(page.url(), /directoryObject=character\./u);
   assert.equal(await page.getByRole("button", { name: "打开完整资料" }).count(), 1);
+  await page.getByRole("button", { name: "展开角色检查器" }).click();
+  assert.equal(await page.getByTestId("character-inspector").getAttribute("aria-expanded"), "true", "The inspector expands as an overlay without moving the workspace");
+  assert.deepEqual(await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().toJSON()), workspaceBefore.rect, "Expanding the inspector must not resize the central workspace");
   await page.getByRole("button", { name: "多选", exact: true }).click();
   assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
   assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
@@ -162,10 +165,14 @@ async function assertCharacterCreationDurability(page) {
   await page.getByRole("alert").waitFor();
   assert.match(await page.getByRole("alert").textContent(), /请填写角色姓名/u, "The create form must validate its required name field");
   await page.getByLabel("姓名").fill("沈砚");
-  await page.getByLabel("角色层级").selectOption("main");
+  await page.getByLabel("角色层级").fill("main");
   await page.getByLabel("别名").fill("阿砚, 小砚");
   await page.getByLabel("人物摘要").fill("负责追查旧港失踪案的调查者。");
-  await page.getByLabel("分类").fill("main-characters");
+  await page.getByText("更多设置", { exact: true }).click();
+  await page.getByPlaceholder("输入分类名称").fill("主要人物");
+  await page.getByRole("button", { name: "新建分类", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".character-create-more select")?.value);
+  assert.notEqual(await page.locator(".character-create-more select").inputValue(), "", "The newly created category must become the selected creation value");
   await page.getByRole("textbox", { name: "标签", exact: true }).fill("调查, 主线");
   await page.getByRole("button", { name: "创建角色", exact: true }).dblclick();
   await page.getByTestId("character-inspector").waitFor();
@@ -175,7 +182,7 @@ async function assertCharacterCreationDurability(page) {
   await waitForCharacterDirectoryIdle(page);
   await createdOption.waitFor();
   assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
-  assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Created category IDs must remain persistence-only values");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
   assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
   await page.reload({ waitUntil: "networkidle" });
@@ -193,6 +200,25 @@ async function assertCharacterCreationDurability(page) {
     await freshContext.close();
   }
   await assertCreatedCharacterIsProjectIsolated();
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: "r05-character-directory" });
+  await page.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
+  await page.getByTestId("character-directory").waitFor();
+  await waitForCharacterDirectoryIdle(page);
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.getByLabel("姓名").fill("自定义层级角色");
+  await page.getByLabel("角色层级").fill("夜航人");
+  await page.getByRole("button", { name: "创建角色", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
+  assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByTestId("character-directory").waitFor();
+  await waitForCharacterDirectoryIdle(page);
+  await page.getByRole("option", { name: /自定义层级角色/u }).waitFor();
+  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  await page.getByLabel("角色层级筛选").selectOption("夜航人");
+  assert.equal(await page.getByRole("option", { name: /自定义层级角色/u }).count(), 1, "A custom role level must remain filterable after reload");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "夜航人", exact: true }).click();
 }
 
 async function assertCreatedCharacterIsProjectIsolated() {
@@ -208,14 +234,31 @@ async function assertCreatedCharacterIsProjectIsolated() {
 async function assertCharacterDirectoryFiltersAndLifecycle(page) {
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
-  const filterTrigger = page.locator(".character-directory-filter-trigger");
+  const filterTrigger = page.getByRole("button", { name: "筛选", exact: true });
   await filterTrigger.click();
-  await page.getByLabel("排序").selectOption("alphabetical");
   await page.getByLabel("标签筛选").selectOption("调查");
   assert.equal(await page.getByRole("option", { name: /沈砚/u }).count(), 1, "Tag filters must preserve the created durable character");
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "清除全部", exact: true }).click();
   assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Clearing filters must restore the default flat list");
+
+  await filterTrigger.click();
+  await page.getByLabel("分类筛选").selectOption({ label: "主要人物" });
+  assert.equal(await page.getByRole("option", { name: /沈砚/u }).count(), 1, "Named categories must filter the version-scoped directory assignment");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "主要人物", exact: true }).click();
+
+  await page.getByRole("button", { name: "排序", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "姓名降序", exact: true }).click();
+  assert.match(await page.getByRole("button", { name: "排序", exact: true }).textContent(), /姓名降序/u, "Sort remains visible outside the filter menu");
+  await page.getByRole("button", { name: "列表密度", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "缩略版", exact: true }).click();
+  assert.equal(await page.getByTestId("character-directory").getAttribute("data-density"), "compact", "Compact view is explicitly selected");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByTestId("character-directory").waitFor();
+  assert.equal(await page.getByTestId("character-directory").getAttribute("data-density"), "compact", "Density preference survives a reload");
+  await page.getByRole("button", { name: "列表密度", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "常规版", exact: true }).click();
 
   const created = page.getByRole("option", { name: /沈砚/u });
   await page.getByRole("button", { name: "多选", exact: true }).click();
@@ -329,7 +372,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     await page.getByTestId("character-directory").waitFor();
     await waitForCharacterDirectoryIdle(page);
     const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
-    if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.waitFor();
+    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.waitFor();
     if (state === "form" || state === "required" || state === "created" || state === "refreshed") {
       await page.getByRole("button", { name: "新建", exact: true }).click();
       await page.getByRole("dialog", { name: "新建角色" }).waitFor();
@@ -338,7 +381,9 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "created" || state === "refreshed") {
       await page.getByLabel("姓名").fill(`新建角色${viewport.width}`);
       await page.getByLabel("人物摘要").fill("用于浏览器视觉验收的本地隔离角色。");
-      await page.getByLabel("分类").fill("visual-check");
+      await page.getByText("更多设置", { exact: true }).click();
+      await page.getByPlaceholder("输入分类名称").fill("视觉验收分类");
+      await page.getByRole("button", { name: "新建分类", exact: true }).click();
       await page.getByRole("button", { name: "创建角色", exact: true }).click();
       await page.getByTestId("character-inspector").waitFor();
       if (state === "refreshed") await page.reload({ waitUntil: "networkidle" });
@@ -346,9 +391,11 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "world-active") {
       await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
     }
-    if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
-    if (state === "compact") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("列表密度").click(); await page.keyboard.press("Escape"); }
-    if (state === "filter") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("角色层级筛选").selectOption("main"); }
+    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
+    if (state === "inspector-expanded") await page.getByRole("button", { name: "展开角色检查器", exact: true }).click();
+    if (state === "compact") { await page.getByRole("button", { name: "列表密度", exact: true }).click(); await page.getByRole("menuitemradio", { name: "缩略版", exact: true }).click(); }
+    if (state === "sort") await page.getByRole("button", { name: "排序", exact: true }).click();
+    if (state === "filter") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("角色层级筛选").selectOption("主要角色"); }
     if (state === "multi" || state === "archive") await page.getByRole("button", { name: "多选", exact: true }).click();
     if (state === "multi") await currentCharacter.click();
     if (state === "archive") {
@@ -374,7 +421,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "agent-stream") await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
   };
   const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
-  const states = ["standard", "filter", "multi", "archive", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  const states = ["standard", "compact", "sort", "filter", "multi", "archive", "inspector-expanded", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
   for (const viewport of viewports) {
     for (const state of states) await capture(viewport, state);
   }
