@@ -2594,6 +2594,10 @@ async function handleModelServiceRequest(request, response, url) {
   if (request.method === "GET" && route === "status") {
     const metadata = providerGateway.metadata();
     const configured = metadata.providers.some((provider) => provider.configured);
+    // Only the explicit local fake used by deterministic acceptance can open the UI gate.
+    // `agentFakeProviderStreamAllowed` is false in production, so an unconfigured
+    // production Provider can never be represented as ready.
+    const tianyiDialogueReady = configured || agentFakeProviderStreamAllowed;
     const persistedModels = readActiveProviderProfile()?.availableModels || [];
     const models = persistedModels.length
       ? persistedModels.map((id) => ({ providerId: "siliconflow", id, label: id.split("/").at(-1) || id, capabilities: ["chat", "streaming"] }))
@@ -2616,8 +2620,8 @@ async function handleModelServiceRequest(request, response, url) {
           seedSupport: "unsupported"
         },
         tianyiDialogue: {
-          ready: configured,
-          reason: configured ? null : "provider-unconfigured"
+          ready: tianyiDialogueReady,
+          reason: tianyiDialogueReady ? null : "provider-unconfigured"
         },
         agentRuntime: {
           ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),
