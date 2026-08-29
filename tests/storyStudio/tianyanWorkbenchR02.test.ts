@@ -65,11 +65,11 @@ test("page-tool rail starts compact at the narrow breakpoint and keeps tool avai
   assert.match(rail, /dock\.expandTools/);
   assert.match(rail, /dock\.collapseTools/);
   assert.match(rail, /tool\.available/);
-  assert.match(rail, /tool\.extensionTools/);
+  assert.doesNotMatch(rail, /extensionTools/);
   for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
   assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
   assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
-  assert.match(tokens, /--panel-controls-expanded-width: 10\.5rem/);
+  assert.match(tokens, /--panel-controls-expanded-width: 8\.5rem/);
 });
 
 test("composer bottom controls use the unified fixed overlay rather than the clipped sidebar", () => {
