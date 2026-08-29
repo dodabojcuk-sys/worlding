@@ -307,6 +307,7 @@ input:focus-visible {
 }
 
 .shell-topbar-context {
+  flex: 1 1 auto;
   max-width: min(100%, 36rem);
 }
 
@@ -401,9 +402,20 @@ input:focus-visible {
 }
 
 .shell-topbar-actions {
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+.shell-topbar-secondary { display: inline-flex; align-items: center; gap: var(--space-2); }
+.shell-topbar-more { position: relative; display: none; }
+.shell-topbar-overflow-menu { position: absolute; inset-block-start: calc(100% + var(--space-1)); inset-inline-end: 0; z-index: var(--layer-tooltip-modal); width: max-content; min-width: 12rem; display: grid; gap: var(--space-1); padding: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.shell-topbar-overflow-menu button,
+.shell-topbar-overflow-menu .shell-runtime-status { min-height: 2.25rem; display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); color: var(--color-text); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); font-size: var(--font-size-sm); text-align: start; }
+.shell-topbar-overflow-menu button { cursor: pointer; }
+.shell-topbar-overflow-menu button:hover,
+.shell-topbar-overflow-menu button:focus-visible { background: var(--color-accent-soft); border-color: var(--color-border); }
+.shell-topbar-overflow-menu .shell-runtime-status { color: var(--color-text-muted); }
 
 .shell-runtime-status,
 .shell-topbar-text-control,
@@ -686,11 +698,8 @@ input:focus-visible {
     --panel-width: 13.75rem;
   }
 
-  .shell-topbar-text-control span,
-  .shell-runtime-status span,
-  .shell-topbar-panel-toggle span {
-    display: none;
-  }
+  .shell-topbar-secondary { display: none; }
+  .shell-topbar-more { display: block; }
 
   .shell-topbar-actions {
     gap: var(--space-1);

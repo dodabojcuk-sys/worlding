@@ -119,7 +119,10 @@ test("desktop topbar preserves every global control while keeping one search and
   assert.match(runtime, /openProject\(projectId: string\): Promise<void>/);
   assert.match(runtime, /openProject\(projectId, token\)/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
-  assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-text-control span/);
+  assert.match(topbar, /shell-topbar-overflow-menu/);
+  assert.match(topbar, /aria-controls="shell-topbar-overflow-menu"/);
+  assert.match(topbar, /data-panel-toggle="project-directory"[\s\S]*data-panel-toggle="global-tianyi"/);
+  assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-secondary \{ display: none; \}[\s\S]*shell-topbar-more \{ display: block; \}/);
 });
 
 test("Tianyi keeps the shared-session mode tabs in its title row with a light active indicator", () => {

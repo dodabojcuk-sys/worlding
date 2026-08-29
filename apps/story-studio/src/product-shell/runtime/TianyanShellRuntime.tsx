@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getAgentPermissionState,
   getBootstrap,
+  createProject,
   getCreationSourcePortState,
   getModelServiceStatus,
   openProject,
@@ -30,6 +31,7 @@ export type TianyanShellRuntimeState = {
   setSharedDraft(value: string): void;
   retryConnection(): void;
   openProject(projectId: string): Promise<void>;
+  createProject(title: string): Promise<void>;
   setPermissionProfile(profile: AgentPermissionProfile): Promise<void>;
   withConnection<T>(action: (token: string) => Promise<T>): Promise<T>;
 };
@@ -109,6 +111,18 @@ export function TianyanShellRuntime() {
     setConnectionRevision((revision) => revision + 1);
   }, [withConnection]);
 
+  const createNewProject = useCallback(async (title: string) => {
+    const nextProject = await withConnection((token) => createProject({ title, folderSlug: `project-${crypto.randomUUID()}`, token }));
+    setProject(nextProject);
+    setProjects((current) => [...current, nextProject]);
+    setSharedSessionId(null);
+    setWorkVersionLabel(null);
+    setWorkVersionId(null);
+    setModelStatus(null);
+    setPermissionState(null);
+    setConnectionRevision((revision) => revision + 1);
+  }, [withConnection]);
+
   const persistSharedSessionId = useCallback((sessionId: string | null) => {
     setSharedSessionId(sessionId);
     if (!project) return;
@@ -137,9 +151,10 @@ export function TianyanShellRuntime() {
     setSharedDraft,
     retryConnection,
     openProject: openActiveProject,
+    createProject: createNewProject,
     setPermissionProfile,
     withConnection
-  }), [connectionState, modelStatus, openActiveProject, permissionState, persistSharedSessionId, project, projects, retryConnection, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionId, workVersionLabel]);
+  }), [connectionState, createNewProject, modelStatus, openActiveProject, permissionState, persistSharedSessionId, project, projects, retryConnection, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionId, workVersionLabel]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

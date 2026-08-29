@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, Sparkles, SunMedium } from "lucide-react";
+import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, MoreHorizontal, Sparkles, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GlobalSearchControl } from "../global-search/GlobalSearchControl";
@@ -27,7 +27,9 @@ export function GlobalStatusBar(props: {
   const { t, toggleLocale } = useI18n();
   const directoryToggleRef = useRef<HTMLButtonElement>(null);
   const projectToggleRef = useRef<HTMLButtonElement>(null);
+  const moreToggleRef = useRef<HTMLButtonElement>(null);
   const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [projectOpenError, setProjectOpenError] = useState<string | null>(null);
   const themeLabel = t(SHELL_THEME_REGISTRY[props.theme].labelKey);
   const searchEngine = useMemo(() => createGlobalSearchEngine(createProductGlobalSearchReadAdapter()), []);
@@ -81,6 +83,18 @@ export function GlobalStatusBar(props: {
     return () => window.removeEventListener("keydown", closeProjectSelector);
   }, [projectSelectorOpen]);
 
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOverflow = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMoreOpen(false);
+      window.requestAnimationFrame(() => moreToggleRef.current?.focus());
+    };
+    window.addEventListener("keydown", closeOverflow);
+    return () => window.removeEventListener("keydown", closeOverflow);
+  }, [moreOpen]);
+
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context shell-project-selector">
       <button
@@ -116,16 +130,27 @@ export function GlobalStatusBar(props: {
     </div>
     <div className="shell-topbar-actions">
       <GlobalSearchControl engine={searchEngine} context={props.searchContext} labels={searchLabels} openRequest={props.searchRequest} onNavigate={props.onSearchNavigate} />
-      <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.language")} title={t("topbar.language")} onClick={toggleLocale}><Languages aria-hidden="true" /><span>{t("topbar.languageValue")}</span></button>
-      <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.theme")} title={t("topbar.theme")} onClick={props.onToggleTheme}>
-        {props.theme === "cloud-ink" ? <SunMedium aria-hidden="true" /> : <MoonStar aria-hidden="true" />}<span>{themeLabel}</span>
-      </button>
-      <span className="shell-topbar-divider" aria-hidden="true" />
-      <div className="shell-runtime-status" aria-label={t("topbar.localStatus")} title={t("topbar.localStatus")}><Check aria-hidden="true" /><span>{t("topbar.localOnly")}</span></div>
-      <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")} title={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
-      <span className="shell-topbar-divider" aria-hidden="true" />
+      <div className="shell-topbar-secondary">
+        <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.language")} title={t("topbar.language")} onClick={toggleLocale}><Languages aria-hidden="true" /><span>{t("topbar.languageValue")}</span></button>
+        <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.theme")} title={t("topbar.theme")} onClick={props.onToggleTheme}>
+          {props.theme === "cloud-ink" ? <SunMedium aria-hidden="true" /> : <MoonStar aria-hidden="true" />}<span>{themeLabel}</span>
+        </button>
+        <span className="shell-topbar-divider" aria-hidden="true" />
+        <div className="shell-runtime-status" aria-label={t("topbar.localStatus")} title={t("topbar.localStatus")}><Check aria-hidden="true" /><span>{t("topbar.localOnly")}</span></div>
+        <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")} title={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
+        <span className="shell-topbar-divider" aria-hidden="true" />
+      </div>
       <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button>
       <button type="button" className="shell-topbar-panel-toggle" data-panel-toggle="global-tianyi" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} title={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("space.tianyi")}</span></button>
+      <div className="shell-topbar-more">
+        <button ref={moreToggleRef} type="button" className="shell-topbar-text-control" aria-label={t("topbar.more")} title={t("topbar.more")} aria-haspopup="menu" aria-controls="shell-topbar-overflow-menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal aria-hidden="true" /></button>
+        {moreOpen && <section id="shell-topbar-overflow-menu" className="shell-topbar-overflow-menu" role="menu" aria-label={t("topbar.more")}>
+          <button type="button" role="menuitem" onClick={() => { toggleLocale(); setMoreOpen(false); }}><Languages aria-hidden="true" /><span>{t("topbar.languageValue")}</span></button>
+          <button type="button" role="menuitem" onClick={() => { props.onToggleTheme(); setMoreOpen(false); }}>{props.theme === "cloud-ink" ? <SunMedium aria-hidden="true" /> : <MoonStar aria-hidden="true" />}<span>{themeLabel}</span></button>
+          <div className="shell-runtime-status" aria-label={t("topbar.localStatus")}><Check aria-hidden="true" /><span>{t("topbar.localOnly")}</span></div>
+          <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
+        </section>}
+      </div>
     </div>
   </header>;
 }

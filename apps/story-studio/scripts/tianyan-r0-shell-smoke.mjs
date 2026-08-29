@@ -22,9 +22,11 @@ const controlToken = "tianyan-r0-shell-smoke-token";
 const visualEvidenceDirectory = process.env.TIANYAN_R05_EVIDENCE_DIR || null;
 const visualEvidenceViewport = Number(process.env.TIANYAN_R05_EVIDENCE_VIEWPORT || "0");
 const visualEvidenceState = process.env.TIANYAN_R05_EVIDENCE_STATE || null;
+const r062VisualEvidenceDirectory = process.env.TIANYAN_R062_EVIDENCE_DIR || null;
 let server;
 let apiServer;
 let browser;
+const r062Captures = [];
 
 try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
@@ -33,7 +35,6 @@ try {
     env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1" }
   });
   await waitForApiServer();
-  await setupCharacterFixture();
   server = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js",
     "--config",
@@ -54,7 +55,17 @@ try {
 
   await page.goto(`${baseUrl}/world`, { waitUntil: "networkidle" });
   await page.getByTestId("tianyan-r0-shell").waitFor();
-  await assertCollapsedIconRail(page);
+  await assertNoProjectDirectoryShell(page);
+  if (r062VisualEvidenceDirectory) await captureR062EmptyDirectoryEvidence(page, consoleProblems);
+  await setupZeroItemFixture();
+  await page.reload({ waitUntil: "networkidle" });
+  await assertZeroItemDirectoryShell(page);
+  await setupCharacterFixture();
+  await page.reload({ waitUntil: "networkidle" });
+  await assertExpandedLabels(page, "zh-CN");
+  await assertResponsiveHeader922(page);
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
   await assertPermissionProjection(page);
   await assertSingleGlobalSearch(page);
   await assertCharacterDirectoryAndInspector(page);
@@ -62,11 +73,9 @@ try {
   await assertCharacterDirectoryFiltersAndLifecycle(page);
   await assertExactlyOneActiveDestination(page);
   if (visualEvidenceDirectory) await captureCharacterDirectoryEvidence(page, consoleProblems);
+  if (r062VisualEvidenceDirectory) await captureR062PopulatedDirectoryEvidence(page, consoleProblems);
 
   if (!visualEvidenceState) {
-    if (await page.getByTestId("tianyan-r0-shell").getAttribute("data-rail-collapsed") !== "false") await page.locator(".shell-rail-collapse").click();
-    await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
-    await page.waitForTimeout(200);
     await assertExpandedLabels(page, "zh-CN");
     await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
     await assertExpandedLabels(page, "en-US");
@@ -74,6 +83,9 @@ try {
   await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
+} catch (error) {
+  console.error("tianyan R0 shell smoke FAILED:", error);
+  throw error;
 } finally {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
@@ -168,6 +180,8 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.getByRole("button", { name: "多选", exact: true }).click();
   assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
   assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
 }
 
 async function assertCharacterCreationDurability(page) {
@@ -479,23 +493,85 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   writeFileSync(path.join(visualEvidenceDirectory, `capture-manifest-${suffix}.json`), `${JSON.stringify(captures, null, 2)}\n`, "utf8");
 }
 
-async function assertCollapsedIconRail(page) {
-  const state = await page.evaluate(() => {
-    const shell = document.querySelector("[data-testid='tianyan-r0-shell']");
-    const rail = document.querySelector(".shell-space-rail");
-    const labels = [...document.querySelectorAll(".shell-space-label")];
-    const controls = [...document.querySelectorAll("[data-shell-destination], [data-shell-utility]")];
-    return {
-      collapsed: shell?.getAttribute("data-rail-collapsed"),
-      railWidth: rail?.getBoundingClientRect().width ?? 0,
-      visibleLabels: labels.filter((label) => getComputedStyle(label).display !== "none" && label.getBoundingClientRect().width > 0).map((label) => label.textContent),
-      unnamedControls: controls.filter((control) => !control.getAttribute("aria-label") || !control.getAttribute("title")).length
-    };
-  });
-  assert.equal(state.collapsed, "true");
-  assert.equal(state.railWidth, 56);
-  assert.deepEqual(state.visibleLabels, []);
-  assert.equal(state.unnamedControls, 0);
+async function assertNoProjectDirectoryShell(page) {
+  const panel = page.locator(".project-directory-panel");
+  await panel.waitFor();
+  for (const label of ["故事结构", "节点", "单元", "故事线", "信息资料", "角色", "物品", "地点", "组织", "设定", "规则与设定", "来源", "来源文档", "创意", "剧情想法"]) {
+    await panel.getByText(label, { exact: true }).waitFor();
+  }
+  assert.equal(await panel.locator(".project-directory-tree strong").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "No-project classified view keeps every fixed category at zero.");
+  await panel.getByText("尚未打开作品", { exact: false }).waitFor();
+  await panel.getByRole("button", { name: "新建作品", exact: true }).waitFor();
+  await panel.getByRole("button", { name: "导入 .tianyan", exact: true }).waitFor();
+  await panel.getByRole("tab", { name: /待确认/u }).click();
+  await panel.getByText("暂无待确认项。", { exact: true }).waitFor();
+  await panel.getByRole("tab", { name: /已分类/u }).click();
+}
+
+async function assertZeroItemDirectoryShell(page) {
+  const panel = page.locator(".project-directory-panel");
+  await panel.waitFor();
+  await panel.getByText("故事结构", { exact: true }).waitFor();
+  assert.equal(await panel.locator(".project-directory-tree strong").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "A project with zero records keeps the same classified shell.");
+  assert.equal(await panel.locator("[data-directory-empty-shell-actions]").count(), 0, "An opened empty project must not be presented as an import-only state.");
+}
+
+async function assertResponsiveHeader922(page) {
+  await page.setViewportSize({ width: 922, height: 720 });
+  await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+  const topbar = page.locator(".shell-topbar");
+  await topbar.waitFor();
+  await page.getByRole("button", { name: "选择当前作品与版本", exact: true }).waitFor();
+  const directory = page.locator('[data-panel-toggle="project-directory"]');
+  const tianyi = page.locator('[data-panel-toggle="global-tianyi"]');
+  await directory.waitFor();
+  await tianyi.waitFor();
+  assert.match((await directory.innerText()).trim(), /目录/u, "Directory remains a named primary control at 922px.");
+  assert.match((await tianyi.innerText()).trim(), /天意/u, "Tianyi remains a named primary control at 922px.");
+  const overflow = page.getByRole("button", { name: "更多全局状态", exact: true });
+  await overflow.waitFor();
+  await overflow.click();
+  const menu = page.locator("#shell-topbar-overflow-menu");
+  await menu.waitFor();
+  for (const label of ["中 / EN", "云砚", "本地", "未连接"]) await menu.getByText(label, { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "hidden" });
+  assert.equal(await overflow.evaluate((element) => document.activeElement === element), true, "Escape returns focus to the named overflow control.");
+  const layout = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, viewportWidth: window.innerWidth }));
+  assert.ok(layout.scrollWidth <= layout.viewportWidth, "922px header must not create horizontal document overflow.");
+  assert.match((await directory.getAttribute("aria-pressed")) ?? "", /^(true|false)$/u);
+  assert.match((await tianyi.getAttribute("aria-pressed")) ?? "", /^(true|false)$/u);
+  if (await tianyi.getAttribute("aria-pressed") === "true") {
+    await tianyi.click();
+    await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+  }
+}
+
+async function captureR062EmptyDirectoryEvidence(page, consoleProblems) {
+  mkdirSync(r062VisualEvidenceDirectory, { recursive: true });
+  for (const viewport of [{ width: 1152, height: 720 }, { width: 1440, height: 900 }, { width: 1920, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    const filename = `${viewport.width}x${viewport.height}-empty-classified.png`;
+    await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, filename), fullPage: true });
+    r062Captures.push({ filename, viewport, state: "no-open-work-classified", url: page.url(), consoleProblems: [...consoleProblems] });
+  }
+}
+
+async function captureR062PopulatedDirectoryEvidence(page, consoleProblems) {
+  mkdirSync(r062VisualEvidenceDirectory, { recursive: true });
+  await page.setViewportSize({ width: 922, height: 720 });
+  await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+  await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, "922px-header.png"), fullPage: true });
+  r062Captures.push({ filename: "922px-header.png", viewport: { width: 922, height: 720 }, state: "responsive-header", url: page.url(), consoleProblems: [...consoleProblems] });
+  for (const viewport of [{ width: 1152, height: 720 }, { width: 1440, height: 900 }, { width: 1920, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    const filename = `${viewport.width}x${viewport.height}-populated-classified.png`;
+    await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, filename), fullPage: true });
+    r062Captures.push({ filename, viewport, state: "populated-classified", projectId: fixtureProjectId, url: page.url(), consoleProblems: [...consoleProblems] });
+  }
+  writeFileSync(path.join(r062VisualEvidenceDirectory, "capture-manifest-r062.json"), `${JSON.stringify(r062Captures, null, 2)}\n`, "utf8");
 }
 
 async function assertExpandedLabels(page, locale) {
@@ -578,6 +654,11 @@ async function setupCharacterFixture() {
     noWritePolicy: true,
     fixtureMode: "deterministic"
   });
+}
+
+async function setupZeroItemFixture() {
+  const created = await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "空目录作品", folderSlug: `empty-${fixtureProjectId}` });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: created.data.id });
 }
 
 async function postFixture(url, body) {
