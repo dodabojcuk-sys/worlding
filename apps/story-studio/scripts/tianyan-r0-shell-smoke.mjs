@@ -396,13 +396,13 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await startAgentFakeProviderStream(page, `R0.6 Agent 流视觉验收 ${viewport.width}`);
     }
     if (state === "pending-review") {
-      const toggle = page.locator(".shell-topbar-panel-toggle");
+      const toggle = page.locator('[data-panel-toggle="project-directory"]');
       if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
       await page.getByRole("tab", { name: /待确认/u }).click();
       await page.locator(".pending-review-panel").waitFor();
     }
     if (state === "character-directory") {
-      const toggle = page.locator(".shell-topbar-panel-toggle");
+      const toggle = page.locator('[data-panel-toggle="project-directory"]');
       if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
       await page.locator('[data-directory-node="directory.library.character"]').click();
       await page.getByTestId("character-directory").waitFor();

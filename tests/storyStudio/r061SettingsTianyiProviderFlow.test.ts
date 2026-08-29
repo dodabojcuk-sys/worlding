@@ -51,3 +51,10 @@ test("Tool approval names its scope and supports an explicit author rejection", 
   assert.match(sidebar, /tianyi\.toolParameters/);
   assert.match(sidebar, /onClick=\{rejectStep\}/);
 });
+
+test("Visual acceptance targets the directory toggle by its stable owner, not a positional topbar selector", () => {
+  const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");
+
+  assert.match(smoke, /locator\('\[data-panel-toggle="project-directory"\]'\)/);
+  assert.doesNotMatch(smoke, /const toggle = page\.locator\("\.shell-topbar-panel-toggle"\)/);
+});
