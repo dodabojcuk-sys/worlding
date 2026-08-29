@@ -65,7 +65,8 @@ test("page-tool rail starts compact at the narrow breakpoint and keeps tool avai
   assert.match(rail, /dock\.expandTools/);
   assert.match(rail, /dock\.collapseTools/);
   assert.match(rail, /tool\.available/);
-  assert.doesNotMatch(rail, /extensionTools/);
+  assert.match(rail, /tool\.extensionTools/);
+  assert.doesNotMatch(rail, /tool\.notConnected/);
   for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
   assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
   assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
