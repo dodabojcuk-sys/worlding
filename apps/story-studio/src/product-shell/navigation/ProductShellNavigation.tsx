@@ -9,7 +9,6 @@ import {
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Settings,
   Sparkles,
   UserRound,
@@ -43,7 +42,6 @@ export function ProductShellNavigation(props: {
   collapsed: boolean;
   onSelect(destination: StoryStudioShellDestination): void;
   onToggleCollapsed(): void;
-  onOpenSearch(): void;
   onSettings(): void;
   onAccount(): void;
 }) {
@@ -95,9 +93,6 @@ export function ProductShellNavigation(props: {
         {props.collapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
       </button>
     </div>
-    <button type="button" className="shell-global-search-entry" aria-label={t("globalSearch.trigger")} title={t("globalSearch.trigger")} data-global-search-entry="rail" onClick={props.onOpenSearch}>
-      <Search aria-hidden="true" />
-    </button>
     <div className="shell-rail-navigation">
       <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
       <div className="shell-space-divider" role="separator" />

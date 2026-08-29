@@ -1,5 +1,5 @@
 import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, Sparkles, SunMedium } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { GlobalSearchControl } from "../global-search/GlobalSearchControl";
 import { createGlobalSearchEngine } from "../global-search/globalSearchEngine";
@@ -22,6 +22,7 @@ export function GlobalStatusBar(props: {
   onToggleTianyi(): void;
 }) {
   const { t, toggleLocale } = useI18n();
+  const directoryToggleRef = useRef<HTMLButtonElement>(null);
   const themeLabel = t(SHELL_THEME_REGISTRY[props.theme].labelKey);
   const searchEngine = useMemo(() => createGlobalSearchEngine(createProductGlobalSearchReadAdapter()), []);
   const searchLabels = useMemo(() => ({
@@ -49,6 +50,19 @@ export function GlobalStatusBar(props: {
     }
   }), [t]);
 
+  useEffect(() => {
+    const closeDirectoryFromEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !props.directoryOpen) return;
+      const focused = document.activeElement;
+      if (!(focused instanceof HTMLElement) || !focused.closest(".project-directory-panel")) return;
+      event.preventDefault();
+      props.onToggleDirectory();
+      window.requestAnimationFrame(() => directoryToggleRef.current?.focus());
+    };
+    window.addEventListener("keydown", closeDirectoryFromEscape);
+    return () => window.removeEventListener("keydown", closeDirectoryFromEscape);
+  }, [props.directoryOpen, props.onToggleDirectory]);
+
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context">
       <button type="button" className="shell-context-control" title={t("topbar.project")}>
@@ -66,7 +80,7 @@ export function GlobalStatusBar(props: {
       <div className="shell-runtime-status" aria-label={t("topbar.localStatus")} title={t("topbar.localStatus")}><Check aria-hidden="true" /><span>{t("topbar.localOnly")}</span></div>
       <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")} title={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
       <span className="shell-topbar-divider" aria-hidden="true" />
-      <button type="button" className="shell-topbar-panel-toggle" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("panel.projectDirectory")}</span></button>
+      <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button>
       <button type="button" className="shell-topbar-panel-toggle" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} title={t(props.tianyiOpen ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("space.tianyi")}</span></button>
     </div>
   </header>;

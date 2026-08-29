@@ -8,7 +8,7 @@ import { characterRoleLabel } from "./CharacterCreateDialog";
 import { getCharacterDetailSections, getCharacterDirectorySummary } from "./characterDirectoryPresentation";
 import { UNVERSIONED_CATALOG_SCOPE, type CharacterDirectoryRecord } from "./useCharacterDirectory";
 
-export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeState; objectId: string; onClose(): void }) {
+export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeState; objectId: string; onClose(): void; onOpenFull(): void }) {
   const [record, setRecord] = useState<CharacterDirectoryRecord | null>(null);
   useEffect(() => {
     let active = true; setRecord(null); if (!props.runtime.project) return;
@@ -23,10 +23,10 @@ export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeSt
     }).catch(() => { if (active) props.onClose(); });
     return () => { active = false; };
   }, [props.objectId, props.runtime.project?.id, props.runtime.workVersionId]);
-  return record ? <CharacterInspectorCard record={record} onClose={props.onClose} /> : null;
+  return record ? <CharacterInspectorCard record={record} onClose={props.onClose} onOpenFull={props.onOpenFull} /> : null;
 }
 
-export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord; onClose(): void }) {
+export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord; onClose(): void; onOpenFull(): void }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<"basic" | "story" | "relations">("basic");
   const [expanded, setExpanded] = useState(false);
@@ -54,6 +54,6 @@ export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord
       {tab === "story" && <><h3><BookOpen aria-hidden="true" />{t("character.participatingEvents")}</h3>{events.length ? <ul>{events.map((event) => <li key={event.eventId}>{event.eventId}</li>)}</ul> : <p>{t("character.noEvents")}</p>}</>}
       {tab === "relations" && <><h3><Link2 aria-hidden="true" />{t("character.relations")}</h3>{relations.length ? <ul>{relations.map((relation) => <li key={relation.id}>{relation.otherObject.title}</li>)}</ul> : <p>{t("character.noRelations")}</p>}</>}
     </section>
-    <footer><button type="button" disabled aria-describedby="character-full-profile-status">{t("character.openFull")}</button><p id="character-full-profile-status" role="status">{t("character.fullUnavailable")}</p></footer>
+    <footer><button type="button" onClick={props.onOpenFull}>{t("character.openFull")}</button></footer>
   </aside>;
 }

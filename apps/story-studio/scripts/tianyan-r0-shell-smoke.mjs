@@ -93,6 +93,8 @@ async function assertPermissionProjection(page) {
 
 async function assertSingleGlobalSearch(page) {
   assert.equal(await page.locator(".project-directory input[type='search']").count(), 0, "The project directory must not keep a second always-visible search field");
+  assert.equal(await page.locator(".shell-global-search-entry").count(), 0, "The dark rail must not duplicate the global-search entry beneath the brand");
+  assert.equal(await page.locator(".project-directory-search-entry").count(), 0, "The ordinary project directory must not duplicate global search");
   const topbar = page.getByTestId("global-search-trigger");
   const topbarState = await topbar.evaluate((button) => ({
     label: button.getAttribute("aria-label"),
@@ -101,17 +103,25 @@ async function assertSingleGlobalSearch(page) {
   assert.equal(topbarState.label, "全局搜索");
   assert.equal(topbarState.textVisible, false, "The 1152px topbar trigger must collapse to its search icon");
 
-  await page.locator(".shell-global-search-entry").click();
+  await topbar.click();
   const dialog = page.getByTestId("global-search-dialog");
   await dialog.waitFor();
-  assert.equal(await dialog.getAttribute("data-search-scope"), "global", "The dark rail icon must open the shared global scope");
+  assert.equal(await dialog.getAttribute("data-search-scope"), "global", "The topbar entry must open the shared global scope");
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-
-  await page.locator(".project-directory-search-entry").click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute("data-testid") === "global-search-trigger");
+  assert.equal(await topbar.evaluate((button) => document.activeElement === button), true, "Escape/close restores focus to the global-search trigger");
+  await page.keyboard.press("ControlOrMeta+K");
   await dialog.waitFor();
-  assert.equal(await dialog.getAttribute("data-search-scope"), "directory", "The project-directory icon must open the shared directory scope");
+  assert.equal(await dialog.getAttribute("data-search-scope"), "global", "Keyboard search opens the same global scope");
   assert.equal(await page.locator("input[type='search']").count(), 1, "Only the open shared search dialog may render a search field");
-  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await dialog.locator("input[type='search']").focus();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+
+  await page.getByRole("tab", { name: /待确认/u }).click();
+  assert.match(page.url(), /directoryReview=pending/u, "Pending review stays in the directory URL state rather than navigating to Data");
+  assert.match(new URL(page.url()).pathname, /\/(world|event-line|library|tianyi|collections)/u, "Pending review must not force the Data route");
+  await page.getByRole("tab", { name: /已分类/u }).click();
 }
 
 async function assertCharacterDirectoryAndInspector(page) {
@@ -144,6 +154,10 @@ async function assertCharacterDirectoryAndInspector(page) {
   assert.deepEqual(workspaceAfter, workspaceBefore, "Opening the inspector must not remount or resize the central workspace");
   assert.match(page.url(), /directoryObject=character\./u);
   assert.equal(await page.getByRole("button", { name: "打开完整资料" }).count(), 1);
+  await page.getByRole("button", { name: "打开完整资料" }).click();
+  await page.getByRole("form", { name: "完整角色资料" }).waitFor();
+  assert.match(page.url(), /directoryEdit=character/u, "Full profile opens through the stable character URL");
+  await page.getByRole("form", { name: "完整角色资料" }).getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "展开角色检查器" }).click();
   assert.equal(await page.getByTestId("character-inspector").getAttribute("aria-expanded"), "true", "The inspector expands as an overlay without moving the workspace");
   assert.deepEqual(await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().toJSON()), workspaceBefore.rect, "Expanding the inspector must not resize the central workspace");
@@ -372,7 +386,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     await page.getByTestId("character-directory").waitFor();
     await waitForCharacterDirectoryIdle(page);
     const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
-    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.waitFor();
+    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive" || state === "profile-editor") await currentCharacter.waitFor();
     if (state === "form" || state === "required" || state === "created" || state === "refreshed") {
       await page.getByRole("button", { name: "新建", exact: true }).click();
       await page.getByRole("dialog", { name: "新建角色" }).waitFor();
@@ -391,8 +405,10 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "world-active") {
       await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
     }
-    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
+    if (state === "pending") { await page.getByRole("button", { name: "返回工程目录", exact: true }).click(); await page.getByRole("tab", { name: /待确认/u }).click(); }
+    if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive" || state === "profile-editor") await currentCharacter.click();
     if (state === "inspector-expanded") await page.getByRole("button", { name: "展开角色检查器", exact: true }).click();
+    if (state === "profile-editor") await page.getByRole("button", { name: "打开完整资料", exact: true }).click();
     if (state === "compact") { await page.getByRole("button", { name: "列表密度", exact: true }).click(); await page.getByRole("menuitemradio", { name: "缩略版", exact: true }).click(); }
     if (state === "sort") await page.getByRole("button", { name: "排序", exact: true }).click();
     if (state === "filter") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("角色层级筛选").selectOption("主要角色"); }
@@ -421,7 +437,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "agent-stream") await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
   };
   const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
-  const states = ["standard", "compact", "sort", "filter", "multi", "archive", "inspector-expanded", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  const states = ["standard", "compact", "sort", "filter", "multi", "archive", "inspector-expanded", "profile-editor", "pending", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
   for (const viewport of viewports) {
     for (const state of states) await capture(viewport, state);
   }

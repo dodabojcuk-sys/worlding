@@ -24,47 +24,16 @@
   font-size: var(--font-size-lg);
 }
 
-.project-directory-panel > header > div {
+.project-directory-tabs {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-}
-
-.pending-review-entry,
-.project-directory-search-entry,
-.project-directory-close {
-  min-height: 2rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  padding-inline: var(--space-2);
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.pending-review-entry { font-size: var(--font-size-xs); }
-.pending-review-entry strong { color: var(--color-accent); }
-.pending-review-entry svg,
-.project-directory-search-entry svg,
-.project-directory-close svg { inline-size: 0.875rem; block-size: 0.875rem; }
-.project-directory-search-entry,
-.project-directory-close { inline-size: 2rem; padding: 0; border-color: transparent; }
-
-.project-directory-section-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-4) var(--space-3);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  padding: 0 var(--space-3) var(--space-2);
   border-block-end: 1px solid var(--color-border);
 }
-
-.project-directory-section-title strong { color: var(--color-text); font-size: var(--font-size-sm); }
+.project-directory-tabs button { min-height: 2.25rem; display: inline-flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); color: var(--color-text-muted); background: transparent; border: 0; border-block-end: 2px solid transparent; cursor: pointer; font-size: var(--font-size-xs); }
+.project-directory-tabs button[aria-selected="true"] { color: var(--color-accent); border-block-end-color: var(--color-accent); font-weight: 600; }
+.project-directory-tabs strong { color: inherit; font-size: var(--font-size-xs); }
 
 .project-directory-tree { min-height: 0; flex: 1; padding: var(--space-2); overflow: auto; }
 .project-directory-tree section > button,
@@ -93,6 +62,18 @@
 .project-directory-reference[data-selected] { color: var(--color-accent); background: var(--color-surface-muted); }
 .project-directory-reference em { color: var(--color-accent); font-size: var(--font-size-xs); font-style: normal; }
 .project-directory-empty { margin: var(--space-4); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.pending-review-panel { min-height: 0; flex: 1; overflow: auto; padding: var(--space-2); scrollbar-gutter: stable; }
+.pending-review-panel article { display: grid; gap: var(--space-2); padding: var(--space-3); border-block-end: 1px solid var(--color-border); }
+.pending-review-panel article > header { display: grid; gap: 2px; padding: 0; }
+.pending-review-panel article strong { overflow-wrap: anywhere; font-size: var(--font-size-sm); }
+.pending-review-panel article small, .pending-review-panel article > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.45; }
+.pending-review-panel article > footer { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.pending-review-panel article > footer button { min-height: 2rem; display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-2); color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
+.pending-review-panel article > footer button:hover { color: var(--color-text); background: var(--color-surface-muted); }
+.pending-review-panel article > footer button:disabled { cursor: wait; opacity: .55; }
+.pending-review-panel article > footer svg { inline-size: .8rem; block-size: .8rem; }
+.pending-duplicate { color: var(--color-warning) !important; }
+.pending-review-notice { margin: var(--space-2); padding: var(--space-2); color: var(--color-warning); background: var(--color-surface-muted); font-size: var(--font-size-xs); }
 
 @media (max-width: 50rem) {
   .project-directory-panel {

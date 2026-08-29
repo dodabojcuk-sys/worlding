@@ -81,10 +81,12 @@ test("R0.6 uses one global search engine while the legacy command panel remains 
   assert.match(shell, /ShellCommandPalette/);
   assert.match(shell, /requestSearch\("characters"\)/);
   assert.match(navigation, /BrandMarkSlot/);
-  assert.match(navigation, /shell-global-search-entry/);
+  assert.doesNotMatch(navigation, /shell-global-search-entry/);
   assert.match(topbar, /GlobalSearchControl/);
   assert.match(topbar, /createGlobalSearchEngine/);
-  assert.match(directory, /project-directory-search-entry/);
+  assert.match(directory, /PendingReviewPanel/);
+  assert.match(directory, /project-directory-tabs/);
+  assert.doesNotMatch(directory, /project-directory-search-entry|project-directory-close/);
   assert.doesNotMatch(directory, /type="search"|filterProjectDirectory/);
   assert.match(characters, /onRequestScopedSearch/);
   assert.match(search, /neither writes data nor builds an index or embedding store/);
@@ -107,7 +109,7 @@ test("desktop topbar exposes presentation controls and honest runtime states wit
   assert.ok(topbar.indexOf("topbar.languageValue") < topbar.indexOf("{themeLabel}"));
   assert.ok(topbar.indexOf("{themeLabel}") < topbar.indexOf("topbar.localStatus"));
   assert.ok(topbar.indexOf("topbar.localStatus") < topbar.indexOf("topbar.syncStatus"));
-  assert.ok(topbar.indexOf("topbar.syncStatus") < topbar.indexOf("panel.projectDirectory"));
+  assert.ok(topbar.indexOf("topbar.syncStatus") < topbar.indexOf("directory.label"));
   assert.match(styles, /shell-topbar-divider/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
 });

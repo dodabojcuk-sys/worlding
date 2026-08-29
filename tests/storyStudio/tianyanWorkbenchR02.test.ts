@@ -8,16 +8,18 @@ import { clampDockPanelSize, createInitialDockLayout, toggleDockPanel } from "..
 
 const source = (path: string) => readFileSync(path, "utf8");
 
-test("project directory uses Classified as its main section and Pending review as a small inbox", () => {
+test("project directory keeps Classified and Pending review in the same navigation slot", () => {
   const panel = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx");
-  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewEntry.tsx");
+  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx");
   const contract = source("src/storyContracts/projectDirectoryContract.ts");
   assert.match(panel, /directory\.classified/);
-  assert.match(panel, /PendingReviewEntry/);
+  assert.match(panel, /PendingReviewPanel/);
   assert.doesNotMatch(panel, /全部.*资料.*创作.*参考/su);
-  assert.match(pending, /pending-review-entry/);
+  assert.match(pending, /decideSourceImportCandidate/);
+  assert.match(pending, /confirmAgentRecognitionObject/);
   assert.match(panel, /data-story-fact-owner="false"/);
-  assert.match(panel, /project-directory-search-entry/);
+  assert.match(panel, /project-directory-tabs/);
+  assert.doesNotMatch(panel, /project-directory-search-entry|project-directory-close/);
   assert.doesNotMatch(panel, /type="search"|filterProjectDirectory/);
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });

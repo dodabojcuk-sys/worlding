@@ -47,3 +47,10 @@ final result: needs correction
 - 对照结论：角色目录仍只覆盖浅色目录槽；主导航、中央工作区与天意没有重挂载。标题与数量分离，角色行使用头像、名称、层级和次信息；缩略版不显示头像；检查器为只读右侧覆盖层，显示摘要、本卷状态及事件/关系投影；低频底部工具不抢主操作。`世界` 选中时 `合册` 复用普通未选中视觉权重。
 - 自检：`P0=none`；`P1=none`；`P2=像素级字距、色值和个别空投影的文案可在 Founder 复验后再微调`；`P3=完整角色资料工作台仍不在 R0.5 范围`。该自检不替代人工裁定。
 - `R0_5_TECHNICAL_STATUS=PASS`；`R0_5_FOUNDER_VISUAL_STATUS=REVIEW_REQUIRED`；控制台 warning/error 为零。
+
+## R0.6 Shell directory pending-review repair
+
+- `FOUNDER_VISUAL_STATUS=REJECTED / REVIEW_REQUIRED`：技术测试 PASS 只记录工程事实，不能覆盖 Founder 的人工退回。
+- `50be5ac` 的角色目录在 `1152×720`、`1440×900` 与 `1920×1000` 曾出现由旧 `section > button` CSS 选择器失配造成的 inline-block 并排项；本轮改为直接列表子项的单列 Flex 规则。
+- 完整资料编辑此前处于禁用状态；本轮以 `directoryView=characters&directoryObject=<stable-id>&directoryType=character&directoryEdit=character` 接入 WorldObject/Card Presentation 的现有正式更新端口。它不是新的角色 owner。
+- 待确认保留在同一项目目录面板的 `已分类 / 待确认` Tab；来源导入和 Agent 识别继续调用既有正式审查端口。Golden Loop 仍须进入既有影响审查，目录不会直接写入故事事实。
