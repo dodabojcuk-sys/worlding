@@ -8,7 +8,7 @@
 
 ## 对照目标与证据
 
-- R0.5 Founder 角色目录参考图：`/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`（1561×1008；SHA-256 `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`；Founder 提供的原始临时剪贴板图已在仓库外证据目录持久保存。）
+- R0.5 Founder 角色目录参考图：`data/2026-08-29_天衍R0_5创始人视觉收口/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`（1561×1008；SHA-256 `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`；Founder 提供的原始临时剪贴板图已作为本轮工作产物保存。）
 - 旧同尺寸对照（保留为问题证据）：`/home/beelink/.codex/visualizations/2026/08/28/01a04856-34b7-7740-b6d4-6f16950fd4aa/TIANYAN_WORKBENCH_R0_2/reference-vs-implementation.png`
 - 本轮真实浏览器截图：
   - `data/2026-08-29_天衍工作台R0_2创始人桌面纠偏R0/screenshots/1920x1000-zh-event-line-expert-log.png`
@@ -41,7 +41,7 @@ final result: needs correction
 ## R0.5 Founder visual closure
 
 - 捕获方式：仓库既有 Playwright smoke（隔离项目 `r05-character-directory`、真实应用组件、`PROVIDER_MODE=MOCK_OR_LOCAL_FAKE_ONLY`）；每张捕获的 URL、视口、项目与控制台状态在同目录的 `capture-manifest-*.json` 中。
-- 证据目录：`/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/`。完整 15 张状态截图覆盖 `1920×1000`、`1440×900`、`1152×720` 各自的标准、检查器、缩略、多选和归档状态。
+- 证据目录：`data/2026-08-29_天衍R0_5创始人视觉收口/`。完整 15 张状态截图覆盖 `1920×1000`、`1440×900`、`1152×720` 各自的标准、检查器、缩略、多选和归档状态。
 - 代表截图：`1920x1000-standard.png`、`1920x1000-inspector.png`、`1920x1000-multi.png`、`1920x1000-archive.png`、`1152x720-inspector.png`。
 - 三档结果：目录只替换浅色目录槽；深色主导航与中央天意未被重载或挤压；检查器是右侧覆盖层；标准/缩略、多选、归档状态均可见。所有捕获的 `consoleProblems` 为空。
 - `P0=none`；`P1=none`；`P2=归档状态下底部低频操作在窄目录中偏紧，但无裁切、溢出或关键操作遮挡，本轮不扩大范围重排`；`P3=像素级风格微调留待 Founder 后续反馈`。

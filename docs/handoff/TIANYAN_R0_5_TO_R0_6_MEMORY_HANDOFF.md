@@ -39,9 +39,9 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 
 ## Founder visual evidence
 
-- Stable reference: `/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`.
+- Stable reference: `data/2026-08-29_天衍R0_5创始人视觉收口/TIANYAN_R0_5_FOUNDER_CHARACTER_DIRECTORY_REFERENCE.png`.
 - Reference SHA-256: `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`.
-- Implementation screenshots and their per-capture manifests: `/home/beelink/.codex/visualizations/2026/08/29/TIANYAN_R0_5_FOUNDER_VISUAL_CLOSURE/`.
+- Implementation screenshots and their per-capture manifests: `data/2026-08-29_天衍R0_5创始人视觉收口/`.
 - Visual capture used the repository's installed Playwright browser with isolated test data at 1920×1000, 1440×900 and 1152×720; console warnings/errors were zero. Founder visual status remains `REVIEW_REQUIRED` until independent review.
 - Validation environment was Node `v24.16.0`; the project navigation still records Node 22 as its target runtime.
 
