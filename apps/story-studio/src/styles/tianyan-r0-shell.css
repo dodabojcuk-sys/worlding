@@ -96,6 +96,13 @@ input:focus-visible {
   --tianyi-current: 0rem;
 }
 
+.tianyan-r0-shell[data-account-open="true"] {
+  --directory-current: 0rem;
+  --dock-current: 0rem;
+  --panel-controls-width: 0rem;
+  --tianyi-current: 0rem;
+}
+
 .shell-space-rail {
   grid-area: rail;
   min-width: 0;

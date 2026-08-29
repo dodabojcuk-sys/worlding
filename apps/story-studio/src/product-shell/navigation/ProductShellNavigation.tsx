@@ -40,6 +40,7 @@ const destinationIcons: Record<StoryStudioShellDestination["icon"], LucideIcon> 
 export function ProductShellNavigation(props: {
   active: StoryStudioShellDestinationId;
   settingsOpen: boolean;
+  accountOpen: boolean;
   collapsed: boolean;
   onSelect(destination: StoryStudioShellDestination): void;
   onToggleCollapsed(): void;
@@ -67,7 +68,7 @@ export function ProductShellNavigation(props: {
   const renderDestination = (destination: StoryStudioShellDestination) => {
     const Icon = destinationIcons[destination.icon];
     const label = t(destination.labelKey as TranslationKey);
-    const active = props.active === destination.id;
+    const active = !props.settingsOpen && !props.accountOpen && props.active === destination.id;
     return <button
       type="button"
       className={`shell-space-link ${active ? "is-active" : ""}`}
@@ -105,7 +106,7 @@ export function ProductShellNavigation(props: {
     </div>
     <div className="shell-rail-utility" aria-label={t("nav.utility")}>
       {settingsControl}
-      <button type="button" className="shell-space-link" aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
+      <button type="button" className={`shell-space-link ${props.accountOpen ? "is-active" : ""}`} aria-current={props.accountOpen ? "page" : undefined} aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
         <span className="shell-space-icon" aria-hidden="true"><UserRound /></span><span className="shell-space-label">{t("nav.account")}</span>
       </button>
     </div>

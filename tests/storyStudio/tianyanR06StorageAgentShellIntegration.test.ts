@@ -29,9 +29,22 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(agent, /agent-default-permission/);
   assert.match(shell, /onSettings=\{openSettings\}/);
   assert.match(shell, /settingsOpen=\{settingsOpen\}/);
-  assert.match(shell, /!settingsOpen && directoryOpen/);
+  assert.match(shell, /!settingsOpen && !accountOpen && directoryOpen/);
   assert.doesNotMatch(shell, /SettingsStorageSection|SettingsTransferSection|AgentSettingsSection|getModelServiceStatus|getAgentPermissionState|setAgentPermissionProfile/);
   assert.match(shell, /requested === "collapsed" \|\| requested === "expanded" \? requested : "expanded"/);
+});
+
+test("personal center uses the same Shell workspace pattern without faking account mutations", () => {
+  const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
+  const outlet = source("apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx");
+  const account = source("apps/story-studio/src/product-shell/workspace/AccountCenterWorkspace.tsx");
+  assert.match(shell, /const openAccount = \(\) => \{/);
+  assert.match(shell, /data-account-open=\{accountOpen\}/);
+  assert.match(outlet, /if \(props\.accountOpen\) return <AccountCenterWorkspace \/>;/);
+  assert.match(account, /个人信息/);
+  assert.match(account, /待接入账户服务/);
+  assert.match(account, /当前不会伪造这些操作/);
+  assert.doesNotMatch(account, /onClick=|fetch\(|localStorage/);
 });
 
 test("Pi artifact wiring uses the Workspace-owned policy and checks WorkVersion before the formal owner", () => {

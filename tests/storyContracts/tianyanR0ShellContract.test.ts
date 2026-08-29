@@ -159,14 +159,17 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(navigation, /data-shell-utility="settings"/);
   assert.match(navigation, /settingsControl[\s\S]*data-shell-utility="settings"/);
   assert.match(navigation, /shell-rail-utility[\s\S]*settingsControl[\s\S]*data-shell-utility="account"/);
+  assert.match(navigation, /!props\.settingsOpen && !props\.accountOpen && props\.active === destination\.id/);
   assert.doesNotMatch(navigation, /is-utility-priority|shell-settings-link/);
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
-  assert.match(shell, /onAccount=\{\(\) => undefined\}/);
+  assert.match(shell, /const openAccount = \(\) => \{/);
+  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*setDirectoryOpen\(false\)/);
   assert.match(shell, /const openSettings = \(\) => \{/);
   assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*dock\.setTianyiOpen\(false\)/);
   assert.match(shell, /data-settings-open=\{settingsOpen\}/);
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
+  assert.match(shell, /accountOpen=\{accountOpen\}/);
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
   assert.match(styles, /\.tianyan-r0-shell\[data-settings-open="true"\][\s\S]*--directory-current: 0rem[\s\S]*--tianyi-current: 0rem/);

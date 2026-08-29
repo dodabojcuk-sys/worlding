@@ -100,6 +100,71 @@
   min-width: 0;
 }
 
+.account-center-workspace {
+  grid-area: workspace;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-surface) 76%, transparent), transparent 15rem),
+    var(--color-app-background);
+}
+
+.account-center-layout {
+  width: min(74rem, 100%);
+  min-height: calc(100vh - var(--topbar-height) - clamp(2rem, 4vw, 3.5rem));
+  display: grid;
+  grid-template-columns: minmax(14rem, 16rem) minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(var(--space-6), 3vw, var(--space-8));
+  margin-inline: auto;
+  padding: clamp(1rem, 2vw, 1.75rem) clamp(1rem, 2.5vw, 2.5rem) clamp(2.5rem, 5vw, 5rem);
+}
+
+.account-center-nav {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-4);
+  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-lg) + 0.25rem);
+}
+
+.account-center-nav > p {
+  margin: var(--space-1) var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.account-center-nav nav { display: grid; }
+.account-center-nav button { width: 100%; min-height: 3.75rem; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); color: var(--color-accent); background: var(--color-accent-soft); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-weight: 650; text-align: start; }
+.account-center-nav button svg { inline-size: 1rem; block-size: 1rem; }
+
+.account-center-stage {
+  align-self: start;
+  display: grid;
+  gap: var(--space-5);
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  background: var(--color-workspace-background);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-lg) + 0.25rem);
+  box-shadow: var(--shadow-panel);
+}
+
+.account-center-stage > header { display: flex; align-items: flex-start; gap: var(--space-3); padding-block-end: var(--space-4); border-block-end: 1px solid var(--color-border); }
+.account-center-stage > header > svg { inline-size: 1.25rem; block-size: 1.25rem; color: var(--color-accent); }
+.account-center-stage header p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); letter-spacing: 0.08em; }
+.account-center-stage h1 { margin: var(--space-1) 0 0; font: 500 clamp(1.8rem, 3vw, 2.5rem)/1.1 var(--font-display); }
+.account-center-stage dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin: 0; }
+.account-center-stage dl div { display: grid; gap: var(--space-1); padding: var(--space-3); background: var(--color-surface-muted); border-radius: var(--radius-md); }
+.account-center-stage dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.account-center-stage dd { margin: 0; font-weight: 650; }
+.account-center-stage > p { max-width: 38rem; margin: 0; color: var(--color-text-muted); line-height: 1.65; }
+
 .settings-workspace-route .settings-utility-heading {
   gap: var(--space-3);
   padding: 0 0 var(--space-5);
@@ -406,10 +471,13 @@
   .settings-workspace-nav { position: static; }
   .settings-workspace-nav nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .settings-workspace-nav button { min-height: 3rem; padding-inline: var(--space-2); }
+  .account-center-layout { grid-template-columns: 1fr; }
+  .account-center-nav { padding: var(--space-3); }
 }
 
 @media (max-width: 48rem) {
   .settings-card dl { grid-template-columns: 1fr; }
+  .account-center-stage dl { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
