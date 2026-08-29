@@ -15,5 +15,8 @@ test("character inspector exposes one consistent edit affordance without a secon
   assert.match(inspector, /character-inspector-header-actions/);
   assert.match(styles, /\.character-inspector-edit[\s\S]*border: 1px solid transparent/);
   assert.match(styles, /\.character-inspector-header-actions > button[\s\S]*background: transparent[\s\S]*border: 1px solid var\(--color-border\)/);
-  assert.doesNotMatch(inspector, /updateWorldObject|set[A-Z]\w*\(.*title/);
+  assert.match(styles, /\.character-inspector \{[\s\S]*width: min\(19rem/);
+  assert.match(styles, /\.character-inspector-snapshot \{ display: grid; grid-template-columns: 1fr/);
+  assert.match(styles, /\.character-inspector\[data-expanded="true"\] \{ width: min\(25rem/);
+  assert.doesNotMatch(inspector, /updateWorldObject/);
 });
