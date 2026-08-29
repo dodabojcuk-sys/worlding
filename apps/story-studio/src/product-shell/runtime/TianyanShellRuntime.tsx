@@ -5,6 +5,7 @@ import {
   getBootstrap,
   getCreationSourcePortState,
   getModelServiceStatus,
+  openProject,
   setAgentPermissionProfile,
   type AgentPermissionProfile,
   type AgentPermissionState,
@@ -17,6 +18,7 @@ import { tianyiShellSessionStorageKey } from "./tianyiShellSessionRecovery";
 
 export type TianyanShellRuntimeState = {
   project: StoryStudioProject | null;
+  projects: StoryStudioProject[];
   workVersionLabel: string | null;
   workVersionId: string | null;
   connectionState: "loading" | "ready" | "unavailable";
@@ -27,6 +29,7 @@ export type TianyanShellRuntimeState = {
   setSharedSessionId(sessionId: string | null): void;
   setSharedDraft(value: string): void;
   retryConnection(): void;
+  openProject(projectId: string): Promise<void>;
   setPermissionProfile(profile: AgentPermissionProfile): Promise<void>;
   withConnection<T>(action: (token: string) => Promise<T>): Promise<T>;
 };
@@ -39,6 +42,7 @@ export type TianyanShellRuntimeState = {
 export function TianyanShellRuntime() {
   const storageProvider = useRef(new LocalFolderProvider()).current;
   const [project, setProject] = useState<StoryStudioProject | null>(null);
+  const [projects, setProjects] = useState<StoryStudioProject[]>([]);
   const [workVersionLabel, setWorkVersionLabel] = useState<string | null>(null);
   const [workVersionId, setWorkVersionId] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<TianyanShellRuntimeState["connectionState"]>("loading");
@@ -56,6 +60,7 @@ export function TianyanShellRuntime() {
     void getBootstrap().then(async (bootstrap) => {
       if (!active) return;
       const activeProject = bootstrap.activeProject;
+      setProjects(bootstrap.projects);
       setProject(activeProject);
       if (!activeProject) {
         setSharedSessionId(null);
@@ -93,6 +98,17 @@ export function TianyanShellRuntime() {
 
   const retryConnection = useCallback(() => setConnectionRevision((revision) => revision + 1), []);
 
+  const openActiveProject = useCallback(async (projectId: string) => {
+    const nextProject = await withConnection((token) => openProject(projectId, token));
+    setProject(nextProject);
+    setSharedSessionId(window.sessionStorage.getItem(tianyiShellSessionStorageKey(nextProject.id)));
+    setWorkVersionLabel(null);
+    setWorkVersionId(null);
+    setModelStatus(null);
+    setPermissionState(null);
+    setConnectionRevision((revision) => revision + 1);
+  }, [withConnection]);
+
   const persistSharedSessionId = useCallback((sessionId: string | null) => {
     setSharedSessionId(sessionId);
     if (!project) return;
@@ -109,6 +125,7 @@ export function TianyanShellRuntime() {
 
   const runtime = useMemo<TianyanShellRuntimeState>(() => ({
     project,
+    projects,
     workVersionLabel,
     workVersionId,
     connectionState,
@@ -119,9 +136,10 @@ export function TianyanShellRuntime() {
     setSharedSessionId: persistSharedSessionId,
     setSharedDraft,
     retryConnection,
+    openProject: openActiveProject,
     setPermissionProfile,
     withConnection
-  }), [connectionState, modelStatus, permissionState, persistSharedSessionId, project, retryConnection, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionId, workVersionLabel]);
+  }), [connectionState, modelStatus, openActiveProject, permissionState, persistSharedSessionId, project, projects, retryConnection, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionId, workVersionLabel]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

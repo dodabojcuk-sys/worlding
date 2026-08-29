@@ -155,7 +155,22 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onSettings={() => window.location.assign("/settings/storage")}
       onAccount={() => undefined}
     />
-    <GlobalStatusBar directoryOpen={directoryOpen} searchContext={searchContext} searchRequest={searchRequest} onSearchNavigate={navigateSearchResult} onToggleDirectory={() => setDirectoryOpen((open) => !open)} />
+    <GlobalStatusBar
+      theme={theme}
+      projectId={props.runtime.project?.id ?? null}
+      projectName={props.runtime.project?.title}
+      projects={props.runtime.projects}
+      workVersionLabel={props.runtime.workVersionLabel}
+      directoryOpen={directoryOpen}
+      tianyiOpen={dock.state.isTianyiOpen}
+      searchContext={searchContext}
+      searchRequest={searchRequest}
+      onSearchNavigate={navigateSearchResult}
+      onOpenProject={props.runtime.openProject}
+      onToggleTheme={toggleTheme}
+      onToggleDirectory={() => setDirectoryOpen((open) => !open)}
+      onToggleTianyi={dock.toggleTianyi}
+    />
     {directoryOpen && (characterDirectoryOpen ? <CharacterDirectoryPanel runtime={props.runtime} selectedId={directorySelection} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryReview") === "pending" ? "pending" : "classified"} onClose={() => setDirectoryOpen(false)} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryReview", "pending"); else params.delete("directoryReview"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} />)}
     <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} onOpenTianyi={() => dock.setTianyiOpen(true)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} />
     <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />

@@ -97,15 +97,29 @@ test("R0.6 uses one global search engine while the legacy command panel remains 
   assert.doesNotMatch(commandPalette, /localTransport|providerGateway|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
 });
 
-test("desktop topbar keeps exactly one global search entry and one directory toggle", () => {
+test("desktop topbar preserves every global control while keeping one search and one directory toggle", () => {
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
+  const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
+  const runtime = readFileSync("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 
   assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
-  assert.equal((topbar.match(/<button\b/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="global-tianyi"/gu) ?? []).length, 1);
   assert.match(topbar, /data-panel-toggle="project-directory"/);
-  assert.doesNotMatch(topbar, /toggleLocale|onToggleTheme|onToggleTianyi|CloudOff|Sparkles|shell-runtime-status|shell-topbar-text-control/u);
+  assert.match(topbar, /toggleLocale/);
+  assert.match(topbar, /onToggleTheme/);
+  assert.match(topbar, /onToggleTianyi/);
+  assert.match(topbar, /CloudOff/);
+  assert.match(topbar, /shell-runtime-status/);
+  assert.match(topbar, /shell-project-selector-menu/);
+  assert.match(topbar, /role="menuitemradio"/);
+  assert.match(shell, /projectId=\{props\.runtime\.project\?\.id \?\? null\}/);
+  assert.match(shell, /onOpenProject=\{props\.runtime\.openProject\}/);
+  assert.match(runtime, /openProject\(projectId: string\): Promise<void>/);
+  assert.match(runtime, /openProject\(projectId, token\)/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
+  assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-text-control span/);
 });
 
 test("Tianyi keeps the shared-session mode tabs in its title row with a light active indicator", () => {

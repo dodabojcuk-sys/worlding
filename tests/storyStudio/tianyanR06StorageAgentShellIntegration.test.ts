@@ -50,13 +50,17 @@ test("one pending projection edits Agent proposals and formal owner completes be
   assert.match(operations, /beginAgentRecognitionApplication[\s\S]*try \{[\s\S]*completeAgentRecognitionApplication[\s\S]*failIfStillActive/);
 });
 
-test("topbar has one search and one directory switch while settings remains a rail utility", () => {
+test("topbar has one search and one directory switch without deleting the other global controls", () => {
   const topbar = source("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx");
   const navigation = source("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx");
   assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
-  assert.equal((topbar.match(/<button\b/gu) ?? []).length, 1);
-  assert.match(topbar, /data-panel-toggle="project-directory"/);
-  assert.doesNotMatch(topbar, /onToggleTianyi|onToggleTheme|toggleLocale|shell-runtime-status/);
+  assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="global-tianyi"/gu) ?? []).length, 1);
+  assert.match(topbar, /toggleLocale/);
+  assert.match(topbar, /onToggleTheme/);
+  assert.match(topbar, /onToggleTianyi/);
+  assert.match(topbar, /shell-runtime-status/);
+  assert.match(topbar, /shell-project-selector-menu/);
   assert.match(navigation, /data-shell-utility="settings"/);
 });
 
