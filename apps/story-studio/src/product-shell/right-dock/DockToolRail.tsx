@@ -7,27 +7,40 @@ export function DockToolRail(props: { expanded: boolean; openPanelIds: readonly 
   const { t } = useI18n();
   const toggleLabel = t(props.expanded ? "dock.collapseTools" : "dock.expandTools");
   const ToggleIcon = props.expanded ? PanelRightClose : PanelRightOpen;
+  const availableTools = PAGE_TOOL_REGISTRY.filter((tool) => tool.availability === "available");
+  const extensionTools = PAGE_TOOL_REGISTRY.filter((tool) => tool.availability !== "available");
+  const renderTool = (tool: typeof PAGE_TOOL_REGISTRY[number]) => {
+    const Icon = tool.icon;
+    const active = props.openPanelIds.includes(tool.id);
+    return <button
+      type="button"
+      key={tool.id}
+      aria-label={t(tool.labelKey)}
+      title={`${t(tool.labelKey)} · ${t(tool.descriptionKey)}`}
+      aria-pressed={active}
+      data-tool-id={tool.id}
+      data-availability={tool.availability}
+      onClick={() => props.onToggle(tool.id)}
+    >
+      <Icon aria-hidden="true" />
+      <span>{t(tool.labelKey)}</span>
+      {tool.availability === "not-connected" && <small>{t("tool.notConnected")}</small>}
+    </button>;
+  };
   return <aside className="dock-tool-rail" data-expanded={props.expanded} aria-label={t("dock.tools")}>
-    <button className="dock-tool-rail-toggle" type="button" aria-expanded={props.expanded} aria-label={toggleLabel} title={toggleLabel} onClick={props.onToggleExpanded}>
-      <ToggleIcon aria-hidden="true" />
-    </button>
-    {PAGE_TOOL_REGISTRY.map((tool) => {
-      const Icon = tool.icon;
-      const active = props.openPanelIds.includes(tool.id);
-      return <button
-        type="button"
-        key={tool.id}
-        aria-label={t(tool.labelKey)}
-        title={`${t(tool.labelKey)} · ${t(tool.descriptionKey)}`}
-        aria-pressed={active}
-        data-tool-id={tool.id}
-        data-availability={tool.availability}
-        onClick={() => props.onToggle(tool.id)}
-      >
-        <Icon aria-hidden="true" />
-        <span>{t(tool.labelKey)}</span>
-        {tool.availability === "not-connected" && <small>{t("tool.notConnected")}</small>}
-      </button>;
-    })}
+    <header className="dock-tool-rail-header">
+      <strong>{t("dock.tools")}</strong>
+      <button className="dock-tool-rail-toggle" type="button" aria-expanded={props.expanded} aria-label={toggleLabel} title={toggleLabel} onClick={props.onToggleExpanded}>
+        <ToggleIcon aria-hidden="true" />
+      </button>
+    </header>
+    <section className="dock-tool-rail-group" aria-label={t("tool.available")}>
+      <small className="dock-tool-rail-group-label">{t("tool.available")}</small>
+      {availableTools.map(renderTool)}
+    </section>
+    <section className="dock-tool-rail-group dock-tool-rail-extensions" aria-label={t("tool.extensionTools")}>
+      <small className="dock-tool-rail-group-label">{t("tool.extensionTools")}</small>
+      {extensionTools.map(renderTool)}
+    </section>
   </aside>;
 }

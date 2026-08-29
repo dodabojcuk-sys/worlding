@@ -50,23 +50,25 @@ test("page-tool rail order is independent from the user-owned multi-panel stack"
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);
 });
 
-test("page-tool rail is collapsed by default and expands without mutating the Dock layout", () => {
+test("page-tool rail is expanded by default and keeps tool availability visually grouped", () => {
   const dock = source("apps/story-studio/src/product-shell/right-dock/RightDock.tsx");
   const rail = source("apps/story-studio/src/product-shell/right-dock/DockToolRail.tsx");
   const styles = source("apps/story-studio/src/styles/right-dock.css");
   const tokens = source("apps/story-studio/src/product-shell/theme/tokens.css");
 
-  assert.match(dock, /useState\(false\)/);
+  assert.match(dock, /useState\(true\)/);
   assert.match(dock, /expanded=\{toolRailExpanded\}/);
   assert.match(dock, /onToggleExpanded/);
   assert.doesNotMatch(dock, /setToolRailExpanded\([^)]*props\.layout/);
   assert.match(rail, /aria-expanded=\{props\.expanded\}/);
   assert.match(rail, /dock\.expandTools/);
   assert.match(rail, /dock\.collapseTools/);
+  assert.match(rail, /tool\.available/);
+  assert.match(rail, /tool\.extensionTools/);
   for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
   assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
   assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
-  assert.match(tokens, /--panel-controls-expanded-width: 9rem/);
+  assert.match(tokens, /--panel-controls-expanded-width: 10\.5rem/);
 });
 
 test("composer bottom controls use the unified fixed overlay rather than the clipped sidebar", () => {

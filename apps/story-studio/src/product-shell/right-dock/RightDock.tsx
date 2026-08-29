@@ -11,7 +11,7 @@ export function RightDock(props: {
 }) {
   // This is intentionally local presentation state: changing rail density must
   // not mutate the shared dock layout or change a user's panel arrangement.
-  const [toolRailExpanded, setToolRailExpanded] = useState(false);
+  const [toolRailExpanded, setToolRailExpanded] = useState(true);
   return <>
     <DockPanelStack openPanelIds={props.layout.openPanelIds} panelSizes={props.layout.panelSizes} onClose={props.onToggle} onResize={props.onResize} />
     <DockToolRail expanded={toolRailExpanded} openPanelIds={props.layout.openPanelIds} onToggle={props.onToggle} onToggleExpanded={() => setToolRailExpanded((expanded) => !expanded)} />
