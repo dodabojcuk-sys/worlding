@@ -10,7 +10,7 @@ import {
   runTianyiQuestion,
   startTianyiAgentRun,
   approveTianyiAgentStep,
-  continueTianyiAgentRun,
+  streamTianyiAgentRun,
   type TianyiAgentRunProjection,
   type TianyiSessionMetadata
 } from "../../../lib/localTransport";
@@ -38,6 +38,7 @@ export function TianyiSidebar(props: {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const submitGate = useRef(createTianyiSubmitGate()).current;
   const project = props.runtime.project;
+  const workVersionId = props.runtime.workVersionId ?? "work-version.unversioned";
   const contextRequest = useMemo(() => project ? {
     productMode: props.workspace === "nuwa" ? "intelligence" as const : "world" as const,
     activeOwner: { kind: "project" as const, id: project.id },
@@ -72,15 +73,15 @@ export function TianyiSidebar(props: {
 
   useEffect(() => {
     if (!project || !props.runtime.sharedSessionId) { setRun(null); return; }
-    const key = tianyiAgentRunStorageKey(project.id, props.runtime.sharedSessionId);
+    const key = tianyiAgentRunStorageKey(project.id, workVersionId, props.runtime.sharedSessionId);
     const runId = window.sessionStorage.getItem(key);
     if (!runId) return;
     let active = true;
-    void props.runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, sessionId: props.runtime.sharedSessionId!, runId, token })).then((value) => {
+    void props.runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.sharedSessionId!, runId, token })).then((value) => {
       if (active) setRun(value);
     }).catch(() => { if (active) setRun(null); });
     return () => { active = false; };
-  }, [project, props.runtime, props.runtime.sharedSessionId]);
+  }, [project, props.runtime, props.runtime.sharedSessionId, workVersionId]);
 
   const selectTask = (item: CapabilityMenuItem | null) => {
     setTask(item);
@@ -109,8 +110,8 @@ export function TianyiSidebar(props: {
         await refreshSession(sessionId);
       } else {
         const taskText = [task ? t(task.labelKey as TranslationKey) : "", props.runtime.sharedDraft.trim()].filter(Boolean).join("：");
-        const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
-        window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, sessionId), projection.runId);
+        const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
+        window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, workVersionId, sessionId), projection.runId);
         setRun(projection); setTask(null); props.runtime.setSharedDraft("");
       }
     } catch (cause) {
@@ -133,8 +134,8 @@ export function TianyiSidebar(props: {
     try {
       const awaiting = run.plan.find((step) => step.status === "awaiting_author");
       const next = await props.runtime.withConnection((token) => awaiting
-        ? approveTianyiAgentStep({ projectId: project.id, sessionId: props.runtime.sharedSessionId!, runId: run.runId, stepId: awaiting.stepId, operationId: operationId("agent-approve"), token })
-        : continueTianyiAgentRun({ projectId: project.id, sessionId: props.runtime.sharedSessionId!, runId: run.runId, operationId: operationId("agent-continue"), token }));
+        ? approveTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.sharedSessionId!, runId: run.runId, stepId: awaiting.stepId, operationId: operationId("agent-approve"), token })
+        : streamTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.sharedSessionId!, runId: run.runId, operationId: operationId("agent-continue"), token, onEvent() {} }));
       setRun(next);
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
@@ -142,7 +143,7 @@ export function TianyiSidebar(props: {
     if (!project || !props.runtime.sharedSessionId || !run || busy) return;
     setBusy(true); setError("");
     try {
-      setRun(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, sessionId: props.runtime.sharedSessionId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
+      setRun(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, workVersionId, sessionId: props.runtime.sharedSessionId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
   const currentStep = currentTianyiAgentStep(run);

@@ -22,22 +22,25 @@ test("Tianyi Agent transport persists a fixture run through Session/Archive and 
     const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-fixture", operationId: "operation.agent.open" }, headers);
     assert.equal(opened.status, 200);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
-    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", sessionId, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
+    const workVersionId = "work-version.unversioned";
+    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
     assert.equal(started.status, 201);
     const startProjection = (await started.json() as { data: any }).data;
     assert.equal(startProjection.status, "awaiting_author");
 
-    const approved = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-fixture", sessionId, runId: startProjection.runId, stepId: startProjection.plan[0].stepId, operationId: "operation.agent.approve" }, headers);
+    const approved = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, stepId: startProjection.plan[0].stepId, operationId: "operation.agent.approve" }, headers);
     assert.equal(approved.status, 200);
     const contextProjection = (await approved.json() as { data: any }).data;
     assert.equal(contextProjection.contextManifest.sessionId, sessionId);
-    const analyzed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/continue`, { projectId: "agent-fixture", sessionId, runId: startProjection.runId, operationId: "operation.agent.analyze" }, headers);
+    const analyzed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, operationId: "operation.agent.analyze" }, { ...headers, accept: "application/x-ndjson" });
     assert.equal(analyzed.status, 200);
-    const analyzedProjection = (await analyzed.json() as { data: any }).data;
+    const analyzedMessages = (await analyzed.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; data?: any });
+    const analyzedProjection = analyzedMessages.find((message) => message.type === "projection")?.data;
+    assert.ok(analyzedProjection);
     assert.equal(analyzedProjection.candidates.length, 3);
     assert.equal(analyzedProjection.candidates.find((candidate: any) => candidate.kind === "unknown").targetOwnerKind, "candidate-only");
 
-    const handedOff = await post(`${baseUrl}/__local/story-studio/tianyi-agent/candidate/handoff`, { projectId: "agent-fixture", sessionId, runId: startProjection.runId, candidateId: analyzedProjection.candidates[0].candidateId, operationId: "operation.agent.handoff" }, headers);
+    const handedOff = await post(`${baseUrl}/__local/story-studio/tianyi-agent/candidate/handoff`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, candidateId: analyzedProjection.candidates[0].candidateId, operationId: "operation.agent.handoff" }, headers);
     assert.equal(handedOff.status, 200);
     const handedOffProjection = (await handedOff.json() as { data: any }).data;
     assert.equal(handedOffProjection.candidates[0].state, "handed-off");
@@ -46,7 +49,7 @@ test("Tianyi Agent transport persists a fixture run through Session/Archive and 
     await terminateChildProcess(server, { label: "Tianyi Agent transport server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
     server = startServer(rootPath, stateFilePath, token, port);
     await waitForServer(baseUrl, server);
-    const recovered = await fetch(`${baseUrl}/__local/story-studio/tianyi-agent/run/projection?projectId=agent-fixture&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(startProjection.runId)}`, { headers });
+    const recovered = await fetch(`${baseUrl}/__local/story-studio/tianyi-agent/run/projection?projectId=agent-fixture&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(startProjection.runId)}`, { headers });
     assert.equal(recovered.status, 200);
     const recoveredProjection = (await recovered.json() as { data: any }).data;
     assert.equal(recoveredProjection.runId, startProjection.runId);

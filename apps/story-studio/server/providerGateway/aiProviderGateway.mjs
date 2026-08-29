@@ -74,8 +74,9 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       if (!profile) throw providerGatewayError("invalid-request");
       const adapter = adapterMap.get(profile.providerId);
       const messages = validateMessages(input?.messages);
+      const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? profile.maxOutputTokens, 1, profile.maxOutputTokens);
       if (adapter.status().configured !== true) return adapter.openChatStream({
-        modelId: profile.modelId, messages, maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature,
+        modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking
       });
       const reservation = reserveBudget(budgetLedger, input, "generation", profile.id);
@@ -86,7 +87,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         const stream = await adapter.openChatStream({
           modelId: profile.modelId,
           messages,
-          maxOutputTokens: profile.maxOutputTokens,
+          maxOutputTokens,
           temperature: profile.temperature,
           timeoutMs: profile.timeoutMs,
           signal: input?.signal,

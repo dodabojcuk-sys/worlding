@@ -6,10 +6,26 @@
     "worldStateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
     "eventOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
     "agentRecognitionProposalOwner": "src/storyIntelligence/agentRecognitionProposalRepository.ts",
+    "agentRuntimePortOwner": "src/storyAgent/tianyiAgentRuntimePort.ts",
+    "piInfrastructureAdapter": "src/storyAgent/piAgentAdapter.ts",
     "providerBoundary": "apps/story-studio/server/providerGateway/aiProviderGateway.mjs",
     "candidateReviewOwner": "src/storyControlSurface/storyStudioAuthorControl.ts"
   },
   "features": [
+    {
+      "id": "tianyi-pi-text-vertical-slice-r0.6",
+      "status": "LOCAL_REVIEW",
+      "maturity": "provider-gateway-routed-streaming-with-session-replay",
+      "entrypoints": ["src/storyAgent/tianyiAgentRuntimePort.ts", "apps/story-studio/server/server.mjs"],
+      "sourceFiles": ["src/storyAgent/piAgentAdapter.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "docs/architecture/TIANYAN_R0_6_AGENT_TEXT_VERTICAL_SLICE_PRE_IMPLEMENTATION_MAP.md"],
+      "domainOwners": ["src/storyAgent/tianyiAgentRuntimePort.ts"],
+      "stateOwners": ["src/storyContinuity", "src/storyControlSurface/storyStudioTianyiOperations.ts"],
+      "persistenceOwner": "Existing Tianyi Session/Archive runtime-changed events store project/work-version/session-scoped run snapshots and normalized stream events; Pi owns no product state",
+      "providerDependency": "Existing Provider Gateway and configured SiliconFlow adapter only; tests inject deterministic streams and make zero real model calls",
+      "tests": ["tests/storyAgent/piAgentTextAdapter.test.ts", "tests/storyAgent/tianyiAgentRuntimePort.test.ts", "tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts"],
+      "legacyProvenance": ["@earendil-works/pi-agent-core@0.84.2 pinned; direct server-to-pi-ai Provider dispatch replaced"],
+      "remainingGap": "A real Provider call remains author-triggered and was not run in R0.6; Provider Gateway currently exposes normalized text chunks, so production model-originated tool-call frames remain unavailable until that existing gateway contract is extended"
+    },
     {
       "id": "tianyan-r0-static-shell",
       "status": "FOUNDER_REVIEW",

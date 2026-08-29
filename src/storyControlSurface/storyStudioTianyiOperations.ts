@@ -309,10 +309,12 @@ export function createStoryStudioTianyiOperations(options: {
    */
   async function appendTianyiAgentRuntimeEvent(input: {
     projectId: string;
+    workVersionId: string;
     sessionId: string;
     runId: string;
     operationId: string;
-    kind: "snapshot" | "tool-call" | "approval" | "steering" | "receipt";
+    kind: "snapshot" | "stream" | "tool-call" | "approval" | "steering" | "receipt";
+    streamEvent?: Record<string, unknown>;
     projection: Record<string, unknown>;
     recordedAt?: string;
   }) {
@@ -339,7 +341,7 @@ export function createStoryStudioTianyiOperations(options: {
       type: "runtime-changed" as const,
       recordedAt,
       actor: "system" as const,
-      content: stableJson({ version: "tianyi-agent-runtime-event/v1", runId, operationId, kind: input.kind, receiptId: runtimeReceiptId, projection: input.projection, recordedAt }),
+      content: stableJson({ version: "tianyi-agent-runtime-event/v1", runId, workVersionId: requireStableId(input.workVersionId), operationId, kind: input.kind, receiptId: runtimeReceiptId, ...(input.streamEvent ? { streamEvent: input.streamEvent } : {}), projection: input.projection, recordedAt }),
       responseClassifications: [],
       memoryCandidateIds: [],
       receiptId: runtimeReceiptId,
@@ -355,13 +357,13 @@ export function createStoryStudioTianyiOperations(options: {
     return { alreadyCompleted: false, receiptId: runtimeReceiptId, contentHash: write.current?.contentHash ?? null };
   }
 
-  async function readTianyiAgentRuntimeEvents(input: { projectId: string; sessionId: string; runId: string }) {
+  async function readTianyiAgentRuntimeEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }) {
     const session = await readSession(projectContext(input.projectId), requireId(input.sessionId));
     if (!session) return [];
     return session.value
       .filter((event) => event.type === "runtime-changed")
       .map((event) => parseAgentRuntimeEvent(event.content))
-      .filter((event): event is NonNullable<ReturnType<typeof parseAgentRuntimeEvent>> => Boolean(event) && event.runId === input.runId)
+      .filter((event): event is NonNullable<ReturnType<typeof parseAgentRuntimeEvent>> => Boolean(event) && event.runId === input.runId && event.workVersionId === input.workVersionId)
       .map((event) => ({ ...event, contentHash: session.contentHash }));
   }
 
@@ -986,8 +988,10 @@ function eventProjectionSourceId(projectId: string, eventId: string, revisionTok
 function parseAgentRuntimeEvent(value: string): {
   version: "tianyi-agent-runtime-event/v1";
   runId: string;
+  workVersionId: string;
   operationId: string;
-  kind: "snapshot" | "tool-call" | "approval" | "steering" | "receipt";
+  kind: "snapshot" | "stream" | "tool-call" | "approval" | "steering" | "receipt";
+  streamEvent?: Record<string, unknown>;
   receiptId: string;
   projection: Record<string, unknown>;
   recordedAt: string;
@@ -995,12 +999,16 @@ function parseAgentRuntimeEvent(value: string): {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     if (parsed.version !== "tianyi-agent-runtime-event/v1" || typeof parsed.runId !== "string" || typeof parsed.operationId !== "string" || typeof parsed.receiptId !== "string" || typeof parsed.recordedAt !== "string" || !parsed.projection || typeof parsed.projection !== "object" || Array.isArray(parsed.projection)) return null;
-    if (!["snapshot", "tool-call", "approval", "steering", "receipt"].includes(String(parsed.kind))) return null;
-    return parsed as unknown as {
+    if (!["snapshot", "stream", "tool-call", "approval", "steering", "receipt"].includes(String(parsed.kind))) return null;
+    const projection = parsed.projection as Record<string, unknown>;
+    const workVersionId = typeof parsed.workVersionId === "string" ? parsed.workVersionId : typeof projection.workVersionId === "string" ? projection.workVersionId : "work-version.unversioned";
+    return { ...parsed, workVersionId } as unknown as {
       version: "tianyi-agent-runtime-event/v1";
       runId: string;
+      workVersionId: string;
       operationId: string;
-      kind: "snapshot" | "tool-call" | "approval" | "steering" | "receipt";
+      kind: "snapshot" | "stream" | "tool-call" | "approval" | "steering" | "receipt";
+      streamEvent?: Record<string, unknown>;
       receiptId: string;
       projection: Record<string, unknown>;
       recordedAt: string;

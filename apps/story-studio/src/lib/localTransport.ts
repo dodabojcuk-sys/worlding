@@ -2511,6 +2511,7 @@ export type TianyiAgentRunProjection = {
   version: "tianyi-agent-run-projection/v1";
   runId: string;
   projectId: string;
+  workVersionId: string;
   sessionId: string;
   task: string;
   currentPage: string;
@@ -2519,6 +2520,7 @@ export type TianyiAgentRunProjection = {
   contextManifest: {
     version: "tianyi-agent-context-manifest/v1";
     projectId: string;
+    workVersionId: string;
     sessionId: string;
     currentPage: string;
     selectedObjectIds: string[];
@@ -2532,6 +2534,7 @@ export type TianyiAgentRunProjection = {
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
   budget: { maxProviderCalls: number; maxOutputTokens: number; providerCalls: number; estimatedTokens: number };
+  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number; completionTokens: number; totalTokens: number; streamEventCount: number };
   permissionProfile: "step-by-step" | "conservative" | "proactive";
   plan: Array<{ stepId: string; title: string; kind: string; classification: "read" | "proposal"; requiredPermission: "none" | "author-approval"; status: string; toolName?: string; error?: string | null }>;
   toolCalls: Array<{ callId: string; toolName: string; classification: "read" | "proposal"; status: string; arguments: Record<string, unknown>; output: Record<string, unknown> | null; receiptId: string | null; error: string | null; startedAt: string; completedAt: string | null }>;
@@ -2540,26 +2543,57 @@ export type TianyiAgentRunProjection = {
   candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; sourceRefs: string[]; uncertainties: string[]; targetOwnerKind: string; state: string; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>;
   receipts: Array<{ receiptId: string; kind: string; label: string; operationId: string; recordedAt: string }>;
   stopReason: string | null;
-  error: { category: string; message: string; retryable: boolean } | null;
+  error: { category: string; code: string; message: string; retryable: boolean; retryBoundary: "none" | "author-explicit" } | null;
   revision: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export async function startTianyiAgentRun(input: { projectId: string; sessionId: string; task: string; currentPage: string; contextRequest?: Record<string, unknown>; permissionProfile?: "step-by-step" | "conservative" | "proactive"; operationId: string; token: string }): Promise<TianyiAgentRunProjection> {
+export type TianyiAgentStreamEvent =
+  | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
+  | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
+  | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };
+export type TianyiAgentRuntimeEvent = { version: "tianyi-agent-runtime-event/v1"; runId: string; workVersionId: string; operationId: string; kind: "snapshot" | "stream" | "tool-call" | "approval" | "steering" | "receipt"; streamEvent?: TianyiAgentStreamEvent; projection: TianyiAgentRunProjection; recordedAt: string };
+
+export async function startTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; task: string; currentPage: string; contextRequest?: Record<string, unknown>; permissionProfile?: "step-by-step" | "conservative" | "proactive"; operationId: string; token: string }): Promise<TianyiAgentRunProjection> {
   const { token, ...body } = input;
   return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/start`, { method: "POST", token, body });
 }
-export async function continueTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/continue`, { method: "POST", token, body }); }
-export async function approveTianyiAgentStep(input: { projectId: string; sessionId: string; runId: string; stepId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/approve`, { method: "POST", token, body }); }
-export async function rejectTianyiAgentStep(input: { projectId: string; sessionId: string; runId: string; stepId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/reject`, { method: "POST", token, body }); }
-export async function steerTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; instruction: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/steer`, { method: "POST", token, body }); }
-export async function pauseTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/pause`, { method: "POST", token, body }); }
-export async function resumeTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/resume`, { method: "POST", token, body }); }
-export async function cancelTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/cancel`, { method: "POST", token, body }); }
-export async function recoverTianyiAgentRun(input: { projectId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, ...body } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/recover`, { method: "POST", token, body }); }
-export async function getTianyiAgentRunProjection(input: { projectId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, sessionId, runId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/projection?projectId=${encodeURIComponent(projectId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
-export async function handoffTianyiAgentCandidate(input: { projectId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
+export async function continueTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/continue`, { method: "POST", token, body }); }
+export async function streamTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; token: string; signal?: AbortSignal; onEvent(event: TianyiAgentStreamEvent): void }): Promise<TianyiAgentRunProjection> {
+  const { token: _token, signal, onEvent, ...body } = input;
+  const response = await fetch(`${basePath}/tianyi-agent/run/stream`, { method: "POST", credentials: "same-origin", headers: { accept: "application/x-ndjson", "content-type": "application/json" }, body: JSON.stringify(body), signal });
+  if (!response.ok || !response.body) throw new LocalTransportError("Agent 流式连接暂时不可用。", response.status);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let pending = "";
+  let projection: TianyiAgentRunProjection | null = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    pending += value ?? "";
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const message = JSON.parse(line) as { type: "event"; data: TianyiAgentStreamEvent } | { type: "projection"; data: TianyiAgentRunProjection } | { type: "error"; error: string };
+      if (message.type === "event") onEvent(message.data);
+      else if (message.type === "projection") projection = message.data;
+      else throw new LocalTransportError(message.error, 500);
+    }
+    if (done) break;
+  }
+  if (!projection) throw new LocalTransportError("Agent 流结束时没有可恢复的运行投影。", 502);
+  return projection;
+}
+export async function approveTianyiAgentStep(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; stepId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/approve`, { method: "POST", token, body }); }
+export async function rejectTianyiAgentStep(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; stepId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/reject`, { method: "POST", token, body }); }
+export async function steerTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; instruction: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/steer`, { method: "POST", token, body }); }
+export async function pauseTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/pause`, { method: "POST", token, body }); }
+export async function resumeTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/resume`, { method: "POST", token, body }); }
+export async function cancelTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/cancel`, { method: "POST", token, body }); }
+export async function recoverTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, ...body } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/recover`, { method: "POST", token, body }); }
+export async function getTianyiAgentRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/projection?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
+export async function getTianyiAgentRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRuntimeEvent[]> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRuntimeEvent[]>(`${basePath}/tianyi-agent/run/events?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
+export async function handoffTianyiAgentCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
 
 export type TianyiCreativeSourceRef = { sessionId: string; eventId: string; contentHash: string };
 export type TianyiCreativeProjection = { version: "tianyi-creative-session-projection/v1"; sessionId: string | null; sessionContentHash: string; lifecycle: "idle" | "capturing" | "responding" | "extracting" | "review-ready" | "paused" | "recovering" | "provider-unavailable" | "completed" | "archived"; archived: boolean; originals: Array<TianyiCreativeSourceRef & { text: string; recordedAt: string }>; responses: Array<{ eventId: string; text: string; runtime: "fixture" | "provider"; recordedAt: string }>; summary: string | null; themes: string[]; openQuestions: string[]; summarySourceRefs: TianyiCreativeSourceRef[]; summaryState: "missing" | "current" | "stale"; candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; uncertainties: string[]; sourceExcerpt: string; targetOwnerKind: string; duplicateHints: string[]; reviewStatus: "pending" | "rejected" | "deferred" | "handed-off"; sourceRefs: TianyiCreativeSourceRef[]; state: "pending" | "rejected" | "deferred" | "handed-off"; revision: number; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>; pendingCount: number; pendingCandidateRefs: string[]; unresolvedCount: number; lastSafePoint: { eventId: string; sequence: number; contentHash: string } | null; providerUnavailable: { stage: "response" | "extraction"; message: string; retryable: boolean } | null };

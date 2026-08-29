@@ -119,6 +119,21 @@ test("SiliconFlow adapter uses the fixed official endpoint and normalizes ordere
   assert.equal(JSON.stringify(events).includes(TEST_CREDENTIAL), false);
 });
 
+test("Provider Gateway enforces an explicit per-run output cap below the selected profile", async () => {
+  let observedMaxTokens = 0;
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async (_url: URL | RequestInfo, init?: RequestInit) => {
+      observedMaxTokens = JSON.parse(String(init?.body)).max_tokens;
+      return sseResponse(["data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n", "data: [DONE]\n\n"]);
+    }
+  });
+  const stream = await gateway.openChatStream({ ...requestInput(), maxOutputTokens: 512 });
+  await collect(stream.events);
+  assert.equal(observedMaxTokens, 512);
+  await assert.rejects(gateway.openChatStream({ ...requestInput(), maxOutputTokens: 2_401 }), /Invalid/);
+});
+
 test("grounded JSON mode requests one provider-native JSON object without changing the profile boundary", async () => {
   let body: Record<string, unknown> | null = null;
   const gateway = createGateway({
