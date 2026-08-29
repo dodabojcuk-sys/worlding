@@ -64,6 +64,10 @@ input:focus-visible {
   transition: grid-template-columns var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
 }
 
+.tianyan-r0-shell:has(.dock-tool-rail[data-expanded="true"]) {
+  --panel-controls-width: var(--panel-controls-expanded-width);
+}
+
 .tianyan-r0-shell[data-rail-collapsed="true"] {
   --rail-current: var(--space-rail-collapsed-width);
 }
@@ -467,7 +471,7 @@ input:focus-visible {
 .shell-command-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--layer-tooltip-modal);
   display: grid;
   place-items: start center;
   padding: min(12vh, 7rem) var(--space-4) var(--space-4);

@@ -1,10 +1,16 @@
 import { PAGE_TOOL_REGISTRY } from "../../components/page-tools/pageToolRegistry";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useI18n } from "../i18n/I18nProvider";
 import type { DockToolId } from "./types";
 
-export function DockToolRail(props: { openPanelIds: readonly DockToolId[]; onToggle(toolId: DockToolId): void }) {
+export function DockToolRail(props: { expanded: boolean; openPanelIds: readonly DockToolId[]; onToggle(toolId: DockToolId): void; onToggleExpanded(): void }) {
   const { t } = useI18n();
-  return <aside className="dock-tool-rail" aria-label={t("dock.tools")}>
+  const toggleLabel = t(props.expanded ? "dock.collapseTools" : "dock.expandTools");
+  const ToggleIcon = props.expanded ? PanelRightClose : PanelRightOpen;
+  return <aside className="dock-tool-rail" data-expanded={props.expanded} aria-label={t("dock.tools")}>
+    <button className="dock-tool-rail-toggle" type="button" aria-expanded={props.expanded} aria-label={toggleLabel} title={toggleLabel} onClick={props.onToggleExpanded}>
+      <ToggleIcon aria-hidden="true" />
+    </button>
     {PAGE_TOOL_REGISTRY.map((tool) => {
       const Icon = tool.icon;
       const active = props.openPanelIds.includes(tool.id);

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
+import { ComposerPopover } from "../composer/ComposerPopover";
 import { createCapabilityMenuRegistry } from "./capabilityMenuRegistry";
 import type { CapabilityMenuItem } from "./capabilityMenuTypes";
 
@@ -18,7 +19,6 @@ export function CapabilityLauncher(props: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const registry = useMemo(() => createCapabilityMenuRegistry({ workspace: props.workspace }), [props.workspace]);
@@ -36,14 +36,11 @@ export function CapabilityLauncher(props: {
   useEffect(() => {
     if (!open) return;
     window.requestAnimationFrame(() => searchRef.current?.focus());
-    const outside = (event: PointerEvent) => !rootRef.current?.contains(event.target as Node) && close();
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
   }, [open]);
-  const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const keyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") { event.preventDefault(); close(); return; }
     if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
-    const items = [...(rootRef.current?.querySelectorAll<HTMLButtonElement>("[data-capability-item]") ?? [])];
+    const items = [...document.querySelectorAll<HTMLButtonElement>(".capability-popover [data-capability-item]")];
     if (!items.length) return;
     const current = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = current < 0 ? 0 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
@@ -51,9 +48,9 @@ export function CapabilityLauncher(props: {
     event.preventDefault();
   };
 
-  return <div className="capability-launcher" ref={rootRef} onKeyDown={keyDown}>
+  return <div className="capability-launcher">
     <button ref={triggerRef} type="button" className="composer-icon-control" aria-label={t("capability.open")} title={t("capability.open")} aria-expanded={open} onClick={() => setOpen((current) => !current)}><Plus aria-hidden="true" /></button>
-    {open && <section className="capability-menu" role="dialog" aria-label={t("capability.title")}>
+    {open && <ComposerPopover anchorRef={triggerRef} ariaLabel={t("capability.title")} className="capability-popover capability-menu" onClose={close} onKeyDown={keyDown}>
       <label><Search aria-hidden="true" /><span className="shell-visually-hidden">{t("capability.search")}</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("capability.search")} /></label>
       <p>{normalized || showAll ? t("capability.all") : t("capability.recommended")}</p>
       <div role="menu">
@@ -67,6 +64,6 @@ export function CapabilityLauncher(props: {
       </div>
       {!normalized && !showAll && <button type="button" className="capability-browse-all" onClick={() => setShowAll(true)}>{t("capability.browseAll")}</button>}
       <button type="button" className="capability-manage" onClick={() => { props.onManageMore(); close(); }}>{t("capability.manageMore")}</button>
-    </section>}
+    </ComposerPopover>}
   </div>;
 }

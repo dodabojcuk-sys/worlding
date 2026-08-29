@@ -45,16 +45,15 @@
 .composer-runtime-control svg,
 .composer-icon-control svg,
 .composer-send-control svg { inline-size: 0.875rem; block-size: 0.875rem; }
-.composer-runtime-control > section,
-.capability-menu { position: absolute; inset-inline-end: 0; inset-block-end: calc(100% + var(--space-2)); width: min(20rem, calc(100vw - var(--rail-current) - var(--space-8))); max-height: min(28rem, 70vh); padding: var(--space-3); overflow: auto; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); z-index: 20; }
-.composer-runtime-control > section { width: min(18rem, calc(100vw - var(--rail-current) - var(--space-8))); }
-.composer-runtime-control > section > strong { display: block; margin-block-end: var(--space-2); }
-.permission-control section > button,
-.model-selector section > button { width: 100%; display: grid; gap: var(--space-1); padding: var(--space-2); color: var(--color-text); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
-.permission-control section > button:hover,
-.model-selector section > button:hover { background: var(--color-surface-muted); }
-.permission-control section > button:disabled { color: var(--color-text-muted); cursor: not-allowed; }
-.permission-control section small { color: var(--color-text-muted); line-height: 1.4; }
+.composer-popover { position: fixed; width: min(20rem, calc(100vw - var(--space-8))); max-height: min(28rem, calc(100vh - var(--space-8))); padding: var(--space-3); overflow: auto; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); z-index: var(--layer-popover); }
+.composer-runtime-popover { width: min(18rem, calc(100vw - var(--space-8))); }
+.composer-runtime-popover > strong { display: block; margin-block-end: var(--space-2); }
+.permission-popover > button,
+.model-popover > button { width: 100%; display: grid; gap: var(--space-1); padding: var(--space-2); color: var(--color-text); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
+.permission-popover > button:hover,
+.model-popover > button:hover { background: var(--color-surface-muted); }
+.permission-popover > button:disabled { color: var(--color-text-muted); cursor: not-allowed; }
+.permission-popover small { color: var(--color-text-muted); line-height: 1.4; }
 .context-control dl { margin: 0; }
 .context-control dl div { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding-block: var(--space-2); border-block-end: 1px solid var(--color-border); }
 .context-control dt { color: var(--color-text-muted); }
@@ -79,20 +78,13 @@
 .capability-manage { color: var(--color-text-muted); border-color: transparent; }
 
 @media (max-width: 100rem) {
-  .tianyi-sidebar { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; width: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current))); z-index: 8; box-shadow: var(--shadow-panel); }
+  .tianyi-sidebar { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; width: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current))); z-index: var(--layer-tianyi); box-shadow: var(--shadow-panel); }
   .composer-runtime-control > button span { display: none; }
 }
 
 @media (max-width: 50rem) {
-  .tianyi-sidebar { inset-inline: var(--rail-current) 0; width: auto; z-index: 11; }
+  .tianyi-sidebar { inset-inline: var(--rail-current) 0; width: auto; z-index: var(--layer-tianyi); }
   .composer-runtime-control > button span { display: none; }
   .tianyi-sidebar-composer > footer { gap: 0; }
-  .capability-menu,
-  .composer-runtime-control > section {
-    position: fixed;
-    inset-inline: calc(var(--rail-current) + var(--space-3)) var(--space-3);
-    inset-block-end: 4.5rem;
-    width: auto;
-    max-height: 58vh;
-  }
+  .composer-popover { max-height: min(58vh, calc(100vh - var(--space-8))); }
 }

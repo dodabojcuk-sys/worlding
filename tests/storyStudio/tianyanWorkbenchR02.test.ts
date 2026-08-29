@@ -45,6 +45,45 @@ test("page-tool rail order is independent from the user-owned multi-panel stack"
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);
 });
 
+test("page-tool rail is collapsed by default and expands without mutating the Dock layout", () => {
+  const dock = source("apps/story-studio/src/product-shell/right-dock/RightDock.tsx");
+  const rail = source("apps/story-studio/src/product-shell/right-dock/DockToolRail.tsx");
+  const styles = source("apps/story-studio/src/styles/right-dock.css");
+  const tokens = source("apps/story-studio/src/product-shell/theme/tokens.css");
+
+  assert.match(dock, /useState\(false\)/);
+  assert.match(dock, /expanded=\{toolRailExpanded\}/);
+  assert.match(dock, /onToggleExpanded/);
+  assert.doesNotMatch(dock, /setToolRailExpanded\([^)]*props\.layout/);
+  assert.match(rail, /aria-expanded=\{props\.expanded\}/);
+  assert.match(rail, /dock\.expandTools/);
+  assert.match(rail, /dock\.collapseTools/);
+  for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
+  assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
+  assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
+  assert.match(tokens, /--panel-controls-expanded-width: 9rem/);
+});
+
+test("composer bottom controls use the unified fixed overlay rather than the clipped sidebar", () => {
+  const popover = source("apps/story-studio/src/components/tianyi/composer/ComposerPopover.tsx");
+  const launcher = source("apps/story-studio/src/components/tianyi/capability-launcher/CapabilityLauncher.tsx");
+  const permission = source("apps/story-studio/src/components/tianyi/composer/PermissionControl.tsx");
+  const context = source("apps/story-studio/src/components/tianyi/composer/ContextControl.tsx");
+  const model = source("apps/story-studio/src/components/tianyi/composer/ModelSelector.tsx");
+  const styles = source("apps/story-studio/src/styles/tianyi-sidebar.css");
+
+  assert.match(popover, /createPortal[\s\S]*document\.body/);
+  assert.match(popover, /getBoundingClientRect/);
+  assert.match(popover, /position\(\)/);
+  assert.match(popover, /pointerdown/);
+  assert.match(popover, /Escape/);
+  for (const control of [launcher, permission, context, model]) assert.match(control, /triggerRef\.current\?\.focus/);
+  for (const control of [launcher, permission, context, model]) assert.match(control, /ComposerPopover/);
+  assert.match(styles, /\.composer-popover \{ position: fixed/);
+  assert.match(styles, /z-index: var\(--layer-popover\)/);
+  assert.doesNotMatch(styles, /\.composer-runtime-control > section/);
+});
+
 test("Tianyi capability launcher is registry-driven and runtime controls stay outside the plus menu", () => {
   const registry = createCapabilityMenuRegistry({ workspace: "event-line" });
   assert.deepEqual(registry.map((item) => item.id), ["reason-forward", "forward-planning", "attach-library", "create-content", "add-reference", "skills", "workflows"]);

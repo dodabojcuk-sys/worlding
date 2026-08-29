@@ -43,8 +43,15 @@
   --directory-width: 15rem;
   --panel-width: 15rem;
   --panel-controls-width: 3.75rem;
+  --panel-controls-expanded-width: 9rem;
   --dock-stack-width: 17rem;
   --tianyi-sidebar-width: 19rem;
+  --layer-workspace: 1;
+  --layer-tool-rail: 6;
+  --layer-dock: 7;
+  --layer-tianyi: 8;
+  --layer-popover: 20;
+  --layer-tooltip-modal: 30;
   --motion-fast: 160ms ease;
 }
 
