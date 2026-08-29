@@ -7,9 +7,9 @@ import type { CharacterCreateInput, CharacterCreateResult } from "./useCharacter
 export type CharacterRoleLevel = "main" | "supporting" | "minor";
 
 export function characterRoleLabel(value: string, t: (key: TranslationKey) => string) {
-  if (value === "main") return t("character.role.main");
-  if (value === "supporting") return t("character.role.supporting");
-  if (value === "minor") return t("character.role.minor");
+  if (value === "main" || value === "主要角色") return t("character.role.main");
+  if (value === "supporting" || value === "配角") return t("character.role.supporting");
+  if (value === "minor" || value === "次要角色") return t("character.role.minor");
   return value || t("character.levelUnknown");
 }
 

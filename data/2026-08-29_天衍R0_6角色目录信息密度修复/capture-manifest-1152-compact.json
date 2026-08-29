@@ -1,0 +1,15 @@
+[
+  {
+    "filename": "1152x720-compact.png",
+    "viewport": {
+      "width": 1152,
+      "height": 720
+    },
+    "state": "compact",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters&directoryObject=character.%E6%9E%97%E6%98%AD&directoryType=character",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  }
+]

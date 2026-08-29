@@ -1,0 +1,15 @@
+[
+  {
+    "filename": "1920x1000-standard.png",
+    "viewport": {
+      "width": 1920,
+      "height": 1000
+    },
+    "state": "standard",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  }
+]
