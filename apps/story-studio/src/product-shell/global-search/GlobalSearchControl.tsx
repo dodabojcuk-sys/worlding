@@ -6,7 +6,7 @@ import "../../styles/global-search.css";
 
 import { globalSearchResultId, moveGlobalSearchActiveIndex } from "./globalSearchKeyboard";
 import type { GlobalSearchEngine } from "./globalSearchEngine";
-import type { GlobalSearchContext, GlobalSearchLabels, GlobalSearchResult, GlobalSearchScope } from "./globalSearchTypes";
+import type { GlobalSearchContext, GlobalSearchLabels, GlobalSearchOpenRequest, GlobalSearchResult, GlobalSearchScope } from "./globalSearchTypes";
 
 const scopes: readonly GlobalSearchScope[] = ["global", "directory", "characters"];
 
@@ -20,8 +20,10 @@ export function GlobalSearchControl(props: {
   labels: GlobalSearchLabels;
   onNavigate(result: GlobalSearchResult): void;
   initialScope?: GlobalSearchScope;
+  openRequest?: GlobalSearchOpenRequest | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [requestedScope, setRequestedScope] = useState<GlobalSearchScope>(props.initialScope ?? "global");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const close = () => {
     setOpen(false);
@@ -39,6 +41,12 @@ export function GlobalSearchControl(props: {
     return () => window.removeEventListener("keydown", openSearch);
   }, []);
 
+  useEffect(() => {
+    if (!props.openRequest) return;
+    setRequestedScope(props.openRequest.scope);
+    setOpen(true);
+  }, [props.openRequest?.requestId, props.openRequest?.scope]);
+
   return <>
     <button
       ref={triggerRef}
@@ -48,13 +56,14 @@ export function GlobalSearchControl(props: {
       aria-expanded={open}
       aria-label={props.labels.trigger}
       title={props.labels.trigger}
-      onClick={() => setOpen(true)}
+      data-testid="global-search-trigger"
+      onClick={() => { setRequestedScope(props.initialScope ?? "global"); setOpen(true); }}
     >
       <Search aria-hidden="true" />
       <span>{props.labels.trigger}</span>
       <kbd>⌘K</kbd>
     </button>
-    {open && <GlobalSearchDialog {...props} initialScope={props.initialScope ?? "global"} onClose={close} />}
+    {open && <GlobalSearchDialog {...props} initialScope={requestedScope} onClose={close} />}
   </>;
 }
 
@@ -106,7 +115,7 @@ function GlobalSearchDialog(props: {
   const countMessage = useMemo(() => loading ? "" : props.labels.resultCount(results.length), [loading, props.labels, results.length]);
 
   return createPortal(<div className="global-search-backdrop" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && props.onClose()}>
-    <section className="global-search-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={(event) => {
+    <section className="global-search-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} data-search-scope={scope} data-testid="global-search-dialog" onKeyDown={(event) => {
       if (event.key === "Escape") { event.preventDefault(); props.onClose(); return; }
       if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
         event.preventDefault();
@@ -140,7 +149,7 @@ function GlobalSearchDialog(props: {
           onClick={() => select(result)}
         >
           <span className="global-search-result-copy"><strong>{result.title}</strong><small>{result.breadcrumb.join(" / ")}</small></span>
-          <span className="global-search-result-meta"><em>{props.labels.resultType[result.type]}</em><small>{result.matchReason}</small></span>
+          <span className="global-search-result-meta"><em>{props.labels.resultType[result.type]}</em><small>{props.labels.matchReason[result.matchReason]}</small></span>
         </button>)}
         {!loading && results.length === 0 && <p className="global-search-empty">{props.labels.noResults}</p>}
       </div>

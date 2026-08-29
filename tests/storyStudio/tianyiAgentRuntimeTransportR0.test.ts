@@ -60,7 +60,43 @@ test("Tianyi Agent transport persists a fixture run through Session/Archive and 
   }
 });
 
-function startServer(rootPath: string, stateFilePath: string, token: string, port: number) {
+test("Tianyi Agent transport streams Pi fake-provider events before its durable projection", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-stream-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  const token = "tianyi-agent-stream-token";
+  const port = 4700 + Math.floor(Math.random() * 200);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  createStoryStudioWorkspaceOperations({ rootPath, stateFilePath }).createProject({ title: "Agent 流夹具", folderSlug: "agent-stream" });
+  const server = startServer(rootPath, stateFilePath, token, port, { TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1" });
+  try {
+    await waitForServer(baseUrl, server);
+    const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-stream", operationId: "operation.agent.stream.open" }, headers);
+    const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
+    const workVersionId = "work-version.unversioned";
+    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-stream", workVersionId, sessionId, task: "检查引用边界", currentPage: "/tianyi", operationId: "operation.agent.stream.start" }, headers);
+    const startProjection = (await started.json() as { data: any }).data;
+    const approved = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-stream", workVersionId, sessionId, runId: startProjection.runId, stepId: startProjection.plan[0].stepId, operationId: "operation.agent.stream.approve" }, headers);
+    assert.equal(approved.status, 200);
+
+    const response = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-stream", workVersionId, sessionId, runId: startProjection.runId, operationId: "operation.agent.stream.continue" }, { ...headers, accept: "application/x-ndjson" });
+    assert.equal(response.status, 200);
+    const messages = (await response.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; data?: any });
+    const projectionIndex = messages.findIndex((message) => message.type === "projection");
+    const textEvents = messages.filter((message) => message.type === "event" && message.data?.type === "text-delta");
+    assert.ok(projectionIndex > 0, "The durable projection must follow streamed events.");
+    assert.equal(textEvents.length, 3);
+    assert.equal(messages.slice(0, projectionIndex).every((message) => message.type === "event"), true);
+    assert.equal(messages[projectionIndex].data.model.runtime, "pi");
+    assert.equal(messages[projectionIndex].data.model.providerId, "local-fake");
+    assert.equal(messages[projectionIndex].data.observability.streamEventCount >= textEvents.length, true);
+  } finally {
+    await terminateChildProcess(server, { label: "Tianyi Agent stream server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+function startServer(rootPath: string, stateFilePath: string, token: string, port: number, extraEnv: Record<string, string> = {}) {
   return spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     env: {
@@ -72,7 +108,8 @@ function startServer(rootPath: string, stateFilePath: string, token: string, por
       PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY",
       TIANYAN_CREDENTIAL_BACKEND: "LOCAL_FILE_DEVELOPMENT_ONLY",
       TIANYAN_PROVIDER_APP_DATA_ROOT: path.join(rootPath, "provider-app"),
-      TIANYAN_PROVIDER_PROFILE_DEV_MODE: "1"
+      TIANYAN_PROVIDER_PROFILE_DEV_MODE: "1",
+      ...extraEnv
     },
     stdio: ["ignore", "pipe", "pipe"]
   });

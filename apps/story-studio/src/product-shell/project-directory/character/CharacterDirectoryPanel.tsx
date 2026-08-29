@@ -87,7 +87,7 @@ export function CharacterDirectoryPanel(props: {
   };
   const requestScopedSearch = () => props.onRequestScopedSearch({
     source: "character-directory",
-    scope: { projectId: props.runtime.project?.id ?? null, workVersionId: props.runtime.workVersionId ?? null, objectTypes: ["character"] }
+    scope: { projectId: props.runtime.project?.id ?? null, workVersionId: props.runtime.project ? props.runtime.workVersionId ?? "work-version.unversioned" : null, objectTypes: ["character"] }
   });
 
   return <><aside className="character-directory-panel" aria-label={t("character.directory")} data-density={density} data-testid="character-directory">

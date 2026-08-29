@@ -379,7 +379,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     return save(next, operationId, "tool-call");
   }
 
-  async function executeAnalysis(run: TianyiAgentRunProjection, operationId: string, signal?: AbortSignal): Promise<TianyiAgentRunProjection> {
+  async function executeAnalysis(run: TianyiAgentRunProjection, operationId: string, signal?: AbortSignal, onEvent?: (event: TianyiAgentStreamEvent) => Promise<void> | void): Promise<TianyiAgentRunProjection> {
     if (!run.contextManifest) throw new Error("必须先读取当前引用范围。");
     const step = run.plan.find((item) => item.kind === "model-analysis");
     if (!step || step.status === "completed") return run;
@@ -403,6 +403,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
           signal,
           async onEvent(event) {
             run = await save({ ...run, observability: { ...run.observability, streamEventCount: run.observability.streamEventCount + 1 } }, `${operationId}.stream.${event.sequence}`, "stream", event);
+            await onEvent?.(event);
           }
         });
         text = result.text;
@@ -437,7 +438,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       if (run.status === "paused") run = { ...run, status: "running", error: null };
       if (run.status === "awaiting_author" && run.plan.some((step) => step.status === "awaiting_author")) return run;
       if (!run.contextManifest) return executeContextStep(run, input.operationId);
-      if (run.plan.some((step) => step.kind === "model-analysis" && step.status !== "completed")) return executeAnalysis(run, input.operationId, input.signal);
+      if (run.plan.some((step) => step.kind === "model-analysis" && step.status !== "completed")) return executeAnalysis(run, input.operationId, input.signal, input.onEvent);
       const next = { ...run, status: "completed" as const, stopReason: "作者可继续审查候选；本次 Agent 分析已完成。" };
       return save(next, input.operationId);
     } catch (cause) {

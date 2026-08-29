@@ -17,6 +17,8 @@ test("project directory uses Classified as its main section and Pending review a
   assert.doesNotMatch(panel, /全部.*资料.*创作.*参考/su);
   assert.match(pending, /pending-review-entry/);
   assert.match(panel, /data-story-fact-owner="false"/);
+  assert.match(panel, /project-directory-search-entry/);
+  assert.doesNotMatch(panel, /type="search"|filterProjectDirectory/);
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });
 

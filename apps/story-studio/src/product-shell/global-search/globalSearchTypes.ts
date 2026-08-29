@@ -31,12 +31,17 @@ export type GlobalSearchResult = {
   breadcrumb: readonly string[];
   stableReference: GlobalSearchStableReference;
   target: GlobalSearchNavigationTarget;
-  matchReason: string;
+  matchReason: "title" | "alias" | "tag" | "type" | "command";
 };
 
 export type GlobalSearchContext = {
   projectId: string | null;
   workVersionId: string | null;
+};
+
+export type GlobalSearchOpenRequest = {
+  requestId: number;
+  scope: GlobalSearchScope;
 };
 
 export type GlobalSearchProjectContext = {

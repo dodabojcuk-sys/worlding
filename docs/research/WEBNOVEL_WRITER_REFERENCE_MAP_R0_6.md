@@ -177,4 +177,3 @@ Conflicts arise wherever upstream's serial-chapter assumptions are made universa
 2. Instrument an entirely local fixture corpus to collect the metrics in §5 across small, medium, and long serial projects plus multi-branch/derived-copy cases.
 3. Build an evaluation set that asserts no stale revision or cross-branch evidence enters a Context Receipt, including BM25-only and embedding/rerank outage paths.
 4. Compare local index, pgvector, and Milvus as implementations of that contract—not as competing sources of truth.
-

@@ -189,6 +189,7 @@ const tianyi = createStoryStudioTianyiOperations({
 });
 const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootPath, stateFilePath, agentId: tianyiAgentId, localControlToken: controlToken, tianyiOperations: tianyi });
 const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || process.env.TIANYAN_AGENT_DRAFT_FIXTURE_MODE === "1";
+const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
 const piTextAgent = createPiTextAgentAdapter();
 const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   persistence: {
@@ -234,8 +235,10 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   },
   async runProvider(input) {
     const metadata = providerGateway.metadata();
-    const profile = metadata.profiles.find((candidate) => candidate.providerId === "siliconflow") || metadata.profiles[0];
-    if (!profile || !metadata.providers.some((provider) => provider.id === "siliconflow" && provider.configured)) {
+    const profile = agentFakeProviderStreamAllowed
+      ? { id: "local-fake-agent-stream", providerId: "local-fake", modelId: "deterministic-text-fixture" }
+      : metadata.profiles.find((candidate) => candidate.providerId === "siliconflow") || metadata.profiles[0];
+    if (!agentFakeProviderStreamAllowed && (!profile || !metadata.providers.some((provider) => provider.id === "siliconflow" && provider.configured))) {
       const error = new Error("当前没有可用的真实 Provider；原话与 Agent 任务仍已保留，可以稍后重试。");
       error.name = "ProviderUnavailable";
       error.code = "provider-unavailable";
@@ -280,6 +283,19 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         }
       },
       async openProviderStream(providerInput) {
+        if (agentFakeProviderStreamAllowed) {
+          const chunks = ["正在核对当前引用范围。", "角色知识边界保持只读。", "已形成等待作者确认的建议。"];
+          return {
+            traceId: `trace.local-fake.${input.runId}`,
+            events: (async function* () {
+              for (const [index, text] of chunks.entries()) {
+                if (providerInput.signal?.aborted) { const error = new Error("Local fake provider stream aborted."); error.name = "AbortError"; throw error; }
+                await new Promise((resolve) => setTimeout(resolve, 90));
+                yield { type: "chunk", text, finishReason: index === chunks.length - 1 ? "stop" : null, usage: index === chunks.length - 1 ? { promptTokens: 12, completionTokens: 18, totalTokens: 30 } : null };
+              }
+            })()
+          };
+        }
         return providerGateway.openChatStream({
           profileId: profile.id,
           messages: providerInput.messages,

@@ -92,10 +92,12 @@ test("runtime durably replays stream events and rejects a different work-version
   });
   const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.a", sessionId: "session.stream", task: "流式测试", currentPage: "/tianyi", operationId: "operation.stream.start" });
   await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.stream.approve" });
-  const completed = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.stream.run" });
+  const delivered: string[] = [];
+  const completed = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.stream.run", onEvent(event) { if (event.type === "text-delta") delivered.push(event.delta); } });
   assert.equal(completed.resultSummary, "分段一分段二");
   assert.equal(completed.observability.streamEventCount, 2);
   assert.equal(completed.observability.totalTokens, 7);
+  assert.deepEqual(delivered, ["分段一", "分段二"]);
   const replay = await fixture.adapter.readRunEvents({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId });
   assert.deepEqual(replay.filter((event) => event.kind === "stream").map((event) => event.streamEvent?.type), ["text-delta", "text-delta"]);
   assert.equal(await fixture.adapter.recoverRun({ projectId: started.projectId, workVersionId: "work-version.b", sessionId: started.sessionId, runId: started.runId }), null);

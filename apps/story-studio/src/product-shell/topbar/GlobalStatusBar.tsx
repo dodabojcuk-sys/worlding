@@ -1,5 +1,10 @@
 import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, Sparkles, SunMedium } from "lucide-react";
+import { useMemo } from "react";
 
+import { GlobalSearchControl } from "../global-search/GlobalSearchControl";
+import { createGlobalSearchEngine } from "../global-search/globalSearchEngine";
+import { createProductGlobalSearchReadAdapter } from "../global-search/globalSearchReadAdapter";
+import type { GlobalSearchContext, GlobalSearchOpenRequest, GlobalSearchResult } from "../global-search/globalSearchTypes";
 import { useI18n } from "../i18n/I18nProvider";
 import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
@@ -9,12 +14,40 @@ export function GlobalStatusBar(props: {
   workVersionLabel: string | null;
   directoryOpen: boolean;
   tianyiOpen: boolean;
+  searchContext: GlobalSearchContext;
+  searchRequest: GlobalSearchOpenRequest | null;
+  onSearchNavigate(result: GlobalSearchResult): void;
   onToggleTheme(): void;
   onToggleDirectory(): void;
   onToggleTianyi(): void;
 }) {
   const { t, toggleLocale } = useI18n();
   const themeLabel = t(SHELL_THEME_REGISTRY[props.theme].labelKey);
+  const searchEngine = useMemo(() => createGlobalSearchEngine(createProductGlobalSearchReadAdapter()), []);
+  const searchLabels = useMemo(() => ({
+    trigger: t("globalSearch.trigger"),
+    placeholder: t("globalSearch.placeholder"),
+    dialogLabel: t("globalSearch.dialogLabel"),
+    close: t("common.close"),
+    noResults: t("globalSearch.noResults"),
+    scopeGlobal: t("globalSearch.scope.global"),
+    scopeDirectory: t("globalSearch.scope.directory"),
+    scopeCharacters: t("globalSearch.scope.characters"),
+    resultCount: (count: number) => t("globalSearch.resultCount").replace("{count}", String(count)),
+    resultType: {
+      workspace: t("globalSearch.type.workspace"),
+      object: t("globalSearch.type.object"),
+      source: t("globalSearch.type.source"),
+      command: t("globalSearch.type.command")
+    },
+    matchReason: {
+      title: t("globalSearch.match.title"),
+      alias: t("globalSearch.match.alias"),
+      tag: t("globalSearch.match.tag"),
+      type: t("globalSearch.match.type"),
+      command: t("globalSearch.match.command")
+    }
+  }), [t]);
 
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context">
@@ -24,6 +57,7 @@ export function GlobalStatusBar(props: {
       </button>
     </div>
     <div className="shell-topbar-actions">
+      <GlobalSearchControl engine={searchEngine} context={props.searchContext} labels={searchLabels} openRequest={props.searchRequest} onNavigate={props.onSearchNavigate} />
       <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.language")} title={t("topbar.language")} onClick={toggleLocale}><Languages aria-hidden="true" /><span>{t("topbar.languageValue")}</span></button>
       <button type="button" className="shell-topbar-text-control" aria-label={t("topbar.theme")} title={t("topbar.theme")} onClick={props.onToggleTheme}>
         {props.theme === "cloud-ink" ? <SunMedium aria-hidden="true" /> : <MoonStar aria-hidden="true" />}<span>{themeLabel}</span>

@@ -14,7 +14,7 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id), getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id)]).then(([library, units, source, imports, review]) => {
       if (!current || library.project.id !== project.id) return;
       const pending = imports.flatMap((item) => item.candidates).filter((item) => item.status === "pending").length + (review?.candidates.filter((item) => item.status === "awaiting").length ?? 0);
-      setState({ projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, workVersionId: source.root?.id ?? null, pendingCount: pending }), error: false });
+      setState({ projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, sources: imports, workVersionId: source.root?.id ?? null, pendingCount: pending }), error: false });
     }).catch(() => { if (current) setState({ projectId: project.id, projection: null, error: true }); });
     return () => { current = false; };
   }, [project?.id, t]);

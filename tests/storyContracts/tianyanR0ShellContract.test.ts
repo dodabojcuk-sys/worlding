@@ -59,7 +59,7 @@ test("R0.2 workbench keeps global panels separate from the composable page-tool 
   assert.doesNotMatch(dockState, /panelOrder|expert-first|pinned|priority/ui);
 });
 
-test("R0.1 command panel is a global shell entry, not a business search surface", () => {
+test("R0.6 uses one global search engine while the legacy command panel remains shell-controls only", () => {
   assert.deepEqual(TIAN_YAN_R0_COMMAND_PANEL_SCOPE, {
     destinations: "registry-only",
     rail: "visibility-only",
@@ -72,15 +72,24 @@ test("R0.1 command panel is a global shell entry, not a business search surface"
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
+  const directory = readFileSync("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "utf8");
+  const characters = readFileSync("apps/story-studio/src/product-shell/project-directory/character/CharacterDirectoryPanel.tsx", "utf8");
+  const search = readFileSync("apps/story-studio/src/product-shell/global-search/globalSearchEngine.ts", "utf8");
   const commandPalette = readFileSync("apps/story-studio/src/product-shell/commands/ShellCommandPalette.tsx", "utf8");
 
   assert.match(shell, /Ctrl|ctrlKey/);
   assert.match(shell, /ShellCommandPalette/);
+  assert.match(shell, /requestSearch\("characters"\)/);
   assert.match(navigation, /BrandMarkSlot/);
-  assert.match(navigation, /shell-command-trigger/);
+  assert.match(navigation, /shell-global-search-entry/);
+  assert.match(topbar, /GlobalSearchControl/);
+  assert.match(topbar, /createGlobalSearchEngine/);
+  assert.match(directory, /project-directory-search-entry/);
+  assert.doesNotMatch(directory, /type="search"|filterProjectDirectory/);
+  assert.match(characters, /onRequestScopedSearch/);
+  assert.match(search, /neither writes data nor builds an index or embedding store/);
   assert.match(commandPalette, /STORY_STUDIO_SHELL_NAVIGATION_REGISTRY/);
   assert.doesNotMatch(commandPalette, /localTransport|providerGateway|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
-  assert.doesNotMatch(topbar, /shell-global-search|type="search"/);
 });
 
 test("desktop topbar exposes presentation controls and honest runtime states without a duplicate settings menu", () => {

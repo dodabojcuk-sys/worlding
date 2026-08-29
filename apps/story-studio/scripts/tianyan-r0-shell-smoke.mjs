@@ -26,7 +26,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0" }
+    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1" }
   });
   await waitForApiServer();
   await setupCharacterFixture();
@@ -52,6 +52,7 @@ try {
   await page.getByTestId("tianyan-r0-shell").waitFor();
   await assertCollapsedIconRail(page);
   await assertPermissionProjection(page);
+  await assertSingleGlobalSearch(page);
   await assertCharacterDirectoryAndInspector(page);
   await assertCharacterCreationDurability(page);
   await assertCharacterDirectoryFiltersAndLifecycle(page);
@@ -59,13 +60,14 @@ try {
   if (visualEvidenceDirectory) await captureCharacterDirectoryEvidence(page, consoleProblems);
 
   if (!visualEvidenceState) {
-    await page.locator(".shell-rail-collapse").click();
+    if (await page.getByTestId("tianyan-r0-shell").getAttribute("data-rail-collapsed") !== "false") await page.locator(".shell-rail-collapse").click();
     await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
     await page.waitForTimeout(200);
     await assertExpandedLabels(page, "zh-CN");
     await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
     await assertExpandedLabels(page, "en-US");
   }
+  await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
 } finally {
@@ -89,6 +91,29 @@ async function assertPermissionProjection(page) {
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
 }
 
+async function assertSingleGlobalSearch(page) {
+  assert.equal(await page.locator(".project-directory input[type='search']").count(), 0, "The project directory must not keep a second always-visible search field");
+  const topbar = page.getByTestId("global-search-trigger");
+  const topbarState = await topbar.evaluate((button) => ({
+    label: button.getAttribute("aria-label"),
+    textVisible: [...button.querySelectorAll("span, kbd")].some((element) => getComputedStyle(element).display !== "none")
+  }));
+  assert.equal(topbarState.label, "全局搜索");
+  assert.equal(topbarState.textVisible, false, "The 1152px topbar trigger must collapse to its search icon");
+
+  await page.locator(".shell-global-search-entry").click();
+  const dialog = page.getByTestId("global-search-dialog");
+  await dialog.waitFor();
+  assert.equal(await dialog.getAttribute("data-search-scope"), "global", "The dark rail icon must open the shared global scope");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+
+  await page.locator(".project-directory-search-entry").click();
+  await dialog.waitFor();
+  assert.equal(await dialog.getAttribute("data-search-scope"), "directory", "The project-directory icon must open the shared directory scope");
+  assert.equal(await page.locator("input[type='search']").count(), 1, "Only the open shared search dialog may render a search field");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+}
+
 async function assertCharacterDirectoryAndInspector(page) {
   const workspaceBefore = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
   await page.locator('[data-directory-node="directory.library.character"]').click();
@@ -97,10 +122,13 @@ async function assertCharacterDirectoryAndInspector(page) {
   assert.equal(await page.locator(".character-directory-list h3").count(), 0, "The default character directory must be a flat list without role group headings");
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Internal category IDs must not leak into the directory");
   assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Default directory must not show removable filter chips");
-  await page.evaluate(() => { window.__scopedCharacterSearch = null; window.addEventListener("tianyan:scoped-search-request", (event) => { window.__scopedCharacterSearch = event.detail; }, { once: true }); });
   await page.getByRole("button", { name: "搜索角色", exact: true }).click();
-  await page.waitForFunction(() => window.__scopedCharacterSearch?.scope?.objectTypes?.join(",") === "character");
-  assert.deepEqual(await page.evaluate(() => window.__scopedCharacterSearch), { source: "character-directory", scope: { projectId: "r05-character-directory", workVersionId: null, objectTypes: ["character"] } }, "Character search must request the existing scoped global-search port rather than filter locally");
+  const characterSearch = page.getByTestId("global-search-dialog");
+  await characterSearch.waitFor();
+  assert.equal(await characterSearch.getAttribute("data-search-scope"), "characters", "Character search must open the same engine with character scope");
+  await characterSearch.locator("input[type='search']").fill("林昭");
+  await characterSearch.getByRole("option", { name: /林昭/u }).waitFor();
+  await characterSearch.getByRole("button", { name: "关闭", exact: true }).click();
   const filterTrigger = page.locator(".character-directory-filter-trigger");
   await filterTrigger.click();
   assert.equal(await filterTrigger.getAttribute("aria-expanded"), "true", "Filter trigger must expose its expanded state");
@@ -261,6 +289,31 @@ async function assertExactlyOneActiveDestination(page) {
   assert.equal(visual.collectionsColor, visual.inactiveColor, "The derived Collections control must share the ordinary inactive visual weight");
 }
 
+async function assertAgentFakeProviderStream(page) {
+  await page.evaluate(() => window.sessionStorage.clear());
+  await page.reload({ waitUntil: "networkidle" });
+  await startAgentFakeProviderStream(page, "检查角色知识边界");
+  const streaming = page.locator(".tianyi-agent-streaming");
+  await streaming.waitFor();
+  assert.match(await streaming.textContent(), /正在核对当前引用范围/u, "The browser must receive fake-provider text deltas before the final projection");
+  await page.getByRole("button", { name: /^(?:停止运行|Stop run)$/u }).click();
+  await page.waitForFunction(() => /(?:已取消|Cancelled)/u.test(document.querySelector(".tianyi-agent-run-status")?.textContent ?? ""));
+  await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
+  await page.waitForTimeout(350);
+}
+
+async function startAgentFakeProviderStream(page, task) {
+  if (await page.locator(".tianyi-sidebar").count() === 0) await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await page.getByRole("tab", { name: "Agent", exact: true }).click();
+  await page.locator(".tianyi-sidebar-composer textarea").fill(task);
+  await page.locator(".composer-send-control").click();
+  await page.getByRole("button", { name: /(?:允许下一步|Allow next step)/u }).click();
+  const continueButton = page.getByRole("button", { name: /^(?:继续工作|Continue work)$/u });
+  await continueButton.waitFor();
+  await continueButton.click();
+  await page.waitForFunction(() => document.querySelector(".tianyi-agent-streaming")?.textContent?.includes("正在核对当前引用范围"));
+}
+
 /** Optional external evidence only; this is never a production screenshot fixture. */
 async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   mkdirSync(visualEvidenceDirectory, { recursive: true });
@@ -295,7 +348,9 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     }
     if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
     if (state === "compact") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("列表密度").click(); await page.keyboard.press("Escape"); }
+    if (state === "filter") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("角色层级筛选").selectOption("main"); }
     if (state === "multi" || state === "archive") await page.getByRole("button", { name: "多选", exact: true }).click();
+    if (state === "multi") await currentCharacter.click();
     if (state === "archive") {
       await currentCharacter.click();
       await page.locator(".character-selection-bar").getByRole("button", { name: "归档", exact: true }).click();
@@ -303,12 +358,23 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await page.getByRole("button", { name: "完成", exact: true }).click();
       await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "归档", exact: true }).click();
     }
+    if (state === "search") await page.getByRole("button", { name: "搜索角色", exact: true }).click();
+    if (state === "agent-stream") {
+      await page.evaluate(() => window.sessionStorage.clear());
+      await page.reload({ waitUntil: "networkidle" });
+      await startAgentFakeProviderStream(page, `视觉验收 ${viewport.width}`);
+    }
     const filename = `${viewport.width}x${viewport.height}-${state}.png`;
     await page.screenshot({ path: path.join(visualEvidenceDirectory, filename), fullPage: true });
     captures.push({ filename, viewport, state, projectId: "r05-character-directory", workVersionId: null, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
+    if (state === "archive") {
+      await currentCharacter.click();
+      await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "恢复", exact: true }).click();
+    }
+    if (state === "agent-stream") await page.waitForFunction(() => document.querySelector(".tianyi-agent-confirm.is-stop") === null);
   };
   const viewports = [{ width: 1920, height: 1000 }, { width: 1440, height: 900 }, { width: 1152, height: 720 }].filter((viewport) => !visualEvidenceViewport || viewport.width === visualEvidenceViewport);
-  const states = ["standard", "form", "required", "created", "refreshed", "inspector", "compact", "multi", "archive", "world-active"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
+  const states = ["standard", "filter", "multi", "archive", "search", "agent-stream"].filter((state) => !visualEvidenceState || state === visualEvidenceState);
   for (const viewport of viewports) {
     for (const state of states) await capture(viewport, state);
   }

@@ -37,6 +37,7 @@ test("R0.6 global search uses one engine for route, object, source, and navigati
   assert.equal(character.stableReference.workVersionId, context.workVersionId);
   assert.deepEqual(character.stableReference.directoryReference, { objectId: "character.lin-zhao", version: "obj-char-r2", sourceId: "characters/lin-zhao.md", projectId: context.projectId, workVersionId: context.workVersionId, objectType: "character" });
   assert.ok(source.some((result) => result.type === "source" && result.target.query?.directorySource === "source.chapter-one"));
+  assert.ok(source.some((result) => result.target.query?.directoryWorkVersion === context.workVersionId));
   assert.ok(command.some((result) => result.type === "command" && result.target.route === "/world"));
 });
 

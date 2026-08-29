@@ -1,8 +1,8 @@
-import type { WorldLibraryBootstrap, StoryUnit } from "../../lib/localTransport";
+import type { SourceImportDocumentR0, WorldLibraryBootstrap, StoryUnit } from "../../lib/localTransport";
 import type { ProjectDirectoryNode, ProjectDirectoryProjection } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 import type { TranslationKey } from "../i18n/translations";
 
-type DirectoryData = { library: WorldLibraryBootstrap; units: readonly StoryUnit[]; workVersionId: string | null; pendingCount: number };
+type DirectoryData = { library: WorldLibraryBootstrap; units: readonly StoryUnit[]; sources: readonly SourceImportDocumentR0[]; workVersionId: string | null; pendingCount: number };
 const labels: Record<string, TranslationKey> = { character: "directory.characters", item: "directory.items", location: "directory.locations", faction: "directory.organizations", rule: "directory.rules", event: "directory.storyNodes", thread: "directory.storyLines" };
 
 function reference(object: WorldLibraryBootstrap["objects"][number], projectId: string, workVersionId: string | null): ProjectDirectoryNode {
@@ -18,14 +18,16 @@ export function createProjectDirectoryViewModel(t: (key: TranslationKey) => stri
   const objectNodes = (type: string) => objects.filter((item) => item.type === type).map((item) => reference(item, data.library.project.id, data.workVersionId));
   const unitNodes = data.units.map((unit) => ({ id: `unit:${unit.id}`, label: unit.title, kind: "reference" as const,
     reference: { objectId: unit.id, version: unit.version, sourceId: unit.relativeId, projectId: data.library.project.id, workVersionId: data.workVersionId, objectType: "story-unit" } }));
+  const sourceNodes = data.sources.map((source) => ({ id: `source:${source.sourceDocumentId}`, label: source.title, kind: "reference" as const,
+    aliases: [source.filename], reference: { objectId: source.sourceDocumentId, version: source.currentRevisionHash, sourceId: source.sourceDocumentId, projectId: data.library.project.id, workVersionId: data.workVersionId, objectType: "source-document" } }));
   const groups = [
     group("directory.story", t("directory.story"), [category("directory.story.nodes", t("directory.storyNodes"), objectNodes("event")), category("directory.story.units", t("directory.storyUnits"), unitNodes), category("directory.story.lines", t("directory.storyLines"), objectNodes("thread"))]),
     group("directory.library", t("directory.library"), ["character", "item", "location", "faction"].map((type) => category(`directory.library.${type}`, t(labels[type]), objectNodes(type)))),
     group("directory.settings", t("directory.settings"), [category("directory.settings.rules", t("directory.rules"), objectNodes("rule"))]),
-    group("directory.sources", t("directory.sources"), [category("directory.sources.documents", t("directory.sourceDocuments"), [])]),
+    group("directory.sources", t("directory.sources"), [category("directory.sources.documents", t("directory.sourceDocuments"), sourceNodes)]),
     group("directory.ideas", t("directory.ideas"), [category("directory.ideas.plot", t("directory.plotIdeas"), [])])
   ];
-  return { projectId: data.library.project.id, workVersionId: data.workVersionId, pendingCount: data.pendingCount, classifiedCount: objects.length + data.units.length, groups };
+  return { projectId: data.library.project.id, workVersionId: data.workVersionId, pendingCount: data.pendingCount, classifiedCount: objects.length + data.units.length + sourceNodes.length, groups };
 }
 function matches(node: ProjectDirectoryNode, query: string): boolean { return [node.label, ...(node.aliases ?? []), node.reference?.objectId ?? "", node.reference?.sourceId ?? ""].join(" ").toLocaleLowerCase().includes(query); }
 export function filterProjectDirectory(projection: ProjectDirectoryProjection, query: string): ProjectDirectoryProjection {
