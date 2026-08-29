@@ -41,6 +41,9 @@ test("personal center uses the same Shell workspace pattern without faking accou
   assert.match(shell, /const openAccount = \(\) => \{/);
   assert.match(shell, /data-account-open=\{accountOpen\}/);
   assert.match(outlet, /if \(props\.accountOpen\) return <AccountCenterWorkspace \/>;/);
+  assert.match(account, /settings-workspace-layout/);
+  assert.match(account, /settings-workspace-nav/);
+  assert.match(account, /settings-card account-center-card/);
   assert.match(account, /个人信息/);
   assert.match(account, /待接入账户服务/);
   assert.match(account, /当前不会伪造这些操作/);
