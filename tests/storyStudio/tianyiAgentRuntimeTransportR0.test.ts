@@ -8,7 +8,7 @@ import test from "node:test";
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
-test("Tianyi Agent transport persists a fixture run through Session/Archive and recovers after restart", async () => {
+test("Tianyi Agent transport preserves an honest unconfigured run through Session/Archive and restart", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-transport-"));
   const stateFilePath = path.join(rootPath, "state.json");
   const token = "tianyi-agent-transport-token";
@@ -37,14 +37,10 @@ test("Tianyi Agent transport persists a fixture run through Session/Archive and 
     const analyzedMessages = (await analyzed.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; data?: any });
     const analyzedProjection = analyzedMessages.find((message) => message.type === "projection")?.data;
     assert.ok(analyzedProjection);
-    assert.equal(analyzedProjection.candidates.length, 3);
-    assert.equal(analyzedProjection.candidates.find((candidate: any) => candidate.kind === "unknown").targetOwnerKind, "candidate-only");
-
-    const handedOff = await post(`${baseUrl}/__local/story-studio/tianyi-agent/candidate/handoff`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, candidateId: analyzedProjection.candidates[0].candidateId, operationId: "operation.agent.handoff" }, headers);
-    assert.equal(handedOff.status, 200);
-    const handedOffProjection = (await handedOff.json() as { data: any }).data;
-    assert.equal(handedOffProjection.candidates[0].state, "handed-off");
-    assert.equal(handedOffProjection.candidates[0].ownerReceipt.owner, "agent-recognition-proposal");
+    assert.equal(analyzedProjection.status, "failed");
+    assert.equal(analyzedProjection.error.category, "provider-unavailable");
+    assert.equal(analyzedProjection.resultSummary, null);
+    assert.equal(analyzedProjection.candidates.length, 0);
 
     await terminateChildProcess(server, { label: "Tianyi Agent transport server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
     server = startServer(rootPath, stateFilePath, token, port);
@@ -53,7 +49,9 @@ test("Tianyi Agent transport persists a fixture run through Session/Archive and 
     assert.equal(recovered.status, 200);
     const recoveredProjection = (await recovered.json() as { data: any }).data;
     assert.equal(recoveredProjection.runId, startProjection.runId);
-    assert.equal(recoveredProjection.candidates[0].ownerReceipt.id, handedOffProjection.candidates[0].ownerReceipt.id);
+    assert.equal(recoveredProjection.status, "failed");
+    assert.equal(recoveredProjection.error.category, "provider-unavailable");
+    assert.equal(recoveredProjection.resultSummary, null);
   } finally {
     await terminateChildProcess(server, { label: "Tianyi Agent transport server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
     await rm(rootPath, { recursive: true, force: true });
@@ -92,6 +90,56 @@ test("Tianyi Agent transport streams Pi fake-provider events before its durable 
     assert.equal(messages[projectionIndex].data.observability.streamEventCount >= textEvents.length, true);
   } finally {
     await terminateChildProcess(server, { label: "Tianyi Agent stream server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+test("native fake Provider tool frames cannot write an artifact before author approval", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-tool-boundary-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  const token = "tianyi-agent-tool-boundary-token";
+  const port = 5100 + Math.floor(Math.random() * 300);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "Agent 工具边界", folderSlug: "agent-tool-boundary" });
+  const server = startServer(rootPath, stateFilePath, token, port, { TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_PROVIDER_TOOL_SCENARIO: "create-artifact" });
+  try {
+    await waitForServer(baseUrl, server);
+    const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
+    const openSession = async (operationId: string) => {
+      const response = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-tool-boundary", operationId }, headers);
+      return (await response.json() as { data: { sessionId: string } }).data.sessionId;
+    };
+    const requestTool = async (sessionId: string, suffix: string) => {
+      const workVersionId = "work-version.unversioned";
+      const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId, sessionId, task: "创建普通剧本产物", currentPage: "/creation", operationId: `operation.tool.${suffix}.start` }, headers);
+      const started = (await startedResponse.json() as { data: any }).data;
+      await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-tool-boundary", workVersionId, sessionId, runId: started.runId, stepId: started.plan[0].stepId, operationId: `operation.tool.${suffix}.context` }, headers);
+      const streamed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-tool-boundary", workVersionId, sessionId, runId: started.runId, operationId: `operation.tool.${suffix}.request` }, { ...headers, accept: "application/x-ndjson" });
+      const messages = (await streamed.text()).trim().split("\n").map((line) => JSON.parse(line));
+      return { workVersionId, started, requested: messages.find((message) => message.type === "projection").data };
+    };
+
+    const rejectedRequest = await requestTool(await openSession("operation.tool.reject.session"), "reject");
+    const rejectedStep = rejectedRequest.requested.plan.find((step: any) => step.kind === "product-tool");
+    assert.equal(rejectedRequest.requested.toolCalls.at(-1).status, "requested");
+    assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
+    await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/reject`, { projectId: "agent-tool-boundary", workVersionId: rejectedRequest.workVersionId, sessionId: rejectedRequest.started.sessionId, runId: rejectedRequest.started.runId, stepId: rejectedStep.stepId, reason: "拒绝写入", operationId: "operation.tool.reject.decision" }, headers);
+    assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
+
+    const acceptedRequest = await requestTool(await openSession("operation.tool.accept.session"), "accept");
+    const acceptedStep = acceptedRequest.requested.plan.find((step: any) => step.kind === "product-tool");
+    const approved = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-tool-boundary", workVersionId: acceptedRequest.workVersionId, sessionId: acceptedRequest.started.sessionId, runId: acceptedRequest.started.runId, stepId: acceptedStep.stepId, operationId: "operation.tool.accept.decision" }, headers);
+    const approvedProjection = (await approved.json() as { data: any }).data;
+    assert.equal(approvedProjection.toolCalls.at(-1).status, "completed");
+    const artifacts = operations.listOutputArtifacts({ projectId: "agent-tool-boundary" });
+    assert.equal(artifacts.length, 1);
+    assert.match(artifacts[0].relativeId, /^artifacts\//u);
+    assert.equal(artifacts[0].generationBrief.workVersionId, acceptedRequest.workVersionId);
+    assert.equal(artifacts[0].generationBrief.runId, acceptedRequest.started.runId);
+    assert.match(artifacts[0].generationBrief.sourceReceiptId, /^receipt\.tianyi-agent-approval\./u);
+  } finally {
+    await terminateChildProcess(server, { label: "Tianyi Agent tool boundary server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
     await rm(rootPath, { recursive: true, force: true });
   }
 });

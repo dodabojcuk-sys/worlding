@@ -7,13 +7,23 @@ export type PiTextStreamEvent =
 export type PiProviderUsage = { promptTokens: number; completionTokens: number; totalTokens: number };
 export type PiTextProviderEvent =
   | { type: "chunk"; text: string; finishReason: string | null; usage: PiProviderUsage | null }
-  | { type: "tool-call"; id: string; name: string; arguments: Record<string, unknown> };
+  | { type: "tool-call-start"; id: string; name: string; index: number }
+  | { type: "tool-call-delta"; id: string; name: string; index: number; argumentsDelta: string }
+  | { type: "tool-call-end"; id: string; name: string; index: number; argumentsJson: string; arguments: Record<string, unknown> }
+  | { type: "tool-call-malformed"; id: string | null; name: string | null; index: number; argumentsJson: string; reason: string }
+  | { type: "tool-call-aborted"; id: string | null; name: string | null; index: number; reason: string }
+  | { type: "done" };
 export type PiTextProviderStream = { traceId: string | null; events: AsyncIterable<PiTextProviderEvent> };
+export type PiGatewayMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string | null; toolCalls?: Array<{ id: string; name: string; argumentsJson: string }> }
+  | { role: "tool"; toolCallId: string; name: string; content: string };
 export type PiTextAgentTool = {
   name: string;
   label: string;
   description: string;
-  execute(input: { toolCallId: string; arguments: Record<string, unknown>; signal?: AbortSignal }): Promise<Record<string, unknown>>;
+  inputSchema?: { type: "object"; required?: string[]; properties?: Record<string, unknown>; additionalProperties?: boolean };
+  execute(input: { toolCallId: string; arguments: Record<string, unknown>; approvalReceiptId: string | null; signal?: AbortSignal }): Promise<Record<string, unknown>>;
 };
 export type PiTextAgentRequest = {
   runId: string;
@@ -29,20 +39,22 @@ export type PiTextAgentRequest = {
   retry: boolean;
   signal?: AbortSignal;
   tools?: readonly PiTextAgentTool[];
-  authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string }>;
-  openProviderStream(input: { messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
+  authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>;
+  openProviderStream(input: { messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
   onEvent?(event: PiTextStreamEvent): Promise<void> | void;
 };
 export type PiTextAgentResult = { text: string; providerCalls: number; traceId: string | null; usage: PiProviderUsage; latencyMs: number };
 
 export class PiAgentAdapterError extends Error {
-  readonly code: "cancelled" | "provider-unavailable" | "provider-failed" | "tool-denied" | "unknown";
+  readonly code: "cancelled" | "provider-unavailable" | "provider-failed" | "tool-denied" | "tool-approval-required" | "invalid-tool-call" | "unknown";
   readonly retryable: boolean;
-  constructor(input: { code: PiAgentAdapterError["code"]; message: string; retryable: boolean; cause?: unknown }) {
+  readonly toolCall: { toolName: string; arguments: Record<string, unknown> } | null;
+  constructor(input: { code: PiAgentAdapterError["code"]; message: string; retryable: boolean; cause?: unknown; toolCall?: { toolName: string; arguments: Record<string, unknown> } }) {
     super(input.message, input.cause === undefined ? undefined : { cause: input.cause });
     this.name = "PiAgentAdapterError";
     this.code = input.code;
     this.retryable = input.retryable;
+    this.toolCall = input.toolCall ? structuredClone(input.toolCall) : null;
   }
 }
 
@@ -67,14 +79,17 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
     let providerCalls = 0;
     let sequence = 0;
     let traceId: string | null = null;
+    let terminalBridgeError: PiAgentAdapterError | null = null;
+    let pendingApproval: { toolName: string; arguments: Record<string, unknown> } | null = null;
+    const approvalReceipts = new Map<string, string>();
     let usage: PiProviderUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     const emit = async (event: Omit<PiTextStreamEvent, "sequence" | "recordedAt">) => {
       sequence += 1;
       await request.onEvent?.({ ...event, sequence, recordedAt: now() } as PiTextStreamEvent);
     };
     const tools = (request.tools ?? []).map((tool) => ({
-      name: tool.name, label: tool.label, description: tool.description, parameters: Type.Object({}, { additionalProperties: true }),
-      execute: async (toolCallId: string, args: Record<string, unknown>, signal?: AbortSignal) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tool.execute({ toolCallId, arguments: args, signal })) }], details: { owner: "product-agent-runtime", toolName: tool.name } })
+      name: tool.name, label: tool.label, description: tool.description, parameters: tool.inputSchema ?? Type.Object({}, { additionalProperties: false }),
+      execute: async (toolCallId: string, args: Record<string, unknown>, signal?: AbortSignal) => ({ content: [{ type: "text" as const, text: JSON.stringify(await tool.execute({ toolCallId, arguments: args, approvalReceiptId: approvalReceipts.get(toolCallId) ?? null, signal })) }], details: { owner: "product-agent-runtime", toolName: tool.name } })
     }));
     const agent = new Agent({
       initialState: { systemPrompt: request.systemPrompt, model, thinkingLevel: "off", tools },
@@ -83,12 +98,14 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
       maxRetryDelayMs: 0,
       beforeToolCall: async ({ toolCall }) => {
         const decision = await request.authorizeTool?.({ toolName: toolCall.name, arguments: toolCall.arguments }) ?? { allowed: false, reason: "工具调用没有通过产品审批边界。" };
+        if (decision.allowed && decision.approvalReceiptId) approvalReceipts.set(toolCall.id, decision.approvalReceiptId);
+        if (!decision.allowed && decision.approvalRequired) pendingApproval = { toolName: toolCall.name, arguments: structuredClone(toolCall.arguments) };
         return decision.allowed ? undefined : { block: true, terminate: true, reason: decision.reason ?? "工具调用没有通过产品审批边界。" };
       },
       streamFn: async (_selectedModel, context, options = {}) => {
         providerCalls += 1;
         const stream = new AssistantMessageEventStream();
-        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, onUsage(value) { usage = value; } });
+        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
         return stream;
       }
     });
@@ -102,6 +119,8 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
     });
     try {
       await agent.prompt(request.prompt);
+      if (terminalBridgeError) throw terminalBridgeError;
+      if (pendingApproval) throw new PiAgentAdapterError({ code: "tool-approval-required", message: "Provider 请求执行受控产品工具，正在等待作者审批。", retryable: false, toolCall: pendingApproval });
       const assistant = agent.state.messages.slice().reverse().find((message) => message.role === "assistant");
       if (!assistant) throw new PiAgentAdapterError({ code: "provider-failed", message: "Pi Agent 没有返回可读取的文本回合。", retryable: true });
       if (assistant.stopReason === "aborted") throw new PiAgentAdapterError({ code: "cancelled", message: "本次 Agent 运行已取消。", retryable: false });
@@ -125,50 +144,110 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
   return Object.freeze({ id: "pi.agent-core" as const, packageVersion: "0.84.2" as const, run, cancel });
 }
 
-async function bridgeProviderStream(input: { stream: { push(event: unknown): void; end(result?: unknown): void }; request: PiTextAgentRequest; messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; providerCall: number; retry: boolean; signal?: AbortSignal; model: { api: "openai-completions"; provider: string; id: string }; onTrace(value: string | null): void; onUsage(value: PiProviderUsage): void }) {
+async function bridgeProviderStream(input: { stream: { push(event: unknown): void; end(result?: unknown): void }; request: PiTextAgentRequest; messages: PiGatewayMessage[]; providerCall: number; retry: boolean; signal?: AbortSignal; model: { api: "openai-completions"; provider: string; id: string }; onTrace(value: string | null): void; onUsage(value: PiProviderUsage): void; onTerminalError(error: PiAgentAdapterError): void }) {
   const emptyUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
-  let text = "";
-  let toolCall: { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> } | null = null;
+  const content: Array<{ type: "text"; text: string } | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown>; partialJson?: string }> = [];
+  const providerToolCalls = new Map<string, { contentIndex: number; id: string; name: string; argumentsJson: string; ended: boolean }>();
+  const declaredTools = new Set((input.request.tools ?? []).map((tool) => tool.name));
+  let currentTextIndex: number | null = null;
   let usage = emptyUsage();
-  const base = () => ({ role: "assistant" as const, content: toolCall ? [toolCall] : [{ type: "text" as const, text }], api: input.model.api, provider: input.model.provider, model: input.model.id, usage, stopReason: "pending" as const, timestamp: Date.now() });
+  const base = () => ({ role: "assistant" as const, content: content.map((block) => ({ ...block })), api: input.model.api, provider: input.model.provider, model: input.model.id, usage, stopReason: "pending" as const, timestamp: Date.now() });
+  const endText = () => {
+    if (currentTextIndex === null) return;
+    const block = content[currentTextIndex];
+    input.stream.push({ type: "text_end", contentIndex: currentTextIndex, content: block?.type === "text" ? block.text : "", partial: base() });
+    currentTextIndex = null;
+  };
   try {
     if (input.signal?.aborted) throw abortError();
     input.stream.push({ type: "start", partial: { ...base(), content: [] } });
-    input.stream.push({ type: "text_start", contentIndex: 0, partial: base() });
-    const provider = await input.request.openProviderStream({ messages: input.messages, providerCall: input.providerCall, retry: input.retry, signal: input.signal });
+    const provider = await input.request.openProviderStream({
+      messages: input.messages,
+      tools: (input.request.tools ?? []).map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false } })),
+      providerCall: input.providerCall,
+      retry: input.retry,
+      signal: input.signal
+    });
     input.onTrace(provider.traceId);
     let finishReason = "stop";
     for await (const event of provider.events) {
       if (input.signal?.aborted) throw abortError();
-      if (event.type === "tool-call") {
-        toolCall = { type: "toolCall", id: event.id, name: event.name, arguments: event.arguments };
-        input.stream.push({ type: "toolcall_start", contentIndex: 0, partial: base() });
-        input.stream.push({ type: "toolcall_delta", contentIndex: 0, delta: JSON.stringify(event.arguments), partial: base() });
-        input.stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: base() });
+      if (event.type === "tool-call-malformed") throw new PiAgentAdapterError({ code: "invalid-tool-call", message: `Provider 工具帧无效：${event.reason}。`, retryable: false });
+      if (event.type === "tool-call-aborted") throw abortError();
+      if (event.type === "tool-call-start") {
+        endText();
+        if (!declaredTools.has(event.name)) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: `Provider 请求了未声明工具：${event.name}。`, retryable: false });
+        if (providerToolCalls.has(event.id)) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: "Provider 重复启动了同一个工具调用。", retryable: false });
+        const contentIndex = content.length;
+        content.push({ type: "toolCall", id: event.id, name: event.name, arguments: {}, partialJson: "" });
+        providerToolCalls.set(event.id, { contentIndex, id: event.id, name: event.name, argumentsJson: "", ended: false });
+        input.stream.push({ type: "toolcall_start", contentIndex, partial: base() });
         finishReason = "toolUse";
         continue;
       }
-      if (event.text) { text += event.text; input.stream.push({ type: "text_delta", contentIndex: 0, delta: event.text, partial: base() }); }
+      if (event.type === "tool-call-delta") {
+        const call = providerToolCalls.get(event.id);
+        if (!call || call.ended || call.name !== event.name) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: "Provider 工具参数分片顺序无效。", retryable: false });
+        call.argumentsJson += event.argumentsDelta;
+        const block = content[call.contentIndex];
+        if (block?.type === "toolCall") block.partialJson = call.argumentsJson;
+        input.stream.push({ type: "toolcall_delta", contentIndex: call.contentIndex, delta: event.argumentsDelta, partial: base() });
+        continue;
+      }
+      if (event.type === "tool-call-end") {
+        const call = providerToolCalls.get(event.id);
+        if (!call || call.ended || call.name !== event.name || call.argumentsJson !== event.argumentsJson) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: "Provider 工具完成帧与参数分片不一致。", retryable: false });
+        call.ended = true;
+        const toolCall = { type: "toolCall" as const, id: event.id, name: event.name, arguments: event.arguments };
+        content[call.contentIndex] = toolCall;
+        input.stream.push({ type: "toolcall_end", contentIndex: call.contentIndex, toolCall, partial: base() });
+        continue;
+      }
+      if (event.type === "done") continue;
+      if (event.text) {
+        if (currentTextIndex === null) {
+          currentTextIndex = content.length;
+          content.push({ type: "text", text: "" });
+          input.stream.push({ type: "text_start", contentIndex: currentTextIndex, partial: base() });
+        }
+        const block = content[currentTextIndex];
+        if (block?.type === "text") block.text += event.text;
+        input.stream.push({ type: "text_delta", contentIndex: currentTextIndex, delta: event.text, partial: base() });
+      }
       if (event.finishReason) finishReason = event.finishReason;
       if (event.usage) { input.onUsage(event.usage); usage = { ...usage, input: event.usage.promptTokens, output: event.usage.completionTokens, totalTokens: event.usage.totalTokens }; }
     }
-    const message = { ...base(), stopReason: toolCall ? "toolUse" as const : finishReason === "length" ? "length" as const : "stop" as const };
-    if (!toolCall) input.stream.push({ type: "text_end", contentIndex: 0, content: text, partial: message });
+    endText();
+    if ([...providerToolCalls.values()].some((call) => !call.ended)) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: "Provider 工具调用没有完整结束。", retryable: false });
+    const hasToolCall = providerToolCalls.size > 0;
+    const message = { ...base(), stopReason: hasToolCall ? "toolUse" as const : finishReason === "length" ? "length" as const : "stop" as const };
     input.stream.push({ type: "done", reason: message.stopReason, message });
     input.stream.end(message);
   } catch (cause) {
     const cancelled = input.signal?.aborted || (cause instanceof Error && cause.name === "AbortError");
+    if (cause instanceof PiAgentAdapterError) input.onTerminalError(cause);
     const error = { ...base(), stopReason: cancelled ? "aborted" as const : "error" as const, errorMessage: cause instanceof Error ? cause.message : "Provider stream failed." };
     input.stream.push({ type: "error", reason: error.stopReason, error });
     input.stream.end(error);
   }
 }
 
-function toGatewayMessages(systemPrompt: string, messages: readonly any[], contentText: (content: any) => string): Array<{ role: "system" | "user" | "assistant"; content: string }> {
-  const result: Array<{ role: "system" | "user" | "assistant"; content: string }> = [{ role: "system", content: systemPrompt }];
+function toGatewayMessages(systemPrompt: string, messages: readonly any[], contentText: (content: any) => string): PiGatewayMessage[] {
+  const result: PiGatewayMessage[] = [{ role: "system", content: systemPrompt }];
   for (const message of messages) {
-    const text = message.role === "toolResult" ? `Tool ${message.toolName} result: ${contentText(message.content)}` : contentText(message.content);
-    if (text.trim()) result.push({ role: message.role === "assistant" ? "assistant" : "user", content: text.trim() });
+    if (message.role === "toolResult") {
+      result.push({ role: "tool", toolCallId: String(message.toolCallId), name: String(message.toolName), content: contentText(message.content).trim() || "{}" });
+      continue;
+    }
+    if (message.role === "assistant") {
+      const blocks = Array.isArray(message.content) ? message.content : [];
+      const text = blocks.filter((block: any) => block?.type === "text").map((block: any) => block.text).join("").trim();
+      const toolCalls = blocks.filter((block: any) => block?.type === "toolCall").map((block: any) => ({ id: String(block.id), name: String(block.name), argumentsJson: JSON.stringify(block.arguments ?? {}) }));
+      if (text || toolCalls.length) result.push({ role: "assistant", content: text || null, ...(toolCalls.length ? { toolCalls } : {}) });
+      continue;
+    }
+    const text = contentText(message.content).trim();
+    if (text) result.push({ role: "user", content: text });
   }
   return result;
 }

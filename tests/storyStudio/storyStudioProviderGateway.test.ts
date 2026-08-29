@@ -119,6 +119,82 @@ test("SiliconFlow adapter uses the fixed official endpoint and normalizes ordere
   assert.equal(JSON.stringify(events).includes(TEST_CREDENTIAL), false);
 });
 
+test("Gateway normalizes fragmented native tool calls, mixed text and multiple call order", async () => {
+  let body: Record<string, unknown> | null = null;
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async (_url: URL | RequestInfo, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return sseResponse([
+        "data: {\"choices\":[{\"delta\":{\"content\":\"先检查。\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"function\":{\"arguments\":\"{\\\"sec\"}}]},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"read_context_manifest\",\"arguments\":\"tion\\\":\"}}]},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"一\\\"}\"}},{\"index\":1,\"id\":\"call_b\",\"function\":{\"name\":\"read_open_questions\",\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":8,\"completion_tokens\":4,\"total_tokens\":12}}\n\n",
+        "data: [DONE]\n\n"
+      ]);
+    }
+  });
+  const stream = await gateway.openChatStream({
+    ...requestInput(),
+    tools: [
+      { name: "read_context_manifest", description: "读取范围", parameters: { type: "object", required: ["section"], properties: { section: { type: "string" } }, additionalProperties: false } },
+      { name: "read_open_questions", description: "读取问题", parameters: { type: "object", properties: {}, additionalProperties: false } }
+    ]
+  });
+  assert.deepEqual((body?.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name), ["read_context_manifest", "read_open_questions"]);
+  assert.equal(body?.tool_choice, "auto");
+  assert.deepEqual(await collect(stream.events), [
+    { type: "chunk", text: "先检查。", finishReason: null, usage: null },
+    { type: "tool-call-start", id: "call_a", name: "read_context_manifest", index: 0 },
+    { type: "tool-call-delta", id: "call_a", name: "read_context_manifest", index: 0, argumentsDelta: "{\"sec" },
+    { type: "tool-call-delta", id: "call_a", name: "read_context_manifest", index: 0, argumentsDelta: "tion\":" },
+    { type: "tool-call-delta", id: "call_a", name: "read_context_manifest", index: 0, argumentsDelta: "\"一\"}" },
+    { type: "tool-call-start", id: "call_b", name: "read_open_questions", index: 1 },
+    { type: "tool-call-delta", id: "call_b", name: "read_open_questions", index: 1, argumentsDelta: "{}" },
+    { type: "chunk", text: "", finishReason: null, usage: { promptTokens: 8, completionTokens: 4, totalTokens: 12 } },
+    { type: "tool-call-end", id: "call_a", name: "read_context_manifest", index: 0, argumentsJson: "{\"section\":\"一\"}", arguments: { section: "一" } },
+    { type: "tool-call-end", id: "call_b", name: "read_open_questions", index: 1, argumentsJson: "{}", arguments: {} },
+    { type: "done" }
+  ]);
+});
+
+test("Gateway exposes malformed and duplicate completion frames deterministically", async () => {
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async () => sseResponse([
+      "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_bad\",\"function\":{\"name\":\"read_context_manifest\",\"arguments\":\"{\"}}]},\"finish_reason\":null}]}\n\n",
+      "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+      "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+      "data: [DONE]\n\n"
+    ])
+  });
+  const stream = await gateway.openChatStream(requestInput());
+  const values = await collect(stream.events);
+  assert.equal((values.find((event: any) => event.type === "tool-call-malformed" && event.reason === "malformed-arguments") as any)?.id, "call_bad");
+  assert.equal(values.some((event: any) => event.type === "tool-call-malformed" && event.reason === "duplicate-completion"), true);
+});
+
+test("Gateway emits an aborted tool frame when cancellation interrupts arguments", async () => {
+  let upstreamController: ReadableStreamDefaultController<Uint8Array>;
+  const upstream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      upstreamController = controller;
+      controller.enqueue(new TextEncoder().encode("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_cancel\",\"function\":{\"name\":\"read_context_manifest\",\"arguments\":\"{\\\"a\\\":\"}}]},\"finish_reason\":null}]}\n\n"));
+    }
+  });
+  const gateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => new Response(upstream, { headers: { "content-type": "text/event-stream" } }) });
+  const controller = new AbortController();
+  const stream = await gateway.openChatStream({ ...requestInput(), signal: controller.signal });
+  const iterator = stream.events[Symbol.asyncIterator]();
+  assert.equal((await iterator.next()).value.type, "tool-call-start");
+  assert.equal((await iterator.next()).value.type, "tool-call-delta");
+  controller.abort();
+  assert.deepEqual((await iterator.next()).value, { type: "tool-call-aborted", id: "call_cancel", name: "read_context_manifest", index: 0, reason: "cancelled" });
+  await assert.rejects(iterator.next(), (error: unknown) => error instanceof ProviderGatewayError && error.code === "cancelled");
+  void upstreamController!;
+});
+
 test("Provider Gateway enforces an explicit per-run output cap below the selected profile", async () => {
   let observedMaxTokens = 0;
   const gateway = createGateway({

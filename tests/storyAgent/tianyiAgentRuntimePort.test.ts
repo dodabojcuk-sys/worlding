@@ -159,3 +159,59 @@ test("Tianyi runtime preserves author control across rejection, steering and can
   const duplicateCancel = await fixture.adapter.cancelRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, reason: "重复停止", operationId: "operation.control.cancel" });
   assert.equal(duplicateCancel.status, "cancelled");
 });
+
+test("native product tool requests pause for durable author approval before provider retry", async () => {
+  let attempts = 0;
+  let authorizedReceipt = "";
+  const fixture = fixtureAdapter(async (input) => {
+    attempts += 1;
+    const call = { toolName: "create_artifact", arguments: { type: "screenplay", title: "批准后草稿", content: "正文" } };
+    const decision = await input.authorizeTool(call);
+    if (!decision.allowed) {
+      const error = Object.assign(new Error("approval required"), { code: "tool-approval-required", retryable: false, toolCall: call });
+      throw error;
+    }
+    authorizedReceipt = decision.approvalReceiptId || "";
+    await input.onEvent({ type: "tool-call-start", toolCallId: "provider.call", toolName: call.toolName, sequence: 1, recordedAt: "2026-08-29T00:00:00.000Z" });
+    await input.onEvent({ type: "tool-call-end", toolCallId: "provider.call", toolName: call.toolName, isError: false, sequence: 2, recordedAt: "2026-08-29T00:00:01.000Z" });
+    return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model", text: "产物已按审批创建。", providerCalls: 1, traceId: "trace.tool", latencyMs: 3, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+  });
+  const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.tool", task: "生成普通草稿", currentPage: "/creation", operationId: "operation.tool.start" });
+  const contextReady = await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.tool.context" });
+  const requested = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.tool.request" });
+  assert.equal(requested.status, "awaiting_author");
+  assert.equal(requested.toolCalls.at(-1)?.status, "requested");
+  const toolStep = requested.plan.find((step) => step.kind === "product-tool")!;
+  const completed = await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: toolStep.stepId, operationId: "operation.tool.approve" });
+  assert.equal(attempts, 2);
+  assert.match(authorizedReceipt, /^receipt\.tianyi-agent-approval\./u);
+  assert.equal(completed.toolCalls.at(-1)?.status, "completed");
+});
+
+test("rejected native product tool request remains non-executable after recovery", async () => {
+  const fixture = fixtureAdapter(async () => {
+    const call = { toolName: "propose_entity_candidate", arguments: { kind: "character", title: "未批准角色" } };
+    throw Object.assign(new Error("approval required"), { code: "tool-approval-required", retryable: false, toolCall: call });
+  });
+  const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.reject-tool", task: "提议角色", currentPage: "/library", operationId: "operation.reject-tool.start" });
+  await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.reject-tool.context" });
+  const requested = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.reject-tool.request" });
+  const toolStep = requested.plan.find((step) => step.kind === "product-tool")!;
+  const rejected = await fixture.adapter.rejectStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: toolStep.stepId, operationId: "operation.reject-tool.reject", reason: "作者拒绝" });
+  assert.equal(rejected.toolCalls.at(-1)?.status, "rejected");
+  const recovered = await fixture.adapter.recoverRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId });
+  assert.equal(recovered?.toolCalls.at(-1)?.status, "rejected");
+});
+
+test("configured production run path never disguises Provider unavailable with fixture output", async () => {
+  const fixture = fixtureAdapter(async () => {
+    throw Object.assign(new Error("Provider 未配置"), { name: "ProviderUnavailable", code: "provider-unavailable", retryable: false });
+  });
+  const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.unconfigured", task: "真实 Provider 测试", currentPage: "/tianyi", operationId: "operation.unconfigured.start" });
+  await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.unconfigured.context" });
+  const failed = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.unconfigured.run" });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.category, "provider-unavailable");
+  assert.equal(failed.resultSummary, null);
+  assert.equal(failed.model.runtime, "pi");
+});
