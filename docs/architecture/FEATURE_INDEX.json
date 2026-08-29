@@ -307,6 +307,20 @@
       "remainingGap": "Sole Canon apply automatically invokes the existing idempotent Timeline projection; future changes must preserve exactly-once behavior and confirmed-event-only input"
     },
     {
+      "id": "global-search-r0-6",
+      "status": "PARTIAL",
+      "maturity": "read-only-route-object-source-and-navigation-command-query-foundation",
+      "entrypoints": ["apps/story-studio/src/product-shell/global-search/GlobalSearchControl.tsx"],
+      "sourceFiles": ["apps/story-studio/src/product-shell/global-search/globalSearchEngine.ts", "apps/story-studio/src/product-shell/global-search/globalSearchReadAdapter.ts", "apps/story-studio/src/product-shell/global-search/globalSearchKeyboard.ts", "apps/story-studio/src/product-shell/global-search/globalSearchTypes.ts", "apps/story-studio/src/product-shell/global-search/INTEGRATION_REQUEST.md", "apps/story-studio/src/styles/global-search.css", "src/storyContracts/storyStudioWorkspaceRegistry.ts", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/sourceImportReviewR0.ts"],
+      "domainOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts", "src/storyWorkspace/objectCatalog.ts"],
+      "stateOwners": [],
+      "persistenceOwner": "none; the search engine reads the existing project library, work-version-scoped ObjectCatalog metadata, and source-import review projection without creating an index or a fact store",
+      "providerDependency": "none; embedding, vector-database, and Provider calls are explicitly absent",
+      "tests": ["tests/storyStudio/tianyanR06GlobalSearch.test.ts"],
+      "legacyProvenance": ["single static Story Studio workspace registry", "existing project-directory stable-reference contract"],
+      "remainingGap": "Main Shell integration remains intentionally pending through global-search/INTEGRATION_REQUEST.md; text/body search, embeddings, and any new source owner are out of scope."
+    },
+    {
       "id": "writing-navigation-continuity",
       "status": "PRODUCTION_CONNECTED",
       "maturity": "durable-browser-restart-return-connected",

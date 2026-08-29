@@ -1,0 +1,53 @@
+.global-search-trigger {
+  min-inline-size: 11.5rem;
+  min-block-size: 2rem;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-workspace-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.global-search-trigger:hover,
+.global-search-trigger:focus-visible { color: var(--color-text); border-color: var(--color-border-strong); background: var(--color-surface); }
+.global-search-trigger svg { inline-size: .9rem; block-size: .9rem; flex: 0 0 auto; }
+.global-search-trigger span { flex: 1; overflow: hidden; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
+.global-search-trigger kbd { padding: .08rem .3rem; color: var(--color-text-muted); background: var(--color-app-background); border: 1px solid var(--color-border); border-radius: .25rem; font: .6875rem/1 var(--font-ui); }
+
+.global-search-backdrop { position: fixed; z-index: calc(var(--layer-tooltip-modal) + 1); inset: 0; display: grid; place-items: start center; padding: min(12vh, 7rem) var(--space-4); background: color-mix(in srgb, var(--color-app-background) 30%, transparent); }
+.global-search-dialog { inline-size: min(42rem, 100%); overflow: hidden; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); }
+.global-search-header { display: flex; align-items: center; gap: var(--space-2); min-block-size: 3rem; padding: 0 var(--space-3); border-block-end: 1px solid var(--color-border); }
+.global-search-header > svg { inline-size: 1rem; color: var(--color-text-muted); }
+.global-search-header input { min-inline-size: 0; flex: 1; color: var(--color-text); background: transparent; border: 0; outline: 0; }
+.global-search-close { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.global-search-close:hover { color: var(--color-text); background: var(--color-workspace-background); }
+.global-search-close svg { inline-size: 1rem; }
+.global-search-scopes { display: flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-2) var(--space-3) 0; }
+.global-search-scopes button { min-block-size: 1.75rem; padding: 0 var(--space-2); color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.global-search-scopes button:hover,
+.global-search-scopes button[aria-pressed="true"] { color: var(--color-text); background: var(--color-workspace-background); border-color: var(--color-border); }
+.global-search-status { min-block-size: 1.4rem; margin: var(--space-2) var(--space-3); color: var(--color-text-muted); font-size: .75rem; }
+.global-search-results { max-block-size: min(28rem, 58vh); overflow: auto; padding: 0 var(--space-2) var(--space-2); }
+.global-search-results > button { inline-size: 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-2); color: var(--color-text); text-align: start; background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.global-search-results > button:hover,
+.global-search-results > button.is-active { background: var(--color-workspace-background); border-color: var(--color-border); }
+.global-search-result-copy,
+.global-search-result-meta { min-inline-size: 0; display: grid; gap: .15rem; }
+.global-search-result-copy strong,
+.global-search-result-copy small,
+.global-search-result-meta small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.global-search-result-copy small,
+.global-search-result-meta small { color: var(--color-text-muted); font-size: .75rem; }
+.global-search-result-meta { flex: 0 1 11rem; text-align: end; }
+.global-search-result-meta em { color: var(--color-accent); font-size: .75rem; font-style: normal; }
+.global-search-empty { padding: var(--space-5) var(--space-3); color: var(--color-text-muted); text-align: center; }
+
+@media (max-width: 72rem) {
+  .global-search-trigger { min-inline-size: 2rem; inline-size: 2rem; justify-content: center; padding: 0; }
+  .global-search-trigger span,
+  .global-search-trigger kbd { display: none; }
+}
