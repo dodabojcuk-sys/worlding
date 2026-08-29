@@ -7,6 +7,7 @@ export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
   shellLab: boolean;
   onOpenTianyi(): void;
+  directoryObjectId: string | null;
 }) {
   const { t } = useI18n();
   const label = props.shellLab ? t("shellLab.label") : t(props.destination.labelKey as TranslationKey);
@@ -15,7 +16,7 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "event-line") {
     return <main className="shell-workspace shell-workspace-event-line" aria-label={t(props.destination.labelKey as TranslationKey)}>
-      <R0EventLineProjection onOpenTianyi={props.onOpenTianyi} />
+      <R0EventLineProjection onOpenTianyi={props.onOpenTianyi} selectedEventId={props.directoryObjectId} />
     </main>;
   }
 
@@ -24,6 +25,7 @@ export function ShellWorkspaceOutlet(props: {
       <p className="shell-workspace-eyebrow">{t("workspace.eyebrow")}</p>
       <h1 id="shell-workspace-title">{label}</h1>
       <p className="shell-workspace-summary">{summary}</p>
+      {props.directoryObjectId && <p className="shell-workspace-status" data-directory-focus={props.directoryObjectId}>{t("directory.focused")}: {props.directoryObjectId}</p>}
       {props.shellLab && <><div className="shell-workspace-rule" aria-hidden="true" />
         <p className="shell-workspace-status"><span aria-hidden="true" />{t("workspace.ready")}</p>
         <p className="shell-workspace-note">{note}</p></>}

@@ -24,6 +24,8 @@ import { ShellWorkspaceOutlet } from "./workspace/ShellWorkspaceOutlet";
 import { resolveInitialShellTheme, type ShellTheme } from "./theme/theme";
 import { useI18n } from "./i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "./runtime/TianyanShellRuntime";
+import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../../../../src/storyContracts/projectDirectoryContract.ts";
+import { storyStudioWorkspaceRoute } from "./navigation/topLevelDestinationRegistry";
 
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
@@ -76,6 +78,20 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     window.history.pushState({}, "", `${destination.route}${query}`);
     setActiveId(destination.id);
   };
+  const directorySelection = new URLSearchParams(window.location.search).get("directoryObject");
+  const navigateDirectory = (node: ProjectDirectoryNode) => {
+    const destination = node.id.startsWith("directory.story") ? "event-line" : "library";
+    const route = storyStudioWorkspaceRoute(destination);
+    window.history.pushState({}, "", route);
+    setActiveId(destination);
+  };
+  const openDirectoryReference = (reference: ProjectDirectoryStableReference) => {
+    const destination = reference.objectType === "event" || reference.objectType === "story-unit" ? "event-line" : "library";
+    const params = new URLSearchParams({ directoryObject: reference.objectId, directoryProject: reference.projectId, directoryVersion: reference.version, directoryType: reference.objectType });
+    window.history.pushState({}, "", `${storyStudioWorkspaceRoute(destination)}?${params.toString()}`);
+    setActiveId(destination);
+  };
+  const openPendingReviews = () => { window.history.pushState({}, "", `${storyStudioWorkspaceRoute("data")}?directoryView=pending`); setActiveId("data"); };
 
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
   const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
@@ -102,8 +118,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onAccount={() => undefined}
     />
     <GlobalStatusBar theme={theme} projectName={props.runtime.project?.title} workVersionLabel={props.runtime.workVersionLabel} directoryOpen={directoryOpen} tianyiOpen={dock.state.isTianyiOpen} onToggleTheme={toggleTheme} onToggleDirectory={() => setDirectoryOpen((open) => !open)} onToggleTianyi={dock.toggleTianyi} />
-    {directoryOpen && <ProjectDirectoryPanel onClose={() => setDirectoryOpen(false)} />}
-    <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} onOpenTianyi={() => dock.setTianyiOpen(true)} />
+    {directoryOpen && <ProjectDirectoryPanel project={props.runtime.project} onClose={() => setDirectoryOpen(false)} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} onOpenPending={openPendingReviews} selectedObjectId={directorySelection} />}
+    <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} onOpenTianyi={() => dock.setTianyiOpen(true)} directoryObjectId={directorySelection} />
     <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />
     {dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} onClose={() => dock.setTianyiOpen(false)} />}
     <ShellCommandPalette

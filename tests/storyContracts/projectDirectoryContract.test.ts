@@ -9,6 +9,8 @@ import {
 
 test("project directory contract is a stable read-only navigation projection", () => {
   const projection: ProjectDirectoryProjection = {
+    projectId: "project.demo",
+    workVersionId: "work-version.demo",
     pendingCount: 2,
     classifiedCount: 1,
     groups: [{
@@ -19,7 +21,7 @@ test("project directory contract is a stable read-only navigation projection", (
         id: "reference.character.lin-zhao",
         label: "林昭",
         kind: "reference",
-        reference: { objectId: "character.lin-zhao", version: "v3", sourceId: "source.chapter-1" }
+        reference: { objectId: "character.lin-zhao", version: "v3", sourceId: "source.chapter-1", projectId: "project.demo", workVersionId: "work-version.demo", objectType: "character" }
       }]
     }]
   };

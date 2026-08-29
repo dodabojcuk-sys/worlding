@@ -9,7 +9,10 @@ export type ProjectDirectoryNodeKind = "group" | "category" | "reference";
 export type ProjectDirectoryStableReference = {
   objectId: string;
   version: string;
-  sourceId: string;
+  sourceId: string | null;
+  projectId: string;
+  workVersionId: string | null;
+  objectType: string;
 };
 
 export type ProjectDirectoryNode = {
@@ -19,9 +22,13 @@ export type ProjectDirectoryNode = {
   count?: number;
   children?: readonly ProjectDirectoryNode[];
   reference?: ProjectDirectoryStableReference;
+  aliases?: readonly string[];
+  breadcrumb?: readonly string[];
 };
 
 export type ProjectDirectoryProjection = {
+  projectId: string;
+  workVersionId: string | null;
   pendingCount: number;
   classifiedCount: number;
   groups: readonly ProjectDirectoryNode[];

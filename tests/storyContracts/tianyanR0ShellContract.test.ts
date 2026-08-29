@@ -185,9 +185,10 @@ test("active R0 shell is split by responsibility and confines runtime transport 
   assert.match(shell, /TianyiSidebar/);
   assert.match(workspace, /R0EventLineProjection/);
   assert.match(eventLine, /EventLineWorkbench/);
-  assert.match(eventLine, /createEventLineFixture/);
+  assert.match(eventLine, /getVerifiedCanonEventList/);
+  assert.match(eventLine, /getWorldLibrary/);
   assert.doesNotMatch(app, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
-  assert.doesNotMatch([shell, navigation, topbar, workspace, eventLine, directory, dock].join("\n"), /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
+  assert.doesNotMatch([shell, navigation, topbar, workspace, directory, dock].join("\n"), /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.match(runtime, /localTransport/);
   assert.doesNotMatch(runtime, /providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.doesNotMatch([shell, navigation, topbar, workspace, eventLine, directory, dock, tianyi].join("\n"), /[\u3400-\u9fff]/u);

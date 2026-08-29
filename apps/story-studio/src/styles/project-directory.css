@@ -81,7 +81,8 @@
 
 .project-directory-tree { min-height: 0; flex: 1; padding: var(--space-2); overflow: auto; }
 .project-directory-tree section > button,
-.project-directory-tree section > div > button {
+.project-directory-tree .project-directory-category > button,
+.project-directory-reference {
   width: 100%;
   min-height: 2.25rem;
   display: flex;
@@ -100,7 +101,10 @@
 .project-directory-tree button span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .project-directory-tree button strong { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .project-directory-tree section > div { padding-inline-start: var(--space-8); }
-.project-directory-tree section > div > button { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.project-directory-tree .project-directory-category > button { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.project-directory-reference { min-height: 2rem; padding-inline-start: var(--space-5); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.project-directory-reference[data-selected] { color: var(--color-accent); background: var(--color-surface-muted); }
+.project-directory-reference em { color: var(--color-accent); font-size: var(--font-size-xs); font-style: normal; }
 .project-directory-empty { margin: var(--space-4); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 @media (max-width: 50rem) {
