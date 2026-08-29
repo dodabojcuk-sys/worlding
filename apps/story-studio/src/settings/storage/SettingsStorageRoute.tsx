@@ -21,6 +21,14 @@ import { AgentSettingsSection, type ProviderProfileUpdate } from "../agent/Agent
 import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
 
+type SettingsSectionId = "storage" | "transfer" | "agent";
+
+const workspaceSections: ReadonlyArray<{ id: SettingsSectionId; group: string; label: string }> = [
+  { id: "storage", group: "工作区", label: "存储与备份" },
+  { id: "transfer", group: "数据", label: "导入与导出" },
+  { id: "agent", group: "智能", label: "模型与 Agent" }
+];
+
 /** Independent utility route. It composes settings adapters without mounting the product Shell. */
 export function SettingsStorageRoute(props: { presentation?: "utility" | "workspace" } = {}) {
   const presentation = props.presentation ?? "utility";
@@ -31,6 +39,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
   const [permissionState, setPermissionState] = useState<AgentPermissionState | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("storage");
   const withToken = useCallback(<T,>(action: (token: string) => Promise<T>) => storageProvider.withWriteAccess(action), [storageProvider]);
 
   const refreshRuntime = useCallback(async (activeProject: StoryStudioProject | null) => {
@@ -97,26 +106,34 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
         {presentation === "utility" && <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>}
         <div className="settings-heading-copy"><p>设置</p><h1>本地工作区设置</h1><span><strong>{project?.title ? `当前作品：${project.title}` : "尚未打开作品"}</strong> 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
       </header>
-      <div id="storage"><SettingsStorageSection
-        projectId={project?.id ?? null}
-        onReveal={() => project ? withToken(() => revealStorageProject(project.id)) : Promise.reject(new Error("请先打开项目。"))}
-        onBackup={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
-      /></div>
-      <div id="transfer"><SettingsTransferSection
-        hasProject={Boolean(project)}
-        onExport={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
-        onImport={importPackage}
-      /></div>
-      <div id="agent"><AgentSettingsSection
-        status={modelStatus}
-        permissionState={permissionState}
-        busy={runtimeBusy}
-        error={runtimeError}
-        onRefresh={() => void refreshRuntime(project)}
-        onPermissionProfile={updatePermission}
-        onSaveProviderProfile={saveProvider}
-        onDisableProviderProfile={disableProvider}
-      /></div>
+      <div className="settings-workspace-layout">
+        {presentation === "workspace" && <aside className="settings-workspace-nav" aria-label="设置目录">
+          <p>设置目录</p>
+          <nav>{workspaceSections.map((section) => <button key={section.id} type="button" aria-current={activeSection === section.id ? "page" : undefined} aria-controls={`settings-section-${section.id}`} onClick={() => setActiveSection(section.id)}><small>{section.group}</small><span>{section.label}</span></button>)}</nav>
+        </aside>}
+        <div className="settings-workspace-sections">
+          {(presentation === "utility" || activeSection === "storage") && <section id="settings-section-storage" aria-label="存储与备份"><SettingsStorageSection
+            projectId={project?.id ?? null}
+            onReveal={() => project ? withToken(() => revealStorageProject(project.id)) : Promise.reject(new Error("请先打开项目。"))}
+            onBackup={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
+          /></section>}
+          {(presentation === "utility" || activeSection === "transfer") && <section id="settings-section-transfer" aria-label="导入与导出"><SettingsTransferSection
+            hasProject={Boolean(project)}
+            onExport={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
+            onImport={importPackage}
+          /></section>}
+          {(presentation === "utility" || activeSection === "agent") && <section id="settings-section-agent" aria-label="模型与 Agent"><AgentSettingsSection
+            status={modelStatus}
+            permissionState={permissionState}
+            busy={runtimeBusy}
+            error={runtimeError}
+            onRefresh={() => void refreshRuntime(project)}
+            onPermissionProfile={updatePermission}
+            onSaveProviderProfile={saveProvider}
+            onDisableProviderProfile={disableProvider}
+          /></section>}
+        </div>
+      </div>
     </div>
     <input ref={fileInput} type="file" accept=".tianyan,application/json" hidden aria-hidden="true" />
   </main>;

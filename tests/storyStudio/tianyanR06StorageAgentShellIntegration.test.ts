@@ -12,6 +12,10 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(app, /pathname\.startsWith\("\/settings\/"\)/);
   assert.match(route, /data-settings-route=\{presentation\}/);
   assert.doesNotMatch(route, /settings-utility-nav/);
+  assert.match(route, /settings-workspace-nav/);
+  assert.match(route, /activeSection === "storage"/);
+  assert.match(route, /activeSection === "transfer"/);
+  assert.match(route, /activeSection === "agent"/);
   assert.match(route, /当前作品：/);
   assert.match(route, /SettingsStorageSection/);
   assert.match(route, /SettingsTransferSection/);
