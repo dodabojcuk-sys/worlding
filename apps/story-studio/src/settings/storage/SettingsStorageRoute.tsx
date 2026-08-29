@@ -93,8 +93,8 @@ export function SettingsStorageRoute() {
   return <main className="settings-utility-route" data-route="settings-storage" data-settings-route="utility">
     <div className="settings-utility-content">
       <header className="settings-utility-heading">
-      <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>
-        <div><p>设置</p><h1>本地工作区设置</h1><span>{project?.title ? `当前作品：${project.title}。` : "尚未打开作品。"} 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
+        <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>
+        <div className="settings-heading-copy"><p>设置</p><h1>本地工作区设置</h1><span><strong>{project?.title ? `当前作品：${project.title}` : "尚未打开作品"}</strong> 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
       </header>
       <div id="storage"><SettingsStorageSection
         projectId={project?.id ?? null}

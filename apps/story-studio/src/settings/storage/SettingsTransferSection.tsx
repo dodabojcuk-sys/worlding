@@ -20,7 +20,7 @@ export function SettingsTransferSection(props: { hasProject: boolean; onExport()
     {receipt && <p role="status">操作完成：{receipt.packageName ?? receipt.projectId} · {receipt.fileCount ?? 0} 个文件</p>}
     <div className="settings-transfer-actions">
       <button type="button" disabled={!props.hasProject || busy !== null} onClick={() => void run("export", props.onExport)}><Download aria-hidden="true" />{busy === "export" ? "正在导出" : "导出当前项目"}</button>
-      <button type="button" disabled={busy !== null} onClick={() => void run("import", props.onImport)}><Upload aria-hidden="true" />{busy === "import" ? "正在导入" : "导入到作品库"}</button>
+      <button type="button" className="settings-primary-action" disabled={busy !== null} onClick={() => void run("import", props.onImport)}><Upload aria-hidden="true" />{busy === "import" ? "正在导入" : "导入到作品库"}</button>
     </div>
   </section>;
 }

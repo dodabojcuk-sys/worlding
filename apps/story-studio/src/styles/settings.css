@@ -47,17 +47,17 @@
 }
 
 .settings-utility-content {
-  width: min(64rem, 100%);
+  width: min(70rem, 100%);
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
   margin-inline: auto;
-  padding: clamp(var(--space-5), 4vw, var(--space-8));
+  padding: clamp(var(--space-4), 3vw, var(--space-7));
 }
 
 .settings-utility-heading {
   display: grid;
-  gap: var(--space-3);
-  padding-block-end: var(--space-4);
+  gap: var(--space-2);
+  padding-block-end: var(--space-3);
   border-block-end: 1px solid var(--color-border);
 }
 
@@ -66,9 +66,19 @@
   font: 500 clamp(1.75rem, 3vw, 2.5rem)/1.1 var(--font-display);
 }
 
-.settings-utility-heading > div {
+.settings-heading-copy {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
+}
+
+.settings-heading-copy span {
+  max-width: 52rem;
+  line-height: 1.6;
+}
+
+.settings-heading-copy strong {
+  color: var(--color-text);
+  font-weight: 650;
 }
 
 .settings-utility-heading span,
@@ -79,12 +89,12 @@
 
 .settings-card {
   display: grid;
-  gap: var(--space-4);
-  padding: clamp(var(--space-4), 3vw, var(--space-6));
+  gap: var(--space-3);
+  padding: clamp(var(--space-4), 2.5vw, var(--space-5));
   background: var(--color-workspace-background);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-panel);
+  box-shadow: none;
 }
 
 .settings-card > header {
@@ -102,7 +112,7 @@
 .settings-card dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin: 0;
 }
 
@@ -110,7 +120,7 @@
   min-width: 0;
   display: grid;
   gap: var(--space-1);
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   background: var(--color-surface-muted);
   border-radius: var(--radius-md);
 }
@@ -145,6 +155,27 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast), border-color var(--motion-fast);
+}
+
+.settings-card button:not(:disabled):hover,
+.settings-card button:not(:disabled):focus-visible {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.settings-card .settings-primary-action {
+  color: var(--color-text-on-structure);
+  background: var(--color-structure-background);
+  border-color: var(--color-structure-background);
+}
+
+.settings-card .settings-primary-action:not(:disabled):hover,
+.settings-card .settings-primary-action:not(:disabled):focus-visible {
+  color: var(--color-text-on-structure);
+  background: var(--color-structure-surface);
+  border-color: var(--color-accent);
 }
 
 .settings-card button:disabled {

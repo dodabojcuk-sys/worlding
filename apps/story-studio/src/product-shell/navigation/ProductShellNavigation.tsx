@@ -83,6 +83,10 @@ export function ProductShellNavigation(props: {
     </button>;
   };
 
+  const settingsControl = <button type="button" className="shell-space-link shell-settings-link" aria-label={t("nav.settings")} title={t("nav.settings")} data-shell-utility="settings" onClick={props.onSettings}>
+    <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
+  </button>;
+
   return <nav ref={navRef} className="shell-space-rail" aria-label={t("nav.label")} data-collapsed={props.collapsed}>
     <div className="shell-rail-header">
       <button type="button" className="shell-brand-home" title={t("brand.home")} aria-label={t("brand.home")} onClick={() => props.onSelect(primary[0])}>
@@ -94,6 +98,8 @@ export function ProductShellNavigation(props: {
       </button>
     </div>
     <div className="shell-rail-navigation">
+      <div className="shell-space-section is-utility-priority" aria-label={t("nav.utility")}>{settingsControl}</div>
+      <div className="shell-space-divider shell-settings-divider" role="separator" />
       <div className="shell-space-section" aria-label={t("nav.primary")}>{primary.map(renderDestination)}</div>
       <div className="shell-space-divider" role="separator" />
       <div className="shell-space-section is-derived" aria-label={t("nav.derivative")}>{derived.map(renderDestination)}</div>
@@ -101,9 +107,6 @@ export function ProductShellNavigation(props: {
     <div className="shell-rail-utility" aria-label={t("nav.utility")}>
       <button type="button" className="shell-space-link" aria-label={t("nav.account")} title={t("nav.account")} data-shell-utility="account" onClick={props.onAccount}>
         <span className="shell-space-icon" aria-hidden="true"><UserRound /></span><span className="shell-space-label">{t("nav.account")}</span>
-      </button>
-      <button type="button" className="shell-space-link" aria-label={t("nav.settings")} title={t("nav.settings")} data-shell-utility="settings" onClick={props.onSettings}>
-        <span className="shell-space-icon" aria-hidden="true"><Settings /></span><span className="shell-space-label">{t("nav.settings")}</span>
       </button>
     </div>
   </nav>;
