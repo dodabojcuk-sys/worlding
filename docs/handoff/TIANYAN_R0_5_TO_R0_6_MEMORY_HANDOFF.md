@@ -6,6 +6,7 @@
 - R0.5 reference base: `758790fd8a41bdddfe22d0f7823cc034ba2998bc`.
 - `R0_5_IMPLEMENTATION_HEAD=dd7034cd72d4edf0f1d0a536cdb4137505dd349e`.
 - `R0_5_FOUNDER_REPAIR_BASE_HEAD=334e20a4fb7acc45c30ff794c25d7e28831a52e9`; it only relocated the previous external visual-evidence paths and is an ancestor-preserving documentation correction.
+- GitHub remote: `https://github.com/dodabojcuk-sys/worlding`, public `origin/main`. A handoff reader must resolve its current remote head with `git ls-remote origin refs/heads/main`; this document must not claim its own commit hash.
 - `HANDOFF_READER_MUST_RESOLVE_CURRENT_HEAD_WITH=git rev-parse HEAD`.
 - Pre-existing `CORE.md` and `data/` changes remain outside R0.5 commits.
 - Push, deploy and Provider/model calls: zero.
@@ -46,6 +47,7 @@ Permanent deletion is intentionally blocked in the R0.5 UI. Existing impact enum
 - Reference SHA-256: `0acbc7f2671a41b9833ffbf081be1929c8c3fb0a3d9472347c64b2057ad6e4de`.
 - Repair evidence screenshots and per-capture manifests: `data/2026-08-29_天衍R0_5创始人退回修复/截图/`; they remain external work evidence and are deliberately not Git-tracked.
 - The installed Playwright browser verified isolated test data at 1920×1000, 1440×900 and 1152×720. It exercises real creation, required-field recovery, refresh and new-Shell durability, compact/multi/archive states, inspector selection and exact one-navigation-current behavior; console warnings/errors were zero.
+- A clean GitHub clone verified the tracked reference SHA, `npm ci`, `npm run verify`, and the real browser creation smoke. New work must begin from a freshly fetched `origin/main`, not a local worktree containing uncommitted `CORE.md` or `data/` artifacts.
 - Creation uses the existing `createCharacterCard` → WorldObject/Card Presentation owner. The dialog receives the returned stable `object.id`, reloads the directory projection, then writes URL focus and opens the read-only inspector. Category is a separate ObjectCatalog metadata write: failure leaves the created character intact and exposes retry; it never deletes to roll back.
 - WorldObjects follow the existing project-scoped projection rule. ObjectCatalog category/trash metadata is project-and-work-version scoped; no character title, summary, aliases or tags are copied into it. Founder visual status remains `REVIEW_REQUIRED` until independent review.
 - Validation environment was Node `v24.16.0`; the project navigation still records Node 22 as its target runtime.
