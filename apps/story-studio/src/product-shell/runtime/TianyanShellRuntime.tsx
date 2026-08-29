@@ -18,6 +18,7 @@ import { tianyiShellSessionStorageKey } from "./tianyiShellSessionRecovery";
 export type TianyanShellRuntimeState = {
   project: StoryStudioProject | null;
   workVersionLabel: string | null;
+  workVersionId: string | null;
   connectionState: "loading" | "ready" | "unavailable";
   modelStatus: ModelServiceStatus | null;
   permissionState: AgentPermissionState | null;
@@ -38,6 +39,7 @@ export function TianyanShellRuntime() {
   const storageProvider = useRef(new LocalFolderProvider()).current;
   const [project, setProject] = useState<StoryStudioProject | null>(null);
   const [workVersionLabel, setWorkVersionLabel] = useState<string | null>(null);
+  const [workVersionId, setWorkVersionId] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<TianyanShellRuntimeState["connectionState"]>("loading");
   const [modelStatus, setModelStatus] = useState<ModelServiceStatus | null>(null);
   const [permissionState, setPermissionState] = useState<AgentPermissionState | null>(null);
@@ -55,6 +57,7 @@ export function TianyanShellRuntime() {
       if (!activeProject) {
         setSharedSessionId(null);
         setWorkVersionLabel(null);
+        setWorkVersionId(null);
         setConnectionState("ready");
         return;
       }
@@ -70,6 +73,7 @@ export function TianyanShellRuntime() {
       if (versionResult.status === "fulfilled") {
         const root = versionResult.value.root;
         setWorkVersionLabel(root ? `${root.name} · r${root.revision}` : null);
+        setWorkVersionId(root?.id ?? null);
       }
       if (runtimeResult.status === "fulfilled") {
         setModelStatus(runtimeResult.value[0]);
@@ -101,6 +105,7 @@ export function TianyanShellRuntime() {
   const runtime = useMemo<TianyanShellRuntimeState>(() => ({
     project,
     workVersionLabel,
+    workVersionId,
     connectionState,
     modelStatus,
     permissionState,
@@ -110,7 +115,7 @@ export function TianyanShellRuntime() {
     setSharedDraft,
     setPermissionProfile,
     withConnection
-  }), [connectionState, modelStatus, permissionState, persistSharedSessionId, project, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionLabel]);
+  }), [connectionState, modelStatus, permissionState, persistSharedSessionId, project, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionId, workVersionLabel]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

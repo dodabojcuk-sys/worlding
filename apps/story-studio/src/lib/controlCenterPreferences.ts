@@ -6,6 +6,8 @@ import {
 } from "./sidebarLayout.ts";
 
 export const CONTROL_CENTER_PREFERENCES_KEY = "story-studio:ai-control-center:v1";
+export const OBJECT_DIRECTORY_PREFERENCES_KEY = "story-studio:object-directory-ui:v1";
+export type ObjectDirectoryDensity = "standard" | "compact";
 
 export const TIANYI_PANEL_MIN_WIDTH_PX = 360;
 export const TIANYI_PANEL_DEFAULT_WIDTH_PX = 380;
@@ -55,6 +57,21 @@ export type ControlCenterPreferences = {
 };
 
 export type PreferenceStorage = Pick<Storage, "getItem" | "setItem">;
+
+export function readObjectDirectoryDensity(storage: PreferenceStorage | null | undefined, userId: string, objectType: string): ObjectDirectoryDensity {
+  try {
+    const parsed = JSON.parse(storage?.getItem(OBJECT_DIRECTORY_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
+    return parsed[`${userId}:${objectType}`] === "compact" ? "compact" : "standard";
+  } catch { return "standard"; }
+}
+
+export function saveObjectDirectoryDensity(storage: PreferenceStorage | null | undefined, userId: string, objectType: string, density: ObjectDirectoryDensity) {
+  try {
+    const parsed = JSON.parse(storage?.getItem(OBJECT_DIRECTORY_PREFERENCES_KEY) || "{}") as Record<string, unknown>;
+    storage?.setItem(OBJECT_DIRECTORY_PREFERENCES_KEY, JSON.stringify({ ...parsed, [`${userId}:${objectType}`]: density }));
+  } catch { /* Display preferences never block project data. */ }
+  return density;
+}
 
 /** Browser-only storage for UI preferences and non-sensitive provider drafts. */
 export function getBrowserPreferenceStorage(): PreferenceStorage | null {

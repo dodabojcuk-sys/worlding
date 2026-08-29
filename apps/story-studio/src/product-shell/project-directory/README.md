@@ -7,3 +7,5 @@
 主要入口是 `ProjectDirectoryPanel.tsx`；目录展示数据由 `projectDirectoryViewModel.ts` 组装，语义合同位于 `src/storyContracts/projectDirectoryContract.ts`。对象链接把项目、对象、版本和来源标识放进 URL，刷新与前进/后退可恢复焦点；状态 owner 是当前 Shell 的瞬时 UI 状态与既有领域 owner 提供的只读投影。
 
 对应测试位于 `tests/storyContracts/projectDirectoryContract.test.ts` 与 `tests/storyContracts/tianyanR0ShellContract.test.ts`。以后新增目录分组、节点展示或搜索投影放在这里，不在 `App.tsx` 或 Shell 根组件中堆叠。
+
+`character/` 是第一个真实对象目录实例：它复用同一浅色目录槽，读取 WorldObject 和 ObjectCatalog 投影，并通过 URL 打开右侧只读检查器。目录密度属于 `controlCenterPreferences.ts` 的浏览器 UI 偏好；分类与回收站元数据属于 `src/storyWorkspace/objectCatalog.ts`。归档状态仍只来自 WorldObject owner。

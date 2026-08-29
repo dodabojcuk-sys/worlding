@@ -14,6 +14,7 @@ const apiPort = 4397;
 const baseUrl = `http://127.0.0.1:${port}`;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "tianyan-r0-shell-smoke-"));
+const controlToken = "tianyan-r0-shell-smoke-token";
 let server;
 let apiServer;
 let browser;
@@ -22,9 +23,10 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0" }
+    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0" }
   });
   await waitForApiServer();
+  await setupCharacterFixture();
   server = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js",
     "--config",
@@ -46,6 +48,7 @@ try {
   await page.getByTestId("tianyan-r0-shell").waitFor();
   await assertCollapsedIconRail(page);
   await assertPermissionProjection(page);
+  await assertCharacterDirectoryAndInspector(page);
 
   await page.locator(".shell-rail-collapse").click();
   await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
@@ -55,7 +58,7 @@ try {
   await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
   await assertExpandedLabels(page, "en-US");
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
-  console.log("tianyan R0 shell smoke PASS: 1152x720 uses a 56px icon rail automatically and expanded labels remain complete in zh-CN/en-US");
+  console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
 } finally {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
@@ -75,6 +78,22 @@ async function assertPermissionProjection(page) {
   assert.deepEqual(state.disabled, ["仅建议未授权", "授权编辑未授权"], "Only broker-backed permissions are interactive in the R0.3 shell.");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
+}
+
+async function assertCharacterDirectoryAndInspector(page) {
+  const workspaceBefore = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
+  await page.locator('[data-directory-node="directory.library.character"]').click();
+  await page.getByTestId("character-directory").waitFor();
+  assert.equal(await page.locator(".character-directory-list input[type=checkbox]").count(), 0, "Default directory has no selection checkboxes");
+  await page.getByRole("option", { name: /林昭/u }).click();
+  await page.getByTestId("character-inspector").waitFor();
+  const workspaceAfter = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
+  assert.deepEqual(workspaceAfter, workspaceBefore, "Opening the inspector must not remount or resize the central workspace");
+  assert.match(page.url(), /directoryObject=character\./u);
+  assert.equal(await page.getByRole("button", { name: "打开完整资料" }).count(), 1);
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
+  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
 }
 
 async function assertCollapsedIconRail(page) {
@@ -155,4 +174,18 @@ async function waitForApiServer() {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Tianyan R0 shell smoke API did not become ready");
+}
+
+async function setupCharacterFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: "r05-character-directory" });
+  for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }]) {
+    await postFixture(`${base}/characters/create`, { projectId: "r05-character-directory", title: character.title, mode: "freeform", subtype: character.subtype });
+  }
+}
+
+async function postFixture(url, body) {
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-world-os-local-control-token": controlToken }, body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(`Fixture request failed: ${response.status} ${await response.text()}`);
+  return response.json();
 }

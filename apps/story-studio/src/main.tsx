@@ -5,6 +5,7 @@ import { App } from "./App";
 import "./product-shell/theme/tokens.css";
 import "./styles/tianyan-r0-shell.css";
 import "./styles/project-directory.css";
+import "./styles/character-directory.css";
 import "./styles/right-dock.css";
 import "./styles/tianyi-sidebar.css";
 import "./styles/event-line-projection.css";
