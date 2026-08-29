@@ -40,7 +40,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [locationRevision, setLocationRevision] = useState(0);
   const [railPreference, setRailPreference] = useState<ShellRailPreference>(() => {
     const requested = new URLSearchParams(window.location.search).get("rail");
-    return requested === "collapsed" || requested === "expanded" ? requested : "auto";
+    // A full, named space rail is the desktop default.  Compact mode is an
+    // author choice, not a side effect of opening the product at a narrower
+    // desktop width.
+    return requested === "collapsed" || requested === "expanded" ? requested : "expanded";
   });
   const [autoCollapseRail, setAutoCollapseRail] = useState(() => window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY).matches);
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);

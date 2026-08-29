@@ -1,80 +1,49 @@
 .settings-utility-route {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
   color: var(--color-text);
   background: var(--color-app-background);
   overflow: auto;
 }
 
-.settings-utility-nav {
-  position: sticky;
-  inset-block-start: 0;
-  min-height: 100vh;
-  align-self: start;
-  display: grid;
-  align-content: start;
-  gap: var(--space-6);
-  padding: var(--space-6);
-  color: var(--color-text-on-structure);
-  background: var(--color-structure-background);
-}
-
-.settings-back-link,
-.settings-utility-nav nav a {
+.settings-back-link {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 2.75rem;
-  padding: var(--space-2) var(--space-3);
-  color: inherit;
+  width: fit-content;
+  padding: var(--space-2) 0;
+  color: var(--color-text);
   text-decoration: none;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
 }
 
 .settings-back-link:hover,
-.settings-utility-nav nav a:hover,
-.settings-back-link:focus-visible,
-.settings-utility-nav nav a:focus-visible {
+.settings-back-link:focus-visible {
   background: var(--color-structure-surface);
   border-color: var(--color-accent);
 }
 
 .settings-back-link svg,
-.settings-utility-nav nav svg,
 .settings-card > header > svg {
   inline-size: 1.125rem;
   block-size: 1.125rem;
   flex: 0 0 auto;
 }
 
-.settings-utility-nav h1,
-.settings-utility-heading h2,
+.settings-utility-heading h1,
 .settings-card h2,
-.settings-utility-nav p,
 .settings-utility-heading p,
 .settings-card p {
   margin: 0;
 }
 
-.settings-utility-nav h1 {
-  margin-block: var(--space-1);
-  font: 500 2rem/1.1 var(--font-display);
-}
-
-.settings-utility-nav small,
 .settings-utility-heading p,
 .settings-card header p {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.settings-utility-nav nav {
-  display: grid;
-  gap: var(--space-1);
 }
 
 .settings-utility-content {
@@ -87,13 +56,19 @@
 
 .settings-utility-heading {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding-block-end: var(--space-4);
   border-block-end: 1px solid var(--color-border);
 }
 
-.settings-utility-heading h2 {
+.settings-utility-heading h1 {
+  margin: 0;
   font: 500 clamp(1.75rem, 3vw, 2.5rem)/1.1 var(--font-display);
+}
+
+.settings-utility-heading > div {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .settings-utility-heading span,
@@ -256,15 +231,11 @@
 .agent-provider-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 @media (max-width: 72rem) {
-  .settings-utility-route { grid-template-columns: 13rem minmax(0, 1fr); }
   .agent-permission-settings { grid-template-columns: 1fr; }
   .agent-provider-profile { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 48rem) {
-  .settings-utility-route { display: block; }
-  .settings-utility-nav { position: static; min-height: auto; }
-  .settings-utility-nav nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-card dl { grid-template-columns: 1fr; }
 }
 

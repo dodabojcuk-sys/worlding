@@ -11,6 +11,8 @@ test("settings is an independent utility route wired to storage, transfer, Provi
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
   assert.match(app, /pathname\.startsWith\("\/settings\/"\)/);
   assert.match(route, /data-settings-route="utility"/);
+  assert.doesNotMatch(route, /settings-utility-nav/);
+  assert.match(route, /当前作品：/);
   assert.match(route, /SettingsStorageSection/);
   assert.match(route, /SettingsTransferSection/);
   assert.match(route, /AgentSettingsSection/);
@@ -22,6 +24,7 @@ test("settings is an independent utility route wired to storage, transfer, Provi
   assert.match(agent, /agent-default-permission/);
   assert.match(shell, /window\.location\.assign\("\/settings\/storage"\)/);
   assert.doesNotMatch(shell, /SettingsStorageSection|SettingsTransferSection|AgentSettingsSection|getModelServiceStatus|getAgentPermissionState|setAgentPermissionProfile/);
+  assert.match(shell, /requested === "collapsed" \|\| requested === "expanded" \? requested : "expanded"/);
 });
 
 test("Pi artifact wiring uses the Workspace-owned policy and checks WorkVersion before the formal owner", () => {

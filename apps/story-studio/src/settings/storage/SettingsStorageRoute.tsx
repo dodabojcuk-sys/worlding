@@ -1,4 +1,4 @@
-import { ArrowLeft, Bot, Database, HardDrive, PackageOpen } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -91,18 +91,11 @@ export function SettingsStorageRoute() {
   });
 
   return <main className="settings-utility-route" data-route="settings-storage" data-settings-route="utility">
-    <aside className="settings-utility-nav" aria-label="设置导航">
-      <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>
-      <div><small>天衍</small><h1>设置</h1><p>{project?.title ?? "尚未打开项目"}</p></div>
-      <nav>
-        <a href="#storage"><HardDrive aria-hidden="true" />存储与备份</a>
-        <a href="#transfer"><PackageOpen aria-hidden="true" />导入与导出</a>
-        <a href="#agent"><Bot aria-hidden="true" />模型与 Provider</a>
-        <a href="#agent"><Database aria-hidden="true" />Pi Agent 与权限</a>
-      </nav>
-    </aside>
     <div className="settings-utility-content">
-      <header className="settings-utility-heading"><p>独立 utility 路由</p><h2>本地工作区设置</h2><span>配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></header>
+      <header className="settings-utility-heading">
+      <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>
+        <div><p>设置</p><h1>本地工作区设置</h1><span>{project?.title ? `当前作品：${project.title}。` : "尚未打开作品。"} 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
+      </header>
       <div id="storage"><SettingsStorageSection
         projectId={project?.id ?? null}
         onReveal={() => project ? withToken(() => revealStorageProject(project.id)) : Promise.reject(new Error("请先打开项目。"))}
