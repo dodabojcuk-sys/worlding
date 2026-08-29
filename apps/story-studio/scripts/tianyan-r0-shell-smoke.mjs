@@ -107,6 +107,10 @@ async function assertCharacterDirectoryAndInspector(page) {
 async function assertCharacterCreationDurability(page) {
   await waitForCharacterDirectoryIdle(page);
   await page.getByRole("button", { name: "完成", exact: true }).click();
+  const recordCountBeforeCancel = await page.locator(".character-directory-list [role='option']").count();
+  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.getByRole("dialog", { name: "新建角色" }).getByRole("button", { name: "取消", exact: true }).click();
+  assert.equal(await page.locator(".character-directory-list [role='option']").count(), recordCountBeforeCancel, "Cancelling the create dialog must not write a character");
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByRole("dialog", { name: "新建角色" }).waitFor();
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
@@ -130,16 +134,29 @@ async function assertCharacterCreationDurability(page) {
 
   await page.reload({ waitUntil: "networkidle" });
   await page.getByTestId("character-directory").waitFor();
+  await waitForCharacterDirectoryIdle(page);
   assert.equal(await page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a browser refresh");
   const freshContext = await browser.newContext({ viewport: { width: 1152, height: 720 } });
   const freshSession = await freshContext.newPage();
   try {
     await freshSession.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
     await freshSession.getByTestId("character-directory").waitFor();
+    await waitForCharacterDirectoryIdle(freshSession);
     assert.equal(await freshSession.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a new Shell session");
   } finally {
     await freshContext.close();
   }
+  await assertCreatedCharacterIsProjectIsolated();
+}
+
+async function assertCreatedCharacterIsProjectIsolated() {
+  const projectId = "r05-character-directory-isolated";
+  const base = `${apiUrl}/__local/story-studio`;
+  await postFixture(`${base}/projects/create`, { title: "隔离项目", folderSlug: projectId });
+  const response = await fetch(`${base}/world-library?projectId=${encodeURIComponent(projectId)}`);
+  if (!response.ok) throw new Error(`Isolated project read failed: ${response.status}`);
+  const payload = await response.json();
+  assert.equal(payload.data.objects.some((object) => object.title === "沈砚"), false, "A created character must not appear in another project");
 }
 
 async function waitForCharacterDirectoryIdle(page) {
