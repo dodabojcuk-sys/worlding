@@ -8,13 +8,15 @@
   background: var(--color-surface);
   border-inline-start: 1px solid var(--color-border);
 }
-.tianyi-sidebar > header { min-height: 3.625rem; display: flex; align-items: center; justify-content: space-between; padding-inline: var(--space-4); }
-.tianyi-sidebar > header div { display: flex; align-items: center; gap: var(--space-2); }
-.tianyi-sidebar > header svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
-.tianyi-sidebar > header button { inline-size: 2rem; block-size: 2rem; display: grid; place-items: center; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
-.tianyi-mode-switch { display: grid; grid-template-columns: 1fr 1fr; margin: 0 var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; }
-.tianyi-mode-switch button { min-height: 2.25rem; color: var(--color-text-muted); background: transparent; border: 0; cursor: pointer; }
-.tianyi-mode-switch button[aria-selected="true"] { color: var(--color-text-on-structure); background: var(--color-accent); }
+.tianyi-sidebar-header { min-height: 3.125rem; display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-4); border-block-end: 1px solid var(--color-border); }
+.tianyi-sidebar-heading { min-width: 0; display: flex; align-items: center; gap: var(--space-2); }
+.tianyi-sidebar-heading svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.tianyi-sidebar-heading strong { white-space: nowrap; }
+.tianyi-sidebar-header > button { inline-size: 1.75rem; block-size: 1.75rem; flex: 0 0 auto; display: grid; place-items: center; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.tianyi-mode-switch { display: inline-flex; align-self: stretch; align-items: center; gap: var(--space-1); margin-inline-start: auto; }
+.tianyi-mode-switch button { min-height: 1.75rem; padding: 0 var(--space-2); color: var(--color-text-muted); background: transparent; border: 0; border-block-end: 2px solid transparent; cursor: pointer; font-size: var(--font-size-xs); }
+.tianyi-mode-switch button[aria-selected="true"] { color: var(--color-accent); border-block-end-color: currentColor; font-weight: 650; }
+.tianyi-mode-switch button:hover { color: var(--color-text); }
 .tianyi-sidebar-stage { min-height: 0; flex: 1; display: grid; overflow: auto; padding: var(--space-4); }
 .tianyi-sidebar-empty,
 .tianyi-agent-stage { align-self: center; display: grid; gap: var(--space-3); color: var(--color-text-muted); line-height: 1.65; }

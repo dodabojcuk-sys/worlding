@@ -83,6 +83,45 @@ test("R0.1 command panel is a global shell entry, not a business search surface"
   assert.doesNotMatch(topbar, /shell-global-search|type="search"/);
 });
 
+test("desktop topbar exposes presentation controls and honest runtime states without a duplicate settings menu", () => {
+  const topbar = readFileSync("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx", "utf8");
+  const theme = readFileSync("apps/story-studio/src/product-shell/theme/theme.ts", "utf8");
+  const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
+
+  assert.match(topbar, /SHELL_THEME_REGISTRY/);
+  assert.match(theme, /SHELL_THEME_REGISTRY/);
+  assert.match(topbar, /CloudOff/);
+  assert.match(topbar, /topbar\.localStatus/);
+  assert.match(topbar, /topbar\.syncStatus/);
+  assert.match(topbar, /shell-topbar-text-control/);
+  assert.doesNotMatch(topbar, /Settings2|shell-tools-popover|shell-tools-menu/);
+  assert.ok(topbar.indexOf("topbar.languageValue") < topbar.indexOf("{themeLabel}"));
+  assert.ok(topbar.indexOf("{themeLabel}") < topbar.indexOf("topbar.localStatus"));
+  assert.ok(topbar.indexOf("topbar.localStatus") < topbar.indexOf("topbar.syncStatus"));
+  assert.ok(topbar.indexOf("topbar.syncStatus") < topbar.indexOf("panel.projectDirectory"));
+  assert.match(styles, /shell-topbar-divider/);
+  assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
+});
+
+test("Tianyi keeps the shared-session mode tabs in its title row with a light active indicator", () => {
+  const sidebar = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
+  const modeSwitch = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiModeSwitch.tsx", "utf8");
+  const styles = readFileSync("apps/story-studio/src/styles/tianyi-sidebar.css", "utf8");
+
+  assert.match(sidebar, /tianyi-sidebar-header[\s\S]*TianyiModeSwitch[\s\S]*panel\.closeGlobalTianyi/);
+  assert.match(sidebar, /data-shared-session-id/);
+  assert.match(modeSwitch, /role="tablist"/);
+  assert.match(modeSwitch, /role="tab"/);
+  assert.match(modeSwitch, /aria-selected/);
+  assert.match(styles, /\.tianyi-mode-switch \{ display: inline-flex/);
+  assert.match(styles, /border-block-end: 2px solid transparent/);
+  assert.match(styles, /button\[aria-selected="true"\][\s\S]*border-block-end-color: currentColor/);
+  const modeRule = styles.match(/\.tianyi-mode-switch \{([^}]*)\}/)?.[1] ?? "";
+  const activeModeRule = styles.match(/\.tianyi-mode-switch button\[aria-selected="true"\] \{([^}]*)\}/)?.[1] ?? "";
+  assert.doesNotMatch(modeRule, /grid-template-columns: 1fr 1fr/);
+  assert.doesNotMatch(activeModeRule, /background: var\(--color-accent\)/);
+});
+
 test("account and settings remain independent rail utilities", () => {
   const navigation = readFileSync("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "utf8");
   const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");

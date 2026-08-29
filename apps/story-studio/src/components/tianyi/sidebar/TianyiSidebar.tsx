@@ -22,11 +22,11 @@ export function TianyiSidebar(props: {
     if (item?.requiredMode === "agent") setMode("agent");
   };
   return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-shared-session-id={props.sharedSessionIdentity}>
-    <header>
-      <div><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
+    <header className="tianyi-sidebar-header">
+      <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
+      <TianyiModeSwitch mode={mode} onMode={setMode} />
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
-    <TianyiModeSwitch mode={mode} onMode={setMode} />
     <section className="tianyi-sidebar-stage">
       {mode === "dialogue"
         ? <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.sharedConversation")}</strong><p>{t("tianyi.noTransport")}</p><small>{t("tianyi.sessionIdentity")}: {props.sharedSessionIdentity}</small></div>
