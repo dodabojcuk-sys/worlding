@@ -16,6 +16,7 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(route, /activeSection === "storage"/);
   assert.match(route, /activeSection === "transfer"/);
   assert.match(route, /activeSection === "agent"/);
+  assert.match(route, /presentation === "utility" && <header className="settings-utility-heading">/);
   assert.match(route, /当前作品：/);
   assert.match(route, /SettingsStorageSection/);
   assert.match(route, /SettingsTransferSection/);
