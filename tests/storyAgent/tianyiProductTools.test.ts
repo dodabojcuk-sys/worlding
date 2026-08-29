@@ -14,7 +14,8 @@ test("artifact tool writes only after approval through the Workspace owner and k
     scope,
     workspacePathPolicy: { assertArtifactRelativePath(input) { checked.push(input); assert.match(input.relativeId, /^artifacts\//u); } },
     createArtifact(input) { writes.push(input); return { id: "artifact.fixture", relativeId: "artifacts/fixture.md" }; },
-    async createEntityProposal() { throw new Error("not used"); }
+    async createEntityProposal() { throw new Error("not used"); },
+    async createEventGraphCandidate() { throw new Error("not used"); }
   });
   const artifact = tools.find((tool) => tool.name === "create_artifact")!;
   await assert.rejects(artifact.execute({ toolCallId: "call.no-approval", arguments: { type: "screenplay", title: "草稿", content: "正文" }, approvalReceiptId: null }), /审批回执/);
@@ -42,7 +43,8 @@ test("entity tool only hands approved character/item/location proposals to pendi
   const tools = createTianyiProductTools({
     scope,
     createArtifact() { throw new Error("not used"); },
-    async createEntityProposal(input) { proposals.push(input); return { proposalId: "proposal.fixture", status: "pending" }; }
+    async createEntityProposal(input) { proposals.push(input); return { proposalId: "proposal.fixture", status: "pending" }; },
+    async createEventGraphCandidate() { throw new Error("not used"); }
   });
   const proposal = tools.find((tool) => tool.name === "propose_entity_candidate")!;
   await assert.rejects(proposal.execute({ toolCallId: "call.rejected", arguments: { kind: "character", title: "守门人" }, approvalReceiptId: null }), /审批回执/);
@@ -52,4 +54,24 @@ test("entity tool only hands approved character/item/location proposals to pendi
   assert.equal((proposals[0] as any).workVersionId, scope.workVersionId);
   await assert.rejects(proposal.execute({ toolCallId: "call.canon", arguments: { kind: "event", title: "直接进正史" }, approvalReceiptId }), /安全的现有资料 Owner/);
   assert.equal(proposals.length, 1);
+});
+
+test("event graph tool submits only an approved relation candidate to the existing Relation owner", async () => {
+  const candidates: unknown[] = [];
+  const tools = createTianyiProductTools({
+    scope,
+    createArtifact() { throw new Error("not used"); },
+    async createEntityProposal() { throw new Error("not used"); },
+    async createEventGraphCandidate(input) { candidates.push(input); return { relationId: "relation.fixture", reviewState: "candidate" }; }
+  });
+  const tool = tools.find((candidate) => candidate.name === "submit_event_graph_candidate")!;
+  const argumentsValue = { sourceEventId: "event.fixture.one", targetEventId: "event.fixture.two", relationTypeId: "relation-type.fixture", direction: "forward" };
+  await assert.rejects(tool.execute({ toolCallId: "call.no-approval", arguments: argumentsValue, approvalReceiptId: null }), /审批回执/);
+  assert.equal(candidates.length, 0);
+  const result = await tool.execute({ toolCallId: "call.approved", arguments: argumentsValue, approvalReceiptId });
+  assert.equal((result as { reviewState: string }).reviewState, "candidate");
+  assert.equal((candidates[0] as { sourceEventId: string }).sourceEventId, "event.fixture.one");
+  assert.equal((candidates[0] as { sourceReceiptId: string }).sourceReceiptId, approvalReceiptId);
+  await assert.rejects(tool.execute({ toolCallId: "call.loop", arguments: { ...argumentsValue, targetEventId: argumentsValue.sourceEventId }, approvalReceiptId }), /不同的正式事件/);
+  assert.equal(candidates.length, 1);
 });

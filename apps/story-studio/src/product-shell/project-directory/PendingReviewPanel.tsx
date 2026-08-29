@@ -3,21 +3,26 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   decideSourceImportCandidate,
+  confirmRelationCandidate,
   editAgentRecognitionProposal,
   getGoldenLoopCandidateReview,
   ignoreAgentRecognitionProposal,
+  listRelations,
   listAgentRecognitionProposals,
   listSourceImportReviews,
+  rejectRelationCandidate,
+  updateRelationCandidate,
   confirmAgentRecognitionObject,
   type AgentRecognitionProposal
 } from "../../lib/localTransport";
 import type { ProjectDirectoryStableReference } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
+import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { useI18n } from "../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 type PendingItem = {
   id: string;
-  kind: "source" | "golden" | "agent" | "agent-type";
+  kind: "source" | "golden" | "agent" | "agent-type" | "relation";
   title: string;
   summary: string;
   source: string;
@@ -25,6 +30,7 @@ type PendingItem = {
   sourceDocumentId?: string;
   candidateId?: string;
   proposal?: AgentRecognitionProposal;
+  relation?: RelationReadProjectionR0;
 };
 
 function AgentProposalEditor(props: { proposal: AgentRecognitionProposal; busy: boolean; onSave(name: string, uncertainties: string[]): Promise<void> }) {
@@ -48,6 +54,18 @@ function AgentProposalEditor(props: { proposal: AgentRecognitionProposal; busy: 
   </details>;
 }
 
+function RelationCandidateEditor(props: { relation: RelationReadProjectionR0; busy: boolean; onSave(direction: RelationReadProjectionR0["direction"]): Promise<void> }) {
+  const [direction, setDirection] = useState<RelationReadProjectionR0["direction"]>(props.relation.direction);
+  useEffect(() => setDirection(props.relation.direction), [props.relation.relationId, props.relation.revision, props.relation.direction]);
+  return <details className="pending-agent-editor">
+    <summary>编辑关系</summary>
+    <form onSubmit={(event) => { event.preventDefault(); void props.onSave(direction); }}>
+      <label>方向<select value={direction} onChange={(event) => setDirection(event.target.value as RelationReadProjectionR0["direction"])}><option value="forward">正向</option><option value="reverse">反向</option><option value="both">双向</option><option value="none">无方向</option></select></label>
+      <button type="submit" disabled={props.busy}>保存编辑</button>
+    </form>
+  </details>;
+}
+
 /**
  * A directory-local review projection. It orchestrates existing formal ports
  * but owns neither candidate state nor story facts.
@@ -67,10 +85,11 @@ export function PendingReviewPanel(props: {
     setLoading(true);
     try {
       const projectId = props.runtime.project.id;
-      const [imports, golden, proposals] = await Promise.all([
+      const [imports, golden, proposals, relations] = await Promise.all([
         listSourceImportReviews(projectId),
         getGoldenLoopCandidateReview(projectId),
-        props.runtime.withConnection((token) => listAgentRecognitionProposals(projectId, token))
+        props.runtime.withConnection((token) => listAgentRecognitionProposals(projectId, token)),
+        listRelations({ projectId, reviewState: "candidate" })
       ]);
       const sourceItems = imports.flatMap((document) => document.candidates
         .filter((candidate) => candidate.status === "pending")
@@ -108,7 +127,16 @@ export function PendingReviewPanel(props: {
           : [];
         return [base, ...typeProposal];
       });
-      setItems([...sourceItems, ...goldenItems, ...agentItems]);
+      const relationItems = relations.relations.map((relation): PendingItem => ({
+        id: `relation:${relation.relationId}`,
+        kind: "relation",
+        title: relation.currentTypeLabel ?? relation.relationLabelSnapshot,
+        summary: `${relation.sourceObjectId} → ${relation.targetObjectId}${relation.evidenceWarnings.length ? ` · ${relation.evidenceWarnings.length} 条证据需要核验` : ""}`,
+        source: "事件关系候选",
+        duplicateTargetId: null,
+        relation
+      }));
+      setItems([...sourceItems, ...goldenItems, ...agentItems, ...relationItems]);
     } catch {
       setNotice(t("directory.unavailable"));
     } finally { setLoading(false); }
@@ -117,7 +145,7 @@ export function PendingReviewPanel(props: {
   useEffect(() => { void reload(); }, [reload]);
   const perform = async (id: string, action: () => Promise<void>) => {
     setBusy(id); setNotice(null);
-    try { await action(); await reload(); }
+    try { await action(); window.dispatchEvent(new Event("story-studio-pending-review-changed")); await reload(); }
     catch (error) { setNotice(error instanceof Error ? error.message : t("pending.actionFailed")); }
     finally { setBusy(null); }
   };
@@ -133,6 +161,10 @@ export function PendingReviewPanel(props: {
     const object = { objectType, title: proposal.suggestedName, status: "active", tags: [t("pending.agentTag")], aliases: [], body: `# ${proposal.suggestedName}\n\n${proposal.uncertainties.join("\n")}`, profile: null };
     await props.runtime.withConnection((token) => confirmAgentRecognitionObject({ projectId: props.runtime.project!.id, proposalId: proposal.proposalId, expectedProposalRevision: proposal.revision, operationId: `directory-confirm-${proposal.proposalId}-${proposal.revision}`, object, token }));
   };
+  const approveRelation = async (item: PendingItem) => {
+    if (!props.runtime.project || !item.relation) return;
+    await props.runtime.withConnection((token) => confirmRelationCandidate({ projectId: props.runtime.project!.id, relationId: item.relation!.relationId, expectedRelationRevision: item.relation!.revision, operationId: `directory-confirm-relation-${item.relation!.relationId}-${item.relation!.revision}`, token }));
+  };
 
   if (loading) return <p className="project-directory-empty">{t("common.loading")}</p>;
   return <section className="pending-review-panel" aria-label={t("directory.pending")} data-story-fact-owner="false">
@@ -146,6 +178,10 @@ export function PendingReviewPanel(props: {
         const proposal = item.proposal!;
         await props.runtime.withConnection((token) => editAgentRecognitionProposal({ projectId: props.runtime.project!.id, proposalId: proposal.proposalId, expectedRevision: proposal.revision, suggestedName, suggestedFields: proposal.suggestedFields, uncertainties, duplicateMatches: proposal.duplicateMatches, token }));
       })} />}
+      {item.kind === "relation" && item.relation && <RelationCandidateEditor relation={item.relation} busy={busy === item.id} onSave={(direction) => perform(item.id, async () => {
+        const relation = item.relation!;
+        await props.runtime.withConnection((token) => updateRelationCandidate({ projectId: props.runtime.project!.id, relationId: relation.relationId, expectedRelationRevision: relation.revision, direction, operationId: `directory-edit-relation-${relation.relationId}-${relation.revision}`, token }));
+      })} />}
       <footer>
         {item.kind === "source" && <button type="button" onClick={() => openSource(item)}><Eye aria-hidden="true" />{t("pending.viewSource")}</button>}
         {item.kind === "source" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => decideSourceImportCandidate({ projectId: props.runtime.project!.id, sourceDocumentId: item.sourceDocumentId!, candidateId: item.candidateId!, decision: "accepted", token })); })}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
@@ -153,6 +189,8 @@ export function PendingReviewPanel(props: {
         {item.kind === "source" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => decideSourceImportCandidate({ projectId: props.runtime.project!.id, sourceDocumentId: item.sourceDocumentId!, candidateId: item.candidateId!, decision: "rejected", token })); })}><X aria-hidden="true" />{t("pending.reject")}</button>}
         {item.kind === "agent" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, () => approveAgent(item))}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
         {item.kind === "agent" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => ignoreAgentRecognitionProposal({ projectId: props.runtime.project!.id, proposalId: item.proposal!.proposalId, expectedRevision: item.proposal!.revision, token })); })}><X aria-hidden="true" />{t("pending.reject")}</button>}
+        {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, () => approveRelation(item))}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
+        {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { const relation = item.relation!; await props.runtime.withConnection((token) => rejectRelationCandidate({ projectId: props.runtime.project!.id, relationId: relation.relationId, expectedRelationRevision: relation.revision, operationId: `directory-reject-relation-${relation.relationId}-${relation.revision}`, token })); })}><X aria-hidden="true" />{t("pending.reject")}</button>}
         {item.kind === "golden" && <small>{t("pending.goldenNeedsReview")}</small>}
         {item.kind === "agent-type" && <small>{t("pending.agentTypeReadOnly")}</small>}
         <button type="button" disabled={busy === item.id} onClick={() => setNotice(t("pending.deferred"))}><Pause aria-hidden="true" />{t("pending.defer")}</button>

@@ -98,6 +98,54 @@
   padding: 0;
 }
 
+.shell-workspace-event-line .event-graph-canvas {
+  display: grid;
+  min-block-size: min(42rem, calc(100dvh - 14rem));
+  max-inline-size: 82rem;
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.shell-workspace-event-line .event-graph-toolbar,
+.shell-workspace-event-line .event-graph-focus-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.shell-workspace-event-line .event-graph-toolbar p,
+.shell-workspace-event-line .event-graph-toolbar strong,
+.shell-workspace-event-line .event-graph-toolbar span,
+.shell-workspace-event-line .event-graph-focus-note span {
+  display: block;
+}
+
+.shell-workspace-event-line .event-graph-toolbar p { margin: 0 0 0.2rem; color: var(--color-accent); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-toolbar strong { font-size: var(--font-size-md); }
+.shell-workspace-event-line .event-graph-toolbar span,
+.shell-workspace-event-line .event-graph-focus-note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-toolbar > div:last-child { display: flex; gap: var(--space-2); }
+.shell-workspace-event-line .event-graph-toolbar button { display: inline-flex; align-items: center; gap: var(--space-1); min-block-size: 2.25rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .event-graph-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+.shell-workspace-event-line .event-graph-notice { margin: 0; padding: var(--space-2) var(--space-4); color: var(--color-text-muted); background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-graph-flow { min-block-size: 32rem; background: color-mix(in srgb, var(--color-workspace-background) 94%, var(--color-accent) 6%); }
+.shell-workspace-event-line .event-graph-node { min-inline-size: 11rem; max-inline-size: 13rem; display: grid; gap: 0.35rem; padding: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); }
+.shell-workspace-event-line .event-graph-node.is-focused { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-soft); }
+.shell-workspace-event-line .event-graph-node.is-selected { background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-graph-node.is-remote { border-style: dashed; opacity: 0.72; }
+.shell-workspace-event-line .event-graph-node small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-node strong { font-size: var(--font-size-sm); line-height: 1.4; }
+.shell-workspace-event-line .event-graph-node span,
+.shell-workspace-event-line .event-graph-focus-note { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-focus-note { justify-content: flex-start; border-block: 1px solid var(--color-border) 0; }
+.shell-workspace-event-line .event-graph-canvas .react-flow__handle { inline-size: 0.45rem; block-size: 0.45rem; background: var(--color-accent); border: 1px solid var(--color-surface); }
+
 .shell-workspace-event-line .event-line-unit,
 .shell-workspace-event-line .event-line-set-point {
   display: grid;

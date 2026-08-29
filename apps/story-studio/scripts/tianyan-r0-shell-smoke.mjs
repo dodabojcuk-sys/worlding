@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer as createNetServer } from "node:net";
 import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
@@ -11,8 +12,10 @@ import { assertCanonicalRuntime } from "../../../scripts/canonical-runtime.mjs";
 assertCanonicalRuntime();
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
-const port = 4396;
-const apiPort = 4397;
+// Smoke tests must not attach to a developer's already-running local app.
+// Each invocation receives an isolated pair and may still be pinned by CI.
+const port = await findAvailablePort(process.env.TIANYAN_E2E_PORT);
+const apiPort = await findAvailablePort(process.env.TIANYAN_E2E_API_PORT, port);
 const baseUrl = `http://127.0.0.1:${port}`;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const fixture = createTianyanE2eFixture();
@@ -27,6 +30,20 @@ let server;
 let apiServer;
 let browser;
 const r062Captures = [];
+
+async function findAvailablePort(requestedPort, excludedPort) {
+  const requested = Number(requestedPort || "0");
+  if (Number.isInteger(requested) && requested > 0 && requested !== excludedPort) return requested;
+  return await new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const candidate = typeof address === "object" && address ? address.port : 0;
+      probe.close((error) => error ? reject(error) : resolve(candidate));
+    });
+  });
+}
 
 try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {

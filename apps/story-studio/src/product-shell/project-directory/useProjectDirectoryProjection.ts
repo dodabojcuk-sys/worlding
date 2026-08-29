@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCreationSourcePortState, getGoldenLoopCandidateReview, getWorldLibrary, listAgentRecognitionProposals, listSourceImportReviews, listStoryUnits, type StoryStudioProject } from "../../lib/localTransport";
+import { getCreationSourcePortState, getGoldenLoopCandidateReview, getWorldLibrary, listAgentRecognitionProposals, listRelations, listSourceImportReviews, listStoryUnits, type StoryStudioProject } from "../../lib/localTransport";
 import type { ProjectDirectoryProjection } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 import { createEmptyProjectDirectoryProjection, createProjectDirectoryViewModel } from "./projectDirectoryViewModel";
 import type { TranslationKey } from "../i18n/translations";
@@ -9,15 +9,21 @@ export type DirectoryLoadState = { projectId: string | null; projection: Project
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
 export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection">): DirectoryLoadState {
   const [state, setState] = useState<DirectoryLoadState>(() => ({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), error: false }));
+  const [pendingRevision, setPendingRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => setPendingRevision((revision) => revision + 1);
+    window.addEventListener("story-studio-pending-review-changed", refresh);
+    return () => window.removeEventListener("story-studio-pending-review-changed", refresh);
+  }, []);
   useEffect(() => {
     if (!project) { setState({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), error: false }); return; }
     let current = true; setState({ projectId: project.id, projection: null, error: false });
-    void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id), getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id), runtime ? runtime.withConnection((token) => listAgentRecognitionProposals(project.id, token)) : Promise.resolve([])]).then(([library, units, source, imports, review, proposals]) => {
+    void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id), getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id), runtime ? runtime.withConnection((token) => listAgentRecognitionProposals(project.id, token)) : Promise.resolve([]), listRelations({ projectId: project.id, reviewState: "candidate" })]).then(([library, units, source, imports, review, proposals, relations]) => {
       if (!current || library.project.id !== project.id) return;
-      const pending = imports.flatMap((item) => item.candidates).filter((item) => item.status === "pending").length + (review?.candidates.filter((item) => item.status === "awaiting").length ?? 0) + proposals.filter((item) => item.status === "pending" || item.status === "edited").length;
+      const pending = imports.flatMap((item) => item.candidates).filter((item) => item.status === "pending").length + (review?.candidates.filter((item) => item.status === "awaiting").length ?? 0) + proposals.filter((item) => item.status === "pending" || item.status === "edited").length + relations.relations.length;
       setState({ projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, sources: imports, workVersionId: source.root?.id ?? null, pendingCount: pending }), error: false });
     }).catch(() => { if (current) setState({ projectId: project.id, projection: null, error: true }); });
     return () => { current = false; };
-  }, [project?.id, runtime, t]);
+  }, [pendingRevision, project?.id, runtime, t]);
   return state;
 }

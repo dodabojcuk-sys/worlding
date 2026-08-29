@@ -300,6 +300,23 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         description: "只读查看本次天意任务已经授权的引用范围。",
         inputSchema: { type: "object", required: [], properties: {}, additionalProperties: false },
         async execute() { return contextPayload; }
+      }, {
+        name: "read_event_focus_context",
+        label: "查看事件焦点关联",
+        description: "只读返回当前受控选择中的正式 Event 及既有 Relation 投影；不会从相邻节点推断事实。",
+        inputSchema: { type: "object", required: [], properties: {}, additionalProperties: false },
+        async execute() {
+          const selectedEventIds = input.contextManifest.selectedObjectIds.filter((eventId) => typeof eventId === "string" && eventId.length > 0).slice(0, 1);
+          const focusedEventId = selectedEventIds[0] ?? null;
+          const relations = focusedEventId
+            ? relationOperations.listRelations({ projectId: input.projectId, objectId: focusedEventId, includeArchived: false }).relations
+            : [];
+          return {
+            focusedEventId,
+            relations: relations.map((relation) => ({ relationId: relation.relationId, sourceObjectId: relation.sourceObjectId, targetObjectId: relation.targetObjectId, relationTypeId: relation.relationTypeId, label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, direction: relation.direction, reviewState: relation.reviewState, evidenceWarningCount: relation.evidenceWarnings.length })),
+            boundary: "formal-relation-owner"
+          };
+        }
       }, ...createTianyiProductTools({
         scope: { projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId },
         workspacePathPolicy,
@@ -329,6 +346,22 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
             }
           });
           return { proposalId: result.proposal.proposalId, status: result.proposal.status };
+        },
+        createEventGraphCandidate(command) {
+          const project = requireProject(command.projectId);
+          const authorAction = recordAuthorInitiatedAction(project.id, "library-write", "event-relation", [command.sourceEventId, command.targetEventId], "author");
+          const result = relationOperations.createRelationCandidate({
+            projectId: project.id,
+            sourceObjectId: command.sourceEventId,
+            targetObjectId: command.targetEventId,
+            relationTypeId: command.relationTypeId,
+            direction: command.direction,
+            sourceRef: `tianyi-agent:${command.sessionId}:${command.runId}`,
+            evidenceRefs: [{ kind: "agent-run", sessionId: command.sessionId, runId: command.runId, approvalReceiptId: command.sourceReceiptId }],
+            operationId: `tianyi-agent-event-graph:${command.runId}:${command.sourceEventId}:${command.targetEventId}:${command.relationTypeId}`,
+            authorActionReceiptId: authorAction.id
+          });
+          return { relationId: result.relation.relationId, reviewState: result.relation.reviewState };
         }
       })],
       authorizeTool: input.authorizeTool,
@@ -3143,7 +3176,11 @@ async function handleTianyiAgentRuntimeRequest(request, response, url) {
     const project = requireProject(body.projectId);
     const current = await tianyiAgentRuntime.getRunProjection(body);
     const step = current?.plan.find((candidate) => candidate.stepId === body.stepId);
-    const action = step?.toolName === "create_artifact" ? "draft-write" : step?.toolName === "propose_entity_candidate" ? "library-write" : "read-context";
+    const action = step?.toolName === "create_artifact"
+      ? "draft-write"
+      : step?.toolName === "propose_entity_candidate" || step?.toolName === "submit_event_graph_candidate"
+        ? "library-write"
+        : "read-context";
     recordAuthorInitiatedAction(project.id, action, "tianyi-agent-step", [body.runId, body.stepId], "author");
     sendJson(response, 200, { data: await tianyiAgentRuntime.approveStep(body) });
     return;

@@ -10,6 +10,7 @@ import "./styles/right-dock.css";
 import "./styles/tianyi-sidebar.css";
 import "./styles/event-line-projection.css";
 import "./styles/settings.css";
+import "@xyflow/react/dist/style.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Story Studio root element is missing.");

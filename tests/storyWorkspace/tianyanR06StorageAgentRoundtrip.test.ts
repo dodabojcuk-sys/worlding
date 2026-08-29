@@ -95,7 +95,8 @@ test("storage, Agent, pending confirmation and continuity survive restart plus .
           }
         });
         return { proposalId: created.proposal.proposalId, status: created.proposal.status };
-      }
+      },
+      async createEventGraphCandidate() { throw new Error("not used"); }
     });
     const artifactTool = tools.find((tool) => tool.name === "create_artifact")!;
     const proposalTool = tools.find((tool) => tool.name === "propose_entity_candidate")!;

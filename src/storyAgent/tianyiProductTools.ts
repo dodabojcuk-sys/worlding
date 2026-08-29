@@ -2,12 +2,14 @@ import type { AgentRuntimeTool } from "./agentRuntimePlugin.ts";
 import type { WorkspacePathPolicy } from "../storyWorkspace/workspacePathPolicy.ts";
 
 type Scope = { projectId: string; workVersionId: string; sessionId: string; runId: string };
+type EventGraphDirection = "forward" | "reverse" | "both" | "none";
 
 export function createTianyiProductTools(input: {
   scope: Scope;
   workspacePathPolicy?: WorkspacePathPolicy;
   createArtifact(command: { projectId: string; workVersionId: string; type: string; title: string; content: string; generationBrief: Record<string, unknown> }): Promise<{ id: string; relativeId: string }> | { id: string; relativeId: string };
   createEntityProposal(command: { projectId: string; sessionId: string; runId: string; workVersionId: string; kind: "character" | "item" | "location"; title: string; sourceReceiptId: string }): Promise<{ proposalId: string; status: string }>;
+  createEventGraphCandidate(command: { projectId: string; workVersionId: string; sessionId: string; runId: string; sourceEventId: string; targetEventId: string; relationTypeId: string; direction: EventGraphDirection; sourceReceiptId: string }): Promise<{ relationId: string; reviewState: "candidate" }>;
 }): AgentRuntimeTool[] {
   const scope = structuredClone(input.scope);
   return [{
@@ -44,6 +46,22 @@ export function createTianyiProductTools(input: {
       if (proposal.status !== "pending" && proposal.status !== "edited") throw new Error("候选 owner 返回了非待确认状态。");
       return { ...proposal, projectId: scope.projectId, workVersionId: scope.workVersionId, runId: scope.runId, sourceReceiptId };
     }
+  }, {
+    name: "submit_event_graph_candidate",
+    label: "提交事件关系候选",
+    description: "只在既有 Relation owner 中创建待确认关系；不会确认、不会写入 Canon。",
+    inputSchema: { type: "object", required: ["sourceEventId", "targetEventId", "relationTypeId"], properties: { sourceEventId: { type: "string", maxLength: 160 }, targetEventId: { type: "string", maxLength: 160 }, relationTypeId: { type: "string", maxLength: 160 }, direction: { type: "string", maxLength: 16 } }, additionalProperties: false },
+    async execute(call) {
+      const sourceReceiptId = requireApproval(call.approvalReceiptId);
+      const sourceEventId = requireBoundedString(call.arguments.sourceEventId, "来源事件", 160);
+      const targetEventId = requireBoundedString(call.arguments.targetEventId, "目标事件", 160);
+      if (sourceEventId === targetEventId) throw new Error("事件关系候选必须连接两条不同的正式事件。");
+      const relationTypeId = requireBoundedString(call.arguments.relationTypeId, "关系类型", 160);
+      const direction = requireEventGraphDirection(call.arguments.direction);
+      const relation = await input.createEventGraphCandidate({ ...scope, sourceEventId, targetEventId, relationTypeId, direction, sourceReceiptId });
+      if (relation.reviewState !== "candidate") throw new Error("Relation owner 返回了非待确认状态。");
+      return { ...relation, projectId: scope.projectId, workVersionId: scope.workVersionId, runId: scope.runId, sourceReceiptId, canonStatus: "not-canon" };
+    }
   }];
 }
 
@@ -60,6 +78,12 @@ function requireArtifactType(value: unknown): string {
 function requireProposalKind(value: unknown): "character" | "item" | "location" {
   if (value !== "character" && value !== "item" && value !== "location") throw new Error("该候选类型没有安全的现有资料 Owner。");
   return value;
+}
+
+function requireEventGraphDirection(value: unknown): EventGraphDirection {
+  if (value === undefined || value === null || value === "") return "forward";
+  if (value === "forward" || value === "reverse" || value === "both" || value === "none") return value;
+  throw new Error("事件关系方向不受支持。");
 }
 
 function requireBoundedString(value: unknown, label: string, maximum: number): string {

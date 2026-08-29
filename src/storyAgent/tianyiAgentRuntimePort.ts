@@ -170,6 +170,17 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
     idempotency: "operation-id"
   },
   {
+    name: "read_event_focus_context",
+    label: "查看事件焦点关联",
+    classification: "read",
+    owner: "tianyi-context",
+    requiredPermission: "none",
+    scope: "current-project",
+    timeoutMs: 3_000,
+    inputSchema: { type: "object", required: [], properties: {} },
+    idempotency: "operation-id"
+  },
+  {
     name: "read_pending_candidates",
     label: "查看待确认候选",
     classification: "read",
@@ -222,6 +233,17 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
     scope: "current-project",
     timeoutMs: 5_000,
     inputSchema: { type: "object", required: ["title"], properties: { title: { type: "string", maxLength: 160 } } },
+    idempotency: "operation-id"
+  },
+  {
+    name: "submit_event_graph_candidate",
+    label: "提交事件关系候选",
+    classification: "proposal",
+    owner: "story-control-surface",
+    requiredPermission: "author-approval",
+    scope: "current-project",
+    timeoutMs: 5_000,
+    inputSchema: { type: "object", required: ["sourceEventId", "targetEventId", "relationTypeId"], properties: { sourceEventId: { type: "string", maxLength: 160 }, targetEventId: { type: "string", maxLength: 160 }, relationTypeId: { type: "string", maxLength: 160 }, direction: { type: "string", maxLength: 16 } } },
     idempotency: "operation-id"
   },
   {
@@ -375,6 +397,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
         ["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }],
         ["read_story_selection", { selectedObjectIds: manifest.selectedObjectIds }],
         ["read_event_line_projection", { sourceRefs: manifest.sourceRefs.map((source) => source.id), narrativeTime: "read-only" }],
+        ["read_event_focus_context", { selectedEventIds: manifest.selectedObjectIds, relationBoundary: "formal-relation-owner" }],
         ["read_open_questions", { unresolvedQuestions: manifest.unresolvedQuestions }]
       ] as const
       : [["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }]] as const;
@@ -417,6 +440,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
               const approval = run.approvals.find((item) => item.stepId === `${run.runId}.context` && item.decision === "approved");
               return approval ? { allowed: true, approvalReceiptId: approval.receiptId } : { allowed: false, reason: "当前引用范围尚未获得作者批准。", approvalRequired: true };
             }
+            if (definition.classification === "read") return { allowed: true };
             const matching = run.toolCalls.find((item) => item.toolName === call.toolName && stableArguments(item.arguments) === stableArguments(call.arguments));
             if (matching?.status === "approved" && matching.receiptId) return { allowed: true, approvalReceiptId: matching.receiptId };
             if (matching?.status === "rejected") return { allowed: false, reason: "作者已拒绝这次工具调用。" };
@@ -579,6 +603,10 @@ export function validateTianyiAgentToolCall(input: { toolName: string; arguments
   const args = input.arguments as Record<string, unknown>;
   if (definition.name === "create_artifact" && !["screenplay", "storyboard", "comic", "motion-comic", "interactive-drama"].includes(String(args.type ?? ""))) throw new Error("Agent 普通产物类型不受支持。");
   if (definition.name === "propose_entity_candidate" && !["character", "item", "location"].includes(String(args.kind ?? ""))) throw new Error("Agent 候选类型没有安全的现有资料 Owner。");
+  if (definition.name === "submit_event_graph_candidate") {
+    if (args.sourceEventId === args.targetEventId) throw new Error("事件关系候选必须连接两条不同的正式事件。");
+    if (args.direction !== undefined && !["forward", "reverse", "both", "none"].includes(String(args.direction))) throw new Error("事件关系方向不受支持。");
+  }
   const keys = Object.keys(args);
   const allowed = new Set(Object.keys(definition.inputSchema.properties));
   if (keys.some((key) => !allowed.has(key))) throw new Error("Agent 工具包含未声明字段。");

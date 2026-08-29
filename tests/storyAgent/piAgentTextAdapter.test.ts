@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createPiTextAgentAdapter, PiAgentAdapterError, type PiTextAgentRequest, type PiTextProviderEvent } from "../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
+import { createTianyiProductTools } from "../../src/storyAgent/tianyiProductTools.ts";
 
 function request(overrides: Partial<PiTextAgentRequest> = {}): PiTextAgentRequest {
   return {
@@ -60,6 +61,41 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   assert.equal(result.text, "已读取");
   assert.equal(calls, 2);
   assert.equal(executions, 1);
+});
+
+test("Pi adapter carries native event-graph candidate frames through author approval to the Relation owner port", async () => {
+  const submitted: Array<Record<string, unknown>> = [];
+  const tools = createTianyiProductTools({
+    scope: { projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.fixture", runId: "run.fixture" },
+    createArtifact() { throw new Error("not used"); },
+    async createEntityProposal() { throw new Error("not used"); },
+    async createEventGraphCandidate(input) { submitted.push(input); return { relationId: "relation.fixture", reviewState: "candidate" }; }
+  });
+  const adapter = createPiTextAgentAdapter();
+  let attempts = 0;
+  const args = { sourceEventId: "event.fixture.one", targetEventId: "event.fixture.two", relationTypeId: "relation-type.fixture", direction: "forward" };
+  const serialized = JSON.stringify(args);
+  const result = await adapter.run(request({
+    tools,
+    async authorizeTool(input) { return input.toolName === "submit_event_graph_candidate" ? { allowed: true, approvalReceiptId: `receipt.tianyi-agent-approval.${"a".repeat(24)}` } : { allowed: false }; },
+    async openProviderStream() {
+      attempts += 1;
+      return attempts === 1
+        ? { traceId: "trace.event-graph", events: events([
+            { type: "tool-call-start", id: "event-graph.tool", name: "submit_event_graph_candidate", index: 0 },
+            { type: "tool-call-delta", id: "event-graph.tool", name: "submit_event_graph_candidate", index: 0, argumentsDelta: serialized.slice(0, 38) },
+            { type: "tool-call-delta", id: "event-graph.tool", name: "submit_event_graph_candidate", index: 0, argumentsDelta: serialized.slice(38) },
+            { type: "tool-call-end", id: "event-graph.tool", name: "submit_event_graph_candidate", index: 0, argumentsJson: serialized, arguments: args },
+            { type: "done" }
+          ]) }
+        : { traceId: "trace.event-graph", events: events([{ type: "chunk", text: "关系候选已等待作者确认。", finishReason: "stop", usage: { promptTokens: 4, completionTokens: 6, totalTokens: 10 } }]) };
+    }
+  }));
+  assert.equal(result.text, "关系候选已等待作者确认。");
+  assert.equal(attempts, 2);
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0]?.sourceEventId, args.sourceEventId);
+  assert.equal(submitted[0]?.sourceReceiptId, `receipt.tianyi-agent-approval.${"a".repeat(24)}`);
 });
 
 test("Pi adapter preserves mixed text and multiple ordered native tool calls with fragmented arguments", async () => {

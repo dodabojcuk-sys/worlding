@@ -108,7 +108,7 @@ test("event-line work runs the bounded read loop without provider or semantic wr
   const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.event", task: "检查明确因果、开放问题和局部节奏", currentPage: "/event-line", operationId: "operation.event.start" });
   const contextReady = await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.event.approve" });
   const names = contextReady.toolCalls.map((call) => call.toolName);
-  assert.deepEqual(names, ["read_context_manifest", "read_story_selection", "read_event_line_projection", "read_open_questions"]);
+  assert.deepEqual(names, ["read_context_manifest", "read_story_selection", "read_event_line_projection", "read_event_focus_context", "read_open_questions"]);
   assert.equal(contextReady.budget.providerCalls, 0);
   assert.equal(contextReady.candidates.length, 0);
 });
@@ -129,10 +129,12 @@ test("Tianyi tool registry is explicit, bounded and owner-scoped", () => {
     "read_story_selection",
     "read_related_world_objects",
     "read_event_line_projection",
+    "read_event_focus_context",
     "read_pending_candidates",
     "read_open_questions",
     "propose_entity_candidate",
     "propose_event_candidate",
+    "submit_event_graph_candidate",
     "suggest_context_adjustment",
     "find_duplicate_candidates",
     "prepare_owner_handoff"
@@ -143,6 +145,7 @@ test("Tianyi tool registry is explicit, bounded and owner-scoped", () => {
     assert.equal(tool.idempotency, "operation-id");
   }
   assert.throws(() => validateTianyiAgentToolCall({ toolName: "read_context_manifest", arguments: { url: "https://example.invalid" } }), /未声明字段/);
+  assert.throws(() => validateTianyiAgentToolCall({ toolName: "submit_event_graph_candidate", arguments: { sourceEventId: "event.same", targetEventId: "event.same", relationTypeId: "relation-type.fixture" } }), /不同的正式事件/);
 });
 
 test("Tianyi runtime preserves author control across rejection, steering and cancellation", async () => {
