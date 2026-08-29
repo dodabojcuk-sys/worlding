@@ -1,0 +1,39 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const source = (file: string) => readFileSync(file, "utf8");
+
+test("Provider settings submit only a one-time credential to the server owner and never expose it", () => {
+  const settings = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
+  const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
+
+  assert.match(settings, /type="password"/);
+  assert.match(settings, /autoComplete="new-password"/);
+  assert.match(settings, /credentialInput\.current\?\.value\.trim/);
+  assert.match(settings, /credentialInput\.current\.value = ""/);
+  assert.match(settings, /已配置\$\{credential\.suffix/);
+  assert.doesNotMatch(settings, /revealProviderCredential/);
+  assert.match(route, /saveProviderProfile/);
+  assert.match(route, /disableProviderProfile/);
+});
+
+test("Tianyi blocks unconfigured Providers before a request and exposes the existing settings route", () => {
+  const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
+
+  assert.match(sidebar, /const providerReady = props\.runtime\.modelStatus\?\.tianyiDialogue\.ready === true/);
+  assert.ok(sidebar.indexOf("if (!providerReady)") < sidebar.indexOf("runTianyiQuestion({"), "Provider gate must precede dialogue execution");
+  assert.match(sidebar, /data-provider-state="unconfigured"/);
+  assert.match(sidebar, /href="\/settings\/agent#agent"/);
+  assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady\}/);
+});
+
+test("Tool approval names its scope and supports an explicit author rejection", () => {
+  const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
+
+  assert.match(sidebar, /rejectTianyiAgentStep/);
+  assert.match(sidebar, /tianyi-agent-approval/);
+  assert.match(sidebar, /tianyi\.toolImpactProposal/);
+  assert.match(sidebar, /tianyi\.toolParameters/);
+  assert.match(sidebar, /onClick=\{rejectStep\}/);
+});

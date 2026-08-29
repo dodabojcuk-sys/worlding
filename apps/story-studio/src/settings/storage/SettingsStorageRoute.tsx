@@ -3,11 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   exportStorageProject,
+  disableProviderProfile,
   getAgentPermissionState,
   getBootstrap,
   getModelServiceStatus,
   importStorageProject,
   revealStorageProject,
+  saveProviderProfile,
   setAgentPermissionProfile,
   type AgentPermissionProfile,
   type AgentPermissionState,
@@ -15,7 +17,7 @@ import {
   type StoryStudioProject
 } from "../../lib/localTransport";
 import { LocalFolderProvider } from "../../lib/storageProvider";
-import { AgentSettingsSection } from "../agent/AgentSettingsSection";
+import { AgentSettingsSection, type ProviderProfileUpdate } from "../agent/AgentSettingsSection";
 import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
 
@@ -61,6 +63,14 @@ export function SettingsStorageRoute() {
     if (!project) throw new Error("请先打开项目。");
     const next = await withToken((token) => setAgentPermissionProfile({ projectId: project.id, profile, token }));
     setPermissionState(next);
+  };
+  const saveProvider = async (input: ProviderProfileUpdate) => {
+    await withToken((token) => saveProviderProfile({ ...input, token }));
+    await refreshRuntime(project);
+  };
+  const disableProvider = async (expectedRevision: number) => {
+    await withToken((token) => disableProviderProfile({ expectedRevision, token }));
+    await refreshRuntime(project);
   };
 
   const importPackage = () => new Promise<Awaited<ReturnType<typeof importStorageProject>>>((resolve, reject) => {
@@ -110,6 +120,8 @@ export function SettingsStorageRoute() {
         error={runtimeError}
         onRefresh={() => void refreshRuntime(project)}
         onPermissionProfile={updatePermission}
+        onSaveProviderProfile={saveProvider}
+        onDisableProviderProfile={disableProvider}
       /></div>
     </div>
     <input ref={fileInput} type="file" accept=".tianyan,application/json" hidden aria-hidden="true" />
