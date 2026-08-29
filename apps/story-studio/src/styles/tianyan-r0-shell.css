@@ -681,8 +681,18 @@ input:focus-visible {
 }
 
 @media (max-width: 35rem) {
+  html,
+  body,
+  #root {
+    min-width: 0;
+  }
+
   :root {
-    --panel-controls-width: 3.25rem;
+    --panel-controls-width: 0rem;
+  }
+
+  .dock-tool-rail {
+    display: none;
   }
 
   .shell-runtime-status span,

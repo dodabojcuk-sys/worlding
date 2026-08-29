@@ -24,6 +24,22 @@
   font-size: var(--font-size-lg);
 }
 
+.project-directory-close {
+  inline-size: 2rem;
+  block-size: 2rem;
+  display: none;
+  place-items: center;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.project-directory-close:hover { color: var(--color-text); background: var(--color-surface-muted); }
+.project-directory-close:focus-visible { outline: 0.1875rem solid var(--color-focus); outline-offset: 0.125rem; }
+.project-directory-close svg { inline-size: 1rem; block-size: 1rem; }
+
 .project-directory-tabs {
   display: flex;
   align-items: center;
@@ -62,6 +78,13 @@
 .project-directory-reference[data-selected] { color: var(--color-accent); background: var(--color-surface-muted); }
 .project-directory-reference em { color: var(--color-accent); font-size: var(--font-size-xs); font-style: normal; }
 .project-directory-empty { margin: var(--space-4); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.project-directory-empty-state,
+.project-directory-connection { display: grid; gap: var(--space-2); margin: var(--space-4); padding: var(--space-3); color: var(--color-text); background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.project-directory-empty-state p,
+.project-directory-connection p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.project-directory-empty-state button,
+.project-directory-connection button { min-height: 2rem; justify-self: start; display: inline-flex; align-items: center; gap: var(--space-1); padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
+.project-directory-connection button svg { inline-size: .875rem; block-size: .875rem; }
 .pending-review-panel { min-height: 0; flex: 1; overflow: auto; padding: var(--space-2); scrollbar-gutter: stable; }
 .pending-review-panel article { display: grid; gap: var(--space-2); padding: var(--space-3); border-block-end: 1px solid var(--color-border); }
 .pending-review-panel article > header { display: grid; gap: 2px; padding: 0; }
@@ -90,4 +113,5 @@
     z-index: 9;
     box-shadow: var(--shadow-panel);
   }
+  .project-directory-close { display: grid; }
 }

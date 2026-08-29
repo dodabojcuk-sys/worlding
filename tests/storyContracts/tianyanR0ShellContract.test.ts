@@ -13,7 +13,9 @@ import { createInitialDockLayout, resizeDockPanel, toggleDockPanel } from "../..
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
 import {
   nextShellRailPreference,
+  resolveInitialDirectoryOpen,
   resolveShellRailCollapsed,
+  SHELL_DIRECTORY_OVERLAY_QUERY,
   SHELL_RAIL_AUTO_COLLAPSE_QUERY
 } from "../../apps/story-studio/src/product-shell/navigation/responsiveRailState.ts";
 
@@ -86,7 +88,8 @@ test("R0.6 uses one global search engine while the legacy command panel remains 
   assert.match(topbar, /createGlobalSearchEngine/);
   assert.match(directory, /PendingReviewPanel/);
   assert.match(directory, /project-directory-tabs/);
-  assert.doesNotMatch(directory, /project-directory-search-entry|project-directory-close/);
+  assert.doesNotMatch(directory, /project-directory-search-entry/);
+  assert.match(directory, /project-directory-close/);
   assert.doesNotMatch(directory, /type="search"|filterProjectDirectory/);
   assert.match(characters, /onRequestScopedSearch/);
   assert.match(search, /neither writes data nor builds an index or embedding store/);
@@ -152,6 +155,9 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   const labelRule = styles.match(/\.shell-space-label\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
   assert.equal(SHELL_RAIL_AUTO_COLLAPSE_QUERY, "(max-width: 75rem)");
+  assert.equal(SHELL_DIRECTORY_OVERLAY_QUERY, "(max-width: 50rem)");
+  assert.equal(resolveInitialDirectoryOpen(true), false);
+  assert.equal(resolveInitialDirectoryOpen(false), true);
   assert.equal(resolveShellRailCollapsed("auto", true), true);
   assert.equal(resolveShellRailCollapsed("auto", false), false);
   assert.equal(resolveShellRailCollapsed("expanded", true), false);
@@ -159,6 +165,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   assert.equal(nextShellRailPreference(true), "expanded");
   assert.equal(nextShellRailPreference(false), "collapsed");
   assert.match(shell, /data-rail-collapsed=\{railCollapsed\}/);
+  assert.match(shell, /useDockLayoutState\(!window\.matchMedia\(SHELL_DIRECTORY_OVERLAY_QUERY\)\.matches\)/);
   assert.match(shell, /onToggleCollapsed=\{toggleRail\}/);
   assert.doesNotMatch(labelRule, /text-overflow\s*:\s*ellipsis/);
   assert.doesNotMatch(styles, /@media \(max-width: 75rem\)[\s\S]*?--space-rail-width\s*:\s*7\.75rem/);

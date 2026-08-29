@@ -1,4 +1,5 @@
 export const SHELL_RAIL_AUTO_COLLAPSE_QUERY = "(max-width: 75rem)";
+export const SHELL_DIRECTORY_OVERLAY_QUERY = "(max-width: 50rem)";
 
 export type ShellRailPreference = "auto" | "collapsed" | "expanded";
 
@@ -10,4 +11,8 @@ export function resolveShellRailCollapsed(preference: ShellRailPreference, autoC
 
 export function nextShellRailPreference(currentCollapsed: boolean): ShellRailPreference {
   return currentCollapsed ? "expanded" : "collapsed";
+}
+
+export function resolveInitialDirectoryOpen(overlay: boolean): boolean {
+  return !overlay;
 }
