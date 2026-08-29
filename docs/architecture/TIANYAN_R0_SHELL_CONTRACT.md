@@ -42,7 +42,7 @@
 
 工程日志是连续的倒序活动回执投影，不按“今天/昨天”分组，也不成为业务日志 owner。专家分析只通过注入回调记录采纳或忽略意图，不直接写入 Canon 或 Event。
 
-右侧天意只有“对话 / Agent”两个模式；切换不创建第二套会话、草稿、来源或 Agent Run。对话发送调用既有 Tianyi Question 链；Agent 发送调用既有 Tianyi Agent Runtime，当前任务、状态、必要确认和候选摘要留在侧栏，步骤、来源与回执收进详情。候选只能交给既有 Candidate Review 或 Agent Recognition Proposal owner，不能从侧栏直接写入故事事实。“＋”能力菜单由 UI 注册表映射既有能力边界，最多优先展示四项推荐，推演、前瞻规划、资料、创建、引用、Skills 和工作流从这里进入。权限、上下文和模型位于输入框底栏，不属于“＋”；权限与模型只读既有投影，无 Provider 或真实统计时显示未连接/待连接。
+右侧天意只有“对话 / Agent”两个模式；切换不创建第二套会话、草稿、来源或 Agent Run。项目范围的浏览器 session hint 只用于在刷新后重新请求既有 Tianyi Session，既有 Continuity owner 仍是会话事实的唯一来源。对话发送调用既有 Tianyi Question 链；Agent 发送调用既有 Tianyi Agent Runtime，提交闸门在一次发送未完成前拒绝重复提交。当前任务、状态、必要确认和候选摘要留在侧栏，步骤、来源与回执收进详情。候选只能交给既有 Candidate Review 或 Agent Recognition Proposal owner，不能从侧栏直接写入故事事实。“＋”能力菜单由 UI 注册表映射既有能力边界，最多优先展示四项推荐，推演、前瞻规划、资料、创建、引用、Skills 和工作流从这里进入。权限、上下文和模型位于输入框底栏，不属于“＋”；权限只暴露已由既有权限 broker 支持的意图并在下一次 Agent Run 映射到其既有 profile，模型只读展示当前 Provider 配置；无 Provider 或真实统计时显示未连接/待连接，不能伪装为可选。
 
 天意输入栏的“＋”、权限、上下文和模型弹层使用统一的 `document.body` fixed overlay 层，而不是作为会被天意侧栏 `overflow` 裁剪的后代。该层位于工作区、工具轨、Dock 与天意之上，但低于系统级 tooltip/modal；弹层向上优先定位，并在视口边缘翻转或横向调整。它们保留 Escape、点击外部关闭和焦点返回，并且同一时刻只允许一个当前活动弹层。四者均为紧凑菜单：默认“＋”只展示最多四个推荐能力和“全部能力…”；完整可搜索列表、返回和管理入口只在后续完整视图中出现。权限在菜单底部只展示当前或聚焦项的单条说明；上下文为紧凑键值摘要；无 Provider 的模型菜单只诚实显示未连接状态。
 
@@ -60,7 +60,7 @@
 | --- | --- | --- |
 | Canon 写入与作者确认 | `src/storyControlSurface/storyStudioAuthorControl.ts` | 不接入 |
 | WorldState 与 Event 事实 | `src/storyControlSurface/storyStudioWorkspaceOperations.ts` | 不接入 |
-| 天意会话、上下文与记忆 | `src/storyContinuity/` | R0.3 仅读取/调用既有 Question 合同，不创建 owner |
+| 天意会话、上下文与记忆 | `src/storyContinuity/` | R0.3 读取/调用既有 Question 合同；刷新提示不是第二会话 owner |
 | Tianyi Agent Runtime | `src/storyAgent/tianyiAgentRuntimePort.ts` | R0.3 仅调用现有受控 Run、恢复与候选交接合同 |
 | Pi Agent 执行适配 | `src/storyAgent/piAgentAdapter.ts` | 不新增接入，不改变 owner |
 | 全局导航 registry | `src/storyContracts/storyStudioWorkspaceRegistry.ts` | 静态表现元数据 |

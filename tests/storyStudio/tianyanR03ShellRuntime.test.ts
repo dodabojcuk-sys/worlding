@@ -1,48 +1,51 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import test from "node:test";
 
-const source = (path: string) => readFileSync(path, "utf8");
+import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../../apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts";
+import { tianyiShellSessionStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
+import { createActionPermissionBroker } from "../../src/storyControlSurface/actionPermissionBroker.ts";
 
-test("R0.3 runtime adapter reads established bootstrap and work-version projections without becoming an owner", () => {
-  const app = source("apps/story-studio/src/App.tsx");
-  const runtime = source("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx");
-  const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
-  const topbar = source("apps/story-studio/src/product-shell/topbar/GlobalStatusBar.tsx");
-
-  assert.match(app, /TianyanShellRuntime/);
-  assert.doesNotMatch(app, /localTransport|storyStudioWorkspaceOperations|providerGateway/);
-  assert.match(runtime, /getBootstrap/);
-  assert.match(runtime, /getCreationSourcePortState/);
-  assert.match(runtime, /LocalFolderProvider/);
-  assert.match(runtime, /getModelServiceStatus/);
-  assert.match(runtime, /getAgentPermissionState/);
-  assert.doesNotMatch(runtime, /createStoryStudioWorkspaceOperations|writeCanon|createEvent|setWorldState/);
-  assert.match(shell, /runtime=\{props\.runtime\}/);
-  assert.match(topbar, /props\.projectName/);
-  assert.match(topbar, /props\.workVersionLabel/);
+test("R0.3 session and Agent recovery keys stay project- and session-scoped", () => {
+  assert.equal(tianyiShellSessionStorageKey("project-a"), "tianyi-shell-session:project-a");
+  assert.notEqual(tianyiShellSessionStorageKey("project-a"), tianyiShellSessionStorageKey("project-b"));
+  assert.equal(tianyiAgentRunStorageKey("project-a", "session-a"), "tianyi-agent-run:project-a:session-a");
+  assert.notEqual(tianyiAgentRunStorageKey("project-a", "session-a"), tianyiAgentRunStorageKey("project-a", "session-b"));
 });
 
-test("the compact Tianyi projection shares one real session and delegates to existing Question and Agent contracts", () => {
-  const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
-  const composer = source("apps/story-studio/src/components/tianyi/composer/TianyiSidebarComposer.tsx");
-  const viewModel = source("apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts");
+test("R0.3 author submission gate prevents duplicate session or run dispatch before UI state updates", () => {
+  const gate = createTianyiSubmitGate();
+  assert.equal(gate.tryEnter(), true);
+  assert.equal(gate.inFlight, true);
+  assert.equal(gate.tryEnter(), false);
+  gate.leave();
+  assert.equal(gate.inFlight, false);
+  assert.equal(gate.tryEnter(), true);
+});
 
-  assert.doesNotMatch(sidebar, /shared-current-session/);
-  assert.match(sidebar, /openTianyiSession/);
-  assert.match(sidebar, /runTianyiQuestion/);
-  assert.match(sidebar, /startTianyiAgentRun/);
-  assert.match(sidebar, /recoverTianyiAgentRun/);
-  assert.match(sidebar, /handoffTianyiAgentCandidate/);
-  assert.match(sidebar, /agentPermissionProfile/);
-  assert.match(sidebar, /permissionState\?\.profile/);
-  assert.match(sidebar, /data-session-owner="story-continuity\/session"/);
-  assert.match(sidebar, /props\.runtime\.sharedDraft/);
-  assert.match(sidebar, /setMode\("agent"\)/);
-  assert.doesNotMatch(sidebar, /TianyiAgentManagementSurface/);
-  assert.match(sidebar, /agent-recognition-proposal/);
-  assert.match(composer, /data-automatic-provider-calls="0"/);
-  assert.match(composer, /props\.modelOptions/);
-  assert.match(viewModel, /tianyiAgentRunStorageKey/);
-  assert.match(viewModel, /currentTianyiAgentStep/);
+test("R0.3 maps only broker-backed permission intents and preserves author-confirmation steps", () => {
+  assert.equal(agentPermissionProfileForIntent("read-only"), "general");
+  assert.equal(agentPermissionProfileForIntent("candidate"), "auto-review");
+  assert.equal(agentPermissionProfileForIntent("suggest"), null);
+  assert.equal(agentPermissionProfileForIntent("authorized-edit"), null);
+  assert.deepEqual(currentTianyiAgentStep({ plan: [{ stepId: "step-1", status: "awaiting_author" }] } as never), { stepId: "step-1", status: "awaiting_author" });
+  assert.equal(currentTianyiAgentStep({ plan: [{ stepId: "step-1", status: "completed" }] } as never), null);
+});
+
+test("R0.3 permission intent reaches the existing broker without a Provider call", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyi-r03-permissions-"));
+  try {
+    const broker = createActionPermissionBroker({
+      resolveProjectPath: (projectId) => path.join(root, projectId),
+      now: () => "2026-08-29T00:00:00.000Z"
+    });
+    const profile = agentPermissionProfileForIntent("candidate");
+    assert.equal(profile, "auto-review");
+    broker.setProfile({ projectId: "project-a", profile });
+    assert.equal(broker.read("project-a").profile, "auto-review");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

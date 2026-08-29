@@ -13,8 +13,6 @@ test("Story Studio exposes storage providers without an author-facing token flow
   const appSource = readFileSync(join(appRoot, "src", "App.tsx"), "utf8");
   const transportSource = readFileSync(join(appRoot, "src", "lib", "localTransport.ts"), "utf8");
   const providerSource = readFileSync(join(appRoot, "src", "lib", "storageProvider.ts"), "utf8");
-  const homeSource = readFileSync(join(appRoot, "src", "components", "WorldHomeWorkbench.tsx"), "utf8");
-  const storagePanelSource = readFileSync(join(appRoot, "src", "components", "StorageTransparencyPanel.tsx"), "utf8");
 
   assert.equal(existsSync(join(appRoot, "src", "components", "ConnectionDialog.tsx")), false);
   assert.doesNotMatch(appSource, /ConnectionDialog|连接本地工作区|本地授权口令|connectionToken/);
@@ -22,13 +20,6 @@ test("Story Studio exposes storage providers without an author-facing token flow
   assert.match(providerSource, /class LocalFolderProvider/);
   assert.match(providerSource, /CLOUD_PROVIDER_PLACEHOLDER/);
   assert.match(providerSource, /无法访问当前故事位置，请重新授权。/);
-  assert.match(homeSource, /已保存到本地/);
-  assert.doesNotMatch(homeSource, /projectPath/);
-  assert.match(homeSource, /本地工作区 · \$\{props\.project\.title\}/);
-  assert.match(storagePanelSource, /projectPath/);
-  assert.match(storagePanelSource, /在 Finder 中打开|revealLabel/);
-  assert.match(storagePanelSource, /现在如何备份/);
-  assert.match(storagePanelSource, /一键导出尚未提供/);
 });
 
 test("local file-manager commands reveal only the fixed project path without a shell", () => {

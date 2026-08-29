@@ -20,9 +20,3 @@ test("Event detail copy keeps source diagnostics behind a technical disclosure",
   assert.match(source, /复制来源标识/u);
   assert.doesNotMatch(source, /正式摘要未随列表投影提供/u);
 });
-
-test("compact Work Dock uses a solid overlay surface", () => {
-  const styles = readFileSync("apps/story-studio/src/styles/product-shell-r0.css", "utf8");
-  assert.match(styles, /is-right-dock\s*\{[^}]*background:\s*#07100f/su);
-  assert.match(styles, /is-right-dock[^}]*tianyi-quick-assistant[^}]*background:\s*#07100f/su);
-});

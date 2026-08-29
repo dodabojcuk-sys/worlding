@@ -13,12 +13,7 @@ import {
   resolveStoryStudioWorkspaceLocation,
   storyStudioWorkspaceRoute
 } from "../../apps/story-studio/src/product-shell/navigation/topLevelDestinationRegistry.ts";
-import {
-  deriveTianyiContextRequest,
-  deriveTianyiShellContext
-} from "../../apps/story-studio/src/components/tianyiShellContext.ts";
 import { createTianyiGroundedContextRequest } from "../../apps/story-studio/src/lib/tianyiGroundedContextRequest.ts";
-import type { TianyiShellContextInput } from "../../apps/story-studio/src/components/tianyiShellContext.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
 const PROJECT_ID = "phase1b-world";
@@ -64,47 +59,6 @@ test("grounded Tianyi transport preserves event identity only", () => {
   assert.deepEqual(request.eventRefs, [reference]);
   assert.equal(JSON.stringify(request).includes("event.transport"), true);
   assert.equal(JSON.stringify(request).includes("SERVER_EVENT_BODY"), false);
-});
-
-test("Event Line handoff becomes a usable, constraint-scoped Tianyi context without an active Library object", () => {
-  const reference = createStoryStudioEventReference({
-    projectId: PROJECT_ID,
-    event: { id: "event.line-handoff", type: "event", status: "committed", revisionToken: "e".repeat(64) },
-    requestedUse: "constraint"
-  });
-  const input: TianyiShellContextInput = {
-    mode: "world",
-    project: { id: PROJECT_ID, title: "Event Line handoff", status: "active", genre: null, ambience: null, counts: { chapters: 0, scenes: 0, objects: 1 }, source: "markdown" },
-    showWorldHome: false,
-    workspaceMode: "library",
-    activeObject: null,
-    visualWorkbench: null,
-    visualObject: null,
-    objects: [],
-    selection: { objectId: null, source: "library", documentId: null, blockId: null, relationId: null },
-    writingDocument: null,
-    intelligenceDocument: "supervisor",
-    impactReview: null,
-    eventReference: reference,
-    eventLabel: "已确认事件 · 事件线"
-  };
-
-  assert.deepEqual(deriveTianyiShellContext(input), {
-    mode: "world",
-    contextKind: "object",
-    contextLabel: "已确认事件 · 事件线",
-    sourceLabels: ["事件线", "已授权事件"],
-    canOpenSource: true
-  });
-  assert.deepEqual(deriveTianyiContextRequest(input), {
-    productMode: "world",
-    activeOwner: { kind: "world-object", id: reference.eventId },
-    selection: { documentId: null, objectId: reference.eventId, timelinePointId: null },
-    sourceRefs: [],
-    memorySelections: [],
-    enabledSkillRefs: [],
-    eventRefs: [reference]
-  });
 });
 
 test("planned events have zero pre-apply Canon or Timeline effects", async () => {

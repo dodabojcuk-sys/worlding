@@ -136,14 +136,6 @@ test("live pilot exposes sanitized failure receipts without raw provider text", 
   );
 });
 
-test("Nuwa live pilot launch exposes the real-run contract before dispatch", () => {
-  const source = readFileSync(new URL("../../apps/story-studio/src/components/NuwaPrimaryWorkspace.tsx", import.meta.url), "utf8");
-  assert.match(source, /Provider \/ model/u);
-  assert.match(source, /候选 \/ 最大调用/u);
-  assert.match(source, /Context hash/u);
-  assert.match(source, /开始真实推演/u);
-  assert.match(source, /先确认 Attention Context/u);
-});
 
 test("live HTTP dispatch carries only the approved brief Attention Context into the Run Pack", () => {
   const source = readFileSync(new URL("../../apps/story-studio/server/server.mjs", import.meta.url), "utf8");

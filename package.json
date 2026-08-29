@@ -17,7 +17,7 @@
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node --experimental-strip-types scripts/run-selected-tests.mjs unit",
     "test:integration": "node --experimental-strip-types scripts/run-selected-tests.mjs integration",
-    "test:e2e": "node --experimental-strip-types apps/story-studio/scripts/story-studio-golden-loop-r0-smoke.mjs",
+    "test:e2e": "node --experimental-strip-types apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run test:e2e && npm run build"
   },
   "dependencies": {

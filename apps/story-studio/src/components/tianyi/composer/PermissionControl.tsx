@@ -8,7 +8,7 @@ import { ComposerPopover } from "./ComposerPopover";
 
 const options: readonly { id: CapabilityPermissionIntent; labelKey: TranslationKey; descriptionKey: TranslationKey; disabled?: boolean }[] = [
   { id: "read-only", labelKey: "permission.readOnly", descriptionKey: "permission.readOnlyDescription" },
-  { id: "suggest", labelKey: "permission.suggest", descriptionKey: "permission.suggestDescription" },
+  { id: "suggest", labelKey: "permission.suggest", descriptionKey: "permission.suggestDescription", disabled: true },
   { id: "candidate", labelKey: "permission.candidate", descriptionKey: "permission.candidateDescription" },
   { id: "authorized-edit", labelKey: "permission.authorizedEdit", descriptionKey: "permission.authorizedEditDescription", disabled: true }
 ];

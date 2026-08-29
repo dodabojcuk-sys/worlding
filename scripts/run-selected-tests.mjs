@@ -92,16 +92,12 @@ if (mode === "lint") {
   }
   const allowedStoryStudioScripts = new Set([
     "apps/story-studio/scripts/bounded-process-teardown.mjs",
-    "apps/story-studio/scripts/story-studio-golden-loop-r0-smoke.mjs",
-    "apps/story-studio/scripts/story-studio-agent-assisted-core-library-objects-r0-smoke.mjs",
-    "apps/story-studio/scripts/library-home-compact-rail-r0-smoke.mjs",
-    "apps/story-studio/scripts/tianyi-primary-conversation-workspace-recovery-r0-smoke.mjs",
     "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"
   ]);
   const trackedStoryStudioScripts = execFileSync("git", ["ls-files", "apps/story-studio/scripts"], { encoding: "utf8" })
     .split("\n")
     .map((entry) => entry.trim())
-    .filter(Boolean);
+    .filter((entry) => entry && existsSync(path.join(root, entry)));
   const unexpectedScripts = trackedStoryStudioScripts.filter((entry) => !allowedStoryStudioScripts.has(entry));
   if (unexpectedScripts.length > 0) {
     throw new Error(`retired Story Studio scripts must stay absent: ${unexpectedScripts.join(", ")}`);

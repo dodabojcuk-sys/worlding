@@ -1,18 +1,30 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const port = 4396;
+const apiPort = 4397;
 const baseUrl = `http://127.0.0.1:${port}`;
+const apiUrl = `http://127.0.0.1:${apiPort}`;
+const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "tianyan-r0-shell-smoke-"));
 let server;
+let apiServer;
 let browser;
 
 try {
+  apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0" }
+  });
+  await waitForApiServer();
   server = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js",
     "--config",
@@ -22,7 +34,7 @@ try {
     "--port",
     String(port),
     "--strictPort"
-  ], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
+  ], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PORT: String(apiPort) } });
   await waitForServer();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
@@ -33,6 +45,7 @@ try {
   await page.goto(`${baseUrl}/world`, { waitUntil: "networkidle" });
   await page.getByTestId("tianyan-r0-shell").waitFor();
   await assertCollapsedIconRail(page);
+  await assertPermissionProjection(page);
 
   await page.locator(".shell-rail-collapse").click();
   await page.waitForFunction(() => document.querySelector("[data-testid='tianyan-r0-shell']")?.getAttribute("data-rail-collapsed") === "false");
@@ -46,6 +59,22 @@ try {
 } finally {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
+  if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
+  rmSync(fixtureRoot, { recursive: true, force: true });
+}
+
+async function assertPermissionProjection(page) {
+  const trigger = page.getByRole("button", { name: "权限", exact: true });
+  await trigger.click();
+  const state = await page.evaluate(() => {
+    const menu = document.querySelector(".permission-popover");
+    const disabled = [...(menu?.querySelectorAll("button") ?? [])].filter((button) => button.hasAttribute("disabled")).map((button) => button.textContent?.trim());
+    return { visible: Boolean(menu), disabled };
+  });
+  assert.equal(state.visible, true, "The current Tianyi composer must render its permission menu through the mounted component.");
+  assert.deepEqual(state.disabled, ["仅建议未授权", "授权编辑未授权"], "Only broker-backed permissions are interactive in the R0.3 shell.");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
 }
 
 async function assertCollapsedIconRail(page) {
@@ -111,4 +140,19 @@ async function waitForServer() {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Tianyan R0 shell smoke server did not become ready");
+}
+
+async function waitForApiServer() {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (apiServer.exitCode !== null) throw new Error(`Tianyan R0 shell smoke API exited with ${apiServer.exitCode}`);
+    try {
+      const response = await fetch(`${apiUrl}/__local/story-studio/bootstrap`);
+      if (response.ok) return;
+    } catch {
+      // API is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Tianyan R0 shell smoke API did not become ready");
 }

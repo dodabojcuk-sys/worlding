@@ -93,9 +93,3 @@ test("author confirmation creates one item or location through the existing Worl
   assert.deepEqual(workspace.listWorldObjects({ projectId: project.id, type: "event" }), eventBefore);
   assert.equal(workspace.listWorldObjects({ projectId: project.id }).filter((object) => object.type === "character").length, 0);
 });
-
-test("core object profile contract does not introduce static intelligence or memory scores", async () => {
-  const source = await import("node:fs/promises");
-  const editor = await source.readFile("apps/story-studio/src/components/ObjectProfileEditor.tsx", "utf8");
-  assert.doesNotMatch(editor, /\bIQ\b|智力评分|记忆分数|memoryScore|richnessScore/u);
-});

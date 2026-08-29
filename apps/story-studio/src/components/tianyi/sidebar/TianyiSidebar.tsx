@@ -1,5 +1,5 @@
 import { Check, ChevronRight, LoaderCircle, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
 import {
@@ -20,7 +20,7 @@ import type { TranslationKey } from "../../../product-shell/i18n/translations";
 import { TianyiSidebarComposer } from "../composer/TianyiSidebarComposer";
 import type { CapabilityMenuItem } from "../capability-launcher/capabilityMenuTypes";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
-import { currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
+import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 
 export function TianyiSidebar(props: {
   workspace: TianyiContextualSpaceId;
@@ -36,6 +36,7 @@ export function TianyiSidebar(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const submitGate = useRef(createTianyiSubmitGate()).current;
   const project = props.runtime.project;
   const contextRequest = useMemo(() => project ? {
     productMode: props.workspace === "nuwa" ? "intelligence" as const : "world" as const,
@@ -43,9 +44,10 @@ export function TianyiSidebar(props: {
     selection: { documentId: null, objectId: null, timelinePointId: null },
     sourceRefs: [], memorySelections: [], enabledSkillRefs: []
   } : null, [project, props.workspace]);
-  const modelOptions = useMemo(() => {
-    const configured = new Set(props.runtime.modelStatus?.providers.filter((provider) => provider.configured).map((provider) => provider.id) ?? []);
-    return (props.runtime.modelStatus?.models ?? []).filter((model) => configured.has(model.providerId)).map((model) => ({ id: model.id, label: model.label }));
+  const modelLabel = useMemo(() => {
+    const profile = props.runtime.modelStatus?.profile.profile;
+    if (!profile?.enabled) return null;
+    return props.runtime.modelStatus?.profiles.find((item) => item.modelId === profile.modelId)?.label ?? profile.modelId;
   }, [props.runtime.modelStatus]);
   const permission = props.runtime.permissionState?.profile === "full-access"
     ? "authorized-edit"
@@ -97,7 +99,7 @@ export function TianyiSidebar(props: {
     setSession(Array.isArray(value) ? value.find((item) => item.id === sessionId) ?? null : value);
   };
   const submit = () => void (async () => {
-    if (busy || (!props.runtime.sharedDraft.trim() && !task) || !project || !contextRequest) return;
+    if ((!props.runtime.sharedDraft.trim() && !task) || !project || !contextRequest || !submitGate.tryEnter()) return;
     setBusy(true); setError("");
     try {
       const sessionId = await ensureSession();
@@ -113,7 +115,17 @@ export function TianyiSidebar(props: {
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
-    } finally { setBusy(false); }
+    } finally { submitGate.leave(); setBusy(false); }
+  })();
+  const selectPermission = (intent: "read-only" | "suggest" | "candidate" | "authorized-edit") => void (async () => {
+    const profile = agentPermissionProfileForIntent(intent);
+    if (!profile) return;
+    setError("");
+    try {
+      await props.runtime.setPermissionProfile(profile);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
+    }
   })();
   const advanceRun = () => void (async () => {
     if (!project || !props.runtime.sharedSessionId || !run || busy) return;
@@ -160,10 +172,11 @@ export function TianyiSidebar(props: {
       workspace={props.workspace}
       task={task}
       draft={props.runtime.sharedDraft}
-      modelOptions={modelOptions}
+      modelLabel={modelLabel}
       permission={permission}
       disabled={busy || !project || !contextRequest}
       submit={submit}
+      onPermission={selectPermission}
       onDraft={props.runtime.setSharedDraft}
       onTask={selectTask}
       context={runtimeContext}

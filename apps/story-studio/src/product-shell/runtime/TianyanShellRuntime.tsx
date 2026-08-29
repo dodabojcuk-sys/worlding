@@ -5,12 +5,15 @@ import {
   getBootstrap,
   getCreationSourcePortState,
   getModelServiceStatus,
+  setAgentPermissionProfile,
+  type AgentPermissionProfile,
   type AgentPermissionState,
   type ModelServiceStatus,
   type StoryStudioProject
 } from "../../lib/localTransport";
 import { LocalFolderProvider } from "../../lib/storageProvider";
 import { TianyanR0Shell } from "../TianyanR0Shell";
+import { tianyiShellSessionStorageKey } from "./tianyiShellSessionRecovery";
 
 export type TianyanShellRuntimeState = {
   project: StoryStudioProject | null;
@@ -22,6 +25,7 @@ export type TianyanShellRuntimeState = {
   sharedDraft: string;
   setSharedSessionId(sessionId: string | null): void;
   setSharedDraft(value: string): void;
+  setPermissionProfile(profile: AgentPermissionProfile): Promise<void>;
   withConnection<T>(action: (token: string) => Promise<T>): Promise<T>;
 };
 
@@ -49,10 +53,12 @@ export function TianyanShellRuntime() {
       const activeProject = bootstrap.activeProject;
       setProject(activeProject);
       if (!activeProject) {
+        setSharedSessionId(null);
         setWorkVersionLabel(null);
         setConnectionState("ready");
         return;
       }
+      setSharedSessionId(window.sessionStorage.getItem(tianyiShellSessionStorageKey(activeProject.id)));
       const [versionResult, runtimeResult] = await Promise.allSettled([
         getCreationSourcePortState({ projectId: activeProject.id }),
         withConnection(async (token) => Promise.all([
@@ -78,6 +84,20 @@ export function TianyanShellRuntime() {
     return () => { active = false; };
   }, [withConnection]);
 
+  const persistSharedSessionId = useCallback((sessionId: string | null) => {
+    setSharedSessionId(sessionId);
+    if (!project) return;
+    const key = tianyiShellSessionStorageKey(project.id);
+    if (sessionId) window.sessionStorage.setItem(key, sessionId);
+    else window.sessionStorage.removeItem(key);
+  }, [project]);
+
+  const setPermissionProfile = useCallback(async (profile: AgentPermissionProfile) => {
+    if (!project) throw new Error("No active project.");
+    const next = await withConnection((token) => setAgentPermissionProfile({ projectId: project.id, profile, token }));
+    setPermissionState(next);
+  }, [project, withConnection]);
+
   const runtime = useMemo<TianyanShellRuntimeState>(() => ({
     project,
     workVersionLabel,
@@ -86,10 +106,11 @@ export function TianyanShellRuntime() {
     permissionState,
     sharedSessionId,
     sharedDraft,
-    setSharedSessionId,
+    setSharedSessionId: persistSharedSessionId,
     setSharedDraft,
+    setPermissionProfile,
     withConnection
-  }), [connectionState, modelStatus, permissionState, project, sharedDraft, sharedSessionId, withConnection, workVersionLabel]);
+  }), [connectionState, modelStatus, permissionState, persistSharedSessionId, project, setPermissionProfile, sharedDraft, sharedSessionId, withConnection, workVersionLabel]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

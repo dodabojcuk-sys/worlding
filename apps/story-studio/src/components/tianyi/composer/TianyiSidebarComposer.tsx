@@ -1,5 +1,5 @@
 import { Mic, Send, X } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
@@ -15,18 +15,16 @@ export function TianyiSidebarComposer(props: {
   task: CapabilityMenuItem | null;
   context: TianyiComposerContextViewModel;
   draft: string;
-  modelOptions: readonly { id: string; label: string }[];
+  modelLabel: string | null;
   permission: CapabilityPermissionIntent;
   disabled?: boolean;
   submit(): void;
+  onPermission(intent: CapabilityPermissionIntent): void;
   onDraft(value: string): void;
   onTask(item: CapabilityMenuItem | null): void;
 }) {
   const { t } = useI18n();
-  const [requestedPermission, setRequestedPermission] = useState<CapabilityPermissionIntent>(props.permission);
-  const [model, setModel] = useState("auto");
   const [notice, setNotice] = useState("");
-  useEffect(() => { setRequestedPermission(props.permission); }, [props.permission]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!props.draft.trim() && !props.task) return;
@@ -39,9 +37,9 @@ export function TianyiSidebarComposer(props: {
     {notice && <output>{notice}</output>}
     <footer>
       <CapabilityLauncher workspace={props.workspace} onSelect={props.onTask} onManageMore={() => setNotice(t("capability.manageNotice"))} />
-      <PermissionControl value={requestedPermission} onIntent={setRequestedPermission} />
+      <PermissionControl value={props.permission} onIntent={props.onPermission} />
       <ContextControl context={props.context} onManage={() => setNotice(t("context.manageNotice"))} />
-      <ModelSelector value={model} options={props.modelOptions} onIntent={setModel} />
+      <ModelSelector label={props.modelLabel} readOnly />
       <span className="composer-flex-spacer" />
       <button type="button" className="composer-icon-control" aria-label={t("tianyi.microphone")} title={t("tianyi.microphone")} disabled><Mic aria-hidden="true" /></button>
       <button type="submit" className="composer-send-control" aria-label={t("tianyi.send")} title={t("tianyi.send")} disabled={props.disabled || (!props.draft.trim() && !props.task)}><Send aria-hidden="true" /></button>
