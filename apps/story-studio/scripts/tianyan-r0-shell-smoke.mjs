@@ -54,6 +54,7 @@ try {
   await assertPermissionProjection(page);
   await assertCharacterDirectoryAndInspector(page);
   await assertCharacterCreationDurability(page);
+  await assertCharacterDirectoryFiltersAndLifecycle(page);
   await assertExactlyOneActiveDestination(page);
   if (visualEvidenceDirectory) await captureCharacterDirectoryEvidence(page, consoleProblems);
 
@@ -93,6 +94,22 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.locator('[data-directory-node="directory.library.character"]').click();
   await page.getByTestId("character-directory").waitFor();
   assert.equal(await page.locator(".character-directory-list input[type=checkbox]").count(), 0, "Default directory has no selection checkboxes");
+  assert.equal(await page.locator(".character-directory-list h3").count(), 0, "The default character directory must be a flat list without role group headings");
+  assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Internal category IDs must not leak into the directory");
+  assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Default directory must not show removable filter chips");
+  await page.evaluate(() => { window.__scopedCharacterSearch = null; window.addEventListener("tianyan:scoped-search-request", (event) => { window.__scopedCharacterSearch = event.detail; }, { once: true }); });
+  await page.getByRole("button", { name: "搜索角色", exact: true }).click();
+  await page.waitForFunction(() => window.__scopedCharacterSearch?.scope?.objectTypes?.join(",") === "character");
+  assert.deepEqual(await page.evaluate(() => window.__scopedCharacterSearch), { source: "character-directory", scope: { projectId: "r05-character-directory", workVersionId: null, objectTypes: ["character"] } }, "Character search must request the existing scoped global-search port rather than filter locally");
+  const filterTrigger = page.locator(".character-directory-filter-trigger");
+  await filterTrigger.click();
+  assert.equal(await filterTrigger.getAttribute("aria-expanded"), "true", "Filter trigger must expose its expanded state");
+  await page.getByLabel("角色层级筛选").selectOption("main");
+  assert.equal(await page.locator(".character-directory-filter-chips").count(), 1, "Effective filters must surface removable chips");
+  await page.keyboard.press("Escape");
+  assert.equal(await filterTrigger.getAttribute("aria-expanded"), "false", "Escape must close the filter popover and update aria-expanded");
+  await page.getByRole("button", { name: /主要角色/u }).click();
+  assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Removing the final filter must remove its chip row");
   await page.getByRole("option", { name: /林昭/u }).click();
   await page.getByTestId("character-inspector").waitFor();
   const workspaceAfter = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
@@ -130,6 +147,7 @@ async function assertCharacterCreationDurability(page) {
   await waitForCharacterDirectoryIdle(page);
   await createdOption.waitFor();
   assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
+  assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Created category IDs must remain persistence-only values");
   assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
   await page.reload({ waitUntil: "networkidle" });
@@ -157,6 +175,56 @@ async function assertCreatedCharacterIsProjectIsolated() {
   if (!response.ok) throw new Error(`Isolated project read failed: ${response.status}`);
   const payload = await response.json();
   assert.equal(payload.data.objects.some((object) => object.title === "沈砚"), false, "A created character must not appear in another project");
+}
+
+async function assertCharacterDirectoryFiltersAndLifecycle(page) {
+  await page.getByTestId("character-directory").waitFor();
+  await waitForCharacterDirectoryIdle(page);
+  const filterTrigger = page.locator(".character-directory-filter-trigger");
+  await filterTrigger.click();
+  await page.getByLabel("排序").selectOption("alphabetical");
+  await page.getByLabel("标签筛选").selectOption("调查");
+  assert.equal(await page.getByRole("option", { name: /沈砚/u }).count(), 1, "Tag filters must preserve the created durable character");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "清除全部", exact: true }).click();
+  assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Clearing filters must restore the default flat list");
+
+  const created = page.getByRole("option", { name: /沈砚/u });
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await created.click();
+  assert.match(await page.locator(".character-selection-bar strong").textContent(), /已选 1 项/u, "Multi-select must announce selected count");
+  const selectionGeometry = await page.evaluate(() => {
+    const list = document.querySelector(".character-directory-list");
+    const bar = document.querySelector(".character-selection-bar");
+    if (!(list instanceof HTMLElement) || !(bar instanceof HTMLElement)) throw new Error("Character selection UI is unavailable.");
+    return { listBottom: list.getBoundingClientRect().bottom, barTop: bar.getBoundingClientRect().top };
+  });
+  assert.ok(selectionGeometry.listBottom <= selectionGeometry.barTop + 1, "Selection actions must reserve layout space instead of covering character rows");
+  await page.locator(".character-selection-bar").getByRole("button", { name: "归档", exact: true }).click();
+  await page.waitForFunction(() => ![...document.querySelectorAll(".character-directory-list [role='option']")].some((element) => element.textContent?.includes("沈砚")));
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "归档", exact: true }).click();
+  await created.waitFor();
+  await created.click();
+  await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "恢复", exact: true }).click();
+
+  await filterTrigger.click();
+  await page.getByLabel("目录范围").selectOption("active");
+  await page.keyboard.press("Escape");
+  await created.waitFor();
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await created.click();
+  await page.locator(".character-selection-bar").getByRole("button", { name: "移入回收站", exact: true }).click();
+  await page.waitForFunction(() => ![...document.querySelectorAll(".character-directory-list [role='option']")].some((element) => element.textContent?.includes("沈砚")));
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "回收站", exact: true }).click();
+  await created.waitFor();
+  await created.click();
+  await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "恢复", exact: true }).click();
+  await filterTrigger.click();
+  await page.getByLabel("目录范围").selectOption("active");
+  await page.keyboard.press("Escape");
+  await created.waitFor();
 }
 
 async function waitForCharacterDirectoryIdle(page) {
@@ -196,9 +264,10 @@ async function assertExactlyOneActiveDestination(page) {
 /** Optional external evidence only; this is never a production screenshot fixture. */
 async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   mkdirSync(visualEvidenceDirectory, { recursive: true });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: "r05-character-directory" });
   const captures = [];
   const capture = async (viewport, state) => {
-    const characterName = viewport.width === 1920 ? "林昭" : viewport.width === 1440 ? "阿芜" : "陆衍";
+    const characterName = "林昭";
     await page.setViewportSize(viewport);
     await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
     await page.evaluate(() => window.localStorage.removeItem("story-studio:ai-control-center:v1"));
@@ -207,7 +276,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     await page.getByTestId("character-directory").waitFor();
     await waitForCharacterDirectoryIdle(page);
     const currentCharacter = page.getByRole("option", { name: new RegExp(characterName, "u") });
-    await currentCharacter.waitFor();
+    if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.waitFor();
     if (state === "form" || state === "required" || state === "created" || state === "refreshed") {
       await page.getByRole("button", { name: "新建", exact: true }).click();
       await page.getByRole("dialog", { name: "新建角色" }).waitFor();
@@ -225,7 +294,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
     }
     if (state === "inspector" || state === "compact" || state === "multi" || state === "archive") await currentCharacter.click();
-    if (state === "compact") await page.getByTestId("character-directory").locator("footer").getByRole("button", { name: "缩略版", exact: true }).click();
+    if (state === "compact") { await page.getByRole("button", { name: "筛选", exact: true }).click(); await page.getByLabel("列表密度").click(); await page.keyboard.press("Escape"); }
     if (state === "multi" || state === "archive") await page.getByRole("button", { name: "多选", exact: true }).click();
     if (state === "archive") {
       await currentCharacter.click();

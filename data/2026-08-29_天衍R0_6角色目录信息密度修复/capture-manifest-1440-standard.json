@@ -1,0 +1,15 @@
+[
+  {
+    "filename": "1440x900-standard.png",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "state": "standard",
+    "projectId": "r05-character-directory",
+    "workVersionId": null,
+    "url": "http://127.0.0.1:4396/world?rail=expanded&directoryView=characters",
+    "isolatedTestData": true,
+    "consoleProblems": []
+  }
+]
