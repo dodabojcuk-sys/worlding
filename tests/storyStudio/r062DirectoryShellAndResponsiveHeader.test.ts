@@ -60,6 +60,7 @@ test("RESPONSIVE_HEADER_922 keeps context, named panels, and overflow access", (
   assert.match(topbar, /aria-expanded=\{moreOpen\}/);
   assert.match(topbar, /window\.requestAnimationFrame\(\(\) => moreToggleRef\.current\?\.focus\(\)\)/);
   assert.match(styles, /shell-topbar-context \{\s*flex: 1 1 auto/);
+  assert.match(styles, /\.shell-topbar \{[\s\S]*z-index: var\(--layer-popover\)/);
   assert.match(styles, /shell-topbar-secondary \{ display: none; \}/);
   assert.match(styles, /shell-topbar-more \{ display: block; \}/);
   assert.match(styles, /shell-topbar-panel-toggle\[aria-pressed="true"\][\s\S]*color: var\(--color-accent\)/);

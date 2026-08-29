@@ -315,7 +315,9 @@ input:focus-visible {
   color: var(--color-text);
   background: var(--color-surface);
   border-block-end: 1px solid var(--color-border);
-  z-index: 4;
+  /* Keep project and global-status popovers above docked panels. Their own
+     z-index values cannot escape this topbar stacking context. */
+  z-index: var(--layer-popover);
 }
 
 .shell-topbar-context,
