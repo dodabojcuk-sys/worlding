@@ -169,6 +169,7 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
   assert.match(styles, /\.shell-rail-navigation[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.shell-rail-utility[\s\S]*border-block-start/);
+  assert.match(styles, /\.tianyan-r0-shell\[data-settings-open="true"\][\s\S]*--directory-current: 0rem[\s\S]*--tianyi-current: 0rem/);
   assert.doesNotMatch(navigation, /shell-collapse-control/);
 });
 
