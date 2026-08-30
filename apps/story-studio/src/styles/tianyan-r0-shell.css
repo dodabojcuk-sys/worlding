@@ -85,6 +85,21 @@ input:focus-visible {
   --dock-current: var(--dock-stack-width);
 }
 
+.tianyan-r0-shell:has(.event-line-workbench) {
+  --dock-current: 0rem;
+  --panel-controls-width: 0rem !important;
+}
+
+.tianyan-r0-shell:has(.event-line-workbench) .dock-panel-stack,
+.tianyan-r0-shell:has(.event-line-workbench) .dock-tool-rail {
+  display: none;
+}
+
+.shell-workspace-event-line:has(.event-line-workbench[data-projection-mode="graph"]) {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
 .tianyan-r0-shell[data-tianyi-open="true"] {
   --tianyi-current: var(--tianyi-sidebar-width);
 }

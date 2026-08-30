@@ -47,7 +47,9 @@ test("event graph R1 uses one contextual inspector rather than the spine page do
 
 test("event graph R2 keeps the canvas primary and translates implementation terms", () => {
   const styles = readFileSync("apps/story-studio/src/styles/event-line-projection.css", "utf8");
-  assert.match(graph, /useState\(Boolean\(props\.selectedEventId\)\)/u);
+  assert.match(graph, /useWorkspaceDockSlot/u);
+  assert.match(graph, /openInspector\("RELATION_REVIEW"\)/u);
+  assert.doesNotMatch(graph, /setInspectorOpen|useState\(Boolean\(props\.selectedEventId\)\)/u);
   assert.doesNotMatch(styles, /tianyan-r0-shell:has\(.event-graph-workspace\)[\s\S]*--directory-current/u);
   assert.match(styles, /event-line-workbench\[data-projection-mode="graph"\] .event-line-spine-toolbar/u);
   assert.match(styles, /event-graph-workspace\.has-inspector .event-graph-main/u);

@@ -1,46 +1,58 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * The App Shell owns the single wide right-hand slot. Page inspectors and
- * contextual Tianyi can keep their local lens/session state, but cannot each
- * independently claim layout space.
- */
-export type WorkspaceDockSlot =
-  | { kind: "closed" }
-  | { kind: "page-inspector"; pageId: string }
-  | { kind: "quick-tianyi" };
+export const RIGHT_WORK_SURFACE_MODES = [
+  "NONE",
+  "EVENT_DETAILS",
+  "EVENT_CREATE",
+  "RELATION_REVIEW",
+  "TIANYI"
+] as const;
 
-let currentSlot: WorkspaceDockSlot = { kind: "closed" };
+export type RightWorkSurfaceMode = typeof RIGHT_WORK_SURFACE_MODES[number];
+export type RightWorkSurfaceState = {
+  mode: RightWorkSurfaceMode;
+  ownerId: string | null;
+};
+
+/**
+ * The App Shell owns one right work surface. Event details, event creation,
+ * relation review, and Tianyi may keep their own content state, but only this
+ * coordinator decides which one is visible.
+ */
+let currentSurface: RightWorkSurfaceState = { mode: "NONE", ownerId: null };
 const listeners = new Set<() => void>();
 
-function publish(next: WorkspaceDockSlot): void {
-  if (currentSlot.kind === next.kind && (next.kind !== "page-inspector" || (currentSlot.kind === "page-inspector" && currentSlot.pageId === next.pageId))) return;
-  currentSlot = next;
+function publish(next: RightWorkSurfaceState): void {
+  if (currentSurface.mode === next.mode && currentSurface.ownerId === next.ownerId) return;
+  currentSurface = next;
   listeners.forEach((listener) => listener());
 }
 
 export const workspaceDockCoordinator = {
-  snapshot(): WorkspaceDockSlot {
-    return currentSlot;
+  snapshot(): RightWorkSurfaceState {
+    return currentSurface;
   },
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
-  openPageInspector(pageId: string): void {
-    publish({ kind: "page-inspector", pageId });
+  openPageInspector(pageId: string, mode: Exclude<RightWorkSurfaceMode, "NONE" | "TIANYI"> = "EVENT_DETAILS"): void {
+    publish({ mode, ownerId: pageId });
   },
   openQuickTianyi(): void {
-    publish({ kind: "quick-tianyi" });
+    publish({ mode: "TIANYI", ownerId: "global-tianyi" });
   },
   closePageInspector(pageId: string): void {
-    if (currentSlot.kind === "page-inspector" && currentSlot.pageId === pageId) publish({ kind: "closed" });
+    if (currentSurface.ownerId === pageId && currentSurface.mode !== "TIANYI") publish({ mode: "NONE", ownerId: null });
   },
   closeQuickTianyi(): void {
-    if (currentSlot.kind === "quick-tianyi") publish({ kind: "closed" });
+    if (currentSurface.mode === "TIANYI") publish({ mode: "NONE", ownerId: null });
+  },
+  close(): void {
+    publish({ mode: "NONE", ownerId: null });
   }
 };
 
-export function useWorkspaceDockSlot(): WorkspaceDockSlot {
+export function useWorkspaceDockSlot(): RightWorkSurfaceState {
   return useSyncExternalStore(workspaceDockCoordinator.subscribe, workspaceDockCoordinator.snapshot, workspaceDockCoordinator.snapshot);
 }

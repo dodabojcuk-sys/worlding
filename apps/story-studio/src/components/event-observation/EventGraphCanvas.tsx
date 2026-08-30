@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
+import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
 
 type Selection =
   | { kind: "node"; id: string }
@@ -49,9 +50,8 @@ export function EventGraphCanvas(props: {
   const [focusId, setFocusId] = useState<string | null>(props.selectedEventId);
   const [depth, setDepth] = useState(1);
   const [selection, setSelection] = useState<Selection>(props.selectedEventId ? { kind: "node", id: props.selectedEventId } : null);
-  // Keep the graph as the default work surface.  The context panel appears on
-  // selection, not as a permanent empty column.
-  const [inspectorOpen, setInspectorOpen] = useState(Boolean(props.selectedEventId));
+  const rightWorkSurface = useWorkspaceDockSlot();
+  const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
   const [railOpen, setRailOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export function EventGraphCanvas(props: {
   const railViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const restoreGlobalViewport = useRef(false);
   const restoreRailViewport = useRef(false);
+  const relationSelectionActive = useRef(false);
   const layout = useMemo(() => readLayout(props.projectId), [props.projectId, layoutRevision]);
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
@@ -69,17 +70,22 @@ export function EventGraphCanvas(props: {
   const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection), [depth, focusId, graphEvents, graphRelations, layout.positions, selection, view]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
+  const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
+    workspaceDockCoordinator.openPageInspector("event-line", mode);
+  }, []);
+  const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
     if (props.selectedEventId) {
+      if (relationSelectionActive.current) return;
       setSelection((current) => current?.kind === "relation" ? current : { kind: "node", id: props.selectedEventId! });
-      setInspectorOpen(true);
+      openInspector("EVENT_DETAILS");
     }
-  }, [props.selectedEventId]);
+  }, [openInspector, props.selectedEventId]);
   useEffect(() => {
-    if (props.createOpen) setInspectorOpen(true);
-  }, [props.createOpen]);
+    if (props.createOpen) openInspector("EVENT_CREATE");
+  }, [openInspector, props.createOpen]);
   useEffect(() => {
     if (!flow || !graph.nodes.length) return;
     let timer = 0;
@@ -96,7 +102,7 @@ export function EventGraphCanvas(props: {
           void flow.setViewport(railViewport.current, { duration: 140 });
         } else {
           if (view === "focus") void fitFocusProjection(flow, graph.nodes, railOpen);
-          else void flow.fitView({ padding: railOpen ? 0.32 : 0.16, duration: 0, maxZoom: 1.05 });
+          else void flow.fitView({ padding: railOpen ? 0.24 : 0.08, duration: 0, maxZoom: 1.05 });
         }
       }, 180);
     });
@@ -109,9 +115,9 @@ export function EventGraphCanvas(props: {
   }, [nodes, props.projectId]);
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
-    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId);
+    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
   };
-  const selectNode = (eventId: string) => { setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId); };
+  const selectNode = (eventId: string) => { relationSelectionActive.current = false; setSelection({ kind: "node", id: eventId }); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId); };
   const returnGlobal = () => { restoreGlobalViewport.current = true; setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
   const toggleRail = () => {
     if (railOpen) {
@@ -152,14 +158,14 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-pressed="false" onClick={() => props.onOpenTimeline?.()}><Clock3 />时间轴</button>
       </nav>
       <div className="event-graph-command-actions">
-        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus />新增事件</button>
-        {view === "focus" ? <button type="button" onClick={returnGlobal}><ArrowLeft />返回全局</button> : null}
-        <button type="button" disabled={!currentEvent} onClick={() => currentEvent ? focus(currentEvent.id) : undefined}><Focus />聚焦当前</button>
-        {view === "focus" ? <button type="button" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 />展开一层</button> : null}
-        <button type="button" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw />自动布局</button>
-        <button type="button" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter />筛选</button>
+        <button type="button" aria-label="新增事件" title="新增事件" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
+        {view === "focus" ? <button type="button" aria-label="返回全局" title="返回全局" onClick={returnGlobal}><ArrowLeft /><span>返回全局</span></button> : null}
+        <button type="button" aria-label="聚焦当前" title="聚焦当前" disabled={!currentEvent} onClick={() => currentEvent ? focus(currentEvent.id) : undefined}><Focus /><span>聚焦当前</span></button>
+        {view === "focus" ? <button type="button" aria-label="展开一层" title="展开一层" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 /><span>展开一层</span></button> : null}
+        <button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw /><span>自动布局</span></button>
+        <button type="button" aria-label="筛选" title="筛选" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter /><span>筛选</span></button>
         <button type="button" aria-label="适应视图" onClick={() => void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 })}><Maximize2 /><span>适应视图</span></button>
-        <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
+        <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : openInspector(selection?.kind === "relation" ? "RELATION_REVIEW" : props.createOpen ? "EVENT_CREATE" : "EVENT_DETAILS")}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
@@ -169,7 +175,7 @@ export function EventGraphCanvas(props: {
         <button type="button" className="is-active"><Network /><span>关系图</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
         <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
-        <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
+        <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); openInspector("RELATION_REVIEW"); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
       <div className="event-graph-flow" onPointerUp={persistLayout}>
         <ReactFlow
@@ -177,12 +183,12 @@ export function EventGraphCanvas(props: {
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={connect}
           onNodeClick={(_, node) => {
             if (node.id.startsWith("projection.remote")) {
-              setSelection({ kind: "remote", direction: node.data.direction ?? "future", count: node.data.count ?? 0 }); setInspectorOpen(true);
+              setSelection({ kind: "remote", direction: node.data.direction ?? "future", count: node.data.count ?? 0 }); openInspector("EVENT_DETAILS");
             } else selectNode(node.id);
           }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
-          onEdgeClick={(_, edge) => { setSelection({ kind: "relation", id: edge.id }); setInspectorOpen(true); }}
-          onPaneClick={() => { setSelection(null); props.onClearSelection(); }}
+          onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
+          onPaneClick={() => { setSelection(null); closeInspector(); props.onClearSelection(); }}
           onInit={setFlow} fitView minZoom={0.25} maxZoom={1.8}
           nodesConnectable={Boolean(props.onCreateRelation)}
           connectionLineStyle={{ stroke: "var(--color-accent)", strokeWidth: 1.5 }}
@@ -197,7 +203,7 @@ export function EventGraphCanvas(props: {
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
       {inspectorOpen && !props.createOpen ? <GraphInspector
         event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} busy={busy}
-        onClose={() => setInspectorOpen(false)} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
+        onClose={closeInspector} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}
         onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
         onExpand={() => { setDepth((value) => Math.min(value + 1, 3)); setSelection(focusId ? { kind: "node", id: focusId } : null); }}
@@ -316,7 +322,7 @@ function remoteIds(focusId: string, eventIds: ReadonlySet<string>, visible: Read
   const visit = (lookup: ReadonlyMap<string, string[]>, target: Set<string>) => { const queue = [...(lookup.get(focusId) ?? [])], seen = new Set<string>(); while (queue.length) { const id = queue.shift()!; if (seen.has(id)) continue; seen.add(id); if (!visible.has(id) && eventIds.has(id)) target.add(id); for (const next of lookup.get(id) ?? []) queue.push(next); } };
   visit(inbound, past); visit(outbound, future); return { past, future };
 }
-function gridPosition(index: number, total: number) { const columns = total > 24 ? 6 : total > 10 ? 5 : 4; return { x: 90 + (index % columns) * 265, y: 170 + Math.floor(index / columns) * 190 }; }
+function gridPosition(index: number, total: number) { const columns = total > 24 ? 6 : total > 10 ? 5 : 4; return { x: 90 + (index % columns) * 225, y: 170 + Math.floor(index / columns) * 175 }; }
 function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId: string, relations: readonly RelationReadProjectionR0[], remote: { past: ReadonlySet<string>; future: ReadonlySet<string> }) {
   const inbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === event.id && relation.targetObjectId === focusId));
   const outbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === focusId && relation.targetObjectId === event.id));

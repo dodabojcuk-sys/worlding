@@ -19,7 +19,6 @@ import {
   ScanLine,
   Settings2,
   ShieldCheck,
-  Sparkles,
   UsersRound,
   X
 } from "lucide-react";
@@ -114,7 +113,6 @@ export function EventLineWorkbench(props: {
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [creatingEvent, setCreatingEvent] = useState(false);
-  const [simulationDraft, setSimulationDraft] = useState("");
   const requestSequence = useRef(0);
   const spineRef = useRef<HTMLDivElement>(null);
   const pendingSpineAnchorRef = useRef<{ eventId: string | null; offset: number; scrollTop: number } | null>(null);
@@ -223,7 +221,7 @@ export function EventLineWorkbench(props: {
   const selectedEvent = props.events.find((event) => event.id === selectedEventId) ?? null;
   const selectedDetail = selectedEventId ? detailsById[selectedEventId] ?? null : null;
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
-  const selectedEventRef = selectedEvent
+  const selectedEventRef = selectedEvent && (selectedEvent.status === "planned" || selectedEvent.status === "committed")
     ? createStoryStudioEventReference({ projectId: props.projectId, event: selectedEvent, requestedUse: "constraint" })
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
@@ -243,7 +241,10 @@ export function EventLineWorkbench(props: {
         scrollTop: spine?.scrollTop ?? 0
       };
     }
-    if (next.open) workspaceDockCoordinator.openPageInspector("event-line");
+    if (next.open) workspaceDockCoordinator.openPageInspector(
+      "event-line",
+      next.activeLens === "create" ? "EVENT_CREATE" : next.activeLens === "review" ? "RELATION_REVIEW" : "EVENT_DETAILS"
+    );
     else workspaceDockCoordinator.closePageInspector("event-line");
     setDockState(next);
   }, [dockState.open, selectedEventId]);
@@ -278,7 +279,6 @@ export function EventLineWorkbench(props: {
   };
   const openGraphEvent = (eventId: string) => {
     setSelectedEventId(eventId);
-    requestDockState({ open: false, activeLens: "detail" }, eventId);
   };
   const beginEventCreate = () => {
     if (!props.onSaveEvent) return;
@@ -307,7 +307,10 @@ export function EventLineWorkbench(props: {
     }
   };
   const selectView = (next: EventWorkspaceView) => {
-    if (next === "graph") requestDockState({ open: false, activeLens: "detail" });
+    requestDockState({ open: false, activeLens: "detail" });
+    if (next === "graph") {
+      window.dispatchEvent(new Event("story-studio-close-project-directory"));
+    }
     setProjectionMode(next);
   };
   useEffect(() => { writeProjectionMode(props.projectId, projectionMode); }, [projectionMode, props.projectId]);
@@ -374,8 +377,11 @@ export function EventLineWorkbench(props: {
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
-        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => props.onOpenTianyi(eventId ? createStoryStudioEventReference({ projectId: props.projectId, event: props.events.find((event) => event.id === eventId)!, requestedUse: "constraint" }) : undefined)} /> : null}
-        {projectionMode === "timeline" ? <EventTimelineProjection events={props.events} selectedEventId={selectedEventId} onSelect={openEvent} /> : null}
+        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => {
+          const event = eventId ? props.events.find((item) => item.id === eventId) : undefined;
+          props.onOpenTianyi(event && (event.status === "planned" || event.status === "committed") ? createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" }) : undefined);
+        }} /> : null}
+        {projectionMode === "timeline" ? <EventTimelineProjection events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelect={openEvent} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
         {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="故事脊柱">
@@ -395,15 +401,6 @@ export function EventLineWorkbench(props: {
           </section>)}
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
-        <form className="event-line-simulation-entry" onSubmit={(event) => {
-          event.preventDefault();
-          props.onOpenTianyi(selectedEventRef ?? undefined, simulationDraft.trim());
-          setSimulationDraft("");
-        }}>
-          <div><small>天意推演</small><strong>{selectedEvent ? `围绕「${selectedEvent.title}」继续推演` : "先选中一个事件作为起点"}</strong></div>
-          <label><span className="sr-only">推演问题</span><input value={simulationDraft} onChange={(event) => setSimulationDraft(event.target.value)} placeholder="想从这个事件继续推演什么？" maxLength={2000} /></label>
-          <button type="submit" className="primary-action" disabled={!selectedEvent || !simulationDraft.trim()}><Sparkles />开始推演</button>
-        </form>
       </main>
       {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>

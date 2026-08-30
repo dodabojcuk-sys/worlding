@@ -4,7 +4,6 @@ export type DockLayoutState = {
   openPanelIds: DockToolId[];
   panelSizes: Partial<Record<DockToolId, number>>;
   activeToolId: DockToolId | null;
-  isTianyiOpen: boolean;
 };
 
 export const DOCK_PANEL_MIN_SIZE = 160;

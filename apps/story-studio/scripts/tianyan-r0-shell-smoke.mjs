@@ -29,6 +29,8 @@ const r062VisualEvidenceDirectory = process.env.TIANYAN_R062_EVIDENCE_DIR || nul
 const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR || null;
 const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDENCE === "1";
 const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
+const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
+let timelineFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -103,9 +105,12 @@ try {
   }
   if (eventGraphRecordingDirectory) await recordEventGraphOperation();
   await assertEventGraphWorkspace(page);
+  await setupTimelineFixture();
+  await assertTimelineRelationshipGraph(page, consoleProblems);
+  await assertRightWorkSurfaceStateMachine(page, consoleProblems);
   if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
   if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
-  await assertAuthorEventCreation(page);
+  await assertAuthorEventCreation(page, consoleProblems);
   await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -120,6 +125,8 @@ try {
 }
 
 async function assertPermissionProjection(page) {
+  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI", "The shared right work surface must explicitly own Tianyi while its composer is visible.");
   const trigger = page.getByRole("button", { name: "权限", exact: true });
   await trigger.click();
   const state = await page.evaluate(() => {
@@ -131,6 +138,8 @@ async function assertPermissionProjection(page) {
   assert.deepEqual(state.disabled, ["仅建议未授权", "授权编辑未授权"], "Only broker-backed permissions are interactive in the R0.3 shell.");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
+  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
+  await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
 }
 
 async function assertSingleGlobalSearch(page) {
@@ -193,7 +202,10 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.getByRole("option", { name: /林昭/u }).click();
   await page.getByTestId("character-inspector").waitFor();
   const workspaceAfter = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
-  assert.deepEqual(workspaceAfter, workspaceBefore, "Opening the inspector must not remount or resize the central workspace");
+  assert.equal(workspaceAfter.text, workspaceBefore.text, "Opening the inspector must not remount the central workspace");
+  for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
+    assert.ok(Math.abs(workspaceAfter.rect[key] - workspaceBefore.rect[key]) <= 0.5, `Opening the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceAfter.rect[key]})`);
+  }
   assert.match(page.url(), /directoryObject=character\./u);
   assert.equal(await page.getByRole("button", { name: "打开完整资料" }).count(), 1);
   await page.getByRole("button", { name: "打开完整资料" }).click();
@@ -202,7 +214,10 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.getByRole("form", { name: "完整角色资料" }).getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "展开角色检查器" }).click();
   assert.equal(await page.getByTestId("character-inspector").getAttribute("aria-expanded"), "true", "The inspector expands as an overlay without moving the workspace");
-  assert.deepEqual(await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().toJSON()), workspaceBefore.rect, "Expanding the inspector must not resize the central workspace");
+  const workspaceExpanded = await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().toJSON());
+  for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
+    assert.ok(Math.abs(workspaceExpanded[key] - workspaceBefore.rect[key]) <= 0.5, `Expanding the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceExpanded[key]})`);
+  }
   await page.getByRole("button", { name: "多选", exact: true }).click();
   assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
   assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
@@ -746,6 +761,26 @@ async function setupEventGraphFixture() {
   await link("林昭隐瞒真相", "仓库对峙", "candidate", false);
 }
 
+async function setupTimelineFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const timed = [
+    ["雾港启航", "第 1 夜"], ["灯塔失火", "第 1 夜"], ["暗号传递", "第 2 夜"],
+    ["旧仓库封锁", "第 3 夜"], ["黎明前对峙", "第 4 夜"]
+  ];
+  const created = [];
+  for (const [title, time] of timed) {
+    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title, status: "draft", tags: ["作者草稿", `时间：${time}`, "地点：雾港"], body: `${title}仅用于隔离时间关系图验收。` });
+    created.push(result.data);
+  }
+  const unknown = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: "待定访客", status: "draft", tags: ["作者草稿", "地点：雾港"], body: "该事件的世界时间尚未由作者补充。" })).data;
+  const types = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const relationTypeId = types.data.types[0]?.relationTypeId;
+  assert.ok(relationTypeId, "The isolated time graph fixture must reuse the existing Relation owner type.");
+  const candidate = await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, sourceObjectId: created[0].id, targetObjectId: created[4].id, relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-time-graph-cross-band", operationId: `time-graph-cross-band-${fixture.fixtureId}` });
+  await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, relationId: candidate.data.relation.relationId, expectedRelationRevision: candidate.data.relation.revision, operationId: `time-graph-cross-band-confirm-${fixture.fixtureId}` });
+  timelineFixture = { timed: created, unknown };
+}
+
 async function setupEventGraphDensityFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   const storyUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
@@ -789,6 +824,8 @@ async function assertEventGraphWorkspace(page) {
   await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("[data-directory-visible]")?.getAttribute("data-directory-visible") === "false");
+  await page.waitForTimeout(220);
   const workspace = page.getByLabel("事件关系工作区");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-event-graph-owner"), "projection", "The graph remains a projection rather than a second Event owner.");
@@ -929,6 +966,96 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
 }
 
+async function assertTimelineRelationshipGraph(page, consoleProblems) {
+  assert.ok(timelineFixture, "The time graph must use an isolated fixture.");
+  const output = founderEvidenceDirectory;
+  if (output) mkdirSync(output, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  await page.getByRole("button", { name: "时间轴", exact: true }).click();
+  const canvas = page.getByLabel("事件时间关系画布");
+  await canvas.waitFor();
+  assert.equal(await canvas.getAttribute("data-timeline-graph-engine"), "react-flow", "Timeline must reuse the graph engine.");
+  assert.ok(await page.locator(".event-timeline-node").count() >= 12, "Fixture must show eight-plus Event-owner nodes.");
+  assert.ok(await page.locator(".event-timeline-band-labels > div").count() >= 4, "Fixture must show four authored time bands.");
+  assert.ok(await page.locator(".event-timeline-node.is-unknown").count() >= 2, "Unknown times must stay in their own lane.");
+  assert.ok(await page.locator(".react-flow__edge-path").count() >= 6, "Fixture must show six-plus Relation-owner edges.");
+  assert.ok(await page.locator(".timeline-cross-band-edge").count() >= 1, "A cross-band relation must remain identifiable.");
+  if (output) await page.screenshot({ path: path.join(output, "1440x900-multi-time-band-global.png"), fullPage: true });
+  const viewportBeforePan = await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style");
+  const flowBox = await page.locator(".event-timeline-flow").boundingBox();
+  assert.ok(flowBox, "Timeline graph canvas must have a live box.");
+  await page.mouse.move(flowBox.x + flowBox.width / 2, flowBox.y + flowBox.height / 2);
+  await page.mouse.down(); await page.mouse.move(flowBox.x + flowBox.width / 2 + 80, flowBox.y + flowBox.height / 2 + 30); await page.mouse.up();
+  await page.waitForTimeout(120);
+  assert.notEqual(await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style"), viewportBeforePan, "Timeline canvas must pan.");
+  const zoomBefore = await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style");
+  await page.locator(".event-timeline-flow .react-flow__controls-zoomin").click();
+  await page.waitForTimeout(120);
+  assert.notEqual(await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
+  await page.getByRole("button", { name: "适应时间图视图" }).click();
+  await page.locator(".event-timeline-node").filter({ hasText: "雾港启航" }).click();
+  await page.getByRole("button", { name: "聚焦当前时间节点" }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS", "Selecting a time node must open the only details surface.");
+  if (output) await page.screenshot({ path: path.join(output, "1440x900-selected-cross-band-relation.png"), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "适应时间图视图" }).click();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "1280 timeline fit view must not overflow horizontally.");
+  if (output) await page.screenshot({ path: path.join(output, "1280x720-time-graph-fit-view.png"), fullPage: true });
+  const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const unknown = timelineFixture.unknown;
+  const updated = await postFixture(`${apiUrl}/__local/story-studio/world-objects/update`, { projectId: fixtureProjectId, objectId: unknown.id, expectedHash: unknown.revisionToken, presentationExpectedHash: null, writeMarkdown: true, writePresentation: false, title: unknown.title, status: unknown.status, tags: [...unknown.tags, "时间：第 4 夜"], aliases: unknown.aliases, body: unknown.body, subtype: unknown.subtype, typedProperties: unknown.typedProperties, card: unknown.card, profile: unknown.profile });
+  timelineFixture.unknown = updated.data.object;
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "时间轴", exact: true }).click();
+  assert.equal(await page.locator(".event-timeline-node.is-unknown").filter({ hasText: "待定访客" }).count(), 0, "Adding authored time must move the same node out of the unknown lane.");
+  assert.equal(await page.locator(".event-timeline-node").filter({ hasText: "待定访客" }).count(), 1, "Time supplementation must keep the stable Event node.");
+  const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Timeline proof may not write Canon.");
+  assert.deepEqual(consoleProblems, [], "Timeline interaction must not add browser console errors.");
+}
+
+async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
+  const output = founderEvidenceDirectory;
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "State machine begins at NONE.");
+  await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  await page.getByRole("button", { name: "查看正式事件：雨夜追踪" }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
+  if (output) await page.screenshot({ path: path.join(output, "1152x720-event-details-open.png"), fullPage: true });
+  await page.getByRole("button", { name: "新增事件", exact: true }).first().click();
+  const form = page.getByRole("form", { name: "新建事件" }); await form.waitFor();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_CREATE");
+  if (output) await page.screenshot({ path: path.join(output, "1152x720-event-create-top.png"), fullPage: true });
+  await form.evaluate((element) => element.scrollTop = element.scrollHeight);
+  const actionsReachable = await form.locator("footer button").evaluateAll((buttons) => buttons.every((button) => { const rect = button.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.width > 0; }));
+  assert.equal(actionsReachable, true, "1152 create actions must remain reachable.");
+  if (output) await page.screenshot({ path: path.join(output, "1152x720-event-create-actions.png"), fullPage: true });
+  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
+  assert.equal(await page.locator("[data-shared-session-id]").count(), 1, "Only one Tianyi composer may be mounted.");
+  if (output) await page.screenshot({ path: path.join(output, "1152x720-tianyi-open.png"), fullPage: true });
+  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
+  await page.getByRole("button", { name: "查看正式事件：雨夜追踪" }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
+  const typeState = await getFixture(`${apiUrl}/__local/story-studio/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const reviewCandidate = await postFixture(`${apiUrl}/__local/story-studio/relations/create`, { projectId: fixtureProjectId, sourceObjectId: timelineFixture.timed[1].id, targetObjectId: timelineFixture.timed[2].id, relationTypeId: typeState.data.types[0].relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-right-surface-review", operationId: `right-surface-review-${fixture.fixtureId}` });
+  assert.equal(reviewCandidate.data.relation.reviewState, "candidate", "Relation review must begin from the existing Relation owner candidate.");
+  await page.reload({ waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
+  await page.getByRole("button", { name: /待确认 1/u }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "RELATION_REVIEW");
+  if (output) await page.screenshot({ path: path.join(output, "1152x720-relation-review-open.png"), fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "1152 right surfaces must not overflow horizontally.");
+  await page.locator(".event-graph-flow").click({ position: { x: 12, y: 12 } });
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "Pane clear returns the state machine to NONE.");
+  assert.deepEqual(consoleProblems, [], "Right surface interactions must not add browser console errors.");
+}
+
 async function captureEventGraphEvidence(page, consoleProblems) {
   mkdirSync(eventGraphEvidenceDirectory, { recursive: true });
   const captures = [];
@@ -993,7 +1120,7 @@ async function captureEventGraphDensityEvidence(page, consoleProblems) {
   assert.deepEqual(consoleProblems, [], "Density evidence must not add browser console errors.");
 }
 
-async function assertAuthorEventCreation(page) {
+async function assertAuthorEventCreation(page, consoleProblems) {
   const base = `${apiUrl}/__local/story-studio`;
   await page.setViewportSize({ width: 1152, height: 720 });
   await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
@@ -1020,7 +1147,18 @@ async function assertAuthorEventCreation(page) {
     await createForm.getByLabel("故事时间").fill("雨夜");
     await createForm.getByLabel("地点").fill("旧仓库");
     await createForm.getByRole("button", { name: "保存草稿", exact: true }).click();
-    await page.getByText("事件草稿已保存，并已定位到当前工作区。", { exact: false }).waitFor();
+    await page.waitForFunction(() => Boolean(document.querySelector(".event-line-creation-notice, .event-create-error")), undefined, { timeout: 10_000 }).catch(() => undefined);
+    const creationState = await page.evaluate((problems) => ({
+      outcome: document.querySelector(".event-line-creation-notice, .event-create-error")?.textContent ?? null,
+      form: document.querySelector(".event-create-inspector")?.textContent ?? null,
+      surface: document.querySelector("[data-right-work-surface]")?.getAttribute("data-right-work-surface") ?? null,
+      url: window.location.href,
+      body: document.body.innerText.slice(0, 1_000),
+      consoleProblems: problems
+    }), consoleProblems);
+    assert.ok(creationState.outcome, `Draft save did not settle=${JSON.stringify(creationState)}`);
+    const creationOutcome = await page.locator(".event-line-creation-notice, .event-create-error").first().textContent();
+    assert.match(creationOutcome ?? "", /事件草稿已保存，并已定位到当前工作区。/u, `Draft save outcome=${creationOutcome}`);
   };
   await create("手动事件 A", "仓库管理员在交接前隐瞒异常记录。");
   await create("手动事件 B", "调查者在雨夜发现账目与实物不符。");

@@ -10,6 +10,7 @@ import {
 } from "../../src/storyContracts/storyStudioWorkspaceRegistry.ts";
 import { TIAN_YAN_R0_2_WORKBENCH_ORDER, TIAN_YAN_R0_COMMAND_PANEL_SCOPE, TIAN_YAN_R0_DEFAULT_LAYOUT } from "../../src/storyContracts/tianyanR0ShellContract.ts";
 import { createInitialDockLayout, resizeDockPanel, toggleDockPanel } from "../../apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts";
+import { RIGHT_WORK_SURFACE_MODES } from "../../apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts";
 import { enUS, zhCN } from "../../apps/story-studio/src/product-shell/i18n/translations.ts";
 import {
   nextShellRailPreference,
@@ -48,7 +49,7 @@ test("R0.2 workbench keeps global panels separate from the composable page-tool 
   const initial = createInitialDockLayout();
   assert.deepEqual(initial.openPanelIds, []);
   assert.equal(initial.activeToolId, null);
-  assert.equal(initial.isTianyiOpen, true);
+  assert.deepEqual(RIGHT_WORK_SURFACE_MODES, ["NONE", "EVENT_DETAILS", "EVENT_CREATE", "RELATION_REVIEW", "TIANYI"]);
 
   const expertFirst = toggleDockPanel(initial, "expert-analysis");
   const logSecond = toggleDockPanel(expertFirst, "engineering-log");
@@ -166,7 +167,7 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(shell, /const openAccount = \(\) => \{/);
   assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*setDirectoryOpen\(false\)/);
   assert.match(shell, /const openSettings = \(\) => \{/);
-  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*dock\.setTianyiOpen\(false\)/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
   assert.match(shell, /data-settings-open=\{settingsOpen\}/);
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
   assert.match(shell, /accountOpen=\{accountOpen\}/);
@@ -192,7 +193,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   assert.equal(nextShellRailPreference(true), "expanded");
   assert.equal(nextShellRailPreference(false), "collapsed");
   assert.match(shell, /data-rail-collapsed=\{railCollapsed\}/);
-  assert.match(shell, /useDockLayoutState\(false\)/);
+  assert.match(shell, /useDockLayoutState\(\)/);
   assert.match(shell, /onToggleCollapsed=\{toggleRail\}/);
   assert.doesNotMatch(labelRule, /text-overflow\s*:\s*ellipsis/);
   assert.doesNotMatch(styles, /@media \(max-width: 75rem\)[\s\S]*?--space-rail-width\s*:\s*7\.75rem/);

@@ -15,25 +15,6 @@
   block-size: 100%;
 }
 
-.shell-workspace-event-line .event-line-simulation-entry {
-  display: grid;
-  grid-template-columns: minmax(12rem, .8fr) minmax(15rem, 1.6fr) auto;
-  gap: var(--space-3);
-  align-items: end;
-  margin: var(--space-4) 0 0;
-  padding: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-}
-.shell-workspace-event-line .event-line-simulation-entry > div { display: grid; gap: var(--space-1); }
-.shell-workspace-event-line .event-line-simulation-entry small { color: var(--color-accent); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-line-simulation-entry strong { font-size: var(--font-size-sm); }
-.shell-workspace-event-line .event-line-simulation-entry label { display: grid; }
-.shell-workspace-event-line .event-line-simulation-entry input { min-height: 2.5rem; padding-inline: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-.shell-workspace-event-line .event-line-simulation-entry button { min-height: 2.5rem; white-space: nowrap; }
-@media (max-width: 52rem) { .shell-workspace-event-line .event-line-simulation-entry { grid-template-columns: 1fr; align-items: stretch; } }
-
 .shell-workspace-event-line .event-line-workbench,
 .shell-workspace-event-line .event-line-shell {
   display: flex;
@@ -71,7 +52,11 @@
   .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 23.25rem; }
 }
 
-@media (max-width: 90rem) {
+@media (min-width: 64.0625rem) and (max-width: 90rem) {
+  .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 23.25rem; }
+}
+
+@media (max-width: 64rem) {
   .shell-workspace-event-line .page-context-dock-panel { position: absolute; inset-block: 0; inset-inline-end: 3.25rem; z-index: 6; inline-size: min(20rem, calc(100vw - var(--rail-current) - 4rem)); background: var(--color-surface); box-shadow: var(--shadow-panel); }
 }
 
@@ -197,7 +182,7 @@
   flex-direction: column;
   inline-size: 100%;
   max-inline-size: none;
-  padding: var(--space-3) !important;
+  padding: 0 !important;
 }
 
 .shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main > .event-graph-workspace {
@@ -220,45 +205,88 @@
   display: grid;
   align-content: start;
   gap: var(--space-4);
-  max-inline-size: 72rem;
+  inline-size: 100%;
+  max-inline-size: 78rem;
   margin: 0 auto;
   padding-block-end: var(--space-6);
 }
-.shell-workspace-event-line .event-timeline-heading,
-.shell-workspace-event-line .event-timeline-undated > header {
+.shell-workspace-event-line .event-timeline-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
 }
-.shell-workspace-event-line .event-timeline-heading div,
-.shell-workspace-event-line .event-timeline-undated > header div { display: grid; gap: 0.2rem; }
+.shell-workspace-event-line .event-timeline-heading > div { display: grid; gap: 0.2rem; }
 .shell-workspace-event-line .event-timeline-heading small,
+.shell-workspace-event-line .event-timeline-band small,
 .shell-workspace-event-line .event-timeline-undated small { color: var(--color-accent); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-heading strong,
-.shell-workspace-event-line .event-timeline-undated strong { font-size: var(--font-size-lg); }
-.shell-workspace-event-line .event-timeline-heading > span,
-.shell-workspace-event-line .event-timeline-undated > header > span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-list,
-.shell-workspace-event-line .event-timeline-undated ol { display: grid; gap: var(--space-3); margin: 0; padding: 0 0 0 1.25rem; list-style: none; border-inline-start: 1px solid var(--color-border); }
-.shell-workspace-event-line .event-timeline-list li,
-.shell-workspace-event-line .event-timeline-undated li { position: relative; }
-.shell-workspace-event-line .event-timeline-marker { position: absolute; inset-inline-start: -1.625rem; inset-block-start: 1.35rem; inline-size: 0.7rem; block-size: 0.7rem; background: var(--color-accent); border: 2px solid var(--color-workspace-background); border-radius: 50%; }
-.shell-workspace-event-line .event-timeline-list button,
-.shell-workspace-event-line .event-timeline-undated button { width: 100%; display: grid; grid-template-columns: minmax(8rem, .55fr) minmax(12rem, 1fr); gap: var(--space-2) var(--space-4); padding: var(--space-4); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; text-align: start; }
-.shell-workspace-event-line .event-timeline-list button[aria-pressed="true"],
-.shell-workspace-event-line .event-timeline-undated button[aria-pressed="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
-.shell-workspace-event-line .event-timeline-list time,
-.shell-workspace-event-line .event-timeline-list button > span,
-.shell-workspace-event-line .event-timeline-undated time,
-.shell-workspace-event-line .event-timeline-undated button > span { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-list strong,
-.shell-workspace-event-line .event-timeline-undated strong { font-size: var(--font-size-md); }
-.shell-workspace-event-line .event-timeline-undated { display: grid; gap: var(--space-3); margin-block-start: var(--space-4); padding: var(--space-4); background: var(--color-surface-muted); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); }
-.shell-workspace-event-line .event-timeline-undated > header { justify-content: flex-start; }
-.shell-workspace-event-line .event-timeline-undated > header > span { margin-inline-start: auto; }
-.shell-workspace-event-line .event-timeline-empty,
-.shell-workspace-event-line .event-timeline-undated > p { margin: 0; color: var(--color-text-muted); line-height: 1.6; }
+.shell-workspace-event-line .event-timeline-heading strong { font-size: var(--font-size-xl); }
+.shell-workspace-event-line .event-timeline-heading p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-heading dl { display: flex; gap: var(--space-2); margin: 0; }
+.shell-workspace-event-line .event-timeline-heading dl div { min-inline-size: 5.75rem; padding: var(--space-2) var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-timeline-heading dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-heading dd { margin: .15rem 0 0; font-weight: 750; }
+
+.shell-workspace-event-line .event-timeline-canvas { position: relative; display: grid; gap: var(--space-4); min-block-size: 32rem; padding: var(--space-4); overflow: auto; background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.shell-workspace-event-line .event-timeline-axis { min-inline-size: 44rem; display: grid; grid-template-columns: auto minmax(12rem, 1fr) auto auto; align-items: center; gap: var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-axis i { block-size: 2px; background: var(--color-accent); }
+.shell-workspace-event-line .event-timeline-axis svg { inline-size: 1rem; color: var(--color-accent); }
+.shell-workspace-event-line .event-timeline-bands { display: grid; gap: var(--space-3); min-inline-size: 44rem; }
+.shell-workspace-event-line .event-timeline-band { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); min-block-size: 9rem; background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-timeline-band > header { display: grid; align-content: center; gap: .25rem; padding: var(--space-3); border-inline-end: 1px solid var(--color-border); background: var(--color-surface-muted); }
+.shell-workspace-event-line .event-timeline-band > header time { color: var(--color-text); font-weight: 750; overflow-wrap: anywhere; }
+.shell-workspace-event-line .event-timeline-band > header span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-band > ol,
+.shell-workspace-event-line .event-timeline-undated ol { display: flex; align-items: center; gap: var(--space-3); margin: 0; padding: var(--space-3) var(--space-4); list-style: none; }
+.shell-workspace-event-line .event-timeline-band li,
+.shell-workspace-event-line .event-timeline-undated li { position: relative; flex: 0 0 16rem; }
+.shell-workspace-event-line .event-timeline-band li::before { content: ""; position: absolute; inset-inline: -1rem calc(100% - .25rem); inset-block-start: 50%; border-block-start: 1px solid var(--color-accent); }
+.shell-workspace-event-line .event-timeline-band button,
+.shell-workspace-event-line .event-timeline-undated button { position: relative; inline-size: 100%; display: grid; grid-template-columns: 1fr; gap: .35rem; padding: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); box-shadow: 0 .25rem .8rem color-mix(in srgb, var(--color-text) 7%, transparent); cursor: pointer; text-align: start; }
+.shell-workspace-event-line .event-timeline-band button[aria-pressed="true"],
+.shell-workspace-event-line .event-timeline-undated button[aria-pressed="true"] { border: 2px solid var(--color-accent); background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-timeline-band button time,
+.shell-workspace-event-line .event-timeline-band button > span,
+.shell-workspace-event-line .event-timeline-undated button time,
+.shell-workspace-event-line .event-timeline-undated button > span { display: inline-flex; align-items: center; gap: .35rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-band button strong,
+.shell-workspace-event-line .event-timeline-undated button strong { font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-timeline-marker { position: absolute; inset-inline-start: -.43rem; inset-block-start: 50%; inline-size: .7rem; block-size: .7rem; translate: -50% -50%; background: var(--color-accent); border: 2px solid var(--color-surface); border-radius: 50%; }
+.shell-workspace-event-line .event-timeline-known-empty { min-block-size: 10rem; display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-5); color: var(--color-text-muted); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-timeline-known-empty > svg { inline-size: 1.5rem; color: var(--color-accent); }
+.shell-workspace-event-line .event-timeline-known-empty strong { color: var(--color-text); }
+.shell-workspace-event-line .event-timeline-known-empty p { margin: .25rem 0 0; }
+.shell-workspace-event-line .event-timeline-undated { min-inline-size: 44rem; display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface-muted) 82%, transparent); }
+.shell-workspace-event-line .event-timeline-undated > header { display: grid; grid-template-columns: auto 1fr; align-content: center; gap: .2rem var(--space-2); padding: var(--space-3); border-inline-end: 1px dashed var(--color-border-strong); }
+.shell-workspace-event-line .event-timeline-undated > header svg { grid-row: 1 / 3; align-self: center; inline-size: 1rem; color: var(--color-accent); }
+.shell-workspace-event-line .event-timeline-undated > header div { display: grid; gap: .2rem; }
+.shell-workspace-event-line .event-timeline-undated > header strong { font-size: var(--font-size-md); }
+.shell-workspace-event-line .event-timeline-undated > header > span { grid-column: 2; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-undated > p { align-self: center; margin: 0; padding: var(--space-4); color: var(--color-text-muted); }
+
+/* Time is spatial here: the x axis is Event-owned world time, while the
+   React Flow layer keeps the existing Relation-owner projection as edges. */
+.shell-workspace-event-line .event-timeline-canvas { grid-template-rows: auto auto minmax(27rem, 1fr) auto; min-block-size: 44rem; overflow: hidden; }
+.shell-workspace-event-line .event-timeline-axis { min-inline-size: 0; grid-template-columns: auto minmax(8rem, 1fr) auto; }
+.shell-workspace-event-line .event-timeline-band-labels { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--space-2); }
+.shell-workspace-event-line .event-timeline-band-labels > div { display: grid; gap: .15rem; min-block-size: 3.2rem; padding: var(--space-2) var(--space-3); background: color-mix(in srgb, var(--color-surface) 88%, transparent); border-inline-start: 3px solid var(--color-accent); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-timeline-band-labels small { color: var(--color-accent); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-band-labels strong { overflow-wrap: anywhere; font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-timeline-flow { min-block-size: 27rem; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-surface) 55%, transparent); }
+.shell-workspace-event-line .event-timeline-flow .react-flow { background: linear-gradient(180deg, transparent 72%, color-mix(in srgb, var(--color-surface-muted) 72%, transparent) 72%); }
+.shell-workspace-event-line .event-timeline-node { inline-size: 16rem; display: grid; gap: .3rem; padding: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); box-shadow: 0 .25rem .8rem color-mix(in srgb, var(--color-text) 7%, transparent); cursor: pointer; }
+.shell-workspace-event-line .event-timeline-node:hover, .shell-workspace-event-line .event-timeline-node.is-selected { border: 2px solid var(--color-accent); background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-timeline-node.is-unknown { border-style: dashed; }
+.shell-workspace-event-line .event-timeline-node small, .shell-workspace-event-line .event-timeline-node time, .shell-workspace-event-line .event-timeline-node > span { display: inline-flex; align-items: center; gap: .35rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-node small { color: var(--color-accent); font-weight: 700; }
+.shell-workspace-event-line .event-timeline-node strong { font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-timeline-flow .timeline-cross-band-edge .react-flow__edge-path { stroke-width: 3; }
+.shell-workspace-event-line .event-timeline-undated { min-inline-size: 0; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3); }
+.shell-workspace-event-line .event-timeline-undated > svg { align-self: start; inline-size: 1.15rem; color: var(--color-accent); }
+.shell-workspace-event-line .event-timeline-undated > div { display: grid; gap: .2rem; }
+.shell-workspace-event-line .event-timeline-undated > div p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.shell-workspace-event-line .event-timeline-actions button { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2.25rem; padding-inline: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
 
 .shell-workspace-event-line .event-graph-commandbar,
 .shell-workspace-event-line .event-graph-command-actions,
@@ -274,7 +302,8 @@
   gap: var(--space-2);
   min-block-size: 3.625rem;
   padding: var(--space-2) var(--space-4);
-  overflow-x: auto;
+  min-inline-size: 0;
+  overflow: hidden;
   border-block-end: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-surface) 92%, var(--color-workspace-background));
 }
@@ -551,10 +580,13 @@
   display: grid;
   align-content: start;
   gap: var(--space-3);
+  block-size: 100%;
+  box-sizing: border-box;
   min-block-size: 0;
   padding: var(--space-4);
   overflow: auto;
 }
+.shell-workspace-event-line .page-context-dock-body:has(.event-create-inspector) { display: grid; overflow: hidden; }
 .shell-workspace-event-line .event-create-inspector section { padding-block-end: var(--space-3); border-block-end: 1px solid var(--color-border); }
 .shell-workspace-event-line .event-create-inspector section small { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 700; }
 .shell-workspace-event-line .event-create-inspector section h2 { margin: 0.35rem 0; font-size: var(--font-size-lg); }
@@ -582,6 +614,15 @@
   .shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main { grid-template-columns: 3.25rem minmax(0, 1fr); }
   .shell-workspace-event-line .event-graph-inspector { position: absolute; inset-inline-end: 0; inset-block: 0; inline-size: min(24rem, calc(100vw - 5rem)); z-index: 5; box-shadow: var(--shadow-panel); }
   .shell-workspace-event-line .event-graph-main { position: relative; }
+}
+
+@media (max-width: 90rem) {
+  .shell-workspace-event-line .event-graph-commandbar { padding-inline: var(--space-2); }
+  .shell-workspace-event-line .event-graph-command-actions { gap: var(--space-1); }
+  .shell-workspace-event-line .event-graph-command-actions button { inline-size: 2.25rem; padding-inline: 0; }
+  .shell-workspace-event-line .event-graph-command-actions button span { display: none; }
+  .shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main { grid-template-columns: 3.25rem minmax(0, 1fr) 0; }
+  .shell-workspace-event-line .event-graph-inspector { grid-column: auto; position: absolute; inset-block: 0; inset-inline-end: 0; z-index: 5; inline-size: min(20rem, calc(100% - 6.5rem)); box-shadow: var(--shadow-panel); }
 }
 
 .shell-workspace-event-line .event-line-unit,
@@ -690,4 +731,7 @@
   .shell-workspace-event-line .event-line-spine-toolbar {
     gap: var(--space-3);
   }
+
+  .shell-workspace-event-line .event-timeline-heading { align-items: flex-start; }
+  .shell-workspace-event-line .event-timeline-heading dl { display: none; }
 }

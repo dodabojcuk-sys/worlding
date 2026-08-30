@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 
-import { useWorkspaceDockSlot, workspaceDockCoordinator } from "../product-shell/WorkspaceDockCoordinator";
+import { useWorkspaceDockSlot } from "../product-shell/WorkspaceDockCoordinator";
 
 export type PageContextDockState<T extends string> = {
   open: boolean;
@@ -35,12 +35,10 @@ export function PageContextDock<T extends string>(props: {
   const showsInternalPanel = Boolean(props.state.open && activeLens && !activeLens.external);
   const commitState = (next: PageContextDockState<T>) => {
     props.onState(next);
-    if (next.open) workspaceDockCoordinator.openPageInspector(props.pageId);
-    else workspaceDockCoordinator.closePageInspector(props.pageId);
   };
 
   useEffect(() => {
-    if (sharedSlot.kind === "page-inspector" && sharedSlot.pageId === props.pageId) return;
+    if (sharedSlot.ownerId === props.pageId && sharedSlot.mode !== "NONE" && sharedSlot.mode !== "TIANYI") return;
     if (props.state.open) commitState({ ...props.state, open: false });
   }, [props.pageId, props.state, sharedSlot]);
 

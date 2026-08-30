@@ -33,6 +33,7 @@ import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../.
 import { storyStudioWorkspaceRoute } from "./navigation/topLevelDestinationRegistry";
 import type { GlobalSearchOpenRequest, GlobalSearchResult, GlobalSearchScope } from "./global-search/globalSearchTypes";
 import type { StoryStudioEventReference } from "../../../../src/storyContracts/storyStudioEventReference.ts";
+import { useWorkspaceDockSlot, workspaceDockCoordinator } from "./WorkspaceDockCoordinator";
 
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
@@ -54,10 +55,9 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [searchRequest, setSearchRequest] = useState<GlobalSearchOpenRequest | null>(null);
   const [tianyiContextRequest, setTianyiContextRequest] = useState<TianyiSidebarContextRequest | null>(null);
   const [directoryOpen, setDirectoryOpen] = useState(() => resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches));
-  // Tianyi is author-invoked. Keeping it closed by default leaves the current
-  // event workspace usable and avoids an unavailable-provider panel claiming
-  // a permanent third of the screen.
-  const dock = useDockLayoutState(false);
+  const dock = useDockLayoutState();
+  const rightWorkSurface = useWorkspaceDockSlot();
+  const tianyiOpen = rightWorkSurface.mode === "TIANYI";
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
@@ -66,6 +66,12 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const handlePopState = () => { setActiveId(resolveStoryStudioShellLocation(window.location.pathname)); setLocationRevision((value) => value + 1); };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    const closeProjectDirectory = () => setDirectoryOpen(false);
+    window.addEventListener("story-studio-close-project-directory", closeProjectDirectory);
+    return () => window.removeEventListener("story-studio-close-project-directory", closeProjectDirectory);
   }, []);
 
   useEffect(() => {
@@ -91,6 +97,18 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const labelKey = accountOpen ? "nav.account" : settingsOpen ? "nav.settings" : activeDestination.labelKey;
     document.title = `${t(labelKey as Parameters<typeof t>[0])} · ${t("brand.name")}`;
   }, [accountOpen, activeDestination.labelKey, settingsOpen, t]);
+
+  useEffect(() => {
+    if (activeId !== "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI") {
+      workspaceDockCoordinator.close();
+    }
+  }, [activeId, rightWorkSurface.mode]);
+
+  useEffect(() => {
+    if (rightWorkSurface.mode !== "NONE" && window.matchMedia("(max-width: 90rem)").matches) {
+      setDirectoryOpen(false);
+    }
+  }, [rightWorkSurface.mode]);
 
   const navigate = (destination: StoryStudioShellDestination) => {
     const query = shellLab ? window.location.search : "";
@@ -151,13 +169,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setSettingsOpen(true);
     setAccountOpen(false);
     setDirectoryOpen(false);
-    dock.setTianyiOpen(false);
+    workspaceDockCoordinator.close();
   };
   const openAccount = () => {
     setAccountOpen(true);
     setSettingsOpen(false);
     setDirectoryOpen(false);
-    dock.setTianyiOpen(false);
+    workspaceDockCoordinator.close();
   };
   const openTianyi = (reference?: StoryStudioEventReference, initialDraft?: string) => {
     setTianyiContextRequest(reference ? {
@@ -168,12 +186,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     } : null);
     if (initialDraft !== undefined) props.runtime.setSharedDraft(initialDraft);
     if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
-    dock.setTianyiOpen(true);
+    workspaceDockCoordinator.openQuickTianyi();
   };
 
   const toggleTianyi = () => {
-    if (!dock.state.isTianyiOpen && window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
-    dock.toggleTianyi();
+    if (!tianyiOpen && window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
+    if (tianyiOpen) workspaceDockCoordinator.closeQuickTianyi();
+    else workspaceDockCoordinator.openQuickTianyi();
   };
   const togglePanel = (panel: "project-directory" | "global-tianyi") => panel === "project-directory" ? setDirectoryOpen((open) => !open) : toggleTianyi();
 
@@ -185,7 +204,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-rail-collapsed={railCollapsed}
     data-directory-visible={directoryOpen}
     data-dock-panel-count={dock.state.openPanelIds.length}
-    data-tianyi-open={dock.state.isTianyiOpen}
+    data-tianyi-open={tianyiOpen}
+    data-right-work-surface={rightWorkSurface.mode}
     data-settings-open={settingsOpen}
     data-account-open={accountOpen}
   >
@@ -206,7 +226,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       projects={props.runtime.projects}
       workVersionLabel={props.runtime.workVersionLabel}
       directoryOpen={directoryOpen}
-      tianyiOpen={dock.state.isTianyiOpen}
+      tianyiOpen={tianyiOpen}
       searchContext={searchContext}
       searchRequest={searchRequest}
       onSearchNavigate={navigateSearchResult}
@@ -220,13 +240,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     {!settingsOpen && !accountOpen && <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={openCharacterProfileEditor} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterProfileEditor} />}
-    {!settingsOpen && !accountOpen && dock.state.isTianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} contextRequest={tianyiContextRequest} onClose={() => dock.setTianyiOpen(false)} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && tianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}
       panelVisibility={{
         "project-directory": directoryOpen,
-        "global-tianyi": dock.state.isTianyiOpen
+        "global-tianyi": tianyiOpen
       }}
       theme={theme}
       onClose={() => setCommandOpen(false)}
