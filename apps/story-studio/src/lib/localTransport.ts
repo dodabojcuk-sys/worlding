@@ -2528,6 +2528,12 @@ export async function getTianyiIdentity(projectId: string, token: string): Promi
   return tianyiRequest("identity", token, { projectId });
 }
 
+export async function createMultiNodePredictionRun(input: { request: Record<string, unknown>; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/create", token, body); }
+export async function executeMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/execute", token, body); }
+export async function getMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/read", token, body); }
+export async function listMultiNodePredictionRuns(projectId: string, token: string): Promise<unknown[]> { return tianyiRequest("prediction/list", token, { projectId }); }
+export async function abandonMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/abandon", token, body); }
+
 export async function getTianyiProjectResume(projectId: string, agentId: string, token: string): Promise<TianyiProjectResume> {
   return tianyiRequest("project-resume", token, { projectId, agentId });
 }

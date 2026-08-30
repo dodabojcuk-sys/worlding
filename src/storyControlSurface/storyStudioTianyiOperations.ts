@@ -1,4 +1,5 @@
 import { createStoryStudioWorkspaceOperations, type StoryStudioWorldObject, type StoryStudioWritingDocument, type StoryStudioVisualDocument } from "./storyStudioWorkspaceOperations.ts";
+import { createStoryStudioMultiNodePredictionOperations } from "./storyStudioMultiNodePredictionOperations.ts";
 import {
   assertStoryStudioEventReferenceEligibility,
   normalizeStoryStudioEventReference,
@@ -76,6 +77,7 @@ export function createStoryStudioTianyiOperations(options: {
   verifyCanonEventRead?(input: { projectId: string; eventId: string }): boolean;
 }) {
   const workspace = createStoryStudioWorkspaceOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath });
+  const predictions = createStoryStudioMultiNodePredictionOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath, now: options.now, verifyCanonEventRead: options.verifyCanonEventRead });
   const agentId = options.agentId ?? "agent.tianyi";
   const now = options.now ?? (() => new Date().toISOString());
 
@@ -466,7 +468,7 @@ export function createStoryStudioTianyiOperations(options: {
     return { receipt: receipt.value, contentHash: receipt.contentHash, currentStatus: receipt.value.version === "story-tianyi-context-receipt/v3" || receipt.value.version === "story-tianyi-context-receipt/v4" || receipt.value.version === "story-tianyi-context-receipt/v5" ? (receipt.value.stale ? "stale" : "current") : deriveReceiptCurrentStatus(receipt.value, projection), sourceDetails, archiveMessageDetails };
   }
 
-  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
+  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), ...predictions, getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
 
   function projectContext(projectId: string) { return { rootPath: options.rootPath, agentId, scope: "project" as const, projectId: requireProjectId(projectId) }; }
 

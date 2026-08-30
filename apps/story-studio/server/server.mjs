@@ -3225,6 +3225,11 @@ async function handleTianyiRequest(request, response, url) {
   const route = url.pathname.slice("/__local/story-studio/tianyi/".length);
   const routes = {
     "identity": [["projectId"], () => tianyi.getTianyiIdentity(body)],
+    "prediction/create": [["request", "runId"], () => tianyi.createPredictionRun(body)],
+    "prediction/execute": [["projectId", "runId"], () => tianyi.executePredictionRun(body)],
+    "prediction/read": [["projectId", "runId"], () => tianyi.readPredictionRun(body)],
+    "prediction/list": [["projectId"], () => tianyi.listPredictionRuns(body)],
+    "prediction/abandon": [["projectId", "runId"], () => tianyi.abandonPredictionRun(body)],
     "project-resume": [["projectId", "agentId"], () => tianyi.getTianyiProjectResume(body)],
     "context-projection": [["projectId", "contextRequest"], () => tianyi.getTianyiContextProjection(body)],
     "session/open": [["projectId", "operationId", "retentionMode"], () => tianyi.openTianyiSession(body)],
