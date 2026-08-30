@@ -52,7 +52,7 @@
 .shell-workspace-event-line .event-line-spine-toolbar h1 {
   margin: var(--space-2) 0;
   font-family: var(--font-display);
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(1.65rem, 2.6vw, 2.3rem);
   font-weight: 500;
   line-height: 1.1;
 }
@@ -451,6 +451,45 @@
 .shell-workspace-event-line .event-graph-candidate-actions .danger-action { color: var(--color-danger); }
 .shell-workspace-event-line .event-graph-candidate-editor { display: grid; gap: 0.4rem; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 700; }
 .shell-workspace-event-line .event-graph-candidate-editor select { inline-size: 100%; min-block-size: 2.4rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+
+.shell-workspace-event-line .event-line-creation-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  max-inline-size: 66rem;
+  margin: 0 auto var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-border));
+  border-radius: var(--radius-sm);
+}
+.shell-workspace-event-line .event-line-creation-notice button { display: inline-grid; place-items: center; padding: 0.2rem; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.shell-workspace-event-line .event-create-inspector {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-block-size: 0;
+  padding: var(--space-4);
+  overflow: auto;
+}
+.shell-workspace-event-line .event-create-inspector section { padding-block-end: var(--space-3); border-block-end: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-create-inspector section small { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 700; }
+.shell-workspace-event-line .event-create-inspector section h2 { margin: 0.35rem 0; font-size: var(--font-size-lg); }
+.shell-workspace-event-line .event-create-inspector section p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.6; }
+.shell-workspace-event-line .event-create-inspector label { display: grid; gap: 0.4rem; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 700; }
+.shell-workspace-event-line .event-create-inspector label span b { color: var(--color-danger); }
+.shell-workspace-event-line .event-create-inspector input,
+.shell-workspace-event-line .event-create-inspector textarea { inline-size: 100%; box-sizing: border-box; padding: 0.65rem 0.7rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); resize: vertical; }
+.shell-workspace-event-line .event-create-inspector input:focus,
+.shell-workspace-event-line .event-create-inspector textarea:focus { outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent); outline-offset: 1px; border-color: var(--color-accent); }
+.shell-workspace-event-line .event-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.shell-workspace-event-line .event-create-error { margin: 0; padding: var(--space-2) var(--space-3); color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-border)); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-create-inspector footer { position: sticky; inset-block-end: calc(var(--space-4) * -1); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin: var(--space-2) calc(var(--space-4) * -1) calc(var(--space-4) * -1); padding: var(--space-3) var(--space-4); background: var(--color-surface); border-block-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-create-inspector footer button { min-block-size: 2.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .event-create-inspector footer .primary-action { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); }
+@media (max-width: 40rem) { .shell-workspace-event-line .event-create-grid { grid-template-columns: 1fr; } }
 
 @media (max-width: 75rem) {
   .shell-workspace-event-line .event-graph-commandbar { padding-inline: var(--space-2); }

@@ -39,6 +39,9 @@ export function EventGraphCanvas(props: {
   onRejectRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
   onOpenStorySpine?(): void;
   onCreateEvent?(): void;
+  createOpen?: boolean;
+  createInspector?: ReactNode;
+  onCloseCreate?(): void;
   onOpenTianyi?(eventId?: string): void;
 }) {
   const [view, setView] = useState<"global" | "focus">("global");
@@ -73,6 +76,9 @@ export function EventGraphCanvas(props: {
       setInspectorOpen(true);
     }
   }, [props.selectedEventId]);
+  useEffect(() => {
+    if (props.createOpen) setInspectorOpen(true);
+  }, [props.createOpen]);
   useEffect(() => {
     if (!flow || !graph.nodes.length) return;
     let timer = 0;
@@ -142,7 +148,7 @@ export function EventGraphCanvas(props: {
       <div className="event-graph-view-switch">
         <button type="button" className={view === "global" ? "is-active" : ""} aria-pressed={view === "global"} onClick={returnGlobal}><Network />关系图</button>
         <button type="button" className={view === "focus" ? "is-active" : ""} aria-pressed={view === "focus"} onClick={() => focusId ? setView("focus") : setNotice("请先选择一个事件作为焦点。")}><Focus />焦点关系</button>
-        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("新建事件仍使用既有作者创建链；本图不会写入事实。")}><Plus />新增事件</button>
+        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus />新增事件</button>
       </div>
       <div className="event-graph-command-actions">
         {view === "focus" ? <button type="button" onClick={returnGlobal}><ArrowLeft />返回全局</button> : null}
@@ -159,7 +165,7 @@ export function EventGraphCanvas(props: {
       <aside className={"event-graph-local-rail " + (railOpen ? "is-open" : "")} aria-label="事件图局部目录" data-event-graph-drawer={railOpen ? "open" : "closed"}>
         <button type="button" className="is-active"><Network /><span>关系图</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
-        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("新建事件使用既有作者创建链；本图不写入 Event。")}><Plus /><span>新增事件</span></button>
+        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
         <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
       <div className="event-graph-flow" onPointerUp={persistLayout}>
@@ -185,7 +191,8 @@ export function EventGraphCanvas(props: {
         </ReactFlow>
         <GraphLegend />
       </div>
-      {inspectorOpen ? <GraphInspector
+      {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
+      {inspectorOpen && !props.createOpen ? <GraphInspector
         event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} busy={busy}
         onClose={() => setInspectorOpen(false)} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}

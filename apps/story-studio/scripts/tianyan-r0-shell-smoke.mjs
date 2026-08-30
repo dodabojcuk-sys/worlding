@@ -105,6 +105,7 @@ try {
   await assertEventGraphWorkspace(page);
   if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
   if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
+  await assertAuthorEventCreation(page);
   await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -366,6 +367,9 @@ async function assertExactlyOneActiveDestination(page) {
     await page.waitForFunction((destination) => document.querySelectorAll("[data-shell-destination][aria-current='page']").length === 1 && document.querySelector(`[data-shell-destination="${destination}"]`)?.getAttribute("aria-current") === "page", id);
   }
   await page.locator('[data-shell-destination="world"]').click();
+  // The structural active surface is intentionally animated. Wait for the
+  // rendered state instead of sampling the first transparent animation frame.
+  await page.waitForTimeout(180);
   const visual = await page.evaluate(() => {
     const world = document.querySelector("[data-shell-destination='world']");
     const collections = document.querySelector("[data-shell-destination='collections']");
@@ -391,7 +395,9 @@ async function assertExactlyOneActiveDestination(page) {
 
 async function assertAgentFakeProviderStream(page) {
   await page.evaluate(() => window.sessionStorage.clear());
-  await page.reload({ waitUntil: "networkidle" });
+  // The author-event scenario ends in the graph workspace. Reset the unrelated
+  // fake-provider regression to a stable shell surface before opening Tianyi.
+  await page.goto(`${baseUrl}/world?locale=zh-CN`, { waitUntil: "networkidle" });
   await startAgentFakeProviderStream(page, "检查角色知识边界");
   const streaming = page.locator(".tianyi-agent-streaming");
   await streaming.waitFor();
@@ -403,8 +409,22 @@ async function assertAgentFakeProviderStream(page) {
 }
 
 async function startAgentFakeProviderStream(page, task) {
-  if (await page.locator(".tianyi-sidebar").count() === 0) await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
-  await page.getByRole("tab", { name: "Agent", exact: true }).click();
+  const sidebar = page.locator(".tianyi-sidebar");
+  if (!await sidebar.isVisible()) {
+    const globalToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+    if (await globalToggle.isVisible()) {
+      // A previous scenario can leave the responsive Dock's boolean state true
+      // while its narrow-layout panel is not rendered. Normalize to closed,
+      // then open through the same product control a user sees.
+      if (await globalToggle.getAttribute("aria-pressed") === "true") {
+        await globalToggle.click();
+        await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+      }
+      await globalToggle.click();
+    } else await page.locator("[data-tianyi-drawer-trigger]").first().click();
+    await sidebar.waitFor({ state: "visible" });
+  }
+  await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
   await page.locator(".tianyi-sidebar-composer textarea").fill(task);
   await page.locator(".composer-send-control").click();
   await page.getByRole("button", { name: /(?:允许下一步|Allow next step)/u }).click();
@@ -766,7 +786,7 @@ async function setupEventGraphDensityFixture() {
 
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
   const workspace = page.getByLabel("事件关系工作区");
@@ -973,6 +993,61 @@ async function captureEventGraphDensityEvidence(page, consoleProblems) {
   assert.deepEqual(consoleProblems, [], "Density evidence must not add browser console errors.");
 }
 
+async function assertAuthorEventCreation(page) {
+  const base = `${apiUrl}/__local/story-studio`;
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  const libraryBefore = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const draftsBefore = libraryBefore.data.objects.filter((item) => item.type === "event" && item.status === "draft").length;
+  const verifiedBefore = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+
+  await page.getByRole("button", { name: "新增事件", exact: true }).click();
+  const form = page.getByRole("form", { name: "新建事件" });
+  await form.waitFor();
+  await form.getByRole("button", { name: "取消", exact: true }).click();
+  const afterCancel = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(afterCancel.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftsBefore, "Cancelling event creation must write nothing.");
+
+  const create = async (title, summary) => {
+    await page.getByRole("button", { name: "新增事件", exact: true }).click();
+    const createForm = page.getByRole("form", { name: "新建事件" });
+    await createForm.getByLabel("事件标题").fill(title);
+    await createForm.getByLabel("发生了什么").fill(summary);
+    await createForm.getByLabel("故事单元").fill("手动创建验收");
+    await createForm.getByLabel("焦点").fill("关系准备");
+    await createForm.getByLabel("故事时间").fill("雨夜");
+    await createForm.getByLabel("地点").fill("旧仓库");
+    await createForm.getByRole("button", { name: "保存草稿", exact: true }).click();
+    await page.getByText("事件草稿已保存，并已定位到当前工作区。", { exact: false }).waitFor();
+  };
+  await create("手动事件 A", "仓库管理员在交接前隐瞒异常记录。");
+  await create("手动事件 B", "调查者在雨夜发现账目与实物不符。");
+  const libraryAfter = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const drafts = libraryAfter.data.objects.filter((item) => item.type === "event" && item.status === "draft" && /^手动事件 [AB]$/u.test(item.title));
+  assert.equal(drafts.length, 2, "Both author-created Events must persist as drafts through the existing workspace Event owner.");
+  const verifiedAfter = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(verifiedAfter.data.eventIds, verifiedBefore.data.eventIds, "Saving drafts must not change verified Canon events.");
+  await page.reload({ waitUntil: "networkidle" });
+  if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.getByLabel("事件关系工作区").waitFor();
+  assert.equal(await page.locator(".event-graph-node").filter({ hasText: "手动事件 B" }).count() > 0, true, "The same draft Event must project into the relation graph.");
+  const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const relationTypeId = typeState.data.types[0]?.relationTypeId;
+  assert.ok(relationTypeId, "The manual relation test must use the existing Relation type owner.");
+  const relationsBefore = await getFixture(`${base}/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const formalBefore = relationsBefore.data.relations.filter((relation) => relation.reviewState === "confirmed").length;
+  const candidate = await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, sourceObjectId: drafts.find((item) => item.title === "手动事件 A").id, targetObjectId: drafts.find((item) => item.title === "手动事件 B").id, relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "author-event-creation-e2e", operationId: `author-event-relation-${fixture.fixtureId}` });
+  const beforeConfirm = await getFixture(`${base}/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(beforeConfirm.data.relations.filter((relation) => relation.reviewState === "confirmed").length, formalBefore, "Relation creation must remain a candidate before author confirmation.");
+  await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, relationId: candidate.data.relation.relationId, expectedRelationRevision: candidate.data.relation.revision, operationId: `author-event-relation-confirm-${fixture.fixtureId}` });
+  const afterConfirm = await getFixture(`${base}/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(afterConfirm.data.relations.filter((relation) => relation.reviewState === "confirmed").length, formalBefore + 1, "Only the existing Relation owner may add the formal relation after author confirmation.");
+}
+
 async function recordEventGraphOperation() {
   mkdirSync(eventGraphRecordingDirectory, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: eventGraphRecordingDirectory, size: { width: 1440, height: 900 } } });
@@ -1004,8 +1079,8 @@ async function recordEventGraphOperation() {
 
 async function closeGlobalTianyiIfOpen(page) {
   const tianyiSidebar = page.locator(".tianyi-sidebar");
-  if (await tianyiSidebar.count()) {
-    await tianyiSidebar.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+  if (await tianyiSidebar.isVisible()) {
+    await tianyiSidebar.locator(".tianyi-sidebar-header > button").click();
     await tianyiSidebar.waitFor({ state: "hidden" });
   }
 }

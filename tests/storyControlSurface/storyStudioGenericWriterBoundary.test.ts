@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { eventWorkspaceProjectionSummaries } from "../../apps/story-studio/src/components/eventLineCommittedEvents.ts";
 
 test("generic create and update cannot manufacture planning or Canon identity", () => {
   const fixture = createFixture("ordinary");
@@ -94,6 +95,51 @@ test("generic create and update cannot manufacture planning or Canon identity", 
     assert.equal(demoted.conflict, false);
     assert.equal(demoted.object.status, "active");
     assert.deepEqual(demoted.object.tags, ["历史导入"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("an author may persist an ordinary event draft without entering Canon", () => {
+  const fixture = createFixture("author-draft-event");
+  try {
+    const draft = fixture.workspace.createGenericWorldObject({
+      projectId: fixture.projectId,
+      type: "event",
+      title: "作者先记下的事件",
+      status: "draft",
+      tags: ["作者草稿", "地点：旧仓库"],
+      body: "# 作者先记下的事件\n\n这只是草稿。\n"
+    });
+    assert.equal(draft.status, "draft");
+    assert.equal(draft.tags.includes("作者确认"), false);
+    assert.deepEqual(fixture.authorControl.listVerifiedCanonEventIds({ projectId: fixture.projectId }), []);
+    assert.equal(fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: draft.id }).body.includes("这只是草稿。"), true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("the unified Event projection includes author drafts but leaves planning records in review", () => {
+  const fixture = createFixture("projection-boundary");
+  try {
+    const draft = fixture.workspace.createGenericWorldObject({
+      projectId: fixture.projectId,
+      type: "event",
+      title: "作者事件草稿",
+      status: "draft",
+      tags: ["作者草稿"]
+    });
+    fixture.workspace.createPlanningEvent({
+      projectId: fixture.projectId,
+      title: "规划中的事件",
+      tags: ["待作者审查"]
+    });
+    const projected = eventWorkspaceProjectionSummaries(
+      fixture.workspace.listWorldObjects({ projectId: fixture.projectId }),
+      fixture.authorControl.listVerifiedCanonEventIds({ projectId: fixture.projectId })
+    );
+    assert.deepEqual(projected.map((event) => event.id), [draft.id]);
   } finally {
     fixture.cleanup();
   }

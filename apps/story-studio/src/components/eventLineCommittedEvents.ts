@@ -47,6 +47,24 @@ export function verifiedCanonEventSummaries(objects: WorldObjectSummary[], verif
   return objects.filter((event) => isVerifiedCanonEvent(event, verifiedIds));
 }
 
+/**
+ * The unified workspace projects verified Canon events plus ordinary drafts
+ * written directly by the author. Planning records remain in the existing
+ * candidate and impact-review flow, so they cannot masquerade as drafts.
+ */
+export function isEventWorkspaceProjectionEvent(value: EventRecord, verifiedEventIds: ReadonlySet<string>): boolean {
+  return isVerifiedCanonEvent(value, verifiedEventIds) || (
+    value.type === "event" &&
+    value.status === "draft" &&
+    value.tags.includes("作者草稿")
+  );
+}
+
+export function eventWorkspaceProjectionSummaries(objects: WorldObjectSummary[], verifiedEventIds: readonly string[]): WorldObjectSummary[] {
+  const verifiedIds = new Set(verifiedEventIds);
+  return objects.filter((event) => isEventWorkspaceProjectionEvent(event, verifiedIds));
+}
+
 export function isVerifiedCanonEventDetail(value: WorldObject): boolean {
   return value.type === "event" &&
     value.status === "committed" &&

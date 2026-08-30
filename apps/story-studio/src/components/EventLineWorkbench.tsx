@@ -50,7 +50,18 @@ import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../s
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import type { RelationReadProjectionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 
-export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review";
+export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
+export type EventDraftInput = {
+  title: string;
+  summary: string;
+  storyUnit: string;
+  focus: string;
+  storyTime: string;
+  location: string;
+  participants: string[];
+  tags: string[];
+  note: string;
+};
 type EventLineFilter =
   | { kind: "all" }
   | { kind: "current-unit" }
@@ -80,7 +91,7 @@ export function EventLineWorkbench(props: {
   onSelectedEventId?(eventId: string | null): void;
   onOpenTianyi(reference?: StoryStudioEventReference): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
-  onCreateEvent?(): void;
+  onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
   onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onUpdateGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
@@ -96,9 +107,12 @@ export function EventLineWorkbench(props: {
   const [detailError, setDetailError] = useState<CanonReadFailure | null>(null);
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
   const [compact, setCompact] = useState(false);
-  const [projectionMode, setProjectionMode] = useState<"spine" | "graph">("spine");
+  const [projectionMode, setProjectionMode] = useState<"spine" | "graph">(() => readProjectionMode(props.projectId));
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
+  const [creationNotice, setCreationNotice] = useState<string | null>(null);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const [creatingEvent, setCreatingEvent] = useState(false);
   const requestSequence = useRef(0);
   const spineRef = useRef<HTMLDivElement>(null);
   const pendingSpineAnchorRef = useRef<{ eventId: string | null; offset: number; scrollTop: number } | null>(null);
@@ -134,6 +148,11 @@ export function EventLineWorkbench(props: {
       return;
     }
     if (detailsById[selectedEventId]) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+    if (!isConfirmedEventSummary(props.events.find((event) => event.id === selectedEventId))) {
       setDetailLoading(false);
       setDetailError(null);
       return;
@@ -208,6 +227,7 @@ export function EventLineWorkbench(props: {
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
   const formalRelations = props.relations ?? [];
+  const creationOpen = dockState.open && dockState.activeLens === "create";
 
   const requestDockState = useCallback((next: PageContextDockState<EventLinePageDockLens>, anchorEventId = selectedEventId) => {
     if (next.open) window.dispatchEvent(new Event("story-studio-close-mobile-context"));
@@ -259,6 +279,32 @@ export function EventLineWorkbench(props: {
     setSelectedEventId(eventId);
     requestDockState({ open: false, activeLens: "detail" }, eventId);
   };
+  const beginEventCreate = () => {
+    if (!props.onSaveEvent) return;
+    setCreationError(null);
+    setCreationNotice(null);
+    requestDockState({ open: true, activeLens: "create" });
+  };
+  const closeEventCreate = () => {
+    if (creatingEvent) return;
+    setCreationError(null);
+    requestDockState({ open: false, activeLens: "detail" });
+  };
+  const saveEventDraft = async (input: EventDraftInput) => {
+    if (!props.onSaveEvent || creatingEvent) return;
+    setCreatingEvent(true);
+    setCreationError(null);
+    try {
+      const created = await props.onSaveEvent(input);
+      setSelectedEventId(created.id);
+      setCreationNotice("事件草稿已保存，并已定位到当前工作区。");
+      requestDockState({ open: true, activeLens: "detail" }, created.id);
+    } catch (error) {
+      setCreationError(error instanceof Error ? error.message : "保存事件草稿失败；已保留输入，可重试。");
+    } finally {
+      setCreatingEvent(false);
+    }
+  };
   const toggleProjection = () => {
     setProjectionMode((current) => {
       const next = current === "spine" ? "graph" : "spine";
@@ -266,6 +312,7 @@ export function EventLineWorkbench(props: {
       return next;
     });
   };
+  useEffect(() => { writeProjectionMode(props.projectId, projectionMode); }, [projectionMode, props.projectId]);
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
     requestDockState({ open: true, activeLens: "review" });
@@ -278,6 +325,7 @@ export function EventLineWorkbench(props: {
   };
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
+    ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
     { id: "detail", label: "详情", icon: <FileText />, content: <EventDetailDock event={selectedEvent} detail={selectedDetail} loading={detailLoading} error={detailError} metadata={selectedEvent ? metadataById[selectedEvent.id] : null} onOpenTianyi={() => props.onOpenTianyi(selectedEventRef ?? undefined)} onCreateFromEvent={props.onCreateFromEvent} /> },
     { id: "relations", label: "关联", icon: <Link2 />, content: <EventRelationsDock event={selectedEvent} incoming={relations.incoming} outgoing={relations.outgoing} formalRelations={formalRelations.filter((relation) => relation.reviewState === "confirmed" && (relation.sourceObjectId === selectedEvent?.id || relation.targetObjectId === selectedEvent?.id))} /> },
     { id: "branches", label: "候选", icon: <GitBranch />, badge: pendingCandidateCount, content: <EventBranchesDock candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} selectedId={selectedCandidateId} onSelect={openCandidate} /> },
@@ -296,7 +344,7 @@ export function EventLineWorkbench(props: {
       className="event-line-header"
       onOpenNavigation={() => setScopeOpen(true)}
       actions={<div className="event-line-header-actions">
-        {props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}
+        {props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}
         <button type="button" aria-label={dockState.open ? "关闭页面工具" : "打开页面工具"} aria-pressed={dockState.open} onClick={() => requestDockState({ ...dockState, open: !dockState.open })}><Settings2 />页面工具</button>
         <button type="button" data-tianyi-drawer-trigger aria-label="打开天意助手" onClick={() => props.onOpenTianyi(selectedEventRef ?? undefined)}><MessageCircle />天意</button>
       </div>}
@@ -320,13 +368,15 @@ export function EventLineWorkbench(props: {
       {scopeOpen ? <button type="button" className="event-line-scope-backdrop" aria-label="关闭故事范围" onClick={() => setScopeOpen(false)} /> : null}</> : null}
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar">
-          <div><p className="eyebrow">已确认事件</p><h1>故事已经发生了什么</h1><p>这里展示已由作者确认的事实；相邻顺序不自动等于因果。</p></div>
-          <div className="event-line-view-actions">{props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}<button type="button" aria-pressed={projectionMode === "graph"} onClick={toggleProjection}><Network />{projectionMode === "graph" ? "故事脊柱" : "关系图"}</button>{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button> : null}<button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
+          <div><p className="eyebrow">统一事件工作区</p><h1>故事脊柱</h1><p>草稿与已确认事件共用同一条事件线；相邻不自动代表因果。</p></div>
+          <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}<button type="button" aria-pressed={projectionMode === "graph"} onClick={toggleProjection}><Network />{projectionMode === "graph" ? "故事脊柱" : "关系图"}</button>{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button> : null}<button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
         </header>
+        {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
-        {props.listState.status === "ready" && projectionMode === "graph" && props.events.length > 0 ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={props.onCreateEvent} onOpenStorySpine={() => setProjectionMode("spine")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => props.onOpenTianyi(eventId ? createStoryStudioEventReference({ projectId: props.projectId, event: props.events.find((event) => event.id === eventId)!, requestedUse: "constraint" }) : undefined)} /> : null}
-        {projectionMode === "spine" && props.listState.status === "ready" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的正式事件</strong><p>筛选不会改变或隐藏底层 Canon；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
-        {projectionMode === "spine" && props.listState.status === "ready" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="已确认故事脊柱">
+        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => setProjectionMode("spine")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => props.onOpenTianyi(eventId ? createStoryStudioEventReference({ projectId: props.projectId, event: props.events.find((event) => event.id === eventId)!, requestedUse: "constraint" }) : undefined)} /> : null}
+        {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
+        {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
+        {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="故事脊柱">
           {groupedEvents.map((group) => <section className="event-line-unit" key={group.label} data-current-unit={group.label === props.currentUnitLabel ? "true" : "false"}>
             <header><span><Layers3 /></span><div><small>{group.label === props.currentUnitLabel ? "故事单元 · 当前故事范围" : "故事单元"}</small><h2>{group.label}</h2></div><strong>{group.setPoints.reduce((count, item) => count + item.events.length, 0)} 个已确认事件</strong></header>
             {group.setPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode
@@ -376,6 +426,33 @@ function EventLineScope(props: {
     <ScopeGroup label="地点" empty="正式事件尚未携带地点标签">{props.locationLabels.map((label) => <ScopeButton key={label} active={props.filter.kind === "location" && props.filter.value === label} icon={<MapPin />} label={label} onClick={() => props.onFilter({ kind: "location", value: label })} />)}</ScopeGroup>
     <footer><ShieldCheck /><span>{props.confirmedCount} 条正式事件</span><GitBranch /><span>{props.pendingCandidateCount} 条候选待处理</span></footer>
   </aside>;
+}
+
+function EventCreateInspector(props: { busy: boolean; error: string | null; defaultStoryUnit: string; onCancel(): void; onSave(input: EventDraftInput): void }) {
+  const [values, setValues] = useState<EventDraftInput>(() => ({ title: "", summary: "", storyUnit: props.defaultStoryUnit, focus: "", storyTime: "", location: "", participants: [], tags: [], note: "" }));
+  const [participantText, setParticipantText] = useState("");
+  const [tagText, setTagText] = useState("");
+  const [titleError, setTitleError] = useState<string | null>(null);
+  const update = <K extends keyof EventDraftInput>(key: K, value: EventDraftInput[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = values.title.trim();
+    if (!title) { setTitleError("请填写事件标题后再保存草稿。"); return; }
+    setTitleError(null);
+    props.onSave({ ...values, title, summary: values.summary.trim(), storyUnit: values.storyUnit.trim(), focus: values.focus.trim(), storyTime: values.storyTime.trim(), location: values.location.trim(), note: values.note.trim(), participants: splitAuthorList(participantText), tags: splitAuthorList(tagText) });
+  };
+  return <form className="event-create-inspector" aria-label="新建事件" onSubmit={submit}>
+    <section><small>作者创建</small><h2>新建事件</h2><p>先保存为草稿。它不会修改正式故事、创建关系或调用天意。</p></section>
+    <label><span>事件标题 <b aria-hidden="true">*</b></span><input autoFocus value={values.title} onChange={(event) => update("title", event.target.value)} maxLength={80} aria-invalid={Boolean(titleError)} aria-describedby={titleError ? "event-create-title-error" : undefined} disabled={props.busy} /></label>
+    <label><span>发生了什么</span><textarea value={values.summary} onChange={(event) => update("summary", event.target.value)} rows={4} maxLength={1200} disabled={props.busy} /></label>
+    <div className="event-create-grid"><label><span>故事单元</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
+    <label><span>涉及人物</span><input value={participantText} onChange={(event) => setParticipantText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>
+    <label><span>标签</span><input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>
+    <label><span>作者备注</span><textarea value={values.note} onChange={(event) => update("note", event.target.value)} rows={3} maxLength={1200} disabled={props.busy} /></label>
+    {titleError ? <p id="event-create-title-error" className="event-create-error" role="alert">{titleError}</p> : null}
+    {props.error ? <p className="event-create-error" role="alert">{props.error}</p> : null}
+    <footer><button type="button" onClick={props.onCancel} disabled={props.busy}>取消</button><button type="submit" className="primary-action" disabled={props.busy}>{props.busy ? "正在保存…" : "保存草稿"}</button></footer>
+  </form>;
 }
 
 function ScopeGroup(props: { label: string; empty: string; children: ReactNode }) {
@@ -591,6 +668,22 @@ function authorEventBody(value: string): string[] {
 function eventSummaryFromTags(tags: readonly string[]): string {
   const summary = tags.find((tag) => /^(?:观测摘要|摘要)[：:]/u.test(tag));
   return summary?.replace(/^(?:观测摘要|摘要)[：:]/u, "").trim() || "这条事件暂未提供作者摘要。";
+}
+
+function isConfirmedEventSummary(event: EventLineEventSummary | undefined): boolean {
+  return Boolean(event && event.status === "committed" && event.tags.includes("作者确认"));
+}
+
+function splitAuthorList(value: string): string[] {
+  return [...new Set(value.split(/[，,]/u).map((item) => item.trim()).filter(Boolean))].slice(0, 20);
+}
+
+function projectionModeKey(projectId: string): string { return `tianyan.event-line-view/v1:${projectId}`; }
+function readProjectionMode(projectId: string): "spine" | "graph" {
+  try { return window.localStorage.getItem(projectionModeKey(projectId)) === "graph" ? "graph" : "spine"; } catch { return "spine"; }
+}
+function writeProjectionMode(projectId: string, mode: "spine" | "graph"): void {
+  try { window.localStorage.setItem(projectionModeKey(projectId), mode); } catch {}
 }
 
 function authorSourceRef(value: string | null | undefined): string {

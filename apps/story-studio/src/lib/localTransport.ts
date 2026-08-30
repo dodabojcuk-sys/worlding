@@ -2163,6 +2163,11 @@ export async function createWorldObject(input: {
   projectId: string;
   type: WorldObjectType;
   title: string;
+  /** Ordinary event drafts stay outside the Author Control confirmation path. */
+  status?: string;
+  tags?: string[];
+  aliases?: string[];
+  body?: string;
   agentTypeId?: string;
   agentTypeFieldValues?: Record<string, string | number | boolean | null>;
   profile?: StoryStudioObjectProfile | null;
