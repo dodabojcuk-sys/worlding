@@ -2529,7 +2529,20 @@ export async function getTianyiIdentity(projectId: string, token: string): Promi
 }
 
 export type MultiNodePredictionRunProjection = import("../../../../src/storyContracts/multiNodePrediction.ts").PredictionRun;
-export type MultiNodePredictionReviewProjection = import("../../../../src/storyControlSurface/storyStudioAuthorControl.ts").StoryStudioPredictionReview;
+// Keep the browser transport boundary structural. Importing the server-side
+// AuthorControl implementation here pulls its Node-only dependency graph into
+// the Vite typecheck even though the client only consumes this read model.
+export type MultiNodePredictionReviewProjection = {
+  version: "story-studio-prediction-review/v1";
+  id: string;
+  projectId: string;
+  runId: string;
+  pathId: string;
+  selectedCandidateNodeIds: string[];
+  status: "reviewing" | "drafted";
+  receipt: unknown | null;
+  updatedAt: string;
+};
 export async function createMultiNodePredictionRun(input: { request: import("../../../../src/storyContracts/multiNodePrediction.ts").MultiNodePredictionRequest; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/create", token, body); }
 export async function executeMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/execute", token, body); }
 export async function getMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection | null> { const { token, ...body } = input; return tianyiRequest("prediction/read", token, body); }
