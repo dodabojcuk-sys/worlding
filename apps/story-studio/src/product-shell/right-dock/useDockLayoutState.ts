@@ -2,12 +2,12 @@ import { useState } from "react";
 
 import { DOCK_PANEL_MAX_SIZE, DOCK_PANEL_MIN_SIZE, type DockLayoutState, type DockToolId } from "./types.ts";
 
-export function createInitialDockLayout(): DockLayoutState {
+export function createInitialDockLayout(initialTianyiOpen = true): DockLayoutState {
   return {
     openPanelIds: [],
     panelSizes: { "expert-analysis": 260, "engineering-log": 320 },
     activeToolId: null,
-    isTianyiOpen: true
+    isTianyiOpen: initialTianyiOpen
   };
 }
 
@@ -32,7 +32,7 @@ export function resizeDockPanel(state: DockLayoutState, toolId: DockToolId, next
 }
 
 export function useDockLayoutState(initialTianyiOpen = true) {
-  const [state, setState] = useState(() => ({ ...createInitialDockLayout(), isTianyiOpen: initialTianyiOpen }));
+  const [state, setState] = useState(() => createInitialDockLayout(initialTianyiOpen));
   return {
     state,
     togglePanel: (toolId: DockToolId) => setState((current) => toggleDockPanel(current, toolId)),

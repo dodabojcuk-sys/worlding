@@ -54,7 +54,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [searchRequest, setSearchRequest] = useState<GlobalSearchOpenRequest | null>(null);
   const [tianyiContextRequest, setTianyiContextRequest] = useState<TianyiSidebarContextRequest | null>(null);
   const [directoryOpen, setDirectoryOpen] = useState(() => resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches));
-  const dock = useDockLayoutState(!window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches);
+  // Tianyi is author-invoked. Keeping it closed by default leaves the current
+  // event workspace usable and avoids an unavailable-provider panel claiming
+  // a permanent third of the screen.
+  const dock = useDockLayoutState(false);
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
@@ -164,10 +167,15 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [reference]
     } : null);
     if (initialDraft !== undefined) props.runtime.setSharedDraft(initialDraft);
+    if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
     dock.setTianyiOpen(true);
   };
 
-  const togglePanel = (panel: "project-directory" | "global-tianyi") => panel === "project-directory" ? setDirectoryOpen((open) => !open) : dock.toggleTianyi();
+  const toggleTianyi = () => {
+    if (!dock.state.isTianyiOpen && window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
+    dock.toggleTianyi();
+  };
+  const togglePanel = (panel: "project-directory" | "global-tianyi") => panel === "project-directory" ? setDirectoryOpen((open) => !open) : toggleTianyi();
 
   return <div
     className="tianyan-r0-shell"
@@ -205,7 +213,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onOpenProject={props.runtime.openProject}
       onToggleTheme={toggleTheme}
       onToggleDirectory={() => setDirectoryOpen((open) => !open)}
-      onToggleTianyi={dock.toggleTianyi}
+      onToggleTianyi={toggleTianyi}
     />
     {!settingsOpen && !accountOpen && directoryOpen && (characterDirectoryOpen ? <CharacterDirectoryPanel runtime={props.runtime} selectedId={directorySelection} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryReview") === "pending" ? "pending" : "classified"} onClose={() => setDirectoryOpen(false)} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryReview", "pending"); else params.delete("directoryReview"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
     <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} />

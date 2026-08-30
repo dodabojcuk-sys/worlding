@@ -192,7 +192,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   assert.equal(nextShellRailPreference(true), "expanded");
   assert.equal(nextShellRailPreference(false), "collapsed");
   assert.match(shell, /data-rail-collapsed=\{railCollapsed\}/);
-  assert.match(shell, /useDockLayoutState\(!window\.matchMedia\(SHELL_DIRECTORY_OVERLAY_QUERY\)\.matches\)/);
+  assert.match(shell, /useDockLayoutState\(false\)/);
   assert.match(shell, /onToggleCollapsed=\{toggleRail\}/);
   assert.doesNotMatch(labelRule, /text-overflow\s*:\s*ellipsis/);
   assert.doesNotMatch(styles, /@media \(max-width: 75rem\)[\s\S]*?--space-rail-width\s*:\s*7\.75rem/);

@@ -38,6 +38,7 @@ export function EventGraphCanvas(props: {
   onApproveModifiedRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
   onRejectRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
   onOpenStorySpine?(): void;
+  onOpenTimeline?(): void;
   onCreateEvent?(): void;
   createOpen?: boolean;
   createInspector?: ReactNode;
@@ -145,17 +146,19 @@ export function EventGraphCanvas(props: {
   return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
-      <div className="event-graph-view-switch">
-        <button type="button" className={view === "global" ? "is-active" : ""} aria-pressed={view === "global"} onClick={returnGlobal}><Network />关系图</button>
-        <button type="button" className={view === "focus" ? "is-active" : ""} aria-pressed={view === "focus"} onClick={() => focusId ? setView("focus") : setNotice("请先选择一个事件作为焦点。")}><Focus />焦点关系</button>
-        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus />新增事件</button>
-      </div>
+      <nav className="event-graph-view-switch" aria-label="事件视图">
+        <button type="button" aria-pressed="false" onClick={() => props.onOpenStorySpine?.()}><Layers3 />故事脊柱</button>
+        <button type="button" className="is-active" aria-pressed="true" onClick={returnGlobal}><Network />关系图</button>
+        <button type="button" aria-pressed="false" onClick={() => props.onOpenTimeline?.()}><Clock3 />时间轴</button>
+      </nav>
       <div className="event-graph-command-actions">
+        <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus />新增事件</button>
         {view === "focus" ? <button type="button" onClick={returnGlobal}><ArrowLeft />返回全局</button> : null}
+        <button type="button" disabled={!currentEvent} onClick={() => currentEvent ? focus(currentEvent.id) : undefined}><Focus />聚焦当前</button>
         {view === "focus" ? <button type="button" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 />展开一层</button> : null}
         <button type="button" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw />自动布局</button>
         <button type="button" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter />筛选</button>
-        <button type="button" aria-label="适应画布" onClick={() => void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 })}><Maximize2 /></button>
+        <button type="button" aria-label="适应视图" onClick={() => void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 })}><Maximize2 /><span>适应视图</span></button>
         <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>

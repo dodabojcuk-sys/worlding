@@ -39,6 +39,42 @@
   display: flex;
 }
 
+.shell-workspace-event-line .event-line-shell { position: relative; }
+
+.shell-workspace-event-line .event-line-shell > .event-line-spine-main {
+  flex: 1 1 auto;
+  inline-size: auto;
+}
+
+.shell-workspace-event-line .page-context-dock {
+  position: relative;
+  flex: 0 0 3.25rem;
+  min-inline-size: 0;
+  display: flex;
+  background: var(--color-surface);
+  border-inline-start: 1px solid var(--color-border);
+}
+.shell-workspace-event-line .page-context-dock-rail { display: grid; align-content: start; gap: 0.35rem; inline-size: 3.25rem; padding: var(--space-2); }
+.shell-workspace-event-line .page-context-dock-rail button { position: relative; display: grid; place-items: center; inline-size: 2.25rem; min-block-size: 2.25rem; padding: 0.35rem; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .page-context-dock-rail button small { display: none; }
+.shell-workspace-event-line .page-context-dock-rail button svg { inline-size: 1rem; block-size: 1rem; }
+.shell-workspace-event-line .page-context-dock-rail button.is-active,
+.shell-workspace-event-line .page-context-dock-rail button:hover { color: var(--color-accent); background: var(--color-accent-soft); border-color: var(--color-border); }
+.shell-workspace-event-line .page-context-dock-badge { position: absolute; inset-inline-end: -0.3rem; inset-block-start: -0.3rem; min-inline-size: 1rem; min-block-size: 1rem; display: grid; place-items: center; padding-inline: 0.15rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-surface); border-radius: 999px; font-size: 0.62rem; }
+.shell-workspace-event-line .page-context-dock-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); flex: 0 0 20rem; min-inline-size: 0; overflow: hidden; border-inline-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .page-context-dock-panel > header { min-block-size: 3.125rem; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding-inline: var(--space-3); border-block-end: 1px solid var(--color-border); }
+.shell-workspace-event-line .page-context-dock-panel > header div { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.shell-workspace-event-line .page-context-dock-panel > header button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .page-context-dock-body { min-block-size: 0; overflow: auto; }
+
+@media (min-width: 90.0625rem) {
+  .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 23.25rem; }
+}
+
+@media (max-width: 90rem) {
+  .shell-workspace-event-line .page-context-dock-panel { position: absolute; inset-block: 0; inset-inline-end: 3.25rem; z-index: 6; inline-size: min(20rem, calc(100vw - var(--rail-current) - 4rem)); background: var(--color-surface); box-shadow: var(--shadow-panel); }
+}
+
 .shell-workspace-event-line .event-line-spine-main {
   overflow: auto;
   padding: clamp(1.5rem, 3vw, 3rem);
@@ -46,12 +82,12 @@
 
 .shell-workspace-event-line .event-line-spine-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--space-5);
-  max-inline-size: 66rem;
-  margin: 0 auto var(--space-6);
-  padding-block-end: var(--space-5);
+  gap: var(--space-3);
+  max-inline-size: none;
+  margin: 0 0 var(--space-4);
+  padding-block-end: var(--space-3);
   border-block-end: 1px solid var(--color-border);
 }
 
@@ -59,7 +95,6 @@
   min-width: 0;
 }
 
-.shell-workspace-event-line .event-line-spine-toolbar .eyebrow,
 .shell-workspace-event-line .event-line-unit header small,
 .shell-workspace-event-line .event-line-set-point header small {
   margin: 0;
@@ -68,15 +103,6 @@
   letter-spacing: 0.08em;
 }
 
-.shell-workspace-event-line .event-line-spine-toolbar h1 {
-  margin: var(--space-2) 0;
-  font-family: var(--font-display);
-  font-size: clamp(1.65rem, 2.6vw, 2.3rem);
-  font-weight: 500;
-  line-height: 1.1;
-}
-
-.shell-workspace-event-line .event-line-spine-toolbar p:not(.eyebrow),
 .shell-workspace-event-line .event-line-spine-node p {
   margin: 0;
   color: var(--color-text-muted);
@@ -86,7 +112,39 @@
 .shell-workspace-event-line .event-line-view-actions {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.shell-workspace-event-line .event-line-view-switch {
+  display: inline-flex;
+  min-width: 0;
+  padding: 0.2rem;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.shell-workspace-event-line .event-line-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: 2.25rem;
+  padding-inline: var(--space-3);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 0.1rem);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shell-workspace-event-line .event-line-view-switch button[aria-pressed="true"] {
+  color: var(--color-accent);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  font-weight: 700;
 }
 
 .shell-workspace-event-line .event-line-view-actions button,
@@ -139,53 +197,13 @@
   flex-direction: column;
   inline-size: 100%;
   max-inline-size: none;
-  padding: 0 !important;
+  padding: var(--space-3) !important;
 }
 
 .shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main > .event-graph-workspace {
   align-self: stretch;
-  block-size: calc(100vh - var(--topbar-height)) !important;
+  block-size: auto !important;
   flex: 1 1 0;
-}
-
-.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-toolbar > div:first-child {
-  display: none;
-}
-
-.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-view-actions > button:not([aria-pressed]) {
-  display: none;
-}
-
-/* The graph owns the work surface while it is open.  The Shell's full
-   directory, page-tool rail and Tianyi panel remain available elsewhere, but
-   must not reduce this canvas into a narrow prose column. */
-.tianyan-r0-shell:has(.event-graph-workspace) {
-  --directory-current: 0rem !important;
-  --dock-current: 0rem !important;
-  --panel-controls-width: 0rem !important;
-  --tianyi-current: 0rem !important;
-  grid-template-columns: var(--rail-current) 0rem minmax(0, 1fr) 0rem !important;
-  grid-template-areas:
-    "rail topbar topbar topbar"
-    "rail directory workspace tools" !important;
-}
-
-.tianyan-r0-shell:has(.event-graph-workspace) .project-directory-panel,
-.tianyan-r0-shell:has(.event-graph-workspace) .dock-panel-stack,
-.tianyan-r0-shell:has(.event-graph-workspace) .dock-tool-rail,
-.tianyan-r0-shell:has(.event-graph-workspace) .tianyi-sidebar {
-  display: none;
-}
-
-/* The shell grid reserves columns for the ordinary multi-panel workspace.
-   In graph mode the central canvas deliberately spans those dormant columns. */
-.tianyan-r0-shell:has(.event-graph-workspace) .shell-workspace-event-line {
-  position: fixed;
-  inset-block: var(--topbar-height) 0;
-  inset-inline: var(--rail-current) 0;
-  inline-size: auto;
-  block-size: calc(100vh - var(--topbar-height));
-  z-index: 1;
 }
 
 .shell-workspace-event-line .event-graph-workspace {
@@ -197,6 +215,50 @@
   overflow: hidden;
   background: var(--color-workspace-background);
 }
+
+.shell-workspace-event-line .event-timeline-projection {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  max-inline-size: 72rem;
+  margin: 0 auto;
+  padding-block-end: var(--space-6);
+}
+.shell-workspace-event-line .event-timeline-heading,
+.shell-workspace-event-line .event-timeline-undated > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.shell-workspace-event-line .event-timeline-heading div,
+.shell-workspace-event-line .event-timeline-undated > header div { display: grid; gap: 0.2rem; }
+.shell-workspace-event-line .event-timeline-heading small,
+.shell-workspace-event-line .event-timeline-undated small { color: var(--color-accent); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-heading strong,
+.shell-workspace-event-line .event-timeline-undated strong { font-size: var(--font-size-lg); }
+.shell-workspace-event-line .event-timeline-heading > span,
+.shell-workspace-event-line .event-timeline-undated > header > span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-list,
+.shell-workspace-event-line .event-timeline-undated ol { display: grid; gap: var(--space-3); margin: 0; padding: 0 0 0 1.25rem; list-style: none; border-inline-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-timeline-list li,
+.shell-workspace-event-line .event-timeline-undated li { position: relative; }
+.shell-workspace-event-line .event-timeline-marker { position: absolute; inset-inline-start: -1.625rem; inset-block-start: 1.35rem; inline-size: 0.7rem; block-size: 0.7rem; background: var(--color-accent); border: 2px solid var(--color-workspace-background); border-radius: 50%; }
+.shell-workspace-event-line .event-timeline-list button,
+.shell-workspace-event-line .event-timeline-undated button { width: 100%; display: grid; grid-template-columns: minmax(8rem, .55fr) minmax(12rem, 1fr); gap: var(--space-2) var(--space-4); padding: var(--space-4); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; text-align: start; }
+.shell-workspace-event-line .event-timeline-list button[aria-pressed="true"],
+.shell-workspace-event-line .event-timeline-undated button[aria-pressed="true"] { border-color: var(--color-accent); background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-timeline-list time,
+.shell-workspace-event-line .event-timeline-list button > span,
+.shell-workspace-event-line .event-timeline-undated time,
+.shell-workspace-event-line .event-timeline-undated button > span { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-timeline-list strong,
+.shell-workspace-event-line .event-timeline-undated strong { font-size: var(--font-size-md); }
+.shell-workspace-event-line .event-timeline-undated { display: grid; gap: var(--space-3); margin-block-start: var(--space-4); padding: var(--space-4); background: var(--color-surface-muted); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); }
+.shell-workspace-event-line .event-timeline-undated > header { justify-content: flex-start; }
+.shell-workspace-event-line .event-timeline-undated > header > span { margin-inline-start: auto; }
+.shell-workspace-event-line .event-timeline-empty,
+.shell-workspace-event-line .event-timeline-undated > p { margin: 0; color: var(--color-text-muted); line-height: 1.6; }
 
 .shell-workspace-event-line .event-graph-commandbar,
 .shell-workspace-event-line .event-graph-command-actions,
