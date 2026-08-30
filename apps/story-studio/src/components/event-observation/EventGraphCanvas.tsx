@@ -250,6 +250,8 @@ function EventGraphNode(props: NodeProps<Node<NodeData>>) {
 
 function PredictionGraphNode(props: NodeProps<Node<NodeData>>) {
   return <article className="event-graph-node event-graph-prediction-node" aria-label={`${props.data.title}，${props.data.status}`}>
+    <Handle type="target" position={Position.Left} isConnectable={false} />
+    <Handle type="source" position={Position.Right} isConnectable={false} />
     <small>{props.data.status}</small><strong>{props.data.title}</strong><span><Clock3 />{props.data.time}</span><span><Layers3 />Run {props.data.runId?.slice(-8) ?? ""} · {props.data.pathCount ?? 0} 条路径</span>
   </article>;
 }
