@@ -98,53 +98,310 @@
   padding: 0;
 }
 
-.shell-workspace-event-line .event-graph-canvas {
-  display: grid;
-  min-block-size: min(42rem, calc(100dvh - 14rem));
-  max-inline-size: 82rem;
-  margin: 0 auto;
+.shell-workspace-event-line .event-line-spine-main:has(.event-graph-workspace) {
   overflow: hidden;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: 0;
 }
 
-.shell-workspace-event-line .event-graph-toolbar,
-.shell-workspace-event-line .event-graph-focus-note {
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-toolbar {
+  min-block-size: 0;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+}
+
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-toolbar > div:first-child {
+  display: none;
+}
+
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-view-actions > button:not([aria-pressed]) {
+  display: none;
+}
+
+.shell-workspace-event-line .event-graph-workspace {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 40rem;
+  overflow: hidden;
+  background: var(--color-workspace-background);
+}
+
+.shell-workspace-event-line .event-graph-commandbar,
+.shell-workspace-event-line .event-graph-command-actions,
+.shell-workspace-event-line .event-graph-view-switch,
+.shell-workspace-event-line .event-graph-inspector-header,
+.shell-workspace-event-line .event-graph-inspector-header > div:last-child,
+.shell-workspace-event-line .event-graph-candidate-actions {
   display: flex;
   align-items: center;
+}
+
+.shell-workspace-event-line .event-graph-commandbar {
+  gap: var(--space-2);
+  min-block-size: 4rem;
+  padding: var(--space-2) var(--space-4);
+  overflow-x: auto;
+  border-block-end: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-workspace-background));
+}
+
+.shell-workspace-event-line .event-graph-view-switch,
+.shell-workspace-event-line .event-graph-command-actions {
+  flex: 0 0 auto;
+  gap: var(--space-2);
+}
+
+.shell-workspace-event-line .event-graph-command-actions { margin-inline-start: auto; }
+
+.shell-workspace-event-line .event-graph-commandbar button,
+.shell-workspace-event-line .event-graph-filter-row button,
+.shell-workspace-event-line .event-graph-inspector-header button,
+.shell-workspace-event-line .event-graph-candidate-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-block-size: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.shell-workspace-event-line .event-graph-commandbar .is-active {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.shell-workspace-event-line .event-graph-commandbar svg,
+.shell-workspace-event-line .event-graph-local-rail svg,
+.shell-workspace-event-line .event-graph-inspector svg { inline-size: 1rem; block-size: 1rem; }
+
+.shell-workspace-event-line .event-graph-directory-toggle { inline-size: 2.4rem; padding: 0; }
+
+.shell-workspace-event-line .event-graph-filter-row,
+.shell-workspace-event-line .event-graph-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-muted);
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-accent-soft);
+  font-size: var(--font-size-xs);
+}
+
+.shell-workspace-event-line .event-graph-filter-row button,
+.shell-workspace-event-line .event-graph-notice button {
+  margin-inline-start: auto;
+}
+
+.shell-workspace-event-line .event-graph-notice button {
+  display: grid;
+  place-items: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.shell-workspace-event-line .event-graph-main {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) 0;
+  min-block-size: 0;
+}
+
+.shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main {
+  grid-template-columns: 3.25rem minmax(0, 1fr) clamp(18rem, 22vw, 24rem);
+}
+
+.shell-workspace-event-line .event-graph-local-rail {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  padding: var(--space-2);
+  overflow: hidden;
+  border-inline-end: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 90%, var(--color-workspace-background));
+}
+
+.shell-workspace-event-line .event-graph-local-rail.is-open {
+  inline-size: 11rem;
+  z-index: 2;
+  box-shadow: var(--shadow-panel);
+}
+
+.shell-workspace-event-line .event-graph-local-rail button {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-inline-size: 2.25rem;
+  min-block-size: 2.4rem;
+  padding: 0.55rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: start;
+}
+
+.shell-workspace-event-line .event-graph-local-rail button.is-active {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 48%, transparent);
+}
+
+.shell-workspace-event-line .event-graph-local-rail span { display: none; font-size: var(--font-size-xs); white-space: nowrap; }
+.shell-workspace-event-line .event-graph-local-rail.is-open span { display: inline; }
+
+.shell-workspace-event-line .event-graph-flow {
+  position: relative;
+  min-inline-size: 0;
+  min-block-size: 34rem;
+  background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%);
+}
+
+.shell-workspace-event-line .event-graph-node {
+  display: grid;
+  gap: 0.32rem;
+  inline-size: 12.6rem;
+  padding: 0.78rem 0.9rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0.35rem 0.9rem color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+
+.shell-workspace-event-line .event-graph-node.is-focused,
+.shell-workspace-event-line .event-graph-node.is-selected {
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft);
+}
+
+.shell-workspace-event-line .event-graph-node.is-remote {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border));
+  background: color-mix(in srgb, var(--color-surface) 86%, var(--color-accent-soft));
+}
+
+.shell-workspace-event-line .event-graph-node small { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 700; }
+.shell-workspace-event-line .event-graph-node strong { font-size: var(--font-size-sm); line-height: 1.35; }
+.shell-workspace-event-line .event-graph-node span { display: inline-flex; align-items: center; gap: 0.28rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-node .react-flow__handle { inline-size: 0.55rem; block-size: 0.55rem; background: var(--color-accent); border: 1px solid var(--color-surface); }
+
+.shell-workspace-event-line .event-graph-legend {
+  position: absolute;
+  inset-inline-start: var(--space-4);
+  inset-block-end: var(--space-4);
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem 0.85rem;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--font-size-xs);
+  pointer-events: none;
+}
+
+.shell-workspace-event-line .event-graph-legend span { display: flex; align-items: center; gap: 0.5rem; }
+.shell-workspace-event-line .event-graph-legend i { inline-size: 2.1rem; border-block-start: 2px solid var(--color-text); }
+.shell-workspace-event-line .event-graph-legend .candidate { border-color: var(--color-warning); border-style: dashed; }
+.shell-workspace-event-line .event-graph-legend .remote { border-color: var(--color-accent); border-style: dotted; }
+
+.shell-workspace-event-line .event-graph-inspector {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-inline-size: 0;
+  overflow: hidden;
+  border-inline-start: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.shell-workspace-event-line .event-graph-inspector-header {
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-block-end: 1px solid var(--color-border);
 }
 
-.shell-workspace-event-line .event-graph-toolbar p,
-.shell-workspace-event-line .event-graph-toolbar strong,
-.shell-workspace-event-line .event-graph-toolbar span,
-.shell-workspace-event-line .event-graph-focus-note span {
-  display: block;
+.shell-workspace-event-line .event-graph-inspector-header h2 { margin: 0; font-size: var(--font-size-md); }
+.shell-workspace-event-line .event-graph-inspector-header p { margin: 0.25rem 0 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-inspector-header > div:last-child { gap: 0.4rem; }
+.shell-workspace-event-line .event-graph-inspector-header > div:last-child button { min-block-size: 2rem; padding: 0.35rem 0.45rem; }
+
+.shell-workspace-event-line .event-graph-inspector-tabs {
+  display: flex;
+  overflow-x: auto;
+  border-block-end: 1px solid var(--color-border);
 }
 
-.shell-workspace-event-line .event-graph-toolbar p { margin: 0 0 0.2rem; color: var(--color-accent); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-graph-toolbar strong { font-size: var(--font-size-md); }
-.shell-workspace-event-line .event-graph-toolbar span,
-.shell-workspace-event-line .event-graph-focus-note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-graph-toolbar > div:last-child { display: flex; gap: var(--space-2); }
-.shell-workspace-event-line .event-graph-toolbar button { display: inline-flex; align-items: center; gap: var(--space-1); min-block-size: 2.25rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
-.shell-workspace-event-line .event-graph-toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
-.shell-workspace-event-line .event-graph-notice { margin: 0; padding: var(--space-2) var(--space-4); color: var(--color-text-muted); background: var(--color-accent-soft); }
-.shell-workspace-event-line .event-graph-flow { min-block-size: 32rem; background: color-mix(in srgb, var(--color-workspace-background) 94%, var(--color-accent) 6%); }
-.shell-workspace-event-line .event-graph-node { min-inline-size: 11rem; max-inline-size: 13rem; display: grid; gap: 0.35rem; padding: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); }
-.shell-workspace-event-line .event-graph-node.is-focused { border-color: var(--color-accent); box-shadow: 0 0 0 2px var(--color-accent-soft); }
-.shell-workspace-event-line .event-graph-node.is-selected { background: var(--color-accent-soft); }
-.shell-workspace-event-line .event-graph-node.is-remote { border-style: dashed; opacity: 0.72; }
-.shell-workspace-event-line .event-graph-node small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-graph-node strong { font-size: var(--font-size-sm); line-height: 1.4; }
-.shell-workspace-event-line .event-graph-node span,
-.shell-workspace-event-line .event-graph-focus-note { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-graph-focus-note { justify-content: flex-start; border-block: 1px solid var(--color-border) 0; }
-.shell-workspace-event-line .event-graph-canvas .react-flow__handle { inline-size: 0.45rem; block-size: 0.45rem; background: var(--color-accent); border: 1px solid var(--color-surface); }
+.shell-workspace-event-line .event-graph-inspector-tabs button {
+  flex: 0 0 auto;
+  min-block-size: 2.75rem;
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-block-end: 2px solid transparent;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+}
+
+.shell-workspace-event-line .event-graph-inspector-tabs button.is-active { color: var(--color-accent); border-block-end-color: var(--color-accent); font-weight: 700; }
+.shell-workspace-event-line .event-graph-inspector-body { display: grid; align-content: start; gap: var(--space-4); overflow: auto; padding: var(--space-4); }
+.shell-workspace-event-line .event-graph-facts { display: grid; gap: var(--space-3); margin: 0; }
+.shell-workspace-event-line .event-graph-facts div { display: grid; gap: 0.35rem; }
+.shell-workspace-event-line .event-graph-facts dt { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-facts dd { margin: 0; color: var(--color-text); line-height: 1.55; }
+.shell-workspace-event-line .event-graph-text-block { padding-block-start: var(--space-3); border-block-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-graph-text-block h3 { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-graph-text-block p { margin: 0; color: var(--color-text-muted); line-height: 1.65; }
+.shell-workspace-event-line .event-graph-inspector-empty { display: grid; align-content: start; gap: var(--space-3); padding: var(--space-4); color: var(--color-text-muted); }
+.shell-workspace-event-line .event-graph-inspector-empty strong { color: var(--color-text); }
+.shell-workspace-event-line .event-graph-inspector-empty p { margin: 0; line-height: 1.65; }
+.shell-workspace-event-line .event-graph-inspector-empty dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
+.shell-workspace-event-line .event-graph-inspector-empty dl div { padding: var(--space-2); background: var(--color-accent-soft); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-graph-inspector-empty dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-graph-inspector-empty dd { margin: 0.25rem 0 0; color: var(--color-accent); font-size: var(--font-size-md); font-weight: 700; }
+.shell-workspace-event-line .event-graph-relation-list { display: grid; gap: var(--space-2); }
+.shell-workspace-event-line .event-graph-relation-list article { display: grid; gap: 0.35rem; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-graph-relation-list span,
+.shell-workspace-event-line .event-graph-relation-status { inline-size: fit-content; padding: 0.2rem 0.45rem; border-radius: 999px; font-size: var(--font-size-xs); font-weight: 700; }
+.shell-workspace-event-line .event-graph-relation-list .is-confirmed,
+.shell-workspace-event-line .event-graph-relation-status.is-confirmed { color: var(--color-accent); background: var(--color-accent-soft); }
+.shell-workspace-event-line .event-graph-relation-list .is-candidate,
+.shell-workspace-event-line .event-graph-relation-status.is-candidate { color: var(--color-warning); background: var(--color-surface-muted); }
+.shell-workspace-event-line .event-graph-relation-list small { color: var(--color-text-muted); }
+.shell-workspace-event-line .event-graph-candidate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding-block-start: var(--space-3); border-block-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-graph-candidate-actions .primary-action { grid-column: 1 / -1; }
+.shell-workspace-event-line .event-graph-candidate-actions .danger-action { color: var(--color-danger); }
+.shell-workspace-event-line .event-graph-candidate-editor { display: grid; gap: 0.4rem; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 700; }
+.shell-workspace-event-line .event-graph-candidate-editor select { inline-size: 100%; min-block-size: 2.4rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+
+@media (max-width: 75rem) {
+  .shell-workspace-event-line .event-graph-commandbar { padding-inline: var(--space-2); }
+  .shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main { grid-template-columns: 3.25rem minmax(0, 1fr) clamp(16rem, 31vw, 19rem); }
+  .shell-workspace-event-line .event-graph-command-actions button:not(:last-child) { padding-inline: 0.5rem; }
+}
+
+@media (max-width: 64rem) {
+  .shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main { grid-template-columns: 3.25rem minmax(0, 1fr); }
+  .shell-workspace-event-line .event-graph-inspector { position: absolute; inset-inline-end: 0; inset-block: 0; inline-size: min(24rem, calc(100vw - 5rem)); z-index: 5; box-shadow: var(--shadow-panel); }
+  .shell-workspace-event-line .event-graph-main { position: relative; }
+}
 
 .shell-workspace-event-line .event-line-unit,
 .shell-workspace-event-line .event-line-set-point {

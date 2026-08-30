@@ -26,6 +26,7 @@ const visualEvidenceDirectory = process.env.TIANYAN_R05_EVIDENCE_DIR || null;
 const visualEvidenceViewport = Number(process.env.TIANYAN_R05_EVIDENCE_VIEWPORT || "0");
 const visualEvidenceState = process.env.TIANYAN_R05_EVIDENCE_STATE || null;
 const r062VisualEvidenceDirectory = process.env.TIANYAN_R062_EVIDENCE_DIR || null;
+const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR || null;
 let server;
 let apiServer;
 let browser;
@@ -78,6 +79,7 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   await assertZeroItemDirectoryShell(page);
   await setupCharacterFixture();
+  await setupEventGraphFixture();
   await page.reload({ waitUntil: "networkidle" });
   await assertExpandedLabels(page, "zh-CN");
   await assertResponsiveHeader922(page);
@@ -97,6 +99,8 @@ try {
     await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
     await assertExpandedLabels(page, "en-US");
   }
+  await assertEventGraphWorkspace(page);
+  if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
   await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -673,6 +677,124 @@ async function setupCharacterFixture() {
   });
 }
 
+async function setupEventGraphFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const storyUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
+    projectId: fixtureProjectId,
+    title: "雨夜追踪",
+    summary: "隔离浏览器验收使用的事件关系范围。"
+  });
+  const eventTitles = ["旧城停电", "沈砚发现异常信号", "林昭隐瞒真相", "雨夜追踪", "仓库对峙", "失踪名单浮现"];
+  for (const title of eventTitles) {
+    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, {
+      projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, title,
+      body: `${title}是隔离事件图验收中的作者确认事实。`
+    });
+    const planningEventId = candidate.data.result.planning.id;
+    await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
+    await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
+  }
+  const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const verifiedEvents = await Promise.all(verified.data.eventIds.map((eventId) => getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)));
+  const eventByTitle = new Map(verifiedEvents.map((result) => [String(result.data.event.title).replace(/ · 立即揭示$/u, ""), result.data.event.id]));
+  assert.equal(eventTitles.every((title) => eventByTitle.has(title)), true, "The fixture must resolve each confirmed Event through the Canon read owner before relation setup.");
+  const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const relationType = await postFixture(`${base}/relations/types/create`, {
+    projectId: fixtureProjectId, label: "促使", description: "隔离关系图验收用的正式推进关系。",
+    expectedRepositoryRevision: typeState.data.repositoryRevision, operationId: `event-graph-type-${fixture.fixtureId}`, sourceRef: "e2e-event-graph"
+  });
+  const link = async (sourceTitle, targetTitle, operationSuffix, confirm) => {
+    const created = await postFixture(`${base}/relations/create`, {
+      projectId: fixtureProjectId, sourceObjectId: eventByTitle.get(sourceTitle), targetObjectId: eventByTitle.get(targetTitle),
+      relationTypeId: relationType.data.type.relationTypeId, relationLabelSnapshot: "促使", direction: "forward",
+      sourceRef: "e2e-event-graph", operationId: `event-graph-${operationSuffix}-${fixture.fixtureId}`
+    });
+    if (confirm) await postFixture(`${base}/relations/confirm`, {
+      projectId: fixtureProjectId, relationId: created.data.relation.relationId, expectedRelationRevision: created.data.relation.revision,
+      operationId: `event-graph-confirm-${operationSuffix}-${fixture.fixtureId}`
+    });
+  };
+  await link("旧城停电", "沈砚发现异常信号", "formal-1", true);
+  await link("沈砚发现异常信号", "林昭隐瞒真相", "formal-2", true);
+  await link("林昭隐瞒真相", "雨夜追踪", "formal-3", true);
+  await link("雨夜追踪", "仓库对峙", "formal-4", true);
+  await link("仓库对峙", "失踪名单浮现", "formal-5", true);
+  await link("林昭隐瞒真相", "仓库对峙", "candidate", false);
+}
+
+async function assertEventGraphWorkspace(page) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  const workspace = page.getByLabel("事件关系工作区");
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-event-graph-owner"), "projection", "The graph remains a projection rather than a second Event owner.");
+  assert.equal(await page.locator(".event-graph-node:not(.is-remote)").count(), 6, "The global graph must read the six confirmed events from the existing Event owner.");
+  assert.equal(await page.locator(".page-context-dock").count(), 0, "Graph mode must not mount a second right-side Page Context dock.");
+  await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length >= 6);
+  assert.equal(await page.locator(".react-flow__edge-path").count() >= 6, true, "Formal and candidate relations must render through the same graph engine.");
+  const before = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const formalBefore = before.data.relations.filter((relation) => relation.reviewState === "confirmed").length;
+  assert.equal(before.data.relations.filter((relation) => relation.reviewState === "candidate").length, 1, "The fixture starts with exactly one unconfirmed relation candidate.");
+  await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
+  await page.getByLabel(/事件检查器：雨夜追踪/u).waitFor();
+  await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
+  await page.getByRole("button", { name: "返回全局", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("[data-graph-view='global']") !== null);
+  await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
+  await page.getByRole("button", { name: /待确认 1/u }).click();
+  await page.getByLabel("待确认关系检查器").waitFor();
+  assert.equal(await page.getByText("尚未写入正式 Relation", { exact: true }).count(), 1, "Candidate inspector must state that the proposed relation is not formal yet.");
+  if (eventGraphEvidenceDirectory) {
+    mkdirSync(eventGraphEvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(eventGraphEvidenceDirectory, "1440x900-pending-relation-inspector.png"), fullPage: true });
+  }
+  await page.getByLabel("候选关系方向").selectOption("reverse");
+  await page.getByRole("button", { name: "修改后通过", exact: true }).click();
+  await page.waitForFunction(() => /已由既有 Relation owner 确认并保存/u.test(document.body.textContent ?? ""));
+  const after = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(after.data.relations.filter((relation) => relation.reviewState === "confirmed").length, formalBefore + 1, "Formal relation count changes only after the author confirmation action.");
+  assert.equal(after.data.relations.filter((relation) => relation.reviewState === "candidate").length, 0, "The approved candidate leaves Pending Review after Relation owner confirmation.");
+  assert.equal(await page.locator("text=/sourceObjectId|targetObjectId|relationId/u").count(), 0, "Internal relation identifiers must not leak into the graph UI.");
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+  assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
+}
+
+async function captureEventGraphEvidence(page, consoleProblems) {
+  mkdirSync(eventGraphEvidenceDirectory, { recursive: true });
+  const captures = [];
+  const capture = async (viewport, state, action) => {
+    await page.setViewportSize(viewport);
+    await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+    await closeGlobalTianyiIfOpen(page);
+    await page.getByRole("button", { name: "关系图", exact: true }).click();
+    await page.getByLabel("事件关系工作区").waitFor();
+    await action();
+    const filename = `${viewport.width}x${viewport.height}-${state}.png`;
+    await page.screenshot({ path: path.join(eventGraphEvidenceDirectory, filename), fullPage: true });
+    captures.push({ filename, viewport, state, url: page.url(), isolatedTestData: true, consoleProblems: [...consoleProblems] });
+  };
+  await capture({ width: 1440, height: 900 }, "global-relationship-graph", async () => undefined);
+  await capture({ width: 1440, height: 900 }, "focus-relationship-graph", async () => {
+    await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
+    await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
+  });
+  await capture({ width: 1152, height: 720 }, "narrow-desktop", async () => undefined);
+  await capture({ width: 1920, height: 1000 }, "wide-desktop", async () => undefined);
+  writeFileSync(path.join(eventGraphEvidenceDirectory, "capture-manifest-event-graph.json"), `${JSON.stringify(captures, null, 2)}\n`, "utf8");
+}
+
+async function closeGlobalTianyiIfOpen(page) {
+  const tianyiSidebar = page.locator(".tianyi-sidebar");
+  if (await tianyiSidebar.count()) {
+    await tianyiSidebar.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+    await tianyiSidebar.waitFor({ state: "hidden" });
+  }
+}
+
 async function setupZeroItemFixture() {
   const created = await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "空目录作品", folderSlug: `empty-${fixtureProjectId}` });
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: created.data.id });
@@ -680,6 +802,12 @@ async function setupZeroItemFixture() {
 
 async function postFixture(url, body) {
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-world-os-local-control-token": controlToken }, body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(`Fixture request failed: ${response.status} ${await response.text()}`);
+  return response.json();
+}
+
+async function getFixture(url) {
+  const response = await fetch(url, { headers: { "x-world-os-local-control-token": controlToken } });
   if (!response.ok) throw new Error(`Fixture request failed: ${response.status} ${await response.text()}`);
   return response.json();
 }

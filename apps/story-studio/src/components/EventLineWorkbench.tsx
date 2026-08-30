@@ -82,6 +82,10 @@ export function EventLineWorkbench(props: {
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onCreateEvent?(): void;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
+  onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
+  onUpdateGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
+  onApproveModifiedGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
+  onRejectGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onContinueReview(): void;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
@@ -251,6 +255,17 @@ export function EventLineWorkbench(props: {
     setSelectedEventId(eventId);
     requestDockState({ open: true, activeLens: "detail" }, eventId);
   };
+  const openGraphEvent = (eventId: string) => {
+    setSelectedEventId(eventId);
+    requestDockState({ open: false, activeLens: "detail" }, eventId);
+  };
+  const toggleProjection = () => {
+    setProjectionMode((current) => {
+      const next = current === "spine" ? "graph" : "spine";
+      if (next === "graph") requestDockState({ open: false, activeLens: "detail" });
+      return next;
+    });
+  };
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
     requestDockState({ open: true, activeLens: "review" });
@@ -269,7 +284,7 @@ export function EventLineWorkbench(props: {
     { id: "review", label: "评审", icon: <ShieldCheck />, badge: pendingCandidateCount, content: <EventReviewDock candidate={selectedCandidate} status={selectedCandidate ? candidateStatus(selectedCandidate.id, props.rejectedCandidateIds, props.acceptedCandidateIds) : null} onContinueReview={props.onContinueReview} /> }
   ];
 
-  return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer="spine">
+  return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer="spine" data-projection-mode={projectionMode}>
     {!props.embedded ? <WorkspaceHeader
       projectTitle={props.projectTitle}
       sectionLabel="事件线"
@@ -306,10 +321,10 @@ export function EventLineWorkbench(props: {
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar">
           <div><p className="eyebrow">已确认事件</p><h1>故事已经发生了什么</h1><p>这里展示已由作者确认的事实；相邻顺序不自动等于因果。</p></div>
-          <div className="event-line-view-actions">{props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}<button type="button" aria-pressed={projectionMode === "graph"} onClick={() => setProjectionMode((value) => value === "spine" ? "graph" : "spine")}><Network />{projectionMode === "graph" ? "故事脊柱" : "关系图"}</button>{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button> : null}<button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
+          <div className="event-line-view-actions">{props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FileText />新建事件</button> : null}<button type="button" aria-pressed={projectionMode === "graph"} onClick={toggleProjection}><Network />{projectionMode === "graph" ? "故事脊柱" : "关系图"}</button>{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />适应视图</button> : null}<button type="button" disabled={!currentEvent} onClick={revealCurrentEvent}><LocateFixed />当前事件</button></div>
         </header>
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
-        {props.listState.status === "ready" && projectionMode === "graph" && props.events.length > 0 ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openEvent} onCreateRelation={props.onCreateGraphRelation ? (connection) => { void props.onCreateGraphRelation!(connection).catch(() => undefined); } : undefined} /> : null}
+        {props.listState.status === "ready" && projectionMode === "graph" && props.events.length > 0 ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={props.onCreateEvent} onOpenStorySpine={() => setProjectionMode("spine")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => props.onOpenTianyi(eventId ? createStoryStudioEventReference({ projectId: props.projectId, event: props.events.find((event) => event.id === eventId)!, requestedUse: "constraint" }) : undefined)} /> : null}
         {projectionMode === "spine" && props.listState.status === "ready" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的正式事件</strong><p>筛选不会改变或隐藏底层 Canon；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.listState.status === "ready" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="已确认故事脊柱">
           {groupedEvents.map((group) => <section className="event-line-unit" key={group.label} data-current-unit={group.label === props.currentUnitLabel ? "true" : "false"}>
@@ -329,7 +344,7 @@ export function EventLineWorkbench(props: {
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
-      <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} />
+      {projectionMode === "spine" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
   </section>;
 }
