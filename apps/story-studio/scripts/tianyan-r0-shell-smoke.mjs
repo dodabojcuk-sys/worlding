@@ -27,6 +27,8 @@ const visualEvidenceViewport = Number(process.env.TIANYAN_R05_EVIDENCE_VIEWPORT 
 const visualEvidenceState = process.env.TIANYAN_R05_EVIDENCE_STATE || null;
 const r062VisualEvidenceDirectory = process.env.TIANYAN_R062_EVIDENCE_DIR || null;
 const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR || null;
+const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDENCE === "1";
+const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
 let server;
 let apiServer;
 let browser;
@@ -99,8 +101,10 @@ try {
     await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
     await assertExpandedLabels(page, "en-US");
   }
+  if (eventGraphRecordingDirectory) await recordEventGraphOperation();
   await assertEventGraphWorkspace(page);
   if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
+  if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
   await assertAgentFakeProviderStream(page);
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -722,6 +726,44 @@ async function setupEventGraphFixture() {
   await link("林昭隐瞒真相", "仓库对峙", "candidate", false);
 }
 
+async function setupEventGraphDensityFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const storyUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
+    projectId: fixtureProjectId,
+    title: "密度验收事件线",
+    summary: "只属于隔离浏览器验收的五十节点关系图，不写入作者项目。"
+  });
+  const titles = Array.from({ length: 44 }, (_, index) => `密度事件 ${String(index + 7).padStart(2, "0")}`);
+  for (const title of titles) {
+    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, {
+      projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, title,
+      body: `${title}仅用于五十节点画布密度验收。`
+    });
+    const planningEventId = candidate.data.result.planning.id;
+    await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
+    await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
+  }
+  const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const eventReads = await Promise.all(verified.data.eventIds.map((eventId) => getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)));
+  const ids = eventReads.map((result) => result.data.event.id);
+  const types = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const relationTypeId = types.data.types[0]?.relationTypeId;
+  assert.ok(relationTypeId, "The density fixture reuses the existing relation type owner.");
+  const link = async (sourceObjectId, targetObjectId, suffix, confirm = true) => {
+    const created = await postFixture(`${base}/relations/create`, {
+      projectId: fixtureProjectId, sourceObjectId, targetObjectId, relationTypeId,
+      relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-event-graph-density", operationId: `event-graph-density-${suffix}-${fixture.fixtureId}`
+    });
+    if (confirm) await postFixture(`${base}/relations/confirm`, {
+      projectId: fixtureProjectId, relationId: created.data.relation.relationId, expectedRelationRevision: created.data.relation.revision,
+      operationId: `event-graph-density-confirm-${suffix}-${fixture.fixtureId}`
+    });
+  };
+  for (let index = 6; index < ids.length - 1; index += 1) await link(ids[index], ids[index + 1], `spine-${index}`);
+  for (let index = 7; index < ids.length - 4; index += 6) await link(ids[index], ids[index + 4], `branch-${index}`);
+  await link(ids[18], ids[28], "candidate", false);
+}
+
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
@@ -771,9 +813,41 @@ async function assertEventGraphWorkspace(page) {
   assert.ok(openGeometry >= 850, `Open inspector canvas width=${openGeometry}`);
   await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
+  await page.waitForFunction(() => document.querySelector(".event-graph-node.is-focused") !== null);
+  await page.waitForTimeout(240);
+  const focusGeometry = await page.evaluate(() => {
+    const flow = document.querySelector(".event-graph-flow")?.getBoundingClientRect();
+    const nodes = [...document.querySelectorAll(".event-graph-node")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { title: element.querySelector("strong")?.textContent ?? "", remote: element.classList.contains("is-remote"), focused: element.classList.contains("is-focused"), left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+    });
+    const overlaps = (first, second) => first.left < second.right && first.right > second.left && first.top < second.bottom && first.bottom > second.top;
+    const focus = nodes.find((node) => node.focused);
+    const remote = nodes.filter((node) => node.remote);
+    const local = nodes.filter((node) => !node.remote);
+    return {
+      focusOffset: focus && flow ? Math.hypot((focus.left + focus.width / 2) - (flow.left + flow.width / 2), (focus.top + focus.height / 2) - (flow.top + flow.height / 2)) : Infinity,
+      eventOverlap: local.some((node, index) => local.slice(index + 1).some((other) => overlaps(node, other))),
+      remoteOverlap: remote.some((node) => local.some((other) => overlaps(node, other)) || remote.some((other) => other !== node && overlaps(node, other))),
+      remoteOffscreen: remote.some((node) => !flow || node.left < flow.left || node.right > flow.right || node.top < flow.top || node.bottom > flow.bottom),
+      projectionWithoutVisibleTarget: remote.some((node) => !flow || node.width <= 0 || node.height <= 0),
+      nodes
+    };
+  });
+  assert.equal(focusGeometry.eventOverlap, false, `Focus event nodes must not overlap=${JSON.stringify(focusGeometry)}`);
+  assert.equal(focusGeometry.remoteOverlap, false, `Remote clusters must not overlap focus nodes=${JSON.stringify(focusGeometry)}`);
+  assert.equal(focusGeometry.remoteOffscreen, false, `Remote clusters must remain inside the actual canvas=${JSON.stringify(focusGeometry)}`);
+  assert.equal(focusGeometry.projectionWithoutVisibleTarget, false, `Every remote projection must retain a visible target=${JSON.stringify(focusGeometry)}`);
+  assert.ok(focusGeometry.focusOffset <= 120, `Focused event must remain near the live canvas centre=${JSON.stringify(focusGeometry)}`);
   await page.getByRole("button", { name: "返回全局", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-graph-view='global']") !== null);
+  const flowBeforeDrawer = await page.locator(".event-graph-flow").evaluate((element) => element.getBoundingClientRect().width);
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
+  const drawerGeometry = await page.evaluate(() => ({
+    flowWidth: document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0,
+    drawer: document.querySelector("[data-event-graph-drawer='open']")?.getBoundingClientRect().width ?? 0
+  }));
+  assert.ok(Math.abs(drawerGeometry.flowWidth - flowBeforeDrawer) <= 1, `The local directory must overlay instead of compressing the canvas=${JSON.stringify(drawerGeometry)}`);
   await page.getByRole("button", { name: /待确认 1/u }).click();
   await page.getByLabel("待确认关系检查器").waitFor();
   assert.equal(await page.getByText("尚未成为正式关系", { exact: true }).count(), 1, "Candidate inspector must state that the proposed relation is not formal yet.");
@@ -793,6 +867,37 @@ async function assertEventGraphWorkspace(page) {
   });
   assert.ok(candidateInspectorGeometry.width >= 288 && candidateInspectorGeometry.width <= 340, `Candidate inspector width=${JSON.stringify(candidateInspectorGeometry)}`);
   assert.ok(Math.abs(candidateInspectorGeometry.right - candidateInspectorGeometry.workspaceRight) <= 1, `Candidate inspector must occupy the single right context slot=${JSON.stringify(candidateInspectorGeometry)}`);
+  const candidateNodeVisibility = await page.evaluate(() => {
+    const flow = document.querySelector(".event-graph-flow")?.getBoundingClientRect();
+    const find = (title) => [...document.querySelectorAll(".event-graph-node")].find((node) => (node.textContent ?? "").includes(title))?.getBoundingClientRect();
+    const contains = (rect) => Boolean(flow && rect && rect.left >= flow.left && rect.right <= flow.right && rect.top >= flow.top && rect.bottom <= flow.bottom);
+    return {
+      source: contains(find("林昭隐瞒真相")),
+      target: contains(find("仓库对峙")),
+      selected: contains(find("林昭隐瞒真相")),
+      horizontalClip: Boolean(flow && [...document.querySelectorAll(".event-graph-node")].some((node) => { const rect = node.getBoundingClientRect(); return rect.left < flow.left || rect.right > flow.right; })),
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth
+    };
+  });
+  assert.equal(candidateNodeVisibility.source, true, `Candidate source must remain fully visible=${JSON.stringify(candidateNodeVisibility)}`);
+  assert.equal(candidateNodeVisibility.target, true, `Candidate target must remain fully visible=${JSON.stringify(candidateNodeVisibility)}`);
+  assert.equal(candidateNodeVisibility.selected, true, `Selected candidate source must remain fully visible=${JSON.stringify(candidateNodeVisibility)}`);
+  assert.equal(candidateNodeVisibility.horizontalClip, false, `Candidate canvas must not horizontally clip nodes=${JSON.stringify(candidateNodeVisibility)}`);
+  assert.equal(candidateNodeVisibility.pageOverflow, false, `Candidate review must not create page overflow=${JSON.stringify(candidateNodeVisibility)}`);
+  if (eventGraphEvidenceDirectory) {
+    await page.setViewportSize({ width: 1152, height: 720 });
+    await page.waitForTimeout(220);
+    const narrowCandidate = await page.evaluate(() => ({
+      canvasWidth: document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0,
+      candidateActionsVisible: [...document.querySelectorAll(".event-graph-candidate-actions button")].every((button) => { const rect = button.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= window.innerHeight; }),
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth
+    }));
+    assert.ok(narrowCandidate.canvasWidth >= 640, `1152 candidate canvas=${JSON.stringify(narrowCandidate)}`);
+    assert.equal(narrowCandidate.candidateActionsVisible, true, `1152 candidate actions must remain reachable=${JSON.stringify(narrowCandidate)}`);
+    assert.equal(narrowCandidate.pageOverflow, false, `1152 candidate review must not overflow=${JSON.stringify(narrowCandidate)}`);
+    await page.screenshot({ path: path.join(eventGraphEvidenceDirectory, "1152x720-pending-relation-inspector.png"), fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
   await page.getByLabel("候选关系方向").selectOption("reverse");
   await page.getByRole("button", { name: "修改后通过", exact: true }).click();
   await page.waitForFunction(() => /作者确认后，关系已保存/u.test(document.body.textContent ?? ""));
@@ -824,9 +929,77 @@ async function captureEventGraphEvidence(page, consoleProblems) {
     await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
     await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
   });
+  await capture({ width: 1152, height: 720 }, "node-inspector", async () => {
+    await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
+    await page.getByLabel(/事件检查器：雨夜追踪/u).waitFor();
+    const geometry = await page.evaluate(() => ({ canvasWidth: document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0, overflow: document.documentElement.scrollWidth > window.innerWidth }));
+    assert.ok(geometry.canvasWidth >= 640, `1152 node inspector canvas=${JSON.stringify(geometry)}`);
+    assert.equal(geometry.overflow, false, `1152 node inspector must not overflow=${JSON.stringify(geometry)}`);
+  });
   await capture({ width: 1152, height: 720 }, "narrow-desktop", async () => undefined);
   await capture({ width: 1920, height: 1000 }, "wide-desktop", async () => undefined);
   writeFileSync(path.join(eventGraphEvidenceDirectory, "capture-manifest-event-graph.json"), `${JSON.stringify(captures, null, 2)}\n`, "utf8");
+}
+
+async function captureEventGraphDensityEvidence(page, consoleProblems) {
+  const output = eventGraphEvidenceDirectory ?? path.join(fixtureRoot, "event-graph-density-evidence");
+  mkdirSync(output, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${baseUrl}/event-line?eventGraphFixture=density50`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.getByLabel("事件关系工作区").waitFor();
+  const globalDensity = await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll(".event-graph-node:not(.is-remote)")];
+    const positions = nodes.map((node) => { const rect = node.getBoundingClientRect(); return `${Math.round(rect.left)}:${Math.round(rect.top)}`; });
+    return { count: nodes.length, uniquePositions: new Set(positions).size, overflow: document.documentElement.scrollWidth > window.innerWidth };
+  });
+  assert.ok(globalDensity.count >= 50, `The density fixture must render fifty events=${JSON.stringify(globalDensity)}`);
+  assert.equal(globalDensity.uniquePositions, globalDensity.count, `Density nodes must not stack=${JSON.stringify(globalDensity)}`);
+  assert.equal(globalDensity.overflow, false, `Density graph must not create document overflow=${JSON.stringify(globalDensity)}`);
+  await page.screenshot({ path: path.join(output, "1440x900-density-50-global.png"), fullPage: true });
+  await page.locator(".event-graph-node").filter({ hasText: "密度事件 25" }).click();
+  await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
+  const focusDensity = await page.evaluate(() => ({
+    focusVisible: Boolean(document.querySelector(".event-graph-node.is-focused")),
+    inspectorVisible: Boolean(document.querySelector(".event-graph-inspector")),
+    overflow: document.documentElement.scrollWidth > window.innerWidth
+  }));
+  assert.equal(focusDensity.focusVisible, true, `Density focus must retain its selected event=${JSON.stringify(focusDensity)}`);
+  assert.equal(focusDensity.inspectorVisible, true, `Density focus must locate the selected event with an inspector=${JSON.stringify(focusDensity)}`);
+  assert.equal(focusDensity.overflow, false, `Density focus must not overflow=${JSON.stringify(focusDensity)}`);
+  await page.screenshot({ path: path.join(output, "1440x900-density-50-focus.png"), fullPage: true });
+  assert.deepEqual(consoleProblems, [], "Density evidence must not add browser console errors.");
+}
+
+async function recordEventGraphOperation() {
+  mkdirSync(eventGraphRecordingDirectory, { recursive: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: eventGraphRecordingDirectory, size: { width: 1440, height: 900 } } });
+  const page = await context.newPage();
+  const video = page.video();
+  await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await page.getByLabel("事件关系工作区").waitFor();
+  await page.waitForTimeout(8_000);
+  await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
+  await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".event-graph-node.is-focused") !== null);
+  await page.waitForTimeout(8_000);
+  await page.getByRole("button", { name: "展开一层", exact: true }).click();
+  await page.waitForTimeout(8_000);
+  await page.getByRole("button", { name: "返回全局", exact: true }).click();
+  await page.waitForTimeout(8_000);
+  await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
+  await page.waitForTimeout(8_000);
+  await page.getByRole("button", { name: /待确认 1/u }).click();
+  await page.getByLabel("待确认关系检查器").waitFor();
+  await page.waitForTimeout(20_000);
+  await context.close();
+  const recordingPath = video ? await video.path() : null;
+  if (!recordingPath) throw new Error("Event graph recording was not written.");
+  writeFileSync(path.join(eventGraphRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
 }
 
 async function closeGlobalTianyiIfOpen(page) {

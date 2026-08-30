@@ -55,8 +55,14 @@ export function EventGraphCanvas(props: {
   const [layoutRevision, setLayoutRevision] = useState(0);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
   const globalViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const railViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
+  const restoreGlobalViewport = useRef(false);
+  const restoreRailViewport = useRef(false);
   const layout = useMemo(() => readLayout(props.projectId), [props.projectId, layoutRevision]);
-  const graph = useMemo(() => deriveGraph(props.events, props.relations, view, focusId, depth, layout.positions, selection), [depth, focusId, layout.positions, props.events, props.relations, selection, view]);
+  const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
+  const graphEvents = densityFixture?.events ?? props.events;
+  const graphRelations = densityFixture?.relations ?? props.relations;
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection), [depth, focusId, graphEvents, graphRelations, layout.positions, selection, view]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
 
@@ -69,12 +75,26 @@ export function EventGraphCanvas(props: {
   }, [props.selectedEventId]);
   useEffect(() => {
     if (!flow || !graph.nodes.length) return;
+    let timer = 0;
     const frame = window.requestAnimationFrame(() => {
-      if (view === "global" && globalViewport.current) void flow.setViewport(globalViewport.current, { duration: 140 });
-      else void flow.fitView({ padding: view === "focus" ? 0.27 : 0.16, duration: 160, maxZoom: 1.05 });
+      // React Flow replaces its internal nodes and observes the grid resize
+      // after this component renders. Delay until both measurements settle so
+      // focus + inspector state never uses the previous, wider canvas bounds.
+      timer = window.setTimeout(() => {
+        if (restoreGlobalViewport.current && globalViewport.current) {
+          restoreGlobalViewport.current = false;
+          void flow.setViewport(globalViewport.current, { duration: 140 });
+        } else if (restoreRailViewport.current && railViewport.current) {
+          restoreRailViewport.current = false;
+          void flow.setViewport(railViewport.current, { duration: 140 });
+        } else {
+          if (view === "focus") void fitFocusProjection(flow, graph.nodes, railOpen);
+          else void flow.fitView({ padding: railOpen ? 0.32 : 0.16, duration: 0, maxZoom: 1.05 });
+        }
+      }, 180);
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [flow, graph.nodes.length, view]);
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [flow, graph.nodes, inspectorOpen, railOpen, view]);
 
   const persistLayout = useCallback(() => {
     const positions = Object.fromEntries(nodes.filter((node) => !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
@@ -85,7 +105,16 @@ export function EventGraphCanvas(props: {
     setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId);
   };
   const selectNode = (eventId: string) => { setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId); };
-  const returnGlobal = () => { setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
+  const returnGlobal = () => { restoreGlobalViewport.current = true; setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
+  const toggleRail = () => {
+    if (railOpen) {
+      restoreRailViewport.current = true;
+      setRailOpen(false);
+    } else {
+      railViewport.current = flow?.getViewport() ?? null;
+      setRailOpen(true);
+    }
+  };
   const connect = async (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
     if (!props.onCreateRelation) { setNotice("关系候选入口不可用；没有成为正式关系。"); return; }
@@ -102,14 +131,14 @@ export function EventGraphCanvas(props: {
     } catch (error) { setNotice(error instanceof Error ? error.message : "作者操作失败；没有成为正式关系。"); }
     finally { setBusy(null); }
   };
-  const currentEvent = selection?.kind === "node" ? props.events.find((event) => event.id === selection.id) ?? null : null;
-  const currentRelation = selection?.kind === "relation" ? props.relations.find((relation) => relation.relationId === selection.id) ?? null : null;
+  const currentEvent = selection?.kind === "node" ? graphEvents.find((event) => event.id === selection.id) ?? null : null;
+  const currentRelation = selection?.kind === "relation" ? graphRelations.find((relation) => relation.relationId === selection.id) ?? null : null;
   const remote = selection?.kind === "remote" ? selection : null;
-  const candidateCount = props.relations.filter((relation) => relation.reviewState === "candidate").length;
+  const candidateCount = graphRelations.filter((relation) => relation.reviewState === "candidate").length;
 
-  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-view={view}>
+  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
-      <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={() => setRailOpen((value) => !value)}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
+      <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
       <div className="event-graph-view-switch">
         <button type="button" className={view === "global" ? "is-active" : ""} aria-pressed={view === "global"} onClick={returnGlobal}><Network />关系图</button>
         <button type="button" className={view === "focus" ? "is-active" : ""} aria-pressed={view === "focus"} onClick={() => focusId ? setView("focus") : setNotice("请先选择一个事件作为焦点。")}><Focus />焦点关系</button>
@@ -127,11 +156,11 @@ export function EventGraphCanvas(props: {
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}
     <div className="event-graph-main">
-      <aside className={"event-graph-local-rail " + (railOpen ? "is-open" : "")} aria-label="事件图局部目录">
+      <aside className={"event-graph-local-rail " + (railOpen ? "is-open" : "")} aria-label="事件图局部目录" data-event-graph-drawer={railOpen ? "open" : "closed"}>
         <button type="button" className="is-active"><Network /><span>关系图</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
         <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("新建事件使用既有作者创建链；本图不写入 Event。")}><Plus /><span>新增事件</span></button>
-        <button type="button" onClick={() => { const relation = props.relations.find((item) => item.reviewState === "candidate"); if (relation) { setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
+        <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
       <div className="event-graph-flow" onPointerUp={persistLayout}>
         <ReactFlow
@@ -157,7 +186,7 @@ export function EventGraphCanvas(props: {
         <GraphLegend />
       </div>
       {inspectorOpen ? <GraphInspector
-        event={currentEvent} relation={currentRelation} remote={remote} events={props.events} relations={props.relations} busy={busy}
+        event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} busy={busy}
         onClose={() => setInspectorOpen(false)} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}
         onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
@@ -241,13 +270,14 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
   const visible = view === "global" || !validFocus ? ids : focusIds(validFocus, active, depth);
   const remote = view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
+  const focusLayout = view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
   const nodes: Node<NodeData>[] = events.filter((event) => visible.has(event.id)).map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
-    return { id: event.id, type: "event", position: positions[event.id] ?? (view === "focus" && validFocus ? focusPosition(index, event.id, validFocus, active) : gridPosition(index, events.length)), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused: event.id === validFocus, selected: selection?.kind === "node" && selection.id === event.id } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", position: focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused: event.id === validFocus, selected: selection?.kind === "node" && selection.id === event.id } } satisfies Node<NodeData>;
   });
-  if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection));
-  if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection));
+  if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
+  if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection, focusLayout?.remote.future));
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = active.filter((relation) => nodeIds.has(relation.sourceObjectId) && nodeIds.has(relation.targetObjectId)).map((relation) => relationEdge(relation, selection));
   if (validFocus && remote.past.size) edges.push(remoteEdge("past", validFocus));
@@ -260,9 +290,9 @@ function relationEdge(relation: RelationReadProjectionR0, selection: Selection):
   const selected = selection?.kind === "relation" && selection.id === relation.relationId;
   return { id: relation.relationId, source: relation.sourceObjectId, target: relation.targetObjectId, type: "smoothstep", label: pending ? "待确认 · " + (relation.currentTypeLabel ?? relation.relationLabelSnapshot) : relation.currentTypeLabel ?? relation.relationLabelSnapshot, markerEnd: relation.direction === "none" ? undefined : { type: MarkerType.ArrowClosed }, style: pending ? { stroke: "#d9911d", strokeWidth: selected ? 2.5 : 1.7, strokeDasharray: "7 5" } : { stroke: selected ? "#147d78" : "#1c3448", strokeWidth: selected ? 2.5 : 1.7 }, labelStyle: { fill: pending ? "#a75c00" : "#314250", fontSize: 11, fontWeight: selected ? 700 : 600 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: 0.96 }, labelBgPadding: [4, 3] };
 }
-function remoteNode(direction: "past" | "future", count: number, selection: Selection): Node<NodeData> {
+function remoteNode(direction: "past" | "future", count: number, selection: Selection, position?: { x: number; y: number }): Node<NodeData> {
   const id = "projection.remote." + direction;
-  return { id, type: "event", position: direction === "past" ? { x: 80, y: 74 } : { x: 960, y: 500 }, data: { title: direction === "past" ? "远处前因" : "远处后果", time: direction === "past" ? "更早之前" : "后续范围", location: "", status: "远端投影", focused: false, selected: selection?.kind === "remote" && selection.direction === direction, remote: true, direction, count } };
+  return { id, type: "event", position: position ?? (direction === "past" ? { x: 40, y: 450 } : { x: 960, y: 450 }), data: { title: direction === "past" ? "远处前因" : "远处后果", time: direction === "past" ? "更早之前" : "后续范围", location: "", status: "远端投影", focused: false, selected: selection?.kind === "remote" && selection.direction === direction, remote: true, direction, count } };
 }
 function remoteEdge(direction: "past" | "future", focusId: string): Edge { return { id: "projection.remote-edge." + direction, source: direction === "past" ? "projection.remote." + direction : focusId, target: direction === "past" ? focusId : "projection.remote." + direction, type: "smoothstep", label: "远端投影", markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5" }, labelStyle: { fill: "#147d78", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: 0.94 }, labelBgPadding: [4, 3] }; }
 function focusIds(focusId: string, relations: readonly RelationReadProjectionR0[], depth: number) {
@@ -277,7 +307,79 @@ function remoteIds(focusId: string, eventIds: ReadonlySet<string>, visible: Read
   visit(inbound, past); visit(outbound, future); return { past, future };
 }
 function gridPosition(index: number, total: number) { const columns = total > 24 ? 6 : total > 10 ? 5 : 4; return { x: 90 + (index % columns) * 265, y: 170 + Math.floor(index / columns) * 190 }; }
-function focusPosition(index: number, eventId: string, focusId: string, relations: readonly RelationReadProjectionR0[]) { if (eventId === focusId) return { x: 550, y: 290 }; return { x: relations.some((relation) => relation.sourceObjectId === eventId && relation.targetObjectId === focusId) ? 170 : 930, y: 110 + index * 155 }; }
+function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId: string, relations: readonly RelationReadProjectionR0[], remote: { past: ReadonlySet<string>; future: ReadonlySet<string> }) {
+  const inbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === event.id && relation.targetObjectId === focusId));
+  const outbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === focusId && relation.targetObjectId === event.id));
+  const assigned = new Set([focusId, ...inbound.map((event) => event.id), ...outbound.map((event) => event.id)]);
+  const remaining = events.filter((event) => !assigned.has(event.id));
+  const positions: Record<string, { x: number; y: number }> = { [focusId]: { x: 500, y: 260 } };
+  inbound.forEach((event, index) => { positions[event.id] = { x: 60, y: 100 + index * 170 }; });
+  outbound.forEach((event, index) => { positions[event.id] = { x: 940, y: 100 + index * 170 }; });
+  remaining.forEach((event, index) => { positions[event.id] = { x: 500, y: 70 + index * 170 }; });
+  const remoteY = (count: number) => Math.max(450, 100 + Math.max(0, count - 1) * 170 + 180);
+  return {
+    positions,
+    // The focus card's centre is deliberately aligned with the visual centre
+    // of the complete projection bounds. React Flow then fits that same set to
+    // the live canvas width (including an open inspector) without hiding a
+    // remote cluster beneath it.
+    remote: {
+      past: remote.past.size ? { x: 40, y: remoteY(inbound.length) } : undefined,
+      future: remote.future.size ? { x: 960, y: remoteY(outbound.length) } : undefined
+    }
+  };
+}
+function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], drawerOpen: boolean) {
+  const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
+  if (!canvas || !nodes.length) return;
+  // These are the measured outer card dimensions at zoom 1. The focus layout
+  // intentionally remains independent from saved coordinates, while viewport
+  // fitting is calculated from the current DOM canvas after its inspector has
+  // taken its real width.
+  const nodeWidth = 234;
+  const nodeHeight = 144;
+  const minX = Math.min(...nodes.map((node) => node.position.x));
+  const maxX = Math.max(...nodes.map((node) => node.position.x + nodeWidth));
+  const minY = Math.min(...nodes.map((node) => node.position.y));
+  const maxY = Math.max(...nodes.map((node) => node.position.y + nodeHeight));
+  const horizontalPadding = drawerOpen ? 170 : 52;
+  const verticalPadding = 46;
+  const zoom = Math.min(1.05, (canvas.width - horizontalPadding * 2) / Math.max(1, maxX - minX), (canvas.height - verticalPadding * 2) / Math.max(1, maxY - minY));
+  const x = (canvas.width - (maxX - minX) * zoom) / 2 - minX * zoom;
+  const y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
+  void flow.setViewport({ x, y, zoom: Math.max(0.25, zoom) }, { duration: 0 });
+}
+function isDensityFixture() {
+  return import.meta.env.DEV && new URLSearchParams(window.location.search).get("eventGraphFixture") === "density50";
+}
+function syntheticDensityFixture(): { events: EventLineEventSummary[]; relations: RelationReadProjectionR0[] } {
+  const events = Array.from({ length: 50 }, (_, index) => ({
+    id: `synthetic-density-event-${index + 1}`,
+    type: "event",
+    title: `密度事件 ${String(index + 1).padStart(2, "0")}`,
+    status: "committed",
+    tags: ["作者确认", `时间：第${index + 1}回`, `地点：区域 ${index % 7 + 1}`],
+    revisionToken: `synthetic-${index + 1}`
+  } as EventLineEventSummary));
+  const makeRelation = (source: number, target: number, candidate = false) => ({
+    relationId: `synthetic-density-relation-${source}-${target}`,
+    sourceObjectId: events[source - 1]!.id,
+    targetObjectId: events[target - 1]!.id,
+    relationTypeId: "synthetic-density-type",
+    relationLabelSnapshot: "促使",
+    currentTypeLabel: "促使",
+    direction: "forward",
+    reviewState: candidate ? "candidate" : "confirmed",
+    evidenceRefs: [], evidenceWarnings: [], provenance: { sourceRef: "local-synthetic-density" }, sourceRevision: "synthetic", revision: 1,
+    archived: false, supersedesRelationId: null, decisionReceipt: null, relationType: null,
+    createdAt: "local", updatedAt: "local", operationReceipt: null
+  } as unknown as RelationReadProjectionR0);
+  const relations: RelationReadProjectionR0[] = [];
+  for (let index = 1; index < 50; index += 1) relations.push(makeRelation(index, index + 1));
+  for (let index = 2; index < 45; index += 6) relations.push(makeRelation(index, index + 5));
+  relations.push(makeRelation(18, 28, true));
+  return { events, relations };
+}
 function directionLabel(direction: RelationReadProjectionR0["direction"]) { return direction === "reverse" ? "目标 → 来源" : direction === "both" ? "双向" : direction === "none" ? "未指定方向" : "来源 → 目标"; }
 function relationReason(relation: RelationReadProjectionR0) { const source = typeof relation.provenance.sourceRef === "string" ? relation.provenance.sourceRef : ""; return /pi|agent|tianyi/iu.test(source) ? "由天意提出，等待作者确认" : "由作者操作提出，等待作者确认"; }
 function evidenceLabel(relation: RelationReadProjectionR0) { return relation.evidenceWarnings.length ? String(relation.evidenceWarnings.length) + " 条证据仍需核验。" : relation.evidenceRefs.length ? "已有可追溯的关系证据。" : "当前未附加额外证据。"; }

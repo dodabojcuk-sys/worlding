@@ -289,7 +289,11 @@
 }
 
 .shell-workspace-event-line .event-graph-local-rail.is-open {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
   inline-size: 11rem;
+  block-size: 100%;
   z-index: 2;
   box-shadow: var(--shadow-panel);
 }
@@ -319,6 +323,7 @@
 .shell-workspace-event-line .event-graph-local-rail.is-open span { display: inline; }
 
 .shell-workspace-event-line .event-graph-flow {
+  grid-column: 2;
   position: relative;
   min-inline-size: 0;
   min-block-size: 0;
@@ -376,6 +381,7 @@
 .shell-workspace-event-line .event-graph-legend .remote { border-color: var(--color-accent); border-style: dotted; }
 
 .shell-workspace-event-line .event-graph-inspector {
+  grid-column: 3;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   min-inline-size: 0;
