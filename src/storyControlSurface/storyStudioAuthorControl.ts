@@ -582,6 +582,19 @@ export function createStoryStudioAuthorControl(input: {
       const review = JSON.parse(readFileSync(target, "utf8")) as StoryStudioPredictionReview;
       return review.projectId === input.projectId ? structuredClone(review) : null;
     },
+    listPredictionReviews(input: { projectId: string; runId?: string }): StoryStudioPredictionReview[] {
+      const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
+      const directory = path.join(projectPath, ".world-os", "author-control", "prediction-reviews");
+      if (!existsSync(directory)) return [];
+      const runId = input.runId ? requireArtifactId(input.runId, "Prediction Run identifier") : null;
+      return readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .flatMap((entry) => {
+          const review = JSON.parse(readFileSync(path.join(directory, entry.name), "utf8")) as StoryStudioPredictionReview;
+          return review.projectId === input.projectId && (!runId || review.runId === runId) ? [structuredClone(review)] : [];
+        })
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    },
     createPredictionReview(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; decidedAt: string }): StoryStudioPredictionReview {
       const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
       const runId = requireArtifactId(input.runId, "Prediction Run identifier");

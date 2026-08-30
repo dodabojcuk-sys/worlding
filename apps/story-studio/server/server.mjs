@@ -1635,8 +1635,9 @@ async function handleProductRequest(request, response, url) {
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/prediction-review") {
     const projectId = requireQueryValue(url, "projectId");
-    const reviewId = requireQueryValue(url, "reviewId");
-    sendJson(response, 200, { data: runProductOperation(() => authorControl.readPredictionReview({ projectId, reviewId })) });
+    const reviewId = String(url.searchParams.get("reviewId") || "").trim();
+    const runId = String(url.searchParams.get("runId") || "").trim();
+    sendJson(response, 200, { data: runProductOperation(() => reviewId ? authorControl.readPredictionReview({ projectId, reviewId }) : authorControl.listPredictionReviews({ projectId, ...(runId ? { runId } : {}) })) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/author-control/prediction-review/create") {

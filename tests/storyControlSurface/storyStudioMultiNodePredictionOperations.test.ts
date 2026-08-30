@@ -36,6 +36,7 @@ test("deterministic Tianyi prediction runs persist independently without Event, 
     const drafted = authorControl.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.1", decidedAt: "2026-08-30T12:02:00.000Z" });
     assert.equal(drafted.status, "drafted");
     assert.equal((drafted.receipt as { items: Array<{ action: string }> }).items[0]?.action, "draft-created");
+    assert.equal(authorControl.listPredictionReviews({ projectId, runId: created.runId }).find((item) => item.id === review.id)?.status, "drafted", "a reloadable Run review retains its draft receipt");
     assert.equal(authorControl.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.1", decidedAt: "2026-08-30T12:03:00.000Z" }).status, "drafted");
     const second = operations.createPredictionRun({ request: { ...request, operationId: "prediction.operation.2" }, runId: "prediction-run.second" });
     assert.equal(operations.abandonPredictionRun({ projectId, runId: second.runId }).status, "abandoned");
