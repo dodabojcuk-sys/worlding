@@ -131,6 +131,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
 }
 
 function announce(run: PredictionRun): void {
+  (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun = run;
   window.dispatchEvent(new CustomEvent("story-studio-multi-node-prediction-run", { detail: run }));
 }
 

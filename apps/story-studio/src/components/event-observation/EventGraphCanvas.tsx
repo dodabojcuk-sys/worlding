@@ -83,6 +83,8 @@ export function EventGraphCanvas(props: {
       const run = (event as CustomEvent<PredictionRun>).detail;
       if (run?.projectId === props.projectId) setPredictionRun(run);
     };
+    const replay = (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun;
+    if (replay?.projectId === props.projectId) setPredictionRun(replay);
     window.addEventListener("story-studio-multi-node-prediction-run", receive);
     return () => window.removeEventListener("story-studio-multi-node-prediction-run", receive);
   }, [props.projectId]);
