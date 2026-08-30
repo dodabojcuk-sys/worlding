@@ -45,7 +45,9 @@ export function EventGraphCanvas(props: {
   const [focusId, setFocusId] = useState<string | null>(props.selectedEventId);
   const [depth, setDepth] = useState(1);
   const [selection, setSelection] = useState<Selection>(props.selectedEventId ? { kind: "node", id: props.selectedEventId } : null);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  // Keep the graph as the default work surface.  The context panel appears on
+  // selection, not as a permanent empty column.
+  const [inspectorOpen, setInspectorOpen] = useState(Boolean(props.selectedEventId));
   const [railOpen, setRailOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -60,7 +62,10 @@ export function EventGraphCanvas(props: {
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
-    if (props.selectedEventId) setSelection((current) => current?.kind === "relation" ? current : { kind: "node", id: props.selectedEventId! });
+    if (props.selectedEventId) {
+      setSelection((current) => current?.kind === "relation" ? current : { kind: "node", id: props.selectedEventId! });
+      setInspectorOpen(true);
+    }
   }, [props.selectedEventId]);
   useEffect(() => {
     if (!flow || !graph.nodes.length) return;
@@ -77,24 +82,24 @@ export function EventGraphCanvas(props: {
   }, [nodes, props.projectId]);
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
-    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); props.onSelectEvent(eventId);
+    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId);
   };
   const selectNode = (eventId: string) => { setSelection({ kind: "node", id: eventId }); setInspectorOpen(true); props.onSelectEvent(eventId); };
   const returnGlobal = () => { setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
   const connect = async (connection: Connection) => {
     if (!connection.source || !connection.target || connection.source === connection.target) return;
-    if (!props.onCreateRelation) { setNotice("关系候选入口不可用；没有写入正式关系。"); return; }
-    try { await props.onCreateRelation({ sourceEventId: connection.source, targetEventId: connection.target }); setNotice("关系候选已进入待确认，尚未写入正式 Relation。"); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "关系候选未能创建；没有写入正式 Relation。"); }
+    if (!props.onCreateRelation) { setNotice("关系候选入口不可用；没有成为正式关系。"); return; }
+    try { await props.onCreateRelation({ sourceEventId: connection.source, targetEventId: connection.target }); setNotice("关系候选已进入待确认，尚未成为正式关系。"); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "关系候选未能创建；没有成为正式关系。"); }
   };
   const act = async (relation: RelationReadProjectionR0, kind: "confirm" | "update" | "approve-modified" | "reject") => {
     const handler = kind === "confirm" ? props.onConfirmRelation : kind === "update" ? props.onUpdateRelation : kind === "approve-modified" ? props.onApproveModifiedRelation : props.onRejectRelation;
-    if (!handler) { setNotice("该作者操作当前不可用；没有写入正式关系。"); return; }
+    if (!handler) { setNotice("该作者操作当前不可用；没有成为正式关系。"); return; }
     setBusy(relation.relationId);
     try {
       await handler(relation);
-      setNotice(kind === "confirm" || kind === "approve-modified" ? "已由既有 Relation owner 确认并保存。" : kind === "reject" ? "候选已拒绝，未写入正式 Relation。" : "候选已更新，请再次确认。");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "作者操作失败；没有写入正式 Relation。"); }
+      setNotice(kind === "confirm" || kind === "approve-modified" ? "作者确认后，关系已保存。" : kind === "reject" ? "候选已拒绝，未成为正式关系。" : "候选已更新，请再次确认。");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "作者操作失败；没有成为正式关系。"); }
     finally { setBusy(null); }
   };
   const currentEvent = selection?.kind === "node" ? props.events.find((event) => event.id === selection.id) ?? null : null;
@@ -126,7 +131,7 @@ export function EventGraphCanvas(props: {
         <button type="button" className="is-active"><Network /><span>关系图</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
         <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("新建事件使用既有作者创建链；本图不写入 Event。")}><Plus /><span>新增事件</span></button>
-        <button type="button" onClick={() => { const relation = props.relations.find((item) => item.reviewState === "candidate"); if (relation) { setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
+        <button type="button" onClick={() => { const relation = props.relations.find((item) => item.reviewState === "candidate"); if (relation) { setSelection({ kind: "relation", id: relation.relationId }); setInspectorOpen(true); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
       <div className="event-graph-flow" onPointerUp={persistLayout}>
         <ReactFlow
@@ -155,7 +160,7 @@ export function EventGraphCanvas(props: {
         event={currentEvent} relation={currentRelation} remote={remote} events={props.events} relations={props.relations} busy={busy}
         onClose={() => setInspectorOpen(false)} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}
-        onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未写入正式 Relation。")}
+        onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
         onExpand={() => { setDepth((value) => Math.min(value + 1, 3)); setSelection(focusId ? { kind: "node", id: focusId } : null); }}
       /> : null}
     </div>
@@ -196,7 +201,7 @@ function GraphInspector(props: {
     </nav>
     <div className="event-graph-inspector-body">
       {tab === "overview" ? <><Facts facts={[[<Clock3 />, "故事时间", semantic.time.label], [<Layers3 />, "叙事位置", semantic.storyUnit.label + " · " + semantic.setPoint.label], [<UsersRound />, "涉及人物", metadata.characterLabels.length ? metadata.characterLabels.join("、") : "未提供"], [<MapPin />, "地点", metadata.locationLabels.length ? metadata.locationLabels.join("、") : "未提供"], [<Tag />, "标签", props.event.tags.filter((tag) => !/^作者确认$/u.test(tag)).slice(0, 4).join(" · ") || "未提供"]]} /><TextBlock title="备注" text={semantic.openQuestions.length ? semantic.openQuestions.join("；") : "当前节点没有补充备注。"} /></> : null}
-      {tab === "story" ? <TextBlock title="节点剧情" text="当前工作区只读展示已确认事件的语义投影；完整正文和编辑仍沿用既有事件 owner。" /> : null}
+      {tab === "story" ? <TextBlock title="节点剧情" text="当前工作区只读展示已确认事件；完整正文和编辑仍沿用原有事件编辑流程。" /> : null}
       {tab === "relations" ? <section className="event-graph-relation-list">{relations.length ? relations.map((relation) => <article key={relation.relationId}><span className={relation.reviewState === "candidate" ? "is-candidate" : "is-confirmed"}>{relation.reviewState === "candidate" ? "待确认" : "正式关系"}</span><strong>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</strong><small>{relation.sourceObjectId === props.event!.id ? "由当前事件指向关联事件" : "由关联事件指向当前事件"}</small></article>) : <p>还没有与本事件相关的已记录关系。</p>}</section> : null}
       {tab === "analysis" ? <TextBlock title="叙事分析" text="相邻事件不自动构成因果。天意提出的关系会先显示为待确认，再由作者决定是否写入。" /> : null}
       {tab === "tianyi" ? <section className="event-graph-inspector-empty"><Sparkles /><strong>带着当前节点问天意</strong><p>天意只能读取当前允许的事件焦点，并且关系建议仍会进入待确认。</p><button type="button" className="primary-action" onClick={() => props.onOpenTianyi?.(props.event!.id)}>打开天意</button></section> : null}
@@ -213,12 +218,12 @@ function RelationInspector(props: Omit<Parameters<typeof GraphInspector>[0], "re
   useEffect(() => { setDirection(props.relation.direction); }, [props.relation.direction, props.relation.relationId]);
   const editedRelation = direction === props.relation.direction ? props.relation : { ...props.relation, direction };
   return <aside className="event-graph-inspector" aria-label={pending ? "待确认关系检查器" : "正式关系检查器"}>
-    <InspectorHeader title={pending ? "关系候选" : "正式关系"} subtitle={pending ? "尚未写入正式 Relation" : "已由作者确认"} onClose={props.onClose} />
+    <InspectorHeader title={pending ? "关系候选" : "正式关系"} subtitle={pending ? "尚未成为正式关系" : "已由作者确认"} onClose={props.onClose} />
     <div className="event-graph-inspector-body relation-inspector">
       <section className={pending ? "event-graph-relation-status is-candidate" : "event-graph-relation-status is-confirmed"}>{pending ? "待确认 · 候选关系" : "已确认 · 正式关系"}</section>
       <Facts facts={[[<ArrowRight />, "来源事件", source], [<ArrowRight />, "目标事件", target], [<Link2 />, "关系类型", props.relation.currentTypeLabel ?? props.relation.relationLabelSnapshot], [<ArrowRight />, "方向", directionLabel(props.relation.direction)], [<FileText />, "说明", relationReason(props.relation)]]} />
       <TextBlock title="证据或来源" text={evidenceLabel(props.relation)} />
-      {pending ? <><TextBlock title="影响范围" text={"确认后将在“" + source + "”与“" + target + "”之间建立一条正式关系；作者确认前，正式 Relation 不会增加。"} /><label className="event-graph-candidate-editor">修改方向<select aria-label="候选关系方向" value={direction} disabled={isBusy} onChange={(event) => setDirection(event.target.value as RelationReadProjectionR0["direction"])}><option value="forward">来源 → 目标</option><option value="reverse">目标 → 来源</option><option value="both">双向</option><option value="none">未指定方向</option></select></label><footer className="event-graph-candidate-actions"><button type="button" className="primary-action" disabled={isBusy} onClick={() => props.onConfirm(props.relation)}><Check />通过并保存</button><button type="button" disabled={isBusy} onClick={() => props.onApproveModified(editedRelation)}><Eye />修改后通过</button><button type="button" className="danger-action" disabled={isBusy} onClick={() => props.onReject(props.relation)}><X />拒绝</button><button type="button" disabled={isBusy} onClick={props.onDefer}>暂不处理</button></footer></> : null}
+      {pending ? <><TextBlock title="影响范围" text={"确认后将在“" + source + "”与“" + target + "”之间建立一条正式关系；作者确认前，正式关系不会增加。"} /><label className="event-graph-candidate-editor">修改方向<select aria-label="候选关系方向" value={direction} disabled={isBusy} onChange={(event) => setDirection(event.target.value as RelationReadProjectionR0["direction"])}><option value="forward">来源 → 目标</option><option value="reverse">目标 → 来源</option><option value="both">双向</option><option value="none">未指定方向</option></select></label><footer className="event-graph-candidate-actions"><button type="button" className="primary-action" disabled={isBusy} onClick={() => props.onConfirm(props.relation)}><Check />通过并保存</button><button type="button" disabled={isBusy} onClick={() => props.onApproveModified(editedRelation)}><Eye />修改后通过</button><button type="button" className="danger-action" disabled={isBusy} onClick={() => props.onReject(props.relation)}><X />拒绝</button><button type="button" disabled={isBusy} onClick={props.onDefer}>暂不处理</button></footer></> : null}
     </div>
   </aside>;
 }
@@ -275,7 +280,7 @@ function gridPosition(index: number, total: number) { const columns = total > 24
 function focusPosition(index: number, eventId: string, focusId: string, relations: readonly RelationReadProjectionR0[]) { if (eventId === focusId) return { x: 550, y: 290 }; return { x: relations.some((relation) => relation.sourceObjectId === eventId && relation.targetObjectId === focusId) ? 170 : 930, y: 110 + index * 155 }; }
 function directionLabel(direction: RelationReadProjectionR0["direction"]) { return direction === "reverse" ? "目标 → 来源" : direction === "both" ? "双向" : direction === "none" ? "未指定方向" : "来源 → 目标"; }
 function relationReason(relation: RelationReadProjectionR0) { const source = typeof relation.provenance.sourceRef === "string" ? relation.provenance.sourceRef : ""; return /pi|agent|tianyi/iu.test(source) ? "由天意提出，等待作者确认" : "由作者操作提出，等待作者确认"; }
-function evidenceLabel(relation: RelationReadProjectionR0) { return relation.evidenceWarnings.length ? String(relation.evidenceWarnings.length) + " 条证据仍需核验。" : relation.evidenceRefs.length ? "已有关系证据，由既有 Relation owner 投影。" : "当前未附加额外证据。"; }
+function evidenceLabel(relation: RelationReadProjectionR0) { return relation.evidenceWarnings.length ? String(relation.evidenceWarnings.length) + " 条证据仍需核验。" : relation.evidenceRefs.length ? "已有可追溯的关系证据。" : "当前未附加额外证据。"; }
 function layoutKey(projectId: string) { return "tianyan.event-graph-layout/v2:" + projectId; }
 function readLayout(projectId: string): Layout { try { const value = window.localStorage.getItem(layoutKey(projectId)); const parsed = value ? JSON.parse(value) as Partial<Layout> : null; if (parsed?.version === "tianyan-event-graph-layout/v2" && parsed.positions && typeof parsed.positions === "object") return { version: parsed.version, positions: parsed.positions as Layout["positions"] }; } catch {} return { version: "tianyan-event-graph-layout/v2", positions: {} }; }
 function writeLayout(projectId: string, positions: Layout["positions"]) { try { window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v2", positions } satisfies Layout)); } catch {} }

@@ -734,11 +734,41 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(await page.locator(".page-context-dock").count(), 0, "Graph mode must not mount a second right-side Page Context dock.");
   await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length >= 6);
   assert.equal(await page.locator(".react-flow__edge-path").count() >= 6, true, "Formal and candidate relations must render through the same graph engine.");
+  const closedGeometry = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+    const flow = rect(".event-graph-flow");
+    const graph = document.querySelector(".event-graph-workspace");
+    const toolbar = rect(".event-graph-commandbar");
+    const nodeElement = document.querySelector(".event-graph-node:not(.is-remote)");
+    const node = nodeElement?.getBoundingClientRect();
+    const title = document.querySelector(".event-line-spine-toolbar h1");
+    const pageTools = document.querySelector(".dock-tool-rail");
+    return {
+      flowWidth: flow?.width ?? 0, flowHeight: flow?.height ?? 0, toolbarHeight: toolbar?.height ?? 0,
+      nodeWidth: node?.width ?? 0, nodeTitleFont: nodeElement ? Number.parseFloat(getComputedStyle(nodeElement.querySelector("strong")).fontSize) : 0,
+      shellWidth: rect(".tianyan-r0-shell")?.width ?? 0, workspaceWidth: rect(".shell-workspace")?.width ?? 0,
+      graphWidth: rect(".event-graph-workspace")?.width ?? 0, graphHeight: rect(".event-graph-workspace")?.height ?? 0, graphMainWidth: rect(".event-graph-main")?.width ?? 0,
+      graphDisplay: graph ? getComputedStyle(graph).display : "", graphCssHeight: graph ? getComputedStyle(graph).height : "", graphFlex: graph ? getComputedStyle(graph).flex : "",
+      eventLineWorkbenchHeight: rect(".event-line-workbench")?.height ?? 0, shellWorkspaceHeight: rect(".shell-workspace-event-line")?.height ?? 0,
+      eventLineShellHeight: rect(".event-line-shell")?.height ?? 0, eventLineMainHeight: rect(".event-line-spine-main")?.height ?? 0,
+      giantTitleVisible: Boolean(title && getComputedStyle(title).display !== "none" && title.getBoundingClientRect().height > 0),
+      pageToolsVisible: Boolean(pageTools && getComputedStyle(pageTools).display !== "none")
+    };
+  });
+  assert.ok(closedGeometry.flowWidth >= 1150, `Closed inspector geometry=${JSON.stringify(closedGeometry)}`);
+  assert.ok(closedGeometry.flowHeight >= 740, `Canvas height geometry=${JSON.stringify(closedGeometry)}`);
+  assert.ok(closedGeometry.toolbarHeight <= 60, `Toolbar height=${closedGeometry.toolbarHeight}`);
+  assert.ok(closedGeometry.nodeWidth >= 180, `Node width=${closedGeometry.nodeWidth}`);
+  assert.ok(closedGeometry.nodeTitleFont >= 13, `Node title font=${closedGeometry.nodeTitleFont}`);
+  assert.equal(closedGeometry.giantTitleVisible, false, "Graph mode must not retain the prose title area.");
+  assert.equal(closedGeometry.pageToolsVisible, false, "Page tools may not create a second permanent right rail in graph mode.");
   const before = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const formalBefore = before.data.relations.filter((relation) => relation.reviewState === "confirmed").length;
   assert.equal(before.data.relations.filter((relation) => relation.reviewState === "candidate").length, 1, "The fixture starts with exactly one unconfirmed relation candidate.");
   await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
   await page.getByLabel(/事件检查器：雨夜追踪/u).waitFor();
+  const openGeometry = await page.evaluate(() => document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0);
+  assert.ok(openGeometry >= 850, `Open inspector canvas width=${openGeometry}`);
   await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
   await page.getByRole("button", { name: "返回全局", exact: true }).click();
@@ -746,18 +776,30 @@ async function assertEventGraphWorkspace(page) {
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
   await page.getByRole("button", { name: /待确认 1/u }).click();
   await page.getByLabel("待确认关系检查器").waitFor();
-  assert.equal(await page.getByText("尚未写入正式 Relation", { exact: true }).count(), 1, "Candidate inspector must state that the proposed relation is not formal yet.");
+  assert.equal(await page.getByText("尚未成为正式关系", { exact: true }).count(), 1, "Candidate inspector must state that the proposed relation is not formal yet.");
   if (eventGraphEvidenceDirectory) {
     mkdirSync(eventGraphEvidenceDirectory, { recursive: true });
     await page.screenshot({ path: path.join(eventGraphEvidenceDirectory, "1440x900-pending-relation-inspector.png"), fullPage: true });
   }
+  const candidateActionsInViewport = await page.evaluate(() => [...document.querySelectorAll(".event-graph-candidate-actions button")].every((button) => {
+    const rect = button.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.width > 0;
+  }));
+  assert.equal(candidateActionsInViewport, true, "All candidate actions must remain visible without page scrolling.");
+  const candidateInspectorGeometry = await page.getByLabel("待确认关系检查器").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const workspace = document.querySelector(".event-graph-workspace")?.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, width: rect.width, workspaceRight: workspace?.right ?? 0 };
+  });
+  assert.ok(candidateInspectorGeometry.width >= 288 && candidateInspectorGeometry.width <= 340, `Candidate inspector width=${JSON.stringify(candidateInspectorGeometry)}`);
+  assert.ok(Math.abs(candidateInspectorGeometry.right - candidateInspectorGeometry.workspaceRight) <= 1, `Candidate inspector must occupy the single right context slot=${JSON.stringify(candidateInspectorGeometry)}`);
   await page.getByLabel("候选关系方向").selectOption("reverse");
   await page.getByRole("button", { name: "修改后通过", exact: true }).click();
-  await page.waitForFunction(() => /已由既有 Relation owner 确认并保存/u.test(document.body.textContent ?? ""));
+  await page.waitForFunction(() => /作者确认后，关系已保存/u.test(document.body.textContent ?? ""));
   const after = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.equal(after.data.relations.filter((relation) => relation.reviewState === "confirmed").length, formalBefore + 1, "Formal relation count changes only after the author confirmation action.");
   assert.equal(after.data.relations.filter((relation) => relation.reviewState === "candidate").length, 0, "The approved candidate leaves Pending Review after Relation owner confirmation.");
-  assert.equal(await page.locator("text=/sourceObjectId|targetObjectId|relationId/u").count(), 0, "Internal relation identifiers must not leak into the graph UI.");
+  assert.equal(await page.locator("text=/sourceObjectId|targetObjectId|relationId|Relation owner|尚未写入正式 Relation/u").count(), 0, "Internal relation identifiers and architecture terms must not leak into the graph UI.");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
 }

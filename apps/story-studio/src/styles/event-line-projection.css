@@ -104,9 +104,29 @@
 }
 
 .shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-toolbar {
+  display: none;
+}
+
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-shell,
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main,
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-graph-workspace {
+  flex: 1 1 auto;
   min-block-size: 0;
-  justify-content: flex-end;
-  padding: var(--space-2) var(--space-3);
+  block-size: calc(100vh - var(--topbar-height));
+}
+
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main {
+  display: flex;
+  flex-direction: column;
+  inline-size: 100%;
+  max-inline-size: none;
+  padding: 0 !important;
+}
+
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main > .event-graph-workspace {
+  align-self: stretch;
+  block-size: calc(100vh - var(--topbar-height)) !important;
+  flex: 1 1 0;
 }
 
 .shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-toolbar > div:first-child {
@@ -117,12 +137,44 @@
   display: none;
 }
 
+/* The graph owns the work surface while it is open.  The Shell's full
+   directory, page-tool rail and Tianyi panel remain available elsewhere, but
+   must not reduce this canvas into a narrow prose column. */
+.tianyan-r0-shell:has(.event-graph-workspace) {
+  --directory-current: 0rem !important;
+  --dock-current: 0rem !important;
+  --panel-controls-width: 0rem !important;
+  --tianyi-current: 0rem !important;
+  grid-template-columns: var(--rail-current) 0rem minmax(0, 1fr) 0rem !important;
+  grid-template-areas:
+    "rail topbar topbar topbar"
+    "rail directory workspace tools" !important;
+}
+
+.tianyan-r0-shell:has(.event-graph-workspace) .project-directory-panel,
+.tianyan-r0-shell:has(.event-graph-workspace) .dock-panel-stack,
+.tianyan-r0-shell:has(.event-graph-workspace) .dock-tool-rail,
+.tianyan-r0-shell:has(.event-graph-workspace) .tianyi-sidebar {
+  display: none;
+}
+
+/* The shell grid reserves columns for the ordinary multi-panel workspace.
+   In graph mode the central canvas deliberately spans those dormant columns. */
+.tianyan-r0-shell:has(.event-graph-workspace) .shell-workspace-event-line {
+  position: fixed;
+  inset-block: var(--topbar-height) 0;
+  inset-inline: var(--rail-current) 0;
+  inline-size: auto;
+  block-size: calc(100vh - var(--topbar-height));
+  z-index: 1;
+}
+
 .shell-workspace-event-line .event-graph-workspace {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   inline-size: 100%;
   block-size: 100%;
-  min-block-size: 40rem;
+  min-block-size: 0;
   overflow: hidden;
   background: var(--color-workspace-background);
 }
@@ -139,7 +191,7 @@
 
 .shell-workspace-event-line .event-graph-commandbar {
   gap: var(--space-2);
-  min-block-size: 4rem;
+  min-block-size: 3.625rem;
   padding: var(--space-2) var(--space-4);
   overflow-x: auto;
   border-block-end: 1px solid var(--color-border);
@@ -217,11 +269,13 @@
 .shell-workspace-event-line .event-graph-main {
   display: grid;
   grid-template-columns: 3.25rem minmax(0, 1fr) 0;
+  flex: 1 1 auto;
   min-block-size: 0;
+  position: relative;
 }
 
 .shell-workspace-event-line .event-graph-workspace.has-inspector .event-graph-main {
-  grid-template-columns: 3.25rem minmax(0, 1fr) clamp(18rem, 22vw, 24rem);
+  grid-template-columns: 3.25rem minmax(0, 1fr) clamp(18rem, 22vw, 21rem);
 }
 
 .shell-workspace-event-line .event-graph-local-rail {
@@ -267,14 +321,14 @@
 .shell-workspace-event-line .event-graph-flow {
   position: relative;
   min-inline-size: 0;
-  min-block-size: 34rem;
+  min-block-size: 0;
   background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%);
 }
 
 .shell-workspace-event-line .event-graph-node {
   display: grid;
   gap: 0.32rem;
-  inline-size: 12.6rem;
+  inline-size: 12.75rem;
   padding: 0.78rem 0.9rem;
   color: var(--color-text);
   background: var(--color-surface);
@@ -362,6 +416,7 @@
 
 .shell-workspace-event-line .event-graph-inspector-tabs button.is-active { color: var(--color-accent); border-block-end-color: var(--color-accent); font-weight: 700; }
 .shell-workspace-event-line .event-graph-inspector-body { display: grid; align-content: start; gap: var(--space-4); overflow: auto; padding: var(--space-4); }
+.shell-workspace-event-line .event-graph-inspector-body.relation-inspector { grid-template-rows: auto auto auto auto minmax(0, 1fr); }
 .shell-workspace-event-line .event-graph-facts { display: grid; gap: var(--space-3); margin: 0; }
 .shell-workspace-event-line .event-graph-facts div { display: grid; gap: 0.35rem; }
 .shell-workspace-event-line .event-graph-facts dt { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
@@ -385,7 +440,7 @@
 .shell-workspace-event-line .event-graph-relation-list .is-candidate,
 .shell-workspace-event-line .event-graph-relation-status.is-candidate { color: var(--color-warning); background: var(--color-surface-muted); }
 .shell-workspace-event-line .event-graph-relation-list small { color: var(--color-text-muted); }
-.shell-workspace-event-line .event-graph-candidate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); padding-block-start: var(--space-3); border-block-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-graph-candidate-actions { position: sticky; inset-block-end: 0; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin-block-start: auto; padding-block: var(--space-3); background: var(--color-surface); border-block-start: 1px solid var(--color-border); }
 .shell-workspace-event-line .event-graph-candidate-actions .primary-action { grid-column: 1 / -1; }
 .shell-workspace-event-line .event-graph-candidate-actions .danger-action { color: var(--color-danger); }
 .shell-workspace-event-line .event-graph-candidate-editor { display: grid; gap: 0.4rem; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 700; }
