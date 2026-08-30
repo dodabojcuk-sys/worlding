@@ -15,20 +15,25 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
   const gateway = options.gateway ?? createDeterministicMultiNodePredictionGateway();
   const projectPath = (projectId: string) => workspace.resolveProjectWorkspacePath({ projectId });
   const file = (projectId: string, runId: string) => path.join(projectPath(projectId), ".world-os", "tianyi", "multi-node-predictions", `${safeRunId(runId)}.json`);
-  const read = (projectId: string, runId: string): PersistedRun | null => {
+  const readStored = (projectId: string, runId: string): PersistedRun | null => {
     const source = readExistingUtf8(projectPath(projectId), file(projectId, runId));
     if (!source) return null;
     const result = JSON.parse(source) as PersistedRun;
     if (result.version !== VERSION || result.projectId !== projectId || result.runId !== runId) throw new Error("Prediction Run file is invalid.");
     return result;
   };
-  const writeNew = (run: PersistedRun) => { const target = file(run.projectId, run.runId); const outcome = publishFileNoReplace({ rootPath: projectPath(run.projectId), targetPath: target, content: `${JSON.stringify(run, null, 2)}\n` }); if (outcome === "exists") return read(run.projectId, run.runId)!; return run; };
+  const writeNew = (run: PersistedRun) => { const target = file(run.projectId, run.runId); const outcome = publishFileNoReplace({ rootPath: projectPath(run.projectId), targetPath: target, content: `${JSON.stringify(run, null, 2)}\n` }); if (outcome === "exists") return readStored(run.projectId, run.runId)!; return run; };
   const replace = (run: PersistedRun) => { replaceFileAtomically({ rootPath: projectPath(run.projectId), targetPath: file(run.projectId, run.runId), content: `${JSON.stringify(run, null, 2)}\n` }); return run; };
   const verifySources = (run: PredictionRun) => run.sourceSnapshot.map((reference) => {
     const event = workspace.readWorldObject({ projectId: run.projectId, objectId: reference.eventId });
     assertStoryStudioEventReferenceEligibility({ reference, event, consumer: "tianyi-grounded", canonVerified: event.status !== "committed" || Boolean(options.verifyCanonEventRead?.({ projectId: run.projectId, eventId: event.id })) });
     return event;
   });
+  const markStaleIfSourceChanged = (run: PersistedRun): PersistedRun => {
+    if (run.status !== "ready") return run;
+    try { verifySources(run); return run; }
+    catch { return replace({ ...run, status: "stale" }); }
+  };
   return {
     createPredictionRun(input: { request: unknown; runId: string }) {
       const request = normalizeMultiNodePredictionRequest(input.request);
@@ -45,7 +50,10 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
       replace({ ...stored, status: "generating" });
       try {
         const events = verifySources(stored);
-        const generated = await gateway.generate({ request: { projectId: stored.projectId, sourceEventRefs: stored.sourceSnapshot, authorGoal: stored.authorGoal, predictionMode: stored.predictionMode, operationId: stored.operationId }, sourceTitles: events.map((event) => event.title), bundleId: `prediction-bundle.${stored.runId}` });
+        const knownEvents = workspace.getStoryStudioWorldLibraryBootstrap({ projectId: stored.projectId }).objects
+          .filter((object) => object.type === "event")
+          .map((object) => ({ id: object.id, title: object.title }));
+        const generated = await gateway.generate({ request: { projectId: stored.projectId, sourceEventRefs: stored.sourceSnapshot, authorGoal: stored.authorGoal, predictionMode: stored.predictionMode, operationId: stored.operationId }, knownEvents, bundleId: `prediction-bundle.${stored.runId}` });
         const validating = replace({ ...stored, status: "validating" });
         const bundle = validatePredictionBundle({ run: validating, bundle: generated });
         return structuredClone(replace({ ...validating, bundle, status: "ready" }));
@@ -54,8 +62,11 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
         throw cause;
       }
     },
-    readPredictionRun(input: { projectId: string; runId: string }) { return structuredClone(read(input.projectId, input.runId)); },
-    listPredictionRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(run)); },
+    readPredictionRun(input: { projectId: string; runId: string }) {
+      const run = readStored(input.projectId, input.runId);
+      return run ? structuredClone(markStaleIfSourceChanged(run)) : null;
+    },
+    listPredictionRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(markStaleIfSourceChanged(run))); },
     abandonPredictionRun(input: { projectId: string; runId: string }) {
       const run = requireRun(input.projectId, input.runId);
       if (["abandoned", "stale"].includes(run.status)) return structuredClone(run);
@@ -63,8 +74,8 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
     },
     markPredictionRunStale(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); return structuredClone(replace({ ...run, status: "stale" })); }
   };
-  function requireRun(projectId: string, runId: string): PersistedRun { const run = read(projectId, runId); if (!run) throw new Error("Prediction Run does not exist."); return run; }
-  function list(projectId: string): PersistedRun[] { const directory = path.dirname(file(projectId, "prediction-run.placeholder")); if (!existsSync(directory)) return []; return readdirSync(directory).filter((entry) => /^prediction-run\.[\p{L}\p{N}._:-]+\.json$/u.test(entry)).flatMap((entry) => read(projectId, entry.slice(0, -5)) ? [read(projectId, entry.slice(0, -5))!] : []).sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.runId.localeCompare(left.runId)); }
+  function requireRun(projectId: string, runId: string): PersistedRun { const run = readStored(projectId, runId); if (!run) throw new Error("Prediction Run does not exist."); return markStaleIfSourceChanged(run); }
+  function list(projectId: string): PersistedRun[] { const directory = path.dirname(file(projectId, "prediction-run.placeholder")); if (!existsSync(directory)) return []; return readdirSync(directory).filter((entry) => /^prediction-run\.[\p{L}\p{N}._:-]+\.json$/u.test(entry)).flatMap((entry) => readStored(projectId, entry.slice(0, -5)) ? [readStored(projectId, entry.slice(0, -5))!] : []).sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.runId.localeCompare(left.runId)); }
 }
 function safeRunId(value: string): string { if (!/^prediction-run\.[\p{L}\p{N}._:-]+$/u.test(value)) throw new Error("Prediction Run identifier is invalid."); return value; }
 export type StoryStudioMultiNodePredictionOperations = ReturnType<typeof createStoryStudioMultiNodePredictionOperations>;

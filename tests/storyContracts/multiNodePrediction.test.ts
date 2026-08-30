@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createPredictionRun, derivePredictionReviewGate, normalizeMultiNodePredictionRequest, normalizePredictionAcceptanceSelection, validatePredictionBundle } from "../../src/storyContracts/multiNodePrediction.ts";
+import { createDeterministicMultiNodePredictionGateway } from "../../src/storyAgent/multiNodePredictionGateway.ts";
 
 const projectId = "long-night";
 const ref = (id: string, revision = "a".repeat(64)) => ({ version: "story-studio-event-reference/v1" as const, projectId, eventId: id, revisionToken: revision, state: "planned" as const, requestedUse: "constraint" as const });
@@ -50,4 +51,11 @@ test("acceptance supports partial path selections without widening them", () => 
   const selection = normalizePredictionAcceptanceSelection({ projectId, runId: run.runId, pathId: "prediction-path.1", selectedCandidateNodeIds: ["prediction-node.fire"], operationId: "accept.1" }, run);
   assert.deepEqual(selection.selectedCandidateNodeIds, ["prediction-node.fire"]);
   assert.throws(() => normalizePredictionAcceptanceSelection({ ...selection, selectedCandidateNodeIds: ["prediction-node.trace"] }, run), /only nodes from its selected path/u);
+});
+
+test("deterministic gateway resolves actual existing Event identities without exposing its execution internals", async () => {
+  const gateway = createDeterministicMultiNodePredictionGateway();
+  const bundle = await gateway.generate({ request: normalizeMultiNodePredictionRequest(request()), knownEvents: [{ id: "event.existing-harbor", title: "雾港启航" }], bundleId: "prediction-bundle.gateway" });
+  assert.deepEqual(bundle.nodes.find((node) => node.title === "雾港启航")?.identityResolution, { kind: "reference-existing", existingEventId: "event.existing-harbor", differenceReason: null });
+  for (const node of bundle.nodes) assert.equal(["prompt", "model", "tool", "gateway", "runtime", "pi"].some((key) => Object.hasOwn(node, key)), false);
 });

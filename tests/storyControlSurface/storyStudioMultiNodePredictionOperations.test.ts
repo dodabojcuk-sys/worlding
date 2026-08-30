@@ -43,5 +43,8 @@ test("deterministic Tianyi prediction runs persist independently without Event, 
     assert.equal(operations.listPredictionRuns({ projectId }).length, 2);
     assert.equal(second.runId, "prediction-run.second");
     assert.equal(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects.filter((event) => event.status === "draft").length, 1);
+    const changedSource = workspace.readWorldObject({ projectId, objectId: sources[0]!.id });
+    workspace.updateWorldObject({ projectId, objectId: changedSource.id, expectedHash: changedSource.revisionToken, title: changedSource.title, status: changedSource.status, tags: changedSource.tags, aliases: changedSource.aliases, body: `${changedSource.body}\n来源版本已改变。` });
+    assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.status, "stale", "a changed source immediately disables a previously ready Run");
   } finally { await rm(rootPath, { recursive: true, force: true }); }
 });

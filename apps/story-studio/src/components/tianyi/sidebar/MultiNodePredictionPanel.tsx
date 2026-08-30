@@ -80,6 +80,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     const nextPath = run?.bundle?.paths.find((path) => path.id === nextPathId) ?? null;
     setPathId(nextPathId); setSelectedNodeIds(nextPath?.candidateNodeIds ?? []); setReceipt(null);
   };
+  const preview = () => { if (run) announce(run); };
   const accept = () => void (async () => {
     if (!project || !run || !pathId || !gate.allowed || !selectedNodeIds.length) return;
     setBusy(true); setError("");
@@ -109,20 +110,23 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     <header><strong>多节点推演</strong><small>候选尚未写入事件线</small></header>
     <p className="tianyi-prediction-sources">依据 {props.eventRefs.length} 个事件：{props.eventRefs.map((reference, index) => props.sourceLabels?.[index] ?? reference.eventId).join("、")}</p>
     <p className="tianyi-prediction-context">ContextPack 摘要：{props.eventRefs.length} 个已版本化事件约束；只生成候选，不写入 Canon。</p>
+    <p className="tianyi-prediction-mode">推演方式：后续发展</p>
     <label>作者意图<textarea value={goal} maxLength={1000} rows={3} disabled={busy} onChange={(event) => setGoal(event.target.value)} /></label>
     <button type="button" className="primary-action" disabled={busy || !goal.trim()} onClick={start}>{busy ? <LoaderCircle className="is-spinning" /> : <Play />}{run ? "重新推演" : "开始推演"}</button>
     {busy ? <p className="tianyi-prediction-progress" role="status"><LoaderCircle className="is-spinning" />正在推演并进行一致性检查；审阅和草稿采纳已禁用。</p> : null}
     {run?.bundle ? <section className="tianyi-prediction-results">
       <p>Run {run.runId.slice(-8)} · {run.status === "ready" ? "一致性检查完成" : run.status === "abandoned" ? "已放弃" : "推演未完成"}</p>
       <label>候选路径<select value={pathId ?? ""} onChange={(event) => choosePath(event.target.value)} disabled={busy}><option value="" disabled>先选择一条候选路径</option>{run.bundle.paths.map((path) => <option key={path.id} value={path.id}>{path.title}</option>)}</select></label>
+      <button type="button" onClick={preview}>在关系图中预览</button>
+      {activePath ? <p className="tianyi-prediction-review-heading">审阅路径：{activePath.title} · 已选择 {selectedNodeIds.length}/{activePath.candidateNodeIds.length} 个节点</p> : null}
       {activePath?.candidateNodeIds.map((nodeId) => {
         const node = run.bundle!.nodes.find((item) => item.id === nodeId)!;
         const blocked = node.identityResolution.kind === "unresolved" || node.timeConsistency.kind === "conflict";
-        return <label key={node.id} className="tianyi-prediction-node"><input type="checkbox" checked={selectedNodeIds.includes(node.id)} disabled={busy || blocked} onChange={(event) => setSelectedNodeIds((current) => event.target.checked ? [...current, node.id] : current.filter((id) => id !== node.id))} /><span><strong>{node.title}</strong><small>身份：{identityLabel(node.identityResolution.kind)} · 时间：{node.timeConsistency.label}{node.timeConsistency.kind === "unknown" ? "（时间未定）" : ""}{blocked ? " · 需先处理" : ""}</small></span></label>;
+        return <label key={node.id} className="tianyi-prediction-node"><input type="checkbox" checked={selectedNodeIds.includes(node.id)} disabled={busy || blocked} onChange={(event) => setSelectedNodeIds((current) => event.target.checked ? [...current, node.id] : current.filter((id) => id !== node.id))} /><span><strong>{node.title}</strong><small>身份：{identityLabel(node.identityResolution.kind)} · 时间：{node.timeConsistency.label}{node.timeConsistency.kind === "unknown" ? "（时间未定）" : ""}{blocked ? " · 需先处理" : ""}</small><small>写入目标：{node.identityResolution.kind === "create-new-with-difference" ? "作者草稿 Event" : node.identityResolution.kind === "reference-existing" ? "引用已有 Event（不写入）" : node.identityResolution.kind === "merge-review" ? "待合并审查（不写入）" : "身份待决（不写入）"}</small></span></label>;
       })}
       <button type="button" className="primary-action" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />将所选节点保存为草稿</button>
       <button type="button" disabled={busy || run.status === "abandoned"} onClick={abandon}>放弃当前 Run</button>
-      {!gate.allowed && pathId ? <small>采纳已禁用：{gate.reasons.includes("prediction-not-ready") ? "推演或一致性检查尚未完成" : gate.reasons.includes("path-not-selected") ? "请先选择候选路径" : "请先处理身份或时间问题"}</small> : null}
+      {!gate.allowed ? <small>采纳已禁用：{gate.reasons.includes("prediction-not-ready") ? "推演或一致性检查尚未完成" : gate.reasons.includes("path-not-selected") ? "请先选择候选路径" : gate.reasons.some((reason) => reason.startsWith("time-conflict:")) ? "候选路径存在时间冲突" : gate.reasons.some((reason) => reason.startsWith("identity-unresolved:")) ? "候选身份尚未决议" : "当前操作尚未完成"}</small> : null}
     </section> : <p className="tianyi-prediction-empty"><RotateCcw />选择 1–4 个已有事件后，生成可审阅的后续候选路径。</p>}
     {runs.length > 1 ? <label className="tianyi-prediction-history">Run 历史<select value={run?.runId ?? ""} onChange={(event) => selectRun(event.target.value)}>{runs.map((item) => <option key={item.runId} value={item.runId}>{item.runId.slice(-8)} · {item.status}</option>)}</select></label> : null}
     {receipt ? <p className="tianyi-prediction-receipt" role="status">{receipt}</p> : null}
