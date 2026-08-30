@@ -7,7 +7,7 @@ import { eventDraftPayload } from "./eventDraftPayload";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference.ts";
 
 /** Adapter for the established Event projection and Workspace write command. */
-export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference, initialDraft?: string): void; selectedEventId?: string | null }) {
+export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void; selectedEventId?: string | null }) {
   const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[] }>({ projectId: null, title: "", events: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
   const load = useCallback(async () => {
     const bootstrap = await getBootstrap();
@@ -22,6 +22,14 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     setState({ projectId: project.id, title: project.title, events, list, unit: units[0]?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types });
   }, []);
   useEffect(() => { void load().catch(() => undefined); }, [load]);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string }>).detail;
+      if (detail?.projectId === state.projectId) void load().catch(() => undefined);
+    };
+    window.addEventListener("story-studio-prediction-drafts-created", refresh);
+    return () => window.removeEventListener("story-studio-prediction-drafts-created", refresh);
+  }, [load, state.projectId]);
   if (!state.projectId) return <div className="event-line-loading" aria-live="polite">Loading event line…</div>;
   const saveDraftEvent = async (input: EventDraftInput): Promise<WorldObject> => {
     const { tags, body } = eventDraftPayload(input);

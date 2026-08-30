@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
 
@@ -20,11 +21,11 @@ type Selection =
   | { kind: "remote"; direction: "past" | "future"; count: number }
   | null;
 type NodeData = {
-  title: string; time: string; location: string; status: string; focused: boolean; selected: boolean;
-  remote?: boolean; direction?: "past" | "future"; count?: number;
+  title: string; time: string; location: string; status: string; focused: boolean; selected: boolean; predictionSelected?: boolean;
+  remote?: boolean; candidate?: boolean; direction?: "past" | "future"; count?: number; runId?: string; pathCount?: number;
 };
 type Layout = { version: "tianyan-event-graph-layout/v2"; positions: Record<string, { x: number; y: number }> };
-const nodeTypes = { event: EventGraphNode };
+const nodeTypes = { event: EventGraphNode, prediction: PredictionGraphNode };
 
 export function EventGraphCanvas(props: {
   projectId: string;
@@ -44,12 +45,14 @@ export function EventGraphCanvas(props: {
   createOpen?: boolean;
   createInspector?: ReactNode;
   onCloseCreate?(): void;
-  onOpenTianyi?(eventId?: string): void;
+  onOpenTianyi?(eventIds?: string[]): void;
 }) {
   const [view, setView] = useState<"global" | "focus">("global");
   const [focusId, setFocusId] = useState<string | null>(props.selectedEventId);
   const [depth, setDepth] = useState(1);
   const [selection, setSelection] = useState<Selection>(props.selectedEventId ? { kind: "node", id: props.selectedEventId } : null);
+  const [predictionSelectionIds, setPredictionSelectionIds] = useState<string[]>([]);
+  const [predictionRun, setPredictionRun] = useState<PredictionRun | null>(null);
   const rightWorkSurface = useWorkspaceDockSlot();
   const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
   const [railOpen, setRailOpen] = useState(false);
@@ -67,13 +70,22 @@ export function EventGraphCanvas(props: {
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
   const graphRelations = densityFixture?.relations ?? props.relations;
-  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection), [depth, focusId, graphEvents, graphRelations, layout.positions, selection, view]);
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(predictionSelectionIds), predictionRun), [depth, focusId, graphEvents, graphRelations, layout.positions, predictionRun, predictionSelectionIds, selection, view]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
   const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
     workspaceDockCoordinator.openPageInspector("event-line", mode);
   }, []);
   const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
+
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const run = (event as CustomEvent<PredictionRun>).detail;
+      if (run?.projectId === props.projectId) setPredictionRun(run);
+    };
+    window.addEventListener("story-studio-multi-node-prediction-run", receive);
+    return () => window.removeEventListener("story-studio-multi-node-prediction-run", receive);
+  }, [props.projectId]);
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
@@ -146,6 +158,11 @@ export function EventGraphCanvas(props: {
   };
   const currentEvent = selection?.kind === "node" ? graphEvents.find((event) => event.id === selection.id) ?? null : null;
   const currentRelation = selection?.kind === "relation" ? graphRelations.find((relation) => relation.relationId === selection.id) ?? null : null;
+  const predictionSources = predictionSelectionIds.map((id) => graphEvents.find((event) => event.id === id)).filter((event): event is EventLineEventSummary => Boolean(event));
+  const addCurrentToPrediction = () => {
+    if (!currentEvent) return;
+    setPredictionSelectionIds((current) => current.includes(currentEvent.id) || current.length >= 4 ? current : [...current, currentEvent.id]);
+  };
   const remote = selection?.kind === "remote" ? selection : null;
   const candidateCount = graphRelations.filter((relation) => relation.reviewState === "candidate").length;
 
@@ -165,9 +182,12 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw /><span>自动布局</span></button>
         <button type="button" aria-label="筛选" title="筛选" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter /><span>筛选</span></button>
         <button type="button" aria-label="适应视图" onClick={() => void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 })}><Maximize2 /><span>适应视图</span></button>
+        <button type="button" aria-label="将当前事件加入推演范围" disabled={!currentEvent || predictionSelectionIds.length >= 4 || predictionSelectionIds.includes(currentEvent?.id ?? "")} onClick={addCurrentToPrediction}><Plus /><span>加入推演范围</span></button>
+        <button type="button" aria-label="推演所选节点" disabled={!predictionSelectionIds.length} onClick={() => props.onOpenTianyi?.(predictionSelectionIds)}><Sparkles /><span>推演 {predictionSelectionIds.length}</span></button>
         <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : openInspector(selection?.kind === "relation" ? "RELATION_REVIEW" : props.createOpen ? "EVENT_CREATE" : "EVENT_DETAILS")}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>
+    {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id}><b>{index + 1}</b>{event.title}<button type="button" aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}
     <div className="event-graph-main">
@@ -181,10 +201,15 @@ export function EventGraphCanvas(props: {
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={connect}
-          onNodeClick={(_, node) => {
+          onNodeClick={(event, node) => {
             if (node.id.startsWith("projection.remote")) {
               setSelection({ kind: "remote", direction: node.data.direction ?? "future", count: node.data.count ?? 0 }); openInspector("EVENT_DETAILS");
-            } else selectNode(node.id);
+            } else if (node.data.candidate) {
+              setNotice("这是候选预览，尚未写入事件线，也不能编辑正式关系。");
+            } else {
+              if (event.shiftKey) setPredictionSelectionIds((current) => current.includes(node.id) ? current.filter((id) => id !== node.id) : current.length < 4 ? [...current, node.id] : current);
+              else selectNode(node.id);
+            }
           }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
@@ -203,7 +228,7 @@ export function EventGraphCanvas(props: {
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
       {inspectorOpen && !props.createOpen ? <GraphInspector
         event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} busy={busy}
-        onClose={closeInspector} onFocus={focus} onOpenTianyi={props.onOpenTianyi}
+        onClose={closeInspector} onFocus={focus} onOpenTianyi={(eventId) => props.onOpenTianyi?.(eventId ? [eventId] : undefined)}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}
         onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
         onExpand={() => { setDepth((value) => Math.min(value + 1, 3)); setSelection(focusId ? { kind: "node", id: focusId } : null); }}
@@ -214,10 +239,16 @@ export function EventGraphCanvas(props: {
 
 function EventGraphNode(props: NodeProps<Node<NodeData>>) {
   const label = props.data.remote ? (props.data.direction === "past" ? "远处前因 " : "远处后果 ") + String(props.data.count ?? 0) : props.data.status;
-  return <article className={"event-graph-node " + (props.data.focused ? "is-focused " : "") + (props.data.selected ? "is-selected " : "") + (props.data.remote ? "is-remote" : "")}>
+  return <article className={"event-graph-node " + (props.data.focused ? "is-focused " : "") + (props.data.selected ? "is-selected " : "") + (props.data.predictionSelected ? "is-prediction-selected " : "") + (props.data.remote ? "is-remote" : "")}>
     {!props.data.remote ? <><Handle type="target" position={Position.Top} /><Handle type="source" position={Position.Right} /><Handle type="source" position={Position.Bottom} /><Handle type="target" position={Position.Left} /></> : <><Handle type="target" position={Position.Left} isConnectable={false} /><Handle type="source" position={Position.Right} isConnectable={false} /></>}
     <small>{label}</small><strong>{props.data.title}</strong><span><Clock3 />{props.data.time}</span>
     <span>{props.data.remote ? <Expand /> : <MapPin />}{props.data.remote ? "点击查看投影范围" : props.data.location}</span>
+  </article>;
+}
+
+function PredictionGraphNode(props: NodeProps<Node<NodeData>>) {
+  return <article className="event-graph-node event-graph-prediction-node" aria-label={`${props.data.title}，${props.data.status}`}>
+    <small>{props.data.status}</small><strong>{props.data.title}</strong><span><Clock3 />{props.data.time}</span><span><Layers3 />Run {props.data.runId?.slice(-8) ?? ""} · {props.data.pathCount ?? 0} 条路径</span>
   </article>;
 }
 
@@ -280,7 +311,7 @@ function Tab(props: { active: boolean; children: ReactNode; onClick(): void }) {
 function Facts(props: { facts: Array<[ReactNode, string, string]> }) { return <dl className="event-graph-facts">{props.facts.map(([icon, label, value]) => <div key={label}><dt>{icon}{label}</dt><dd>{value}</dd></div>)}</dl>; }
 function TextBlock(props: { title: string; text: string }) { return <section className="event-graph-text-block"><h3>{props.title}</h3><p>{props.text}</p></section>; }
 
-function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection): { nodes: Node<NodeData>[]; edges: Edge[] } {
+function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const ids = new Set(events.map((event) => event.id));
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
@@ -290,7 +321,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const nodes: Node<NodeData>[] = events.filter((event) => visible.has(event.id)).map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
-    return { id: event.id, type: "event", position: focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused: event.id === validFocus, selected: selection?.kind === "node" && selection.id === event.id } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", position: focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused: event.id === validFocus, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id) } } satisfies Node<NodeData>;
   });
   if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
   if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection, focusLayout?.remote.future));
@@ -298,6 +329,13 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const edges = active.filter((relation) => nodeIds.has(relation.sourceObjectId) && nodeIds.has(relation.targetObjectId)).map((relation) => relationEdge(relation, selection));
   if (validFocus && remote.past.size) edges.push(remoteEdge("past", validFocus));
   if (validFocus && remote.future.size) edges.push(remoteEdge("future", validFocus));
+  if (predictionRun?.status === "ready" && predictionRun.bundle) {
+    const candidateIds = new Set(predictionRun.bundle.nodes.map((node) => node.id));
+    predictionRun.bundle.nodes.forEach((node, index) => nodes.push({ id: node.id, type: "prediction", draggable: false, connectable: false, selectable: true, position: { x: 1180 + (index % 3) * 245, y: 100 + Math.floor(index / 3) * 180 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathCount: predictionRun.bundle!.paths.filter((path) => path.candidateNodeIds.includes(node.id)).length } }));
+    predictionRun.bundle.edges.forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.7, strokeDasharray: "7 5", opacity: .78 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .9 } }));
+    const first = predictionRun.bundle.nodes[0];
+    for (const source of predictionRun.sourceSnapshot) if (ids.has(source.eventId) && first && candidateIds.has(first.id)) edges.push({ id: `prediction-source.${source.eventId}.${first.id}`, source: source.eventId, target: first.id, type: "smoothstep", label: "推演预览", style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .7 }, markerEnd: { type: MarkerType.ArrowClosed } });
+  }
   return { nodes, edges };
 }
 

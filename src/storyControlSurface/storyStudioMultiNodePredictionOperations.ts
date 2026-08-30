@@ -56,7 +56,11 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
     },
     readPredictionRun(input: { projectId: string; runId: string }) { return structuredClone(read(input.projectId, input.runId)); },
     listPredictionRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(run)); },
-    abandonPredictionRun(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); if (run.status === "ready") throw new Error("Ready Prediction Run cannot be abandoned."); return structuredClone(replace({ ...run, status: "abandoned" })); },
+    abandonPredictionRun(input: { projectId: string; runId: string }) {
+      const run = requireRun(input.projectId, input.runId);
+      if (["abandoned", "stale"].includes(run.status)) return structuredClone(run);
+      return structuredClone(replace({ ...run, status: "abandoned" }));
+    },
     markPredictionRunStale(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); return structuredClone(replace({ ...run, status: "stale" })); }
   };
   function requireRun(projectId: string, runId: string): PersistedRun { const run = read(projectId, runId); if (!run) throw new Error("Prediction Run does not exist."); return run; }

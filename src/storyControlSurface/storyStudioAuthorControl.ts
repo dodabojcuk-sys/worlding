@@ -574,6 +574,14 @@ export function createStoryStudioAuthorControl(input: {
   }
 
   return {
+    readPredictionReview(input: { projectId: string; reviewId: string }): StoryStudioPredictionReview | null {
+      const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
+      const reviewId = requireArtifactId(input.reviewId, "Prediction Review identifier");
+      const target = path.join(projectPath, ".world-os", "author-control", "prediction-reviews", `${reviewId}.json`);
+      if (!existsSync(target)) return null;
+      const review = JSON.parse(readFileSync(target, "utf8")) as StoryStudioPredictionReview;
+      return review.projectId === input.projectId ? structuredClone(review) : null;
+    },
     createPredictionReview(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; decidedAt: string }): StoryStudioPredictionReview {
       const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
       const runId = requireArtifactId(input.runId, "Prediction Run identifier");

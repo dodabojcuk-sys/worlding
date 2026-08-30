@@ -1633,6 +1633,27 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => authorControl.readImpactReview({ projectId, ...(reviewId ? { reviewId } : {}) })) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/author-control/prediction-review") {
+    const projectId = requireQueryValue(url, "projectId");
+    const reviewId = requireQueryValue(url, "reviewId");
+    sendJson(response, 200, { data: runProductOperation(() => authorControl.readPredictionReview({ projectId, reviewId })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/author-control/prediction-review/create") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "runId", "pathId", "selectedCandidateNodeIds", "decidedAt"]);
+    sendJson(response, 201, { data: runProductOperation(() => authorControl.createPredictionReview(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/author-control/prediction-review/accept") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "reviewId", "operationId", "decidedAt"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "prediction-review", [body.reviewId]);
+    sendJson(response, 200, { data: runProductOperation(() => authorControl.acceptPredictionReview(body)) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/author-control/impact-review/create") {
     requireToken(request);
     const body = await readJsonBody(request);

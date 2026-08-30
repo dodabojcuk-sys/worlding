@@ -21,6 +21,7 @@ import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
 import { TianyiSidebarComposer } from "../composer/TianyiSidebarComposer";
+import { MultiNodePredictionPanel } from "./MultiNodePredictionPanel";
 import type { CapabilityMenuItem } from "../capability-launcher/capabilityMenuTypes";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
@@ -33,6 +34,7 @@ export type TianyiSidebarContextRequest = {
   memorySelections: Array<{ id: string; scope: "author-global" | "project" }>;
   enabledSkillRefs: Array<{ id: string; version: string }>;
   eventRefs?: StoryStudioEventReference[];
+  predictionSourceLabels?: string[];
 };
 
 export function TianyiSidebar(props: {
@@ -217,6 +219,7 @@ export function TianyiSidebar(props: {
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
+      {contextRequest?.eventRefs?.length ? <MultiNodePredictionPanel runtime={props.runtime} eventRefs={contextRequest.eventRefs} sourceLabels={contextRequest.predictionSourceLabels} /> : null}
       {mode === "dialogue" ? <section className="tianyi-sidebar-conversation" aria-label={t("tianyi.sharedConversation")}>
         {!project ? <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.sharedConversation")}</strong><p>{t("tianyi.noActiveProject")}</p><small>{t("tianyi.sessionUnchanged")}</small></div> : !providerReady ? <div className="tianyi-sidebar-empty tianyi-provider-unavailable" data-provider-state="unconfigured"><Sparkles aria-hidden="true" /><strong>{t("tianyi.providerUnavailableTitle")}</strong><p>{t("tianyi.providerUnavailable")}</p><button type="button" onClick={props.onOpenSettings}>{t("tianyi.openProviderSettings")}</button><small>{t("tianyi.providerUnavailableHint")}</small></div> : session?.visibleMessages.length ? session.visibleMessages.map((message) => <article key={message.eventId} className={`tianyi-sidebar-message is-${message.actor}`}><small>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</small><p>{message.visibleContent}</p></article>) : <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.sharedConversation")}</strong><p>{t("tianyi.conversationReady")}</p><small>{t("tianyi.sessionUnchanged")}</small></div>}
       </section> : <section className="tianyi-agent-stage tianyi-agent-compact" aria-label={t("tianyi.agent")}>

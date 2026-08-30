@@ -2528,11 +2528,16 @@ export async function getTianyiIdentity(projectId: string, token: string): Promi
   return tianyiRequest("identity", token, { projectId });
 }
 
-export async function createMultiNodePredictionRun(input: { request: Record<string, unknown>; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/create", token, body); }
-export async function executeMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/execute", token, body); }
-export async function getMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/read", token, body); }
-export async function listMultiNodePredictionRuns(projectId: string, token: string): Promise<unknown[]> { return tianyiRequest("prediction/list", token, { projectId }); }
-export async function abandonMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<unknown> { const { token, ...body } = input; return tianyiRequest("prediction/abandon", token, body); }
+export type MultiNodePredictionRunProjection = import("../../../../src/storyContracts/multiNodePrediction.ts").PredictionRun;
+export type MultiNodePredictionReviewProjection = import("../../../../src/storyControlSurface/storyStudioAuthorControl.ts").StoryStudioPredictionReview;
+export async function createMultiNodePredictionRun(input: { request: import("../../../../src/storyContracts/multiNodePrediction.ts").MultiNodePredictionRequest; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/create", token, body); }
+export async function executeMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/execute", token, body); }
+export async function getMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection | null> { const { token, ...body } = input; return tianyiRequest("prediction/read", token, body); }
+export async function listMultiNodePredictionRuns(projectId: string, token: string): Promise<MultiNodePredictionRunProjection[]> { return tianyiRequest("prediction/list", token, { projectId }); }
+export async function abandonMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/abandon", token, body); }
+export async function getMultiNodePredictionReview(projectId: string, reviewId: string): Promise<MultiNodePredictionReviewProjection | null> { return request(`${basePath}/author-control/prediction-review?projectId=${encodeURIComponent(projectId)}&reviewId=${encodeURIComponent(reviewId)}`); }
+export async function createMultiNodePredictionReview(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; decidedAt: string; token: string }): Promise<MultiNodePredictionReviewProjection> { const { token, ...body } = input; return request(`${basePath}/author-control/prediction-review/create`, { method: "POST", token, body }); }
+export async function acceptMultiNodePredictionReview(input: { projectId: string; reviewId: string; operationId: string; decidedAt: string; token: string }): Promise<MultiNodePredictionReviewProjection> { const { token, ...body } = input; return request(`${basePath}/author-control/prediction-review/accept`, { method: "POST", token, body }); }
 
 export async function getTianyiProjectResume(projectId: string, agentId: string, token: string): Promise<TianyiProjectResume> {
   return tianyiRequest("project-resume", token, { projectId, agentId });

@@ -18,6 +18,27 @@
 .tianyi-mode-switch button[aria-selected="true"] { color: var(--color-accent); border-block-end-color: currentColor; font-weight: 650; }
 .tianyi-mode-switch button:hover { color: var(--color-text); }
 .tianyi-sidebar-stage { min-height: 0; flex: 1; display: grid; overflow: auto; padding: var(--space-4); }
+.tianyi-prediction-panel { display: grid; align-content: start; gap: var(--space-2); padding-block-end: var(--space-3); border-block-end: 1px solid var(--color-border); }
+.tianyi-prediction-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.tianyi-prediction-panel header strong { color: var(--color-text); font-size: var(--font-size-sm); }
+.tianyi-prediction-panel header small, .tianyi-prediction-sources, .tianyi-prediction-panel > small { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.tianyi-prediction-panel > label, .tianyi-prediction-results > label { display: grid; gap: .3rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-prediction-panel textarea, .tianyi-prediction-panel select { min-width: 0; padding: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; line-height: 1.5; resize: vertical; }
+.tianyi-prediction-panel .primary-action { justify-content: center; min-height: 2.25rem; }
+.tianyi-prediction-panel .primary-action svg { inline-size: .875rem; block-size: .875rem; }
+.tianyi-prediction-results { display: grid; gap: var(--space-2); }
+.tianyi-prediction-results > p, .tianyi-prediction-receipt { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-prediction-node { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; padding: var(--space-2); background: var(--color-surface-muted); border: 1px dashed color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; }
+.tianyi-prediction-node input { margin-block-start: .2rem; accent-color: var(--color-accent); }
+.tianyi-prediction-node span { display: grid; gap: .2rem; min-width: 0; }
+.tianyi-prediction-node strong { font-size: var(--font-size-sm); }
+.tianyi-prediction-node small { color: var(--color-text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.tianyi-prediction-empty { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.55; }
+.tianyi-prediction-empty svg { flex: 0 0 auto; inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.tianyi-prediction-receipt { color: var(--color-accent); }
+.tianyi-prediction-progress { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: var(--space-2); color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-xs); line-height: 1.5; }
+.tianyi-prediction-progress svg { inline-size: .9rem; block-size: .9rem; flex: 0 0 auto; color: var(--color-accent); }
+.tianyi-prediction-history { display: grid; gap: .3rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .tianyi-sidebar-empty,
 .tianyi-agent-stage { align-self: center; display: grid; gap: var(--space-3); color: var(--color-text-muted); line-height: 1.65; }
 .tianyi-sidebar-empty > svg { inline-size: 2rem; block-size: 2rem; color: var(--color-accent); }

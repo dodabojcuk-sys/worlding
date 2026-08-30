@@ -89,7 +89,7 @@ export function EventLineWorkbench(props: {
   selectedEventId?: string | null;
   roleLens?: string | null;
   onSelectedEventId?(eventId: string | null): void;
-  onOpenTianyi(reference?: StoryStudioEventReference, initialDraft?: string): void;
+  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
@@ -377,9 +377,12 @@ export function EventLineWorkbench(props: {
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
-        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventId) => {
-          const event = eventId ? props.events.find((item) => item.id === eventId) : undefined;
-          props.onOpenTianyi(event && (event.status === "planned" || event.status === "committed") ? createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" }) : undefined);
+        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
+          const references = (eventIds ?? []).flatMap((eventId) => {
+            const event = props.events.find((item) => item.id === eventId);
+            return event && (event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
+          });
+          props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId));
         }} /> : null}
         {projectionMode === "timeline" ? <EventTimelineProjection events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelect={openEvent} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}

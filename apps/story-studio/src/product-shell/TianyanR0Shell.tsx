@@ -177,12 +177,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setDirectoryOpen(false);
     workspaceDockCoordinator.close();
   };
-  const openTianyi = (reference?: StoryStudioEventReference, initialDraft?: string) => {
+  const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]) => {
+    const eventRefs = reference ? (Array.isArray(reference) ? reference : [reference]) : [];
     setTianyiContextRequest(reference ? {
       productMode: "world",
-      activeOwner: { kind: "world-object", id: reference.eventId },
-      selection: { documentId: null, objectId: reference.eventId, timelinePointId: null },
-      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [reference]
+      activeOwner: { kind: "world-object", id: eventRefs[0]?.eventId ?? null },
+      selection: { documentId: null, objectId: eventRefs[0]?.eventId ?? null, timelinePointId: null },
+      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels
     } : null);
     if (initialDraft !== undefined) props.runtime.setSharedDraft(initialDraft);
     if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
