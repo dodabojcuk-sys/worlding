@@ -22,6 +22,7 @@ export type TianyiSimulationSource = {
 export type TianyiSimulationContextPack = {
   version: "tianyi-simulation-context-pack/v1";
   snapshotId: string;
+  authorIntent: string;
   intent: TianyiSimulationIntent;
   sourceState: TianyiSimulationSourceState;
   entryPoint: TianyiSimulationEntryPoint;
@@ -44,6 +45,7 @@ export function inferTianyiSimulationIntent(authorIntent: string): TianyiSimulat
 export function buildTianyiSimulationContextPack(input: {
   entryPoint: TianyiSimulationEntryPoint;
   intent: TianyiSimulationIntent;
+  authorIntent?: string;
   sources: readonly Omit<TianyiSimulationSource, "sourceRole" | "entryPoint" | "authorSelected">[];
   anchorId?: string | null;
   strict?: boolean;
@@ -68,8 +70,9 @@ export function buildTianyiSimulationContextPack(input: {
   const hasAnchor = included.some((source) => source.sourceRole === "ANCHOR");
   const sourceState: TianyiSimulationSourceState = input.strict && !hasAnchor ? "INSUFFICIENT" : hasAnchor ? "READY" : "AMBIGUOUS";
   const estimatedTokens = included.reduce((total, source) => total + Math.ceil((source.displayTitle.length + source.inclusionReason.length) / 4), 0);
-  const snapshot = { entryPoint: input.entryPoint, intent: input.intent, sources: included.map(({ sourceId, sourceRole, revisionOrDigest }) => [sourceId, sourceRole, revisionOrDigest]), omitted };
-  return { version: "tianyi-simulation-context-pack/v1", snapshotId: `simulation-source-${createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0, 24)}`, intent: input.intent, sourceState, entryPoint: input.entryPoint, sources: included, omitted, estimatedTokens, maxProviderCalls: 1 };
+  const authorIntent = input.authorIntent?.trim().slice(0, 2_000) ?? "";
+  const snapshot = { authorIntent, entryPoint: input.entryPoint, intent: input.intent, sources: included.map(({ sourceId, sourceRole, revisionOrDigest }) => [sourceId, sourceRole, revisionOrDigest]), omitted };
+  return { version: "tianyi-simulation-context-pack/v1", snapshotId: `simulation-source-${createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0, 24)}`, authorIntent, intent: input.intent, sourceState, entryPoint: input.entryPoint, sources: included, omitted, estimatedTokens, maxProviderCalls: 1 };
 }
 
 function roleFor(authority: TianyiSimulationAuthority): TianyiSimulationSourceRole {

@@ -42,6 +42,17 @@ test("an author-selected pending candidate remains an Anchor without acquiring c
   assert.deepEqual(pack.omitted, [{ sourceId: "unselected-branch", reason: "默认隔离的派生或未确认内容" }]);
 });
 
+test("an author-selected creation projection remains a frozen anchor and honors the source budget", () => {
+  const pack = buildTianyiSimulationContextPack({ entryPoint: "creation", intent: "FORECAST", authorIntent: "从这一段正文继续推演", anchorId: "creation-selection", maxSources: 1, strict: true, sources: [
+    source("creation-selection", "creation-projection"),
+    source("confirmed-neighbor", "confirmed-event")
+  ] });
+  assert.equal(pack.sourceState, "READY");
+  assert.equal(pack.authorIntent, "从这一段正文继续推演");
+  assert.deepEqual(pack.sources.map((item) => [item.sourceId, item.sourceRole, item.authorityLevel]), [["creation-selection", "ANCHOR", "creation-projection"]]);
+  assert.deepEqual(pack.omitted, [{ sourceId: "confirmed-neighbor", reason: "超出本次来源预算" }]);
+});
+
 test("simulation direction is inferred locally without an extra provider call", () => {
   assert.equal(inferTianyiSimulationIntent("这条缺页线索以后可以怎么回收？"), "PAYOFF");
   assert.equal(inferTianyiSimulationIntent("只根据现在的证据，谁最可能接触过它？"), "INFERENCE");

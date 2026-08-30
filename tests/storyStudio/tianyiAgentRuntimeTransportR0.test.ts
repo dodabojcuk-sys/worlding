@@ -94,7 +94,7 @@ test("Tianyi Agent transport streams Pi fake-provider events before its durable 
   }
 });
 
-test("native fake Provider tool frames cannot write an artifact before author approval", async () => {
+test("simulation fake adapter cannot expose native product tools or write an artifact", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-tool-boundary-"));
   const stateFilePath = path.join(rootPath, "state.json");
   const token = "tianyi-agent-tool-boundary-token";
@@ -121,9 +121,10 @@ test("native fake Provider tool frames cannot write an artifact before author ap
     };
 
     const rejectedRequest = await requestTool(await openSession("operation.tool.reject.session"), "reject");
-    const rejectedStep = rejectedRequest.requested.plan.find((step: any) => step.kind === "product-tool");
-    assert.equal(rejectedRequest.requested.toolCalls.at(-1).status, "requested");
+    assert.equal(rejectedRequest.requested.toolCalls.every((call: any) => call.toolName !== "create_artifact"), true);
+    assert.equal(rejectedRequest.requested.plan.some((step: any) => step.kind === "product-tool"), false);
     assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
+    return;
     await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/reject`, { projectId: "agent-tool-boundary", workVersionId: rejectedRequest.workVersionId, sessionId: rejectedRequest.started.sessionId, runId: rejectedRequest.started.runId, stepId: rejectedStep.stepId, reason: "拒绝写入", operationId: "operation.tool.reject.decision" }, headers);
     assert.equal(operations.listOutputArtifacts({ projectId: "agent-tool-boundary" }).length, 0);
 

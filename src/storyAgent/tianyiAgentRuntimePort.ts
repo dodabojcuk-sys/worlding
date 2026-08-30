@@ -382,7 +382,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, workVersionId, sessionId: input.sessionId, task,
       currentPage, contextRequest: input.contextRequest ?? null, status: "planning", contextManifest: null, resultSummary: null,
       model: { providerId: null, profileId: null, modelId: null, runtime: dependencies.runProvider ? "pi" : "fixture" },
-      budget: { maxProviderCalls: 6, maxOutputTokens: 512, providerCalls: 0, estimatedTokens: 0 },
+      budget: { maxProviderCalls: 1, maxOutputTokens: 512, providerCalls: 0, estimatedTokens: 0 },
       observability: { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
       permissionProfile, plan: planFor(runId), toolCalls: [], approvals: [], steering: [], candidates: [], receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp
     };
@@ -394,15 +394,14 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     if (!step) return run;
     const manifest = await dependencies.buildContextManifest({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, currentPage: run.currentPage, task: run.task, contextRequest: run.contextRequest ?? undefined });
     if (manifest.projectId !== run.projectId || manifest.workVersionId !== run.workVersionId || manifest.sessionId !== run.sessionId) throw new Error("Agent 上下文投影跨越了项目、工作版本或 Session 边界。");
-    const toolSpecs = run.currentPage === "/event-line"
-      ? [
-        ["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }],
-        ["read_story_selection", { selectedObjectIds: manifest.selectedObjectIds }],
-        ["read_event_line_projection", { sourceRefs: manifest.sourceRefs.map((source) => source.id), narrativeTime: "read-only" }],
-        ["read_event_focus_context", { selectedEventIds: manifest.selectedObjectIds, relationBoundary: "formal-relation-owner" }],
-        ["read_open_questions", { unresolvedQuestions: manifest.unresolvedQuestions }]
-      ] as const
-      : [["read_context_manifest", { manifestVersion: manifest.version, sourceCount: manifest.sourceRefs.length, estimatedTokens: manifest.estimatedTokens }]] as const;
+    // The host prepares this receipt locally.  Pi receives no read tool and
+    // cannot expand the allowed scope after the author has approved it.
+    const toolSpecs = [["read_context_manifest", {
+      manifestVersion: manifest.version,
+      snapshotId: manifest.simulationContextPack?.snapshotId ?? null,
+      sourceCount: manifest.simulationContextPack?.sources.length ?? 0,
+      estimatedTokens: manifest.simulationContextPack?.estimatedTokens ?? manifest.estimatedTokens
+    }]] as const;
     const calls = toolSpecs.map(([toolName, output]) => {
       const callId = deterministicId("tianyi-agent-tool", run.runId, toolName, operationId);
       const existingCall = run.toolCalls.find((call) => call.callId === callId);

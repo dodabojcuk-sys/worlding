@@ -15,6 +15,25 @@
   block-size: 100%;
 }
 
+.shell-workspace-event-line .event-line-simulation-entry {
+  display: grid;
+  grid-template-columns: minmax(12rem, .8fr) minmax(15rem, 1.6fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+.shell-workspace-event-line .event-line-simulation-entry > div { display: grid; gap: var(--space-1); }
+.shell-workspace-event-line .event-line-simulation-entry small { color: var(--color-accent); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .event-line-simulation-entry strong { font-size: var(--font-size-sm); }
+.shell-workspace-event-line .event-line-simulation-entry label { display: grid; }
+.shell-workspace-event-line .event-line-simulation-entry input { min-height: 2.5rem; padding-inline: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-line-simulation-entry button { min-height: 2.5rem; white-space: nowrap; }
+@media (max-width: 52rem) { .shell-workspace-event-line .event-line-simulation-entry { grid-template-columns: 1fr; align-items: stretch; } }
+
 .shell-workspace-event-line .event-line-workbench,
 .shell-workspace-event-line .event-line-shell {
   display: flex;

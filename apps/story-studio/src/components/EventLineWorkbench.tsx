@@ -89,7 +89,7 @@ export function EventLineWorkbench(props: {
   selectedEventId?: string | null;
   roleLens?: string | null;
   onSelectedEventId?(eventId: string | null): void;
-  onOpenTianyi(reference?: StoryStudioEventReference): void;
+  onOpenTianyi(reference?: StoryStudioEventReference, initialDraft?: string): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
@@ -113,6 +113,7 @@ export function EventLineWorkbench(props: {
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [simulationDraft, setSimulationDraft] = useState("");
   const requestSequence = useRef(0);
   const spineRef = useRef<HTMLDivElement>(null);
   const pendingSpineAnchorRef = useRef<{ eventId: string | null; offset: number; scrollTop: number } | null>(null);
@@ -393,6 +394,15 @@ export function EventLineWorkbench(props: {
           </section>)}
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
+        <form className="event-line-simulation-entry" onSubmit={(event) => {
+          event.preventDefault();
+          props.onOpenTianyi(selectedEventRef ?? undefined, simulationDraft.trim());
+          setSimulationDraft("");
+        }}>
+          <div><small>天意推演</small><strong>{selectedEvent ? `围绕「${selectedEvent.title}」继续推演` : "先选中一个事件作为起点"}</strong></div>
+          <label><span className="sr-only">推演问题</span><input value={simulationDraft} onChange={(event) => setSimulationDraft(event.target.value)} placeholder="想从这个事件继续推演什么？" maxLength={2000} /></label>
+          <button type="submit" className="primary-action" disabled={!selectedEvent || !simulationDraft.trim()}><Sparkles />开始推演</button>
+        </form>
       </main>
       {projectionMode === "spine" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>

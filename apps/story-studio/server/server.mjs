@@ -202,7 +202,6 @@ const tianyi = createStoryStudioTianyiOperations({
 const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootPath, stateFilePath, agentId: tianyiAgentId, localControlToken: controlToken, tianyiOperations: tianyi });
 const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || process.env.TIANYAN_AGENT_DRAFT_FIXTURE_MODE === "1";
 const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
-const agentFakeProviderToolScenario = agentFakeProviderStreamAllowed && process.env.TIANYAN_AGENT_FAKE_PROVIDER_TOOL_SCENARIO === "create-artifact" ? "create-artifact" : null;
 const agentRuntimePluginRegistry = createAgentRuntimePluginRegistry({
   plugins: [createBuiltinPiAgentRuntimePlugin()],
   defaultPluginId: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID
@@ -212,7 +211,30 @@ const agentRuntimePluginResolution = agentRuntimePluginRegistry.activate({
   enabled: process.env.TIANYAN_AGENT_RUNTIME_DISABLED !== "1",
   fallbackPluginId: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID
 });
+// This owner-scoped registry remains available for explicit host workflows,
+// but simulation runs deliberately never expose it to Pi (`tools: []`).
 const workspacePathPolicy = createWorkspacePathPolicy();
+const preservedTianyiProductTools = createTianyiProductTools({
+  scope: { projectId: "host-only", workVersionId: "host-only", sessionId: "host-only", runId: "host-only" },
+  workspacePathPolicy,
+  createArtifact(command) {
+    const active = creationSourceSelectionPort.resolveRootWorkVersion(command.projectId)?.identity.workVersionId ?? "work-version.unversioned";
+    if (active !== command.workVersionId) throw new Error("Agent artifact target WorkVersion is no longer active; no file was created.");
+    return operations.createOutputArtifact(command);
+  },
+  async createEntityProposal(command) {
+    const project = requireProject(command.projectId);
+    const result = await createAgentRecognitionProposal({ workspacePath: path.join(rootPath, project.id), proposal: { projectId: project.id, storyId: `story.${project.id}`, tianyiSessionId: command.sessionId, sourceEventId: `agent-run-${command.runId}`, sourceReceiptId: command.sourceReceiptId, sourceWorkspace: "tianyi-agent-host-workflow", objectKind: command.kind, suggestedName: command.title, suggestedFields: { workVersionId: command.workVersionId, runId: command.runId }, evidence: [{ sourceRef: `${command.sessionId}:${command.runId}`, excerpt: `Author-approved Agent Run ${command.runId} proposal.` }], uncertainties: ["Candidate requires author review."], duplicateMatches: [], now: new Date().toISOString() } });
+    return { proposalId: result.proposal.proposalId, status: result.proposal.status };
+  },
+  createEventGraphCandidate(command) {
+    const project = requireProject(command.projectId);
+    const authorAction = recordAuthorInitiatedAction(project.id, "library-write", "event-relation", [command.sourceEventId, command.targetEventId], "author");
+    const result = relationOperations.createRelationCandidate({ projectId: project.id, sourceObjectId: command.sourceEventId, targetObjectId: command.targetEventId, relationTypeId: command.relationTypeId, direction: command.direction, sourceRef: `tianyi-agent:${command.sessionId}:${command.runId}`, evidenceRefs: [{ kind: "agent-run", sessionId: command.sessionId, runId: command.runId, approvalReceiptId: command.sourceReceiptId }], operationId: `tianyi-agent-event-graph:${command.runId}:${command.sourceEventId}:${command.targetEventId}:${command.relationTypeId}`, authorActionReceiptId: authorAction.id });
+    return { relationId: result.relation.relationId, reviewState: result.relation.reviewState };
+  }
+});
+void preservedTianyiProductTools;
 const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   persistence: {
     appendEvent: (event) => tianyi.appendTianyiAgentRuntimeEvent({
@@ -252,11 +274,12 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       if (source.ownerKind === "writing-document" || source.ownerKind === "visual-document") return "author-input";
       return "confirmed-event";
     };
-    const simulationContextPack = buildTianyiSimulationContextPack({
-      entryPoint: input.currentPage === "/event-line" ? "event-line" : input.currentPage === "/creation" ? "creation" : "tianyi",
-      intent: inferTianyiSimulationIntent(input.task),
-      anchorId: selectedSourceId,
-      sources: projection.sources.map((source) => ({
+    const entryPoint = input.currentPage === "/event-line" ? "event-line" : input.currentPage === "/creation" ? "creation" : "tianyi";
+    const creationSelection = entryPoint === "creation" && input.task.trim()
+      ? { sourceId: `creation-selection.${stableHash(input.task).slice(0, 24)}`, sourceType: "creation-selection", authorityLevel: "creation-projection", revisionOrDigest: stableHash(input.task), displayTitle: "当前作者正文选区", inclusionReason: "作者本轮明确输入的正文或推演目标", branchOrUniverse: null }
+      : null;
+    const sourceCandidates = [
+      ...projection.sources.map((source) => ({
         sourceId: source.id,
         sourceType: source.ownerKind,
         authorityLevel: simulationAuthority(source),
@@ -264,7 +287,18 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         displayTitle: source.label,
         inclusionReason: "当前已授权引用范围",
         branchOrUniverse: null
-      }))
+      })),
+      ...(creationSelection ? [creationSelection] : [])
+    ];
+    const sourceBudget = /(?:依据范围：只选起点|Evidence scope: selected anchor only)/u.test(input.task) ? 1 : /(?:依据范围：当前节点周边|Evidence scope: around the current node)/u.test(input.task) ? 5 : 16;
+    const simulationContextPack = buildTianyiSimulationContextPack({
+      entryPoint,
+      intent: inferTianyiSimulationIntent(input.task),
+      authorIntent: input.task,
+      anchorId: selectedSourceId ?? creationSelection?.sourceId ?? null,
+      strict: /(?:只根据|不要新增(?:设定)?|严格依据|Strict evidence)/u.test(input.task),
+      maxSources: sourceBudget,
+      sources: sourceCandidates
     });
     return {
       version: "tianyi-agent-context-manifest/v1",
@@ -301,114 +335,31 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       error.retryable = false;
       throw error;
     }
-    const contextPayload = {
-      projectId: input.projectId,
-      workVersionId: input.workVersionId,
-      currentPage: input.contextManifest.currentPage,
-      sources: input.contextManifest.sourceRefs.map((source) => ({ id: source.id, label: source.label, state: source.state })),
-      unresolvedQuestions: input.contextManifest.unresolvedQuestions,
-      steering: input.steering
-    };
+    const contextPayload = input.contextManifest.simulationContextPack;
+    if (!contextPayload || contextPayload.sourceState === "INSUFFICIENT") {
+      const error = new Error("本次天意推演缺少可用的明确来源；请先补充一个起点或放宽依据范围。");
+      error.name = "ProviderUnavailable";
+      error.code = "provider-unavailable";
+      error.retryable = false;
+      throw error;
+    }
     const result = await agentRuntimePluginResolution.runtime.run({
       runId: input.runId,
       projectId: input.projectId,
       workVersionId: input.workVersionId,
       sessionId: input.sessionId,
-      prompt: `任务：${input.task}\n已由作者批准的当前引用范围：${JSON.stringify(contextPayload)}\n请给出一份不超过 600 字的作者可读建议。`,
-      systemPrompt: "你是天意的受控 Agent。可使用声明的产品工具，但任何产物或候选写入都必须先经作者审批；不得访问文件系统、Shell、绝对路径、凭据，且不得把候选说成正史。",
+      prompt: JSON.stringify(contextPayload),
+      systemPrompt: "你是天意的受控推演适配器。唯一可见输入是当前请求中的冻结来源包；不得访问文件系统、Shell、资料库、项目、其他作品、分支、绝对路径或凭据。不得调用工具，不得写入任何正式数据，不得把候选或假设说成正史。",
       providerId: profile.providerId,
       profileId: profile.id,
       modelId: profile.modelId,
       maxOutputTokens: Math.min(512, input.maxOutputTokens),
       retry: input.retry,
       signal: input.signal,
-      tools: [{
-        name: "read_context_manifest",
-        label: "查看当前引用范围",
-        description: "只读查看本次天意任务已经授权的引用范围。",
-        inputSchema: { type: "object", required: [], properties: {}, additionalProperties: false },
-        async execute() { return contextPayload; }
-      }, {
-        name: "read_event_focus_context",
-        label: "查看事件焦点关联",
-        description: "只读返回当前受控选择中的正式 Event 及既有 Relation 投影；不会从相邻节点推断事实。",
-        inputSchema: { type: "object", required: [], properties: {}, additionalProperties: false },
-        async execute() {
-          const selectedEventIds = input.contextManifest.selectedObjectIds.filter((eventId) => typeof eventId === "string" && eventId.length > 0).slice(0, 1);
-          const focusedEventId = selectedEventIds[0] ?? null;
-          const relations = focusedEventId
-            ? relationOperations.listRelations({ projectId: input.projectId, objectId: focusedEventId, includeArchived: false }).relations
-            : [];
-          return {
-            focusedEventId,
-            relations: relations.map((relation) => ({ relationId: relation.relationId, sourceObjectId: relation.sourceObjectId, targetObjectId: relation.targetObjectId, relationTypeId: relation.relationTypeId, label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, direction: relation.direction, reviewState: relation.reviewState, evidenceWarningCount: relation.evidenceWarnings.length })),
-            boundary: "formal-relation-owner"
-          };
-        }
-      }, ...createTianyiProductTools({
-        scope: { projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId },
-        workspacePathPolicy,
-        createArtifact(command) {
-          const active = creationSourceSelectionPort.resolveRootWorkVersion(command.projectId)?.identity.workVersionId ?? "work-version.unversioned";
-          if (active !== command.workVersionId) throw new Error("Agent artifact target WorkVersion is no longer active; no file was created.");
-          return operations.createOutputArtifact(command);
-        },
-        async createEntityProposal(command) {
-          const project = requireProject(command.projectId);
-          const result = await createAgentRecognitionProposal({
-            workspacePath: path.join(rootPath, project.id),
-            proposal: {
-              projectId: project.id,
-              storyId: `story.${project.id}`,
-              tianyiSessionId: command.sessionId,
-              sourceEventId: `agent-run-${command.runId}`,
-              sourceReceiptId: command.sourceReceiptId,
-              sourceWorkspace: "tianyi-agent-provider-tool",
-              objectKind: command.kind,
-              suggestedName: command.title,
-              suggestedFields: { workVersionId: command.workVersionId, runId: command.runId },
-              evidence: [{ sourceRef: `${command.sessionId}:${command.runId}`, excerpt: `由作者审批的 Agent Run ${command.runId} 提议。` }],
-              uncertainties: ["候选仍需作者在统一待确认投影中审核。"],
-              duplicateMatches: [],
-              now: new Date().toISOString()
-            }
-          });
-          return { proposalId: result.proposal.proposalId, status: result.proposal.status };
-        },
-        createEventGraphCandidate(command) {
-          const project = requireProject(command.projectId);
-          const authorAction = recordAuthorInitiatedAction(project.id, "library-write", "event-relation", [command.sourceEventId, command.targetEventId], "author");
-          const result = relationOperations.createRelationCandidate({
-            projectId: project.id,
-            sourceObjectId: command.sourceEventId,
-            targetObjectId: command.targetEventId,
-            relationTypeId: command.relationTypeId,
-            direction: command.direction,
-            sourceRef: `tianyi-agent:${command.sessionId}:${command.runId}`,
-            evidenceRefs: [{ kind: "agent-run", sessionId: command.sessionId, runId: command.runId, approvalReceiptId: command.sourceReceiptId }],
-            operationId: `tianyi-agent-event-graph:${command.runId}:${command.sourceEventId}:${command.targetEventId}:${command.relationTypeId}`,
-            authorActionReceiptId: authorAction.id
-          });
-          return { relationId: result.relation.relationId, reviewState: result.relation.reviewState };
-        }
-      })],
+      tools: [],
       authorizeTool: input.authorizeTool,
       async openProviderStream(providerInput) {
         if (agentFakeProviderStreamAllowed) {
-          if (agentFakeProviderToolScenario === "create-artifact" && providerInput.providerCall === 1) {
-            const toolName = "create_artifact";
-            const argumentsJson = JSON.stringify({ type: "screenplay", title: "Agent 审批产物", content: "经作者批准后写入的受控正文。" });
-            return {
-              traceId: `trace.local-fake-tool.${input.runId}`,
-              events: (async function* () {
-                yield { type: "chunk", text: "准备一份普通产物。", finishReason: null, usage: null };
-                yield { type: "tool-call-start", id: "tool.local-fake.create-artifact", name: toolName, index: 0 };
-                for (const fragment of [argumentsJson.slice(0, 18), argumentsJson.slice(18, 42), argumentsJson.slice(42)]) yield { type: "tool-call-delta", id: "tool.local-fake.create-artifact", name: toolName, index: 0, argumentsDelta: fragment };
-                yield { type: "tool-call-end", id: "tool.local-fake.create-artifact", name: toolName, index: 0, argumentsJson, arguments: JSON.parse(argumentsJson) };
-                yield { type: "done" };
-              })()
-            };
-          }
           const chunks = ["正在核对当前引用范围。", "角色知识边界保持只读。", "已形成等待作者确认的建议。"];
           return {
             traceId: `trace.local-fake.${input.runId}`,
@@ -429,7 +380,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
           signal: providerInput.signal,
           idempotencyKey: `tianyi-agent.${input.projectId}.${input.workVersionId}.${input.runId}.attempt-${stableHash(input.attemptId).slice(0, 16)}.${providerInput.providerCall}`,
           budgetScope: `tianyi-agent:${input.projectId}:${input.workVersionId}`,
-          toolLoopTurn: true,
+          toolLoopTurn: false,
           retry: providerInput.retry
         });
       },

@@ -1,7 +1,8 @@
-import { Check, ChevronRight, LoaderCircle, Sparkles, Square, X } from "lucide-react";
+import { Check, ChevronRight, ChevronDown, LoaderCircle, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
+import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
 import {
   getTianyiSessionMetadata,
   handoffTianyiAgentCandidate,
@@ -24,10 +25,21 @@ import type { CapabilityMenuItem } from "../capability-launcher/capabilityMenuTy
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 
+export type TianyiSidebarContextRequest = {
+  productMode: "world" | "writing" | "intelligence" | "localization" | "publish";
+  activeOwner: { kind: "project" | "writing-document" | "world-object" | "visual-document"; id: string | null };
+  selection: { documentId: string | null; objectId: string | null; timelinePointId: string | null };
+  sourceRefs: Array<{ id: string; kind: string; origin: string }>;
+  memorySelections: Array<{ id: string; scope: "author-global" | "project" }>;
+  enabledSkillRefs: Array<{ id: string; version: string }>;
+  eventRefs?: StoryStudioEventReference[];
+};
+
 export function TianyiSidebar(props: {
   workspace: TianyiContextualSpaceId;
   pageLabel: string;
   runtime: TianyanShellRuntimeState;
+  contextRequest?: TianyiSidebarContextRequest | null;
   onClose(): void;
   onOpenSettings(): void;
 }) {
@@ -39,18 +51,21 @@ export function TianyiSidebar(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [scope, setScope] = useState<"nearby" | "line" | "selected">("nearby");
+  const [freedom, setFreedom] = useState<"strict" | "balanced" | "free">("balanced");
   const [streamText, setStreamText] = useState("");
   const submitGate = useRef(createTianyiSubmitGate()).current;
   const streamController = useRef<AbortController | null>(null);
   const stopping = useRef(false);
   const project = props.runtime.project;
   const workVersionId = props.runtime.workVersionId ?? "work-version.unversioned";
-  const contextRequest = useMemo(() => project ? {
+  const contextRequest = useMemo(() => props.contextRequest ?? (project ? {
     productMode: props.workspace === "nuwa" ? "intelligence" as const : "world" as const,
     activeOwner: { kind: "project" as const, id: project.id },
     selection: { documentId: null, objectId: null, timelinePointId: null },
     sourceRefs: [], memorySelections: [], enabledSkillRefs: []
-  } : null, [project, props.workspace]);
+  } : null), [project, props.contextRequest, props.workspace]);
   const modelLabel = useMemo(() => {
     const profile = props.runtime.modelStatus?.profile.profile;
     if (!profile?.enabled) return null;
@@ -120,7 +135,12 @@ export function TianyiSidebar(props: {
         props.runtime.setSharedDraft("");
         await refreshSession(sessionId);
       } else {
-        const taskText = [task ? t(task.labelKey as TranslationKey) : "", props.runtime.sharedDraft.trim()].filter(Boolean).join("：");
+        const taskText = [
+          task ? t(task.labelKey as TranslationKey) : "",
+          props.runtime.sharedDraft.trim(),
+          t(`tianyi.simulation.scopeTask.${scope}` as TranslationKey),
+          t(`tianyi.simulation.freedomTask.${freedom}` as TranslationKey)
+        ].filter(Boolean).join("\n");
         const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
         window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, workVersionId, sessionId), projection.runId);
         setRun(projection); setTask(null); props.runtime.setSharedDraft("");
@@ -187,7 +207,9 @@ export function TianyiSidebar(props: {
   })();
   const currentStep = currentTianyiAgentStep(run);
   const awaitingTool = currentStep?.toolName ? run?.toolCalls.find((tool) => tool.toolName === currentStep.toolName && tool.status !== "completed") ?? null : null;
-  const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxOutputTokens) : null };
+  const simulationPack = run?.contextManifest?.simulationContextPack ?? null;
+  const sourceCounts = simulationPack?.sources.reduce<Record<string, number>>((counts, source) => ({ ...counts, [source.sourceRole]: (counts[source.sourceRole] ?? 0) + 1 }), {}) ?? {};
+  const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: simulationPack?.sources.length ?? contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(simulationPack?.estimatedTokens ?? run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxProviderCalls) : null };
   return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-shared-session-id={props.runtime.sharedSessionId ?? "not-started"} data-session-owner="story-continuity/session">
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
@@ -203,11 +225,16 @@ export function TianyiSidebar(props: {
           <div className="tianyi-agent-run-status"><strong>{run.task}</strong><span>{t("tianyi.agentStatus")}: {t(`tianyi.run.${run.status}` as TranslationKey)}</span></div>
           {busy ? <button type="button" className="tianyi-agent-confirm is-stop" onClick={stopRun}><Square />{t("tianyi.stopRun")}</button> : currentStep ? <section className="tianyi-agent-approval" aria-label={t("tianyi.toolApproval")}><strong>{t("tianyi.toolApproval")}</strong><dl><div><dt>{t("tianyi.toolName")}</dt><dd>{currentStep.toolName ?? currentStep.title}</dd></div><div><dt>{t("tianyi.toolImpact")}</dt><dd>{currentStep.classification === "proposal" ? t("tianyi.toolImpactProposal") : t("tianyi.toolImpactRead")}</dd></div>{awaitingTool && <div><dt>{t("tianyi.toolParameters")}</dt><dd>{Object.keys(awaitingTool.arguments).join("、") || t("context.noneSelected")}</dd></div>}</dl><div className="tianyi-agent-approval-actions"><button type="button" className="tianyi-agent-confirm" onClick={advanceRun}><Check />{t("tianyi.confirmNextStep")}</button><button type="button" className="tianyi-agent-reject" onClick={rejectStep}>{t("tianyi.rejectNextStep")}</button></div></section> : !["completed", "cancelled"].includes(run.status) && <button type="button" className="tianyi-agent-confirm" onClick={advanceRun}><ChevronRight />{run.status === "failed" ? t("tianyi.retryRun") : t("tianyi.continueRun")}</button>}
           {streamText && <p className="tianyi-agent-streaming" aria-live="polite"><LoaderCircle className={busy ? "is-spinning" : undefined} aria-hidden="true" />{streamText}</p>}
-          {run.candidates.length > 0 && <section className="tianyi-agent-candidate-summary"><strong>{t("tianyi.candidateSummary")}</strong>{run.candidates.map((candidate) => <article key={candidate.candidateId}><span>{candidate.title}</span>{candidate.ownerReceipt ? <small>{t("tianyi.handedOff")}</small> : candidate.targetOwnerKind === "agent-recognition-proposal" ? <button type="button" disabled={busy} onClick={() => handoffCandidate(candidate.candidateId)}>{t("tianyi.handoffForReview")}</button> : <small>{t("tianyi.candidateOnly")}</small>}</article>)}</section>}
+          {run.candidates.length > 0 && <section className="tianyi-agent-candidate-summary" data-simulation-candidate-review="true"><strong>{t("tianyi.candidateSummary")}</strong>{run.candidates.map((candidate) => <article key={candidate.candidateId}><span>{candidate.title}</span><p>{candidate.summary}</p><dl className="tianyi-simulation-candidate-sections"><div><dt>{t("tianyi.simulation.evidence")}</dt><dd>{simulationPack?.sources.filter((source) => source.sourceRole === "EVIDENCE" || source.sourceRole === "CONSTRAINT").map((source) => source.displayTitle).join("、") || t("tianyi.simulation.noEvidence")}</dd></div><div><dt>{t("tianyi.simulation.assumptions")}</dt><dd>{simulationPack?.intent === "DIVERGENCE" ? t("tianyi.simulation.divergence") : t("tianyi.simulation.noUpgrade")}</dd></div><div><dt>{t("tianyi.simulation.missing")}</dt><dd>{simulationPack?.sourceState === "READY" ? t("tianyi.simulation.ready") : t("tianyi.simulation.needAnchor")}</dd></div><div><dt>{t("tianyi.simulation.conflicts")}</dt><dd>{simulationPack?.sourceState === "CONFLICTED" ? t("tianyi.simulation.conflicted") : t("tianyi.simulation.noConflictDecision")}</dd></div><div><dt>{t("tianyi.simulation.impact")}</dt><dd>{candidate.targetOwnerKind === "relation-owner" ? t("tianyi.simulation.relationImpact") : t("tianyi.simulation.candidateImpact")}</dd></div></dl>{candidate.ownerReceipt ? <small>{t("tianyi.handedOff")}</small> : candidate.targetOwnerKind === "agent-recognition-proposal" ? <button type="button" disabled={busy} onClick={() => handoffCandidate(candidate.candidateId)}>{t("tianyi.handoffForReview")}</button> : <small>{t("tianyi.candidateOnly")}</small>}</article>)}</section>}
           <details open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>{t("tianyi.runDetails")}</summary><dl><div><dt>{t("tianyi.sources")}</dt><dd>{run.contextManifest?.sourceRefs.length ?? 0}</dd></div><div><dt>{t("tianyi.receipts")}</dt><dd>{run.receipts.length}</dd></div><div><dt>{t("tianyi.runId")}</dt><dd>{run.runId}</dd></div></dl></details>
         </>}
       </section>}
       {error && <p className="tianyi-error" role="alert">{error}</p>}
+      <section className="tianyi-simulation-source-control" data-simulation-source-state={simulationPack?.sourceState ?? "PENDING"}>
+        <button type="button" aria-expanded={sourcesOpen} onClick={() => setSourcesOpen((open) => !open)}>{t("tianyi.simulation.anchor").replace("{anchor}", String(sourceCounts.ANCHOR ?? 0)).replace("{evidence}", String(sourceCounts.EVIDENCE ?? 0)).replace("{constraint}", String(sourceCounts.CONSTRAINT ?? 0)).replace("{inspiration}", String(sourceCounts.INSPIRATION ?? 0))}<ChevronDown aria-hidden="true" /></button>
+        <div className="tianyi-simulation-controls"><label>{t("tianyi.simulation.scope")}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="nearby">{t("tianyi.simulation.scope.nearby")}</option><option value="line">{t("tianyi.simulation.scope.line")}</option><option value="selected">{t("tianyi.simulation.scope.selected")}</option></select></label><label>{t("tianyi.simulation.freedom")}<select value={freedom} onChange={(event) => setFreedom(event.target.value as typeof freedom)}><option value="strict">{t("tianyi.simulation.freedom.strict")}</option><option value="balanced">{t("tianyi.simulation.freedom.balanced")}</option><option value="free">{t("tianyi.simulation.freedom.free")}</option></select></label></div>
+        {sourcesOpen && <div className="tianyi-simulation-source-drawer" aria-label={t("tianyi.sources")}><strong>{t("tianyi.simulation.snapshot")}</strong>{simulationPack ? <>{simulationPack.sources.map((source) => <article key={source.sourceId}><b>{source.sourceRole}</b><span>{source.displayTitle}</span><small>{t("tianyi.simulation.sent").replace("{authority}", source.authorityLevel)}</small></article>)}{simulationPack.omitted.map((source) => <article key={source.sourceId} data-source-omitted="true"><b>EXCLUDED</b><span>{source.sourceId}</span><small>{source.reason}</small></article>)}</> : <p>{t("tianyi.simulation.pendingSnapshot")}</p>}</div>}
+      </section>
     </section>
     <TianyiSidebarComposer
       workspace={props.workspace}

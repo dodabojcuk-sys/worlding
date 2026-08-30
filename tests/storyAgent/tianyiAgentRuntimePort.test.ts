@@ -103,12 +103,13 @@ test("runtime durably replays stream events and rejects a different work-version
   assert.equal(await fixture.adapter.recoverRun({ projectId: started.projectId, workVersionId: "work-version.b", sessionId: started.sessionId, runId: started.runId }), null);
 });
 
-test("event-line work runs the bounded read loop without provider or semantic writes", async () => {
+test("event-line work records only the frozen ContextPack receipt without provider tools or semantic writes", async () => {
   const fixture = fixtureAdapter();
   const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.event", task: "检查明确因果、开放问题和局部节奏", currentPage: "/event-line", operationId: "operation.event.start" });
   const contextReady = await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.event.approve" });
   const names = contextReady.toolCalls.map((call) => call.toolName);
-  assert.deepEqual(names, ["read_context_manifest", "read_story_selection", "read_event_line_projection", "read_event_focus_context", "read_open_questions"]);
+  assert.deepEqual(names, ["read_context_manifest"]);
+  assert.equal(contextReady.budget.maxProviderCalls, 1);
   assert.equal(contextReady.budget.providerCalls, 0);
   assert.equal(contextReady.candidates.length, 0);
 });
