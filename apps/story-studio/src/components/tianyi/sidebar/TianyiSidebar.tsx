@@ -212,15 +212,16 @@ export function TianyiSidebar(props: {
   const simulationPack = run?.contextManifest?.simulationContextPack ?? null;
   const sourceCounts = simulationPack?.sources.reduce<Record<string, number>>((counts, source) => ({ ...counts, [source.sourceRole]: (counts[source.sourceRole] ?? 0) + 1 }), {}) ?? {};
   const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: simulationPack?.sources.length ?? contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(simulationPack?.estimatedTokens ?? run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxProviderCalls) : null };
-  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-shared-session-id={props.runtime.sharedSessionId ?? "not-started"} data-session-owner="story-continuity/session">
+  const predictionActive = Boolean(contextRequest?.eventRefs?.length);
+  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={predictionActive ? "prediction" : mode} data-shared-session-id={props.runtime.sharedSessionId ?? "not-started"} data-session-owner="story-continuity/session">
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      <TianyiModeSwitch mode={mode} onMode={setMode} />
+      {predictionActive ? <span className="tianyi-prediction-mode-label">推演</span> : <TianyiModeSwitch mode={mode} onMode={setMode} />}
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
       {contextRequest?.eventRefs?.length ? <MultiNodePredictionPanel runtime={props.runtime} eventRefs={contextRequest.eventRefs} sourceLabels={contextRequest.predictionSourceLabels} /> : null}
-      {mode === "dialogue" ? <section className="tianyi-sidebar-conversation" aria-label={t("tianyi.sharedConversation")}>
+      {!predictionActive && (mode === "dialogue" ? <section className="tianyi-sidebar-conversation" aria-label={t("tianyi.sharedConversation")}>
         {!project ? <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.sharedConversation")}</strong><p>{t("tianyi.noActiveProject")}</p><small>{t("tianyi.sessionUnchanged")}</small></div> : !providerReady ? <div className="tianyi-sidebar-empty tianyi-provider-unavailable" data-provider-state="unconfigured"><Sparkles aria-hidden="true" /><strong>{t("tianyi.providerUnavailableTitle")}</strong><p>{t("tianyi.providerUnavailable")}</p><button type="button" onClick={props.onOpenSettings}>{t("tianyi.openProviderSettings")}</button><small>{t("tianyi.providerUnavailableHint")}</small></div> : session?.visibleMessages.length ? session.visibleMessages.map((message) => <article key={message.eventId} className={`tianyi-sidebar-message is-${message.actor}`}><small>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</small><p>{message.visibleContent}</p></article>) : <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.sharedConversation")}</strong><p>{t("tianyi.conversationReady")}</p><small>{t("tianyi.sessionUnchanged")}</small></div>}
       </section> : <section className="tianyi-agent-stage tianyi-agent-compact" aria-label={t("tianyi.agent")}>
         <span>{t("tianyi.currentPage")}: {props.pageLabel}</span>
@@ -231,15 +232,15 @@ export function TianyiSidebar(props: {
           {run.candidates.length > 0 && <section className="tianyi-agent-candidate-summary" data-simulation-candidate-review="true"><strong>{t("tianyi.candidateSummary")}</strong>{run.candidates.map((candidate) => <article key={candidate.candidateId}><span>{candidate.title}</span><p>{candidate.summary}</p><dl className="tianyi-simulation-candidate-sections"><div><dt>{t("tianyi.simulation.evidence")}</dt><dd>{simulationPack?.sources.filter((source) => source.sourceRole === "EVIDENCE" || source.sourceRole === "CONSTRAINT").map((source) => source.displayTitle).join("、") || t("tianyi.simulation.noEvidence")}</dd></div><div><dt>{t("tianyi.simulation.assumptions")}</dt><dd>{simulationPack?.intent === "DIVERGENCE" ? t("tianyi.simulation.divergence") : t("tianyi.simulation.noUpgrade")}</dd></div><div><dt>{t("tianyi.simulation.missing")}</dt><dd>{simulationPack?.sourceState === "READY" ? t("tianyi.simulation.ready") : t("tianyi.simulation.needAnchor")}</dd></div><div><dt>{t("tianyi.simulation.conflicts")}</dt><dd>{simulationPack?.sourceState === "CONFLICTED" ? t("tianyi.simulation.conflicted") : t("tianyi.simulation.noConflictDecision")}</dd></div><div><dt>{t("tianyi.simulation.impact")}</dt><dd>{candidate.targetOwnerKind === "relation-owner" ? t("tianyi.simulation.relationImpact") : t("tianyi.simulation.candidateImpact")}</dd></div></dl>{candidate.ownerReceipt ? <small>{t("tianyi.handedOff")}</small> : candidate.targetOwnerKind === "agent-recognition-proposal" ? <button type="button" disabled={busy} onClick={() => handoffCandidate(candidate.candidateId)}>{t("tianyi.handoffForReview")}</button> : <small>{t("tianyi.candidateOnly")}</small>}</article>)}</section>}
           <details open={detailsOpen} onToggle={(event) => setDetailsOpen(event.currentTarget.open)}><summary>{t("tianyi.runDetails")}</summary><dl><div><dt>{t("tianyi.sources")}</dt><dd>{run.contextManifest?.sourceRefs.length ?? 0}</dd></div><div><dt>{t("tianyi.receipts")}</dt><dd>{run.receipts.length}</dd></div><div><dt>{t("tianyi.runId")}</dt><dd>{run.runId}</dd></div></dl></details>
         </>}
-      </section>}
-      {error && <p className="tianyi-error" role="alert">{error}</p>}
-      <section className="tianyi-simulation-source-control" data-simulation-source-state={simulationPack?.sourceState ?? "PENDING"}>
+      </section>)}
+      {!predictionActive && error && <p className="tianyi-error" role="alert">{error}</p>}
+      {!predictionActive && <section className="tianyi-simulation-source-control" data-simulation-source-state={simulationPack?.sourceState ?? "PENDING"}>
         <button type="button" aria-expanded={sourcesOpen} onClick={() => setSourcesOpen((open) => !open)}>{t("tianyi.simulation.anchor").replace("{anchor}", String(sourceCounts.ANCHOR ?? 0)).replace("{evidence}", String(sourceCounts.EVIDENCE ?? 0)).replace("{constraint}", String(sourceCounts.CONSTRAINT ?? 0)).replace("{inspiration}", String(sourceCounts.INSPIRATION ?? 0))}<ChevronDown aria-hidden="true" /></button>
         <div className="tianyi-simulation-controls"><label>{t("tianyi.simulation.scope")}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="nearby">{t("tianyi.simulation.scope.nearby")}</option><option value="line">{t("tianyi.simulation.scope.line")}</option><option value="selected">{t("tianyi.simulation.scope.selected")}</option></select></label><label>{t("tianyi.simulation.freedom")}<select value={freedom} onChange={(event) => setFreedom(event.target.value as typeof freedom)}><option value="strict">{t("tianyi.simulation.freedom.strict")}</option><option value="balanced">{t("tianyi.simulation.freedom.balanced")}</option><option value="free">{t("tianyi.simulation.freedom.free")}</option></select></label></div>
         {sourcesOpen && <div className="tianyi-simulation-source-drawer" aria-label={t("tianyi.sources")}><strong>{t("tianyi.simulation.snapshot")}</strong>{simulationPack ? <>{simulationPack.sources.map((source) => <article key={source.sourceId}><b>{source.sourceRole}</b><span>{source.displayTitle}</span><small>{t("tianyi.simulation.sent").replace("{authority}", source.authorityLevel)}</small></article>)}{simulationPack.omitted.map((source) => <article key={source.sourceId} data-source-omitted="true"><b>EXCLUDED</b><span>{source.sourceId}</span><small>{source.reason}</small></article>)}</> : <p>{t("tianyi.simulation.pendingSnapshot")}</p>}</div>}
-      </section>
+      </section>}
     </section>
-    <TianyiSidebarComposer
+    {!predictionActive && <TianyiSidebarComposer
       workspace={props.workspace}
       task={task}
       draft={props.runtime.sharedDraft}
@@ -251,6 +252,6 @@ export function TianyiSidebar(props: {
       onDraft={props.runtime.setSharedDraft}
       onTask={selectTask}
       context={runtimeContext}
-    />
+    />}
   </aside>;
 }
