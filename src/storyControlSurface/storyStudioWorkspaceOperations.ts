@@ -1009,8 +1009,9 @@ export function createStoryStudioWorkspaceOperations(input: {
 
     createPredictionDraftEventsOnce(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; operationId: string }): { operationId: string; runId: string; pathId: string; items: Array<{ candidateNodeId: string; action: "draft-created" | "referenced-existing" | "merge-review"; draftEventId: string | null; existingEventId: string | null }> } {
       const projectPath = resolveProjectPath(rootPath, input.projectId);
-      const runId = requireText(input.runId, "Prediction Run identifier", 160);
-      const operationId = requireText(input.operationId, "Prediction acceptance operation", 160);
+      const runId = requireArtifactId(input.runId, "Prediction Run identifier");
+      const operationId = requireArtifactId(input.operationId, "Prediction acceptance operation");
+      const pathId = requireArtifactId(input.pathId, "Prediction path identifier");
       const receiptsDirectory = path.join(projectPath, ".world-os", "workspace", "prediction-draft-receipts");
       const receiptPath = path.join(receiptsDirectory, `${operationId}.json`);
       if (existsSync(receiptPath)) return clone(JSON.parse(readFileSync(receiptPath, "utf8")));
@@ -1022,7 +1023,7 @@ export function createStoryStudioWorkspaceOperations(input: {
         const event = this.readWorldObject({ projectId: input.projectId, objectId: reference.eventId });
         if (event.revisionToken !== reference.revisionToken) throw new Error("Prediction source is stale.");
       }
-      const pathEntry = run.bundle.paths.find((item: any) => item.id === input.pathId);
+      const pathEntry = run.bundle.paths.find((item: any) => item.id === pathId);
       if (!pathEntry) throw new Error("Prediction path does not exist.");
       const selected = [...new Set(input.selectedCandidateNodeIds.map((id) => requireText(id, "Prediction node identifier", 160)))];
       if (!selected.length || selected.some((id) => !pathEntry.candidateNodeIds.includes(id))) throw new Error("Prediction selection must belong to its selected path.");
@@ -1036,11 +1037,11 @@ export function createStoryStudioWorkspaceOperations(input: {
       const items = nodes.map((node: any) => {
         if (node.identityResolution.kind === "reference-existing") return { candidateNodeId: node.id, action: "referenced-existing" as const, draftEventId: null, existingEventId: node.identityResolution.existingEventId };
         if (node.identityResolution.kind === "merge-review") return { candidateNodeId: node.id, action: "merge-review" as const, draftEventId: null, existingEventId: node.identityResolution.existingEventId };
-        const created = this.createWorldObject({ projectId: input.projectId, type: "event", title: node.title, status: "draft", tags: ["作者草稿", `Prediction Run：${runId}`, `Prediction Path：${input.pathId}`, `Prediction Candidate：${node.id}`], body: `# ${node.title}\n\n${node.summary}\n\n来源：${runId} / ${input.pathId} / ${node.id}\n` });
+        const created = this.createWorldObject({ projectId: input.projectId, type: "event", title: node.title, status: "draft", tags: ["作者草稿", `Prediction Run：${runId}`, `Prediction Path：${pathId}`, `Prediction Candidate：${node.id}`], body: `# ${node.title}\n\n${node.summary}\n\n来源：${runId} / ${pathId} / ${node.id}\n` });
         return { candidateNodeId: node.id, action: "draft-created" as const, draftEventId: created.id, existingEventId: null };
       });
       mkdirSync(receiptsDirectory, { recursive: true });
-      const receipt = { operationId, runId, pathId: input.pathId, items };
+      const receipt = { operationId, runId, pathId, items };
       const temporary = `${receiptPath}.tmp`;
       writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
       renameSync(temporary, receiptPath);
@@ -4194,6 +4195,12 @@ function requireText(value: string, label: string, maxLength: number): string {
   if (!normalized) throw new Error(`${label} is required.`);
   if (normalized.includes("\0")) throw new Error(`${label} contains an invalid character.`);
   if (normalized.length > maxLength) throw new Error(`${label} is too long.`);
+  return normalized;
+}
+
+function requireArtifactId(value: string, label: string): string {
+  const normalized = requireText(value, label, 160);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(normalized)) throw new Error(`${label} must use a stable machine value.`);
   return normalized;
 }
 

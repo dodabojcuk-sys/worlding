@@ -87,6 +87,18 @@ export type StoryStudioCandidateReviewHistoryEntry = StoryStudioCandidateReview 
   lifecycleStatus: "awaiting" | "rejected" | "accepted" | "abandoned" | "superseded";
 };
 
+export type StoryStudioPredictionReview = {
+  version: "story-studio-prediction-review/v1";
+  id: string;
+  projectId: string;
+  runId: string;
+  pathId: string;
+  selectedCandidateNodeIds: string[];
+  status: "reviewing" | "drafted";
+  receipt: unknown | null;
+  updatedAt: string;
+};
+
 type PersistedCandidateReview = Omit<StoryStudioCandidateReview, "version"> & {
   version: typeof CANDIDATE_REVIEW_VERSION;
 };
@@ -562,6 +574,50 @@ export function createStoryStudioAuthorControl(input: {
   }
 
   return {
+    createPredictionReview(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; decidedAt: string }): StoryStudioPredictionReview {
+      const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
+      const runId = requireArtifactId(input.runId, "Prediction Run identifier");
+      const runPath = path.join(projectPath, ".world-os", "tianyi", "multi-node-predictions", `${runId}.json`);
+      if (!existsSync(runPath)) throw new Error("Prediction Run does not exist.");
+      const run = JSON.parse(readFileSync(runPath, "utf8")) as { projectId: string; status: string; bundle?: { paths: Array<{ id: string; candidateNodeIds: string[] }>; nodes: Array<{ id: string; identityResolution: { kind: string }; timeConsistency: { kind: string } }> } };
+      if (run.projectId !== input.projectId || run.status !== "ready" || !run.bundle) throw new Error("Prediction Run is not ready for review.");
+      const pathEntry = run.bundle.paths.find((item) => item.id === input.pathId);
+      if (!pathEntry) throw new Error("Prediction path must be selected before review.");
+      const selected = [...new Set(input.selectedCandidateNodeIds.map((id) => requireText(id, "Prediction node identifier", 160)))];
+      if (!selected.length || selected.some((id) => !pathEntry.candidateNodeIds.includes(id))) throw new Error("Prediction review selection is invalid.");
+      const nodes = selected.map((id) => run.bundle!.nodes.find((node) => node.id === id)!);
+      if (nodes.some((node) => node.identityResolution.kind === "unresolved" || node.timeConsistency.kind === "conflict")) throw new Error("Prediction review is blocked by identity or time validation.");
+      const id = `prediction-review-${stableHash({ projectId: input.projectId, runId, pathId: input.pathId, selected }).slice(0, 16)}`;
+      const target = path.join(projectPath, ".world-os", "author-control", "prediction-reviews", `${id}.json`);
+      if (existsSync(target)) return structuredClone(JSON.parse(readFileSync(target, "utf8")));
+      const review: StoryStudioPredictionReview = {
+        version: "story-studio-prediction-review/v1",
+        id,
+        projectId: input.projectId,
+        runId,
+        pathId: input.pathId,
+        selectedCandidateNodeIds: selected,
+        status: "reviewing",
+        receipt: null,
+        updatedAt: requireTimestamp(input.decidedAt)
+      };
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, `${JSON.stringify(review, null, 2)}\n`, "utf8");
+      return structuredClone(review);
+    },
+    acceptPredictionReview(input: { projectId: string; reviewId: string; operationId: string; decidedAt: string }): StoryStudioPredictionReview {
+      const projectPath = workspace.resolveProjectWorkspacePath({ projectId: input.projectId });
+      const reviewId = requireArtifactId(input.reviewId, "Prediction Review identifier");
+      const target = path.join(projectPath, ".world-os", "author-control", "prediction-reviews", `${reviewId}.json`);
+      if (!existsSync(target)) throw new Error("Prediction Review does not exist.");
+      const review = JSON.parse(readFileSync(target, "utf8")) as StoryStudioPredictionReview;
+      if (review.projectId !== input.projectId) throw new Error("Prediction Review belongs to another project.");
+      if (review.status === "drafted") return structuredClone(review);
+      const receipt = workspace.createPredictionDraftEventsOnce({ projectId: input.projectId, runId: review.runId, pathId: review.pathId, selectedCandidateNodeIds: review.selectedCandidateNodeIds, operationId: requireText(input.operationId, "Prediction acceptance operation", 160) });
+      const next = { ...review, status: "drafted" as const, receipt, updatedAt: requireTimestamp(input.decidedAt) };
+      writeFileSync(target, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      return structuredClone(next);
+    },
     createCandidateReview(reviewInput: {
       projectId: string;
       result: StoryStudioCandidateReview["result"];
@@ -1812,6 +1868,12 @@ function readReviewSourceRevisionToken(
 function requireText(value: string, label: string, maxLength: number): string {
   const normalized = String(value || "").trim();
   if (!normalized || normalized.length > maxLength) throw new Error(`${label} is invalid.`);
+  return normalized;
+}
+
+function requireArtifactId(value: string, label: string): string {
+  const normalized = requireText(value, label, 160);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(normalized)) throw new Error(`${label} is invalid.`);
   return normalized;
 }
 
