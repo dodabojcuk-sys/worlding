@@ -458,8 +458,8 @@
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 .shell-workspace-event-line .event-graph-node.is-prediction-selected { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.shell-workspace-event-line .event-graph-prediction-node { border-style: dashed; border-color: #d9911d; background: color-mix(in srgb, var(--color-surface) 88%, #fff0d6); opacity: .88; }
-.shell-workspace-event-line .event-graph-prediction-node small { color: #a75c00; }
+.shell-workspace-event-line .event-graph-prediction-node { border-style: dashed; border-color: var(--color-warning); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-warning)); opacity: .88; }
+.shell-workspace-event-line .event-graph-prediction-node small { color: var(--color-warning); }
 .shell-workspace-event-line .event-graph-prediction-node .react-flow__handle { display: none; }
 .shell-workspace-event-line .event-graph-prediction-scope { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem; padding: .45rem .75rem; border-block-end: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .shell-workspace-event-line .event-graph-prediction-scope > strong { color: var(--color-text); }

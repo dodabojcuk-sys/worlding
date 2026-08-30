@@ -31,6 +31,8 @@ test("deterministic Tianyi prediction runs persist independently without Event, 
     const review = authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.rain", selectedCandidateNodeIds: ["prediction-node.rain-trace"], decidedAt: "2026-08-30T12:01:00.000Z" });
     assert.equal(review.status, "reviewing");
     assert.equal(authorControl.readPredictionReview({ projectId, reviewId: review.id })?.selectedCandidateNodeIds[0], "prediction-node.rain-trace");
+    assert.equal(authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.lighthouse", selectedCandidateNodeIds: ["prediction-node.harbor-departure"], decidedAt: "2026-08-30T12:01:30.000Z" }).status, "reviewing", "unknown time remains reviewable");
+    assert.throws(() => authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.conflict", selectedCandidateNodeIds: ["prediction-node.reversed-signal"], decidedAt: "2026-08-30T12:01:40.000Z" }), /time validation/u);
     const drafted = authorControl.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.1", decidedAt: "2026-08-30T12:02:00.000Z" });
     assert.equal(drafted.status, "drafted");
     assert.equal((drafted.receipt as { items: Array<{ action: string }> }).items[0]?.action, "draft-created");
