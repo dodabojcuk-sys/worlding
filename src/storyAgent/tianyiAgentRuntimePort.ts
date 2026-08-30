@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
+import type { TianyiSimulationContextPack } from "./tianyiSimulationSourceContract.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -32,6 +33,7 @@ export type TianyiAgentContextManifest = {
     preservedAnchors: string[];
     receiptId: string | null;
   };
+  simulationContextPack?: TianyiSimulationContextPack | null;
 };
 
 export type TianyiAgentStreamEvent = AgentRuntimeStreamEvent;

@@ -9,6 +9,7 @@ import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlS
 import { createWorkspacePackagePort } from "../../../src/storyWorkspace/workspacePackagePort.mjs";
 import { createWorkspacePathPolicy } from "../../../src/storyWorkspace/workspacePathPolicy.ts";
 import { createTianyiProductTools } from "../../../src/storyAgent/tianyiProductTools.ts";
+import { buildTianyiSimulationContextPack, inferTianyiSimulationIntent } from "../../../src/storyAgent/tianyiSimulationSourceContract.ts";
 import { createCreationPluginLifecycle } from "../../../src/storyCreation/creationPluginLifecycle.mjs";
 import { DEFAULT_CURATED_CREATION_PLUGIN_CATALOG } from "../../../src/storyCreation/curatedCreationPluginCatalog.mjs";
 import { createInstalledCreationPluginAdapter } from "../../../src/storyCreation/creationPluginHost.mjs";
@@ -239,6 +240,32 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const sourceRefs = projection.sources.map((source) => ({ id: source.id, label: source.label, hash: source.hash, state: source.state === "current" ? "current" : source.state === "stale" ? "stale" : "excluded" }));
     const authorSourceRefs = (archive?.events || []).filter((event) => event.actor === "author" && event.visibleContent).map((event) => event.eventId).slice(-24);
     const excludedRefs = projection.sources.filter((source) => source.exclusionReason).map((source) => ({ id: source.id, reason: source.exclusionReason || "excluded" }));
+    const selectedSourceId = projection.selection.objectId ?? projection.selection.documentId ?? projection.selection.timelinePointId;
+    const selectedEventReference = Array.isArray(request.eventRefs)
+      ? request.eventRefs.find((reference) => reference && typeof reference === "object" && reference.eventId === request.selection?.objectId)
+      : null;
+    const simulationAuthority = (source) => {
+      if (source.id === selectedSourceId && source.ownerKind === "writing-document") return "creation-projection";
+      if (source.id === selectedSourceId && selectedEventReference?.state === "planned") return "draft";
+      if (source.classification === "review-evidence" || source.state !== "current" || source.exclusionReason) return "candidate";
+      if (source.ownerKind === "locked-rule") return "canon";
+      if (source.ownerKind === "writing-document" || source.ownerKind === "visual-document") return "author-input";
+      return "confirmed-event";
+    };
+    const simulationContextPack = buildTianyiSimulationContextPack({
+      entryPoint: input.currentPage === "/event-line" ? "event-line" : input.currentPage === "/creation" ? "creation" : "tianyi",
+      intent: inferTianyiSimulationIntent(input.task),
+      anchorId: selectedSourceId,
+      sources: projection.sources.map((source) => ({
+        sourceId: source.id,
+        sourceType: source.ownerKind,
+        authorityLevel: simulationAuthority(source),
+        revisionOrDigest: source.hash,
+        displayTitle: source.label,
+        inclusionReason: "当前已授权引用范围",
+        branchOrUniverse: null
+      }))
+    });
     return {
       version: "tianyi-agent-context-manifest/v1",
       projectId: input.projectId,
@@ -251,7 +278,8 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       excludedRefs,
       unresolvedQuestions: projection.unresolvedThreadIds.slice(0, 24),
       estimatedTokens: Math.min(32_000, sourceRefs.reduce((sum, source) => sum + Math.ceil((source.label.length + source.id.length) / 4), 0) + authorSourceRefs.length * 24),
-      compaction: { state: sourceRefs.length > 12 ? "available" : "none", summaryVersion: 0, preservedAnchors: authorSourceRefs, receiptId: null }
+      compaction: { state: sourceRefs.length > 12 ? "available" : "none", summaryVersion: 0, preservedAnchors: authorSourceRefs, receiptId: null },
+      simulationContextPack
     };
   },
   async runProvider(input) {

@@ -2564,6 +2564,7 @@ export type TianyiAgentRunProjection = {
     unresolvedQuestions: string[];
     estimatedTokens: number;
     compaction: { state: "none" | "available" | "applied"; summaryVersion: number; preservedAnchors: string[]; receiptId: string | null };
+    simulationContextPack?: { snapshotId: string; intent: string; sourceState: string; entryPoint: string; sources: Array<{ sourceId: string; sourceRole: string; authorityLevel: string; displayTitle: string }>; omitted: Array<{ sourceId: string; reason: string }>; estimatedTokens: number; maxProviderCalls: 1 } | null;
   } | null;
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
