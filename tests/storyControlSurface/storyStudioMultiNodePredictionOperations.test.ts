@@ -24,10 +24,13 @@ test("deterministic Tianyi prediction runs persist independently without Event, 
     assert.equal(ready.bundle?.paths.length, 2);
     assert.equal(ready.bundle?.nodes.some((node) => node.timeConsistency.kind === "unknown"), true);
     assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.bundle?.bundleId, ready.bundle?.bundleId);
+    assert.deepEqual(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects, before);
+    const drafted = workspace.createPredictionDraftEventsOnce({ projectId, runId: created.runId, pathId: "prediction-path.rain", selectedCandidateNodeIds: ["prediction-node.rain-trace"], operationId: "prediction.accept.1" });
+    assert.equal(drafted.items[0]?.action, "draft-created");
+    assert.equal(workspace.createPredictionDraftEventsOnce({ projectId, runId: created.runId, pathId: "prediction-path.rain", selectedCandidateNodeIds: ["prediction-node.rain-trace"], operationId: "prediction.accept.1" }).items[0]?.draftEventId, drafted.items[0]?.draftEventId);
     const second = operations.createPredictionRun({ request: { ...request, operationId: "prediction.operation.2" }, runId: "prediction-run.second" });
     assert.equal(operations.listPredictionRuns({ projectId }).length, 2);
     assert.equal(second.runId, "prediction-run.second");
-    const after = workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects;
-    assert.deepEqual(after, before);
+    assert.equal(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects.filter((event) => event.status === "draft").length, 1);
   } finally { await rm(rootPath, { recursive: true, force: true }); }
 });

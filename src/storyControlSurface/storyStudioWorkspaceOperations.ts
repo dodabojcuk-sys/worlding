@@ -1007,6 +1007,46 @@ export function createStoryStudioWorkspaceOperations(input: {
       return readProductObject(projectPath, note.id);
     },
 
+    createPredictionDraftEventsOnce(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; operationId: string }): { operationId: string; runId: string; pathId: string; items: Array<{ candidateNodeId: string; action: "draft-created" | "referenced-existing" | "merge-review"; draftEventId: string | null; existingEventId: string | null }> } {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      const runId = requireText(input.runId, "Prediction Run identifier", 160);
+      const operationId = requireText(input.operationId, "Prediction acceptance operation", 160);
+      const receiptsDirectory = path.join(projectPath, ".world-os", "workspace", "prediction-draft-receipts");
+      const receiptPath = path.join(receiptsDirectory, `${operationId}.json`);
+      if (existsSync(receiptPath)) return clone(JSON.parse(readFileSync(receiptPath, "utf8")));
+      const runPath = path.join(projectPath, ".world-os", "tianyi", "multi-node-predictions", `${runId}.json`);
+      if (!existsSync(runPath)) throw new Error("Prediction Run does not exist.");
+      const run = JSON.parse(readFileSync(runPath, "utf8")) as any;
+      if (run.projectId !== input.projectId || run.runId !== runId || run.status !== "ready" || !run.bundle) throw new Error("Prediction Run is not ready for draft creation.");
+      for (const reference of run.sourceSnapshot as Array<{ eventId: string; revisionToken: string }>) {
+        const event = this.readWorldObject({ projectId: input.projectId, objectId: reference.eventId });
+        if (event.revisionToken !== reference.revisionToken) throw new Error("Prediction source is stale.");
+      }
+      const pathEntry = run.bundle.paths.find((item: any) => item.id === input.pathId);
+      if (!pathEntry) throw new Error("Prediction path does not exist.");
+      const selected = [...new Set(input.selectedCandidateNodeIds.map((id) => requireText(id, "Prediction node identifier", 160)))];
+      if (!selected.length || selected.some((id) => !pathEntry.candidateNodeIds.includes(id))) throw new Error("Prediction selection must belong to its selected path.");
+      const nodes = selected.map((id) => run.bundle.nodes.find((node: any) => node.id === id)).filter(Boolean);
+      if (nodes.length !== selected.length) throw new Error("Prediction node does not exist.");
+      for (const node of nodes) {
+        if (node.timeConsistency?.kind === "conflict") throw new Error("Prediction node has a time conflict.");
+        if (node.identityResolution?.kind === "unresolved") throw new Error("Prediction node identity is unresolved.");
+        if (node.identityResolution?.kind === "create-new-with-difference" && !String(node.identityResolution.differenceReason || "").trim()) throw new Error("Prediction node requires a difference reason.");
+      }
+      const items = nodes.map((node: any) => {
+        if (node.identityResolution.kind === "reference-existing") return { candidateNodeId: node.id, action: "referenced-existing" as const, draftEventId: null, existingEventId: node.identityResolution.existingEventId };
+        if (node.identityResolution.kind === "merge-review") return { candidateNodeId: node.id, action: "merge-review" as const, draftEventId: null, existingEventId: node.identityResolution.existingEventId };
+        const created = this.createWorldObject({ projectId: input.projectId, type: "event", title: node.title, status: "draft", tags: ["作者草稿", `Prediction Run：${runId}`, `Prediction Path：${input.pathId}`, `Prediction Candidate：${node.id}`], body: `# ${node.title}\n\n${node.summary}\n\n来源：${runId} / ${input.pathId} / ${node.id}\n` });
+        return { candidateNodeId: node.id, action: "draft-created" as const, draftEventId: created.id, existingEventId: null };
+      });
+      mkdirSync(receiptsDirectory, { recursive: true });
+      const receipt = { operationId, runId, pathId: input.pathId, items };
+      const temporary = `${receiptPath}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+      renameSync(temporary, receiptPath);
+      return clone(receipt);
+    },
+
     updateWorldObjectAgentType(objectInput: {
       projectId: string;
       objectId: string;
