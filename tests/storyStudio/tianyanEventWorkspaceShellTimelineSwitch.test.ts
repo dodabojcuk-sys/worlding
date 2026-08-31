@@ -59,9 +59,11 @@ test("one five-state right work surface arbitrates page inspectors, creation, re
   assert.match(shellStyles, /@media \(max-width: 90rem\)[\s\S]*--tianyi-current: 0rem/u);
 });
 
-test("closing Tianyi retains the shared session and unsent draft outside the visual drawer", () => {
+test("closing Tianyi retains isolated dialogue and Agent sessions plus unsent drafts outside the visual drawer", () => {
   assert.match(shell, /tianyiOpen && <TianyiSidebar/u);
-  assert.doesNotMatch(shell, /setSharedDraft\(""\)[\s\S]{0,240}closeQuickTianyi\(\)/u);
-  assert.match(tianyiSidebar, /draft=\{props\.runtime\.sharedDraft\}/u);
-  assert.match(tianyiSidebar, /data-shared-session-id=\{props\.runtime\.sharedSessionId/u);
+  assert.doesNotMatch(shell, /setDialogueComposerDraft\(""\)[\s\S]{0,240}closeQuickTianyi\(\)/u);
+  assert.match(tianyiSidebar, /dialogueSessionId/u);
+  assert.match(tianyiSidebar, /agentSessionId/u);
+  assert.match(tianyiSidebar, /dialogueComposerDraft/u);
+  assert.match(tianyiSidebar, /agentTaskDraft/u);
 });

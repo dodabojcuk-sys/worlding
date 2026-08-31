@@ -185,7 +185,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       selection: { documentId: null, objectId: eventRefs[0]?.eventId ?? null, timelinePointId: null },
       sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels
     } : null);
-    if (initialDraft !== undefined) props.runtime.setSharedDraft(initialDraft);
+    if (initialDraft !== undefined) {
+      if (predictionSourceLabels?.length) props.runtime.setAgentTaskDraft(initialDraft);
+      else props.runtime.setDialogueComposerDraft(initialDraft);
+    }
     if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
     workspaceDockCoordinator.openQuickTianyi();
   };

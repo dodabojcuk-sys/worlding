@@ -35,6 +35,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       setRuns(history);
       const matching = history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey) ?? null;
       setRun(matching);
+      props.runtime.setActiveAgentRunId(matching?.runId ?? null);
       setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "failed" ? "failed" : "idle");
       if (matching) announceRun(matching);
     }).catch(() => { if (active) { setRun(null); setPhase("idle"); } });
@@ -71,14 +72,17 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const start = () => void (async () => {
     if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4 || busy) return;
     setBusy(true); setError(""); setReceipt(null); setPhase("generating");
+    announceAgentState(true, null);
     try {
       const runId = `prediction-run.${crypto.randomUUID()}`;
       const created = await props.runtime.withConnection((token) => createMultiNodePredictionRun({ request: { projectId: project.id, sourceEventRefs: props.eventRefs, authorGoal: goal.trim(), predictionMode: "forward-development", operationId: `prediction-request.${crypto.randomUUID()}` }, runId, token }));
+      props.runtime.setActiveAgentRunId(created.runId);
+      announceAgentState(true, created.runId);
       setRun(created); announceRun(created); setPhase("validating");
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
       setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); setPhase("reviewing"); announceRun(ready);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase("failed"); }
-    finally { setBusy(false); }
+    finally { setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
   })();
   const choosePath = (nextPathId: string) => {
     if (!run) return;
@@ -188,6 +192,7 @@ function adoptionButtonLabel(summary: AdoptionSummary): string {
 }
 
 function announceRun(run: PredictionRun): void { (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun = run; window.dispatchEvent(new CustomEvent("story-studio-multi-node-prediction-run", { detail: run })); }
+function announceAgentState(running: boolean, runId: string | null): void { window.dispatchEvent(new CustomEvent("story-studio-prediction-agent-state", { detail: { running, runId } })); }
 function announceSelection(detail: PredictionSelectionDetail): void { (window as Window & { __storyStudioPredictionSelection?: PredictionSelectionDetail }).__storyStudioPredictionSelection = detail; window.dispatchEvent(new CustomEvent("story-studio-prediction-review-selection", { detail })); }
 function normalizeReceipt(review: MultiNodePredictionReviewProjection): DraftReceipt | null { const value = review.receipt; if (!value || typeof value !== "object" || Array.isArray(value)) return null; const record = value as Partial<DraftReceipt>; return typeof record.operationId === "string" && typeof record.runId === "string" && typeof record.pathId === "string" && Array.isArray(record.items) ? record as DraftReceipt : null; }
 function nodeTitle(run: PredictionRun | null, nodeId: string): string { return run?.bundle?.nodes.find((node) => node.id === nodeId)?.title ?? nodeId; }

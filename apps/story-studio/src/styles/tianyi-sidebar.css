@@ -17,6 +17,7 @@
 .tianyi-mode-switch button { min-height: 1.75rem; padding: 0 var(--space-2); color: var(--color-text-muted); background: transparent; border: 0; border-block-end: 2px solid transparent; cursor: pointer; font-size: var(--font-size-xs); }
 .tianyi-mode-switch button[aria-selected="true"] { color: var(--color-accent); border-block-end-color: currentColor; font-weight: 650; }
 .tianyi-mode-switch button:hover { color: var(--color-text); }
+.tianyi-mode-running { margin-inline-start: .3rem; color: var(--color-accent); font-size: .6rem; font-weight: 700; }
 .tianyi-sidebar-stage { min-height: 0; flex: 1; display: grid; overflow: auto; padding: var(--space-4); }
 .tianyi-sidebar[data-tianyi-mode="prediction"] { min-inline-size: var(--tianyi-sidebar-width); }
 .tianyi-sidebar[data-tianyi-mode="prediction"] .tianyi-sidebar-stage { display: block; padding: .75rem; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-workspace-background)); }
@@ -124,6 +125,21 @@
 .tianyi-provider-unavailable p { margin: 0; }
 .tianyi-provider-unavailable button { justify-self: start; min-height: 2rem; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
 .tianyi-sidebar-conversation { min-height: 0; display: grid; align-content: start; gap: var(--space-3); }
+.tianyi-dialogue-panel,
+.tianyi-agent-panel { min-height: 100%; display: flex; flex-direction: column; gap: var(--space-3); }
+.tianyi-agent-panel .tianyi-prediction-panel { flex: 1; }
+.tianyi-dialogue-panel .tianyi-sidebar-conversation { flex: 1; }
+.tianyi-dialogue-agent-handoff { display: grid; gap: .3rem; padding: var(--space-3); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.tianyi-dialogue-agent-handoff strong { font-size: var(--font-size-sm); }
+.tianyi-dialogue-agent-handoff p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.tianyi-dialogue-agent-handoff button { justify-self: start; display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; padding-inline: var(--space-2); color: var(--color-accent); background: transparent; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; }
+.tianyi-dialogue-agent-handoff button svg { inline-size: .8rem; }
+.tianyi-dialogue-composer { display: grid; grid-template-columns: minmax(0, 1fr) 2.15rem; align-items: end; gap: var(--space-2); padding: var(--space-2); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.tianyi-dialogue-composer textarea { width: 100%; resize: none; padding: .45rem; color: var(--color-text); background: transparent; border: 0; outline: 0; font: inherit; line-height: 1.5; }
+.tianyi-dialogue-composer:focus-within { border-color: var(--color-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 16%, transparent); }
+.tianyi-dialogue-composer > button { display: grid; place-items: center; inline-size: 2.15rem; block-size: 2.15rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 0; border-radius: 50%; cursor: pointer; }
+.tianyi-dialogue-composer > button:disabled { opacity: .45; cursor: not-allowed; }
+.tianyi-dialogue-composer > button svg { inline-size: .9rem; }
 .tianyi-sidebar-message { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .tianyi-sidebar-message.is-author { background: var(--color-accent-soft); }
 .tianyi-sidebar-message small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
