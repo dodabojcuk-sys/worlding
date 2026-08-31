@@ -76,6 +76,7 @@ export function createStoryStudioTianyiOperations(options: {
   modelGateway?: TianyiGroundedModelGateway;
   multiNodePredictionGateway?: MultiNodePredictionGateway;
   multiNodePredictionExecutionTimeoutMs?: number;
+  groundedAnswerMaxProviderDispatches?: 1 | 2;
   /** Injected Canon-read verifier; this adapter never becomes a Canon owner. */
   verifyCanonEventRead?(input: { projectId: string; eventId: string }): boolean;
 }) {
@@ -190,7 +191,8 @@ export function createStoryStudioTianyiOperations(options: {
     agentId,
     now: options.now,
     gateway: options.modelGateway,
-    compileGroundedContext
+    compileGroundedContext,
+    ...(options.groundedAnswerMaxProviderDispatches ? { maxProviderDispatches: options.groundedAnswerMaxProviderDispatches } : {})
   }) : null;
 
   async function getTianyiIdentity(input: { projectId: string }) {

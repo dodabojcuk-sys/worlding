@@ -212,6 +212,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-right-work-surface={rightWorkSurface.mode}
     data-settings-open={settingsOpen}
     data-account-open={accountOpen}
+    data-connection-state={props.runtime.connectionState}
   >
     <ProductShellNavigation
       active={activeId}

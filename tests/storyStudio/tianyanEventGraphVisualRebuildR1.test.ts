@@ -7,6 +7,7 @@ const projection = readFileSync("apps/story-studio/src/components/event-observat
 const workspace = readFileSync("apps/story-studio/src/components/EventLineWorkbench.tsx", "utf8");
 const prediction = readFileSync("apps/story-studio/src/components/tianyi/sidebar/MultiNodePredictionPanel.tsx", "utf8");
 const tianyi = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
+const translations = readFileSync("apps/story-studio/src/product-shell/i18n/translations.ts", "utf8");
 
 test("event graph R1 keeps global and focus in one projection component", () => {
   assert.match(graph, /data-event-graph-owner="projection"/u);
@@ -20,9 +21,11 @@ test("event graph R1 keeps global and focus in one projection component", () => 
 
 test("event line distinguishes loading, missing project, and recoverable connection failure", () => {
   assert.match(projection, /loadState === "loading"/u);
-  assert.match(projection, /尚未打开作品/u);
+  assert.match(projection, /t\("eventLine\.noProject"\)/u);
   assert.match(projection, /data-testid="event-line-no-project"/u);
-  assert.match(projection, /事件线暂时无法打开/u);
+  assert.match(projection, /t\("eventLine\.unavailable"\)/u);
+  assert.match(translations, /"eventLine\.noProject": "尚未打开作品"/u);
+  assert.match(translations, /"eventLine\.unavailable": "事件线暂时无法打开"/u);
   assert.match(projection, /props\.runtime\.retryConnection\(\)/u);
   assert.doesNotMatch(projection, /Loading event line/u);
   assert.match(projection, /\[props\.runtime\.project\]/u);

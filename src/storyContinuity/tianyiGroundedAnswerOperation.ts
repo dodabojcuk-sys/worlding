@@ -160,8 +160,10 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
   now?: () => string;
   compileGroundedContext(request: TianyiGroundedContextRequest): Promise<TianyiCompiledGroundedContext>;
   onFaultMilestone?(milestone: TianyiGroundedFaultMilestone, questionAttemptKey: string): void | Promise<void>;
+  maxProviderDispatches?: 1 | 2;
 }) {
   const now = dependencies.now ?? (() => new Date().toISOString());
+  const maxProviderDispatches = dependencies.maxProviderDispatches ?? 2;
 
   async function runTianyiGroundedAnswer(input: {
     operationId: string;
@@ -349,7 +351,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
     let validationDiagnostic: TianyiGroundedValidationDiagnostic | null = null;
     let invocationAttempt = 0;
     let providerDispatchCount = claimed.providerDispatchCount;
-    while (invocationAttempt < 2 && !answer) {
+    while (invocationAttempt < maxProviderDispatches && !answer) {
       invocationAttempt += 1;
       if (invocationAttempt === 2) {
         const repairClaim = await claimProviderDispatch(projectContext, archived, operationId, providerDispatchCount + 1);

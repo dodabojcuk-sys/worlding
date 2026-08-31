@@ -44,7 +44,7 @@ const MAX_TOTAL_MESSAGE_CHARACTERS = 64_000;
 const MAX_TOOLS = 16;
 const MAX_TOOL_SCHEMA_CHARACTERS = 16_000;
 
-export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PROFILES, budgetLedger = null, receiptEnvelopeStore = null }) {
+export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PROFILES, budgetLedger = null, receiptEnvelopeStore = null, defaultAuthorizationReceiptId = null, maxOutputTokensCap = null }) {
   const adapterMap = new Map(adapters.map((adapter) => [adapter.id, adapter]));
   const frozenProfiles = profiles.map(validateProfile);
   let activeProfiles = frozenProfiles;
@@ -77,13 +77,14 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const adapter = adapterMap.get(profile.providerId);
       const messages = validateMessages(input?.messages);
       const tools = validateTools(input?.tools);
-      const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? profile.maxOutputTokens, 1, profile.maxOutputTokens);
+      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
+      const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
         ...(tools.length ? { tools, toolChoice: "auto" } : {})
       });
-      const reservation = reserveBudget(budgetLedger, input, "generation", profile.id);
+      const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
       try {
         receipt = beginReceiptEnvelope(receiptEnvelopeStore, reservation, input, profile);
@@ -122,7 +123,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         timeoutMs: boundedInteger(input?.timeoutMs ?? Math.min(profile.timeoutMs, 30_000), 50, 120_000), signal: input?.signal,
         responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: false
       });
-      const reservation = reserveBudget(budgetLedger, input, "generation", profile.id);
+      const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
       try {
         receipt = beginReceiptEnvelope(receiptEnvelopeStore, reservation, input, profile);

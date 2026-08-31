@@ -5,9 +5,11 @@ import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench"
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { eventDraftPayload } from "./eventDraftPayload";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference.ts";
+import { useI18n } from "../../product-shell/i18n/I18nProvider";
 
 /** Adapter for the established Event projection and Workspace write command. */
 export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void; selectedEventId?: string | null }) {
+  const { t } = useI18n();
   const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[] }>({ projectId: null, title: "", events: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const load = useCallback(async () => {
@@ -43,9 +45,9 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     return () => window.removeEventListener("story-studio-prediction-drafts-created", refresh);
   }, [load, state.projectId]);
   if (!state.projectId) {
-    if (loadState === "loading") return <div className="event-line-loading" aria-live="polite">正在打开事件线…</div>;
-    if (loadState === "error" || props.runtime.connectionState === "unavailable") return <section className="event-line-unavailable" role="alert"><strong>事件线暂时无法打开</strong><p>本地作品服务没有完成读取；现有作品没有被修改。</p><button type="button" onClick={() => { props.runtime.retryConnection(); void load().catch(() => undefined); }}>重新连接</button></section>;
-    return <section className="event-line-unavailable" data-testid="event-line-no-project"><strong>尚未打开作品</strong><p>使用顶部“目录”按钮新建或导入作品，事件线会在作品打开后自动载入。</p></section>;
+    if (loadState === "loading") return <div className="event-line-loading" aria-live="polite">{t("eventLine.loading")}</div>;
+    if (loadState === "error" || props.runtime.connectionState === "unavailable") return <section className="event-line-unavailable" role="alert"><strong>{t("eventLine.unavailable")}</strong><p>{t("eventLine.unavailableHint")}</p><button type="button" onClick={() => { props.runtime.retryConnection(); void load().catch(() => undefined); }}>{t("directory.retryConnection")}</button></section>;
+    return <section className="event-line-unavailable" data-testid="event-line-no-project"><strong>{t("eventLine.noProject")}</strong><p>{t("eventLine.noProjectHint")}</p></section>;
   }
   const saveDraftEvent = async (input: EventDraftInput): Promise<WorldObject> => {
     const { tags, body } = eventDraftPayload(input);

@@ -77,8 +77,7 @@ try {
   page.on("pageerror", (error) => consoleProblems.push(error.message));
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
-  await page.goto(`${baseUrl}/world`, { waitUntil: "networkidle" });
-  await page.getByTestId("tianyan-r0-shell").waitFor();
+  await gotoProduct(page, `${baseUrl}/world`);
   if (predictionOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -88,15 +87,15 @@ try {
     await assertNoProjectDirectoryShell(page);
     if (r062VisualEvidenceDirectory) await captureR062EmptyDirectoryEvidence(page, consoleProblems);
     await setupZeroItemFixture();
-    await page.reload({ waitUntil: "networkidle" });
+    await reloadProduct(page);
     await assertZeroItemDirectoryShell(page);
     await setupCharacterFixture();
     await setupEventGraphFixture();
-    await page.reload({ waitUntil: "networkidle" });
+    await reloadProduct(page);
     await assertExpandedLabels(page, "zh-CN");
     await assertResponsiveHeader922(page);
     await page.setViewportSize({ width: 1152, height: 720 });
-    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
     await assertPermissionProjection(page);
     await assertSingleGlobalSearch(page);
     await assertCharacterDirectoryAndInspector(page);
@@ -108,7 +107,7 @@ try {
 
     if (!visualEvidenceState) {
       await assertExpandedLabels(page, "zh-CN");
-      await page.goto(`${baseUrl}/world?locale=en-US&rail=expanded`, { waitUntil: "networkidle" });
+      await gotoProduct(page, `${baseUrl}/world?locale=en-US&rail=expanded`);
       await assertExpandedLabels(page, "en-US");
     }
     if (eventGraphRecordingDirectory) await recordEventGraphOperation();
@@ -270,14 +269,14 @@ async function assertCharacterCreationDurability(page) {
   assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
   assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
   assert.equal(await page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a browser refresh");
   const freshContext = await browser.newContext({ viewport: { width: 1152, height: 720 } });
   const freshSession = await freshContext.newPage();
   try {
-    await freshSession.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
+    await gotoProduct(freshSession, `${baseUrl}/world?directoryView=characters`);
     await freshSession.getByTestId("character-directory").waitFor();
     await waitForCharacterDirectoryIdle(freshSession);
     assert.equal(await freshSession.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" }).count(), 1, "The character must survive a new Shell session");
@@ -286,7 +285,7 @@ async function assertCharacterCreationDurability(page) {
   }
   await assertCreatedCharacterIsProjectIsolated();
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
-  await page.goto(`${baseUrl}/world?directoryView=characters`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/world?directoryView=characters`);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
   await page.getByRole("button", { name: "新建", exact: true }).click();
@@ -295,7 +294,7 @@ async function assertCharacterCreationDurability(page) {
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
   assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
   await page.getByRole("option", { name: /自定义层级角色/u }).waitFor();
@@ -339,7 +338,7 @@ async function assertCharacterDirectoryFiltersAndLifecycle(page) {
   await page.getByRole("button", { name: "列表密度", exact: true }).click();
   await page.getByRole("menuitemradio", { name: "缩略版", exact: true }).click();
   assert.equal(await page.getByTestId("character-directory").getAttribute("data-density"), "compact", "Compact view is explicitly selected");
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   assert.equal(await page.getByTestId("character-directory").getAttribute("data-density"), "compact", "Density preference survives a reload");
   await page.getByRole("button", { name: "列表密度", exact: true }).click();
@@ -423,7 +422,7 @@ async function assertAgentFakeProviderStream(page) {
   await page.evaluate(() => window.sessionStorage.clear());
   // The author-event scenario ends in the graph workspace. Reset the unrelated
   // fake-provider regression to a stable shell surface before opening Tianyi.
-  await page.goto(`${baseUrl}/world?locale=zh-CN`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN`);
   await startAgentFakeProviderStream(page, "检查角色知识边界");
   const streaming = page.locator(".tianyi-agent-streaming");
   await streaming.waitFor();
@@ -468,16 +467,16 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
   const capture = async (viewport, state) => {
     const characterName = "林昭";
     await page.setViewportSize(viewport);
-    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
     await page.evaluate(() => window.localStorage.removeItem("story-studio:ai-control-center:v1"));
-    await page.reload({ waitUntil: "networkidle" });
+    await reloadProduct(page);
     if (state === "settings") {
-      await page.goto(`${baseUrl}/settings/storage`, { waitUntil: "networkidle" });
+      await gotoProduct(page, `${baseUrl}/settings/storage`);
       await page.locator(".settings-utility-route").waitFor();
     }
     if (state === "agent-flow") {
       await page.evaluate(() => window.sessionStorage.clear());
-      await page.reload({ waitUntil: "networkidle" });
+      await reloadProduct(page);
       await startAgentFakeProviderStream(page, `R0.6 Agent 流视觉验收 ${viewport.width}`);
     }
     if (state === "pending-review") {
@@ -519,10 +518,10 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await page.getByRole("button", { name: "新建分类", exact: true }).click();
       await page.getByRole("button", { name: "创建角色", exact: true }).click();
       await page.getByTestId("character-inspector").waitFor();
-      if (state === "refreshed") await page.reload({ waitUntil: "networkidle" });
+      if (state === "refreshed") await reloadProduct(page);
     }
     if (state === "world-active") {
-      await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+      await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
     }
     if (state === "pending") { await page.getByRole("button", { name: "返回工程目录", exact: true }).click(); await page.getByRole("tab", { name: /待确认/u }).click(); }
     if (state === "inspector" || state === "inspector-expanded" || state === "compact" || state === "multi" || state === "archive" || state === "profile-editor") await currentCharacter.click();
@@ -543,7 +542,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "search") await page.getByRole("button", { name: "搜索角色", exact: true }).click();
     if (state === "agent-stream") {
       await page.evaluate(() => window.sessionStorage.clear());
-      await page.reload({ waitUntil: "networkidle" });
+      await reloadProduct(page);
       await startAgentFakeProviderStream(page, `视觉验收 ${viewport.width}`);
     }
     const filename = `${viewport.width}x${viewport.height}-${state}.png`;
@@ -589,7 +588,7 @@ async function assertZeroItemDirectoryShell(page) {
 
 async function assertResponsiveHeader922(page) {
   await page.setViewportSize({ width: 922, height: 720 });
-  await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
   const topbar = page.locator(".shell-topbar");
   await topbar.waitFor();
   await page.getByRole("button", { name: "选择当前作品与版本", exact: true }).waitFor();
@@ -622,7 +621,7 @@ async function captureR062EmptyDirectoryEvidence(page, consoleProblems) {
   mkdirSync(r062VisualEvidenceDirectory, { recursive: true });
   for (const viewport of [{ width: 1152, height: 720 }, { width: 1440, height: 900 }, { width: 1920, height: 1000 }]) {
     await page.setViewportSize(viewport);
-    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
     const filename = `${viewport.width}x${viewport.height}-empty-classified.png`;
     await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, filename), fullPage: true });
     r062Captures.push({ filename, viewport, state: "no-open-work-classified", url: page.url(), consoleProblems: [...consoleProblems] });
@@ -632,12 +631,12 @@ async function captureR062EmptyDirectoryEvidence(page, consoleProblems) {
 async function captureR062PopulatedDirectoryEvidence(page, consoleProblems) {
   mkdirSync(r062VisualEvidenceDirectory, { recursive: true });
   await page.setViewportSize({ width: 922, height: 720 });
-  await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
   await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, "922px-header.png"), fullPage: true });
   r062Captures.push({ filename: "922px-header.png", viewport: { width: 922, height: 720 }, state: "responsive-header", url: page.url(), consoleProblems: [...consoleProblems] });
   for (const viewport of [{ width: 1152, height: 720 }, { width: 1440, height: 900 }, { width: 1920, height: 1000 }]) {
     await page.setViewportSize(viewport);
-    await page.goto(`${baseUrl}/world?rail=expanded`, { waitUntil: "networkidle" });
+    await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
     const filename = `${viewport.width}x${viewport.height}-populated-classified.png`;
     await page.screenshot({ path: path.join(r062VisualEvidenceDirectory, filename), fullPage: true });
     r062Captures.push({ filename, viewport, state: "populated-classified", projectId: fixtureProjectId, url: page.url(), consoleProblems: [...consoleProblems] });
@@ -855,7 +854,7 @@ async function setupEventGraphDensityFixture() {
 
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-directory-visible]")?.getAttribute("data-directory-visible") === "false");
@@ -1005,7 +1004,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const output = founderEvidenceDirectory;
   if (output) mkdirSync(output, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "时间轴", exact: true }).click();
   const canvas = page.getByLabel("事件时间关系画布");
@@ -1041,7 +1040,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const unknown = timelineFixture.unknown;
   const updated = await postFixture(`${apiUrl}/__local/story-studio/world-objects/update`, { projectId: fixtureProjectId, objectId: unknown.id, expectedHash: unknown.revisionToken, presentationExpectedHash: null, writeMarkdown: true, writePresentation: false, title: unknown.title, status: unknown.status, tags: [...unknown.tags, "时间：第 4 夜"], aliases: unknown.aliases, body: unknown.body, subtype: unknown.subtype, typedProperties: unknown.typedProperties, card: unknown.card, profile: unknown.profile });
   timelineFixture.unknown = updated.data.object;
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await page.getByRole("button", { name: "时间轴", exact: true }).click();
   assert.equal(await page.locator(".event-timeline-node.is-unknown").filter({ hasText: "待定访客" }).count(), 0, "Adding authored time must move the same node out of the unknown lane.");
   assert.equal(await page.locator(".event-timeline-node").filter({ hasText: "待定访客" }).count(), 1, "Time supplementation must keep the stable Event node.");
@@ -1067,7 +1066,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${baseUrl}/event-line?locale=zh-CN&rail=expanded`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
   await closeGlobalTianyiIfOpen(page);
   if (output) {
     await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
@@ -1220,7 +1219,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Prediction acceptance must not change Canon.");
   await capture("D-1440x900-draft-created.png");
 
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await openPredictionScope();
   const restoredReceipt = panel.getByLabel("本次采纳结果");
   await restoredReceipt.waitFor();
@@ -1292,7 +1291,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
 async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   const output = founderEvidenceDirectory;
   await page.setViewportSize({ width: 1152, height: 720 });
-  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "State machine begins at NONE.");
   await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
@@ -1319,7 +1318,7 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   const typeState = await getFixture(`${apiUrl}/__local/story-studio/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const reviewCandidate = await postFixture(`${apiUrl}/__local/story-studio/relations/create`, { projectId: fixtureProjectId, sourceObjectId: timelineFixture.timed[1].id, targetObjectId: timelineFixture.timed[2].id, relationTypeId: typeState.data.types[0].relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-right-surface-review", operationId: `right-surface-review-${fixture.fixtureId}` });
   assert.equal(reviewCandidate.data.relation.reviewState, "candidate", "Relation review must begin from the existing Relation owner candidate.");
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
   await page.getByRole("button", { name: /待确认 1/u }).click();
@@ -1336,7 +1335,7 @@ async function captureEventGraphEvidence(page, consoleProblems) {
   const captures = [];
   const capture = async (viewport, state, action) => {
     await page.setViewportSize(viewport);
-    await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+    await gotoProduct(page, `${baseUrl}/event-line`);
     await closeGlobalTianyiIfOpen(page);
     await page.getByRole("button", { name: "关系图", exact: true }).click();
     await page.getByLabel("事件关系工作区").waitFor();
@@ -1367,7 +1366,7 @@ async function captureEventGraphDensityEvidence(page, consoleProblems) {
   const output = eventGraphEvidenceDirectory ?? path.join(fixtureRoot, "event-graph-density-evidence");
   mkdirSync(output, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${baseUrl}/event-line?eventGraphFixture=density50`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?eventGraphFixture=density50`);
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
   await page.getByLabel("事件关系工作区").waitFor();
@@ -1398,7 +1397,7 @@ async function captureEventGraphDensityEvidence(page, consoleProblems) {
 async function assertAuthorEventCreation(page, consoleProblems) {
   const base = `${apiUrl}/__local/story-studio`;
   await page.setViewportSize({ width: 1152, height: 720 });
-  await page.goto(`${baseUrl}/event-line?locale=zh-CN`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
   const libraryBefore = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1442,7 +1441,7 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   assert.equal(drafts.length, 2, "Both author-created Events must persist as drafts through the existing workspace Event owner.");
   const verifiedAfter = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(verifiedAfter.data.eventIds, verifiedBefore.data.eventIds, "Saving drafts must not change verified Canon events.");
-  await page.reload({ waitUntil: "networkidle" });
+  await reloadProduct(page);
   if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
   assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
   await page.getByRole("button", { name: "关系图", exact: true }).click();
@@ -1466,7 +1465,7 @@ async function recordEventGraphOperation() {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: eventGraphRecordingDirectory, size: { width: 1440, height: 900 } } });
   const page = await context.newPage();
   const video = page.video();
-  await page.goto(`${baseUrl}/event-line`, { waitUntil: "networkidle" });
+  await gotoProduct(page, `${baseUrl}/event-line`);
   await closeGlobalTianyiIfOpen(page);
   await page.getByRole("button", { name: "关系图", exact: true }).click();
   await page.getByLabel("事件关系工作区").waitFor();
@@ -1496,6 +1495,23 @@ async function closeGlobalTianyiIfOpen(page) {
     await tianyiSidebar.locator(".tianyi-sidebar-header > button").click();
     await tianyiSidebar.waitFor({ state: "hidden" });
   }
+}
+
+async function waitForProductReady(page) {
+  const shell = page.getByTestId("tianyan-r0-shell");
+  await shell.waitFor({ state: "visible" });
+  await page.waitForFunction(() => document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") === "ready");
+  assert.equal(await shell.getAttribute("data-connection-state"), "ready", "Product navigation must settle through the Shell connection owner.");
+}
+
+async function gotoProduct(page, url) {
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await waitForProductReady(page);
+}
+
+async function reloadProduct(page) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await waitForProductReady(page);
 }
 
 async function setupZeroItemFixture() {

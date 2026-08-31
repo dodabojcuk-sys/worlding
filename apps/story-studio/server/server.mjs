@@ -78,6 +78,7 @@ import { createProviderCredentialBackend } from "./providerGateway/providerCrede
 import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
 import { createPersistentProviderProfileStore } from "./providerGateway/persistentProviderProfileStore.mjs";
 import { createReplaySafeProviderReceiptEnvelopeStore } from "./providerGateway/replaySafeProviderReceiptEnvelope.mjs";
+import { createRealProviderMultiNodePredictionGateway } from "./providerGateway/multiNodePredictionProviderAdapter.mjs";
 import {
   createProviderRequestBudgetLedger,
   HISTORICAL_PROVIDER_INCIDENT_R0,
@@ -194,18 +195,27 @@ const providerBudgetLedger = createProviderRequestBudgetLedger({
   initialSnapshot: shouldInstallHistoricalProviderIncident() ? HISTORICAL_PROVIDER_INCIDENT_R0 : zeroProviderBudgetBaseline()
 });
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
+const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
 const providerGateway = createAiProviderGateway({
   adapters: [createSiliconFlowAdapter({ apiKeyProvider: () => providerCredential.readForProvider(), baseUrlProvider: () => validatedProviderBaseUrl() })],
   budgetLedger: providerBudgetLedger,
-  receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore
+  receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
+  ...(productPathRealProviderAllowed ? {
+    defaultAuthorizationReceiptId: process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID || null,
+    maxOutputTokensCap: 256
+  } : {})
 });
 syncProviderGatewayProfile();
+const multiNodePredictionGateway = productPathRealProviderAllowed
+  ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
+  : null;
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,
   stateFilePath,
   agentId: tianyiAgentId,
   localControlToken: controlToken,
   modelGateway: providerGateway,
+  ...(multiNodePredictionGateway ? { multiNodePredictionGateway, groundedAnswerMaxProviderDispatches: 1 } : {}),
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
 });
 const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootPath, stateFilePath, agentId: tianyiAgentId, localControlToken: controlToken, tianyiOperations: tianyi });

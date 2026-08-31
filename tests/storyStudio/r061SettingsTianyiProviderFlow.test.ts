@@ -74,3 +74,13 @@ test("Visual acceptance targets the directory toggle by its stable owner, not a 
   assert.match(smoke, /locator\('\[data-panel-toggle="project-directory"\]'\)/);
   assert.doesNotMatch(smoke, /const toggle = page\.locator\("\.shell-topbar-panel-toggle"\)/);
 });
+
+test("Standard browser verification waits for the product-owned Shell readiness signal", () => {
+  const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
+  const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");
+
+  assert.match(shell, /data-connection-state=\{props\.runtime\.connectionState\}/);
+  assert.match(smoke, /async function waitForProductReady/);
+  assert.match(smoke, /getAttribute\("data-connection-state"\) === "ready"/);
+  assert.doesNotMatch(smoke, /networkidle/);
+});

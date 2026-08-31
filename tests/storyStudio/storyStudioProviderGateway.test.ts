@@ -210,6 +210,36 @@ test("Provider Gateway enforces an explicit per-run output cap below the selecte
   await assert.rejects(gateway.openChatStream({ ...requestInput(), maxOutputTokens: 2_401 }), /Invalid/);
 });
 
+test("an explicit product-path authorization applies a hard token cap without entering public metadata", async () => {
+  let observedBody: Record<string, unknown> | null = null;
+  let observedReservation: Record<string, unknown> | null = null;
+  const gateway = createAiProviderGateway({
+    adapters: [createSiliconFlowAdapter({
+      environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+      fetchImpl: async (_url: URL | RequestInfo, init?: RequestInit) => {
+        observedBody = JSON.parse(String(init?.body));
+        return sseResponse(["data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n", "data: [DONE]\n\n"]);
+      }
+    })],
+    budgetLedger: {
+      snapshot: () => ({ blocked: false }),
+      reserve(input: Record<string, unknown>) {
+        observedReservation = input;
+        return { reused: false, reservation: { reservationId: "reservation.closeout" } };
+      },
+      complete: () => undefined
+    },
+    defaultAuthorizationReceiptId: "founder.closeout.r0",
+    maxOutputTokensCap: 256
+  });
+  const stream = await gateway.openChatStream(requestInput());
+  await collect(stream.events);
+  assert.equal(observedBody?.max_tokens, 256);
+  assert.equal(observedReservation?.authorizationReceiptId, "founder.closeout.r0");
+  assert.equal(JSON.stringify(gateway.metadata()).includes("founder.closeout.r0"), false);
+  assert.equal(JSON.stringify(gateway.metadata()).includes(TEST_CREDENTIAL), false);
+});
+
 test("grounded JSON mode requests one provider-native JSON object without changing the profile boundary", async () => {
   let body: Record<string, unknown> | null = null;
   const gateway = createGateway({
@@ -397,6 +427,9 @@ test("server wiring keeps credentials server-only and exposes only the bounded g
   assert.match(server, /handleModelServiceRequest[\s\S]*requireToken\(request\);[\s\S]*requireSameOrigin\(request\);/);
   assert.match(server, /route === "tianyi-grounded-answer"/);
   assert.match(server, /runTianyiGroundedAnswer/);
+  assert.match(server, /TIANYAN_REAL_PROVIDER_PRODUCT_PATH/);
+  assert.match(server, /createRealProviderMultiNodePredictionGateway/);
+  assert.match(server, /maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1/);
   assert.doesNotMatch(server, /route === "chat\/stream"/);
   assert.doesNotMatch(server, /route === "chat"/);
   assert.match(adapter, /environment \|\| process\.env/);
