@@ -409,6 +409,7 @@
 .agent-provider-profile > div:first-child { display: grid; gap: var(--space-1); }
 .agent-provider-profile p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; }
 .agent-provider-profile label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.agent-provider-profile label small { line-height: 1.45; }
 .agent-provider-profile input:not([type="checkbox"]) {
   min-height: 2.5rem;
   padding: var(--space-2) var(--space-3);

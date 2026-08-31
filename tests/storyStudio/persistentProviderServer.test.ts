@@ -74,11 +74,12 @@ test("Provider Settings persists non-sensitive profile across restart and protec
       expectedRevision: 2,
       displayName: "Edited by operator",
       baseUrl: fakeProvider.baseUrl,
-      modelId: "fixture/chat-model",
+      modelId: "",
       enabled: true,
       apiKey: "fixture-secret-value"
     }, activeHeaders);
     assert.equal(configured.data.credential.configured, true);
+    assert.equal(configured.data.profile.modelId, "");
     assert.equal(JSON.stringify(configured).includes("fixture-secret-value"), false);
     assert.equal(configured.data.profile.connectionStatus, "unknown");
     const credentialPath = path.join(providerRoot, "credentials", "siliconflow.default.credential");
@@ -91,6 +92,9 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     activeHeaders = { cookie: sessionAfterCredentialRestart.headers.get("set-cookie") || "", origin: base, "content-type": "application/json" };
     const credentialRestarted = await jsonGet(base, "model-service/status", activeHeaders);
     assert.equal(credentialRestarted.data.profile.credential.configured, true);
+    assert.equal(credentialRestarted.data.profile.profile.modelId, "");
+    assert.equal(credentialRestarted.data.tianyiDialogue.ready, false);
+    assert.equal(credentialRestarted.data.tianyiDialogue.reason, "model-unselected");
     assert.equal(JSON.stringify(credentialRestarted).includes("fixture-secret-value"), false);
 
     const invalidModelIdentity = await jsonPost(base, "model-service/profile/save", {
@@ -103,7 +107,7 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.match(invalidModelIdentity.error || "", /模型 ID/u);
     const afterInvalidModelIdentity = await jsonGet(base, "model-service/status", activeHeaders);
     assert.equal(afterInvalidModelIdentity.data.profile.revision, configured.data.revision);
-    assert.equal(afterInvalidModelIdentity.data.profile.profile.modelId, "fixture/chat-model");
+    assert.equal(afterInvalidModelIdentity.data.profile.profile.modelId, "");
 
     const models = await jsonPost(base, "model-service/models", {}, activeHeaders);
     assert.equal(models.status, 200);
@@ -111,6 +115,14 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.deepEqual(models.data.profile.profile.availableModels, ["fixture/chat-model", "fixture/alternate-model"]);
     assert.equal(models.data.profile.history.at(-1).kind, "models");
     assert.equal(JSON.stringify(models).includes("fixture-secret-value"), false);
+
+    const selectedModel = await jsonPost(base, "model-service/profile/save", {
+      expectedRevision: models.data.profile.revision,
+      modelId: "fixture/chat-model",
+      enabled: true
+    }, activeHeaders);
+    assert.equal(selectedModel.status, 200);
+    assert.equal(selectedModel.data.profile.modelId, "fixture/chat-model");
 
     const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true }, activeHeaders);
     assert.equal(revealed.status, 404);

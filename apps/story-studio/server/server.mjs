@@ -2205,8 +2205,6 @@ async function handleModelServiceRequest(request, response, url) {
   if (request.method === "POST" && route === "models") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
-    const active = readActiveProviderProfile();
-    if (!active?.enabled) throw productError("当前 Provider 已禁用，未获取模型。", 412);
     const startedAt = Date.now();
     try {
       const discovery = await providerGateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
@@ -2624,11 +2622,13 @@ async function handleModelServiceRequest(request, response, url) {
   if (request.method === "GET" && route === "status") {
     const metadata = providerGateway.metadata();
     const configured = metadata.providers.some((provider) => provider.configured);
+    const activeProfile = readActiveProviderProfile();
+    const selectedModelReady = configured && activeProfile?.enabled === true && Boolean(activeProfile.modelId);
     // Only the explicit local fake used by deterministic acceptance can open the UI gate.
     // `agentFakeProviderStreamAllowed` is false in production, so an unconfigured
     // production Provider can never be represented as ready.
-    const tianyiDialogueReady = configured || agentFakeProviderStreamAllowed;
-    const persistedModels = readActiveProviderProfile()?.availableModels || [];
+    const tianyiDialogueReady = selectedModelReady || agentFakeProviderStreamAllowed;
+    const persistedModels = activeProfile?.availableModels || [];
     const models = persistedModels.length
       ? persistedModels.map((id) => ({ providerId: "siliconflow", id, label: id.split("/").at(-1) || id, capabilities: ["chat", "streaming"] }))
       : metadata.models;
@@ -2651,7 +2651,13 @@ async function handleModelServiceRequest(request, response, url) {
         },
         tianyiDialogue: {
           ready: tianyiDialogueReady,
-          reason: tianyiDialogueReady ? null : "provider-unconfigured"
+          reason: tianyiDialogueReady
+            ? null
+            : !configured
+              ? "provider-unconfigured"
+              : activeProfile?.enabled !== true
+                ? "provider-disabled"
+                : "model-unselected"
         },
         agentRuntime: {
           ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),

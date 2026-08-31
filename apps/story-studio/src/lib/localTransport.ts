@@ -223,7 +223,7 @@ export type ModelServiceStatus = {
   };
   tianyiDialogue: {
     ready: boolean;
-    reason: "provider-unconfigured" | null;
+    reason: "provider-unconfigured" | "provider-disabled" | "model-unselected" | null;
   };
   agentRuntime?: {
     state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";

@@ -16,7 +16,14 @@ test("Provider settings submit only a one-time credential to the server owner an
   assert.doesNotMatch(settings, /credential\.suffix/);
   assert.doesNotMatch(settings, /revealProviderCredential/);
   assert.match(settings, /本机权威配置/);
+  assert.doesNotMatch(settings, /name="modelId" required/);
+  assert.match(settings, /list="provider-model-options"/);
+  assert.match(settings, /首次保存不需要模型 ID/);
+  assert.match(settings, /onDiscoverProviderModels/);
+  assert.match(settings, /保存凭据并获取模型/);
   assert.match(route, /saveProviderProfile/);
+  assert.match(route, /discoverProviderModels/);
+  assert.ok(route.indexOf("saveProviderProfile({ ...input, token })") < route.indexOf("discoverProviderModels(token)"), "Credentials must be saved before model discovery");
   assert.match(route, /disableProviderProfile/);
 });
 
@@ -30,7 +37,9 @@ test("Tianyi blocks unconfigured Providers before a request and opens Shell sett
   assert.match(sidebar, /onOpenSettings\(\): void/);
   assert.match(sidebar, /onClick=\{props\.onOpenSettings\}/);
   assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady\}/);
-  assert.match(server, /const tianyiDialogueReady = configured \|\| agentFakeProviderStreamAllowed/);
+  assert.match(server, /const selectedModelReady = configured && activeProfile\?\.enabled === true && Boolean\(activeProfile\.modelId\)/);
+  assert.match(server, /const tianyiDialogueReady = selectedModelReady \|\| agentFakeProviderStreamAllowed/);
+  assert.match(server, /"model-unselected"/);
   assert.match(server, /process\.env\.NODE_ENV !== "production" && process\.env\.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1"/);
 });
 

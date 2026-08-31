@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   exportStorageProject,
   disableProviderProfile,
+  discoverProviderModels,
   getAgentPermissionState,
   getBootstrap,
   getModelServiceStatus,
@@ -17,7 +18,7 @@ import {
   type StoryStudioProject
 } from "../../lib/localTransport";
 import { LocalFolderProvider } from "../../lib/storageProvider";
-import { AgentSettingsSection, type ProviderProfileUpdate } from "../agent/AgentSettingsSection";
+import { AgentSettingsSection, type ProviderProfileSaveResult, type ProviderProfileUpdate } from "../agent/AgentSettingsSection";
 import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
 
@@ -74,9 +75,28 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     const next = await withToken((token) => setAgentPermissionProfile({ projectId: project.id, profile, token }));
     setPermissionState(next);
   };
-  const saveProvider = async (input: ProviderProfileUpdate) => {
-    await withToken((token) => saveProviderProfile({ ...input, token }));
+  const saveProvider = async (input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult> => {
+    const saved = await withToken((token) => saveProviderProfile({ ...input, token }));
+    let result: ProviderProfileSaveResult = { discovery: "not-needed", modelCount: saved.profile?.availableModels.length ?? 0 };
+    if (!input.modelId && saved.credential.configured) {
+      try {
+        const discovery = await withToken((token) => discoverProviderModels(token));
+        result = { discovery: "loaded", modelCount: discovery.models.length };
+      } catch (cause) {
+        result = {
+          discovery: "failed",
+          modelCount: 0,
+          discoveryError: cause instanceof Error ? cause.message : "请稍后重试或手动填写模型 ID。"
+        };
+      }
+    }
     await refreshRuntime(project);
+    return result;
+  };
+  const discoverModels = async () => {
+    const discovery = await withToken((token) => discoverProviderModels(token));
+    await refreshRuntime(project);
+    return discovery.models;
   };
   const disableProvider = async (expectedRevision: number) => {
     await withToken((token) => disableProviderProfile({ expectedRevision, token }));
@@ -130,6 +150,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
             onRefresh={() => void refreshRuntime(project)}
             onPermissionProfile={updatePermission}
             onSaveProviderProfile={saveProvider}
+            onDiscoverProviderModels={discoverModels}
             onDisableProviderProfile={disableProvider}
           /></section>}
         </div>

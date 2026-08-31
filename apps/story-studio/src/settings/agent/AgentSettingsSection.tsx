@@ -12,6 +12,12 @@ export type ProviderProfileUpdate = {
   apiKey?: string;
 };
 
+export type ProviderProfileSaveResult = {
+  discovery: "not-needed" | "loaded" | "failed";
+  modelCount: number;
+  discoveryError?: string;
+};
+
 export function AgentSettingsSection(props: {
   status: ModelServiceStatus | null;
   permissionState: AgentPermissionState | null;
@@ -19,7 +25,8 @@ export function AgentSettingsSection(props: {
   error?: string | null;
   onRefresh?(): void;
   onPermissionProfile?(profile: AgentPermissionProfile): Promise<void>;
-  onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<void>;
+  onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult>;
+  onDiscoverProviderModels?(): Promise<string[]>;
   onDisableProviderProfile?(expectedRevision: number): Promise<void>;
 }) {
   const providers = props.status?.providers ?? [];
@@ -28,6 +35,7 @@ export function AgentSettingsSection(props: {
   const credential = props.status?.profile.credential;
   const agentRuntime = props.status?.agentRuntime;
   const credentialInput = useRef<HTMLInputElement>(null);
+  const modelInput = useRef<HTMLInputElement>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerNotice, setProviderNotice] = useState("");
 
@@ -41,7 +49,7 @@ export function AgentSettingsSection(props: {
     setProviderBusy(true);
     setProviderNotice("");
     try {
-      await props.onSaveProviderProfile({
+      const result = await props.onSaveProviderProfile({
         expectedRevision: props.status?.profile.revision ?? 0,
         displayName: String(fields.get("displayName") ?? "").trim(),
         baseUrl: String(fields.get("baseUrl") ?? "").trim(),
@@ -50,9 +58,25 @@ export function AgentSettingsSection(props: {
         ...(apiKey ? { apiKey } : {})
       });
       if (credentialInput.current) credentialInput.current.value = "";
-      setProviderNotice("配置已交给 Provider owner 保存；此页面不会显示密钥。");
+      setProviderNotice(result.discovery === "loaded"
+        ? `凭据已安全保存，已获取 ${result.modelCount} 个可用模型。请选择模型后再保存。`
+        : result.discovery === "failed"
+          ? `凭据已安全保存，但获取模型失败：${result.discoveryError ?? "请稍后重试或手动填写模型 ID。"}`
+          : "Provider 配置已安全保存；此页面不会显示密钥。");
     } catch (cause) {
       setProviderNotice(cause instanceof Error ? cause.message : "保存 Provider 配置失败。");
+    } finally { setProviderBusy(false); }
+  })();
+  const discoverModels = () => void (async () => {
+    if (!props.onDiscoverProviderModels) return;
+    setProviderBusy(true);
+    setProviderNotice("");
+    try {
+      const models = await props.onDiscoverProviderModels();
+      setProviderNotice(`已获取 ${models.length} 个可用模型。请从列表选择，或手动填写模型 ID。`);
+      modelInput.current?.focus();
+    } catch (cause) {
+      setProviderNotice(cause instanceof Error ? cause.message : "获取模型失败，可以手动填写模型 ID。");
     } finally { setProviderBusy(false); }
   })();
   const disableProvider = () => void (async () => {
@@ -113,11 +137,16 @@ export function AgentSettingsSection(props: {
       {props.status?.profile.storage.compatibilityNotice && <p role="status">{props.status.profile.storage.compatibilityNotice}</p>}
       <label>显示名称<input name="displayName" required defaultValue={selected?.displayName ?? "硅基流动"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <label>服务地址<input name="baseUrl" type="url" required defaultValue={selected?.baseUrl ?? "https://api.siliconflow.cn/v1"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
-      <label>模型 ID<input name="modelId" required defaultValue={selected?.modelId ?? ""} placeholder="选择或填写已授权模型" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
+      <label>模型
+        <input ref={modelInput} name="modelId" list="provider-model-options" defaultValue={selected?.modelId ?? ""} placeholder="保存凭据后选择；也可手动填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
+        <datalist id="provider-model-options">{(selected?.availableModels ?? []).map((modelId) => <option key={modelId} value={modelId} />)}</datalist>
+        <small>{selected?.availableModels.length ? `已获取 ${selected.availableModels.length} 个可用模型。` : "首次保存不需要模型 ID；保存凭据后会自动获取模型。"}</small>
+      </label>
       <label>新的 API Key（可选）<input ref={credentialInput} name="apiKey" type="password" autoComplete="new-password" placeholder="仅在更换凭据时输入" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <label className="agent-provider-enabled"><input name="enabled" type="checkbox" defaultChecked={selected?.enabled ?? true} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />启用此 Provider</label>
       <div className="agent-provider-actions">
-        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : "保存 Provider 配置"}</button>
+        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : selected?.modelId ? "保存 Provider 配置" : "保存凭据并获取模型"}</button>
+        <button type="button" disabled={providerBusy || props.busy || !credential?.configured || !props.onDiscoverProviderModels} onClick={discoverModels}>重新获取模型</button>
         <button type="button" disabled={providerBusy || props.busy || !selected?.enabled || !props.onDisableProviderProfile} onClick={disableProvider}>停用 Provider</button>
       </div>
       {providerNotice && <p role={providerNotice.includes("失败") ? "alert" : "status"}>{providerNotice}</p>}
