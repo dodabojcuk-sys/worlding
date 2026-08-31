@@ -12,8 +12,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
+import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
+import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
+import { FormalEventNode } from "../graph-nodes/FormalEventNode";
+import { AgentExecutionGraph } from "../tianyi/execution/AgentExecutionGraph";
 
 type Selection =
   | { kind: "node"; id: string }
@@ -27,7 +31,7 @@ type NodeData = {
 };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type Layout = { version: "tianyan-event-graph-layout/v2"; positions: Record<string, { x: number; y: number }> };
-const nodeTypes = { event: EventGraphNode, prediction: PredictionGraphNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode };
+const nodeTypes = { event: FormalEventNode, prediction: CandidateEventNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode };
 
 export function EventGraphCanvas(props: {
   projectId: string;
@@ -59,6 +63,8 @@ export function EventGraphCanvas(props: {
   const [predictionSelectedNodeIds, setPredictionSelectedNodeIds] = useState<string[]>([]);
   const [narrowPrediction, setNarrowPrediction] = useState(() => window.matchMedia("(max-width: 75rem)").matches);
   const [predictionSourcesExpanded, setPredictionSourcesExpanded] = useState(false);
+  const [graphLayer, setGraphLayer] = useState<TianyiGraphLayer>("EVENT_GRAPH");
+  const [executionProjection, setExecutionProjection] = useState<TianyiAgentExecutionProjection | null>(null);
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
   const rightWorkSurface = useWorkspaceDockSlot();
   const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
@@ -96,6 +102,22 @@ export function EventGraphCanvas(props: {
     if (replay?.projectId === props.projectId) setPredictionRun(replay);
     window.addEventListener("story-studio-multi-node-prediction-run", receive);
     return () => window.removeEventListener("story-studio-multi-node-prediction-run", receive);
+  }, [props.projectId]);
+
+  useEffect(() => {
+    const receiveProjection = (event: Event) => {
+      const projection = (event as CustomEvent<TianyiAgentExecutionProjection>).detail;
+      if (projection?.projectId === props.projectId) setExecutionProjection(projection);
+    };
+    const openExecution = () => setGraphLayer("AGENT_EXECUTION_GRAPH");
+    const replay = (window as Window & { __storyStudioAgentExecutionProjection?: TianyiAgentExecutionProjection }).__storyStudioAgentExecutionProjection;
+    if (replay?.projectId === props.projectId) setExecutionProjection(replay);
+    window.addEventListener("story-studio-agent-execution-projection", receiveProjection);
+    window.addEventListener("story-studio-open-agent-execution", openExecution);
+    return () => {
+      window.removeEventListener("story-studio-agent-execution-projection", receiveProjection);
+      window.removeEventListener("story-studio-open-agent-execution", openExecution);
+    };
   }, [props.projectId]);
 
   useEffect(() => {
@@ -213,7 +235,11 @@ export function EventGraphCanvas(props: {
   const remote = selection?.kind === "remote" ? selection : null;
   const candidateCount = graphRelations.filter((relation) => relation.reviewState === "candidate").length;
 
-  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
+  if (graphLayer === "AGENT_EXECUTION_GRAPH") {
+    return executionProjection ? <AgentExecutionGraph projection={executionProjection} onReturn={() => setGraphLayer("EVENT_GRAPH")} onOpenCandidates={() => setGraphLayer("EVENT_GRAPH")} /> : <section className="agent-execution-workspace is-empty" aria-label="Agent 执行过程" data-graph-layer="AGENT_EXECUTION_GRAPH"><header><div><small>天意 Agent</small><strong>Agent 执行过程</strong><span>运行事件尚未到达</span></div><nav><button type="button" onClick={() => setGraphLayer("EVENT_GRAPH")}><ArrowLeft />返回事件图</button></nav></header><p>执行图只由实际 Run 事件构建，不显示静态装饰流程。</p></section>;
+  }
+
+  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-candidate-overlay={predictionPathId ? "visible" : "hidden"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
       <nav className="event-graph-view-switch" aria-label="事件视图">
@@ -285,23 +311,6 @@ export function EventGraphCanvas(props: {
       /> : null}
     </div>
   </section>;
-}
-
-function EventGraphNode(props: NodeProps<Node<NodeData>>) {
-  const label = props.data.remote ? (props.data.direction === "past" ? "远处前因 " : "远处后果 ") + String(props.data.count ?? 0) : props.data.status;
-  return <article className={"event-graph-node " + (props.data.focused ? "is-focused " : "") + (props.data.selected ? "is-selected " : "") + (props.data.predictionSelected ? "is-prediction-selected " : "") + (props.data.remote ? "is-remote" : "")}>
-    {!props.data.remote ? <><Handle type="target" position={Position.Top} /><Handle type="source" position={Position.Right} /><Handle type="source" position={Position.Bottom} /><Handle type="target" position={Position.Left} /></> : <><Handle type="target" position={Position.Left} isConnectable={false} /><Handle type="source" position={Position.Right} isConnectable={false} /></>}
-    <small>{label}</small><strong>{props.data.title}</strong><span><Clock3 />{props.data.time}</span>
-    <span>{props.data.remote ? <Expand /> : <MapPin />}{props.data.remote ? "点击查看投影范围" : props.data.location}</span>
-  </article>;
-}
-
-function PredictionGraphNode(props: NodeProps<Node<NodeData>>) {
-  return <article className={`event-graph-node event-graph-prediction-node ${props.data.reviewSelected ? "is-review-selected" : "is-review-excluded"}`} aria-label={`${props.data.title}，${props.data.status}`}>
-    <Handle type="target" position={Position.Left} isConnectable={false} />
-    <Handle type="source" position={Position.Right} isConnectable={false} />
-    <small>{props.data.status}</small><strong>{props.data.title}</strong><span><Clock3 />{props.data.time}</span><span><Layers3 />{props.data.pathLabel} · Run {props.data.runId?.slice(-8) ?? ""}</span><span>{props.data.reviewSelected ? "已选择，等待作者保存" : "已从本次审阅排除"}</span>
-  </article>;
 }
 
 function PredictionScopeNode(props: NodeProps<Node<NodeData>>) {

@@ -1,4 +1,4 @@
-import { Ban, Check, ChevronRight, CircleCheck, Clock3, LoaderCircle, Play, RotateCcw } from "lucide-react";
+import { Ban, Check, ChevronRight, CircleCheck, Clock3, LoaderCircle, Play, RotateCcw, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { derivePredictionReviewGate, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
@@ -133,6 +133,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     <p className="tianyi-prediction-connection-note">本次推演可直接运行，不需要额外连接。</p>
     {run?.bundle ? <section className="tianyi-prediction-results">
       <div className="tianyi-prediction-run-heading"><span>Run {run.runId.slice(-8)}</span><strong>{run.status === "ready" ? "等待作者审阅" : run.status === "abandoned" ? "已放弃" : run.status === "failed" ? "运行失败" : "处理中"}</strong></div>
+      <button type="button" className="tianyi-prediction-execution-link" onClick={() => window.dispatchEvent(new CustomEvent("story-studio-open-agent-execution", { detail: { runId: run.runId } }))}><Workflow aria-hidden="true" />查看执行过程</button>
       <section className="tianyi-prediction-paths" aria-label={`候选路径，共 ${run.bundle.paths.length} 条`}><header><strong>候选路径（{run.bundle.paths.length}）</strong><small>画布一次只显示当前路径</small></header>{run.bundle.paths.map((path, index) => {
         const active = path.id === pathId;
         const nodes = path.candidateNodeIds.map((nodeId) => run.bundle!.nodes.find((node) => node.id === nodeId)?.title).filter(Boolean);

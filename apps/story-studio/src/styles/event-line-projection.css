@@ -529,6 +529,91 @@
 .shell-workspace-event-line .event-graph-node span { display: inline-flex; align-items: center; gap: 0.28rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .shell-workspace-event-line .event-graph-node .react-flow__handle { inline-size: 0.55rem; block-size: 0.55rem; background: var(--color-accent); border: 1px solid var(--color-surface); }
 
+/* Tianyi graph families share ports and focus behavior, but keep distinct product semantics. */
+.shell-workspace-event-line .graph-node-shell {
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  align-content: start;
+  gap: .34rem;
+  inline-size: 12.75rem;
+  min-block-size: 6.25rem;
+  padding: .78rem .9rem;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 .35rem .9rem color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+.shell-workspace-event-line .graph-node-shell:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 65%, white); outline-offset: 4px; }
+.shell-workspace-event-line .graph-node-shell.is-selected { border: 2px solid var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
+.shell-workspace-event-line .graph-node-shell > strong { font-size: var(--font-size-sm); line-height: 1.35; }
+.shell-workspace-event-line .graph-node-shell > span { display: inline-flex; align-items: center; gap: .28rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .graph-node-shell > span svg { inline-size: .78rem; block-size: .78rem; flex: 0 0 auto; }
+.shell-workspace-event-line .graph-node-state-strip { inline-size: fit-content; padding: .12rem .38rem; color: var(--color-accent) !important; background: var(--color-accent-soft); border-radius: 999px; font-weight: 750; }
+.shell-workspace-event-line .graph-node-shell.is-draft-event { border-inline-start: .3rem solid var(--color-warning); background: color-mix(in srgb, var(--color-surface) 96%, var(--color-warning)); }
+.shell-workspace-event-line .graph-node-shell.is-remote-event { border-style: dashed; border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 86%, var(--color-accent-soft)); }
+.shell-workspace-event-line .graph-node-shell.is-candidate-event { inline-size: 11.25rem; min-block-size: 7rem; border: 2px dashed color-mix(in srgb, var(--color-warning) 78%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 91%, var(--color-warning)); box-shadow: 0 .25rem .7rem color-mix(in srgb, var(--color-warning) 12%, transparent); }
+.shell-workspace-event-line .graph-node-shell.is-candidate-event:not(.is-selected) { opacity: .72; }
+.shell-workspace-event-line .graph-node-shell.is-candidate-event.is-selected { border-color: var(--color-warning); outline: 2px solid color-mix(in srgb, var(--color-warning) 24%, transparent); }
+.shell-workspace-event-line .graph-node-candidate-label { inline-size: fit-content; padding: .13rem .4rem; color: color-mix(in srgb, var(--color-warning) 72%, var(--color-text)) !important; background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px dashed var(--color-warning); border-radius: 999px; font-weight: 750; }
+.shell-workspace-event-line .graph-node-shell.is-collection-point { inline-size: 14rem; min-block-size: auto; padding: .42rem; border-style: double; background: color-mix(in srgb, var(--color-surface) 93%, var(--color-accent-soft)); }
+.shell-workspace-event-line .graph-node-shell.is-collection-point > button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; inline-size: 100%; padding: .45rem; color: var(--color-text); background: transparent; border: 0; cursor: pointer; text-align: start; }
+.shell-workspace-event-line .graph-node-shell.is-collection-point > button > span { display: grid; gap: .12rem; }
+.shell-workspace-event-line .graph-node-shell.is-collection-point small { color: var(--color-accent); font-size: .66rem; font-weight: 700; }
+.shell-workspace-event-line .graph-node-shell.is-collection-point strong { font-size: var(--font-size-sm); }
+.shell-workspace-event-line .graph-node-shell.is-collection-point em { color: var(--color-text-muted); font-size: var(--font-size-xs); font-style: normal; }
+.shell-workspace-event-line .graph-node-port.react-flow__handle { inline-size: 1.5rem; block-size: 1.5rem; background: transparent; border: 0; }
+.shell-workspace-event-line .graph-node-port.react-flow__handle::after { content: ""; position: absolute; inset: 50% auto auto 50%; inline-size: .68rem; block-size: .68rem; translate: -50% -50%; box-sizing: border-box; background: var(--color-surface); border: 2px solid var(--color-accent); border-radius: 50%; }
+.shell-workspace-event-line .is-candidate-event .graph-node-port.react-flow__handle::after { border-color: var(--color-warning); }
+
+.shell-workspace-event-line .agent-execution-workspace { min-inline-size: 0; min-block-size: 0; block-size: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); background: color-mix(in srgb, var(--color-workspace-background) 97%, var(--color-accent) 3%); }
+.shell-workspace-event-line .agent-execution-workspace > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-block-size: 4.5rem; padding: .7rem var(--space-4); border-block-end: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 96%, transparent); }
+.shell-workspace-event-line .agent-execution-workspace > header > div { display: grid; gap: .1rem; }
+.shell-workspace-event-line .agent-execution-workspace > header small { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 750; }
+.shell-workspace-event-line .agent-execution-workspace > header strong { font-size: var(--font-size-md); }
+.shell-workspace-event-line .agent-execution-workspace > header span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .agent-execution-workspace > header nav { display: flex; gap: var(--space-2); }
+.shell-workspace-event-line .agent-execution-workspace > header button { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2.35rem; padding-inline: .7rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .agent-execution-workspace > header button.is-stop { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 50%, var(--color-border)); }
+.shell-workspace-event-line .agent-execution-workspace > header button svg { inline-size: .85rem; }
+.shell-workspace-event-line .agent-execution-main { min-inline-size: 0; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.shell-workspace-event-line .agent-execution-main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
+.shell-workspace-event-line .agent-execution-flow { min-inline-size: 0; min-block-size: 0; }
+.shell-workspace-event-line .agent-execution-detail { min-inline-size: 0; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-inline-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .agent-execution-detail > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.shell-workspace-event-line .agent-execution-detail > header button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: 50%; cursor: pointer; }
+.shell-workspace-event-line .agent-execution-detail dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: var(--space-3) 0; }
+.shell-workspace-event-line .agent-execution-detail dl div { padding: .5rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .agent-execution-detail dt { color: var(--color-text-muted); font-size: .65rem; }
+.shell-workspace-event-line .agent-execution-detail dd { margin: .15rem 0 0; font-size: .72rem; font-weight: 700; }
+.shell-workspace-event-line .agent-execution-detail section { display: grid; gap: .35rem; margin-block-start: var(--space-3); }
+.shell-workspace-event-line .agent-execution-detail pre { max-block-size: 10rem; margin: 0; overflow: auto; padding: .6rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .68rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.shell-workspace-event-line .agent-execution-detail > small { display: block; margin-block-start: var(--space-3); color: var(--color-text-muted); line-height: 1.5; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell { padding: .7rem; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell > div:not(.agent-node-icon) { display: grid; gap: .15rem; min-inline-size: 0; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell small { color: var(--color-text-muted); font-size: .65rem; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell strong { font-size: .82rem; line-height: 1.3; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell span { color: var(--color-text-muted); font-size: .67rem; line-height: 1.4; }
+.shell-workspace-event-line .graph-node-shell.is-agent-process { grid-template-columns: 1.65rem minmax(0, 1fr); inline-size: 13.25rem; min-block-size: 6.25rem; border-inline-start: .3rem solid var(--color-accent); }
+.shell-workspace-event-line .graph-node-shell.is-agent-tool { grid-template-columns: 1.25rem minmax(0, 1fr); inline-size: 11.75rem; min-block-size: 5rem; background: color-mix(in srgb, var(--color-surface) 92%, var(--color-accent-soft)); border-radius: 1.1rem; }
+.shell-workspace-event-line .graph-node-shell.is-agent-gate { grid-template-columns: 1.4rem minmax(0, 1fr); inline-size: 12.75rem; min-block-size: 5.75rem; border: 2px solid color-mix(in srgb, var(--color-warning) 72%, var(--color-border)); border-radius: .25rem 1rem .25rem 1rem; background: color-mix(in srgb, var(--color-surface) 94%, var(--color-warning)); }
+.shell-workspace-event-line .graph-node-shell.is-agent-result { grid-template-columns: 1.5rem minmax(0, 1fr); inline-size: 15rem; min-block-size: 7rem; border-block-start: .35rem solid var(--color-accent); background: color-mix(in srgb, var(--color-surface) 94%, var(--color-accent-soft)); }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell > svg,
+.shell-workspace-event-line .agent-node-icon svg { inline-size: 1rem; color: var(--color-accent); }
+.shell-workspace-event-line .graph-node-shell.is-agent-gate > svg { color: var(--color-warning); }
+.shell-workspace-event-line .agent-node-status { grid-column: 1 / -1; inline-size: fit-content; display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .4rem; color: var(--color-text-muted); background: var(--color-surface-muted); border-radius: 999px; font-size: .64rem; font-weight: 700; }
+.shell-workspace-event-line .agent-node-status[data-status="success"] { color: var(--color-accent); }
+.shell-workspace-event-line .agent-node-status[data-status="warning"],
+.shell-workspace-event-line .agent-node-status[data-status="blocked"] { color: color-mix(in srgb, var(--color-warning) 75%, var(--color-text)); }
+.shell-workspace-event-line .agent-node-status[data-status="failed"] { color: var(--color-danger); }
+.shell-workspace-event-line .graph-node-shell.is-running { border-width: 2px; outline: 3px solid color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.shell-workspace-event-line .agent-execution-edge.is-active path { stroke-dasharray: 7 5; stroke: var(--color-accent); }
+.shell-workspace-event-line .agent-execution-edge.is-complete path { stroke: color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); }
+.shell-workspace-event-line .agent-execution-edge.is-failed path { stroke: var(--color-danger); }
+.shell-workspace-event-line .agent-execution-workspace.is-empty { place-items: stretch; }
+.shell-workspace-event-line .agent-execution-workspace.is-empty > p { align-self: center; justify-self: center; margin: 0; color: var(--color-text-muted); }
+
 .shell-workspace-event-line .event-graph-legend {
   position: absolute;
   inset-inline-start: var(--space-4);
@@ -677,6 +762,12 @@
   .shell-workspace-event-line .event-graph-source-collapse { display: inline-flex; align-items: center; margin-inline-start: auto; color: var(--color-accent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
   .shell-workspace-event-line .event-graph-prediction-node { inline-size: 9.5rem; min-inline-size: 9.5rem; }
   .shell-workspace-event-line .event-graph-prediction-node strong { font-size: .875rem; }
+  .shell-workspace-event-line .graph-node-shell.is-candidate-event { inline-size: 11.25rem; min-inline-size: 11.25rem; }
+  .shell-workspace-event-line .agent-execution-workspace > header { align-items: flex-start; padding-inline: var(--space-3); }
+  .shell-workspace-event-line .agent-execution-workspace > header nav { flex-wrap: wrap; justify-content: flex-end; }
+  .shell-workspace-event-line .agent-execution-main,
+  .shell-workspace-event-line .agent-execution-main.has-detail { position: relative; grid-template-columns: minmax(0, 1fr); }
+  .shell-workspace-event-line .agent-execution-detail { position: absolute; z-index: 4; inset-block: 0; inset-inline-end: 0; inline-size: min(18rem, 74%); box-sizing: border-box; box-shadow: var(--shadow-panel); }
 }
 
 @media (max-width: 64rem) {

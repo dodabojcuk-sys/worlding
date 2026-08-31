@@ -111,6 +111,9 @@
 .tianyi-prediction-receipt-card dl div { display: grid; grid-template-columns: 5.8rem minmax(0, 1fr); gap: .4rem; font-size: .66rem; }
 .tianyi-prediction-receipt-card dt { color: var(--color-text-muted); }
 .tianyi-prediction-receipt-card dd { margin: 0; overflow-wrap: anywhere; }
+.tianyi-prediction-execution-link { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-block-size: 2.3rem; padding-inline: .7rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 92%, var(--color-accent-soft)); border: 1px solid color-mix(in srgb, var(--color-accent) 48%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; font-size: .72rem; font-weight: 700; }
+.tianyi-prediction-execution-link svg { inline-size: .9rem; }
+.tianyi-prediction-execution-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .tianyi-sidebar-empty,
 .tianyi-agent-stage { align-self: center; display: grid; gap: var(--space-3); color: var(--color-text-muted); line-height: 1.65; }
 .tianyi-sidebar-empty > svg { inline-size: 2rem; block-size: 2rem; color: var(--color-accent); }
