@@ -1,8 +1,11 @@
 import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, openSync, fsyncSync, closeSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+
+import { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
+
+export { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
 
 const MAXIMUM_CREDENTIAL_CHARACTERS = 512;
 const DEFAULT_KEYCHAIN_SERVICE = "com.tianyan.story-studio.provider";
@@ -57,7 +60,7 @@ export function createMacKeychainCredentialBackend(options = {}) {
 
   return Object.freeze({
     kind: "macos-keychain",
-    configured() { return this.read().length > 0; },
+    configured() { return invoke(["find-generic-password", "-a", account, "-s", service]).status === 0; },
     read() {
       const result = invoke(["find-generic-password", "-a", account, "-s", service, "-w"]);
       if (result.status !== 0) return "";
@@ -123,7 +126,7 @@ export function createLocalFileDevelopmentCredentialBackend(options = {}) {
   return Object.freeze({
     kind: "local-file-development-only",
     filePath,
-    configured() { return this.read().length > 0; },
+    configured() { return fsImpl.existsSync(filePath); },
     read() {
       if (!fsImpl.existsSync(filePath)) return "";
       let source;
@@ -185,10 +188,6 @@ export function createProviderCredentialBackend(options = {}) {
   }
   if (nodeEnvironment !== "production") return fallback();
   throw credentialBackendError("production-keychain-required");
-}
-
-export function defaultProviderAppDataRoot() {
-  return path.join(os.homedir(), "Library", "Application Support", "Tianyan");
 }
 
 export function validateCredential(value) {

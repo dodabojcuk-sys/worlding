@@ -268,7 +268,11 @@ export type ProviderProfileProjection = {
   credential: {
     configured: boolean;
     backend: "macos-keychain" | "local-file-development-only" | "process-memory" | "unknown" | string;
-    suffix: string | null;
+  };
+  storage: {
+    scope: "authoritative" | "development-isolated" | "test-isolated";
+    smokeCompatibleByDefault: boolean;
+    compatibilityNotice: string | null;
   };
 };
 
@@ -1258,10 +1262,6 @@ export async function disableProviderProfile(input: { expectedRevision: number; 
 
 export async function clearProviderCredential(token: string): Promise<ProviderProfileProjection> {
   return request<ProviderProfileProjection>(`${basePath}/model-service/profile/clear-credential`, { method: "POST", token, body: { confirmed: true } });
-}
-
-export async function revealProviderCredential(token: string): Promise<{ credential: string; expiresInMs: number }> {
-  return request<{ credential: string; expiresInMs: number }>(`${basePath}/model-service/profile/reveal-credential`, { method: "POST", token, body: { confirmed: true } });
 }
 
 export async function discoverProviderModels(token: string): Promise<{ providerId: "siliconflow"; models: string[]; profile: ProviderProfileProjection }> {

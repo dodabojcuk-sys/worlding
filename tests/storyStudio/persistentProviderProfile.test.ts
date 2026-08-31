@@ -124,6 +124,24 @@ test("profile keeps bounded non-sensitive model discovery and operation history 
   });
   assert.deepEqual(saved.profiles[0].availableModels, ["fixture/chat-model", "fixture/other-model"]);
   assert.equal(saved.history.length, 1);
-  assert.equal(store.publicState(saved, { configured: true, backend: "local-file-development-only", suffix: "alue" }).credential.suffix, "alue");
+  assert.deepEqual(store.publicState(saved, { configured: true, backend: "local-file-development-only" }).credential, {
+    configured: true,
+    backend: "local-file-development-only"
+  });
   assert.equal(readFileSync(store.profilePath, "utf8").includes("fixture-secret"), false);
+});
+
+test("credential status does not read credential content", () => {
+  let configuredChecks = 0;
+  const controller = createSessionCredentialController({
+    backend: {
+      kind: "fixture-no-read",
+      configured() { configuredChecks += 1; return true; },
+      read() { throw new Error("credential content must not be read for status"); },
+      write() {},
+      clear() {}
+    }
+  });
+  assert.equal(controller.configured(), true);
+  assert.equal(configuredChecks, 1);
 });

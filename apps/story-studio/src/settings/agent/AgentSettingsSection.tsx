@@ -107,8 +107,10 @@ export function AgentSettingsSection(props: {
       </div>
       <dl>
         <div><dt>连接状态</dt><dd>{selected?.connectionStatus ?? "unknown"}</dd></div>
-        <div><dt>凭据</dt><dd>{credential?.configured ? `已配置${credential.suffix ? ` ····${credential.suffix}` : ""}` : "未配置"}</dd></div>
+        <div><dt>凭据</dt><dd>{credential?.configured ? "已配置" : "未配置"}</dd></div>
+        <div><dt>配置范围</dt><dd>{props.status?.profile.storage.scope === "authoritative" ? "本机权威配置" : "隔离开发／测试配置"}</dd></div>
       </dl>
+      {props.status?.profile.storage.compatibilityNotice && <p role="status">{props.status.profile.storage.compatibilityNotice}</p>}
       <label>显示名称<input name="displayName" required defaultValue={selected?.displayName ?? "硅基流动"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <label>服务地址<input name="baseUrl" type="url" required defaultValue={selected?.baseUrl ?? "https://api.siliconflow.cn/v1"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <label>模型 ID<input name="modelId" required defaultValue={selected?.modelId ?? ""} placeholder="选择或填写已授权模型" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>

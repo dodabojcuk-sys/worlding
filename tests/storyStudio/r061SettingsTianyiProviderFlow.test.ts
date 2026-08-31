@@ -12,8 +12,10 @@ test("Provider settings submit only a one-time credential to the server owner an
   assert.match(settings, /autoComplete="new-password"/);
   assert.match(settings, /credentialInput\.current\?\.value\.trim/);
   assert.match(settings, /credentialInput\.current\.value = ""/);
-  assert.match(settings, /已配置\$\{credential\.suffix/);
+  assert.match(settings, /credential\?\.configured \? "已配置" : "未配置"/);
+  assert.doesNotMatch(settings, /credential\.suffix/);
   assert.doesNotMatch(settings, /revealProviderCredential/);
+  assert.match(settings, /本机权威配置/);
   assert.match(route, /saveProviderProfile/);
   assert.match(route, /disableProviderProfile/);
 });

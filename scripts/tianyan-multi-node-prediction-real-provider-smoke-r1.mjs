@@ -22,19 +22,20 @@ if (!confirmed) {
 }
 
 const limits = requireExplicitSmokeContract();
-const [{ createStoryStudioWorkspaceOperations }, { createStoryStudioMultiNodePredictionOperations }, { createStoryStudioEventReference }, { createAiProviderGateway }, { createSiliconFlowAdapter }, { createProviderCredentialBackend, defaultProviderAppDataRoot }, { createPersistentProviderProfileStore }, { createProviderRequestBudgetLedger, zeroProviderBudgetBaseline }, { createRealProviderMultiNodePredictionGateway }] = await Promise.all([
+const [{ createStoryStudioWorkspaceOperations }, { createStoryStudioMultiNodePredictionOperations }, { createStoryStudioEventReference }, { createAiProviderGateway }, { createSiliconFlowAdapter }, { createProviderCredentialBackend }, { resolveProviderSmokeAppDataRoot }, { createPersistentProviderProfileStore }, { createProviderRequestBudgetLedger, zeroProviderBudgetBaseline }, { createRealProviderMultiNodePredictionGateway }] = await Promise.all([
   import("../src/storyControlSurface/storyStudioWorkspaceOperations.ts"),
   import("../src/storyControlSurface/storyStudioMultiNodePredictionOperations.ts"),
   import("../src/storyContracts/storyStudioEventReference.ts"),
   import("../apps/story-studio/server/providerGateway/aiProviderGateway.mjs"),
   import("../apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs"),
   import("../apps/story-studio/server/providerGateway/providerCredentialBackend.mjs"),
+  import("../apps/story-studio/server/providerGateway/providerAppDataRoot.mjs"),
   import("../apps/story-studio/server/providerGateway/persistentProviderProfileStore.mjs"),
   import("../apps/story-studio/server/providerGateway/providerRequestBudgetLedger.mjs"),
   import("../apps/story-studio/server/providerGateway/multiNodePredictionProviderAdapter.mjs")
 ]);
 
-const appDataRoot = path.resolve(process.env.TIANYAN_PROVIDER_APP_DATA_ROOT || defaultProviderAppDataRoot());
+const appDataRoot = resolveProviderSmokeAppDataRoot(process.env).rootPath;
 const profileStore = createPersistentProviderProfileStore({ appDataRoot });
 const profileState = profileStore.read();
 const activeProfile = profileState.profiles.find((item) => item.id === profileState.activeProfileId) || null;

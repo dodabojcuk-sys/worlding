@@ -24,7 +24,8 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     TIANYAN_PROVIDER_APP_DATA_ROOT: providerRoot,
     TIANYAN_CREDENTIAL_BACKEND: "LOCAL_FILE_DEVELOPMENT_ONLY"
   };
-  let child = spawnServer(env);
+  const serverLogs: string[] = [];
+  let child = spawnServer(env, serverLogs);
   try {
     await waitForServer(base);
     const session = await fetch(`${base}/__local/story-studio/storage/session`, { headers: { origin: base } });
@@ -47,24 +48,26 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(JSON.stringify(saved).includes("fixture-secret"), false);
 
     await terminateChildProcess(child, { label: "persistent Provider profile test server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
-    child = spawnServer(env);
+    child = spawnServer(env, serverLogs);
     await waitForServer(base);
     const sessionAfterRestart = await fetch(`${base}/__local/story-studio/storage/session`, { headers: { origin: base } });
-    const restartedHeaders = { cookie: sessionAfterRestart.headers.get("set-cookie") || "", origin: base, "content-type": "application/json" };
-    const restarted = await jsonGet(base, "model-service/status", restartedHeaders);
+    let activeHeaders = { cookie: sessionAfterRestart.headers.get("set-cookie") || "", origin: base, "content-type": "application/json" };
+    const restarted = await jsonGet(base, "model-service/status", activeHeaders);
     assert.equal(restarted.data.profile.profile.displayName, "Fixture Profile");
     assert.equal(restarted.data.profile.profile.modelId, "fixture/chat-model");
     assert.equal(restarted.data.profile.credential.configured, false);
+    assert.equal(restarted.data.profile.storage.scope, "test-isolated");
+    assert.match(restarted.data.profile.storage.compatibilityNotice, /Smoke/u);
 
     const profilePath = path.join(providerRoot, "provider-profile.json");
     const external = JSON.parse(readFileSync(profilePath, "utf8"));
     external.revision = 2;
     external.profiles[0].displayName = "Edited by operator";
     writeFileSync(profilePath, JSON.stringify(external));
-    const reloaded = await jsonPost(base, "model-service/profile/reload", {}, restartedHeaders);
+    const reloaded = await jsonPost(base, "model-service/profile/reload", {}, activeHeaders);
     assert.equal(reloaded.data.profile.displayName, "Edited by operator");
     assert.equal(reloaded.data.revision, 2);
-    const conflict = await jsonPost(base, "model-service/profile/save", { expectedRevision: 1, displayName: "Must not overwrite" }, restartedHeaders);
+    const conflict = await jsonPost(base, "model-service/profile/save", { expectedRevision: 1, displayName: "Must not overwrite" }, activeHeaders);
     assert.equal(conflict.status, 409);
 
     const configured = await jsonPost(base, "model-service/profile/save", {
@@ -74,69 +77,78 @@ test("Provider Settings persists non-sensitive profile across restart and protec
       modelId: "fixture/chat-model",
       enabled: true,
       apiKey: "fixture-secret-value"
-    }, restartedHeaders);
+    }, activeHeaders);
     assert.equal(configured.data.credential.configured, true);
     assert.equal(JSON.stringify(configured).includes("fixture-secret-value"), false);
     assert.equal(configured.data.profile.connectionStatus, "unknown");
     const credentialPath = path.join(providerRoot, "credentials", "siliconflow.default.credential");
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
 
+    await terminateChildProcess(child, { label: "persistent Provider credential restart test server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
+    child = spawnServer(env, serverLogs);
+    await waitForServer(base);
+    const sessionAfterCredentialRestart = await fetch(`${base}/__local/story-studio/storage/session`, { headers: { origin: base } });
+    activeHeaders = { cookie: sessionAfterCredentialRestart.headers.get("set-cookie") || "", origin: base, "content-type": "application/json" };
+    const credentialRestarted = await jsonGet(base, "model-service/status", activeHeaders);
+    assert.equal(credentialRestarted.data.profile.credential.configured, true);
+    assert.equal(JSON.stringify(credentialRestarted).includes("fixture-secret-value"), false);
+
     const invalidModelIdentity = await jsonPost(base, "model-service/profile/save", {
       expectedRevision: configured.data.revision,
       displayName: "Edited by operator",
       modelId: "Edited by operator",
       enabled: true
-    }, restartedHeaders);
+    }, activeHeaders);
     assert.equal(invalidModelIdentity.status, 400);
     assert.match(invalidModelIdentity.error || "", /模型 ID/u);
-    const afterInvalidModelIdentity = await jsonGet(base, "model-service/status", restartedHeaders);
+    const afterInvalidModelIdentity = await jsonGet(base, "model-service/status", activeHeaders);
     assert.equal(afterInvalidModelIdentity.data.profile.revision, configured.data.revision);
     assert.equal(afterInvalidModelIdentity.data.profile.profile.modelId, "fixture/chat-model");
 
-    const models = await jsonPost(base, "model-service/models", {}, restartedHeaders);
+    const models = await jsonPost(base, "model-service/models", {}, activeHeaders);
     assert.equal(models.status, 200);
     assert.deepEqual(models.data.models, ["fixture/chat-model", "fixture/alternate-model"]);
     assert.deepEqual(models.data.profile.profile.availableModels, ["fixture/chat-model", "fixture/alternate-model"]);
     assert.equal(models.data.profile.history.at(-1).kind, "models");
     assert.equal(JSON.stringify(models).includes("fixture-secret-value"), false);
 
-    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true }, restartedHeaders);
-    assert.equal(revealed.status, 200);
-    assert.equal(revealed.data.credential, "fixture-secret-value");
-    assert.equal(revealed.data.expiresInMs, 12_000);
+    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true }, activeHeaders);
+    assert.equal(revealed.status, 404);
+    assert.equal(JSON.stringify(revealed).includes("fixture-secret-value"), false);
 
     const staleCredential = await jsonPost(base, "model-service/profile/save", {
       expectedRevision: 2,
       displayName: "Must not replace credential",
       apiKey: "stale-secret-value"
-    }, restartedHeaders);
+    }, activeHeaders);
     assert.equal(staleCredential.status, 409);
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
 
-    const connection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model" }, restartedHeaders);
+    const connection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model" }, activeHeaders);
     assert.equal(connection.status, 200);
     assert.equal(connection.data.modelId, "fixture/alternate-model");
     assert.equal(connection.data.availableModelCount, 2);
     assert.deepEqual(connection.data.models, ["fixture/chat-model", "fixture/alternate-model"]);
     assert.equal(connection.data.profile.profile.connectionStatus, "verified");
     assert.equal(connection.data.profile.profile.modelId, "fixture/chat-model");
-    const inference = await jsonPost(base, "model-service/minimal-inference", {}, restartedHeaders);
+    const inference = await jsonPost(base, "model-service/minimal-inference", {}, activeHeaders);
     assert.equal(inference.status, 200);
     assert.equal(inference.data.modelId, "fixture/alternate-model");
     assert.equal(inference.data.content, "OK");
     assert.equal(fakeProvider.calls.models, 2);
     assert.equal(fakeProvider.calls.completions, 1);
 
-    const cleared = await jsonPost(base, "model-service/profile/clear-credential", { confirmed: true }, restartedHeaders);
+    const cleared = await jsonPost(base, "model-service/profile/clear-credential", { confirmed: true }, activeHeaders);
     assert.equal(cleared.data.credential.configured, false);
     assert.equal(cleared.data.profile.modelId, "fixture/chat-model");
     assert.equal(cleared.data.profile.connectionStatus, "unknown");
 
-    const disabled = await jsonPost(base, "model-service/profile/disable", { expectedRevision: 2 }, restartedHeaders);
+    const disabled = await jsonPost(base, "model-service/profile/disable", { expectedRevision: 2 }, activeHeaders);
     assert.equal(disabled.status, 409);
-    const current = await jsonGet(base, "model-service/status", restartedHeaders);
-    const disabledOk = await jsonPost(base, "model-service/profile/disable", { expectedRevision: current.data.revision }, restartedHeaders);
+    const current = await jsonGet(base, "model-service/status", activeHeaders);
+    const disabledOk = await jsonPost(base, "model-service/profile/disable", { expectedRevision: current.data.revision }, activeHeaders);
     assert.equal(disabledOk.data.profile.enabled, false);
+    assert.equal(serverLogs.join("").includes("fixture-secret-value"), false);
   } finally {
     await terminateChildProcess(child, { label: "persistent Provider profile test server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
     await closeServer(fakeProvider.server);
@@ -177,12 +189,15 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 
-function spawnServer(env: NodeJS.ProcessEnv): ChildProcess {
-  return spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
+function spawnServer(env: NodeJS.ProcessEnv, logs: string[]): ChildProcess {
+  const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     env,
-    stdio: "ignore"
+    stdio: ["ignore", "pipe", "pipe"]
   });
+  child.stdout?.on("data", (chunk) => logs.push(String(chunk)));
+  child.stderr?.on("data", (chunk) => logs.push(String(chunk)));
+  return child;
 }
 
 async function waitForServer(base: string): Promise<void> {

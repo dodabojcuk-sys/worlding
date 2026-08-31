@@ -11,7 +11,7 @@ export function createSessionCredentialController(options = {}) {
 
   return Object.freeze({
     configured() {
-      return (backend ? backend.read() : credential).length > 0;
+      return backend && typeof backend.configured === "function" ? backend.configured() : credential.length > 0;
     },
     replace(value) {
       if (typeof value !== "string") throw new TypeError("Provider credential must be a string.");

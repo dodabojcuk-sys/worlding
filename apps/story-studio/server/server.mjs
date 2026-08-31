@@ -74,7 +74,8 @@ import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createSiliconFlowAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
-import { createProviderCredentialBackend, defaultProviderAppDataRoot } from "./providerGateway/providerCredentialBackend.mjs";
+import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
+import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
 import { createPersistentProviderProfileStore } from "./providerGateway/persistentProviderProfileStore.mjs";
 import { createReplaySafeProviderReceiptEnvelopeStore } from "./providerGateway/replaySafeProviderReceiptEnvelope.mjs";
 import {
@@ -165,7 +166,11 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
 const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });
-const providerAppDataRoot = resolveProviderAppDataRoot();
+const providerRootResolution = resolveProviderServerAppDataRoot({
+  environment: process.env,
+  testFallbackName: path.basename(rootPath)
+});
+const providerAppDataRoot = providerRootResolution.rootPath;
 const providerProfileStore = createPersistentProviderProfileStore({ appDataRoot: providerAppDataRoot });
 let providerProfileState = providerProfileStore.read();
 const providerCredentialBackend = createProviderCredentialBackend({ appDataRoot: providerAppDataRoot });
@@ -175,6 +180,10 @@ const providerCredential = createSessionCredentialController({
     read() {
       const active = providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId);
       return active?.enabled === false ? "" : providerCredentialBackend.read();
+    },
+    configured() {
+      const active = providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId);
+      return active?.enabled === false ? false : providerCredentialBackend.configured();
     },
     write(value) { providerCredentialBackend.write(value); },
     clear() { providerCredentialBackend.clear(); }
@@ -2193,19 +2202,6 @@ async function handleModelServiceRequest(request, response, url) {
     sendJson(response, 200, { data: readProviderProfileProjection() });
     return;
   }
-  if (request.method === "POST" && route === "profile/reveal-credential") {
-    const body = await readJsonBody(request, 512);
-    requireAllowedKeys(body, ["confirmed"]);
-    if (body.confirmed !== true) throw productError("显示凭据需要明确确认。", 400);
-    if (!providerCredential.configured()) throw productError("当前还没有保存 Provider 凭据。", 412);
-    sendJson(response, 200, {
-      data: {
-        credential: providerCredential.readForProvider(),
-        expiresInMs: 12_000
-      }
-    });
-    return;
-  }
   if (request.method === "POST" && route === "models") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
@@ -2700,16 +2696,6 @@ async function handleModelServiceRequest(request, response, url) {
   throw productError("模型服务对话尚未开放。", 404);
 }
 
-function resolveProviderAppDataRoot() {
-  const configured = process.env.TIANYAN_PROVIDER_APP_DATA_ROOT;
-  const explicitAllowed = process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development" || process.env.TIANYAN_PROVIDER_PROFILE_DEV_MODE === "1";
-  if (configured && !explicitAllowed) throw new Error("TIANYAN_PROVIDER_APP_DATA_ROOT 仅可在显式开发或测试模式使用。");
-  if (!configured && process.env.NODE_ENV === "test") {
-    return path.join(os.tmpdir(), "tianyan-provider-profile-test", path.basename(rootPath));
-  }
-  return path.resolve(configured || defaultProviderAppDataRoot());
-}
-
 function shouldInstallHistoricalProviderIncident() {
   return process.env.NODE_ENV !== "test" && process.env.TIANYAN_PROVIDER_BUDGET_TEST_MODE !== "1";
 }
@@ -2719,12 +2705,17 @@ function readActiveProviderProfile() {
 }
 
 function readProviderProfileProjection() {
-  const configuredCredential = providerCredential.configured() ? providerCredential.readForProvider() : "";
-  return providerProfileStore.publicState(providerProfileState, {
-    configured: configuredCredential.length > 0,
-    backend: providerCredential.backendKind(),
-    suffix: configuredCredential ? configuredCredential.slice(-4) : null
-  });
+  return {
+    ...providerProfileStore.publicState(providerProfileState, {
+      configured: providerCredential.configured(),
+      backend: providerCredential.backendKind()
+    }),
+    storage: {
+      scope: providerRootResolution.scope,
+      smokeCompatibleByDefault: providerRootResolution.smokeCompatibleByDefault,
+      compatibilityNotice: providerRootResolution.compatibilityNotice
+    }
+  };
 }
 
 function syncProviderGatewayProfile(preferredModelId = null) {

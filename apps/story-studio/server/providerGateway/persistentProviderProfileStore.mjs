@@ -1,7 +1,10 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+
+import { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
+
+export { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
 
 export const PROVIDER_PROFILE_SCHEMA_VERSION = 1;
 export const DEFAULT_PROVIDER_PROFILE_ID = "siliconflow.default";
@@ -30,10 +33,6 @@ export function defaultProviderProfileState(now = new Date()) {
     }],
     history: []
   };
-}
-
-export function defaultProviderAppDataRoot() {
-  return path.join(os.homedir(), "Library", "Application Support", "Tianyan");
 }
 
 export function createPersistentProviderProfileStore(options = {}) {
@@ -133,8 +132,7 @@ export function createPersistentProviderProfileStore(options = {}) {
       history: state.history.map((entry) => ({ ...entry })),
       credential: {
         configured: credentialStatus.configured === true,
-        backend: credentialStatus.backend || "unknown",
-        suffix: credentialStatus.suffix || null
+        backend: credentialStatus.backend || "unknown"
       }
     };
   }
