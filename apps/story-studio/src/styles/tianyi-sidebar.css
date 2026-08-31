@@ -78,6 +78,13 @@
 .tianyi-prediction-paths article button { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; align-items: center; align-self: center; gap: .2rem; min-height: 2rem; padding-inline: .5rem; color: var(--color-accent); background: transparent; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; font-size: .68rem; }
 .tianyi-prediction-paths article button svg { inline-size: .75rem; }
 .tianyi-prediction-review > header span { color: var(--color-accent); font-size: .69rem; }
+.tianyi-prediction-adoption-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; margin: 0; padding-block-start: .2rem; }
+.tianyi-prediction-adoption-summary div { display: flex; justify-content: space-between; gap: .35rem; padding: .35rem .45rem; background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .65rem; }
+.tianyi-prediction-adoption-summary dt { color: var(--color-text-muted); }
+.tianyi-prediction-adoption-summary dd { margin: 0; color: var(--color-accent); font-weight: 750; }
+.tianyi-prediction-adoption-summary .is-blocked { grid-column: 1 / -1; }
+.tianyi-prediction-adoption-summary .is-blocked dt,
+.tianyi-prediction-adoption-summary .is-blocked dd { color: var(--color-danger); }
 .tianyi-prediction-node { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; padding: .5rem; background: var(--color-surface-muted); border: 1px dashed color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; }
 .tianyi-prediction-node input { margin-block-start: .2rem; accent-color: var(--color-accent); }
 .tianyi-prediction-node span { display: grid; gap: .12rem; min-width: 0; }
@@ -96,10 +103,11 @@
 .tianyi-prediction-adjust textarea { resize: none; }
 .tianyi-prediction-history { display: grid; gap: .3rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .tianyi-prediction-receipt-card > header { justify-content: flex-start; }
+.tianyi-prediction-receipt-card.is-primary { background: color-mix(in srgb, var(--color-surface) 92%, var(--color-accent-soft)); border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); box-shadow: 0 .2rem .65rem color-mix(in srgb, var(--color-accent) 10%, transparent); }
 .tianyi-prediction-receipt-card > header svg { inline-size: 1.1rem; color: var(--color-accent); }
 .tianyi-prediction-receipt-card > header div { display: grid; gap: .1rem; }
 .tianyi-prediction-receipt-card dl { display: grid; gap: .3rem; margin: 0; }
-.tianyi-prediction-receipt-card dl div { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: .4rem; font-size: .66rem; }
+.tianyi-prediction-receipt-card dl div { display: grid; grid-template-columns: 5.8rem minmax(0, 1fr); gap: .4rem; font-size: .66rem; }
 .tianyi-prediction-receipt-card dt { color: var(--color-text-muted); }
 .tianyi-prediction-receipt-card dd { margin: 0; overflow-wrap: anywhere; }
 .tianyi-sidebar-empty,

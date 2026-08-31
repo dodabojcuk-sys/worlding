@@ -115,10 +115,11 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4) return null;
   const sourceLabels = props.eventRefs.map((reference, index) => props.sourceLabels?.[index] ?? reference.eventId);
   const pathNumber = activePath && run?.bundle ? run.bundle.paths.findIndex((path) => path.id === activePath.id) + 1 : 0;
-  const selectedAll = Boolean(activePath && selectedNodeIds.length === activePath.candidateNodeIds.length);
+  const adoption = summarizeAdoption(run, activePath, selectedNodeIds);
   return <section className="tianyi-prediction-panel" aria-label="多节点推演" data-prediction-phase={phase}>
     <header><div><small>事件线 · 结构化推演</small><strong>多节点推演</strong></div><span className="tianyi-prediction-candidate-badge">候选</span></header>
-    <section className="tianyi-prediction-scope-card" aria-label={`推演范围，${props.eventRefs.length} 个节点`}><strong>推演范围 · {props.eventRefs.length} 个节点</strong><div>{sourceLabels.map((label, index) => <span key={props.eventRefs[index]!.eventId}><b>{index + 1}</b>{label}</span>)}</div></section>
+    {receipt ? <ReceiptView receipt={receipt} run={run} /> : null}
+    <section className="tianyi-prediction-scope-card" aria-label={`推演范围，${props.eventRefs.length} 个节点`}><strong>推演范围 · {props.eventRefs.length} 个节点</strong><div>{sourceLabels.map((label, index) => <span key={props.eventRefs[index]!.eventId} title={label} aria-label={`第 ${index + 1} 个推演依据：${label}`}><b>{index + 1}</b>{label}</span>)}</div></section>
     <section className="tianyi-prediction-context-card"><strong>ContextPack</strong><dl><div><dt>依据</dt><dd>{props.eventRefs.length}</dd></div><div><dt>约束</dt><dd>{props.eventRefs.length + 1}</dd></div><div><dt>未决</dt><dd>{run?.bundle?.nodes.filter((node) => node.timeConsistency.kind === "unknown" || node.identityResolution.kind === "unresolved").length ?? 0}</dd></div></dl></section>
     <section className="tianyi-prediction-request"><strong>当前请求</strong><p>{goal}</p><small>推演方式 · 后续发展</small></section>
     <PredictionProgress phase={phase} run={run} />
@@ -132,20 +133,19 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
         const active = path.id === pathId;
         const nodes = path.candidateNodeIds.map((nodeId) => run.bundle!.nodes.find((node) => node.id === nodeId)?.title).filter(Boolean);
         const blocked = path.candidateNodeIds.some((nodeId) => run.bundle!.nodes.find((node) => node.id === nodeId)?.timeConsistency.kind === "conflict");
-        return <article key={path.id} className={active ? "is-active" : ""} data-path-id={path.id}><div><b>{index + 1}</b><strong>{path.title}</strong>{blocked ? <span className="is-blocked">时间冲突</span> : active ? <span>当前路径</span> : null}</div><p>{nodes.join(" → ")}</p><button type="button" aria-pressed={active} onClick={() => choosePath(path.id)}>{active ? "正在预览" : "预览路径"}<ChevronRight /></button></article>;
+        return <article key={path.id} className={active ? "is-active" : ""} data-path-id={path.id}><div><b>{index + 1}</b><strong title={path.title}>{path.title}</strong>{blocked ? <span className="is-blocked">时间冲突</span> : active ? <span>当前路径</span> : null}</div><p title={nodes.join(" → ")}>{nodes.join(" → ")}</p><button type="button" aria-label={`${active ? "正在预览" : "预览路径"}：${path.title}`} aria-pressed={active} onClick={() => choosePath(path.id)}>{active ? "正在预览" : "预览路径"}<ChevronRight /></button></article>;
       })}</section>
-      {activePath ? <section className="tianyi-prediction-review" aria-label={`审阅路径 ${activePath.title}`}><header><div><small>路径 {pathNumber}</small><strong>{activePath.title}</strong></div><span>已选择 {selectedNodeIds.length}/{activePath.candidateNodeIds.length}</span></header>{activePath.candidateNodeIds.map((nodeId) => {
+      {activePath ? <section className="tianyi-prediction-review" aria-label={`审阅路径 ${activePath.title}`}><header><div><small>路径 {pathNumber}</small><strong title={activePath.title}>{activePath.title}</strong></div><span>已选择 {selectedNodeIds.length}/{activePath.candidateNodeIds.length}</span></header>{activePath.candidateNodeIds.map((nodeId) => {
         const node = run.bundle!.nodes.find((item) => item.id === nodeId)!;
         const blocked = node.identityResolution.kind === "unresolved" || node.timeConsistency.kind === "conflict";
-        return <label key={node.id} className="tianyi-prediction-node"><input type="checkbox" checked={selectedNodeIds.includes(node.id)} disabled={busy || blocked} onChange={(event) => toggleNode(node.id, event.target.checked)} /><span><strong>{node.title}</strong><small>身份：{identityLabel(node.identityResolution.kind)}</small><small className={node.timeConsistency.kind === "conflict" ? "is-blocked" : ""}>时间：{node.timeConsistency.label}{node.timeConsistency.kind === "unknown" ? "（可继续审阅）" : ""}{blocked ? " · 需先处理" : ""}</small><small>写入目标：{writeTarget(node.identityResolution.kind)}</small></span></label>;
-      })}</section> : <p className="tianyi-prediction-path-prompt">请先选择一条候选路径，再决定要保存哪些节点。</p>}
-      <button type="button" className="primary-action tianyi-prediction-accept" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />{selectedAll ? "将整条路径保存为草稿" : `将 ${selectedNodeIds.length} 个节点保存为草稿`}</button>
+        return <label key={node.id} className="tianyi-prediction-node"><input type="checkbox" checked={selectedNodeIds.includes(node.id)} disabled={busy || blocked} onChange={(event) => toggleNode(node.id, event.target.checked)} /><span><strong title={node.title}>{node.title}</strong><small>身份：{identityLabel(node.identityResolution.kind)}</small><small className={node.timeConsistency.kind === "conflict" ? "is-blocked" : ""}>时间：{node.timeConsistency.label}{node.timeConsistency.kind === "unknown" ? "（可继续审阅）" : ""}{blocked ? " · 需先处理" : ""}</small><small>写入目标：{writeTarget(node.identityResolution.kind)}</small></span></label>;
+      })}<dl className="tianyi-prediction-adoption-summary" aria-label="本次采纳数量"><div><dt>已选择候选</dt><dd>{adoption.selected}</dd></div><div><dt>引用已有 Event</dt><dd>{adoption.referenced}</dd></div><div><dt>新建 draft Event</dt><dd>{adoption.drafts}</dd></div><div><dt>跳过</dt><dd>{adoption.skipped}</dd></div>{adoption.blocked ? <div className="is-blocked"><dt>因冲突阻止</dt><dd>{adoption.blocked}</dd></div> : null}</dl></section> : <p className="tianyi-prediction-path-prompt">请先选择一条候选路径，再决定要保存哪些节点。</p>}
+      <button type="button" className="primary-action tianyi-prediction-accept" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />{adoptionButtonLabel(adoption)}</button>
       <div className="tianyi-prediction-secondary-actions"><button type="button" disabled={busy} onClick={start}><RotateCcw />重新推演</button><button type="button" disabled={busy || run.status === "abandoned"} onClick={abandon}><Ban />放弃 Run</button></div>
       {!gate.allowed ? <small className="tianyi-prediction-gate">采纳已禁用：{gateReason(gate.reasons)}</small> : null}
       <label className="tianyi-prediction-adjust"><span>继续调整本次推演</span><textarea value={goal} maxLength={1000} rows={2} disabled={busy} onChange={(event) => setGoal(event.target.value)} /></label>
     </section> : <p className="tianyi-prediction-empty"><RotateCcw />选择 1–4 个已有事件后，生成可审阅的连续候选路径。</p>}
     {runs.length > 1 ? <label className="tianyi-prediction-history">Run 历史<select value={run?.runId ?? ""} onChange={(event) => selectRun(event.target.value)}>{runs.map((item) => <option key={item.runId} value={item.runId}>{item.runId.slice(-8)} · {runStatusLabel(item.status)}</option>)}</select></label> : null}
-    {receipt ? <ReceiptView receipt={receipt} run={run} /> : null}
     {run?.status === "abandoned" ? <p className="tianyi-prediction-receipt" role="status">此 Run 已放弃；既有草稿和历史回执均保留。</p> : null}
     {error ? <p className="tianyi-error" role="alert">{error}</p> : null}
   </section>;
@@ -160,8 +160,31 @@ function PredictionProgress(props: { phase: PredictionPhase; run: PredictionRun 
 function ReceiptView(props: { receipt: DraftReceipt; run: PredictionRun | null }) {
   const path = props.run?.bundle?.paths.find((item) => item.id === props.receipt.pathId);
   const created = props.receipt.items.filter((item) => item.action === "draft-created");
-  const skipped = props.receipt.items.filter((item) => item.action !== "draft-created");
-  return <section className="tianyi-prediction-receipt-card" role="status"><header><CircleCheck /><div><strong>草稿回执已保存</strong><small>尚未进入正式事件线</small></div></header><dl><div><dt>Run ID</dt><dd>{props.receipt.runId}</dd></div><div><dt>路径</dt><dd>{path?.title ?? props.receipt.pathId}</dd></div><div><dt>已创建</dt><dd>{created.length ? created.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>已跳过</dt><dd>{skipped.length ? skipped.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>draft receipt</dt><dd>{props.receipt.operationId}</dd></div></dl></section>;
+  const referenced = props.receipt.items.filter((item) => item.action === "referenced-existing");
+  const mergeReview = props.receipt.items.filter((item) => item.action === "merge-review");
+  const selectedIds = new Set(props.receipt.items.map((item) => item.candidateNodeId));
+  const unselectedIds = path?.candidateNodeIds.filter((id) => !selectedIds.has(id)) ?? [];
+  const skippedIds = [...unselectedIds, ...mergeReview.map((item) => item.candidateNodeId)];
+  return <section className="tianyi-prediction-receipt-card is-primary" role="status" aria-label="本次采纳结果"><header><CircleCheck /><div><strong>本次采纳结果</strong><small>回执已持久保存 · 尚未进入正式事件线</small></div></header><dl><div><dt>Run ID</dt><dd>{props.receipt.runId}</dd></div><div><dt>候选路径</dt><dd>{path?.title ?? props.receipt.pathId}</dd></div><div><dt>选择数量</dt><dd>{props.receipt.items.length}</dd></div><div><dt>引用已有 Event</dt><dd>{referenced.length ? referenced.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "0"}</dd></div><div><dt>新建 draft Event</dt><dd>{created.length ? created.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "0"}</dd></div><div><dt>跳过节点</dt><dd>{skippedIds.length ? skippedIds.map((id) => nodeTitle(props.run, id)).join("、") : "0"}</dd></div><div><dt>因冲突阻止</dt><dd>0</dd></div><div><dt>回执 ID</dt><dd>{props.receipt.operationId}</dd></div></dl></section>;
+}
+
+type AdoptionSummary = { selected: number; referenced: number; drafts: number; skipped: number; blocked: number; mergeReview: number };
+function summarizeAdoption(run: PredictionRun | null, path: NonNullable<PredictionRun["bundle"]>["paths"][number] | null, selectedNodeIds: readonly string[]): AdoptionSummary {
+  if (!run?.bundle || !path) return { selected: 0, referenced: 0, drafts: 0, skipped: 0, blocked: 0, mergeReview: 0 };
+  const selectedIds = new Set(selectedNodeIds);
+  const selected = path.candidateNodeIds.map((id) => run.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node && selectedIds.has(node.id)));
+  const referenced = selected.filter((node) => node.identityResolution.kind === "reference-existing").length;
+  const drafts = selected.filter((node) => node.identityResolution.kind === "create-new-with-difference").length;
+  const mergeReview = selected.filter((node) => node.identityResolution.kind === "merge-review").length;
+  const blocked = selected.filter((node) => node.identityResolution.kind === "unresolved" || node.timeConsistency.kind === "conflict").length;
+  return { selected: selected.length, referenced, drafts, mergeReview, blocked, skipped: path.candidateNodeIds.length - selected.length + mergeReview };
+}
+function adoptionButtonLabel(summary: AdoptionSummary): string {
+  if (!summary.selected) return "请选择要采纳的节点";
+  if (summary.blocked) return `采纳 ${summary.selected} 个节点 · ${summary.blocked} 个冲突待处理`;
+  if (summary.drafts) return `采纳 ${summary.selected} 个节点 · 新建 ${summary.drafts} 个草稿`;
+  if (summary.referenced === summary.selected) return `采纳 ${summary.selected} 个节点 · 引用 ${summary.referenced} 个已有事件`;
+  return `采纳 ${summary.selected} 个节点 · 不新建草稿`;
 }
 
 function announceRun(run: PredictionRun): void { (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun = run; window.dispatchEvent(new CustomEvent("story-studio-multi-node-prediction-run", { detail: run })); }

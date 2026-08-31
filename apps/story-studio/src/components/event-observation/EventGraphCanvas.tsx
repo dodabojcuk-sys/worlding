@@ -23,11 +23,11 @@ type Selection =
 type NodeData = {
   title: string; time: string; location: string; status: string; focused: boolean; selected: boolean; predictionSelected?: boolean;
   remote?: boolean; candidate?: boolean; direction?: "past" | "future"; count?: number; runId?: string; pathCount?: number;
-  pathLabel?: string; reviewSelected?: boolean; scopeLabel?: string;
+  pathLabel?: string; reviewSelected?: boolean; scopeLabel?: string; sourceSummary?: boolean; sourceCount?: number; onExpandSources?: () => void;
 };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type Layout = { version: "tianyan-event-graph-layout/v2"; positions: Record<string, { x: number; y: number }> };
-const nodeTypes = { event: EventGraphNode, prediction: PredictionGraphNode, predictionScope: PredictionScopeNode };
+const nodeTypes = { event: EventGraphNode, prediction: PredictionGraphNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode };
 
 export function EventGraphCanvas(props: {
   projectId: string;
@@ -57,6 +57,8 @@ export function EventGraphCanvas(props: {
   const [predictionRun, setPredictionRun] = useState<PredictionRun | null>(null);
   const [predictionPathId, setPredictionPathId] = useState<string | null>(null);
   const [predictionSelectedNodeIds, setPredictionSelectedNodeIds] = useState<string[]>([]);
+  const [narrowPrediction, setNarrowPrediction] = useState(() => window.matchMedia("(max-width: 75rem)").matches);
+  const [predictionSourcesExpanded, setPredictionSourcesExpanded] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
   const rightWorkSurface = useWorkspaceDockSlot();
   const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
@@ -75,7 +77,9 @@ export function EventGraphCanvas(props: {
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
   const graphRelations = densityFixture?.relations ?? props.relations;
-  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(predictionSelectionIds), predictionRun, predictionPathId, new Set(predictionSelectedNodeIds)), [depth, focusId, graphEvents, graphRelations, layout.positions, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, selection, view]);
+  const expandPredictionSources = useCallback(() => setPredictionSourcesExpanded(true), []);
+  const collapsePredictionSources = narrowPrediction && Boolean(predictionPathId) && !predictionSourcesExpanded;
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(predictionSelectionIds), predictionRun, predictionPathId, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, selection, view]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
   const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
@@ -109,6 +113,17 @@ export function EventGraphCanvas(props: {
     window.addEventListener("story-studio-prediction-review-selection", receive);
     return () => window.removeEventListener("story-studio-prediction-review-selection", receive);
   }, [predictionRun]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 75rem)");
+    const update = () => setNarrowPrediction(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (narrowPrediction && predictionPathId) setPredictionSourcesExpanded(false);
+  }, [narrowPrediction, predictionPathId]);
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
@@ -220,7 +235,7 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : openInspector(selection?.kind === "relation" ? "RELATION_REVIEW" : props.createOpen ? "EVENT_CREATE" : "EVENT_DETAILS")}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>
-    {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id}><b>{index + 1}</b>{event.title}<button type="button" aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
+    {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id} title={event.title} aria-label={`第 ${index + 1} 个推演依据：${event.title}`}><b>{index + 1}</b>{event.title}<button type="button" title={`移出推演范围：${event.title}`} aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}{narrowPrediction && predictionPathId ? <button type="button" className="event-graph-source-collapse" aria-expanded={predictionSourcesExpanded} onClick={() => setPredictionSourcesExpanded((expanded) => !expanded)}>{predictionSourcesExpanded ? `折叠为 ${predictionSources.length} 个推演依据` : `展开 ${predictionSources.length} 个推演依据`}</button> : null}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}
     <div className="event-graph-main">
@@ -295,6 +310,12 @@ function PredictionScopeNode(props: NodeProps<Node<NodeData>>) {
   </section>;
 }
 
+function PredictionSourceSummaryNode(props: NodeProps<Node<NodeData>>) {
+  return <button type="button" className="event-graph-prediction-source-summary" aria-label={`展开 ${props.data.sourceCount ?? 0} 个推演依据`} aria-expanded="false" onClick={(event) => { event.stopPropagation(); props.data.onExpandSources?.(); }}>
+    <Handle type="source" position={Position.Right} isConnectable={false} /><Layers3 /><span><strong>{props.data.sourceCount ?? 0} 个推演依据</strong><small>正式事件摘要 · 点击展开</small></span><Expand />
+  </button>;
+}
+
 function EventUnitDirectory(props: {
   events: readonly EventLineEventSummary[];
   selectedEventId: string | null;
@@ -318,11 +339,11 @@ function EventUnitDirectory(props: {
     const selected = props.predictionSelectionIds.includes(event.id);
     const semantic = eventLineSemanticNode(event);
     return <li key={event.id} className={props.selectedEventId === event.id ? "is-focused" : ""}>
-      <button type="button" className="event-unit-focus" onClick={() => props.onSelect(event.id)}><span>{event.title}</span><small>{semantic.time.label}</small></button>
-      <button type="button" className="event-unit-prediction-toggle" aria-pressed={selected} aria-label={`${selected ? "移出" : "加入"}推演范围：${event.title}`} disabled={!selected && props.predictionSelectionIds.length >= 4} onClick={() => props.onTogglePrediction(event.id)}>{selected ? <Check /> : <Plus />}</button>
+      <button type="button" className="event-unit-focus" title={event.title} aria-label={`${event.title}，${semantic.time.label}`} onClick={() => props.onSelect(event.id)}><span title={event.title}>{event.title}</span><small>{semantic.time.label}</small></button>
+      <button type="button" className="event-unit-prediction-toggle" title={`${selected ? "移出" : "加入"}推演范围：${event.title}`} aria-pressed={selected} aria-label={`${selected ? "移出" : "加入"}推演范围：${event.title}`} disabled={!selected && props.predictionSelectionIds.length >= 4} onClick={() => props.onTogglePrediction(event.id)}>{selected ? <Check /> : <Plus />}</button>
     </li>;
   };
-  return <aside className="event-unit-directory" aria-label="单元目录"><header><Layers3 /><strong>单元</strong></header>{units.map(([label, unit], index) => <section key={label}><h2>单元 {String(index + 1).padStart(2, "0")} · {label}</h2>{unit.direct.length ? <ul>{unit.direct.map(item)}</ul> : null}{[...unit.setPoints.entries()].map(([setPoint, events]) => <div className="event-unit-set-point" key={setPoint}><h3>集点 · {setPoint}</h3><ul>{events.map(item)}</ul></div>)}</section>)}</aside>;
+  return <aside className="event-unit-directory" aria-label="单元目录"><header><Layers3 /><strong>单元</strong></header>{units.map(([label, unit], index) => <section key={label}><h2 title={label} aria-label={`单元 ${String(index + 1).padStart(2, "0")}：${label}`}>单元 {String(index + 1).padStart(2, "0")} · {label}</h2>{unit.direct.length ? <ul aria-label={`${label}的直接节点`}>{unit.direct.map(item)}</ul> : null}{[...unit.setPoints.entries()].map(([setPoint, events]) => <div className="event-unit-set-point" key={setPoint}><h3 title={setPoint} aria-label={`可选集点：${setPoint}`}>集点 · {setPoint}</h3><ul aria-label={`${setPoint}集点内节点`}>{events.map(item)}</ul></div>)}</section>)}</aside>;
 }
 
 function GraphLegend() {
@@ -384,7 +405,7 @@ function Tab(props: { active: boolean; children: ReactNode; onClick(): void }) {
 function Facts(props: { facts: Array<[ReactNode, string, string]> }) { return <dl className="event-graph-facts">{props.facts.map(([icon, label, value]) => <div key={label}><dt>{icon}{label}</dt><dd>{value}</dd></div>)}</dl>; }
 function TextBlock(props: { title: string; text: string }) { return <section className="event-graph-text-block"><h3>{props.title}</h3><p>{props.text}</p></section>; }
 
-function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionSelectedNodeIds: ReadonlySet<string>): { nodes: Node<NodeData>[]; edges: Edge[] } {
+function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const ids = new Set(events.map((event) => event.id));
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
@@ -394,7 +415,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const remote = view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
   const focusLayout = view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
   const visibleEvents = events.filter((event) => visible.has(event.id));
-  const nodes: Node<NodeData>[] = visibleEvents.map((event, index) => {
+  const nodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
     const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 125 } : null;
@@ -406,16 +427,23 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const edges = active.filter((relation) => nodeIds.has(relation.sourceObjectId) && nodeIds.has(relation.targetObjectId)).map((relation) => relationEdge(relation, selection));
   if (validFocus && remote.past.size) edges.push(remoteEdge("past", validFocus));
   if (validFocus && remote.future.size) edges.push(remoteEdge("future", validFocus));
-  if (sourceIds) {
+  if (sourceIds && collapsePredictionSources) {
+    nodes.push({ id: `prediction-source-summary.${predictionRun?.runId ?? "selection"}`, type: "predictionSourceSummary", draggable: false, connectable: false, selectable: false, position: { x: 42, y: 164 }, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, sourceSummary: true, sourceCount: visibleEvents.length, onExpandSources: onExpandPredictionSources } });
+  } else if (sourceIds) {
     nodes.push({ id: `prediction-scope.${predictionRun?.runId ?? "selection"}`, type: "predictionScope", draggable: false, connectable: false, selectable: false, position: { x: 24, y: 38 }, style: { width: 246, height: Math.max(390, visibleEvents.length * 125 + 50) }, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, scopeLabel: `推演依据 · ${visibleEvents.length} 个节点` } });
   }
   if (activePath && predictionRun?.bundle) {
     const candidateIds = new Set(activePath.candidateNodeIds);
     const pathNodes = activePath.candidateNodeIds.map((id) => predictionRun.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
-    pathNodes.forEach((node, index) => nodes.push({ id: node.id, type: "prediction", draggable: false, connectable: false, selectable: true, position: { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected: predictionSelectedNodeIds.has(node.id) } }));
+    pathNodes.forEach((node, index) => nodes.push({ id: node.id, type: "prediction", draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 215 + index * 160, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected: predictionSelectedNodeIds.has(node.id) } }));
     predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
     const first = pathNodes[0];
-    predictionRun.sourceSnapshot.forEach((source, index) => { if (ids.has(source.eventId) && first) edges.push({ id: `prediction-source.${source.eventId}.${first.id}`, source: source.eventId, target: first.id, type: "smoothstep", label: index === 0 ? "推演预览" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } }); });
+    if (collapsePredictionSources) {
+      const summaryId = `prediction-source-summary.${predictionRun.runId}`;
+      if (first) edges.push({ id: `prediction-source-summary-edge.${predictionRun.runId}.${first.id}`, source: summaryId, target: first.id, type: "smoothstep", label: "推演预览", style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } });
+    } else {
+      predictionRun.sourceSnapshot.forEach((source, index) => { if (ids.has(source.eventId) && first) edges.push({ id: `prediction-source.${source.eventId}.${first.id}`, source: source.eventId, target: first.id, type: "smoothstep", label: index === 0 ? "推演预览" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } }); });
+    }
   }
   return { nodes, edges };
 }
@@ -487,16 +515,19 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
 function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
   if (!canvas || !nodes.length) return;
+  const hasSourceSummary = nodes.some((node) => node.type === "predictionSourceSummary");
   const dimensions = (node: Node<NodeData>) => node.type === "predictionScope"
     ? { width: Number(node.style?.width) || 246, height: Number(node.style?.height) || 425 }
-    : node.type === "prediction" ? { width: 168, height: 126 } : { width: 204, height: 112 };
+    : node.type === "predictionSourceSummary" ? { width: 160, height: 82 }
+    : node.type === "prediction" ? { width: hasSourceSummary ? 152 : 168, height: 126 } : { width: 204, height: 112 };
   const minX = Math.min(...nodes.map((node) => node.position.x));
   const minY = Math.min(...nodes.map((node) => node.position.y));
   const maxX = Math.max(...nodes.map((node) => node.position.x + dimensions(node).width));
   const maxY = Math.max(...nodes.map((node) => node.position.y + dimensions(node).height));
   const paddingX = 26;
   const paddingY = 34;
-  const zoom = Math.max(.45, Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, maxX - minX), (canvas.height - paddingY * 2) / Math.max(1, maxY - minY)));
+  const fittedZoom = Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, maxX - minX), (canvas.height - paddingY * 2) / Math.max(1, maxY - minY));
+  const zoom = hasSourceSummary ? Math.max(.82, fittedZoom) : Math.max(.45, fittedZoom);
   const x = (canvas.width - (maxX - minX) * zoom) / 2 - minX * zoom;
   const y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 0 });

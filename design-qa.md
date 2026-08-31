@@ -57,3 +57,32 @@ final result: blocked
 - Browser console warnings/errors: 0 in the passing E2E run.
 
 final result: passed
+
+---
+
+# Design QA — Tianyan Multi-Node Prediction Founder Polish R2
+
+- Founder reference: `/tmp/codex-clipboard-422355c5-fe9e-44f5-9870-f0545b6fcf9e.png` (1568×1003)
+- Reference comparison: `/home/beelink/.codex/visualizations/2026/08/31/tianyan-multi-node-prediction-founder-polish-r2/reference-vs-r2-review.png`
+- Four-state contact sheet: `/home/beelink/.codex/visualizations/2026/08/31/tianyan-multi-node-prediction-founder-polish-r2/four-state-contact-sheet.png`
+- Verified viewports: 1440×900 and 1152×720 at device scale 1.
+
+## Contract checks
+
+- `单元 01 · 雾港` contains direct Event nodes plus the optional `集点 · 仓库冲突`; the Set Point references two existing Events and introduces no volume hierarchy.
+- Truncated Event titles retain their complete native tooltip and accessible name.
+- Partial adoption shows two selected candidates, one existing Event reference, one new draft Event, and one skipped candidate; the primary action repeats the real selected/new-draft counts.
+- The persisted receipt is the first card under the Tianyi heading after refresh and names the Run, path, selection, reference, draft and skipped candidate without moving focus.
+- Refresh recovery did not increase the draft Event count, and formal Relation, Canon and WorldState ownership boundaries remain unchanged.
+- At 1152×720, the three formal sources collapse to one keyboard-expandable `3 个推演依据` summary; the current three-node candidate path remains fully visible and readable.
+- Tianyi remains the rightmost fixed-width prediction console at 348px with its own scroll surface.
+- Browser console warnings/errors: 0 in the passing dedicated prediction E2E run.
+
+## Visual comparison findings
+
+- The R2 implementation preserves the reference's Unit-directory / multi-source basis / continuous candidate path / rightmost Tianyi composition.
+- The review UI is intentionally denser than the reference because it exposes the frozen identity, time and write-target gates; the new count summary keeps the primary action unambiguous.
+- The 1152 evidence now uses semantic collapse rather than shrinking six cards into the viewport; neither the source summary nor the current candidate path is clipped.
+- No P0, P1 or P2 visual defect remains in the four requested evidence states.
+
+final result: passed
