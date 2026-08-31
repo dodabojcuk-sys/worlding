@@ -91,7 +91,7 @@ export function AgentSettingsSection(props: {
     } finally { setProviderBusy(false); }
   })();
 
-  return <section className="settings-card agent-settings-section" aria-labelledby="agent-settings-title" data-agent-runtime="pi">
+  return <section id="settings-agent-overview" className="settings-card agent-settings-section" aria-labelledby="agent-settings-title" data-agent-runtime="pi">
     <header>
       <Bot aria-hidden="true" />
       <div>
@@ -108,7 +108,7 @@ export function AgentSettingsSection(props: {
       <div><dt>Pi Agent</dt><dd>{props.status?.tianyiDialogue.ready ? "已接入 Provider Gateway" : "等待 Provider 配置"}</dd></div>
     </dl>
     {!configured.length && <p role="status">尚未配置真实 Provider；Agent 不会用 fixture 冒充成功。</p>}
-    <section className="agent-runtime-plugin-status" aria-labelledby="agent-runtime-plugin-title" data-agent-runtime-plugin={agentRuntime?.activePluginId ?? "unavailable"}>
+    <section id="settings-agent-runtime" className="agent-runtime-plugin-status" aria-labelledby="agent-runtime-plugin-title" data-agent-runtime-plugin={agentRuntime?.activePluginId ?? "unavailable"}>
       <div>
         <strong id="agent-runtime-plugin-title">Agent Runtime 插件</strong>
         <p>仅加载宿主白名单中的内置运行时；不会自动下载或执行第三方代码。</p>
@@ -124,7 +124,7 @@ export function AgentSettingsSection(props: {
       {agentRuntime?.message && <p role="status">{agentRuntime.message}</p>}
       <div className="agent-runtime-plugin-actions"><button type="button" data-agent-runtime-update="check" disabled={props.busy || !props.onRefresh} onClick={props.onRefresh}>检查内置运行时状态</button><small>升级必须由产品更新流程显式提供并通过 ABI 兼容测试；此处不会拉取外部代码。</small></div>
     </section>
-    <form className="agent-provider-profile" onSubmit={saveProvider} key={props.status?.profile.revision ?? "initial"}>
+    <form id="settings-agent-provider" className="agent-provider-profile" onSubmit={saveProvider} key={props.status?.profile.revision ?? "initial"}>
       <div>
         <strong>Provider 配置</strong>
         <p>模型调用只经 Provider Gateway；密钥在提交后由服务器凭据 owner 持有，UI 仅显示掩码和连接状态。</p>
@@ -151,7 +151,7 @@ export function AgentSettingsSection(props: {
       </div>
       {providerNotice && <p role={providerNotice.includes("失败") ? "alert" : "status"}>{providerNotice}</p>}
     </form>
-    <fieldset className="agent-permission-settings" disabled={!props.permissionState || props.busy || !props.onPermissionProfile}>
+    <fieldset id="settings-agent-permissions" className="agent-permission-settings" disabled={!props.permissionState || props.busy || !props.onPermissionProfile}>
       <legend><ShieldCheck aria-hidden="true" />默认权限</legend>
       <p>正式写入与高风险工具始终保留作者确认；这里设置日常读取和候选整理的默认范围。</p>
       {(Object.keys(permissionLabels) as AgentPermissionProfile[]).map((profile) => <label key={profile}>

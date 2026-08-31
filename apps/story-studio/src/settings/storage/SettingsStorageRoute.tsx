@@ -23,11 +23,17 @@ import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
 
 type SettingsSectionId = "storage" | "transfer" | "agent";
+type SettingsNavItem = { id: string; label: string; section: SettingsSectionId; targetId: string };
 
-const workspaceSections: ReadonlyArray<{ id: SettingsSectionId; group: string; label: string }> = [
-  { id: "storage", group: "工作区", label: "存储与备份" },
-  { id: "transfer", group: "数据", label: "导入与导出" },
-  { id: "agent", group: "智能", label: "模型与 Agent" }
+const workspaceNavigation: ReadonlyArray<{ group: string; items: ReadonlyArray<SettingsNavItem> }> = [
+  { group: "工作区", items: [{ id: "storage", label: "存储与备份", section: "storage", targetId: "settings-section-storage" }] },
+  { group: "数据", items: [{ id: "transfer", label: "导入与导出", section: "transfer", targetId: "settings-section-transfer" }] },
+  { group: "智能", items: [
+    { id: "agent-overview", label: "运行概览", section: "agent", targetId: "settings-agent-overview" },
+    { id: "agent-runtime", label: "Pi Agent 运行时", section: "agent", targetId: "settings-agent-runtime" },
+    { id: "agent-provider", label: "Provider 与模型", section: "agent", targetId: "settings-agent-provider" },
+    { id: "agent-permissions", label: "默认权限", section: "agent", targetId: "settings-agent-permissions" }
+  ] }
 ];
 
 /** Independent utility route. It composes settings adapters without mounting the product Shell. */
@@ -41,6 +47,8 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
   const [runtimeBusy, setRuntimeBusy] = useState(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("storage");
+  const [activeNavItem, setActiveNavItem] = useState("storage");
+  const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const withToken = useCallback(<T,>(action: (token: string) => Promise<T>) => storageProvider.withWriteAccess(action), [storageProvider]);
 
   const refreshRuntime = useCallback(async (activeProject: StoryStudioProject | null) => {
@@ -69,6 +77,21 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     }).catch((cause) => active && setRuntimeError(cause instanceof Error ? cause.message : "无法读取设置。"));
     return () => { active = false; };
   }, [refreshRuntime]);
+
+  useEffect(() => {
+    if (!pendingTargetId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(pendingTargetId)?.scrollIntoView({ block: "start" });
+      setPendingTargetId(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSection, pendingTargetId]);
+
+  const openSettingsItem = (item: SettingsNavItem) => {
+    setActiveSection(item.section);
+    setActiveNavItem(item.id);
+    setPendingTargetId(item.targetId);
+  };
 
   const updatePermission = async (profile: AgentPermissionProfile) => {
     if (!project) throw new Error("请先打开项目。");
@@ -129,7 +152,10 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
       <div className="settings-workspace-layout">
         {presentation === "workspace" && <aside className="settings-workspace-nav" aria-label="设置目录">
           <p>设置目录</p>
-          <nav>{workspaceSections.map((section) => <button key={section.id} type="button" aria-current={activeSection === section.id ? "page" : undefined} aria-controls={`settings-section-${section.id}`} onClick={() => setActiveSection(section.id)}><small>{section.group}</small><span>{section.label}</span></button>)}</nav>
+          <nav>{workspaceNavigation.map((group) => <section className="settings-workspace-nav-group" key={group.group} aria-label={group.group}>
+            <strong>{group.group}</strong>
+            <div>{group.items.map((item) => <button key={item.id} type="button" aria-current={activeNavItem === item.id ? "page" : undefined} aria-controls={item.targetId} onClick={() => openSettingsItem(item)}><span>{item.label}</span></button>)}</div>
+          </section>)}</nav>
         </aside>}
         <div className="settings-workspace-sections">
           {(presentation === "utility" || activeSection === "storage") && <section id="settings-section-storage" aria-label="存储与备份"><SettingsStorageSection

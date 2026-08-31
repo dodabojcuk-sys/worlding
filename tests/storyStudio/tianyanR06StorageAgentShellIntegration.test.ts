@@ -8,6 +8,7 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   const app = source("apps/story-studio/src/App.tsx");
   const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
   const agent = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
+  const settingsStyles = source("apps/story-studio/src/styles/settings.css");
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
   assert.match(app, /pathname\.startsWith\("\/settings\/"\)/);
   assert.match(route, /data-settings-route=\{presentation\}/);
@@ -16,6 +17,10 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(route, /activeSection === "storage"/);
   assert.match(route, /activeSection === "transfer"/);
   assert.match(route, /activeSection === "agent"/);
+  assert.match(route, /Provider 与模型/);
+  assert.match(route, /Pi Agent 运行时/);
+  assert.match(route, /settings-agent-permissions/);
+  assert.match(route, /scrollIntoView\(\{ block: "start" \}\)/);
   assert.match(route, /presentation === "utility" && <header className="settings-utility-heading">/);
   assert.match(route, /当前作品：/);
   assert.match(route, /SettingsStorageSection/);
@@ -27,6 +32,11 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(agent, /data-agent-runtime="pi"/);
   assert.match(agent, /Provider Gateway/);
   assert.match(agent, /agent-default-permission/);
+  assert.match(agent, /id="settings-agent-runtime"/);
+  assert.match(agent, /id="settings-agent-provider"/);
+  assert.match(agent, /id="settings-agent-permissions"/);
+  assert.match(settingsStyles, /\.settings-workspace-nav \{[\s\S]*position: sticky;[\s\S]*max-height: calc\(100dvh/);
+  assert.match(settingsStyles, /overscroll-behavior: contain/);
   assert.match(shell, /onSettings=\{openSettings\}/);
   assert.match(shell, /settingsOpen=\{settingsOpen\}/);
   assert.match(shell, /!settingsOpen && !accountOpen && directoryOpen/);
