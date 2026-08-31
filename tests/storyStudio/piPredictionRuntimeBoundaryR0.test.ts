@@ -9,7 +9,11 @@ test("server and browser transport expose only Tianyi-owned execution projection
   const server = source("apps/story-studio/server/server.mjs");
   const transport = source("apps/story-studio/src/lib/localTransport.ts");
   assert.match(server, /"prediction\/execution"/u);
+  assert.match(server, /"prediction\/stop"/u);
+  assert.match(server, /"prediction\/retry"/u);
   assert.match(transport, /TianyiPredictionExecutionProjection/u);
+  assert.match(transport, /stopMultiNodePredictionRun/u);
+  assert.match(transport, /retryMultiNodePredictionRun/u);
   assert.match(transport, /tianyiAgentMode\.ts/u);
   assert.doesNotMatch(transport, /@earendil-works\/pi-/u);
 });

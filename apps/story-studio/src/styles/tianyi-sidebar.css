@@ -114,6 +114,11 @@
 .tianyi-prediction-execution-link { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-block-size: 2.3rem; padding-inline: .7rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 92%, var(--color-accent-soft)); border: 1px solid color-mix(in srgb, var(--color-accent) 48%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; font-size: .72rem; font-weight: 700; }
 .tianyi-prediction-execution-link svg { inline-size: .9rem; }
 .tianyi-prediction-execution-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.tianyi-prediction-runtime-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+.tianyi-prediction-runtime-actions > button { min-block-size: 2.3rem; padding-inline: .55rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .69rem; }
+.tianyi-prediction-runtime-actions > button:only-child { grid-column: 1 / -1; }
+.tianyi-prediction-runtime-actions > button.is-stop { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 48%, var(--color-border)); }
+.tianyi-prediction-runtime-actions > button:disabled { color: var(--color-text-muted); cursor: not-allowed; opacity: .62; }
 .tianyi-sidebar-empty,
 .tianyi-agent-stage { align-self: center; display: grid; gap: var(--space-3); color: var(--color-text-muted); line-height: 1.65; }
 .tianyi-sidebar-empty > svg { inline-size: 2rem; block-size: 2rem; color: var(--color-accent); }

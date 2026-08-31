@@ -568,6 +568,7 @@
 .shell-workspace-event-line .is-candidate-event .graph-node-port.react-flow__handle::after { border-color: var(--color-warning); }
 
 .shell-workspace-event-line .agent-execution-workspace { min-inline-size: 0; min-block-size: 0; block-size: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); background: color-mix(in srgb, var(--color-workspace-background) 97%, var(--color-accent) 3%); }
+.shell-workspace-event-line .agent-execution-workspace:has(.agent-execution-outcome) { grid-template-rows: auto auto minmax(0, 1fr); }
 .shell-workspace-event-line .agent-execution-workspace > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-block-size: 4.5rem; padding: .7rem var(--space-4); border-block-end: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 96%, transparent); }
 .shell-workspace-event-line .agent-execution-workspace > header > div { display: grid; gap: .1rem; }
 .shell-workspace-event-line .agent-execution-workspace > header small { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 750; }
@@ -577,6 +578,10 @@
 .shell-workspace-event-line .agent-execution-workspace > header button { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2.35rem; padding-inline: .7rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
 .shell-workspace-event-line .agent-execution-workspace > header button.is-stop { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 50%, var(--color-border)); }
 .shell-workspace-event-line .agent-execution-workspace > header button svg { inline-size: .85rem; }
+.shell-workspace-event-line .agent-execution-outcome { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .35rem .7rem; margin: 0; padding: .5rem var(--space-4); color: var(--color-text-muted); background: var(--color-surface); border-block-end: 1px solid var(--color-border); font-size: .72rem; }
+.shell-workspace-event-line .agent-execution-outcome strong { color: var(--color-danger); }
+.shell-workspace-event-line .agent-execution-outcome[data-outcome="stopped"] strong { color: var(--color-warning); }
+.shell-workspace-event-line .agent-execution-outcome small { font-size: .65rem; }
 .shell-workspace-event-line .agent-execution-main { min-inline-size: 0; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .shell-workspace-event-line .agent-execution-main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
 .shell-workspace-event-line .agent-execution-flow { min-inline-size: 0; min-block-size: 0; }

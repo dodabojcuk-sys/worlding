@@ -3,7 +3,7 @@ import { normalizeStoryStudioEventReference, type StoryStudioEventReference } fr
 export const MULTI_NODE_PREDICTION_VERSION = "tianyan-multi-node-prediction/v1" as const;
 export const PREDICTION_MODES = ["forward-development"] as const;
 export type PredictionMode = typeof PREDICTION_MODES[number];
-export type PredictionRunStatus = "created" | "generating" | "validating" | "ready" | "failed" | "stale" | "abandoned";
+export type PredictionRunStatus = "created" | "generating" | "validating" | "ready" | "failed" | "stopped" | "stale" | "abandoned";
 export type IdentityResolutionKind = "reference-existing" | "merge-review" | "create-new-with-difference" | "unresolved";
 export type TimeConsistencyKind = "consistent" | "unknown" | "conflict";
 

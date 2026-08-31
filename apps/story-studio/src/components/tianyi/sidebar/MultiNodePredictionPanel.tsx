@@ -1,12 +1,12 @@
 import { Ban, Check, ChevronRight, CircleCheck, Clock3, LoaderCircle, Play, RotateCcw, Workflow } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { derivePredictionReviewGate, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
 import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
-import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
+import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, retryMultiNodePredictionRun, stopMultiNodePredictionRun, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 
-type PredictionPhase = "idle" | "reading" | "generating" | "validating" | "reviewing" | "failed";
+type PredictionPhase = "idle" | "reading" | "generating" | "validating" | "reviewing" | "failed" | "stopped";
 type DraftReceipt = { operationId: string; runId: string; pathId: string; items: Array<{ candidateNodeId: string; action: "draft-created" | "referenced-existing" | "merge-review"; draftEventId: string | null; existingEventId: string | null }> };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 
@@ -21,6 +21,9 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<DraftReceipt | null>(null);
+  const [execution, setExecution] = useState<TianyiPredictionExecutionProjection | null>(null);
+  const pollingGeneration = useRef(0);
+  const stopRequested = useRef(false);
   const project = props.runtime.project;
   const sourceKey = props.eventRefs.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
   const activePath = run?.bundle?.paths.find((path) => path.id === pathId) ?? null;
@@ -36,10 +39,11 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       const matching = history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey) ?? null;
       setRun(matching);
       props.runtime.setActiveAgentRunId(matching?.runId ?? null);
-      setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "failed" ? "failed" : "idle");
+      setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "stopped" ? "stopped" : matching?.status === "failed" ? "failed" : "idle");
       if (matching) {
         announceRun(matching);
-        void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: matching.runId, token })).then((projection) => { if (active && projection) announceExecution(projection); }).catch(() => undefined);
+        if (["generating", "validating"].includes(matching.status)) beginExecutionPolling(matching.runId);
+        void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: matching.runId, token })).then((projection) => { if (active && projection) { setExecution(projection); announceExecution(projection); } }).catch(() => undefined);
       }
     }).catch(() => { if (active) { setRun(null); setPhase("idle"); } });
     return () => { active = false; };
@@ -75,20 +79,34 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const start = () => void (async () => {
     if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4 || busy) return;
     setBusy(true); setError(""); setReceipt(null); setPhase("generating");
-    announceAgentState(true, null);
+    stopRequested.current = false; announceAgentState(true, null);
     try {
       const runId = `prediction-run.${crypto.randomUUID()}`;
       const created = await props.runtime.withConnection((token) => createMultiNodePredictionRun({ request: { projectId: project.id, sourceEventRefs: props.eventRefs, authorGoal: goal.trim(), predictionMode: "forward-development", operationId: `prediction-request.${crypto.randomUUID()}` }, runId, token }));
       props.runtime.setActiveAgentRunId(created.runId);
       announceAgentState(true, created.runId);
       setRun(created); announceRun(created); setPhase("validating");
+      beginExecutionPolling(created.runId);
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
       setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); setPhase("reviewing"); announceRun(ready);
       const execution = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
-      if (execution) announceExecution(execution);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase("failed"); }
-    finally { setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
+      if (execution) { setExecution(execution); announceExecution(execution); }
+    } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase(stopRequested.current ? "stopped" : "failed"); }
+    finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
   })();
+  const beginExecutionPolling = (runId: string) => {
+    if (!project) return;
+    const generation = ++pollingGeneration.current;
+    void (async () => {
+      while (pollingGeneration.current === generation) {
+        try {
+          const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId, token }));
+          if (projection) { setExecution(projection); announceExecution(projection); }
+        } catch { /* a not-yet-created execution sidecar is recoverable while the run starts */ }
+        await new Promise((resolve) => window.setTimeout(resolve, 90));
+      }
+    })();
+  };
   const choosePath = (nextPathId: string) => {
     if (!run) return;
     const nextPath = run.bundle?.paths.find((path) => path.id === nextPathId) ?? null;
@@ -112,7 +130,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     } catch (cause) { setError(cause instanceof Error ? cause.message : "采纳未完成，候选仍保持预览状态。"); }
     finally { setBusy(false); }
   })();
-  const selectRun = (runId: string) => { const selected = runs.find((item) => item.runId === runId) ?? null; setRun(selected); setPhase(selected?.status === "ready" ? "reviewing" : selected?.status === "failed" ? "failed" : "idle"); };
+  const selectRun = (runId: string) => { const selected = runs.find((item) => item.runId === runId) ?? null; setRun(selected); setPhase(selected?.status === "ready" ? "reviewing" : selected?.status === "stopped" ? "stopped" : selected?.status === "failed" ? "failed" : "idle"); };
   const abandon = () => void (async () => {
     if (!project || !run || busy || run.status === "abandoned") return;
     setBusy(true); setError("");
@@ -120,6 +138,37 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
     finally { setBusy(false); }
   })();
+  const stop = () => void (async () => {
+    if (!project || !run || !busy || stopRequested.current) return;
+    stopRequested.current = true; setError("");
+    try {
+      const stopped = await props.runtime.withConnection((token) => stopMultiNodePredictionRun({ projectId: project.id, runId: run.runId, reason: "作者停止了本次 Agent Attempt。", token }));
+      setRun(stopped); setPhase("stopped"); announceRun(stopped);
+      const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: run.runId, token }));
+      if (projection) { setExecution(projection); announceExecution(projection); }
+    } catch (cause) { stopRequested.current = false; setError(cause instanceof Error ? cause.message : "未能停止本次推演。"); }
+  })();
+  const retry = () => void (async () => {
+    if (!project || !run || busy || !["failed", "stopped"].includes(run.status)) return;
+    setBusy(true); setError(""); setReceipt(null); setPhase("generating"); stopRequested.current = false; announceAgentState(true, run.runId); beginExecutionPolling(run.runId);
+    try {
+      const ready = await props.runtime.withConnection((token) => retryMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
+      setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); setPhase("reviewing"); announceRun(ready);
+      const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
+      if (projection) { setExecution(projection); announceExecution(projection); }
+    } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "重试未完成。"); setPhase(stopRequested.current ? "stopped" : "failed"); }
+    finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run.runId); }
+  })();
+
+  useEffect(() => {
+    const onStop = () => stop();
+    const onRetry = () => retry();
+    window.addEventListener("story-studio-stop-agent-execution", onStop);
+    window.addEventListener("story-studio-retry-agent-execution", onRetry);
+    return () => { window.removeEventListener("story-studio-stop-agent-execution", onStop); window.removeEventListener("story-studio-retry-agent-execution", onRetry); };
+  });
+
+  useEffect(() => () => { pollingGeneration.current += 1; }, []);
 
   if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4) return null;
   const sourceLabels = props.eventRefs.map((reference, index) => props.sourceLabels?.[index] ?? reference.eventId);
@@ -132,13 +181,13 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     <section className="tianyi-prediction-context-card"><strong>ContextPack</strong><dl><div><dt>依据</dt><dd>{props.eventRefs.length}</dd></div><div><dt>约束</dt><dd>{props.eventRefs.length + 1}</dd></div><div><dt>未决</dt><dd>{run?.bundle?.nodes.filter((node) => node.timeConsistency.kind === "unknown" || node.identityResolution.kind === "unresolved").length ?? 0}</dd></div></dl></section>
     <section className="tianyi-prediction-request"><strong>当前请求</strong><p>{goal}</p><small>推演方式 · 后续发展</small></section>
     <PredictionProgress phase={phase} run={run} />
+    {run ? <div className="tianyi-prediction-runtime-actions"><button type="button" className="tianyi-prediction-execution-link" disabled={!execution} onClick={() => { if (execution) announceExecution(execution); window.dispatchEvent(new CustomEvent("story-studio-open-agent-execution", { detail: { runId: run.runId } })); }}><Workflow aria-hidden="true" />查看执行过程</button>{busy ? <button type="button" className="is-stop" disabled={stopRequested.current} onClick={stop}>停止本次 Attempt</button> : ["failed", "stopped"].includes(run.status) ? <button type="button" onClick={retry}>新 Attempt 重试</button> : null}</div> : null}
     {!run?.bundle ? <label className="tianyi-prediction-goal"><span>作者意图</span><textarea value={goal} maxLength={1000} rows={2} disabled={busy} onChange={(event) => setGoal(event.target.value)} /></label> : null}
     {!run?.bundle ? <button type="button" className="primary-action tianyi-prediction-start" disabled={busy || !goal.trim()} onClick={start}>{busy ? <LoaderCircle className="is-spinning" /> : <Play />}{busy ? "正在推演" : "开始推演"}</button> : null}
     {busy && !run?.bundle ? <button type="button" className="primary-action tianyi-prediction-accept" disabled><Check />完成检查后选择路径</button> : null}
     <p className="tianyi-prediction-connection-note">本次推演可直接运行，不需要额外连接。</p>
     {run?.bundle ? <section className="tianyi-prediction-results">
-      <div className="tianyi-prediction-run-heading"><span>Run {run.runId.slice(-8)}</span><strong>{run.status === "ready" ? "等待作者审阅" : run.status === "abandoned" ? "已放弃" : run.status === "failed" ? "运行失败" : "处理中"}</strong></div>
-      <button type="button" className="tianyi-prediction-execution-link" onClick={() => window.dispatchEvent(new CustomEvent("story-studio-open-agent-execution", { detail: { runId: run.runId } }))}><Workflow aria-hidden="true" />查看执行过程</button>
+      <div className="tianyi-prediction-run-heading"><span>Run {run.runId.slice(-8)}</span><strong>{run.status === "ready" ? "等待作者审阅" : run.status === "abandoned" ? "已放弃" : run.status === "stopped" ? "已停止，可新 Attempt 重试" : run.status === "failed" ? "运行失败" : "处理中"}</strong></div>
       <section className="tianyi-prediction-paths" aria-label={`候选路径，共 ${run.bundle.paths.length} 条`}><header><strong>候选路径（{run.bundle.paths.length}）</strong><small>画布一次只显示当前路径</small></header>{run.bundle.paths.map((path, index) => {
         const active = path.id === pathId;
         const nodes = path.candidateNodeIds.map((nodeId) => run.bundle!.nodes.find((node) => node.id === nodeId)?.title).filter(Boolean);
@@ -163,8 +212,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
 
 function PredictionProgress(props: { phase: PredictionPhase; run: PredictionRun | null }) {
   const steps = ["读取多节点上下文", "推演候选路径", "一致性检查", "等待作者审阅"];
-  const activeIndex = props.phase === "reading" ? 0 : props.phase === "generating" ? 1 : props.phase === "validating" ? 2 : props.phase === "reviewing" || props.run?.status === "ready" ? 3 : props.phase === "failed" ? 1 : -1;
-  return <section className="tianyi-prediction-progress" aria-label="推演进度" role="status"><header><strong>状态</strong><span>{props.phase === "failed" ? "推演失败，可重试" : props.run?.status === "abandoned" ? "Run 已放弃" : activeIndex === 3 ? "一致性检查完成" : activeIndex >= 0 ? `正在进行 ${activeIndex + 1}/4` : "准备就绪"}</span></header><ol>{steps.map((step, index) => <li key={step} data-state={props.phase === "failed" && index === activeIndex ? "failed" : index < activeIndex || activeIndex === 3 ? "complete" : index === activeIndex ? "active" : "pending"}>{index < activeIndex || activeIndex === 3 ? <CircleCheck /> : index === activeIndex ? <LoaderCircle className={activeIndex < 3 ? "is-spinning" : undefined} /> : <Clock3 />}<span>{step}</span></li>)}</ol></section>;
+  const activeIndex = props.phase === "reading" ? 0 : props.phase === "generating" ? 1 : props.phase === "validating" ? 2 : props.phase === "reviewing" || props.run?.status === "ready" ? 3 : props.phase === "failed" || props.phase === "stopped" ? 1 : -1;
+  return <section className="tianyi-prediction-progress" aria-label="推演进度" role="status"><header><strong>状态</strong><span>{props.phase === "stopped" || props.run?.status === "stopped" ? "本次 Attempt 已停止，可重试" : props.phase === "failed" ? "推演失败，可重试" : props.run?.status === "abandoned" ? "Run 已放弃" : activeIndex === 3 ? "一致性检查完成" : activeIndex >= 0 ? `正在进行 ${activeIndex + 1}/4` : "准备就绪"}</span></header><ol>{steps.map((step, index) => <li key={step} data-state={(props.phase === "failed" || props.phase === "stopped") && index === activeIndex ? "failed" : index < activeIndex || activeIndex === 3 ? "complete" : index === activeIndex ? "active" : "pending"}>{index < activeIndex || activeIndex === 3 ? <CircleCheck /> : index === activeIndex ? <LoaderCircle className={activeIndex < 3 && props.phase !== "stopped" ? "is-spinning" : undefined} /> : <Clock3 />}<span>{step}</span></li>)}</ol></section>;
 }
 
 function ReceiptView(props: { receipt: DraftReceipt; run: PredictionRun | null }) {
@@ -203,7 +252,7 @@ function announceAgentState(running: boolean, runId: string | null): void { wind
 function announceSelection(detail: PredictionSelectionDetail): void { (window as Window & { __storyStudioPredictionSelection?: PredictionSelectionDetail }).__storyStudioPredictionSelection = detail; window.dispatchEvent(new CustomEvent("story-studio-prediction-review-selection", { detail })); }
 function normalizeReceipt(review: MultiNodePredictionReviewProjection): DraftReceipt | null { const value = review.receipt; if (!value || typeof value !== "object" || Array.isArray(value)) return null; const record = value as Partial<DraftReceipt>; return typeof record.operationId === "string" && typeof record.runId === "string" && typeof record.pathId === "string" && Array.isArray(record.items) ? record as DraftReceipt : null; }
 function nodeTitle(run: PredictionRun | null, nodeId: string): string { return run?.bundle?.nodes.find((node) => node.id === nodeId)?.title ?? nodeId; }
-function runStatusLabel(status: PredictionRun["status"]): string { return status === "ready" ? "等待审阅" : status === "abandoned" ? "已放弃" : status === "stale" ? "来源失效" : status === "failed" ? "失败" : "处理中"; }
+function runStatusLabel(status: PredictionRun["status"]): string { return status === "ready" ? "等待审阅" : status === "abandoned" ? "已放弃" : status === "stale" ? "来源失效" : status === "stopped" ? "已停止" : status === "failed" ? "失败" : "处理中"; }
 function identityLabel(kind: IdentityResolutionKind): string { return kind === "reference-existing" ? "引用已有事件" : kind === "merge-review" ? "待合并审查" : kind === "unresolved" ? "身份待决" : "新建草稿（已说明差异）"; }
 function writeTarget(kind: IdentityResolutionKind): string { return kind === "create-new-with-difference" ? "作者草稿 Event" : kind === "reference-existing" ? "引用已有 Event（不写入）" : kind === "merge-review" ? "待合并审查（不写入）" : "身份待决（不写入）"; }
 function gateReason(reasons: string[]): string { return reasons.includes("prediction-not-ready") ? "推演或一致性检查尚未完成" : reasons.includes("path-not-selected") ? "请先选择候选路径" : reasons.some((reason) => reason.startsWith("time-conflict:")) ? "候选路径存在时间冲突" : reasons.some((reason) => reason.startsWith("identity-unresolved:")) ? "候选身份尚未决议" : "当前操作尚未完成"; }

@@ -10,6 +10,7 @@ const candidateEvent = source("apps/story-studio/src/components/graph-nodes/Cand
 const collectionPoint = source("apps/story-studio/src/components/graph-nodes/CollectionPointNode.tsx");
 const nodeShell = source("apps/story-studio/src/components/graph-nodes/NodeShell.tsx");
 const styles = source("apps/story-studio/src/styles/event-line-projection.css");
+const predictionPanel = source("apps/story-studio/src/components/tianyi/sidebar/MultiNodePredictionPanel.tsx");
 
 test("event, candidate overlay and Agent execution remain three explicit graph layers", () => {
   assert.match(canvas, /data-graph-layer="EVENT_GRAPH"/u);
@@ -48,4 +49,15 @@ test("execution detail is safe and never presents private runtime internals", ()
   assert.match(execution, /safeOutput/u);
   assert.match(execution, /\u4e0d\u663e\u793a Prompt\u3001\u5bc6\u94a5\u3001\u539f\u59cb Provider \u54cd\u5e94\u6216\u6a21\u578b\u79c1\u6709\u601d\u7ef4\u94fe/u);
   assert.doesNotMatch(execution, /systemPrompt|chainOfThought|rawResponse|apiKey/u);
+});
+
+test("execution graph stop, retry, polling and refresh recovery remain product-owned", () => {
+  assert.match(canvas, /story-studio-stop-agent-execution/u);
+  assert.match(canvas, /story-studio-retry-agent-execution/u);
+  assert.match(predictionPanel, /beginExecutionPolling/u);
+  assert.match(predictionPanel, /getMultiNodePredictionExecution/u);
+  assert.match(predictionPanel, /stopMultiNodePredictionRun/u);
+  assert.match(predictionPanel, /retryMultiNodePredictionRun/u);
+  assert.match(predictionPanel, /\u65b0 Attempt \u91cd\u8bd5/u);
+  assert.doesNotMatch(predictionPanel, /@earendil-works\/pi-/u);
 });
