@@ -216,7 +216,7 @@ export function TianyiSidebar(props: {
   return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={predictionActive ? "prediction" : mode} data-shared-session-id={props.runtime.sharedSessionId ?? "not-started"} data-session-owner="story-continuity/session">
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      {predictionActive ? <span className="tianyi-prediction-mode-label">推演</span> : <TianyiModeSwitch mode={mode} onMode={setMode} />}
+      {predictionActive ? <span className="tianyi-prediction-mode-label">{t("capability.reasonForward")}</span> : <TianyiModeSwitch mode={mode} onMode={setMode} />}
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">

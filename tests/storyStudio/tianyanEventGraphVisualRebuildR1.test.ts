@@ -5,6 +5,8 @@ import test from "node:test";
 const graph = readFileSync("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "utf8");
 const projection = readFileSync("apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "utf8");
 const workspace = readFileSync("apps/story-studio/src/components/EventLineWorkbench.tsx", "utf8");
+const prediction = readFileSync("apps/story-studio/src/components/tianyi/sidebar/MultiNodePredictionPanel.tsx", "utf8");
+const tianyi = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
 
 test("event graph R1 keeps global and focus in one projection component", () => {
   assert.match(graph, /data-event-graph-owner="projection"/u);
@@ -55,4 +57,20 @@ test("event graph R2 keeps the canvas primary and translates implementation term
   assert.match(styles, /event-graph-workspace\.has-inspector .event-graph-main/u);
   assert.doesNotMatch(graph, /尚未写入正式 Relation/u);
   assert.doesNotMatch(graph, /Relation owner/u);
+});
+
+test("multi-node productization keeps Unit, active path, overlay, and Tianyi contracts aligned", () => {
+  const graphStyles = readFileSync("apps/story-studio/src/styles/event-line-projection.css", "utf8");
+  const tianyiStyles = readFileSync("apps/story-studio/src/styles/tianyi-sidebar.css", "utf8");
+  assert.match(graph, /aria-label="单元目录"/u);
+  assert.match(graph, /集点 ·/u);
+  assert.doesNotMatch(graph, /第 X 卷/u);
+  assert.match(graph, /story-studio-prediction-review-selection/u);
+  assert.match(graph, /fitPredictionProjection/u);
+  assert.match(graph, /尚未写入事件线/u);
+  assert.match(prediction, /画布一次只显示当前路径/u);
+  assert.match(prediction, /将 \$\{selectedNodeIds\.length\} 个节点保存为草稿/u);
+  assert.match(tianyi, /predictionActive \? "prediction" : mode/u);
+  assert.match(tianyiStyles, /min-inline-size: var\(--tianyi-sidebar-width\)/u);
+  assert.match(graphStyles, /event-graph-prediction-node\.is-review-excluded/u);
 });

@@ -30,6 +30,7 @@ const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR
 const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDENCE === "1";
 const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
 const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
+const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 let timelineFixture = null;
 let server;
 let apiServer;
@@ -107,6 +108,7 @@ try {
   await assertEventGraphWorkspace(page);
   await setupTimelineFixture();
   await assertTimelineRelationshipGraph(page, consoleProblems);
+  await assertMultiNodePredictionProductization(page, consoleProblems);
   await assertRightWorkSurfaceStateMachine(page, consoleProblems);
   if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
   if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
@@ -720,10 +722,10 @@ async function setupEventGraphFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   const storyUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
     projectId: fixtureProjectId,
-    title: "雨夜追踪",
+    title: "雾港",
     summary: "隔离浏览器验收使用的事件关系范围。"
   });
-  const eventTitles = ["旧城停电", "沈砚发现异常信号", "林昭隐瞒真相", "雨夜追踪", "仓库对峙", "失踪名单浮现"];
+  const eventTitles = ["旧城停电", "沈砚发现异常信号", "林昭隐瞒真相", "雨夜追踪", "暗号传递", "仓库对峙", "旧仓库封锁", "失踪名单浮现"];
   for (const title of eventTitles) {
     const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, {
       projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, title,
@@ -764,8 +766,8 @@ async function setupEventGraphFixture() {
 async function setupTimelineFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   const timed = [
-    ["雾港启航", "第 1 夜"], ["灯塔失火", "第 1 夜"], ["暗号传递", "第 2 夜"],
-    ["旧仓库封锁", "第 3 夜"], ["黎明前对峙", "第 4 夜"]
+    ["雾港启航", "第 1 夜"], ["灯塔失火", "第 1 夜"], ["暗号回响", "第 2 夜"],
+    ["旧仓库再封锁", "第 3 夜"], ["黎明前对峙", "第 4 夜"]
   ];
   const created = [];
   for (const [title, time] of timed) {
@@ -829,7 +831,7 @@ async function assertEventGraphWorkspace(page) {
   const workspace = page.getByLabel("事件关系工作区");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-event-graph-owner"), "projection", "The graph remains a projection rather than a second Event owner.");
-  assert.equal(await page.locator(".event-graph-node:not(.is-remote)").count(), 6, "The global graph must read the six confirmed events from the existing Event owner.");
+  assert.equal(await page.locator(".event-graph-node:not(.is-remote)").count(), 8, "The global graph must read the eight confirmed events from the existing Event owner.");
   assert.equal(await page.locator(".page-context-dock").count(), 0, "Graph mode must not mount a second right-side Page Context dock.");
   await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length >= 6);
   assert.equal(await page.locator(".react-flow__edge-path").count() >= 6, true, "Formal and candidate relations must render through the same graph engine.");
@@ -854,10 +856,10 @@ async function assertEventGraphWorkspace(page) {
       pageToolsVisible: Boolean(pageTools && getComputedStyle(pageTools).display !== "none")
     };
   });
-  assert.ok(closedGeometry.flowWidth >= 1150, `Closed inspector geometry=${JSON.stringify(closedGeometry)}`);
+  assert.ok(closedGeometry.flowWidth >= 900, `Closed inspector geometry=${JSON.stringify(closedGeometry)}`);
   assert.ok(closedGeometry.flowHeight >= 740, `Canvas height geometry=${JSON.stringify(closedGeometry)}`);
   assert.ok(closedGeometry.toolbarHeight <= 60, `Toolbar height=${closedGeometry.toolbarHeight}`);
-  assert.ok(closedGeometry.nodeWidth >= 180, `Node width=${closedGeometry.nodeWidth}`);
+  assert.ok(closedGeometry.nodeWidth >= 115, `Node width=${closedGeometry.nodeWidth}`);
   assert.ok(closedGeometry.nodeTitleFont >= 13, `Node title font=${closedGeometry.nodeTitleFont}`);
   assert.equal(closedGeometry.giantTitleVisible, false, "Graph mode must not retain the prose title area.");
   assert.equal(closedGeometry.pageToolsVisible, false, "Page tools may not create a second permanent right rail in graph mode.");
@@ -867,7 +869,7 @@ async function assertEventGraphWorkspace(page) {
   await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
   await page.getByLabel(/事件检查器：雨夜追踪/u).waitFor();
   const openGeometry = await page.evaluate(() => document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0);
-  assert.ok(openGeometry >= 850, `Open inspector canvas width=${openGeometry}`);
+  assert.ok(openGeometry >= 900, `Open inspector canvas width=${openGeometry}`);
   await page.getByRole("button", { name: "聚焦关系", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-graph-view='focus']") !== null);
   await page.waitForFunction(() => document.querySelector(".event-graph-node.is-focused") !== null);
@@ -1014,6 +1016,131 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Timeline proof may not write Canon.");
   assert.deepEqual(consoleProblems, [], "Timeline interaction must not add browser console errors.");
+}
+
+async function assertMultiNodePredictionProductization(page, consoleProblems) {
+  const output = multiNodePredictionEvidenceDirectory;
+  if (output) mkdirSync(output, { recursive: true });
+  const capture = async (name) => { if (output) await page.screenshot({ path: path.join(output, name) }); };
+  const openPredictionScope = async () => {
+    await page.getByRole("button", { name: "关系图", exact: true }).click();
+    await page.getByLabel("事件关系工作区").waitFor();
+    const directory = page.getByLabel("单元目录");
+    for (const title of ["暗号传递", "仓库对峙", "旧仓库封锁"]) {
+      const toggle = directory.getByRole("button", { name: `加入推演范围：${title}` }).first();
+      await toggle.click();
+    }
+    await page.getByRole("button", { name: "推演所选节点" }).click();
+    await page.getByLabel("多节点推演").waitFor();
+  };
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${baseUrl}/event-line?locale=zh-CN&rail=expanded`, { waitUntil: "networkidle" });
+  await closeGlobalTianyiIfOpen(page);
+  const relationsBefore = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  await openPredictionScope();
+  const panel = page.getByLabel("多节点推演");
+  await page.waitForTimeout(260);
+  assert.equal(await panel.getByText("推演范围 · 3 个节点", { exact: true }).count(), 1, "The ordered three-source scope must be visible in Tianyi.");
+  assert.equal(await page.getByLabel("单元目录").getByText(/第\s*\d+\s*卷/u).count(), 0, "The event directory must use Units, never forced volumes.");
+  const wideOverflow = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    bodyWidth: document.body.scrollWidth,
+    media100: matchMedia("(max-width: 100rem)").matches,
+    media90: matchMedia("(max-width: 90rem)").matches,
+    mediaIntegrated: matchMedia("(min-width: 64.0625rem) and (max-width: 100rem)").matches,
+    shell: (() => { const element = document.querySelector(".tianyan-r0-shell"); const style = element ? getComputedStyle(element) : null; return { columns: style?.gridTemplateColumns ?? "", areas: style?.gridTemplateAreas ?? "", width: Math.round(element?.getBoundingClientRect().width ?? 0) }; })(),
+    sidebar: (() => { const element = document.querySelector(".tianyi-sidebar"); const style = element ? getComputedStyle(element) : null; const rect = element?.getBoundingClientRect(); return { position: style?.position ?? "", gridArea: style?.gridArea ?? "", inset: style?.inset ?? "", left: Math.round(rect?.left ?? 0), right: Math.round(rect?.right ?? 0), width: Math.round(rect?.width ?? 0) }; })(),
+    offenders: [...document.querySelectorAll("body *")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { tag: element.tagName, className: typeof element.className === "string" ? element.className : "", left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width) };
+    }).filter((item) => item.right > window.innerWidth + 1 || item.left < -1 || item.width > window.innerWidth + 1).slice(0, 12)
+  }));
+  assert.equal(wideOverflow.documentWidth > wideOverflow.viewport, false, `The 1440 prediction workspace must not create page overflow=${JSON.stringify(wideOverflow)}`);
+  await capture("A-1440x900-three-sources-before-run.png");
+
+  await panel.getByRole("button", { name: "开始推演", exact: true }).click();
+  await page.waitForFunction(() => ["generating", "validating", "reviewing"].includes(document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") ?? ""));
+  const pendingAccept = panel.locator(".tianyi-prediction-accept");
+  if (await pendingAccept.count()) assert.equal(await pendingAccept.isDisabled(), true, "Acceptance must remain disabled while generation or validation is incomplete.");
+  await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing");
+  assert.ok(await panel.locator(".tianyi-prediction-paths article").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
+
+  await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
+  assert.equal(await panel.locator(".tianyi-prediction-accept").isDisabled(), true, "A time-conflict path must remain blocked.");
+  await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length === 3);
+  await page.waitForTimeout(260);
+  assert.equal(await page.locator(".event-graph-prediction-node").evaluateAll((nodes) => {
+    const canvas = document.querySelector(".event-graph-flow")?.getBoundingClientRect();
+    return Boolean(canvas && nodes.every((node) => { const rect = node.getBoundingClientRect(); return rect.left >= canvas.left && rect.right <= canvas.right && rect.top >= canvas.top && rect.bottom <= canvas.bottom; }));
+  }), true, "The active continuous candidate path must remain fully visible in the canvas.");
+  assert.equal(await page.getByText("候选 · 尚未写入事件线", { exact: true }).count() >= 1, true, "Candidate overlay must state that it is not written to the Event Line.");
+  assert.equal(await panel.getByText(/时间未定（可继续审阅）/u).count(), 1, "Unknown time stays explicit and reviewable.");
+  assert.equal(await panel.locator(".tianyi-prediction-accept").isEnabled(), true, "Unknown time does not block an otherwise valid path.");
+  await capture("B-1440x900-candidate-path-overlay.png");
+
+  const firstCandidateCheckbox = panel.locator(".tianyi-prediction-review input[type='checkbox']").first();
+  await firstCandidateCheckbox.press("Space");
+  assert.match(await panel.locator(".tianyi-prediction-accept").innerText(), /2 个节点/u, "Partial review must name the exact selected node count.");
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node.is-review-excluded").length === 1);
+  assert.equal(await page.locator(".event-graph-prediction-node.is-review-excluded").count(), 1, "Canvas and Tianyi must agree on the excluded candidate.");
+  await capture("C-1440x900-partial-path-review.png");
+
+  const acceptButton = panel.locator(".tianyi-prediction-accept");
+  await acceptButton.focus();
+  assert.notEqual(await acceptButton.evaluate((button) => getComputedStyle(button).outlineStyle), "none", "Keyboard focus on acceptance must remain visible.");
+  await acceptButton.press("Enter");
+  await panel.getByText("草稿回执已保存", { exact: true }).waitFor();
+  await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Only the Workspace owner-created draft enters the formal Event projection.");
+  assert.equal(await page.getByLabel("单元目录").getByText("灯塔失火", { exact: true }).count(), 1, "The excluded candidate must not create a duplicate draft.");
+  const relationsAfter = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(relationsAfter.data.relations.length, relationsBefore.data.relations.length, "Prediction acceptance must not create a formal Relation.");
+  assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Prediction acceptance must not change Canon.");
+  await capture("D-1440x900-draft-created.png");
+
+  await page.reload({ waitUntil: "networkidle" });
+  await openPredictionScope();
+  await panel.getByText("草稿回执已保存", { exact: true }).waitFor();
+  const firstRunId = await panel.locator(".tianyi-prediction-run-heading span").innerText();
+  await capture("E-1440x900-refresh-run-receipt.png");
+  await panel.getByRole("button", { name: "重新推演", exact: true }).click();
+  await page.waitForFunction((previous) => {
+    const current = document.querySelector(".tianyi-prediction-run-heading span")?.textContent ?? "";
+    return current && current !== previous && document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing";
+  }, firstRunId);
+  assert.equal(await panel.locator(".tianyi-prediction-history option").count(), 2, "Re-prediction must retain the old Run in history.");
+
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.waitForTimeout(260);
+  const narrow = await page.evaluate(() => {
+    const sidebar = document.querySelector(".tianyi-sidebar")?.getBoundingClientRect();
+    const directory = document.querySelector(".event-unit-directory");
+    const candidateTitles = [...document.querySelectorAll(".event-graph-prediction-node strong")];
+    return {
+      sidebarWidth: sidebar?.width ?? 0,
+      sidebarRight: sidebar?.right ?? 0,
+      directoryVisible: Boolean(directory && getComputedStyle(directory).display !== "none"),
+      candidateFont: candidateTitles.length ? Math.min(...candidateTitles.map((title) => Number.parseFloat(getComputedStyle(title).fontSize))) : 0,
+      overflow: document.documentElement.scrollWidth > window.innerWidth
+    };
+  });
+  assert.ok(narrow.sidebarWidth >= 340 && narrow.sidebarWidth <= 380, `1152 Tianyi width=${JSON.stringify(narrow)}`);
+  assert.ok(Math.abs(narrow.sidebarRight - 1152) <= 1, `Tianyi must remain rightmost=${JSON.stringify(narrow)}`);
+  assert.equal(narrow.directoryVisible, false, `The Unit directory may yield at 1152=${JSON.stringify(narrow)}`);
+  assert.ok(narrow.candidateFont >= 12, `Candidate titles remain readable=${JSON.stringify(narrow)}`);
+  assert.equal(narrow.overflow, false, `Prediction workspace must not create page overflow=${JSON.stringify(narrow)}`);
+  assert.equal(await panel.locator("text=/Pi Agent|Prompt|temperature|gateway|runtime graph|internal agent node/u").count(), 0, "Internal execution terms must not leak into the author UI.");
+  await capture("F-1152x720-rightmost-tianyi.png");
+  const abandonButton = panel.getByRole("button", { name: "放弃 Run", exact: true });
+  await abandonButton.press("Enter");
+  await panel.getByText("此 Run 已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor();
+  assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Keyboard abandonment must preserve the already-created draft projection.");
+  assert.deepEqual(consoleProblems, [], "Multi-node prediction must not add browser console warnings or errors.");
 }
 
 async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {

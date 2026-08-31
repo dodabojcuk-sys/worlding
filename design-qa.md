@@ -33,3 +33,27 @@ Blocked for the same reason. Code inspection or the headless interaction test is
 - None assessed without valid visual evidence.
 
 final result: blocked
+
+---
+
+# Design QA — Tianyan Multi-Node Prediction Productization R1
+
+- Reference opened: `/tmp/codex-clipboard-422355c5-fe9e-44f5-9870-f0545b6fcf9e.png` (1568×1003)
+- Compared implementation: `B-1440x900-candidate-path-overlay.png`
+- Comparison artifact: `/home/beelink/.codex/visualizations/2026/08/31/tianyan-multi-node-prediction-productization-r1/reference-vs-implementation.png`
+- Responsive evidence: `F-1152x720-rightmost-tianyi.png`
+
+## Contract checks
+
+- Unit directory is visible at 1440 and yields at 1152; it does not introduce a mandatory volume hierarchy.
+- Three ordered formal source nodes form one visually bounded prediction basis.
+- The canvas shows the same active continuous candidate path selected in Tianyi.
+- Candidate cards and dashed edges remain visually distinct from formal Events and Relations.
+- Candidate cards remain fully inside the live canvas and readable at 1440×900 and 1152×720.
+- Tianyi remains the rightmost dedicated prediction console and does not show provider/runtime controls.
+- Partial node exclusion is represented in both the canvas and the Tianyi review.
+- Unknown time remains reviewable; time conflict remains visibly blocked.
+- Keyboard focus styling is present on prediction controls and Unit-directory actions.
+- Browser console warnings/errors: 0 in the passing E2E run.
+
+final result: passed
