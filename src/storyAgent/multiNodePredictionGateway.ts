@@ -1,8 +1,18 @@
+import type { TianyiAgentRuntimeEvent } from "../storyContracts/tianyiAgentMode.ts";
 import type { MultiNodePredictionRequest, PredictionBundle, PredictionNode } from "../storyContracts/multiNodePrediction.ts";
+
+export type MultiNodePredictionRuntimeContext = {
+  runId: string;
+  attemptId: string;
+  workVersionId: string;
+  sessionId: string;
+  signal?: AbortSignal;
+  onEvent?(event: TianyiAgentRuntimeEvent): Promise<void> | void;
+};
 
 /** Product-owned seam for a future Pi adapter; R0 deliberately uses no Provider. */
 export type MultiNodePredictionGateway = {
-  generate(input: { request: MultiNodePredictionRequest; knownEvents: Array<{ id: string; title: string }>; bundleId: string }): Promise<PredictionBundle>;
+  generate(input: { request: MultiNodePredictionRequest; knownEvents: Array<{ id: string; title: string }>; bundleId: string; runtime?: MultiNodePredictionRuntimeContext }): Promise<PredictionBundle>;
 };
 
 export function createDeterministicMultiNodePredictionGateway(): MultiNodePredictionGateway {

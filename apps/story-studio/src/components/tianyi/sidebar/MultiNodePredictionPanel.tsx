@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { derivePredictionReviewGate, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
 import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
-import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, listMultiNodePredictionReviews, listMultiNodePredictionRuns, type MultiNodePredictionReviewProjection } from "../../../lib/localTransport";
+import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 
 type PredictionPhase = "idle" | "reading" | "generating" | "validating" | "reviewing" | "failed";
@@ -37,7 +37,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       setRun(matching);
       props.runtime.setActiveAgentRunId(matching?.runId ?? null);
       setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "failed" ? "failed" : "idle");
-      if (matching) announceRun(matching);
+      if (matching) {
+        announceRun(matching);
+        void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: matching.runId, token })).then((projection) => { if (active && projection) announceExecution(projection); }).catch(() => undefined);
+      }
     }).catch(() => { if (active) { setRun(null); setPhase("idle"); } });
     return () => { active = false; };
   }, [project, props.eventRefs.length, props.runtime, sourceKey]);
@@ -81,6 +84,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       setRun(created); announceRun(created); setPhase("validating");
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
       setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); setPhase("reviewing"); announceRun(ready);
+      const execution = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
+      if (execution) announceExecution(execution);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase("failed"); }
     finally { setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
   })();
@@ -193,6 +198,7 @@ function adoptionButtonLabel(summary: AdoptionSummary): string {
 }
 
 function announceRun(run: PredictionRun): void { (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun = run; window.dispatchEvent(new CustomEvent("story-studio-multi-node-prediction-run", { detail: run })); }
+function announceExecution(projection: TianyiPredictionExecutionProjection): void { (window as Window & { __storyStudioAgentExecutionProjection?: TianyiPredictionExecutionProjection }).__storyStudioAgentExecutionProjection = projection; window.dispatchEvent(new CustomEvent("story-studio-agent-execution-projection", { detail: projection })); }
 function announceAgentState(running: boolean, runId: string | null): void { window.dispatchEvent(new CustomEvent("story-studio-prediction-agent-state", { detail: { running, runId } })); }
 function announceSelection(detail: PredictionSelectionDetail): void { (window as Window & { __storyStudioPredictionSelection?: PredictionSelectionDetail }).__storyStudioPredictionSelection = detail; window.dispatchEvent(new CustomEvent("story-studio-prediction-review-selection", { detail })); }
 function normalizeReceipt(review: MultiNodePredictionReviewProjection): DraftReceipt | null { const value = review.receipt; if (!value || typeof value !== "object" || Array.isArray(value)) return null; const record = value as Partial<DraftReceipt>; return typeof record.operationId === "string" && typeof record.runId === "string" && typeof record.pathId === "string" && Array.isArray(record.items) ? record as DraftReceipt : null; }

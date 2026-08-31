@@ -11,7 +11,7 @@ export function createBuiltinPiAgentRuntimePlugin(): AgentRuntimePlugin {
     manifest: Object.freeze({
       id: BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID,
       pluginVersion: "0.1.0",
-      upstreamVersion: "0.84.2",
+      upstreamVersion: "0.84.4",
       hostApiRange: "^1.0.0",
       capabilities: Object.freeze(["text-stream", "native-tool-frames", "cancel", "resume", "author-approval"] as const)
     }),
@@ -81,7 +81,7 @@ export class PiAgentAdapterError extends Error {
 
 export interface PiTextAgentAdapter {
   readonly id: "pi.agent-core";
-  readonly packageVersion: "0.84.2";
+  readonly packageVersion: "0.84.4";
   run(request: PiTextAgentRequest): Promise<PiTextAgentResult>;
   cancel(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): boolean;
 }
@@ -162,7 +162,7 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
     agent.abort();
     return true;
   }
-  return Object.freeze({ id: "pi.agent-core" as const, packageVersion: "0.84.2" as const, run, cancel });
+  return Object.freeze({ id: "pi.agent-core" as const, packageVersion: "0.84.4" as const, run, cancel });
 }
 
 async function bridgeProviderStream(input: { stream: { push(event: unknown): void; end(result?: unknown): void }; request: PiTextAgentRequest; messages: PiGatewayMessage[]; providerCall: number; retry: boolean; signal?: AbortSignal; model: { api: "openai-completions"; provider: string; id: string }; onTrace(value: string | null): void; onUsage(value: PiProviderUsage): void; onTerminalError(error: PiAgentAdapterError): void }) {

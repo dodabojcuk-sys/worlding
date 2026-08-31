@@ -7,7 +7,7 @@ import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/st
 import { createStoryStudioMultiNodePredictionOperations } from "../../src/storyControlSurface/storyStudioMultiNodePredictionOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
-test("deterministic Tianyi prediction runs persist independently without Event, Relation, Canon, or WorldState writes", async () => {
+test("Pi-stub Tianyi prediction runs persist independently without Event, Relation, Canon, or WorldState writes", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-multi-node-prediction-"));
   const stateFilePath = path.join(rootPath, "state.json");
   const projectId = "long-night";
@@ -26,6 +26,11 @@ test("deterministic Tianyi prediction runs persist independently without Event, 
     assert.equal(ready.bundle?.nodes.some((node) => node.timeConsistency.kind === "unknown"), true);
     assert.equal(ready.bundle?.nodes.some((node) => node.timeConsistency.kind === "conflict"), true);
     assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.bundle?.bundleId, ready.bundle?.bundleId);
+    const execution = operations.readPredictionExecution({ projectId, runId: created.runId });
+    assert.equal(execution?.activeAttemptId, `agent-attempt.${created.runId}.1`);
+    assert.deepEqual(new Set(execution?.attempts[0]?.nodes.map((node) => node.kind)), new Set(["process", "tool", "gate", "result"]));
+    assert.equal(execution?.attempts[0]?.events.filter((event) => event.type === "TianyiAgentToolStarted").length, 6);
+    assert.equal(JSON.stringify(execution).includes("systemPrompt"), false);
     assert.deepEqual(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects, before);
     const authorControl = createStoryStudioAuthorControl({ rootPath, stateFilePath });
     const review = authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.rain", selectedCandidateNodeIds: ["prediction-node.rain-trace"], decidedAt: "2026-08-30T12:01:00.000Z" });

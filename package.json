@@ -22,7 +22,8 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
-    "@earendil-works/pi-agent-core": "0.84.2",
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4",
     "@geoman-io/leaflet-geoman-free": "^2.20.0",
     "@xyflow/react": "^12.11.2",
     "leaflet": "^1.9.4",

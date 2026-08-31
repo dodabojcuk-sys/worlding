@@ -2529,6 +2529,7 @@ export async function getTianyiIdentity(projectId: string, token: string): Promi
 }
 
 export type MultiNodePredictionRunProjection = import("../../../../src/storyContracts/multiNodePrediction.ts").PredictionRun;
+export type TianyiPredictionExecutionProjection = import("../../../../src/storyContracts/tianyiAgentMode.ts").TianyiAgentExecutionProjection;
 // Keep the browser transport boundary structural. Importing the server-side
 // AuthorControl implementation here pulls its Node-only dependency graph into
 // the Vite typecheck even though the client only consumes this read model.
@@ -2546,6 +2547,7 @@ export type MultiNodePredictionReviewProjection = {
 export async function createMultiNodePredictionRun(input: { request: import("../../../../src/storyContracts/multiNodePrediction.ts").MultiNodePredictionRequest; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/create", token, body); }
 export async function executeMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/execute", token, body); }
 export async function getMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection | null> { const { token, ...body } = input; return tianyiRequest("prediction/read", token, body); }
+export async function getMultiNodePredictionExecution(input: { projectId: string; runId: string; token: string }): Promise<TianyiPredictionExecutionProjection | null> { const { token, ...body } = input; return tianyiRequest("prediction/execution", token, body); }
 export async function listMultiNodePredictionRuns(projectId: string, token: string): Promise<MultiNodePredictionRunProjection[]> { return tianyiRequest("prediction/list", token, { projectId }); }
 export async function abandonMultiNodePredictionRun(input: { projectId: string; runId: string; token: string }): Promise<MultiNodePredictionRunProjection> { const { token, ...body } = input; return tianyiRequest("prediction/abandon", token, body); }
 export async function getMultiNodePredictionReview(projectId: string, reviewId: string): Promise<MultiNodePredictionReviewProjection | null> { return request(`${basePath}/author-control/prediction-review?projectId=${encodeURIComponent(projectId)}&reviewId=${encodeURIComponent(reviewId)}`); }

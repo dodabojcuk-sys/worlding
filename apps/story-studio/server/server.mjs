@@ -3250,6 +3250,7 @@ async function handleTianyiRequest(request, response, url) {
     "prediction/create": [["request", "runId"], () => tianyi.createPredictionRun(body)],
     "prediction/execute": [["projectId", "runId"], () => tianyi.executePredictionRun(body)],
     "prediction/read": [["projectId", "runId"], () => tianyi.readPredictionRun(body)],
+    "prediction/execution": [["projectId", "runId"], () => tianyi.readPredictionExecution(body)],
     "prediction/list": [["projectId"], () => tianyi.listPredictionRuns(body)],
     "prediction/abandon": [["projectId", "runId"], () => tianyi.abandonPredictionRun(body)],
     "project-resume": [["projectId", "agentId"], () => tianyi.getTianyiProjectResume(body)],

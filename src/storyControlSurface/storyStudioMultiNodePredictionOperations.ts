@@ -1,7 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { createDeterministicMultiNodePredictionGateway, type MultiNodePredictionGateway } from "../storyAgent/multiNodePredictionGateway.ts";
+import { createPiMultiNodePredictionGateway } from "../storyAgent/piMultiNodePredictionGateway.ts";
+import { projectTianyiAgentExecution } from "../storyAgent/tianyiExecutionProjection.ts";
+import type { MultiNodePredictionGateway } from "../storyAgent/multiNodePredictionGateway.ts";
 import { createPredictionRun, normalizeMultiNodePredictionRequest, validatePredictionBundle, type PredictionRun } from "../storyContracts/multiNodePrediction.ts";
+import { validateTianyiAgentExecutionProjection, type TianyiAgentExecutionProjection, type TianyiAgentRuntimeEvent } from "../storyContracts/tianyiAgentMode.ts";
 import { assertStoryStudioEventReferenceEligibility } from "../storyContracts/storyStudioEventReference.ts";
 import { publishFileNoReplace, readExistingUtf8, replaceFileAtomically } from "./atomicNoReplaceFile.ts";
 import { createStoryStudioWorkspaceOperations } from "./storyStudioWorkspaceOperations.ts";
@@ -12,9 +15,10 @@ type PersistedRun = PredictionRun & { version: typeof VERSION };
 export function createStoryStudioMultiNodePredictionOperations(options: { rootPath: string; stateFilePath: string; now?: () => string; gateway?: MultiNodePredictionGateway; verifyCanonEventRead?(input: { projectId: string; eventId: string }): boolean }) {
   const workspace = createStoryStudioWorkspaceOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath });
   const now = options.now ?? (() => new Date().toISOString());
-  const gateway = options.gateway ?? createDeterministicMultiNodePredictionGateway();
+  const gateway = options.gateway ?? createPiMultiNodePredictionGateway({ now });
   const projectPath = (projectId: string) => workspace.resolveProjectWorkspacePath({ projectId });
   const file = (projectId: string, runId: string) => path.join(projectPath(projectId), ".world-os", "tianyi", "multi-node-predictions", `${safeRunId(runId)}.json`);
+  const executionFile = (projectId: string, runId: string) => path.join(projectPath(projectId), ".world-os", "tianyi", "multi-node-predictions", "execution", `${safeRunId(runId)}.json`);
   const readStored = (projectId: string, runId: string): PersistedRun | null => {
     const source = readExistingUtf8(projectPath(projectId), file(projectId, runId));
     if (!source) return null;
@@ -24,6 +28,17 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
   };
   const writeNew = (run: PersistedRun) => { const target = file(run.projectId, run.runId); const outcome = publishFileNoReplace({ rootPath: projectPath(run.projectId), targetPath: target, content: `${JSON.stringify(run, null, 2)}\n` }); if (outcome === "exists") return readStored(run.projectId, run.runId)!; return run; };
   const replace = (run: PersistedRun) => { replaceFileAtomically({ rootPath: projectPath(run.projectId), targetPath: file(run.projectId, run.runId), content: `${JSON.stringify(run, null, 2)}\n` }); return run; };
+  const readExecution = (projectId: string, runId: string): TianyiAgentExecutionProjection | null => {
+    const source = readExistingUtf8(projectPath(projectId), executionFile(projectId, runId));
+    if (!source) return null;
+    const projection = validateTianyiAgentExecutionProjection(JSON.parse(source) as TianyiAgentExecutionProjection);
+    if (projection.projectId !== projectId || projection.runId !== runId) throw new Error("Agent execution projection scope is invalid.");
+    return projection;
+  };
+  const writeExecution = (projection: TianyiAgentExecutionProjection) => {
+    replaceFileAtomically({ rootPath: projectPath(projection.projectId), targetPath: executionFile(projection.projectId, projection.runId), content: `${JSON.stringify(projection, null, 2)}\n` });
+    return projection;
+  };
   const verifySources = (run: PredictionRun) => run.sourceSnapshot.map((reference) => {
     const event = workspace.readWorldObject({ projectId: run.projectId, objectId: reference.eventId });
     assertStoryStudioEventReferenceEligibility({ reference, event, consumer: "tianyi-grounded", canonVerified: event.status !== "committed" || Boolean(options.verifyCanonEventRead?.({ projectId: run.projectId, eventId: event.id })) });
@@ -49,11 +64,28 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
       if (stored.status !== "created") throw new Error("Prediction Run cannot be executed from its current state.");
       replace({ ...stored, status: "generating" });
       try {
-        const events = verifySources(stored);
+        verifySources(stored);
         const knownEvents = workspace.getStoryStudioWorldLibraryBootstrap({ projectId: stored.projectId }).objects
           .filter((object) => object.type === "event")
           .map((object) => ({ id: object.id, title: object.title }));
-        const generated = await gateway.generate({ request: { projectId: stored.projectId, sourceEventRefs: stored.sourceSnapshot, authorGoal: stored.authorGoal, predictionMode: stored.predictionMode, operationId: stored.operationId }, knownEvents, bundleId: `prediction-bundle.${stored.runId}` });
+        const attemptId = `agent-attempt.${stored.runId}.1`;
+        const previousAttempts = readExecution(stored.projectId, stored.runId)?.attempts ?? [];
+        const runtimeEvents: TianyiAgentRuntimeEvent[] = [];
+        const generated = await gateway.generate({
+          request: { projectId: stored.projectId, sourceEventRefs: stored.sourceSnapshot, authorGoal: stored.authorGoal, predictionMode: stored.predictionMode, operationId: stored.operationId },
+          knownEvents,
+          bundleId: `prediction-bundle.${stored.runId}`,
+          runtime: {
+            runId: stored.runId,
+            attemptId,
+            workVersionId: "work-version.prediction",
+            sessionId: `prediction-session.${stored.runId}`,
+            async onEvent(event) {
+              runtimeEvents.push(structuredClone(event));
+              writeExecution(projectTianyiAgentExecution({ projectId: stored.projectId, runId: stored.runId, attemptId, timeoutMs: 15_000, events: runtimeEvents, previousAttempts }));
+            }
+          }
+        });
         const validating = replace({ ...stored, status: "validating" });
         const bundle = validatePredictionBundle({ run: validating, bundle: generated });
         return structuredClone(replace({ ...validating, bundle, status: "ready" }));
@@ -66,6 +98,7 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
       const run = readStored(input.projectId, input.runId);
       return run ? structuredClone(markStaleIfSourceChanged(run)) : null;
     },
+    readPredictionExecution(input: { projectId: string; runId: string }) { const projection = readExecution(input.projectId, input.runId); return projection ? structuredClone(projection) : null; },
     listPredictionRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(markStaleIfSourceChanged(run))); },
     abandonPredictionRun(input: { projectId: string; runId: string }) {
       const run = requireRun(input.projectId, input.runId);
