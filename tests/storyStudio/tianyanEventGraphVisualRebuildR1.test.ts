@@ -18,6 +18,16 @@ test("event graph R1 keeps global and focus in one projection component", () => 
   assert.match(graph, /localStorage/u);
 });
 
+test("event line distinguishes loading, missing project, and recoverable connection failure", () => {
+  assert.match(projection, /loadState === "loading"/u);
+  assert.match(projection, /尚未打开作品/u);
+  assert.match(projection, /data-testid="event-line-no-project"/u);
+  assert.match(projection, /事件线暂时无法打开/u);
+  assert.match(projection, /props\.runtime\.retryConnection\(\)/u);
+  assert.doesNotMatch(projection, /Loading event line/u);
+  assert.match(projection, /\[props\.runtime\.project\]/u);
+});
+
 test("event graph R1 distinguishes formal, pending, and remote relationship projections", () => {
   assert.match(graph, /待确认 · /u);
   assert.match(graph, /strokeDasharray: "7 5"/u);

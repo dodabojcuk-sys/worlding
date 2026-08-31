@@ -9,18 +9,30 @@ import type { StoryStudioEventReference } from "../../../../../src/storyContract
 /** Adapter for the established Event projection and Workspace write command. */
 export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void; selectedEventId?: string | null }) {
   const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[] }>({ projectId: null, title: "", events: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const load = useCallback(async () => {
-    const bootstrap = await getBootstrap();
-    const project = bootstrap.activeProject; if (!project) return;
-    const [library, list, units, relationList, relationTypes] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id)]);
-    // The workspace owner exposes both author drafts and verified Canon events.
-    // Only Author Control may give an event the confirmed identity; the graph is
-    // still a projection of these same stable Event objects.
-    const events = list.status === "ready"
-      ? eventWorkspaceProjectionSummaries(library.objects, list.eventIds)
-      : [];
-    setState({ projectId: project.id, title: project.title, events, list, unit: units[0]?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types });
-  }, []);
+    setLoadState("loading");
+    try {
+      const project = props.runtime.project ?? (await getBootstrap()).activeProject;
+      if (!project) {
+        setState({ projectId: null, title: "", events: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
+        setLoadState("empty");
+        return;
+      }
+      const [library, list, units, relationList, relationTypes] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id)]);
+      // The workspace owner exposes both author drafts and verified Canon events.
+      // Only Author Control may give an event the confirmed identity; the graph is
+      // still a projection of these same stable Event objects.
+      const events = list.status === "ready"
+        ? eventWorkspaceProjectionSummaries(library.objects, list.eventIds)
+        : [];
+      setState({ projectId: project.id, title: project.title, events, list, unit: units[0]?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types });
+      setLoadState("ready");
+    } catch (error) {
+      setLoadState("error");
+      throw error;
+    }
+  }, [props.runtime.project]);
   useEffect(() => { void load().catch(() => undefined); }, [load]);
   useEffect(() => {
     const refresh = (event: Event) => {
@@ -30,7 +42,11 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     window.addEventListener("story-studio-prediction-drafts-created", refresh);
     return () => window.removeEventListener("story-studio-prediction-drafts-created", refresh);
   }, [load, state.projectId]);
-  if (!state.projectId) return <div className="event-line-loading" aria-live="polite">Loading event line…</div>;
+  if (!state.projectId) {
+    if (loadState === "loading") return <div className="event-line-loading" aria-live="polite">正在打开事件线…</div>;
+    if (loadState === "error" || props.runtime.connectionState === "unavailable") return <section className="event-line-unavailable" role="alert"><strong>事件线暂时无法打开</strong><p>本地作品服务没有完成读取；现有作品没有被修改。</p><button type="button" onClick={() => { props.runtime.retryConnection(); void load().catch(() => undefined); }}>重新连接</button></section>;
+    return <section className="event-line-unavailable" data-testid="event-line-no-project"><strong>尚未打开作品</strong><p>使用顶部“目录”按钮新建或导入作品，事件线会在作品打开后自动载入。</p></section>;
+  }
   const saveDraftEvent = async (input: EventDraftInput): Promise<WorldObject> => {
     const { tags, body } = eventDraftPayload(input);
     const created = await props.runtime.withConnection((token) => createWorldObject({ projectId: state.projectId!, type: "event", title: input.title, status: "draft", tags, body, token }));
