@@ -1,4 +1,4 @@
-import { Bot, ShieldCheck } from "lucide-react";
+import { Bot, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 import type { AgentPermissionProfile, AgentPermissionState, ModelServiceStatus } from "../../lib/localTransport";
 
@@ -34,10 +34,16 @@ export function AgentSettingsSection(props: {
   const selected = props.status?.profile.profile;
   const credential = props.status?.profile.credential;
   const agentRuntime = props.status?.agentRuntime;
+  const availableModels = selected?.availableModels ?? [];
   const credentialInput = useRef<HTMLInputElement>(null);
   const modelInput = useRef<HTMLInputElement>(null);
+  const modelSelect = useRef<HTMLSelectElement>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerNotice, setProviderNotice] = useState("");
+  const [showCredentialDraft, setShowCredentialDraft] = useState(false);
+  const [manualModelEntry, setManualModelEntry] = useState(false);
+  const selectedModelNeedsManualEntry = Boolean(selected?.modelId && !availableModels.includes(selected.modelId));
+  const useManualModelEntry = manualModelEntry || availableModels.length === 0 || selectedModelNeedsManualEntry;
 
   const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "扩大授权范围" };
   const updatePermission = (profile: AgentPermissionProfile) => void props.onPermissionProfile?.(profile);
@@ -74,7 +80,7 @@ export function AgentSettingsSection(props: {
     try {
       const models = await props.onDiscoverProviderModels();
       setProviderNotice(`已获取 ${models.length} 个可用模型。请从列表选择，或手动填写模型 ID。`);
-      modelInput.current?.focus();
+      window.requestAnimationFrame(() => (modelSelect.current ?? modelInput.current)?.focus());
     } catch (cause) {
       setProviderNotice(cause instanceof Error ? cause.message : "获取模型失败，可以手动填写模型 ID。");
     } finally { setProviderBusy(false); }
@@ -102,7 +108,7 @@ export function AgentSettingsSection(props: {
     </header>
     <dl>
       <div><dt>Provider</dt><dd>{configured.length ? configured.map((provider) => provider.id).join("、") : "未配置"}</dd></div>
-      <div><dt>当前模型</dt><dd>{selected?.enabled ? props.status?.profiles.find((profile) => profile.modelId === selected.modelId)?.label ?? selected.modelId : "未选择"}</dd></div>
+      <div><dt>当前模型</dt><dd>{selected?.enabled && selected.modelId ? props.status?.profiles.find((profile) => profile.modelId === selected.modelId)?.label ?? selected.modelId : "未选择"}</dd></div>
       <div><dt>流式运行</dt><dd>{props.status?.tianyiDialogue.ready ? "可用" : "不可用"}</dd></div>
       <div><dt>工具调用</dt><dd>{props.status?.models.some((model) => model.capabilities.includes("tool-calls")) ? "经 Gateway 与作者审批" : "当前模型未声明"}</dd></div>
       <div><dt>Pi Agent</dt><dd>{props.status?.tianyiDialogue.ready ? "已接入 Provider Gateway" : "等待 Provider 配置"}</dd></div>
@@ -131,22 +137,31 @@ export function AgentSettingsSection(props: {
       </div>
       <dl>
         <div><dt>连接状态</dt><dd>{selected?.connectionStatus ?? "unknown"}</dd></div>
-        <div><dt>凭据</dt><dd>{credential?.configured ? "已配置" : "未配置"}</dd></div>
+        <div><dt>凭据</dt><dd className="agent-provider-credential-status">{credential?.configured && <LockKeyhole aria-hidden="true" />}{credential?.configured ? "已锁定保存" : "未配置"}</dd></div>
         <div><dt>配置范围</dt><dd>{props.status?.profile.storage.scope === "authoritative" ? "本机权威配置" : "隔离开发／测试配置"}</dd></div>
       </dl>
       {props.status?.profile.storage.compatibilityNotice && <p role="status">{props.status.profile.storage.compatibilityNotice}</p>}
       <label>显示名称<input name="displayName" required defaultValue={selected?.displayName ?? "硅基流动"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <label>服务地址<input name="baseUrl" type="url" required defaultValue={selected?.baseUrl ?? "https://api.siliconflow.cn/v1"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
-      <label>模型
-        <input ref={modelInput} name="modelId" list="provider-model-options" defaultValue={selected?.modelId ?? ""} placeholder="保存凭据后选择；也可手动填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
-        <datalist id="provider-model-options">{(selected?.availableModels ?? []).map((modelId) => <option key={modelId} value={modelId} />)}</datalist>
-        <small>{selected?.availableModels.length ? `已获取 ${selected.availableModels.length} 个可用模型。` : "首次保存不需要模型 ID；保存凭据后会自动获取模型。"}</small>
-      </label>
-      <label>新的 API Key（可选）<input ref={credentialInput} name="apiKey" type="password" autoComplete="new-password" placeholder="仅在更换凭据时输入" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
+      <div className="agent-provider-model-field">
+        <label htmlFor="provider-model-id">模型</label>
+        {useManualModelEntry
+          ? <input id="provider-model-id" ref={modelInput} name="modelId" defaultValue={selected?.modelId ?? ""} placeholder="保存凭据后选择；也可手动填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
+          : <select id="provider-model-id" ref={modelSelect} name="modelId" defaultValue={selected?.modelId ?? ""} disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>
+            <option value="">请选择可用模型</option>
+            {availableModels.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
+          </select>}
+        <div className="agent-provider-model-meta"><small>{availableModels.length ? `已获取 ${availableModels.length} 个可用模型。` : credential?.configured ? "凭据已保存，尚未获取模型。请点击“获取可用模型”。" : "首次保存不需要模型 ID；保存凭据后会自动获取模型。"}</small>{availableModels.length > 0 && <button type="button" onClick={() => setManualModelEntry((current) => !current)}>{useManualModelEntry ? "从列表选择" : "手动填写模型 ID"}</button>}</div>
+      </div>
+      <div className="agent-provider-secret-field">
+        <label htmlFor="provider-api-key">新的 API Key（可选）</label>
+        <div className="agent-provider-secret-control"><input id="provider-api-key" ref={credentialInput} name="apiKey" type={showCredentialDraft ? "text" : "password"} autoComplete="new-password" placeholder={credential?.configured ? "输入新 Key 以替换已锁定凭据" : "输入 API Key"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /><button type="button" aria-label={showCredentialDraft ? "隐藏本次输入的 API Key" : "显示本次输入的 API Key"} title={showCredentialDraft ? "隐藏本次输入" : "显示本次输入"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onClick={() => setShowCredentialDraft((current) => !current)}>{showCredentialDraft ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button></div>
+        <small className="agent-provider-secret-note"><LockKeyhole aria-hidden="true" />{credential?.configured ? "已保存的 Key 保持锁定；输入新 Key 后保存即可替换。小眼睛只查看本次输入。" : "保存后由服务器凭据 owner 锁定持有，不会回传浏览器。"}</small>
+      </div>
       <label className="agent-provider-enabled"><input name="enabled" type="checkbox" defaultChecked={selected?.enabled ?? true} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />启用此 Provider</label>
       <div className="agent-provider-actions">
-        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : selected?.modelId ? "保存 Provider 配置" : "保存凭据并获取模型"}</button>
-        <button type="button" disabled={providerBusy || props.busy || !credential?.configured || !props.onDiscoverProviderModels} onClick={discoverModels}>重新获取模型</button>
+        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : selected?.modelId ? "保存 Provider 配置" : credential?.configured ? "保存配置并获取模型" : "保存凭据并获取模型"}</button>
+        <button type="button" className={credential?.configured && availableModels.length === 0 ? "settings-primary-action" : undefined} disabled={providerBusy || props.busy || !credential?.configured || !props.onDiscoverProviderModels} onClick={discoverModels}>{availableModels.length ? "重新获取模型" : "获取可用模型"}</button>
         <button type="button" disabled={providerBusy || props.busy || !selected?.enabled || !props.onDisableProviderProfile} onClick={disableProvider}>停用 Provider</button>
       </div>
       {providerNotice && <p role={providerNotice.includes("失败") ? "alert" : "status"}>{providerNotice}</p>}

@@ -8,16 +8,20 @@ test("Provider settings submit only a one-time credential to the server owner an
   const settings = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
   const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
 
-  assert.match(settings, /type="password"/);
+  assert.match(settings, /type=\{showCredentialDraft \? "text" : "password"\}/);
   assert.match(settings, /autoComplete="new-password"/);
   assert.match(settings, /credentialInput\.current\?\.value\.trim/);
   assert.match(settings, /credentialInput\.current\.value = ""/);
-  assert.match(settings, /credential\?\.configured \? "已配置" : "未配置"/);
+  assert.match(settings, /credential\?\.configured \? "已锁定保存" : "未配置"/);
+  assert.match(settings, /小眼睛只查看本次输入/);
+  assert.match(settings, /显示本次输入的 API Key/);
   assert.doesNotMatch(settings, /credential\.suffix/);
   assert.doesNotMatch(settings, /revealProviderCredential/);
   assert.match(settings, /本机权威配置/);
   assert.doesNotMatch(settings, /name="modelId" required/);
-  assert.match(settings, /list="provider-model-options"/);
+  assert.match(settings, /<select id="provider-model-id"/);
+  assert.match(settings, /请选择可用模型/);
+  assert.match(settings, /手动填写模型 ID/);
   assert.match(settings, /首次保存不需要模型 ID/);
   assert.match(settings, /onDiscoverProviderModels/);
   assert.match(settings, /保存凭据并获取模型/);

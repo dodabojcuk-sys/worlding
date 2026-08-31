@@ -433,6 +433,28 @@ test("session credential stays in memory and model discovery exposes IDs only", 
   assert.equal(credentials.readForProvider(), "");
 });
 
+test("model discovery remains available when the generation budget is exhausted", async () => {
+  let reserveCalls = 0;
+  const gateway = createAiProviderGateway({
+    adapters: [createSiliconFlowAdapter({
+      environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+      fetchImpl: async () => new Response(JSON.stringify({ data: [{ id: "fixture/selectable-model" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    })],
+    budgetLedger: {
+      snapshot: () => ({ blocked: true }),
+      reserve: () => { reserveCalls += 1; throw new Error("generation budget is exhausted"); },
+      complete: () => undefined
+    }
+  });
+
+  const discovery = await gateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
+  assert.deepEqual(discovery.modelIds, ["fixture/selectable-model"]);
+  assert.equal(reserveCalls, 0);
+});
+
 test("live catalog selection rejects JSON-incompatible families and creates a session-only profile", async () => {
   assert.equal(selectStructuredChatModel([
     "deepseek-ai/DeepSeek-V3.2",

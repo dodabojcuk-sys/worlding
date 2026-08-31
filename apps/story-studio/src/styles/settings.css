@@ -441,7 +441,13 @@
 .agent-provider-profile p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; }
 .agent-provider-profile label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .agent-provider-profile label small { line-height: 1.45; }
-.agent-provider-profile input:not([type="checkbox"]) {
+.agent-provider-model-field,
+.agent-provider-secret-field { display: grid; align-content: start; gap: var(--space-1); }
+.agent-provider-model-field > label,
+.agent-provider-secret-field > label { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.agent-provider-profile input:not([type="checkbox"]),
+.agent-provider-profile select {
+  width: 100%;
   min-height: 2.5rem;
   padding: var(--space-2) var(--space-3);
   color: var(--color-text);
@@ -449,6 +455,20 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
+.agent-provider-profile select { cursor: pointer; }
+.agent-provider-model-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.agent-provider-model-meta small { min-width: 0; line-height: 1.45; }
+.agent-provider-model-meta button { min-height: auto; flex: 0 0 auto; padding: 0; color: var(--color-accent); background: transparent; border: 0; font-size: var(--font-size-xs); }
+.agent-provider-secret-control { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem; }
+.agent-provider-secret-control input { border-start-end-radius: 0 !important; border-end-end-radius: 0 !important; }
+.agent-provider-secret-control button { min-height: 2.5rem; padding: 0; border-start-start-radius: 0; border-end-start-radius: 0; }
+.agent-provider-secret-control button svg,
+.agent-provider-secret-note svg,
+.agent-provider-credential-status svg { width: 1rem; height: 1rem; flex: 0 0 auto; }
+.agent-provider-secret-note,
+.agent-provider-credential-status { display: inline-flex; align-items: center; gap: var(--space-1); }
+.agent-provider-secret-note { color: var(--color-text-muted); line-height: 1.45; }
+.agent-provider-credential-status { color: var(--color-text); }
 .agent-provider-enabled { display: flex !important; align-items: center; gap: var(--space-2); color: var(--color-text) !important; font-size: var(--font-size-sm) !important; }
 .agent-provider-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 

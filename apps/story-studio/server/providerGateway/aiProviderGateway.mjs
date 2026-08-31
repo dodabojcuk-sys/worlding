@@ -154,16 +154,11 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
     async discoverModels(input = {}) {
       const adapter = adapterMap.get(input.providerId || "siliconflow");
       if (!adapter || typeof adapter.discoverModels !== "function") throw providerGatewayError("invalid-request");
-      if (adapter.status().configured !== true) return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
-      const reservation = reserveBudget(budgetLedger, input, "setup", input.providerId || "siliconflow");
-      try {
-        const result = await adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
-        if (reservation) budgetLedger.complete({ reservationId: reservation.reservation.reservationId, outcome: "success" });
-        return result;
-      } catch (error) {
-        completeBudgetFailure(budgetLedger, reservation, error);
-        throw error;
-      }
+      // Catalog discovery is an explicit Settings action, not generation. It
+      // must remain available even when a prior generation authorization is
+      // exhausted; the route still enforces same-origin, credential ownership,
+      // response bounds and a hard timeout before this boundary.
+      return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
     },
     selectDiscoveredModel(modelIds) {
       const modelId = selectStructuredChatModel(modelIds);
