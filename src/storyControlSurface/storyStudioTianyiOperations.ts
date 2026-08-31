@@ -1,5 +1,6 @@
 import { createStoryStudioWorkspaceOperations, type StoryStudioWorldObject, type StoryStudioWritingDocument, type StoryStudioVisualDocument } from "./storyStudioWorkspaceOperations.ts";
 import { createStoryStudioMultiNodePredictionOperations } from "./storyStudioMultiNodePredictionOperations.ts";
+import type { MultiNodePredictionGateway } from "../storyAgent/multiNodePredictionGateway.ts";
 import {
   assertStoryStudioEventReferenceEligibility,
   normalizeStoryStudioEventReference,
@@ -73,11 +74,13 @@ export function createStoryStudioTianyiOperations(options: {
   now?: () => string;
   localControlToken?: string;
   modelGateway?: TianyiGroundedModelGateway;
+  multiNodePredictionGateway?: MultiNodePredictionGateway;
+  multiNodePredictionExecutionTimeoutMs?: number;
   /** Injected Canon-read verifier; this adapter never becomes a Canon owner. */
   verifyCanonEventRead?(input: { projectId: string; eventId: string }): boolean;
 }) {
   const workspace = createStoryStudioWorkspaceOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath });
-  const predictions = createStoryStudioMultiNodePredictionOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath, now: options.now, verifyCanonEventRead: options.verifyCanonEventRead });
+  const predictions = createStoryStudioMultiNodePredictionOperations({ rootPath: options.rootPath, stateFilePath: options.stateFilePath, now: options.now, ...(options.multiNodePredictionGateway ? { gateway: options.multiNodePredictionGateway } : {}), ...(options.multiNodePredictionExecutionTimeoutMs ? { executionTimeoutMs: options.multiNodePredictionExecutionTimeoutMs } : {}), verifyCanonEventRead: options.verifyCanonEventRead });
   const agentId = options.agentId ?? "agent.tianyi";
   const now = options.now ?? (() => new Date().toISOString());
 

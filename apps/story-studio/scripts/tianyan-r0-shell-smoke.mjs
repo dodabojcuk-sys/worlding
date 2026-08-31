@@ -1142,7 +1142,41 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.ok(await page.locator("[data-node-family='agent-tool']").count() >= 1, "The execution graph must render actual Tool nodes.");
   assert.ok(await page.locator("[data-node-family='agent-gate']").count() >= 1, "The execution graph must render actual Gate nodes.");
   assert.ok(await page.locator("[data-node-family='agent-result']").count() >= 1, "The execution graph must render an actual Result node.");
+  const executionPositions = await page.locator(".agent-execution-flow .react-flow__node").evaluateAll((nodes) => nodes.map((node) => Number.parseFloat(node.style.transform.match(/translate\(([-\d.]+)px/u)?.[1] ?? "0")));
+  assert.equal(executionPositions.every((position, index) => index === 0 || position > executionPositions[index - 1]), true, `Execution nodes must progress strictly from left to right=${JSON.stringify(executionPositions)}`);
+  assert.equal(await page.locator(".agent-node-icon").count() >= 1, true, "Process nodes need a dedicated step rail.");
+  assert.equal(await page.locator(".agent-tool-mark").count() >= 1, true, "Tool nodes need a dedicated compact tool mark.");
+  assert.equal(await page.locator(".agent-gate-mark").count() >= 1, true, "Gate nodes need a dedicated gate mark.");
+  assert.equal(await page.locator(".agent-result-mark").count() >= 1, true, "Result nodes need a dedicated result mark.");
   await capture("C-1440x900-agent-execution-process-tool-gate-result.png");
+  await page.getByRole("button", { name: "查看当前", exact: true }).click();
+  await page.waitForTimeout(220);
+  await capture("C2-1440x900-agent-execution-gate-result.png");
+
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.waitForTimeout(220);
+  const narrowExecution = await page.evaluate(() => {
+    const sidebar = document.querySelector(".tianyi-sidebar")?.getBoundingClientRect();
+    const flow = document.querySelector(".agent-execution-flow")?.getBoundingClientRect();
+    const nodes = [...document.querySelectorAll(".agent-execution-flow .graph-node-shell")].map((node) => node.getBoundingClientRect());
+    return {
+      sidebarWidth: sidebar?.width ?? 0,
+      sidebarRight: sidebar?.right ?? 0,
+      flowWidth: flow?.width ?? 0,
+      minNodeWidth: nodes.length ? Math.min(...nodes.map((node) => node.width)) : 0,
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      locatorVisible: Boolean(document.querySelector(".agent-execution-locator"))
+    };
+  });
+  assert.ok(narrowExecution.sidebarWidth >= 340 && narrowExecution.sidebarWidth <= 380, `1152 execution Tianyi width=${JSON.stringify(narrowExecution)}`);
+  assert.ok(Math.abs(narrowExecution.sidebarRight - 1152) <= 1, `1152 execution Tianyi must remain rightmost=${JSON.stringify(narrowExecution)}`);
+  assert.ok(narrowExecution.flowWidth >= 640, `1152 execution canvas must retain a readable pan surface=${JSON.stringify(narrowExecution)}`);
+  assert.ok(narrowExecution.minNodeWidth >= 170, `1152 execution nodes must keep at least 170px of rendered width at the readable default zoom=${JSON.stringify(narrowExecution)}`);
+  assert.equal(narrowExecution.pageOverflow, false, `1152 execution graph must not create page overflow=${JSON.stringify(narrowExecution)}`);
+  assert.equal(narrowExecution.locatorVisible, true, `1152 execution graph must keep explicit locator controls=${JSON.stringify(narrowExecution)}`);
+  await capture("H-1152x720-agent-execution-readable-pan.png");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(180);
 
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isDisabled(), true, "A time-conflict path must remain blocked.");
@@ -1162,9 +1196,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await firstCandidateCheckbox.press("Space");
   assert.match(await panel.locator(".tianyi-prediction-accept").innerText(), /采纳 2 个节点 · 新建 1 个草稿/u, "Partial review must name the exact selected and new-draft counts.");
   assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("已选择候选").locator("..").getByText("2", { exact: true }).count(), 1, "Review summary must show two selected candidates.");
-  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("引用已有 Event").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one existing Event reference.");
-  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("新建 draft Event").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one draft creation.");
-  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("跳过").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one skipped candidate.");
+  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("沿用已有事件").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one existing Event reference.");
+  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("保存为作者草稿").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one draft creation.");
+  assert.equal(await panel.locator(".tianyi-prediction-adoption-summary").getByText("已跳过").locator("..").getByText("1", { exact: true }).count(), 1, "Review summary must show one skipped candidate.");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node.is-review-excluded").length === 1);
   assert.equal(await page.locator(".event-graph-prediction-node.is-review-excluded").count(), 1, "Canvas and Tianyi must agree on the excluded candidate.");
   await capture("E-1440x900-partial-adoption-counts.png");
@@ -1173,7 +1207,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await acceptButton.focus();
   assert.notEqual(await acceptButton.evaluate((button) => getComputedStyle(button).outlineStyle), "none", "Keyboard focus on acceptance must remain visible.");
   await acceptButton.press("Enter");
-  await panel.getByText("本次采纳结果", { exact: true }).waitFor();
+  await panel.getByText("这次采纳已保存", { exact: true }).waitFor();
   await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Only the Workspace owner-created draft enters the formal Event projection.");
   assert.equal(await page.getByLabel("单元目录").getByText("灯塔失火", { exact: true }).count(), 1, "The excluded candidate must not create a duplicate draft.");
@@ -1198,16 +1232,19 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.ok(receiptVisibility.top >= receiptVisibility.sidebarTop && receiptVisibility.bottom <= receiptVisibility.sidebarBottom, `The restored receipt must be visible without scrolling=${JSON.stringify(receiptVisibility)}`);
   assert.ok(receiptVisibility.top - receiptVisibility.sidebarTop < 150, `The restored receipt must occupy Tianyi's primary position=${JSON.stringify(receiptVisibility)}`);
   assert.equal(await restoredReceipt.getByText("灯塔路线", { exact: true }).count(), 1, "The restored receipt must name the accepted path.");
-  assert.equal(await restoredReceipt.getByText("2", { exact: true }).count() >= 1, true, "The restored receipt must show the selected count.");
+  assert.equal(await restoredReceipt.getByText(/2 个节点/u).count() >= 1, true, "The restored receipt must show the selected count.");
   assert.equal(await restoredReceipt.getByText("雾港启航", { exact: true }).count(), 1, "The restored receipt must distinguish the existing Event reference.");
   assert.equal(await restoredReceipt.getByText("异常信号增强", { exact: true }).count(), 1, "The restored receipt must distinguish the new draft Event.");
   assert.equal(await restoredReceipt.getByText("灯塔失火", { exact: true }).count(), 1, "The restored receipt must name the skipped candidate.");
+  assert.equal(await restoredReceipt.getByText("沿用已有事件", { exact: true }).count(), 1, "The primary receipt must use author-facing existing-event language.");
+  assert.equal(await restoredReceipt.getByText("保存为作者草稿", { exact: true }).count(), 1, "The primary receipt must use author-facing draft language.");
+  assert.equal(await restoredReceipt.locator("details").getAttribute("open"), null, "Technical IDs must stay collapsed after refresh.");
   const libraryAfterRefresh = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const draftCountAfterRefresh = libraryAfterRefresh.data.objects.filter((item) => item.type === "event" && item.status === "draft").length;
   assert.equal(draftCountAfterRefresh, draftCountAfter, "Refresh recovery must not repeat the draft Event write.");
   const firstRunId = await panel.locator(".tianyi-prediction-run-heading span").innerText();
   await capture("03-1440x900-refresh-primary-receipt.png");
-  await panel.getByRole("button", { name: "重新推演", exact: true }).click();
+  await panel.getByRole("button", { name: "生成新推演", exact: true }).click();
   await page.waitForFunction((previous) => {
     const current = document.querySelector(".tianyi-prediction-run-heading span")?.textContent ?? "";
     return current && current !== previous && document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing";
@@ -1245,9 +1282,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await summaryButton.press("Enter");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)").length === 3);
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
-  const abandonButton = panel.getByRole("button", { name: "放弃 Run", exact: true });
+  const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
   await abandonButton.press("Enter");
-  await panel.getByText("此 Run 已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor();
+  await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Keyboard abandonment must preserve the already-created draft projection.");
   assert.deepEqual(consoleProblems, [], "Multi-node prediction must not add browser console warnings or errors.");
 }

@@ -36,10 +36,10 @@ test("shared ports expose 24px targets while families retain readable dimensions
   assert.match(nodeShell, /aria-label=\{props\.label\}/u);
   assert.match(styles, /\.graph-node-port\.react-flow__handle \{ inline-size: 1\.5rem; block-size: 1\.5rem;/u);
   assert.match(styles, /\.is-candidate-event \{ inline-size: 11\.25rem;/u);
-  assert.match(styles, /\.is-agent-process \{[\s\S]*inline-size: 13\.25rem;/u);
-  assert.match(styles, /\.is-agent-tool \{[\s\S]*border-radius: 1\.1rem/u);
-  assert.match(styles, /\.is-agent-gate \{[\s\S]*border-radius: \.25rem 1rem \.25rem 1rem/u);
-  assert.match(styles, /\.is-agent-result \{[\s\S]*inline-size: 15rem;/u);
+  assert.match(styles, /\.is-agent-process \{[\s\S]*inline-size: 13\.75rem;/u);
+  assert.match(styles, /\.is-agent-tool \{[\s\S]*border-radius: 1\.15rem/u);
+  assert.match(styles, /\.is-agent-gate \{[\s\S]*border-radius: \.25rem \.9rem \.25rem \.9rem/u);
+  assert.match(styles, /\.is-agent-result \{[\s\S]*inline-size: 16rem;/u);
   assert.match(styles, /\.agent-execution-edge\.is-active path \{ stroke-dasharray/u);
   assert.match(styles, /\.graph-node-shell:focus-visible/u);
 });
@@ -58,6 +58,8 @@ test("execution graph stop, retry, polling and refresh recovery remain product-o
   assert.match(predictionPanel, /getMultiNodePredictionExecution/u);
   assert.match(predictionPanel, /stopMultiNodePredictionRun/u);
   assert.match(predictionPanel, /retryMultiNodePredictionRun/u);
-  assert.match(predictionPanel, /\u65b0 Attempt \u91cd\u8bd5/u);
+  assert.match(execution, /index \* 270/u);
+  assert.match(execution, /\u4ece\u5de6\u5230\u53f3\u6267\u884c/u);
+  assert.match(predictionPanel, /\u91cd\u65b0\u63a8\u6f14/u);
   assert.doesNotMatch(predictionPanel, /@earendil-works\/pi-/u);
 });

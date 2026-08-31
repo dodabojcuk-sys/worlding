@@ -449,7 +449,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const pathNodes = activePath.candidateNodeIds.map((id) => predictionRun.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
     pathNodes.forEach((node, index) => {
       const reviewSelected = predictionSelectedNodeIds.has(node.id);
-      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 215 + index * 160, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected } });
+      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 210 + index * 165, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected } });
     });
     predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
     const first = pathNodes[0];
@@ -534,12 +534,12 @@ function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, 
   const dimensions = (node: Node<NodeData>) => node.type === "predictionScope"
     ? { width: Number(node.style?.width) || 246, height: Number(node.style?.height) || 425 }
     : node.type === "predictionSourceSummary" ? { width: 160, height: 82 }
-    : node.type === "prediction" ? { width: hasSourceSummary ? 152 : 168, height: 126 } : { width: 204, height: 112 };
+    : node.type === "prediction" ? { width: hasSourceSummary ? 156 : 168, height: 126 } : { width: 204, height: 112 };
   const minX = Math.min(...nodes.map((node) => node.position.x));
   const minY = Math.min(...nodes.map((node) => node.position.y));
   const maxX = Math.max(...nodes.map((node) => node.position.x + dimensions(node).width));
   const maxY = Math.max(...nodes.map((node) => node.position.y + dimensions(node).height));
-  const paddingX = 26;
+  const paddingX = hasSourceSummary ? 44 : 26;
   const paddingY = 34;
   const fittedZoom = Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, maxX - minX), (canvas.height - paddingY * 2) / Math.max(1, maxY - minY));
   const zoom = hasSourceSummary ? Math.max(.82, fittedZoom) : Math.max(.45, fittedZoom);

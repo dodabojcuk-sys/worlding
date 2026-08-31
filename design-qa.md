@@ -60,6 +60,34 @@ final result: passed
 
 ---
 
+# Design QA — Tianyi Agent Graph Visual Polish and Provider Adapter Ready R1
+
+- Founder reference: `/tmp/codex-clipboard-422355c5-fe9e-44f5-9870-f0545b6fcf9e.png` (1568×1003)
+- Side-by-side comparison: `/home/beelink/.codex/visualizations/2026/08/31/tianyan-agent-graph-provider-adapter-r1/visual-reference-vs-implementation.png`
+- R1 contact sheet: `/home/beelink/.codex/visualizations/2026/08/31/tianyan-agent-graph-provider-adapter-r1/R1-contact-sheet.png`
+- Verified viewports: 1440×900 and 1152×720 at device scale 1.
+
+## Contract checks
+
+- The execution graph is monotonic from left to right; no execution edge returns to an earlier horizontal position.
+- Process, Tool, Gate and Result use distinct structure, width, outline, icon density and status language rather than a shared colored rectangle.
+- At 1152×720, Tianyi remains rightmost at 348px, the central execution surface remains 672px wide, and rendered execution nodes retain at least 170px width at the 0.9 default zoom.
+- `查看起点` and `查看当前` provide explicit keyboard-operable navigation while preserving readable panning instead of fitting the full run into tiny cards.
+- The current candidate path remains fully readable at 1152; the three formal sources collapse to the existing semantic summary instead of shrinking alongside the candidate nodes.
+- The adoption receipt leads with author-facing outcomes (`沿用已有事件`, `保存为作者草稿`, `已跳过`) and keeps run/bundle/candidate IDs inside a collapsed technical receipt.
+- Browser console warnings/errors: 0 in the passing dedicated and standard E2E runs.
+
+## Visual comparison findings
+
+- The implementation retains the reference composition: Unit directory, ordered multi-source basis, continuous candidate path and rightmost Tianyi console.
+- The execution view intentionally uses the central canvas and a readable pan surface; the R1 screenshots cover both the start/process-tool-gate region and the current/result region without shrinking nodes into dots.
+- Candidate nodes remain visibly temporary through amber dashed outlines and author-facing `候选／尚未写入` language.
+- No P0, P1 or P2 defect remains in the requested one-way graph, node-family distinction, 1152 responsive state or author-facing receipt.
+
+final result: passed
+
+---
+
 # Design QA — Tianyan Multi-Node Prediction Founder Polish R2
 
 - Founder reference: `/tmp/codex-clipboard-422355c5-fe9e-44f5-9870-f0545b6fcf9e.png` (1568×1003)
