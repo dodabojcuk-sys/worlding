@@ -88,9 +88,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       setRun(created); announceRun(created); setPhase("validating");
       beginExecutionPolling(created.runId);
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
-      setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); setPhase("reviewing"); announceRun(ready);
+      setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); announceRun(ready);
       const execution = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
       if (execution) { setExecution(execution); announceExecution(execution); }
+      setBusy(false); setPhase("reviewing");
     } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase(stopRequested.current ? "stopped" : "failed"); }
     finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
   })();
@@ -153,9 +154,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     setBusy(true); setError(""); setReceipt(null); setPhase("generating"); stopRequested.current = false; announceAgentState(true, run.runId); beginExecutionPolling(run.runId);
     try {
       const ready = await props.runtime.withConnection((token) => retryMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
-      setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); setPhase("reviewing"); announceRun(ready);
+      setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); announceRun(ready);
       const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
       if (projection) { setExecution(projection); announceExecution(projection); }
+      setBusy(false); setPhase("reviewing");
     } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "重试未完成。"); setPhase(stopRequested.current ? "stopped" : "failed"); }
     finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run.runId); }
   })();

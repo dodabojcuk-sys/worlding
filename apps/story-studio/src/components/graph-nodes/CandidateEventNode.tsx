@@ -11,7 +11,7 @@ export function CandidateEventNode(props: NodeProps<Node<CandidateEventNodeData>
   return <NodeShell family="candidate-event" status={props.data.status} selected={props.data.reviewSelected} ariaLabel={`${props.data.title}，${props.data.status}`}>
     <GraphPort type="target" position={Position.Left} connectable={false} label="候选路径输入" />
     <GraphPort type="source" position={Position.Right} connectable={false} label="候选路径输出" />
-    <span className="graph-node-candidate-label">候选／尚未写入</span>
+    <span className="graph-node-candidate-label">候选／尚未写入事件线</span>
     <strong>{props.data.title}</strong>
     <span><Clock3 aria-hidden="true" />{props.data.time}</span>
     <span><Layers3 aria-hidden="true" />{props.data.pathLabel} · Run {props.data.runId?.slice(-8) ?? ""}</span>

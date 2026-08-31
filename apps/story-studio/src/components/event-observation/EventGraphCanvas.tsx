@@ -126,11 +126,13 @@ export function EventGraphCanvas(props: {
       if (!predictionRun || detail?.runId !== predictionRun.runId) return;
       setPredictionPathId(detail.pathId);
       setPredictionSelectedNodeIds(detail.selectedCandidateNodeIds);
+      setGraphLayer("EVENT_GRAPH");
     };
     const replay = (window as Window & { __storyStudioPredictionSelection?: PredictionSelectionDetail }).__storyStudioPredictionSelection;
     if (predictionRun && replay?.runId === predictionRun.runId) {
       setPredictionPathId(replay.pathId);
       setPredictionSelectedNodeIds(replay.selectedCandidateNodeIds);
+      setGraphLayer("EVENT_GRAPH");
     }
     window.addEventListener("story-studio-prediction-review-selection", receive);
     return () => window.removeEventListener("story-studio-prediction-review-selection", receive);
@@ -428,7 +430,8 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
     const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 125 } : null;
-    return { id: event.id, type: "event", position: predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused: event.id === validFocus, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id) } } satisfies Node<NodeData>;
+    const focused = event.id === validFocus;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""}`, position: predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id) } } satisfies Node<NodeData>;
   });
   if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
   if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection, focusLayout?.remote.future));
@@ -444,7 +447,10 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   if (activePath && predictionRun?.bundle) {
     const candidateIds = new Set(activePath.candidateNodeIds);
     const pathNodes = activePath.candidateNodeIds.map((id) => predictionRun.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
-    pathNodes.forEach((node, index) => nodes.push({ id: node.id, type: "prediction", draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 215 + index * 160, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected: predictionSelectedNodeIds.has(node.id) } }));
+    pathNodes.forEach((node, index) => {
+      const reviewSelected = predictionSelectedNodeIds.has(node.id);
+      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 215 + index * 160, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected } });
+    });
     predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
     const first = pathNodes[0];
     if (collapsePredictionSources) {
@@ -464,7 +470,7 @@ function relationEdge(relation: RelationReadProjectionR0, selection: Selection):
 }
 function remoteNode(direction: "past" | "future", count: number, selection: Selection, position?: { x: number; y: number }): Node<NodeData> {
   const id = "projection.remote." + direction;
-  return { id, type: "event", position: position ?? (direction === "past" ? { x: 40, y: 450 } : { x: 960, y: 450 }), data: { title: direction === "past" ? "远处前因" : "远处后果", time: direction === "past" ? "更早之前" : "后续范围", location: "", status: "远端投影", focused: false, selected: selection?.kind === "remote" && selection.direction === direction, remote: true, direction, count } };
+  return { id, type: "event", className: "event-graph-node is-remote", position: position ?? (direction === "past" ? { x: 40, y: 450 } : { x: 960, y: 450 }), data: { title: direction === "past" ? "远处前因" : "远处后果", time: direction === "past" ? "更早之前" : "后续范围", location: "", status: "远端投影", focused: false, selected: selection?.kind === "remote" && selection.direction === direction, remote: true, direction, count } };
 }
 function remoteEdge(direction: "past" | "future", focusId: string): Edge { return { id: "projection.remote-edge." + direction, source: direction === "past" ? "projection.remote." + direction : focusId, target: direction === "past" ? focusId : "projection.remote." + direction, type: "smoothstep", label: "远端投影", markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5" }, labelStyle: { fill: "#147d78", fontSize: 11, fontWeight: 600 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: 0.94 }, labelBgPadding: [4, 3] }; }
 function focusIds(focusId: string, relations: readonly RelationReadProjectionR0[], depth: number) {

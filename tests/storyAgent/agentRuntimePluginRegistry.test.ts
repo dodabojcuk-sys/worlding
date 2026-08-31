@@ -27,7 +27,7 @@ test("built-in Pi plugin declares stable host ABI without opening a dynamic load
   const builtIn = createBuiltinPiAgentRuntimePlugin();
   assert.equal(builtIn.manifest.id, BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID);
   assert.equal(builtIn.manifest.pluginVersion, "0.1.0");
-  assert.equal(builtIn.manifest.upstreamVersion, "0.84.2");
+  assert.equal(builtIn.manifest.upstreamVersion, "0.84.4");
   assert.equal(builtIn.manifest.hostApiRange, "^1.0.0");
   assert.ok(builtIn.manifest.capabilities.includes("native-tool-frames"));
   assert.deepEqual(await builtIn.health(), { status: "healthy", message: null });
