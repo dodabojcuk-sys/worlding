@@ -1,18 +1,19 @@
 import { Background, Controls, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Braces, CheckCircle2, CircleDashed, GitBranch, LocateFixed, OctagonX, RotateCcw, ShieldCheck, Square, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Braces, CheckCircle2, CircleDashed, GitBranch, LocateFixed, OctagonX, RotateCcw, ShieldCheck, Square, UserCheck, Wrench } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { TianyiAgentExecutionNode, TianyiAgentExecutionProjection } from "../../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { GraphPort, NodeShell } from "../../graph-nodes/NodeShell";
 
-type ExecutionNodeData = TianyiAgentExecutionNode & { onOpenCandidates?(): void };
-const nodeTypes = { process: AgentProcessNode, tool: AgentToolNode, gate: AgentGateNode, result: AgentResultNode };
+type HumanReviewNode = Omit<TianyiAgentExecutionNode, "kind"> & { kind: "human-review" };
+type ExecutionNodeData = (TianyiAgentExecutionNode | HumanReviewNode) & { onOpenCandidates?(): void };
+const nodeTypes = { process: AgentProcessNode, tool: AgentToolNode, gate: AgentGateNode, result: AgentResultNode, "human-review": AgentHumanReviewNode };
 
 export function AgentExecutionGraph(props: { projection: TianyiAgentExecutionProjection; onReturn(): void; onOpenCandidates(): void; onStop?(): void; onRetry?(): void }) {
   const attempt = props.projection.attempts.find((item) => item.attemptId === props.projection.activeAttemptId) ?? props.projection.attempts.at(-1)!;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<ExecutionNodeData>, Edge> | null>(null);
-  const selected = attempt.nodes.find((node) => node.id === selectedId) ?? null;
+  const selected = graphNodeData(selectedId, attempt.nodes, props.onOpenCandidates, attempt.status);
   const terminalEvent = [...attempt.events].reverse().find((event) => event.type === "TianyiAgentRunFailed" || event.type === "TianyiAgentRunStopped");
   const graph = useMemo(() => executionGraph(attempt.nodes, attempt.edges, props.onOpenCandidates), [attempt.edges, attempt.nodes, props.onOpenCandidates]);
   const focusNode = useCallback((which: "first" | "current") => {
@@ -61,22 +62,30 @@ function AgentGateNode(props: NodeProps<Node<ExecutionNodeData>>) {
 function AgentResultNode(props: NodeProps<Node<ExecutionNodeData>>) {
   return <NodeShell family="agent-result" status={props.data.status} selected={props.selected} ariaLabel={`${props.data.title}，${props.data.summary}`}><GraphPort type="target" position={Position.Left} connectable={false} label="结果输入" /><span className="agent-result-mark"><Braces aria-hidden="true" /></span><div><small>推演结果 · 仍是候选</small><strong>{props.data.title}</strong><span>{props.data.summary}</span><button type="button" onClick={(event) => { event.stopPropagation(); props.data.onOpenCandidates?.(); }}>回到事件图审阅候选</button></div><NodeStatus status={props.data.status} /></NodeShell>;
 }
-function NodeStatus(props: { status: TianyiAgentExecutionNode["status"] }) {
+function AgentHumanReviewNode(props: NodeProps<Node<ExecutionNodeData>>) {
+  return <NodeShell family="agent-human-review" status={props.data.status} selected={props.selected} ariaLabel={`${props.data.title}，作者审核检查点`}><GraphPort type="target" position={Position.Left} connectable={false} label="候选结果输入" /><span className="agent-human-review-mark"><UserCheck aria-hidden="true" /></span><div><small>作者检查点 · 不自动写入</small><strong>{props.data.title}</strong><span>{props.data.summary}</span><button type="button" onClick={(event) => { event.stopPropagation(); props.data.onOpenCandidates?.(); }}>打开候选审阅</button></div><NodeStatus status={props.data.status} /></NodeShell>;
+}
+function NodeStatus(props: { status: ExecutionNodeData["status"] }) {
   const Icon = props.status === "success" ? CheckCircle2 : props.status === "warning" || props.status === "blocked" ? AlertTriangle : props.status === "failed" ? OctagonX : props.status === "stopped" ? Square : CircleDashed;
   return <span className="agent-node-status" data-status={props.status}><Icon aria-hidden="true" />{nodeStatusLabel(props.status)}</span>;
 }
-function nodeStatusLabel(status: TianyiAgentExecutionNode["status"]): string { return status === "waiting" ? "等待" : status === "running" ? "运行中" : status === "success" ? "完成" : status === "warning" ? "有警告" : status === "blocked" ? "已阻断" : status === "failed" ? "失败" : "已停止"; }
+function nodeStatusLabel(status: ExecutionNodeData["status"]): string { return status === "waiting" ? "等待" : status === "running" ? "运行中" : status === "success" ? "完成" : status === "warning" ? "有警告" : status === "blocked" ? "已阻断" : status === "failed" ? "失败" : "已停止"; }
 function runStatusLabel(status: string): string { return status === "candidates_ready" ? "候选已就绪" : status === "waiting_for_tool" ? "等待工具" : status === "validating" ? "一致性检查" : status === "failed" ? "运行失败" : status === "stopped" ? "已停止" : status === "running" ? "运行中" : status; }
 function formatSafe(value: Record<string, unknown> | null): string { return value ? JSON.stringify(value, null, 2) : "无可显示内容"; }
 function formatSafeFacts(value: Record<string, unknown>) { return Object.entries(value).map(([key, item]) => <li key={key}><span>{safeFactLabel(key)}</span><strong>{safeFactValue(item)}</strong></li>); }
 function safeFactLabel(key: string): string { return ({ sourceCount: "依据数量", authorGoalPresent: "作者目标", predictionMode: "推演方式", resolvedCount: "已核对依据", staleCount: "过期依据", projectIdMatches: "作品范围", inspectedSourceCount: "检查范围", relationWrites: "正式关系写入", statusKinds: "时间状态", timeWrites: "时间写入", identityGate: "身份检查", timeGate: "时间检查", canonWrites: "Canon 写入", worldStateWrites: "WorldState 写入", bundleId: "候选结果组", pathCount: "候选路径", candidateNodeCount: "候选节点", formalWrites: "正式数据写入", operation: "处理类型", access: "访问边界", input: "输入", output: "输出" } as Record<string, string>)[key] ?? key; }
 function safeFactValue(value: unknown): string { if (typeof value === "boolean") return value ? "已确认" : "无"; if (Array.isArray(value)) return value.map((item) => String(item)).join("、"); if (value === null || value === undefined) return "无"; return String(value); }
-function nodeFamilyLabel(kind: TianyiAgentExecutionNode["kind"]): string { return kind === "process" ? "推演步骤" : kind === "tool" ? "受控工具" : kind === "gate" ? "一致性检查" : "候选结果"; }
+function nodeFamilyLabel(kind: ExecutionNodeData["kind"]): string { return kind === "process" ? "推演步骤" : kind === "tool" ? "受控工具" : kind === "gate" ? "一致性检查" : kind === "human-review" ? "作者检查点" : "候选结果"; }
+function humanReviewNode(status: string, onOpenCandidates: () => void): HumanReviewNode & { onOpenCandidates(): void } { return { id: "execution-view.human-review", kind: "human-review", title: "等待作者审阅", summary: "候选只在作者选择后才进入草稿写入门禁。", status: status === "candidates_ready" ? "waiting" : ["failed", "stopped"].includes(status) ? "stopped" : "waiting", startedAt: null, completedAt: null, durationMs: null, toolName: null, callCount: 0, safeInput: null, safeOutput: null, onOpenCandidates }; }
+function graphNodeData(selectedId: string | null, nodes: TianyiAgentExecutionNode[], onOpenCandidates: () => void, status: string): ExecutionNodeData | null { if (!selectedId) return null; return nodes.find((node) => node.id === selectedId) ?? (selectedId === "execution-view.human-review" ? humanReviewNode(status, onOpenCandidates) : null); }
 function executionGraph(nodes: TianyiAgentExecutionNode[], edges: TianyiAgentExecutionProjection["attempts"][number]["edges"], onOpenCandidates: () => void): { nodes: Node<ExecutionNodeData>[]; edges: Edge[] } {
+  const review = humanReviewNode(nodes.some((node) => node.kind === "result" && node.status === "success") ? "candidates_ready" : "running", onOpenCandidates);
+  const viewNodes: ExecutionNodeData[] = [...nodes.map((node) => ({ ...node, onOpenCandidates })), review];
+  const result = [...nodes].reverse().find((node) => node.kind === "result");
   return {
-    nodes: nodes.map((node, index) => ({ id: node.id, type: node.kind, position: { x: index * 270, y: executionNodeLane(node.kind, index) }, data: { ...node, onOpenCandidates } })),
-    edges: edges.map((edge) => ({ id: edge.id, source: edge.sourceNodeId, target: edge.targetNodeId, type: "smoothstep", label: edge.label, animated: edge.status === "active", markerEnd: { type: MarkerType.ArrowClosed }, className: `agent-execution-edge is-${edge.status}` }))
+    nodes: viewNodes.map((node, index) => ({ id: node.id, type: node.kind, position: { x: index * 270, y: executionNodeLane(node.kind, index) }, data: node })),
+    edges: [...edges.map((edge) => ({ id: edge.id, source: edge.sourceNodeId, target: edge.targetNodeId, type: "smoothstep", label: edge.label, animated: edge.status === "active", markerEnd: { type: MarkerType.ArrowClosed }, className: `agent-execution-edge is-${edge.status}` })), ...(result ? [{ id: `execution-view.${result.id}.human-review`, source: result.id, target: review.id, type: "smoothstep", label: "等待作者", markerEnd: { type: MarkerType.ArrowClosed }, className: "agent-execution-edge is-waiting" }] : [])]
   };
 }
-function executionNodeLane(kind: TianyiAgentExecutionNode["kind"], index: number): number { return kind === "tool" ? 170 : kind === "gate" ? 38 : kind === "result" ? 102 : index === 0 ? 70 : 88; }
-function executionNodeWidth(kind: TianyiAgentExecutionNode["kind"]): number { return kind === "result" ? 256 : kind === "process" ? 220 : kind === "gate" ? 218 : 192; }
+function executionNodeLane(kind: ExecutionNodeData["kind"], index: number): number { return kind === "tool" ? 170 : kind === "gate" ? 38 : kind === "result" ? 102 : kind === "human-review" ? 88 : index === 0 ? 70 : 88; }
+function executionNodeWidth(kind: ExecutionNodeData["kind"]): number { return kind === "result" ? 256 : kind === "human-review" ? 236 : kind === "process" ? 220 : kind === "gate" ? 218 : 192; }

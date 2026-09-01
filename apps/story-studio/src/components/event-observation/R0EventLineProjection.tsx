@@ -8,7 +8,7 @@ import type { StoryStudioEventReference } from "../../../../../src/storyContract
 import { useI18n } from "../../product-shell/i18n/I18nProvider";
 
 /** Adapter for the established Event projection and Workspace write command. */
-export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void; selectedEventId?: string | null }) {
+export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void; selectedEventId?: string | null }) {
   const { t } = useI18n();
   const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[] }>({ projectId: null, title: "", events: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");

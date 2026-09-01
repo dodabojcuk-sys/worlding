@@ -89,7 +89,7 @@ export function EventLineWorkbench(props: {
   selectedEventId?: string | null;
   roleLens?: string | null;
   onSelectedEventId?(eventId: string | null): void;
-  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[]): void;
+  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
@@ -384,14 +384,17 @@ export function EventLineWorkbench(props: {
             const event = props.events.find((item) => item.id === eventId);
             return event && (event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
           });
-          props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId));
+          const units = unique((eventIds ?? []).flatMap((eventId) => metadataById[eventId]?.unitLabel ?? []));
+          const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";
+          props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId), unitSummary);
         }} /> : null}
         {projectionMode === "timeline" ? <EventTimelineProjection events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelect={openEvent} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
         {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="故事脊柱">
           {groupedEvents.map((group) => <section className="event-line-unit" key={group.label} data-current-unit={group.label === props.currentUnitLabel ? "true" : "false"}>
-            <header><span><Layers3 /></span><div><small>{group.label === props.currentUnitLabel ? "故事单元 · 当前故事范围" : "故事单元"}</small><h2>{group.label}</h2></div><strong>{group.setPoints.reduce((count, item) => count + item.events.length, 0)} 个已确认事件</strong></header>
+            <header><span><Layers3 /></span><div><small>{group.label === props.currentUnitLabel ? "故事单元 · 当前故事范围" : "故事单元"}</small><h2>{group.label}</h2></div><strong>{group.direct.length + group.setPoints.reduce((count, item) => count + item.events.length, 0)} 个已确认事件</strong></header>
+            {group.direct.length ? <section className="event-line-direct-nodes"><header><div><small>直接属于单元</small><h3>单元节点</h3></div><strong>{group.direct.length} 个节点</strong></header><ol>{group.direct.map((event) => <EventSpineNode key={event.id} event={event} detail={detailsById[event.id] ?? null} metadata={metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === selectedEventId} current={event.id === selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => openEvent(event.id)} />)}</ol></section> : null}
             {group.setPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode
                 key={event.id}
                 event={event}
@@ -496,7 +499,7 @@ function EventSpineNode(props: {
       <h3>{props.event.title}</h3>
       <p>{summary}</p>
       <dl>
-        <div><dt>层级</dt><dd>{props.metadata.unitLabel ?? "未指定故事单元"} · {props.metadata.setPointLabel ?? "未指定集点"}</dd></div>
+        <div><dt>层级</dt><dd>{props.metadata.unitLabel ?? "未归入故事范围"}{props.metadata.setPointLabel ? ` · 集点：${props.metadata.setPointLabel}` : " · 直接属于单元"}</dd></div>
         <div><dt><UsersRound />参与</dt><dd>{props.metadata.characterLabels.length ? props.metadata.characterLabels.join("、") : "未提供"}</dd></div>
         <div><dt><Clock3 />时间</dt><dd>{semantic.time.label}</dd></div>
         <div><dt>依据</dt><dd>{semantic.source.ref === props.event.id ? "Event 来源已核验" : authorSourceRef(semantic.source.ref)}</dd></div>
@@ -591,16 +594,17 @@ function eventMatchesFilter(event: EventLineEventSummary, filter: EventLineFilte
   return eventCandidateMarker(event, result, [], []) !== null;
 }
 
-function groupEventsByUnit(events: readonly EventLineEventSummary[], metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>): Array<{ label: string; setPoints: Array<{ label: string; events: EventLineEventSummary[] }> }> {
-  const groups = new Map<string, Map<string, EventLineEventSummary[]>>();
+function groupEventsByUnit(events: readonly EventLineEventSummary[], metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>): Array<{ label: string; direct: EventLineEventSummary[]; setPoints: Array<{ label: string; events: EventLineEventSummary[] }> }> {
+  const groups = new Map<string, { direct: EventLineEventSummary[]; setPoints: Map<string, EventLineEventSummary[]> }>();
   for (const event of events) {
     const label = metadataById[event.id]?.unitLabel ?? "未归入故事范围";
-    const setPoint = metadataById[event.id]?.setPointLabel ?? metadataById[event.id]?.sceneLabel ?? "未指定集点";
-    const group = groups.get(label) ?? new Map<string, EventLineEventSummary[]>();
-    group.set(setPoint, [...(group.get(setPoint) ?? []), event]);
+    const setPoint = metadataById[event.id]?.setPointLabel ?? null;
+    const group = groups.get(label) ?? { direct: [], setPoints: new Map<string, EventLineEventSummary[]>() };
+    if (setPoint) group.setPoints.set(setPoint, [...(group.setPoints.get(setPoint) ?? []), event]);
+    else group.direct.push(event);
     groups.set(label, group);
   }
-  return [...groups].map(([label, setPoints]) => ({ label, setPoints: [...setPoints].map(([setPointLabel, grouped]) => ({ label: setPointLabel, events: grouped })) }));
+  return [...groups].map(([label, group]) => ({ label, direct: group.direct, setPoints: [...group.setPoints].map(([setPointLabel, grouped]) => ({ label: setPointLabel, events: grouped })) }));
 }
 
 function eventCandidateMarker(event: EventLineEventSummary, result: GoldenLoopResult | null, rejectedIds: readonly string[], acceptedIds: readonly string[]): EventCandidateStatus | null {

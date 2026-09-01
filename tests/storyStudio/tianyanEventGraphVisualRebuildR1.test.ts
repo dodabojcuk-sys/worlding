@@ -84,7 +84,8 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(graph, /story-studio-prediction-review-selection/u);
   assert.match(graph, /fitPredictionProjection/u);
   assert.match(graph, /尚未写入事件线/u);
-  assert.match(prediction, /画布一次只显示当前路径/u);
+  assert.match(prediction, /条路径可同时比较/u);
+  assert.match(prediction, /按 Escape 返回全部路径/u);
   assert.match(prediction, /summarizeAdoption/u);
   assert.match(prediction, /采纳 \$\{summary\.selected\} 个节点 · 新建 \$\{summary\.drafts\} 个草稿/u);
   assert.match(prediction, /这次采纳已保存/u);
@@ -95,7 +96,15 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(graphStyles, /event-graph-prediction-node\.is-review-excluded/u);
   assert.match(graph, /predictionSourceSummary/u);
   assert.match(graph, /3 个推演依据|个推演依据/u);
-  assert.match(graph, /const sourceIds = activePath && predictionRun \? new Set\(predictionRun\.sourceSnapshot/u);
+  assert.match(graph, /const sourceIds = predictionVisible && predictionRun \? new Set\(predictionRun\.sourceSnapshot/u);
   assert.doesNotMatch(graph, /: predictionSelectionIds\.size \? new Set\(predictionSelectionIds\)/u);
   assert.match(graphStyles, /event-graph-prediction-source-summary/u);
+});
+
+test("story spine keeps direct Unit nodes separate from optional collection points", () => {
+  assert.match(workspace, /group\.direct\.length/u);
+  assert.match(workspace, /直接属于单元/u);
+  assert.match(workspace, /if \(setPoint\) group\.setPoints\.set/u);
+  assert.match(workspace, /else group\.direct\.push/u);
+  assert.doesNotMatch(workspace, /"未指定集点"/u);
 });

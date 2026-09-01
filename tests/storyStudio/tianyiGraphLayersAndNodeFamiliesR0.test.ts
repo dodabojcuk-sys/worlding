@@ -14,7 +14,7 @@ const predictionPanel = source("apps/story-studio/src/components/tianyi/sidebar/
 
 test("event, candidate overlay and Agent execution remain three explicit graph layers", () => {
   assert.match(canvas, /data-graph-layer="EVENT_GRAPH"/u);
-  assert.match(canvas, /data-candidate-overlay=\{predictionPathId \? "visible" : "hidden"\}/u);
+  assert.match(canvas, /data-candidate-overlay=\{\["overview", "focus", "review"\]\.includes\(predictionViewState\) \? "visible" : "hidden"\}/u);
   assert.match(execution, /data-graph-layer="AGENT_EXECUTION_GRAPH"/u);
   assert.match(canvas, /<AgentExecutionGraph/u);
   assert.match(execution, /\u8fd4\u56de\u4e8b\u4ef6\u56fe/u);
@@ -23,11 +23,12 @@ test("event, candidate overlay and Agent execution remain three explicit graph l
 
 test("seven semantic node families have distinct product components", () => {
   assert.match(formalEvent, /family = props\.data\.remote \? "remote-event" : props\.data\.status === "\u8349\u7a3f"[\s\S]*"draft-event" : "formal-event"/u);
-  assert.match(candidateEvent, /family="candidate-event"/u);
-  assert.match(candidateEvent, /\u5019\u9009\uff0f\u5c1a\u672a\u5199\u5165/u);
+  assert.match(candidateEvent, /"candidate-existing-reference"/u);
+  assert.match(candidateEvent, /"candidate-conflict"/u);
+  assert.match(candidateEvent, /\u5019\u9009 \u00b7 \u5c1a\u672a\u5199\u5165\u4e8b\u4ef6\u7ebf/u);
   assert.match(collectionPoint, /family="collection-point"/u);
   assert.match(collectionPoint, /\u53ef\u9009\u96c6\u70b9 \u00b7 \u4e0d\u590d\u5236 Event/u);
-  for (const family of ["agent-process", "agent-tool", "agent-gate", "agent-result"]) assert.match(execution, new RegExp(`family="${family}"`, "u"));
+  for (const family of ["agent-process", "agent-tool", "agent-gate", "agent-result", "agent-human-review"]) assert.match(execution, new RegExp(`family="${family}"`, "u"));
   assert.doesNotMatch(execution, /PredictionGraphNode|EventGraphNode/u);
 });
 
@@ -35,7 +36,7 @@ test("shared ports expose 24px targets while families retain readable dimensions
   assert.match(nodeShell, /className="graph-node-port"/u);
   assert.match(nodeShell, /aria-label=\{props\.label\}/u);
   assert.match(styles, /\.graph-node-port\.react-flow__handle \{ inline-size: 1\.5rem; block-size: 1\.5rem;/u);
-  assert.match(styles, /\.is-candidate-event \{ inline-size: 11\.25rem;/u);
+  assert.match(styles, /\.is-candidate-conflict \{ inline-size: 11\.75rem;/u);
   assert.match(styles, /\.is-agent-process \{[\s\S]*inline-size: 13\.75rem;/u);
   assert.match(styles, /\.is-agent-tool \{[\s\S]*border-radius: 1\.15rem/u);
   assert.match(styles, /\.is-agent-gate \{[\s\S]*border-radius: \.25rem \.9rem \.25rem \.9rem/u);
