@@ -1202,10 +1202,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(conflictRelations.data.relations.length, relationsBefore.data.relations.length, "Previewing a time-conflict path must not write a Relation.");
   assert.deepEqual(conflictCanon.data.eventIds, canonBefore.data.eventIds, "Previewing a time-conflict path must not write Canon.");
   assert.equal(conflictLibrary.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftCountBefore, "Previewing a time-conflict path must not create a draft Event.");
+  await capture("I-1440x900-time-conflict-blocked-no-write.png");
   await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.matches(".tianyi-prediction-goal textarea"));
   assert.equal(await panel.locator(".tianyi-prediction-goal textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
-  await capture("I-1440x900-time-conflict-blocked-no-write.png");
+  await capture("I2-1440x900-time-conflict-correction-focus.png");
   await panel.getByRole("button", { name: "开始推演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-view") === "overview");
   await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
