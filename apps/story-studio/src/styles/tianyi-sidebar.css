@@ -146,6 +146,7 @@
 
 /* Merged Agent workflow: one stage, one scroll host and one fixed primary action. */
 .tianyi-prediction-panel.is-staged { min-block-size: 0; block-size: 100%; grid-template-rows: auto auto minmax(0, 1fr) auto; align-content: stretch; gap: 0; padding: 0; overflow: hidden; }
+.tianyi-prediction-panel.is-staged[data-prediction-view="receipt"] { grid-template-rows: minmax(0, 1fr) auto; }
 .tianyi-prediction-header { padding: .8rem .9rem .65rem; border-block-end: 1px solid var(--color-border); }
 .tianyi-prediction-header > div { display: grid; gap: .1rem; }
 .tianyi-prediction-header > div > strong { font-size: .92rem; }

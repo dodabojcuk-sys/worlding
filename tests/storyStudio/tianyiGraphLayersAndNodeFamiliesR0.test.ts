@@ -56,6 +56,7 @@ test("execution graph stop, retry, polling and refresh recovery remain product-o
   assert.match(canvas, /story-studio-stop-agent-execution/u);
   assert.match(canvas, /story-studio-retry-agent-execution/u);
   assert.match(predictionPanel, /beginExecutionPolling/u);
+  assert.match(predictionPanel, /beginRunRecoveryPolling/u);
   assert.match(predictionPanel, /getMultiNodePredictionExecution/u);
   assert.match(predictionPanel, /stopMultiNodePredictionRun/u);
   assert.match(predictionPanel, /retryMultiNodePredictionRun/u);

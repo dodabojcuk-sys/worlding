@@ -256,7 +256,7 @@ export function TianyiSidebar(props: {
   const simulationPack = run?.contextManifest?.simulationContextPack ?? null;
   const sourceCounts = simulationPack?.sources.reduce<Record<string, number>>((counts, source) => ({ ...counts, [source.sourceRole]: (counts[source.sourceRole] ?? 0) + 1 }), {}) ?? {};
   const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: simulationPack?.sources.length ?? contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(simulationPack?.estimatedTokens ?? run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxProviderCalls) : null };
-  const agentRunning = predictionRunning || busy || Boolean(run && !["completed", "cancelled", "failed"].includes(run.status));
+  const agentRunning = predictionRunning || busy || Boolean(props.runtime.activeAgentRunId) || Boolean(run && !["completed", "cancelled", "failed"].includes(run.status));
   const generalAgentRun = <section className="tianyi-agent-stage tianyi-agent-compact" aria-label={t("tianyi.agent")}>
     <span>{t("tianyi.currentPage")}: {props.pageLabel}</span>
     {!providerReady ? <div className="tianyi-provider-unavailable" data-provider-state="unconfigured"><strong>{t("tianyi.providerUnavailableTitle")}</strong><p>{t("tianyi.providerUnavailable")}</p><button type="button" onClick={props.onOpenSettings}>{t("tianyi.openProviderSettings")}</button></div> : !run ? <><strong>{task ? t(task.labelKey as TranslationKey) : t("tianyi.chooseCapability")}</strong><p>{task ? t("tianyi.taskPrepared") : t("tianyi.agentEmpty")}</p></> : <>

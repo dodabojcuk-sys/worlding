@@ -22,19 +22,24 @@ type PredictionViewDetail = { runId: string; view: TianyiPredictionViewState; pa
 /** Candidate-only author controls. Canon, WorldState and formal Relations stay outside this component. */
 export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeState; eventRefs: StoryStudioEventReference[]; sourceLabels?: string[]; sourceUnitSummary?: string }) {
   const [goal, setGoal] = useState("推演这些事件之后可能发生的连续发展。");
-  const [run, setRun] = useState<PredictionRun | null>(null);
+  const [run, setRun] = useState<PredictionRun | null>(() => replayedPredictionRun(props.runtime.project?.id ?? null, props.eventRefs));
   const [runs, setRuns] = useState<PredictionRun[]>([]);
   const [pathId, setPathId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [phase, setPhase] = useState<PredictionPhase>("idle");
+  const [phase, setPhase] = useState<PredictionPhase>(() => predictionPhaseForRun(replayedPredictionRun(props.runtime.project?.id ?? null, props.eventRefs)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<DraftReceipt | null>(null);
   const [execution, setExecution] = useState<TianyiPredictionExecutionProjection | null>(null);
-  const [viewState, setViewState] = useState<TianyiPredictionViewState>("task");
+  const [viewState, setViewState] = useState<TianyiPredictionViewState>(() => {
+    const replay = replayedPredictionRun(props.runtime.project?.id ?? null, props.eventRefs);
+    return predictionViewStateFromPersistence({ runStatus: replay?.status ?? null, hasBundle: Boolean(replay?.bundle), selectedPathId: null, hasReceipt: false });
+  });
   const pollingGeneration = useRef(0);
+  const runRecoveryGeneration = useRef(0);
   const stopRequested = useRef(false);
   const adjustGoalRef = useRef<HTMLTextAreaElement>(null);
+  const focusGoalOnTask = useRef(false);
   const project = props.runtime.project;
   const sourceKey = props.eventRefs.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
   const activePath = run?.bundle?.paths.find((path) => path.id === pathId) ?? null;
@@ -47,19 +52,22 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     void props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)).then((history) => {
       if (!active) return;
       setRuns(history);
-      const matching = history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey) ?? null;
+      const matching = history.find((candidate) => candidate.runId === props.runtime.activeAgentRunId)
+        ?? history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey)
+        ?? replayedPredictionRun(project.id, props.eventRefs)
+        ?? null;
       setRun(matching);
-      props.runtime.setActiveAgentRunId(matching?.runId ?? null);
+      if (matching) props.runtime.setActiveAgentRunId(matching.runId);
       setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "stopped" ? "stopped" : matching?.status === "failed" ? "failed" : "idle");
       setViewState(predictionViewStateFromPersistence({ runStatus: matching?.status ?? null, hasBundle: Boolean(matching?.bundle), selectedPathId: null, hasReceipt: false }));
       if (matching) {
         announceRun(matching);
-        if (["generating", "validating"].includes(matching.status)) beginExecutionPolling(matching.runId);
+        if (["generating", "validating"].includes(matching.status)) { beginExecutionPolling(matching.runId); beginRunRecoveryPolling(matching.runId); }
         void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: matching.runId, token })).then((projection) => { if (active && projection) { setExecution(projection); announceExecution(projection); } }).catch(() => undefined);
-      }
-    }).catch(() => { if (active) { setRun(null); setPhase("idle"); } });
+      } else if (props.runtime.activeAgentRunId || replayedPredictionRun(project.id, props.eventRefs)) beginSourceRecoveryPolling();
+    }).catch(() => { if (active && !replayedPredictionRun(project.id, props.eventRefs)) { setRun(null); setPhase("idle"); } });
     return () => { active = false; };
-  }, [project, props.eventRefs.length, props.runtime, sourceKey]);
+  }, [project?.id, props.eventRefs.length, props.runtime.activeAgentRunId, sourceKey]);
 
   useEffect(() => {
     setPathId(null); setSelectedNodeIds([]); setReceipt(null);
@@ -110,6 +118,12 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [viewState]);
 
+  useEffect(() => {
+    if (viewState !== "task" || !focusGoalOnTask.current) return;
+    focusGoalOnTask.current = false;
+    window.requestAnimationFrame(() => adjustGoalRef.current?.focus());
+  }, [viewState]);
+
   const start = () => void (async () => {
     if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4 || busy) return;
     setBusy(true); setError(""); setReceipt(null); setPhase("generating");
@@ -144,6 +158,44 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       }
     })();
   };
+  const beginRunRecoveryPolling = (runId: string) => {
+    if (!project) return;
+    const generation = ++runRecoveryGeneration.current;
+    void (async () => {
+      while (runRecoveryGeneration.current === generation) {
+        try {
+          const history = await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token));
+          const current = history.find((item) => item.runId === runId);
+          if (current) {
+            setRuns(history); setRun(current); announceRun(current);
+            if (current.status === "ready") { setPhase("reviewing"); setViewState("overview"); return; }
+            if (current.status === "failed") { setPhase("failed"); setViewState("task"); return; }
+            if (current.status === "stopped") { setPhase("stopped"); setViewState("task"); return; }
+          }
+        } catch { /* the next bounded local poll may recover after a transient restart */ }
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    })();
+  };
+  const beginSourceRecoveryPolling = () => {
+    if (!project) return;
+    const generation = ++runRecoveryGeneration.current;
+    void (async () => {
+      while (runRecoveryGeneration.current === generation) {
+        try {
+          const history = await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token));
+          const current = history.find((item) => item.runId === props.runtime.activeAgentRunId)
+            ?? history.find((item) => item.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey);
+          if (current) {
+            props.runtime.setActiveAgentRunId(current.runId); setRuns(history); setRun(current); announceRun(current);
+            if (current.status === "ready") { setPhase("reviewing"); setViewState("overview"); return; }
+            beginRunRecoveryPolling(current.runId); return;
+          }
+        } catch { /* retain the selected source scope and retry only the local read */ }
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    })();
+  };
   const choosePath = (nextPathId: string) => {
     if (!run) return;
     const nextPath = run.bundle?.paths.find((path) => path.id === nextPathId) ?? null;
@@ -173,7 +225,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const abandon = () => void (async () => {
     if (!project || !run || busy || run.status === "abandoned") return;
     setBusy(true); setError("");
-    try { const abandoned = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token })); setRun(abandoned); setRuns((current) => current.map((item) => item.runId === abandoned.runId ? abandoned : item)); setReceipt(null); announceRun(abandoned); }
+    try { const abandoned = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token })); setRun(abandoned); setRuns((current) => current.map((item) => item.runId === abandoned.runId ? abandoned : item)); setReceipt(null); setPhase("idle"); setViewState("task"); announceRun(abandoned); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
     finally { setBusy(false); }
   })();
@@ -209,7 +261,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     return () => { window.removeEventListener("story-studio-stop-agent-execution", onStop); window.removeEventListener("story-studio-retry-agent-execution", onRetry); };
   });
 
-  useEffect(() => () => { pollingGeneration.current += 1; }, []);
+  useEffect(() => () => { pollingGeneration.current += 1; runRecoveryGeneration.current += 1; }, []);
 
   if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4) return null;
   const pathNumber = activePath && run?.bundle ? run.bundle.paths.findIndex((path) => path.id === activePath.id) + 1 : 0;
@@ -218,8 +270,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const stage = predictionStageForView(viewState);
   const returnToOverview = () => setViewState("overview");
   const returnToTask = () => {
+    focusGoalOnTask.current = true;
     setViewState("task");
-    window.requestAnimationFrame(() => adjustGoalRef.current?.focus());
   };
   const openExecution = () => {
     if (execution) announceExecution(execution);
@@ -232,16 +284,16 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       : viewState === "overview"
         ? <button type="button" className="primary-action" disabled>请从画布或列表选择路径</button>
         : viewState === "focus"
-          ? <button type="button" className="primary-action" disabled={!activePath || !gate.allowed} onClick={() => setViewState("review")}><Check />进入节点审阅</button>
+          ? <button type="button" className="primary-action tianyi-prediction-accept" disabled={!activePath || !gate.allowed} onClick={() => setViewState("review")}><Check />进入节点审阅</button>
           : viewState === "review"
-            ? <button type="button" className="primary-action" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />{adoptionButtonLabel(adoption)}</button>
+            ? <button type="button" className="primary-action tianyi-prediction-accept" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />{adoptionButtonLabel(adoption)}</button>
             : <button type="button" className="primary-action" onClick={() => window.dispatchEvent(new CustomEvent("story-studio-prediction-return-event-graph"))}><ArrowLeft />返回正式事件图</button>;
 
-  return <section className="tianyi-prediction-panel is-staged" aria-label="多节点推演" data-prediction-phase={phase} data-prediction-view={viewState}>
-    <header className="tianyi-prediction-header"><div><small>事件线 · 天意 Agent</small><strong>多节点推演</strong></div><span className="tianyi-prediction-candidate-badge">候选</span></header>
-    <nav className="tianyi-prediction-stage-marker" aria-label="推演阶段">{(["task", "running", "candidates", "review"] as const).map((item) => <span key={item} data-state={item === stage ? "active" : stageOrder(item) < stageOrder(stage) ? "complete" : "pending"}>{item === "task" ? "任务" : item === "running" ? "运行" : item === "candidates" ? "候选" : "审阅"}</span>)}</nav>
+  return <section className="tianyi-prediction-panel is-staged" aria-label="多节点推演" data-prediction-phase={phase} data-prediction-view={viewState} data-run-id={run?.runId ?? ""}>
+    {viewState !== "receipt" ? <><header className="tianyi-prediction-header"><div><small>事件线 · 天意 Agent</small><strong>多节点推演</strong></div><span className="tianyi-prediction-candidate-badge">候选</span></header>
+    <nav className="tianyi-prediction-stage-marker" aria-label="推演阶段">{(["task", "running", "candidates", "review"] as const).map((item) => <span key={item} data-state={item === stage ? "active" : stageOrder(item) < stageOrder(stage) ? "complete" : "pending"}>{item === "task" ? "任务" : item === "running" ? "运行" : item === "candidates" ? "候选" : "审阅"}</span>)}</nav></> : null}
     <div className="tianyi-prediction-scroll">
-      <section className="tianyi-prediction-source-summary" aria-label={`推演范围，${props.eventRefs.length} 个节点`}><span>推演依据</span><strong>{predictionSourceSummary(props.eventRefs.length, props.sourceUnitSummary)}</strong><small>完整顺序在画布顶部托盘管理</small></section>
+      {viewState !== "receipt" ? <section className="tianyi-prediction-source-summary" aria-label={`推演范围，${props.eventRefs.length} 个节点`}><span>推演依据</span><strong>{predictionSourceSummary(props.eventRefs.length, props.sourceUnitSummary)}</strong><small>完整顺序在画布顶部托盘管理</small></section> : null}
 
       {viewState === "task" ? <section className="tianyi-prediction-stage-content" aria-label="推演任务">
         <div className="tianyi-prediction-stage-heading"><span>01</span><div><small>任务</small><h2>准备后续发展推演</h2></div></div>
@@ -305,7 +357,7 @@ function PathList(props: { run: PredictionRun; pathId: string | null; onChoose: 
   return <ol className="tianyi-prediction-path-list">{bundle.paths.map((path, index) => {
     const nodes = path.candidateNodeIds.map((nodeId) => bundle.nodes.find((node) => node.id === nodeId)).filter((node): node is NonNullable<typeof node> => Boolean(node));
     const conflictCount = nodes.filter((node) => node.timeConsistency.kind === "conflict" || node.identityResolution.kind === "unresolved").length;
-    return <li key={path.id} data-selected={props.pathId === path.id ? "true" : "false"} data-blocked={conflictCount ? "true" : "false"}>
+    return <li key={path.id} data-path-id={path.id} data-selected={props.pathId === path.id ? "true" : "false"} data-blocked={conflictCount ? "true" : "false"}>
       <button type="button" aria-pressed={props.pathId === path.id} aria-label={`路径 ${index + 1}，${path.title}${conflictCount ? `，${conflictCount} 个阻断` : ""}`} onClick={() => props.onChoose(path.id)}>
         <span className="tianyi-prediction-path-number">{index + 1}</span>
         <span><strong title={path.title}>{path.title}</strong><small>{nodes.map((node) => node.title).join(" → ")}</small><em>{conflictCount ? `${conflictCount} 个阻断 · 需修正` : `${nodes.length} 个候选节点 · 尚未写入`}</em></span>
@@ -329,6 +381,18 @@ function PathNodeSummary(props: { run: PredictionRun; pathId: string }) {
 
 function stageOrder(stage: "task" | "running" | "candidates" | "review"): number {
   return { task: 0, running: 1, candidates: 2, review: 3 }[stage];
+}
+
+function replayedPredictionRun(projectId: string | null, eventRefs: readonly StoryStudioEventReference[]): PredictionRun | null {
+  const replay = (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun;
+  if (!projectId || replay?.projectId !== projectId) return null;
+  const sourceKey = eventRefs.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
+  const replayKey = replay.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
+  return sourceKey && sourceKey === replayKey ? replay : null;
+}
+
+function predictionPhaseForRun(run: PredictionRun | null): PredictionPhase {
+  return run?.status === "ready" ? "reviewing" : run?.status === "stopped" ? "stopped" : run?.status === "failed" ? "failed" : run && ["generating", "validating"].includes(run.status) ? "validating" : "idle";
 }
 
 function PredictionProgress(props: { phase: PredictionPhase; run: PredictionRun | null }) {

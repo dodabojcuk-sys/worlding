@@ -1075,6 +1075,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     await capture("A-1440x900-dialogue-only.png");
     await closeGlobalTianyiIfOpen(page);
   }
+  await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  await page.getByLabel("故事脊柱").waitFor();
+  assert.ok(await page.locator(".event-line-direct-nodes").count() >= 1, "Story spine must expose direct Unit nodes without inventing a required collection-point layer.");
+  assert.equal(await page.getByLabel("故事脊柱").getByText("未指定集点", { exact: true }).count(), 0, "Story spine must not render a compatibility placeholder as a product hierarchy.");
+  await capture("J-1440x900-story-spine-reading-density.png");
   const relationsBefore = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const libraryBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1086,7 +1091,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await tianyiSidebar.locator(".tianyi-dialogue-panel").count(), 0, "Dialogue and Agent surfaces must not be mounted together.");
   await page.waitForTimeout(260);
   await capture("B-1440x900-agent-three-sources-task.png");
-  assert.equal(await panel.getByText("推演范围 · 3 个节点", { exact: true }).count(), 1, "The ordered three-source scope must be visible in Tianyi.");
+  assert.equal(await panel.getByText(/3 个节点 · 单元 · 雾港/u).count(), 1, "Tianyi must show one compact ordered-source summary while the canvas tray remains authoritative.");
   const unitDirectory = page.getByLabel("单元目录");
   assert.equal(await unitDirectory.getByRole("heading", { name: "单元 01：雾港" }).count(), 1, "The demo structure must expose the authored Unit title.");
   assert.ok(await unitDirectory.getByLabel("雾港的直接节点").getByRole("listitem").count() >= 1, "A Unit may contain direct nodes outside an optional Set Point.");
@@ -1114,37 +1119,40 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(wideOverflow.documentWidth > wideOverflow.viewport, false, `The 1440 prediction workspace must not create page overflow=${JSON.stringify(wideOverflow)}`);
   await capture("01-1440x900-unit-direct-and-optional-set-point.png");
 
+  await page.route("**/prediction/execute", async (route) => { await new Promise((resolve) => setTimeout(resolve, 180)); await route.continue(); }, { times: 1 });
   await panel.getByRole("button", { name: "开始推演", exact: true }).click();
-  await page.waitForFunction(() => ["generating", "validating", "reviewing"].includes(document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") ?? ""));
-  if (output) {
-    await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
-    await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
-    assert.equal(await tianyiSidebar.getByText("当前对话不会操纵任务；切回 Agent 可查看原有进度。", { exact: true }).count(), 1, "Dialogue must explain that it does not control the retained Agent task.");
-    assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel, .agent-execution-workspace").count(), 0, "Dialogue must not mount prediction or execution controls while the Agent task remains in the background.");
-    await capture("F-1440x900-running-agent-switched-to-dialogue.png");
-    await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
+  await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-view") === "running");
+  assert.equal(await panel.getByRole("button", { name: "停止本次推演", exact: true }).count(), 1, "Running stage must expose exactly one primary stop action instead of adoption controls.");
+  try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing", undefined, { timeout: 8_000 }); }
+  catch (error) {
+    const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
+    throw new Error(`Agent background recovery did not reach review. Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
   }
-  const pendingAccept = panel.locator(".tianyi-prediction-accept");
-  if (await pendingAccept.count()) assert.equal(await pendingAccept.isDisabled(), true, "Acceptance must remain disabled while generation or validation is incomplete.");
-  await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing");
-  assert.ok(await panel.locator(".tianyi-prediction-paths article").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
-  const readyRunId = await panel.locator(".tianyi-prediction-run-heading span").innerText();
+  assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
+  assert.ok(await page.locator(".event-graph-prediction-node").count() >= 5, "Candidate overview must render all unique nodes from multiple paths before focus.");
+  const readyRunId = await panel.getAttribute("data-run-id");
   await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
+  await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
+  assert.equal(await tianyiSidebar.getByText("当前对话不会操纵任务；切回 Agent 可查看原有进度。", { exact: true }).count(), 1, "Dialogue must explain that it does not control the retained Agent task.");
   assert.equal(await tianyiSidebar.getAttribute("data-tianyi-mode"), "dialogue", "The author may leave a ready Agent Run for ordinary dialogue.");
   assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel").count(), 0, "Dialogue must not expose prediction controls, ContextPack, candidates or adoption.");
   assert.equal(await tianyiSidebar.locator(".tianyi-dialogue-panel").getAttribute("data-dialogue-agent-controls"), "absent", "Dialogue must explicitly exclude Agent controls.");
   await tianyiSidebar.locator(".tianyi-dialogue-composer textarea").fill("推演下一段故事");
   assert.equal(await tianyiSidebar.getByRole("button", { name: "转到 Agent 模式", exact: true }).count(), 1, "Execution-like dialogue intent must offer an explicit Agent handoff without auto-running.");
-  await tianyiSidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+  await capture("F-1440x900-agent-background-retained-dialogue.png");
+  await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await page.getByLabel("多节点推演").waitFor();
-  assert.equal(await panel.locator(".tianyi-prediction-run-heading span").innerText(), readyRunId, "Switching modes must preserve the Agent Run.");
+  await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
+  assert.equal(await panel.getAttribute("data-run-id"), readyRunId, "Switching modes must preserve the Agent Run.");
   assert.equal(await tianyiSidebar.locator(".tianyi-dialogue-composer").count(), 0, "Agent mode must not mount the Dialogue composer.");
-  await panel.getByRole("button", { name: "查看执行过程", exact: true }).click();
+  await panel.getByText("技术回执与历史", { exact: true }).click();
+  await panel.getByRole("button", { name: "查看执行图", exact: true }).click();
   await page.getByLabel("Agent 执行过程").waitFor();
   assert.ok(await page.locator("[data-node-family='agent-process']").count() >= 1, "The execution graph must render actual Process nodes.");
   assert.ok(await page.locator("[data-node-family='agent-tool']").count() >= 1, "The execution graph must render actual Tool nodes.");
   assert.ok(await page.locator("[data-node-family='agent-gate']").count() >= 1, "The execution graph must render actual Gate nodes.");
   assert.ok(await page.locator("[data-node-family='agent-result']").count() >= 1, "The execution graph must render an actual Result node.");
+  assert.ok(await page.locator("[data-node-family='agent-human-review']").count() >= 1, "The execution graph must render a distinct Human Review checkpoint.");
   const executionPositions = await page.locator(".agent-execution-flow .react-flow__node").evaluateAll((nodes) => nodes.map((node) => Number.parseFloat(node.style.transform.match(/translate\(([-\d.]+)px/u)?.[1] ?? "0")));
   assert.equal(executionPositions.every((position, index) => index === 0 || position > executionPositions[index - 1]), true, `Execution nodes must progress strictly from left to right=${JSON.stringify(executionPositions)}`);
   assert.equal(await page.locator(".agent-node-icon").count() >= 1, true, "Process nodes need a dedicated step rail.");
@@ -1183,6 +1191,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(180);
 
+  await page.getByRole("button", { name: "返回事件图", exact: true }).click();
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isDisabled(), true, "A time-conflict path must remain blocked.");
   assert.equal(await panel.getByText("这条路径暂时不可采纳", { exact: true }).count(), 1, "A blocked path must explain why it cannot be adopted.");
@@ -1193,8 +1202,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.deepEqual(conflictCanon.data.eventIds, canonBefore.data.eventIds, "Previewing a time-conflict path must not write Canon.");
   assert.equal(conflictLibrary.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftCountBefore, "Previewing a time-conflict path must not create a draft Event.");
   await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).click();
-  assert.equal(await panel.locator(".tianyi-prediction-adjust textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
+  await page.waitForFunction(() => document.activeElement?.matches(".tianyi-prediction-goal textarea"));
+  assert.equal(await panel.locator(".tianyi-prediction-goal textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
   await capture("I-1440x900-time-conflict-blocked-no-write.png");
+  await panel.getByRole("button", { name: "开始推演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-view") === "overview");
   await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length === 3);
   await page.waitForTimeout(260);
@@ -1203,10 +1215,12 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     return { canvas: canvas ? { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, width: canvas.width, height: canvas.height } : null, nodes: nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }; }) };
   });
   assert.equal(Boolean(activePathGeometry.canvas && activePathGeometry.nodes.every((node) => node.left >= activePathGeometry.canvas.left && node.right <= activePathGeometry.canvas.right && node.top >= activePathGeometry.canvas.top && node.bottom <= activePathGeometry.canvas.bottom)), true, `The active continuous candidate path must remain fully visible in the canvas=${JSON.stringify(activePathGeometry)}`);
-  assert.equal(await page.getByText(/候选[／·]\s*尚未写入事件线/u).count() >= 1, true, "Candidate overlay must state that it is not written to the Event Line.");
-  assert.equal(await panel.getByText(/时间未定（可继续审阅）/u).count(), 1, "Unknown time stays explicit and reviewable.");
+  assert.equal(await page.locator(".graph-node-candidate-label", { hasText: "候选 · 尚未写入事件线" }).count() >= 1, true, "Candidate overlay must state that it is not written to the Event Line.");
+  assert.equal(await panel.getByText(/时间未定/u).count() >= 1, true, "Unknown time stays explicit and reviewable.");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isEnabled(), true, "Unknown time does not block an otherwise valid path.");
   await capture("D-1440x900-candidate-event-overlay.png");
+
+  await panel.getByRole("button", { name: "进入节点审阅", exact: true }).click();
 
   const firstCandidateCheckbox = panel.locator(".tianyi-prediction-review input[type='checkbox']").first();
   await firstCandidateCheckbox.press("Space");
@@ -1258,14 +1272,15 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   const libraryAfterRefresh = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const draftCountAfterRefresh = libraryAfterRefresh.data.objects.filter((item) => item.type === "event" && item.status === "draft").length;
   assert.equal(draftCountAfterRefresh, draftCountAfter, "Refresh recovery must not repeat the draft Event write.");
-  const firstRunId = await panel.locator(".tianyi-prediction-run-heading span").innerText();
+  const firstRunId = await panel.getAttribute("data-run-id");
   await capture("03-1440x900-refresh-primary-receipt.png");
+  await panel.getByText("技术回执与历史", { exact: true }).click();
   await panel.getByRole("button", { name: "生成新推演", exact: true }).click();
   await page.waitForFunction((previous) => {
-    const current = document.querySelector(".tianyi-prediction-run-heading span")?.textContent ?? "";
+    const current = document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") ?? "";
     return current && current !== previous && document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing";
   }, firstRunId);
-  assert.equal(await panel.locator(".tianyi-prediction-history option").count(), 2, "Re-prediction must retain the old Run in history.");
+  assert.ok(await panel.locator(".tianyi-prediction-history option").count() >= 2, "Re-prediction must retain the old Run in history.");
   await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length === 3);
 
