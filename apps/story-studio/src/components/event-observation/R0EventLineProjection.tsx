@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { confirmRelationCandidate, createRelationCandidate, createWorldObject, getBootstrap, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, listTemporalProjectionRuns, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
+import { confirmRelationCandidate, createRelationCandidate, createStoryModelingRunTransport, createWorldObject, executeStoryModelingRunTransport, getBootstrap, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, listTemporalProjectionRuns, planStoryModeling, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type StoryModelingPlanProjection, type StoryModelingRunProjection, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
 import { eventWorkspaceProjectionSummaries, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -57,6 +57,18 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
         : { status: "missing" as const, run: null, changedEventCount: revision.eventCount };
     });
   }, [props.runtime.withConnection, state.projectId]);
+  const planModeling = useCallback((input: Parameters<typeof planStoryModeling>[0] extends infer T ? Omit<T & object, "token"> : never): Promise<StoryModelingPlanProjection> => {
+    if (!state.projectId) throw new Error("Story modeling requires an open project.");
+    return props.runtime.withConnection((token) => planStoryModeling({ ...input, projectId: state.projectId!, token } as Parameters<typeof planStoryModeling>[0]));
+  }, [props.runtime.withConnection, state.projectId]);
+  const runModeling = useCallback((request: import("../../../../../src/storyContracts/storyModeling.ts").StoryModelingRequest): Promise<StoryModelingRunProjection> => {
+    if (!state.projectId) throw new Error("Story modeling requires an open project.");
+    return props.runtime.withConnection(async (token) => {
+      const suffix = crypto.randomUUID();
+      const run = await createStoryModelingRunTransport({ request, runId: `story-modeling-run.${suffix}`, token });
+      return run.status === "ready" ? run : executeStoryModelingRunTransport({ projectId: state.projectId!, runId: run.runId, token });
+    });
+  }, [props.runtime.withConnection, state.projectId]);
   if (!state.projectId) {
     if (loadState === "loading") return <div className="event-line-loading" aria-live="polite">{t("eventLine.loading")}</div>;
     if (loadState === "error" || props.runtime.connectionState === "unavailable") return <section className="event-line-unavailable" role="alert"><strong>{t("eventLine.unavailable")}</strong><p>{t("eventLine.unavailableHint")}</p><button type="button" onClick={() => { props.runtime.retryConnection(); void load().catch(() => undefined); }}>{t("directory.retryConnection")}</button></section>;
@@ -68,7 +80,7 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     await load();
     return created;
   };
-  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
+  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
     const type = state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
     return props.runtime.withConnection((token) => createRelationCandidate({ projectId: state.projectId!, sourceObjectId: sourceEventId, targetObjectId: targetEventId, relationTypeId: type.relationTypeId, relationLabelSnapshot: type.label, direction: "forward", sourceRef: "event-graph-author-link", operationId: `event-graph-link-${crypto.randomUUID()}`, token })).then(() => { window.dispatchEvent(new Event("story-studio-pending-review-changed")); load(); });

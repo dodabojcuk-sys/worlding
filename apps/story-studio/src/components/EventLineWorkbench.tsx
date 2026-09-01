@@ -19,6 +19,7 @@ import {
   ScanLine,
   Settings2,
   ShieldCheck,
+  Sparkles,
   UsersRound,
   X
 } from "lucide-react";
@@ -49,6 +50,8 @@ import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../s
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
+import type { StoryModelingPlanProjection, StoryModelingRunProjection } from "../lib/localTransport";
+import type { StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
 export type EventDraftInput = {
@@ -100,6 +103,8 @@ export function EventLineWorkbench(props: {
   onRejectGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onContinueReview(): void;
   onReadTemporalProjectionCache?(eventRefs: StoryStudioEventReference[]): Promise<{ status: "current" | "stale" | "missing"; run: TemporalProjectionRun | null; changedEventCount: number }>;
+  onPlanStoryModeling?(input: { projectId: string; tool: StoryModelingTool; scope: StoryModelingScope; eventRefs: StoryStudioEventReference[]; previousManifestDigest?: string | null; structuralChange?: boolean }): Promise<StoryModelingPlanProjection>;
+  onExecuteStoryModeling?(request: StoryModelingRequest): Promise<StoryModelingRunProjection>;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(null);
@@ -113,6 +118,12 @@ export function EventLineWorkbench(props: {
   const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
   const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable">("idle");
   const [temporalMessage, setTemporalMessage] = useState<string | null>(null);
+  const [modelingTool, setModelingTool] = useState<StoryModelingTool | null>(null);
+  const [modelingScopeKind, setModelingScopeKind] = useState<StoryModelingScope["kind"]>("incremental");
+  const [modelingPlan, setModelingPlan] = useState<StoryModelingPlanProjection | null>(null);
+  const [modelingPlanState, setModelingPlanState] = useState<"idle" | "loading" | "ready" | "running" | "failed">("idle");
+  const [modelingRun, setModelingRun] = useState<StoryModelingRunProjection | null>(null);
+  const [aiToolbarExpanded, setAiToolbarExpanded] = useState(true);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
@@ -233,6 +244,65 @@ export function EventLineWorkbench(props: {
   const relations = confirmedEventRelationProjection(selectedDetail);
   const formalRelations = props.relations ?? [];
   const creationOpen = dockState.open && dockState.activeLens === "create";
+  const modelingEventRefs = useMemo(() => props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []), [eventIds, props.events, props.projectId]);
+
+  const scopeFor = useCallback((kind: StoryModelingScope["kind"]): StoryModelingScope => {
+    const sourceIds = modelingEventRefs.map((reference) => `event-source.${reference.eventId}`);
+    if (kind === "full-book") return { kind, sourceIds };
+    if (kind === "selection") {
+      const selectedRefs = selectedEventRef ? [selectedEventRef] : modelingEventRefs;
+      return { kind, sourceIds: selectedRefs.map((reference) => `event-source.${reference.eventId}`), eventRefs: selectedRefs, unitIds: selectedEvent && metadataById[selectedEvent.id]?.unitLabel ? [metadataById[selectedEvent.id]!.unitLabel!] : [] };
+    }
+    const changed = selectedEventRef ? [`event-source.${selectedEventRef.eventId}`] : sourceIds.slice(-1);
+    const dependency = selectedEventRef ? sourceIds.filter((id) => !changed.includes(id)).slice(-2) : sourceIds.slice(-3, -1);
+    return { kind, changedSourceIds: changed, dependencySourceIds: dependency };
+  }, [metadataById, modelingEventRefs, selectedEvent, selectedEventRef]);
+
+  const openModelingTool = useCallback(async (tool: StoryModelingTool) => {
+    if (!props.onPlanStoryModeling || !modelingEventRefs.length) return;
+    setModelingTool(tool);
+    setModelingScopeKind("incremental");
+    setModelingPlanState("loading");
+    try {
+      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool, scope: scopeFor("incremental"), eventRefs: modelingEventRefs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null });
+      setModelingPlan(plan);
+      setModelingPlanState("ready");
+    } catch {
+      setModelingPlan(null);
+      setModelingPlanState("failed");
+    }
+  }, [modelingEventRefs, modelingRun?.sourceManifestDigest, props.onPlanStoryModeling, props.projectId, scopeFor]);
+
+  const changeModelingScope = useCallback(async (kind: StoryModelingScope["kind"]) => {
+    if (!modelingTool || !props.onPlanStoryModeling) return;
+    setModelingScopeKind(kind);
+    setModelingPlanState("loading");
+    try {
+      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool: modelingTool, scope: scopeFor(kind), eventRefs: modelingEventRefs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null, structuralChange: kind === "full-book" });
+      setModelingPlan(plan);
+      setModelingPlanState("ready");
+    } catch { setModelingPlanState("failed"); }
+  }, [modelingEventRefs, modelingRun?.sourceManifestDigest, modelingTool, props.onPlanStoryModeling, props.projectId, scopeFor]);
+
+  const confirmModeling = useCallback(async () => {
+    if (!modelingTool || !modelingPlan || !props.onExecuteStoryModeling || modelingPlanState !== "ready") return;
+    setModelingPlanState("running");
+    try {
+      const request: StoryModelingRequest = { projectId: props.projectId, operationId: `story-modeling-operation.${crypto.randomUUID()}`, tool: modelingTool, trigger: "author-requested", scope: modelingPlan.scope, manifest: modelingPlan.manifest, eventRefs: modelingEventRefs, estimate: modelingPlan.estimate, authorConfirmedAt: new Date().toISOString() };
+      const run = await props.onExecuteStoryModeling(request);
+      setModelingRun(run);
+      (window as Window & { __storyStudioStoryModelingRun?: StoryModelingRunProjection }).__storyStudioStoryModelingRun = run;
+      window.dispatchEvent(new CustomEvent("story-studio-story-modeling-run", { detail: run }));
+      if (run.tool === "infer-temporal-position" && run.result) {
+        const temporal = modelingRunToTemporalProjection(run, modelingEventRefs);
+        setTemporalRun(temporal);
+        setTemporalState("ready");
+        setTemporalMessage(run.provider?.executionKind === "test-provider" ? "测试 Provider 已生成只读时间候选；未写入正式时间。" : "故事建模已生成只读时间候选；未写入正式时间。");
+      }
+      setModelingPlanState("idle");
+      setModelingTool(null);
+    } catch { setModelingPlanState("failed"); }
+  }, [modelingEventRefs, modelingPlan, modelingPlanState, modelingTool, props.onExecuteStoryModeling, props.projectId]);
 
   const requestDockState = useCallback((next: PageContextDockState<EventLinePageDockLens>, anchorEventId = selectedEventId) => {
     if (next.open) window.dispatchEvent(new Event("story-studio-close-mobile-context"));
@@ -445,9 +515,90 @@ export function EventLineWorkbench(props: {
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
+      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} run={modelingRun} />
       {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
+    {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
   </section>;
+}
+
+function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; run: StoryModelingRunProjection | null; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void }) {
+  const tools: Record<EventWorkspaceView, Array<{ id: StoryModelingTool; label: string }>> = {
+    spine: [
+      { id: "analyze-core-story", label: "分析核心故事线" },
+      { id: "suggest-unit-boundaries", label: "建议单元边界" },
+      { id: "check-structure-breaks", label: "检查结构断点" },
+      { id: "compare-branch-units", label: "比较分支单元" }
+    ],
+    graph: [
+      { id: "smart-relations", label: "智能连线" },
+      { id: "check-broken-links", label: "检查断链" },
+      { id: "suggest-causal-relations", label: "补充因果候选" }
+    ],
+    timeline: [
+      { id: "infer-temporal-position", label: "推断时间位置" },
+      { id: "check-temporal-conflicts", label: "检查时间冲突" },
+      { id: "update-changed-scope", label: "更新变化范围" }
+    ]
+  };
+  return <aside className={`story-modeling-toolbar ${props.expanded ? "is-expanded" : "is-collapsed"}`} aria-label="故事建模 AI 工具" data-testid="story-modeling-toolbar">
+    <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>{props.view === "spine" ? "故事脊柱工具" : props.view === "graph" ? "关系图工具" : "时间轴工具"}</span><b>{props.expanded ? "收起" : "展开"}</b></button>
+    {props.expanded ? <div className="story-modeling-toolbar-actions">{tools[props.view].map((tool) => <button key={tool.id} type="button" disabled={props.disabled} onClick={() => props.onTool(tool.id)}><Sparkles />{tool.label}</button>)}</div> : null}
+    {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : "本次建模未完成"}</strong><span>{props.run.provider?.executionKind === "test-provider" ? "测试 Provider" : "Provider"} · {props.run.actual?.providerRequests ?? 0} 次请求 · {props.run.actual?.totalTokens ?? 0} tokens</span><span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
+  </aside>;
+}
+
+function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: StoryModelingScope["kind"]; plan: StoryModelingPlanProjection | null; state: "idle" | "loading" | "ready" | "running" | "failed"; onScope(kind: StoryModelingScope["kind"]): void; onCancel(): void; onConfirm(): void }) {
+  const estimate = props.plan?.estimate;
+  const toolLabel = modelingToolLabel(props.tool);
+  const recommendation = props.plan?.recommendation.scopeKind === "reuse-cache" ? "复用缓存" : props.plan?.recommendation.scopeKind === "incremental" ? "增量建模" : props.plan?.recommendation.scopeKind === "selection" ? "选定范围" : "全书建模";
+  return <div className="story-modeling-confirmation-backdrop" role="presentation">
+    <section className="story-modeling-confirmation" role="dialog" aria-modal="true" aria-labelledby="story-modeling-confirmation-title" data-testid="story-modeling-confirmation">
+      <header><div><small>作者确认后才会运行</small><h2 id="story-modeling-confirmation-title">{toolLabel}</h2></div><button type="button" aria-label="取消故事建模" disabled={props.state === "running"} onClick={props.onCancel}><X /></button></header>
+      {props.state === "loading" ? <p role="status">正在读取版本化来源并计算范围与费用预估…</p> : null}
+      {props.state === "failed" ? <p className="story-modeling-error" role="alert">无法完成本次预估；尚未调用 Provider，也没有创建 Run。</p> : null}
+      {props.plan && estimate ? <>
+        <section className="story-modeling-recommendation"><small>当前建议</small><strong>{recommendation}</strong><p>{props.plan.recommendation.reason} 作者仍可改选其他范围。</p></section>
+        <fieldset><legend>运行范围</legend><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "incremental"} onChange={() => props.onScope("incremental")} />增量建模</label><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "selection"} onChange={() => props.onScope("selection")} />选定范围</label><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "full-book"} onChange={() => props.onScope("full-book")} />全书建模</label></fieldset>
+        <dl className="story-modeling-estimate"><div><dt>来源</dt><dd>{estimate.sourceCount} 个章节/场景来源</dd></div><div><dt>事件</dt><dd>{estimate.eventCount} 个</dd></div><div><dt>依赖</dt><dd>{estimate.dependencyCount} 个</dd></div><div><dt>Provider 请求</dt><dd>{estimate.providerRequestRange.min}–{estimate.providerRequestRange.max} 次</dd></div><div><dt>输入 tokens</dt><dd>{estimate.inputTokenRange.min.toLocaleString()}–{estimate.inputTokenRange.max.toLocaleString()}</dd></div><div><dt>输出 tokens</dt><dd>{estimate.outputTokenRange.min.toLocaleString()}–{estimate.outputTokenRange.max.toLocaleString()}</dd></div><div><dt>合计 tokens</dt><dd>{estimate.totalTokenRange.min.toLocaleString()}–{estimate.totalTokenRange.max.toLocaleString()}</dd></div><div><dt>预计费用</dt><dd>{estimate.cost.status === "available" ? `$${estimate.cost.min.toFixed(4)}–$${estimate.cost.max.toFixed(4)} USD` : "费用暂无法换算（当前模型缺少价格元数据）"}</dd></div></dl>
+        <section className="story-modeling-output"><strong>将产生什么</strong><p>{props.tool === "smart-relations" || props.tool === "suggest-causal-relations" ? "带方向、类型建议、置信度、理由和来源证据的关系候选。" : props.tool === "infer-temporal-position" ? "时间推断点、推断区间、冲突与未定位托盘中的只读投影。" : "带来源引用与置信度的结构候选和只读故事投影。"}</p><p><ShieldCheck />不会自动写入 Event、正式 Relation、Canon 或 WorldState。</p></section>
+      </> : null}
+      <footer><button type="button" disabled={props.state === "running"} onClick={props.onCancel}>取消</button><button type="button" className="primary-action" disabled={props.state !== "ready"} onClick={props.onConfirm}>{props.state === "running" ? "正在运行…" : "确认运行一次"}</button></footer>
+    </section>
+  </div>;
+}
+
+function modelingToolLabel(tool: StoryModelingTool): string {
+  return ({ "analyze-core-story": "分析核心故事线", "suggest-unit-boundaries": "建议单元边界", "check-structure-breaks": "检查结构断点", "compare-branch-units": "比较分支单元", "smart-relations": "智能连线", "check-broken-links": "检查断链", "suggest-causal-relations": "补充因果候选", "infer-temporal-position": "推断时间位置", "check-temporal-conflicts": "检查时间冲突", "update-changed-scope": "更新变化范围" })[tool];
+}
+
+function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: StoryStudioEventReference[]): TemporalProjectionRun {
+  const placementById = new Map(run.result?.temporalPlacements.map((item) => [item.eventId, item]) ?? []);
+  return {
+    version: "tianyan-temporal-projection/v1",
+    runId: `temporal-run.${run.runId.slice("story-modeling-run.".length)}`,
+    projectId: run.projectId,
+    graphRevisionHash: run.sourceManifestDigest.slice(7),
+    operationId: run.operationId,
+    trigger: run.trigger,
+    sourceSnapshot: refs,
+    status: "ready",
+    createdAt: run.createdAt,
+    stale: false,
+    placements: refs.map((reference, index) => {
+      const candidate = placementById.get(reference.eventId);
+      const kind = candidate?.kind === "interval" ? "ambiguous" : candidate?.kind ?? "unplaced";
+      return { versionedEventRef: reference, placementKind: kind, relativePosition: candidate?.x ?? 160 + index * 180, segmentId: kind === "anchored" ? "temporal-segment.authored" : kind === "conflict" ? "temporal-segment.conflict" : kind === "unplaced" ? "temporal-segment.unplaced" : "temporal-segment.inferred", authoredTimeLabel: kind === "anchored" ? candidate?.label ?? null : null, inferredWindow: candidate?.interval ?? (kind === "inferred" ? { start: Math.max(0, (candidate?.x ?? 0) - 40), end: (candidate?.x ?? 0) + 40 } : null), anchorBeforeEventIds: [], anchorAfterEventIds: [], confidence: candidate?.confidence ?? null, evidenceRefs: candidate?.sourceRefs ?? [], authorFacingSummary: candidate?.label ?? "暂无足够证据定位。", alternatives: [] };
+    }),
+    segments: [
+      { id: "temporal-segment.authored", order: 0, label: "正式时间锚点", kind: "authored_anchor", startAnchorEventIds: [], endAnchorEventIds: [], confidence: 1 },
+      { id: "temporal-segment.inferred", order: 1, label: "推断时间区间", kind: "interval", startAnchorEventIds: [], endAnchorEventIds: [], confidence: .72 },
+      { id: "temporal-segment.conflict", order: 2, label: "时间冲突", kind: "unresolved", startAnchorEventIds: [], endAnchorEventIds: [], confidence: null },
+      { id: "temporal-segment.unplaced", order: 3, label: "未定位托盘", kind: "unresolved", startAnchorEventIds: [], endAnchorEventIds: [], confidence: null }
+    ],
+    conflicts: run.result?.temporalPlacements.filter((item) => item.kind === "conflict").map((item) => ({ id: `temporal-conflict.${item.eventId}`, eventIds: [item.eventId, refs.find((ref) => ref.eventId !== item.eventId)?.eventId ?? item.eventId], summary: item.label, evidenceRefs: item.sourceRefs })) ?? [],
+    failureReason: null
+  };
 }
 
 function EventLineScope(props: {

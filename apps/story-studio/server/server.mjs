@@ -18,6 +18,7 @@ import { createStoryStudioAuthorControl } from "../../../src/storyControlSurface
 import { createStoryStudioCanonReadProjection } from "../../../src/storyControlSurface/storyStudioCanonReadProjection.ts";
 import { createStoryStudioIntelligenceBridgeOperations } from "../../../src/storyControlSurface/storyStudioIntelligenceBridgeOperations.ts";
 import { createStoryStudioTianyiOperations } from "../../../src/storyControlSurface/storyStudioTianyiOperations.ts";
+import { createStoryModelingTestGateway } from "../../../src/storyAgent/storyModelingGateway.ts";
 import { createStoryStudioAgentDraftProposal, createStoryStudioAgentProposalOperations } from "../../../src/storyControlSurface/storyStudioAgentProposalOperations.ts";
 import { createStoryStudioRelationOperations } from "../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createActionPermissionBroker } from "../../../src/storyControlSurface/actionPermissionBroker.ts";
@@ -215,6 +216,8 @@ const tianyi = createStoryStudioTianyiOperations({
   agentId: tianyiAgentId,
   localControlToken: controlToken,
   modelGateway: providerGateway,
+  ...(process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1" ? { storyModelingGateway: createStoryModelingTestGateway() } : {}),
+  storyModelingPrice: (() => { const price = readConfiguredLivePriceUsd(); return price ? { currency: "USD", inputPerMillionTokens: price.inputUsdPerMillion, outputPerMillionTokens: price.outputUsdPerMillion, source: "configured-provider-model-price" } : null; })(),
   ...(multiNodePredictionGateway ? { multiNodePredictionGateway, groundedAnswerMaxProviderDispatches: 1 } : {}),
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
 });
@@ -3270,6 +3273,12 @@ async function handleTianyiRequest(request, response, url) {
     "temporal-projection/list": [["projectId"], () => tianyi.listTemporalProjectionRuns(body)],
     "temporal-projection/stop": [["projectId", "runId"], () => tianyi.stopTemporalProjectionRun(body)],
     "temporal-projection/retry": [["projectId", "runId"], () => tianyi.retryTemporalProjectionRun(body)],
+    "story-modeling/plan": [["projectId", "tool", "scope", "eventRefs"], () => tianyi.planStoryModeling(body)],
+    "story-modeling/create": [["request", "runId"], () => tianyi.createStoryModelingRun(body)],
+    "story-modeling/execute": [["projectId", "runId"], () => tianyi.executeStoryModelingRun(body)],
+    "story-modeling/read": [["projectId", "runId"], () => tianyi.readStoryModelingRun(body)],
+    "story-modeling/list": [["projectId"], () => tianyi.listStoryModelingRuns(body)],
+    "story-modeling/stop": [["projectId", "runId"], () => tianyi.stopStoryModelingRun(body)],
     "project-resume": [["projectId", "agentId"], () => tianyi.getTianyiProjectResume(body)],
     "context-projection": [["projectId", "contextRequest"], () => tianyi.getTianyiContextProjection(body)],
     "session/open": [["projectId", "operationId", "retentionMode"], () => tianyi.openTianyiSession(body)],

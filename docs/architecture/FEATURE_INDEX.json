@@ -14,6 +14,20 @@
   },
   "features": [
     {
+      "id": "event-line-story-modeling-r6",
+      "status": "LOCAL_REVIEW",
+      "maturity": "author-confirmed-scope-estimate-and-candidate-projection",
+      "entrypoints": ["apps/story-studio/src/components/EventLineWorkbench.tsx", "src/storyControlSurface/storyStudioStoryModelingOperations.ts"],
+      "sourceFiles": ["src/storyContracts/storyModeling.ts", "src/storyAgent/storyModelingGateway.ts", "src/storyControlSurface/storyStudioStoryModelingOperations.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/server/server.mjs"],
+      "domainOwners": ["src/storyControlSurface/storyStudioStoryModelingOperations.ts"],
+      "stateOwners": ["src/storyControlSurface/storyStudioStoryModelingOperations.ts"],
+      "persistenceOwner": "Project-local Tianyi story-modeling artifacts own source manifests, bounded estimates, Run receipts, and candidate/read-only results only; Event, Relation, Canon, WorldState, Unit, Nuwa, and Multiverse remain in their existing owners",
+      "providerDependency": "Explicit author confirmation is required; production is fail-closed without a configured gateway and isolated evidence may inject the labelled networkless test Provider",
+      "tests": ["tests/storyContracts/storyModeling.test.ts", "tests/storyControlSurface/storyStudioStoryModelingOperations.test.ts"],
+      "legacyProvenance": ["R5 semantic timeline cache contract corrected by R6 author-triggered modeling rules"],
+      "remainingGap": "Full-book production extraction requires a configured real Provider and source-owner chapter text adapter; this R6 build validates the staged manifest/scope/result boundary without making a real Provider call"
+    },
+    {
       "id": "tianyi-pi-text-vertical-slice-r0.6",
       "status": "LOCAL_REVIEW",
       "maturity": "provider-gateway-routed-streaming-with-session-replay",
