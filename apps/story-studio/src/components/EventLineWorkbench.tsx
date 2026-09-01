@@ -310,7 +310,7 @@ export function EventLineWorkbench(props: {
   };
   const selectView = (next: EventWorkspaceView) => {
     requestDockState({ open: false, activeLens: "detail" });
-    if (next === "graph") {
+    if (next === "graph" || next === "timeline") {
       window.dispatchEvent(new Event("story-studio-close-project-directory"));
     }
     setProjectionMode(next);

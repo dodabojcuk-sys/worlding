@@ -22,7 +22,7 @@ test("event workspace offers one named three-view switch and retains the local s
   assert.match(workspace, /eventView/u);
 });
 
-test("timeline is a read-only, pannable time-relationship graph with an honest axis and unknown lane", () => {
+test("timeline is one read-only React Flow canvas with spatial time bands and an unknown final band", () => {
   assert.match(timeline, /read-only canvas projection of the Event owner's existing world-time/u);
   assert.match(timeline, /eventLineSemanticNode\(event\)/u);
   assert.match(timeline, /timeKind !== "unknown"/u);
@@ -32,11 +32,18 @@ test("timeline is a read-only, pannable time-relationship graph with an honest a
   assert.match(timeline, /relations: readonly RelationReadProjectionR0\[\]/u);
   assert.match(timeline, /timeline-cross-band-edge/u);
   assert.match(timeline, /聚焦当前时间节点/u);
-  assert.match(timeline, /适应时间图视图/u);
-  assert.match(timeline, /event-timeline-axis/u);
-  assert.match(timeline, /aria-label="时间隔栏"/u);
-  assert.match(timeline, /aria-label="时间未定泳道"/u);
+  assert.match(timeline, /时间图总览/u);
+  assert.match(timeline, /type: "band"/u);
+  assert.match(timeline, /zIndex: -1/u);
+  assert.match(timeline, /\[\.\.\.knownBands, \{ id: "unknown"/u);
+  assert.match(timeline, /minZoom=\{0\.84\}/u);
+  assert.match(timeline, /EVENT_WIDTH = 220/u);
+  assert.doesNotMatch(timeline, /event-timeline-axis/u);
+  assert.doesNotMatch(timeline, /event-timeline-band-labels/u);
+  assert.doesNotMatch(timeline, /event-timeline-undated/u);
   assert.match(timeline, /时间未定/u);
+  assert.match(timeline, /bandByEvent\.get\(relation\.sourceObjectId\) !== bandByEvent\.get\(relation\.targetObjectId\)/u);
+  assert.match(workspace, /next === "graph" \|\| next === "timeline"/u);
   assert.doesNotMatch(timeline, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
 });
 
