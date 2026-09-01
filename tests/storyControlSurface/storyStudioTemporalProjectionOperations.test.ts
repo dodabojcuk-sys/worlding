@@ -7,7 +7,7 @@ import test from "node:test";
 import { createStoryStudioTemporalProjectionOperations } from "../../src/storyControlSurface/storyStudioTemporalProjectionOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
-test("temporal projection persists one automatic Pi-stub Run per graph revision without formal writes", async () => {
+test("temporal projection creates Runs only for author requests and keeps operation idempotency without formal writes", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-temporal-projection-"));
   const stateFilePath = path.join(rootPath, "state.json");
   const projectId = "long-night-temporal";
@@ -23,11 +23,13 @@ test("temporal projection persists one automatic Pi-stub Run per graph revision 
     const before = workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects;
     const operations = createStoryStudioTemporalProjectionOperations({ rootPath, stateFilePath, now: () => "2026-09-01T08:00:00.000Z" });
     const revision = operations.currentGraphRevision({ projectId, eventRefs: refs });
-    const request = { projectId, graphRevisionHash: revision.graphRevisionHash, eventRefs: refs, operationId: "temporal-operation.auto-a", trigger: "automatic" as const };
+    const request = { projectId, graphRevisionHash: revision.graphRevisionHash, eventRefs: refs, operationId: "temporal-operation.author-a", trigger: "author-requested" as const };
     const created = operations.createTemporalProjectionRun({ request, runId: "temporal-run.auto-a" });
     assert.equal(created.status, "created");
-    const duplicate = operations.createTemporalProjectionRun({ request: { ...request, operationId: "temporal-operation.auto-render" }, runId: "temporal-run.auto-render" });
-    assert.equal(duplicate.runId, created.runId, "a React render or view reopen cannot create a second automatic Run for the same revision");
+    const duplicate = operations.createTemporalProjectionRun({ request, runId: "temporal-run.author-retry-render" });
+    assert.equal(duplicate.runId, created.runId, "the same author operation remains idempotent");
+    const secondAuthorRun = operations.createTemporalProjectionRun({ request: { ...request, operationId: "temporal-operation.author-b" }, runId: "temporal-run.author-b" });
+    assert.notEqual(secondAuthorRun.runId, created.runId, "a separate explicit author request may create a new Run for the same revision");
     const ready = await operations.executeTemporalProjectionRun({ projectId, runId: created.runId });
     assert.equal(ready.status, "ready");
     assert.equal(ready.placements.length, sources.length);
@@ -46,7 +48,7 @@ test("temporal projection persists one automatic Pi-stub Run per graph revision 
   }
 });
 
-test("automatic failure does not retry and author retry is explicit", async () => {
+test("author-requested failure does not retry and author retry is explicit", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-temporal-retry-"));
   const stateFilePath = path.join(rootPath, "state.json");
   const projectId = "long-night-temporal-retry";
@@ -59,7 +61,7 @@ test("automatic failure does not retry and author retry is explicit", async () =
     const gateway = { async generate() { attempts += 1; throw new Error("temporal projection fixture failed"); } };
     const operations = createStoryStudioTemporalProjectionOperations({ rootPath, stateFilePath, gateway });
     const graphRevisionHash = operations.currentGraphRevision({ projectId, eventRefs: refs }).graphRevisionHash;
-    const run = operations.createTemporalProjectionRun({ request: { projectId, graphRevisionHash, eventRefs: refs, operationId: "temporal-operation.failure", trigger: "automatic" }, runId: "temporal-run.failure" });
+    const run = operations.createTemporalProjectionRun({ request: { projectId, graphRevisionHash, eventRefs: refs, operationId: "temporal-operation.failure", trigger: "author-requested" }, runId: "temporal-run.failure" });
     await assert.rejects(() => operations.executeTemporalProjectionRun({ projectId, runId: run.runId }), /fixture failed/u);
     assert.equal(attempts, 1);
     assert.equal(operations.readTemporalProjectionRun({ projectId, runId: run.runId })?.status, "failed");

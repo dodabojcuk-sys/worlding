@@ -17,7 +17,7 @@ test("real Pi Agent runtime executes the bounded temporal tool loop against the 
   globalThis.fetch = (async () => { fetchCalls += 1; throw new Error("network forbidden"); }) as typeof fetch;
   try {
     const projection = await createPiTemporalProjectionGateway({ now: () => "2026-09-01T00:00:00.000Z" }).generate({
-      request: { projectId: "long-night", graphRevisionHash: hash, eventRefs: refs, operationId: "temporal-operation.pi", trigger: "automatic" },
+      request: { projectId: "long-night", graphRevisionHash: hash, eventRefs: refs, operationId: "temporal-operation.pi", trigger: "author-requested" },
       events: [
         { id: "event.fire", title: "灯塔失火", summary: "", tags: [], storyOrder: 0, authoredTimeLabel: "第2夜", authoredTimeKind: "exact" },
         { id: "event.departure", title: "雾港启航", summary: "", tags: [], storyOrder: 1, authoredTimeLabel: null, authoredTimeKind: "unknown" },

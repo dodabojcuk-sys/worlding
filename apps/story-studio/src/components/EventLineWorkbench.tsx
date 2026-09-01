@@ -99,7 +99,7 @@ export function EventLineWorkbench(props: {
   onApproveModifiedGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onRejectGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onContinueReview(): void;
-  onEnsureTemporalProjection?(eventRefs: StoryStudioEventReference[]): Promise<TemporalProjectionRun>;
+  onReadTemporalProjectionCache?(eventRefs: StoryStudioEventReference[]): Promise<{ status: "current" | "stale" | "missing"; run: TemporalProjectionRun | null; changedEventCount: number }>;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(null);
@@ -111,7 +111,7 @@ export function EventLineWorkbench(props: {
   const [compact, setCompact] = useState(false);
   const [projectionMode, setProjectionMode] = useState<EventWorkspaceView>(() => readProjectionMode(props.projectId));
   const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
-  const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "failed" | "provider-unavailable">("idle");
+  const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable">("idle");
   const [temporalMessage, setTemporalMessage] = useState<string | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
@@ -321,18 +321,24 @@ export function EventLineWorkbench(props: {
   };
   useEffect(() => { writeProjectionMode(props.projectId, projectionMode); }, [projectionMode, props.projectId]);
   useEffect(() => {
-    if (projectionMode !== "timeline" || !props.onEnsureTemporalProjection) return;
+    if (projectionMode !== "timeline" || !props.onReadTemporalProjectionCache) return;
     const refs = props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []);
     if (!refs.length) { setTemporalState("idle"); setTemporalMessage("当前没有可用的版本化事件依据。"); return; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setTemporalState("loading");
-      setTemporalMessage("正在核对本图修订的缓存投影。");
-      void props.onEnsureTemporalProjection!(refs).then((run) => {
+      setTemporalMessage("正在读取本图修订的本地缓存；不会启动 AI 分析。");
+      void props.onReadTemporalProjectionCache!(refs).then((cache) => {
         if (cancelled) return;
-        setTemporalRun(run);
-        setTemporalState(run.stale ? "stale" : "ready");
-        setTemporalMessage(run.stale ? "当前显示上次投影，新图修订仍待更新。" : "同一图修订已命中缓存；切换、缩放和刷新不会重复运行。");
+        setTemporalRun(cache.run);
+        setTemporalState(cache.status === "current" ? "ready" : cache.status);
+        setTemporalMessage(cache.status === "current"
+          ? "正在显示当前缓存投影；切换、缩放和刷新不会启动新 Run。"
+          : cache.status === "stale"
+            ? `正在显示旧投影；约 ${cache.changedEventCount} 个事件或依赖已变化，可由作者选择更新范围。`
+            : "尚无 AI 时间投影；当前显示正式事件与关系生成的基础布局。");
+        const run = cache.run;
+        if (!run) return;
         const host = window as Window & { __storyStudioTemporalProjectionRun?: TemporalProjectionRun };
         host.__storyStudioTemporalProjectionRun = run;
         window.dispatchEvent(new CustomEvent("story-studio-temporal-projection-run", { detail: run }));
@@ -340,11 +346,11 @@ export function EventLineWorkbench(props: {
         if (cancelled) return;
         const reason = error instanceof Error ? error.message : "本地时间投影服务暂不可用。";
         setTemporalState(/provider|credential|model/iu.test(reason) ? "provider-unavailable" : "failed");
-        setTemporalMessage(`语义时间尚未推断：${reason}没有自动重试，也没有写入时间事实。`);
+        setTemporalMessage(`缓存读取失败：${reason}当前仍可使用基础布局；没有启动 Provider，也没有写入时间事实。`);
       });
     }, 380);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [eventIds, projectionMode, props.onEnsureTemporalProjection, props.projectId]);
+  }, [eventIds, projectionMode, props.onReadTemporalProjectionCache, props.projectId]);
   useEffect(() => { setInvalidRecordWarningDismissed(false); }, [props.listState.status === "ready" ? props.listState.invalidRecordCount : 0, props.projectId]);
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);

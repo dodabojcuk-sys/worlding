@@ -792,7 +792,7 @@ AI 在分析长篇来源时，可以建议新的分类；作者决定是否建�
 
 已有明确时间、相对时间和时间范围是可信时间锚点。正式时间未确认的 Event 不得默认堆入最后一个“时间未定”栏；Tianyi Agent 可以结合版本化事件引用、已确认关系、时间约束和故事语义，为其提出连续坐标上的 inferred temporal position。该位置始终是只读投影，不是正式 worldTime；产品必须标明“正式时间未确认 · AI 推断位置”，不得将推断静默写入 Event、Canon 或 WorldState。只有完全缺乏可用证据的节点才进入画布边缘的“暂无法定位”状态，这是异常兜底，不是默认大栏。
 
-每个有效图修订只能自动创建一次有界 temporal projection Run，并按 graphRevisionHash 与输入缓存。切换视图、缩放、平移、React 重渲染、刷新页面或重新打开项目都不得重复消耗模型额度。图版本发生有效变化后，旧投影标记为 stale，经防抖只创建一次新 Run；自动失败不得循环重试，作者只能在 Agent 模式显式重试。Dialogue 模式保持普通对话，不出现时间推断、Run、重试或内部执行控制。
+时间投影采用作者触发的有界建模合同，并按 graphRevisionHash、来源清单与输入版本缓存。切换故事脊柱、关系图或时间轴，缩放、平移、React 重渲染、刷新页面或重新打开项目时，Provider 调用与新建 Agent Run 都必须为零。缓存为 current 时直接显示；为 stale 时可以继续显示旧投影，但必须标记变化范围并给出更新建议；为 missing 时显示基于正式 Event / Relation 的本地确定性“基础布局”，不得把它标记为 AI 推断。只有作者明确点击 AI 工具、确认范围与费用预估后，才可用 author-requested 触发一次有界 temporal projection Run；失败后也只能由作者以 author-retry 显式重试。Dialogue 模式保持普通对话，不出现时间推断、Run、重试或内部执行控制。
 
 正式 Relation 使用正式实线，Relation candidate 使用待确认虚线；切换脉络、关系图和时间视图时，同一 Event / Relation 必须保持当前选择与可追踪路径。时间视图保持只读；拖动只可形成临时视图覆盖，不能直接改写 Event 的世界时间。正式时间采纳必须以后经过 Event owner 和 AuthorControl 的独立合同。
 

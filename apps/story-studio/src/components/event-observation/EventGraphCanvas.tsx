@@ -60,7 +60,7 @@ export function EventGraphCanvas(props: {
   onOpenTianyi?(eventIds?: string[]): void;
   mode?: "graph" | "temporal";
   temporalRun?: TemporalProjectionRun | null;
-  temporalState?: "idle" | "loading" | "ready" | "stale" | "failed" | "provider-unavailable";
+  temporalState?: "idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable";
   temporalMessage?: string | null;
   onReturnGraph?(): void;
 }) {
@@ -323,7 +323,7 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : openInspector(selection?.kind === "relation" ? "RELATION_REVIEW" : props.createOpen ? "EVENT_CREATE" : "EVENT_DETAILS")}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>
-    {mode === "temporal" ? <div className={`temporal-canvas-status is-${props.temporalState ?? "idle"}`} role="status" aria-live="polite"><Sparkles aria-hidden="true" /><div><strong>{props.temporalState === "loading" ? "正在推断时间位置" : props.temporalState === "failed" ? "语义时间尚未推断" : props.temporalRun?.conflicts.length ? "需要作者处理冲突" : props.temporalRun?.stale ? "投影已过期" : props.temporalRun ? "投影已更新" : "语义时间尚未推断"}</strong><span>{props.temporalMessage ?? (props.temporalRun ? "时间位置是只读投影，不会改写正式时间。" : "暂时保留关系图布局，不会把未知节点堆入末尾。")}</span></div></div> : null}
+    {mode === "temporal" ? <div className={`temporal-canvas-status is-${props.temporalState ?? "idle"}`} role="status" aria-live="polite"><Sparkles aria-hidden="true" /><div><strong>{props.temporalState === "loading" ? "正在读取时间投影缓存" : props.temporalState === "missing" ? "基础布局" : props.temporalState === "failed" ? "时间投影暂不可读" : props.temporalRun?.conflicts.length ? "需要作者处理冲突" : props.temporalRun?.stale ? "旧投影 · 待更新" : props.temporalRun ? "时间投影已更新" : "基础布局"}</strong><span>{props.temporalMessage ?? (props.temporalRun ? "时间位置是只读投影，不会改写正式时间。" : "基于正式事件与关系展示；尚未执行 AI 分析。")}</span></div></div> : null}
     {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id} title={event.title} aria-label={`第 ${index + 1} 个推演依据：${event.title}`}><b>{index + 1}</b>{event.title}<button type="button" title={`移出推演范围：${event.title}`} aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}{narrowPrediction && predictionPathId ? <button type="button" className="event-graph-source-collapse" aria-expanded={predictionSourcesExpanded} onClick={() => setPredictionSourcesExpanded((expanded) => !expanded)}>{predictionSourcesExpanded ? `折叠为 ${predictionSources.length} 个推演依据` : `展开 ${predictionSources.length} 个推演依据`}</button> : null}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}

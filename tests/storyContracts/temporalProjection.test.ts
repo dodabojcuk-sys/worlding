@@ -11,7 +11,7 @@ import { createDeterministicTemporalProjectionGateway } from "../../src/storyAge
 const HASH = "a".repeat(64);
 const PROJECT = "long-night-semantic-time";
 const ref = (eventId: string, revisionToken = HASH) => ({ version: "story-studio-event-reference/v1" as const, projectId: PROJECT, eventId, revisionToken, state: "committed" as const, requestedUse: "constraint" as const });
-const request = normalizeTemporalProjectionRequest({ projectId: PROJECT, graphRevisionHash: HASH, eventRefs: [ref("event.fire"), ref("event.departure"), ref("event.signal"), ref("event.orphan")], operationId: "temporal-operation.revision-a", trigger: "automatic" });
+const request = normalizeTemporalProjectionRequest({ projectId: PROJECT, graphRevisionHash: HASH, eventRefs: [ref("event.fire"), ref("event.departure"), ref("event.signal"), ref("event.orphan")], operationId: "temporal-operation.revision-a", trigger: "author-requested" });
 
 test("temporal projection request is version-bound, project scoped and duplicate free", () => {
   assert.equal(request.eventRefs.length, 4);

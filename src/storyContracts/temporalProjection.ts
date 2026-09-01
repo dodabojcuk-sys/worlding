@@ -13,7 +13,7 @@ export type TemporalProjectionRequest = {
   graphRevisionHash: string;
   eventRefs: StoryStudioEventReference[];
   operationId: string;
-  trigger: "automatic" | "author-retry";
+  trigger: "author-requested" | "author-retry";
 };
 
 export type TemporalPlacement = {
@@ -89,7 +89,7 @@ export function normalizeTemporalProjectionRequest(value: unknown): TemporalProj
     graphRevisionHash: requireHash(input.graphRevisionHash, "Temporal projection graph revision"),
     eventRefs,
     operationId: requireStableId(input.operationId, "Temporal projection operation"),
-    trigger: oneOf(input.trigger, ["automatic", "author-retry"] as const, "Temporal projection trigger")
+    trigger: oneOf(input.trigger, ["author-requested", "author-retry"] as const, "Temporal projection trigger")
   };
 }
 
@@ -138,7 +138,7 @@ export function validateTemporalProjectionRun(value: unknown): TemporalProjectio
     projectId: requireProjectId(input.projectId),
     graphRevisionHash: requireHash(input.graphRevisionHash, "Temporal projection graph revision"),
     operationId: requireStableId(input.operationId, "Temporal projection operation"),
-    trigger: oneOf(input.trigger, ["automatic", "author-retry"] as const, "Temporal projection trigger"),
+    trigger: oneOf(input.trigger, ["author-requested", "author-retry"] as const, "Temporal projection trigger"),
     eventRefs: Array.isArray(input.sourceSnapshot)
       ? input.sourceSnapshot.map((reference) => normalizeStoryStudioEventReference(reference))
       : []

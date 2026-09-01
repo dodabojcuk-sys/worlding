@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { confirmRelationCandidate, createRelationCandidate, createTemporalProjectionRun, createWorldObject, executeTemporalProjectionRun, getBootstrap, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
+import { confirmRelationCandidate, createRelationCandidate, createWorldObject, getBootstrap, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, listTemporalProjectionRuns, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
 import { eventWorkspaceProjectionSummaries, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -44,16 +44,17 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     window.addEventListener("story-studio-prediction-drafts-created", refresh);
     return () => window.removeEventListener("story-studio-prediction-drafts-created", refresh);
   }, [load, state.projectId]);
-  const ensureTemporalProjection = useCallback((eventRefs: StoryStudioEventReference[]) => {
+  const readTemporalProjectionCache = useCallback((eventRefs: StoryStudioEventReference[]) => {
     const projectId = state.projectId;
     if (!projectId) throw new Error("Temporal projection requires an open project.");
     return props.runtime.withConnection(async (token) => {
       const revision = await getTemporalGraphRevision({ projectId, eventRefs, token });
       const cached = await getTemporalProjectionByRevision({ projectId, graphRevisionHash: revision.graphRevisionHash, token });
-      if (cached && !cached.stale) return cached;
-      const suffix = revision.graphRevisionHash.slice(0, 24);
-      const run = await createTemporalProjectionRun({ request: { projectId, graphRevisionHash: revision.graphRevisionHash, eventRefs, operationId: `temporal-operation.auto.${suffix}`, trigger: "automatic" }, runId: `temporal-run.${suffix}`, token });
-      return run.status === "ready" ? run : executeTemporalProjectionRun({ projectId, runId: run.runId, token });
+      if (cached && !cached.stale) return { status: "current" as const, run: cached, changedEventCount: 0 };
+      const stale = (await listTemporalProjectionRuns(projectId, token)).find((run) => run.status === "ready") ?? null;
+      return stale
+        ? { status: "stale" as const, run: { ...stale, stale: true }, changedEventCount: Math.max(1, revision.eventCount) }
+        : { status: "missing" as const, run: null, changedEventCount: revision.eventCount };
     });
   }, [props.runtime.withConnection, state.projectId]);
   if (!state.projectId) {
@@ -67,7 +68,7 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     await load();
     return created;
   };
-  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onEnsureTemporalProjection={ensureTemporalProjection} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
+  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
     const type = state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
     return props.runtime.withConnection((token) => createRelationCandidate({ projectId: state.projectId!, sourceObjectId: sourceEventId, targetObjectId: targetEventId, relationTypeId: type.relationTypeId, relationLabelSnapshot: type.label, direction: "forward", sourceRef: "event-graph-author-link", operationId: `event-graph-link-${crypto.randomUUID()}`, token })).then(() => { window.dispatchEvent(new Event("story-studio-pending-review-changed")); load(); });

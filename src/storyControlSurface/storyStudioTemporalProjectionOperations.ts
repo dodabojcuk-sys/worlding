@@ -43,7 +43,7 @@ export function createStoryStudioTemporalProjectionOperations(options: {
 
   return {
     currentGraphRevision(input: { projectId: string; eventRefs: unknown[] }) {
-      const request = normalizeTemporalProjectionRequest({ projectId: input.projectId, graphRevisionHash: "0".repeat(64), eventRefs: input.eventRefs, operationId: "temporal-operation.revision-read", trigger: "automatic" });
+      const request = normalizeTemporalProjectionRequest({ projectId: input.projectId, graphRevisionHash: "0".repeat(64), eventRefs: input.eventRefs, operationId: "temporal-operation.revision-read", trigger: "author-requested" });
       const evidence = resolveEvidence(request);
       return { graphRevisionHash: computeTemporalGraphRevisionHash(request, evidence.relations), eventCount: evidence.events.length, relationCount: evidence.relations.length };
     },
@@ -51,7 +51,7 @@ export function createStoryStudioTemporalProjectionOperations(options: {
       const request = normalizeTemporalProjectionRequest(input.request);
       const evidence = resolveEvidence(request);
       assertCurrentGraphRevision(request, evidence.relations);
-      const existing = list(request.projectId).find((run) => run.graphRevisionHash === request.graphRevisionHash && (run.trigger === "automatic" || run.operationId === request.operationId));
+      const existing = list(request.projectId).find((run) => run.operationId === request.operationId);
       if (existing) return structuredClone(markStale(existing));
       const run = createTemporalProjectionRun({ ...request, runId: input.runId, createdAt: now() });
       return structuredClone(writeNew({ ...run, storeVersion: STORE_VERSION }));
