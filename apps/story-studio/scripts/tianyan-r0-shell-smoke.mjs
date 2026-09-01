@@ -1130,6 +1130,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   }
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
   assert.ok(await page.locator(".event-graph-prediction-node").count() >= 5, "Candidate overview must render all unique nodes from multiple paths before focus.");
+  await capture("M-1440x900-multi-path-overview.png");
   const readyRunId = await panel.getAttribute("data-run-id");
   await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
   await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
