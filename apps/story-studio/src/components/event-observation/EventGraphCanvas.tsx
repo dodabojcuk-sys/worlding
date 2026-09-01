@@ -482,6 +482,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const overview = predictionViewState === "overview";
     const paths = overview ? predictionRun.bundle.paths : activePath ? [activePath] : [];
     const candidateIds = new Set(paths.flatMap((path) => path.candidateNodeIds));
+    const candidateEdgeIds = new Set(paths.flatMap((path) => path.candidateEdgeIds));
     const pathMembership = new Map<string, typeof paths>();
     paths.forEach((path) => path.candidateNodeIds.forEach((nodeId) => pathMembership.set(nodeId, [...(pathMembership.get(nodeId) ?? []), path])));
     const pathNodes = [...candidateIds].map((id) => predictionRun.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
@@ -499,13 +500,13 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
         : firstPath ? `路径 ${paths.indexOf(firstPath) + 1} · ${firstPath.title}` : "候选路径";
       nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node is-${candidateKind} ${displayedSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: overview ? { x: (collapsePredictionSources ? 244 : 292) + indexInPath * 232, y: 56 + lane * 190 } : collapsePredictionSources ? { x: 244 + index * 232, y: 155 } : { x: 292 + index * 232, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, candidateKind, sharedAcrossPaths: memberships.length, runId: predictionRun.runId, pathLabel: laneLabel, reviewSelected: displayedSelected } });
     });
-    predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
-    const first = pathNodes[0];
+    predictionRun.bundle.edges.filter((edge) => candidateEdgeIds.has(edge.id)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: !edge.relationTypeHint || edge.relationTypeHint.resolution === "unresolved" ? `${edge.label} · 关系类型待确认` : edge.label, markerEnd: edge.direction === "none" ? undefined : { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 12 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
+    const roots = [...new Set(paths.map((path) => path.candidateNodeIds[0]).filter((id): id is string => Boolean(id)))];
     if (collapsePredictionSources) {
       const summaryId = `prediction-source-summary.${predictionRun.runId}`;
-      if (first) edges.push({ id: `prediction-source-summary-edge.${predictionRun.runId}.${first.id}`, source: summaryId, target: first.id, type: "smoothstep", label: "推演预览", style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } });
+      roots.forEach((root, index) => edges.push({ id: `prediction-source-summary-edge.${predictionRun.runId}.${root}`, source: summaryId, target: root, type: "smoothstep", label: index === 0 ? "推演预览" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } }));
     } else {
-      predictionRun.sourceSnapshot.forEach((source, index) => { if (ids.has(source.eventId) && first) edges.push({ id: `prediction-source.${source.eventId}.${first.id}`, source: source.eventId, target: first.id, type: "smoothstep", label: index === 0 ? "推演预览" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } }); });
+      predictionRun.sourceSnapshot.forEach((source, sourceIndex) => roots.forEach((root, rootIndex) => { if (ids.has(source.eventId)) edges.push({ id: `prediction-source.${source.eventId}.${root}`, source: source.eventId, target: root, type: "smoothstep", label: sourceIndex === 0 && rootIndex === 0 ? "共同推演依据" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .58 }, markerEnd: { type: MarkerType.ArrowClosed } }); }));
     }
   }
   return { nodes, edges };

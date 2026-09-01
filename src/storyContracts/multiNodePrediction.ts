@@ -29,6 +29,7 @@ export type TimeConsistencyResult = {
 
 export type PredictionNode = {
   id: string;
+  pathIds: string[];
   title: string;
   summary: string;
   narrativeTime: string | null;
@@ -36,7 +37,17 @@ export type PredictionNode = {
   timeConsistency: TimeConsistencyResult;
 };
 
-export type PredictionEdge = { id: string; sourceCandidateId: string; targetCandidateId: string; label: string };
+export type PredictionEdgeDirection = "forward" | "reverse" | "both" | "none";
+export type PredictionEdge = {
+  id: string;
+  sourceCandidateId: string;
+  targetCandidateId: string;
+  label: string;
+  direction: PredictionEdgeDirection;
+  pathIds: string[];
+  sourceEvidence: { sourceEventIds: string[]; rationale: string };
+  relationTypeHint: { resolution: "exact" | "unresolved"; label: string | null };
+};
 export type PredictionPath = { id: string; title: string; candidateNodeIds: string[]; candidateEdgeIds: string[] };
 
 export type PredictionBundle = {
@@ -120,6 +131,8 @@ export function validatePredictionBundle(input: { run: PredictionRun; bundle: Pr
     candidateId(node.id, "Prediction node");
     if (nodeIds.has(node.id)) throw new Error("Prediction node is duplicated.");
     nodeIds.add(node.id);
+    const nodePathIds = array(node.pathIds, "Prediction node path memberships").map((id) => candidateId(id, "Prediction path"));
+    if (!nodePathIds.length || new Set(nodePathIds).size !== nodePathIds.length) throw new Error("Prediction node path memberships are invalid.");
     text(node.title, "Prediction node title", 160);
     text(node.summary, "Prediction node summary", 2_000);
     validateIdentityResolution(node.identityResolution);
@@ -128,6 +141,7 @@ export function validatePredictionBundle(input: { run: PredictionRun; bundle: Pr
   }
   const edgeIds = new Set<string>();
   const adjacency = new Map<string, string[]>();
+  const sourceEventIds = new Set(input.run.sourceSnapshot.map((reference) => reference.eventId));
   for (const edge of bundle.edges) {
     candidateId(edge.id, "Prediction edge");
     if (edgeIds.has(edge.id)) throw new Error("Prediction edge is duplicated.");
@@ -135,6 +149,14 @@ export function validatePredictionBundle(input: { run: PredictionRun; bundle: Pr
     if (!nodeIds.has(edge.sourceCandidateId) || !nodeIds.has(edge.targetCandidateId) || edge.sourceCandidateId === edge.targetCandidateId) throw new Error("Prediction edge does not connect candidate nodes.");
     adjacency.set(edge.sourceCandidateId, [...(adjacency.get(edge.sourceCandidateId) ?? []), edge.targetCandidateId]);
     text(edge.label, "Prediction edge label", 160);
+    if (!["forward", "reverse", "both", "none"].includes(edge.direction)) throw new Error("Prediction edge direction is invalid.");
+    const edgePathIds = array(edge.pathIds, "Prediction edge path memberships").map((id) => candidateId(id, "Prediction path"));
+    if (!edgePathIds.length || new Set(edgePathIds).size !== edgePathIds.length) throw new Error("Prediction edge path memberships are invalid.");
+    if (!edge.sourceEvidence || !Array.isArray(edge.sourceEvidence.sourceEventIds) || !edge.sourceEvidence.sourceEventIds.length || new Set(edge.sourceEvidence.sourceEventIds).size !== edge.sourceEvidence.sourceEventIds.length || edge.sourceEvidence.sourceEventIds.some((id) => !sourceEventIds.has(id))) throw new Error("Prediction edge source evidence is invalid.");
+    text(edge.sourceEvidence.rationale, "Prediction edge source rationale", 1_000);
+    if (!edge.relationTypeHint || !["exact", "unresolved"].includes(edge.relationTypeHint.resolution)) throw new Error("Prediction edge relation type hint is invalid.");
+    if (edge.relationTypeHint.resolution === "exact") text(edge.relationTypeHint.label, "Prediction edge relation type", 160);
+    if (edge.relationTypeHint.resolution === "unresolved" && edge.relationTypeHint.label !== null) throw new Error("Unresolved prediction edge relation type must not guess a label.");
     assertNoInternalFields(edge);
   }
   if (hasCycle([...nodeIds], adjacency)) throw new Error("Prediction candidate graph cannot contain a cycle.");
@@ -145,8 +167,24 @@ export function validatePredictionBundle(input: { run: PredictionRun; bundle: Pr
     paths.add(path.id);
     if (!path.candidateNodeIds.length || new Set(path.candidateNodeIds).size !== path.candidateNodeIds.length || path.candidateNodeIds.some((id) => !nodeIds.has(id))) throw new Error("Prediction path nodes are invalid.");
     if (new Set(path.candidateEdgeIds).size !== path.candidateEdgeIds.length || path.candidateEdgeIds.some((id) => !edgeIds.has(id))) throw new Error("Prediction path edges are invalid.");
+    const pathEdges = bundle.edges.filter((edge) => path.candidateEdgeIds.includes(edge.id));
+    if (path.candidateNodeIds.length > 1 && !pathEdges.length) throw new Error("Multi-node prediction path requires connecting candidate edges.");
+    if (pathEdges.some((edge) => !path.candidateNodeIds.includes(edge.sourceCandidateId) || !path.candidateNodeIds.includes(edge.targetCandidateId))) throw new Error("Prediction path edge leaves its candidate path.");
+    for (let index = 1; index < path.candidateNodeIds.length; index += 1) {
+      const source = path.candidateNodeIds[index - 1]!;
+      const target = path.candidateNodeIds[index]!;
+      if (!pathEdges.some((edge) => edge.sourceCandidateId === source && edge.targetCandidateId === target)) throw new Error("Prediction path nodes must be connected in display order.");
+    }
   }
   if (!bundle.paths.length) throw new Error("Prediction bundle requires at least one path.");
+  for (const node of bundle.nodes) {
+    const actual = bundle.paths.filter((path) => path.candidateNodeIds.includes(node.id)).map((path) => path.id).sort();
+    if (!sameStrings(node.pathIds, actual)) throw new Error("Prediction node path memberships do not match candidate paths.");
+  }
+  for (const edge of bundle.edges) {
+    const actual = bundle.paths.filter((path) => path.candidateEdgeIds.includes(edge.id)).map((path) => path.id).sort();
+    if (!sameStrings(edge.pathIds, actual)) throw new Error("Prediction edge path memberships do not match candidate paths.");
+  }
   assertNoInternalFields(bundle);
   return structuredClone(bundle);
 }
@@ -196,3 +234,4 @@ function stableId(value: unknown, label: string): string { if (typeof value !== 
 function candidateId(value: unknown, label: string): string { const id = stableId(value, label); if (!id.startsWith("prediction-")) throw new Error(`${label} must use the prediction namespace.`); return id; }
 function text(value: unknown, label: string, maximum: number): string { if (typeof value !== "string" || !value.trim() || [...value.trim()].length > maximum) throw new Error(`${label} is invalid.`); return value.trim(); }
 function timestamp(value: unknown): string { if (typeof value !== "string" || Number.isNaN(Date.parse(value))) throw new Error("Prediction timestamp is invalid."); return value; }
+function sameStrings(left: readonly string[], right: readonly string[]): boolean { const normalized = [...left].sort(); return normalized.length === right.length && normalized.every((value, index) => value === right[index]); }

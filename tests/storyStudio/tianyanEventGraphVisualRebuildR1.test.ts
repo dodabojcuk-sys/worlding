@@ -101,6 +101,16 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(graphStyles, /event-graph-prediction-source-summary/u);
 });
 
+test("candidate overlay renders the validated path edge set with automatic routing and shared roots", () => {
+  assert.match(graph, /candidateEdgeIds = new Set\(paths\.flatMap/);
+  assert.match(graph, /candidateEdgeIds\.has\(edge\.id\)/);
+  assert.match(graph, /type: "smoothstep"/);
+  assert.match(graph, /relationTypeHint[\s\S]*关系类型待确认/);
+  assert.match(graph, /const roots = \[\.\.\.new Set\(paths\.map/);
+  assert.match(graph, /共同推演依据/);
+  assert.doesNotMatch(graph, /const first = pathNodes\[0\]/);
+});
+
 test("story spine keeps direct Unit nodes separate from optional collection points", () => {
   assert.match(workspace, /group\.direct\.length/u);
   assert.match(workspace, /直接属于单元/u);
