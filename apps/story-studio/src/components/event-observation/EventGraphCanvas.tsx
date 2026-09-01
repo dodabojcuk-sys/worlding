@@ -421,7 +421,11 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
   const activePath = predictionRun?.status === "ready" && predictionRun.bundle && predictionPathId ? predictionRun.bundle.paths.find((path) => path.id === predictionPathId) ?? null : null;
-  const sourceIds = activePath && predictionRun ? new Set(predictionRun.sourceSnapshot.map((source) => source.eventId)) : predictionSelectionIds.size ? new Set(predictionSelectionIds) : null;
+  // Keep every formal Event available while the author is still assembling
+  // the prediction scope. At narrow widths the Unit directory may be hidden,
+  // so filtering the canvas after the first selection would make the second
+  // source impossible to choose. Source focusing starts only with a real path.
+  const sourceIds = activePath && predictionRun ? new Set(predictionRun.sourceSnapshot.map((source) => source.eventId)) : null;
   const visible = sourceIds ?? (view === "global" || !validFocus ? ids : focusIds(validFocus, active, depth));
   const remote = view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
   const focusLayout = view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;

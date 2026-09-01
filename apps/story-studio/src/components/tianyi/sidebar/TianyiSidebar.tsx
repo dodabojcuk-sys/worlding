@@ -8,7 +8,7 @@ import {
   handoffTianyiAgentCandidate,
   openTianyiSession,
   recoverTianyiAgentRun,
-  runTianyiQuestion,
+  streamTianyiGroundedAnswer,
   startTianyiAgentRun,
   approveTianyiAgentStep,
   rejectTianyiAgentStep,
@@ -151,7 +151,29 @@ export function TianyiSidebar(props: {
     setBusy(true); setError("");
     try {
       const sessionId = await ensureDialogueSession();
-      await props.runtime.withConnection((token) => runTianyiQuestion({ projectId: project.id, sessionId, operationId: operationId("question"), request: { authorQuery: props.runtime.dialogueComposerDraft.trim() }, contextRequest, token }));
+      const selectedModelId = props.runtime.modelStatus?.profile.profile?.modelId;
+      const profileId = props.runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
+      if (!profileId) throw new Error(t("tianyi.providerUnavailable"));
+      const question = props.runtime.dialogueComposerDraft.trim();
+      const result = await props.runtime.withConnection((token) => streamTianyiGroundedAnswer({
+        operationId: operationId("grounded-answer"),
+        submissionId: operationId("grounded-submission"),
+        profileId,
+        question,
+        contextRequest: {
+          version: "story-tianyi-grounded-context-request/v1",
+          projectId: project.id,
+          sessionId,
+          taskKind: "grounded-answer",
+          accessMode: "author",
+          subjectRef: null,
+          sceneRef: null,
+          explicitRefs: [],
+          ...(contextRequest.eventRefs?.length ? { eventRefs: contextRequest.eventRefs } : {})
+        },
+        token
+      }));
+      if (result.status !== "current" || !result.answer) throw new Error(t("tianyi.actionFailed"));
       props.runtime.setDialogueComposerDraft("");
       await refreshSession(sessionId);
     } catch (cause) {

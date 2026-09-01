@@ -95,5 +95,7 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(graphStyles, /event-graph-prediction-node\.is-review-excluded/u);
   assert.match(graph, /predictionSourceSummary/u);
   assert.match(graph, /3 个推演依据|个推演依据/u);
+  assert.match(graph, /const sourceIds = activePath && predictionRun \? new Set\(predictionRun\.sourceSnapshot/u);
+  assert.doesNotMatch(graph, /: predictionSelectionIds\.size \? new Set\(predictionSelectionIds\)/u);
   assert.match(graphStyles, /event-graph-prediction-source-summary/u);
 });

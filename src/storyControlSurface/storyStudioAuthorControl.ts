@@ -44,7 +44,10 @@ import {
   replaceFileAtomically,
   type AtomicFileBoundary
 } from "./atomicNoReplaceFile.ts";
-import { createStoryStudioWorkspaceOperations } from "./storyStudioWorkspaceOperations.ts";
+import {
+  createStoryStudioWorkspaceOperations,
+  type StoryStudioWorldObject
+} from "./storyStudioWorkspaceOperations.ts";
 
 const REVIEW_VERSION = "story-studio-impact-review/v1";
 const CHANGE_SET_VERSION = "story-studio-author-change-set/v1";
@@ -694,9 +697,10 @@ export function createStoryStudioAuthorControl(input: {
     },
 
     listVerifiedCanonEventIds(readInput: { projectId: string }): string[] {
-      return workspace.listWorldObjects({ projectId: readInput.projectId, type: "event" })
-        .map((event) => event.id)
-        .filter((eventId) => isVerifiedCanonEventRead(readInput.projectId, eventId));
+      const readIndex = buildCanonEventReadIndex(workspace, readInput.projectId);
+      return readIndex.events
+        .filter((event) => verifyCanonEventRead(workspace, readIndex.projectPath, readInput.projectId, event.id, readIndex))
+        .map((event) => event.id);
     },
 
     verifyCanonEventRead(readInput: { projectId: string; eventId: string }): boolean {
@@ -2079,8 +2083,10 @@ function emitApplyFault(
 
 function operationEvents(
   workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
-  intent: PersistedApplyIntent
+  intent: PersistedApplyIntent,
+  readIndex?: CanonEventReadIndex
 ) {
+  if (readIndex) return readIndex.eventsByOperation.get(intent.applyOperationKey) ?? [];
   return workspace.listWorldObjects({ projectId: intent.projectId, type: "event" })
     .map((summary) => workspace.readWorldObject({ projectId: intent.projectId, objectId: summary.id }))
     .filter((event) => event.properties.apply_operation_key === intent.applyOperationKey);
@@ -2088,9 +2094,10 @@ function operationEvents(
 
 function assertOperationMultiplicity(
   workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
-  intent: PersistedApplyIntent
+  intent: PersistedApplyIntent,
+  readIndex?: CanonEventReadIndex
 ): void {
-  const events = operationEvents(workspace, intent);
+  const events = operationEvents(workspace, intent, readIndex);
   if (events.length > 1) {
     throw applyError("MULTIPLE_EVENTS_FOR_OPERATION", "同一作者确认操作对应多个事件，禁止自动删除或认领。");
   }
@@ -2111,10 +2118,11 @@ function readEventIfPresent(
 function validateAppliedEvent(
   workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
   artifact: PersistedAuthorChangeSet,
-  intent: PersistedApplyIntent
+  intent: PersistedApplyIntent,
+  readIndex?: CanonEventReadIndex
 ): void {
-  assertOperationMultiplicity(workspace, intent);
-  const event = readEventIfPresent(workspace, intent.projectId, intent.targetEventRef);
+  assertOperationMultiplicity(workspace, intent, readIndex);
+  const event = readIndex?.eventsById.get(intent.targetEventRef) ?? readEventIfPresent(workspace, intent.projectId, intent.targetEventRef);
   if (!event) {
     throw applyError("APPLIED_EVENT_MISSING", "变更单已记录 applied，但对应的确认事件缺失。");
   }
@@ -2160,9 +2168,10 @@ function verifyCanonEventRead(
   workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
   projectPath: string,
   projectId: string,
-  eventId: string
+  eventId: string,
+  readIndex?: CanonEventReadIndex
 ): boolean {
-  const event = readEventIfPresent(workspace, projectId, eventId);
+  const event = readIndex?.eventsById.get(eventId) ?? readEventIfPresent(workspace, projectId, eventId);
   if (
     !event ||
     event.type !== "event" ||
@@ -2197,12 +2206,38 @@ function verifyCanonEventRead(
   const intent = intentResult.intent;
 
   try {
-    validateAppliedEvent(workspace, artifact, intent);
+    validateAppliedEvent(workspace, artifact, intent, readIndex);
     return event.id === intent.targetEventRef;
   } catch (error) {
     if (isCanonRecordValidationError(error)) return false;
     throw error;
   }
+}
+
+type CanonEventReadIndex = {
+  projectPath: string;
+  events: StoryStudioWorldObject[];
+  eventsById: Map<string, StoryStudioWorldObject>;
+  eventsByOperation: Map<string, StoryStudioWorldObject[]>;
+};
+
+function buildCanonEventReadIndex(
+  workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
+  projectId: string
+): CanonEventReadIndex {
+  const projectPath = workspace.resolveProjectWorkspacePath({ projectId });
+  const events = workspace.listWorldObjects({ projectId, type: "event" })
+    .map((event) => workspace.readWorldObject({ projectId, objectId: event.id }));
+  const eventsById = new Map(events.map((event) => [event.id, event]));
+  const eventsByOperation = new Map<string, StoryStudioWorldObject[]>();
+  for (const event of events) {
+    const operationKey = event.properties.apply_operation_key;
+    if (typeof operationKey !== "string") continue;
+    const claimants = eventsByOperation.get(operationKey) ?? [];
+    claimants.push(event);
+    eventsByOperation.set(operationKey, claimants);
+  }
+  return { projectPath, events, eventsById, eventsByOperation };
 }
 
 function validateLegacyAppliedEvent(

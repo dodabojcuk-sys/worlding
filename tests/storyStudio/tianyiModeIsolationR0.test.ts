@@ -13,6 +13,11 @@ test("dialogue is a simple message stream and cannot dispatch Agent work", () =>
   assert.match(dialogue, /event\.key !== "Enter" \|\| event\.shiftKey/u);
   assert.match(dialogue, /转到 Agent 模式/u);
   assert.doesNotMatch(dialogue, /MultiNodePrediction|ContextPack|predictionMode|Run ID|采纳|Provider 卡片|查看执行过程/u);
+  assert.match(sidebar, /streamTianyiGroundedAnswer/u);
+  assert.match(sidebar, /taskKind: "grounded-answer"/u);
+  assert.match(sidebar, /profiles\.find\(\(item\) => item\.modelId === selectedModelId\)\?\.id/u);
+  assert.doesNotMatch(sidebar, /const profileId = props\.runtime\.modelStatus\?\.profile\.activeProfileId/u);
+  assert.doesNotMatch(sidebar, /runTianyiQuestion/u);
 });
 
 test("Agent owns prediction controls while mode state is retained independently", () => {

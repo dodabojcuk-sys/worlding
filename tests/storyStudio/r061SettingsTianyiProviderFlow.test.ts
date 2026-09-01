@@ -36,7 +36,7 @@ test("Tianyi blocks unconfigured Providers before a request and opens Shell sett
   const server = source("apps/story-studio/server/server.mjs");
 
   assert.match(sidebar, /const providerReady = props\.runtime\.modelStatus\?\.tianyiDialogue\.ready === true/);
-  assert.ok(sidebar.indexOf("if (!providerReady)") < sidebar.indexOf("runTianyiQuestion({"), "Provider gate must precede dialogue execution");
+  assert.ok(sidebar.indexOf("if (!providerReady)") < sidebar.indexOf("streamTianyiGroundedAnswer({"), "Provider gate must precede dialogue execution");
   assert.match(sidebar, /data-provider-state="unconfigured"/);
   assert.match(sidebar, /onOpenSettings\(\): void/);
   assert.match(sidebar, /onClick=\{props\.onOpenSettings\}/);
