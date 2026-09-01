@@ -21,11 +21,18 @@ export function resolveProviderSmokeAppDataRoot(environment = process.env) {
 export function resolveProviderAppDataRoot(options = {}) {
   const environment = options.environment || process.env;
   const configured = String(environment.TIANYAN_PROVIDER_APP_DATA_ROOT || "").trim();
-  const isTest = environment.NODE_ENV === "test";
+  // `node --test` exposes NODE_TEST_CONTEXT to the test process and its
+  // descendants. Treat it as authoritative test evidence so a server spawned
+  // by an integration test cannot silently fall back to the author's data.
+  const isTest = environment.NODE_ENV === "test" || Boolean(environment.NODE_TEST_CONTEXT);
   const explicitDevelopmentOverride = environment.TIANYAN_PROVIDER_PROFILE_DEV_MODE === "1";
+  const authoritativeRoot = path.resolve(defaultProviderAppDataRoot());
 
   if (configured && !isTest && !explicitDevelopmentOverride) {
     throw new Error("TIANYAN_PROVIDER_APP_DATA_ROOT 仅可在测试或显式 Provider 开发隔离模式中使用。");
+  }
+  if (configured && isTest && path.resolve(configured) === authoritativeRoot) {
+    throw new Error("Provider 测试不得使用权威数据根。");
   }
   if (configured) {
     return freezeResolution({
@@ -47,7 +54,7 @@ export function resolveProviderAppDataRoot(options = {}) {
     });
   }
   return freezeResolution({
-    rootPath: path.resolve(defaultProviderAppDataRoot()),
+    rootPath: authoritativeRoot,
     source: "authoritative-default",
     scope: "authoritative",
     smokeCompatibleByDefault: true,

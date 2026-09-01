@@ -20,6 +20,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const fixture = createTianyanE2eFixture();
 const fixtureRoot = fixture.fixtureRoot;
+const providerFixtureRoot = path.join(fixtureRoot, ".provider-app-data");
 const fixtureProjectId = fixture.projectId;
 const controlToken = "tianyan-r0-shell-smoke-token";
 const visualEvidenceDirectory = process.env.TIANYAN_R05_EVIDENCE_DIR || null;
@@ -56,7 +57,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
   });
   await waitForApiServer();
   server = spawn(process.execPath, [
