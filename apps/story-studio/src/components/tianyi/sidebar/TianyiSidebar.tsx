@@ -7,6 +7,7 @@ import type { TemporalProjectionRun } from "../../../../../../src/storyContracts
 import {
   getTianyiSessionMetadata,
   handoffTianyiAgentCandidate,
+  listTemporalProjectionRuns,
   openTianyiSession,
   recoverTianyiAgentRun,
   streamTianyiGroundedAnswer,
@@ -114,6 +115,17 @@ export function TianyiSidebar(props: {
     window.addEventListener("story-studio-temporal-projection-run", receive);
     return () => window.removeEventListener("story-studio-temporal-projection-run", receive);
   }, [project?.id]);
+
+  useEffect(() => {
+    if (mode !== "agent" || !project) return;
+    let active = true;
+    void props.runtime.withConnection((token) => listTemporalProjectionRuns(project.id, token)).then((runs) => {
+      if (!active) return;
+      const current = runs.find((candidate) => candidate.status === "ready" && !candidate.stale) ?? runs[0] ?? null;
+      setTemporalProjectionRun(current);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [mode, project, props.runtime]);
 
   useEffect(() => {
     if (!project || !props.runtime.dialogueSessionId) { setSession(null); return; }
@@ -274,13 +286,13 @@ export function TianyiSidebar(props: {
   const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: simulationPack?.sources.length ?? contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(simulationPack?.estimatedTokens ?? run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxProviderCalls) : null };
   const agentRunning = predictionRunning || busy || Boolean(props.runtime.activeAgentRunId) || Boolean(run && !["completed", "cancelled", "failed"].includes(run.status));
   const currentTemporalProjection = temporalProjectionRun && temporalProjectionRun.projectId === project?.id ? temporalProjectionRun : null;
+  const temporalRunCard = currentTemporalProjection ? <section className={`tianyi-temporal-run-card is-${currentTemporalProjection.status}`} aria-label={t("tianyi.temporal.ready")}>
+      <header><Clock3 aria-hidden="true" /><div><strong>{currentTemporalProjection.conflicts.length ? t("tianyi.temporal.conflict") : currentTemporalProjection.stale ? t("tianyi.temporal.stale") : t("tianyi.temporal.ready")}</strong><small>{t("tianyi.temporal.counts").replace("{placements}", String(currentTemporalProjection.placements.length)).replace("{conflicts}", String(currentTemporalProjection.conflicts.length))}</small></div></header>
+      <p>{t("tianyi.temporal.readOnly")}</p>
+      <details><summary>{t("tianyi.temporal.receipt")}</summary><dl><div><dt>{t("tianyi.temporal.run")}</dt><dd>{currentTemporalProjection.runId}</dd></div><div><dt>{t("tianyi.temporal.revision")}</dt><dd>{currentTemporalProjection.graphRevisionHash}</dd></div></dl></details>
+    </section> : null;
   const generalAgentRun = <section className="tianyi-agent-stage tianyi-agent-compact" aria-label={t("tianyi.agent")}>
     <span>{t("tianyi.currentPage")}: {props.pageLabel}</span>
-    {currentTemporalProjection ? <section className={`tianyi-temporal-run-card is-${currentTemporalProjection.status}`} aria-label="本次时间投影">
-      <header><Clock3 aria-hidden="true" /><div><strong>{currentTemporalProjection.conflicts.length ? "时间投影需要处理" : currentTemporalProjection.stale ? "时间投影已过期" : "本次时间投影已就绪"}</strong><small>{currentTemporalProjection.placements.length} 个事件位置 · {currentTemporalProjection.conflicts.length} 个冲突</small></div></header>
-      <p>这是只读的 Agent 投影，没有改写正式时间或故事事实。</p>
-      <details><summary>查看技术回执</summary><dl><div><dt>运行</dt><dd>{currentTemporalProjection.runId}</dd></div><div><dt>图修订</dt><dd>{currentTemporalProjection.graphRevisionHash}</dd></div></dl></details>
-    </section> : null}
     {!providerReady ? <div className="tianyi-provider-unavailable" data-provider-state="unconfigured"><strong>{t("tianyi.providerUnavailableTitle")}</strong><p>{t("tianyi.providerUnavailable")}</p><button type="button" onClick={props.onOpenSettings}>{t("tianyi.openProviderSettings")}</button></div> : !run ? <><strong>{task ? t(task.labelKey as TranslationKey) : t("tianyi.chooseCapability")}</strong><p>{task ? t("tianyi.taskPrepared") : t("tianyi.agentEmpty")}</p></> : <>
       <div className="tianyi-agent-run-status"><strong>{run.task}</strong><span>{t("tianyi.agentStatus")}: {t(`tianyi.run.${run.status}` as TranslationKey)}</span></div>
       {busy ? <button type="button" className="tianyi-agent-confirm is-stop" onClick={stopRun}><Square />{t("tianyi.stopRun")}</button> : currentStep ? <section className="tianyi-agent-approval" aria-label={t("tianyi.toolApproval")}><strong>{t("tianyi.toolApproval")}</strong><dl><div><dt>{t("tianyi.toolName")}</dt><dd>{currentStep.toolName ?? currentStep.title}</dd></div><div><dt>{t("tianyi.toolImpact")}</dt><dd>{currentStep.classification === "proposal" ? t("tianyi.toolImpactProposal") : t("tianyi.toolImpactRead")}</dd></div>{awaitingTool && <div><dt>{t("tianyi.toolParameters")}</dt><dd>{Object.keys(awaitingTool.arguments).join("、") || t("context.noneSelected")}</dd></div>}</dl><div className="tianyi-agent-approval-actions"><button type="button" className="tianyi-agent-confirm" onClick={advanceRun}><Check />{t("tianyi.confirmNextStep")}</button><button type="button" className="tianyi-agent-reject" onClick={rejectStep}>{t("tianyi.rejectNextStep")}</button></div></section> : !["completed", "cancelled"].includes(run.status) && <button type="button" className="tianyi-agent-confirm" onClick={advanceRun}><ChevronRight />{run.status === "failed" ? t("tianyi.retryRun") : t("tianyi.continueRun")}</button>}
@@ -304,7 +316,7 @@ export function TianyiSidebar(props: {
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
-      {mode === "dialogue" ? <TianyiDialoguePanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.dialogueComposerDraft} busy={busy} error={error} agentTaskRetained={agentRunning} onDraft={props.runtime.setDialogueComposerDraft} onSubmit={submitDialogue} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {mode === "dialogue" ? <TianyiDialoguePanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.dialogueComposerDraft} busy={busy} error={error} agentTaskRetained={agentRunning} onDraft={props.runtime.setDialogueComposerDraft} onSubmit={submitDialogue} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

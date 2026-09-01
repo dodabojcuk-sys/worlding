@@ -83,12 +83,14 @@ export function createDeterministicTemporalProjectionGateway(): TemporalProjecti
           return placement(reference, event, ambiguous ? "ambiguous" : "inferred", position, ambiguous ? "temporal-segment.ambiguous" : "temporal-segment.inferred", { start, end }, beforeAnchors, afterAnchors, ambiguous ? .52 : .82, relationEvidence, summary, ambiguous ? [{ relativePosition: start, label: "区间起点" }, { relativePosition: end, label: "区间终点" }] : []);
         }
         if (relationEvidence.length) {
-          const position = 160 + topologicalIndex(event.id, input.events.map((item) => item.id), strictRelations) * 120;
-          return placement(reference, event, "inferred", Math.min(position, 840), "temporal-segment.inferred", { start: Math.max(80, position - 55), end: Math.min(900, position + 55) }, [], [], .63, relationEvidence, "AI 依据已确认的相对关系定位，正式时间仍未确认。", []);
+          const position = Math.min(840, 160 + topologicalIndex(event.id, input.events.map((item) => item.id), strictRelations) * 120);
+          return placement(reference, event, "inferred", position, "temporal-segment.inferred", { start: Math.max(80, position - 55), end: Math.min(900, position + 55) }, [], [], .63, relationEvidence, "AI 依据已确认的相对关系定位，正式时间仍未确认。", []);
         }
         if (event.storyOrder !== null) {
-          const position = 140 + event.storyOrder * 92;
-          return placement(reference, event, "ambiguous", Math.min(position, 860), "temporal-segment.ambiguous", { start: Math.max(80, position - 90), end: Math.min(920, position + 90) }, [], [], .38, [`story-order.${event.id}`], "只有故事顺序这一项弱证据，当前位置仅供对照。", [{ relativePosition: Math.max(80, position - 90), label: "可选起点" }, { relativePosition: Math.min(920, position + 90), label: "可选终点" }]);
+          const position = Math.min(860, 140 + event.storyOrder * 92);
+          const start = Math.max(80, position - 90);
+          const end = Math.min(920, position + 90);
+          return placement(reference, event, "ambiguous", position, "temporal-segment.ambiguous", { start, end }, [], [], .38, [`story-order.${event.id}`], "只有故事顺序这一项弱证据，当前位置仅供对照。", [{ relativePosition: start, label: "可选起点" }, { relativePosition: end, label: "可选终点" }]);
         }
         return placement(reference, event, "unplaced", 980, "temporal-segment.unplaced", null, [], [], null, [], "暂无足够证据定位，保留在同一关系画布边缘。", []);
       });

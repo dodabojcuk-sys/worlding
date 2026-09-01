@@ -227,7 +227,7 @@ export function EventLineWorkbench(props: {
   const selectedEvent = props.events.find((event) => event.id === selectedEventId) ?? null;
   const selectedDetail = selectedEventId ? detailsById[selectedEventId] ?? null : null;
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
-  const selectedEventRef = selectedEvent && (selectedEvent.status === "planned" || selectedEvent.status === "committed")
+  const selectedEventRef = selectedEvent && (selectedEvent.status === "draft" || selectedEvent.status === "planned" || selectedEvent.status === "committed")
     ? createStoryStudioEventReference({ projectId: props.projectId, event: selectedEvent, requestedUse: "constraint" })
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
@@ -338,8 +338,9 @@ export function EventLineWorkbench(props: {
         window.dispatchEvent(new CustomEvent("story-studio-temporal-projection-run", { detail: run }));
       }).catch((error) => {
         if (cancelled) return;
-        setTemporalState(/provider|credential|model/iu.test(error instanceof Error ? error.message : "") ? "provider-unavailable" : "failed");
-        setTemporalMessage("语义时间尚未推断；若已有缓存则保留上次结果，且没有自动重试或写入时间事实。");
+        const reason = error instanceof Error ? error.message : "本地时间投影服务暂不可用。";
+        setTemporalState(/provider|credential|model/iu.test(reason) ? "provider-unavailable" : "failed");
+        setTemporalMessage(`语义时间尚未推断：${reason}没有自动重试，也没有写入时间事实。`);
       });
     }, 380);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -411,7 +412,7 @@ export function EventLineWorkbench(props: {
         {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
           const references = (eventIds ?? []).flatMap((eventId) => {
             const event = props.events.find((item) => item.id === eventId);
-            return event && (event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
+            return event && (event.status === "draft" || event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
           });
           const units = unique((eventIds ?? []).flatMap((eventId) => metadataById[eventId]?.unitLabel ?? []));
           const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";

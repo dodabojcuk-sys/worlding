@@ -30,9 +30,12 @@ const r062VisualEvidenceDirectory = process.env.TIANYAN_R062_EVIDENCE_DIR || nul
 const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR || null;
 const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDENCE === "1";
 const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
+const temporalProjectionRecordingDirectory = process.env.TIANYAN_TEMPORAL_RECORDING_DIR || null;
 const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
+const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
+const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
 let timelineFixture = null;
 let server;
 let apiServer;
@@ -59,6 +62,8 @@ try {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
   });
+  apiServer.stdout?.resume();
+  apiServer.stderr?.resume();
   await waitForApiServer();
   server = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js",
@@ -70,6 +75,8 @@ try {
     String(port),
     "--strictPort"
   ], { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PORT: String(apiPort) } });
+  server.stdout?.resume();
+  server.stderr?.resume();
   await waitForServer();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
@@ -79,7 +86,18 @@ try {
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (predictionOnly) {
+  if (timelineRecordingOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await setupTimelineFixture();
+    await recordTemporalProjectionOperation();
+  } else if (timelineOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await setupTimelineFixture();
+    await assertTimelineRelationshipGraph(page, consoleProblems);
+    if (temporalProjectionRecordingDirectory) await recordTemporalProjectionOperation();
+  } else if (predictionOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await setupTimelineFixture();
@@ -115,6 +133,7 @@ try {
     await assertEventGraphWorkspace(page);
     await setupTimelineFixture();
     await assertTimelineRelationshipGraph(page, consoleProblems);
+    if (temporalProjectionRecordingDirectory) await recordTemporalProjectionOperation();
     await assertMultiNodePredictionProductization(page, consoleProblems);
     await assertRightWorkSurfaceStateMachine(page, consoleProblems);
     if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
@@ -824,7 +843,11 @@ async function setupTimelineFixture() {
   assert.ok(relationTypeId, "The isolated time graph fixture must reuse the existing Relation owner type.");
   const candidate = await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, sourceObjectId: created[0].id, targetObjectId: created[4].id, relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-time-graph-cross-band", operationId: `time-graph-cross-band-${fixture.fixtureId}` });
   await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, relationId: candidate.data.relation.relationId, expectedRelationRevision: candidate.data.relation.revision, operationId: `time-graph-cross-band-confirm-${fixture.fixtureId}` });
-  timelineFixture = { timed: created, unknown };
+  const conflicting = await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, sourceObjectId: created[4].id, targetObjectId: created[0].id, relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-time-graph-strict-cycle", operationId: `time-graph-strict-cycle-${fixture.fixtureId}` });
+  await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, relationId: conflicting.data.relation.relationId, expectedRelationRevision: conflicting.data.relation.revision, operationId: `time-graph-strict-cycle-confirm-${fixture.fixtureId}` });
+  const inferred = await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, sourceObjectId: created[1].id, targetObjectId: unknown.id, relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-time-graph-anchor-to-inferred", operationId: `time-graph-anchor-to-inferred-${fixture.fixtureId}` });
+  await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, relationId: inferred.data.relation.relationId, expectedRelationRevision: inferred.data.relation.revision, operationId: `time-graph-anchor-to-inferred-confirm-${fixture.fixtureId}` });
+  timelineFixture = { timed: created, unknown, conflictEventIds: [created[0].id, created[4].id] };
 }
 
 async function setupEventGraphDensityFixture() {
@@ -1015,64 +1038,143 @@ async function assertEventGraphWorkspace(page) {
 async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(timelineFixture, "The time graph must use an isolated fixture.");
   const output = founderEvidenceDirectory;
+  const selectEventView = (name) => page.getByRole("button", { name, exact: true }).filter({ visible: true }).first().click();
   if (output) mkdirSync(output, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await selectEventView("关系图");
+  const graphEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
-  await page.getByRole("button", { name: "时间轴", exact: true }).click();
-  const canvas = page.getByLabel("事件时间关系画布");
+  if (output) await page.screenshot({ path: path.join(output, "A-1440x900-event-graph-foreground.png"), fullPage: true });
+  const problemsBeforeUnavailableProof = consoleProblems.length;
+  let blockFirstTemporalCreate = true;
+  await page.route("**/tianyi/temporal-projection/create", async (route) => {
+    if (!blockFirstTemporalCreate) return route.continue();
+    blockFirstTemporalCreate = false;
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Provider is not configured for this isolated proof." }) });
+  });
+  await selectEventView("时间轴");
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="provider-unavailable"]'));
+  assert.match(await page.getByLabel("事件语义时间关系工作区").textContent(), /语义时间尚未推断/u, "Provider-unavailable state must fail honestly without inventing an unknown bucket.");
+  if (output) await page.screenshot({ path: path.join(output, "G-1440x900-provider-unconfigured-honest-state.png"), fullPage: true });
+  await page.unroute("**/tianyi/temporal-projection/create");
+  const unavailableProofProblems = consoleProblems.splice(problemsBeforeUnavailableProof);
+  assert.ok(unavailableProofProblems.length >= 1 && unavailableProofProblems.every((problem) => /HTTP 503: .*\/tianyi\/temporal-projection\/create|Failed to load resource: the server responded with a status of 503/u.test(problem)), `Only the deliberately intercepted provider-unavailable response may fail=${JSON.stringify(unavailableProofProblems)}`);
+  await selectEventView("关系图");
+  await page.waitForFunction(() => document.querySelector('[data-projection-mode="graph"]'));
+  await selectEventView("时间轴");
+  const canvas = page.getByLabel("事件语义时间关系工作区");
   await canvas.waitFor();
-  assert.equal(await canvas.getAttribute("data-timeline-graph-engine"), "react-flow", "Timeline must reuse the graph engine.");
-  assert.ok(await page.locator(".event-timeline-node").count() >= 12, "Fixture must show eight-plus Event-owner nodes.");
-  const bands = page.locator(".event-timeline-background-band");
-  assert.ok(await bands.count() >= 5, "Fixture must show four authored time bands plus the final unknown-time band in React Flow.");
-  assert.ok(await page.locator(".event-timeline-node.is-unknown").count() >= 1, "Unknown times must stay in the final canvas band.");
-  assert.ok(await page.locator(".react-flow__edge-path").count() >= 6, "Fixture must show six-plus Relation-owner edges.");
-  assert.ok(await page.locator(".timeline-cross-band-edge").count() >= 1, "A cross-band relation must remain identifiable.");
-  const bandGeometry = await bands.evaluateAll((elements) => elements.map((element) => ({ label: element.getAttribute("aria-label"), left: element.getBoundingClientRect().left, width: element.getBoundingClientRect().width })));
-  assert.match(bandGeometry.at(-1)?.label ?? "", /^时间未定/u, `Unknown time must be the last background band=${JSON.stringify(bandGeometry)}`);
-  assert.ok(bandGeometry.slice(0, 4).every((band, index, all) => band.width >= 170 && (index === 0 || band.left > all[index - 1].left)), `Authored bands must be ordered and readable=${JSON.stringify(bandGeometry)}`);
-  const timelineNodeWidths = await page.locator(".event-timeline-node").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
+    throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
+      state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
+      text: document.querySelector(".temporal-canvas-status")?.textContent,
+      projection: document.querySelector("[data-projection-mode]")?.getAttribute("data-projection-mode")
+    })))}`);
+  });
+  assert.equal(await canvas.getAttribute("data-event-foreground"), "shared", "Timeline must keep the same Event Graph foreground.");
+  assert.equal(await canvas.getAttribute("data-temporal-background"), "screens", "Time is a screen-style background projection.");
+  const timelineEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
+  assert.deepEqual(timelineEventIds, graphEventIds, "Relationship graph and timeline use the same stable Event IDs and node count.");
+  const screens = page.locator(".temporal-screen");
+  assert.ok(await screens.count() >= 2, "Semantic phases render as low-contrast screen backgrounds.");
+  assert.equal(await page.locator(".temporal-screen").filter({ hasText: "时间未定" }).count(), 0, "Unknown Events are not forced into a final unknown band.");
+  assert.ok(await page.locator(".event-graph-node:is(.is-temporal-inferred, .is-temporal-ambiguous)").count() >= 1, "Unknown formal times are semantically distributed.");
+  assert.ok(await page.locator(".event-graph-node.is-temporal-conflict").count() >= 2, "A strict relation cycle must remain visibly blocked instead of being force-sorted.");
+  assert.ok(await page.getByText("正式时间未确认 · AI 模糊区间", { exact: true }).count() + await page.getByText("正式时间未确认 · AI 推断位置", { exact: true }).count() >= 1, "Inferred nodes state that formal time remains unconfirmed.");
+  await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length >= 3);
+  assert.ok(await page.locator(".react-flow__edge-path").count() >= 3, "The temporal fixture keeps its three explicit Relation-owner links visible in the shared canvas.");
+  assert.ok(await page.locator(".temporal-cross-screen-edge").count() >= 1, "Formal or candidate relations remain visible across temporal screens.");
+  const timelineNodeWidths = await page.locator(".event-graph-flow .react-flow__node-event .graph-node-shell").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
   assert.ok(Math.min(...timelineNodeWidths) >= 170, `Timeline nodes must render at least 170px wide=${JSON.stringify(timelineNodeWidths)}`);
-  const sharedSelection = page.locator(".event-timeline-node.is-selected").filter({ hasText: "雾港启航" });
+  const sharedSelection = page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).locator(".graph-node-shell.is-selected");
   assert.equal(await sharedSelection.count(), 1, "Relationship graph and timeline must preserve the same selected Event identity.");
-  const sharedSelectionVisible = await sharedSelection.evaluate((node) => { const rect = node.getBoundingClientRect(); const flow = document.querySelector(".event-timeline-flow")?.getBoundingClientRect(); return Boolean(flow && rect.left >= flow.left && rect.right <= flow.right && rect.top >= flow.top && rect.bottom <= flow.bottom); });
-  assert.equal(sharedSelectionVisible, true, "Switching to timeline must focus the previously selected Event inside the usable canvas.");
-  assert.equal(await page.locator(".event-timeline-axis, .event-timeline-band-labels, .event-timeline-undated").count(), 0, "Timeline must not render a second axis, cards, or an external unknown lane.");
-  if (output) await page.screenshot({ path: path.join(output, "F-1440x900-single-canvas-time-bands.png"), fullPage: true });
-  const viewportBeforePan = await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style");
-  const flowBox = await page.locator(".event-timeline-flow").boundingBox();
+  assert.equal(await page.locator(".event-timeline-node, .event-timeline-background-band, .event-timeline-undated").count(), 0, "Timeline no longer maintains a second node family or final unknown lane.");
+  await canvas.getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.waitForTimeout(260);
+  if (output) await page.screenshot({ path: path.join(output, "B-1440x900-same-foreground-temporal-screens.png"), fullPage: true });
+  await page.locator(".event-graph-flow .react-flow__controls-zoomout").click();
+  await page.locator(".event-graph-flow .react-flow__controls-zoomout").click();
+  await page.waitForTimeout(180);
+  assert.equal(await page.locator(".graph-node-temporal-detail").count(), 0, "Far semantic zoom hides detailed evidence instead of shrinking it into unreadable text.");
+  assert.ok(await page.locator(".event-graph-node strong").count() >= 4, "Far semantic zoom keeps Event titles visible.");
+  if (output) await page.screenshot({ path: path.join(output, "E-1440x900-far-zoom-main-relations.png"), fullPage: true });
+  await canvas.getByRole("button", { name: "时间总览", exact: true }).click();
+  await canvas.getByRole("button", { name: "聚焦当前", exact: true }).click();
+  await page.getByText("当前不能强行排序", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "查看冲突", exact: true }).count(), 1, "Conflict inspector must provide an explicit author recovery entry.");
+  if (output) await page.screenshot({ path: path.join(output, "F-1440x900-conflict-and-inferred-window.png"), fullPage: true });
+  await page.getByRole("button", { name: "在 Agent 中重新推断此节点", exact: true }).click();
+  const tianyi = page.locator(".tianyi-sidebar");
+  await tianyi.waitFor();
+  if (await tianyi.getAttribute("data-tianyi-mode") !== "agent") await tianyi.getByRole("tab", { name: "Agent", exact: true }).click();
+  await tianyi.locator(".tianyi-temporal-run-card").waitFor();
+  assert.equal(await page.getByLabel("本次时间投影").count(), 1, "Agent mode can inspect the cached temporal projection Run.");
+  await page.locator(".tianyi-sidebar").getByRole("tab", { name: "对话", exact: true }).click();
+  assert.equal(await page.locator('.tianyi-sidebar[data-tianyi-mode="dialogue"] .tianyi-temporal-run-card').count(), 0, "Dialogue must not expose temporal Run controls.");
+  assert.equal(await page.locator('.tianyi-sidebar[data-tianyi-mode="dialogue"]').getByText(/时间投影|重新推断|图修订/u).count(), 0, "Dialogue remains an ordinary conversation surface.");
+  await page.locator(".tianyi-sidebar").getByRole("tab", { name: "Agent", exact: true }).click();
+  assert.equal(await page.getByLabel("本次时间投影").count(), 1, "Returning to Agent restores the temporal Run receipt.");
+  await tianyi.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+  await page.getByRole("button", { name: "时间总览", exact: true }).click();
+  const viewportBeforePan = await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style");
+  const flowBox = await page.locator(".event-graph-flow").boundingBox();
   assert.ok(flowBox, "Timeline graph canvas must have a live box.");
   await page.mouse.move(flowBox.x + flowBox.width / 2, flowBox.y + flowBox.height / 2);
   await page.mouse.down(); await page.mouse.move(flowBox.x + flowBox.width / 2 + 80, flowBox.y + flowBox.height / 2 + 30); await page.mouse.up();
   await page.waitForTimeout(120);
-  assert.notEqual(await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style"), viewportBeforePan, "Timeline canvas must pan.");
-  const zoomBefore = await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style");
-  await page.locator(".event-timeline-flow .react-flow__controls-zoomin").click();
+  assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), viewportBeforePan, "Timeline canvas must pan.");
+  const zoomBefore = await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style");
+  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
+  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
   await page.waitForTimeout(120);
-  assert.notEqual(await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
-  await page.getByRole("button", { name: "时间图总览" }).click();
-  await page.waitForTimeout(240);
-  await page.locator(".event-timeline-node").filter({ hasText: "雾港启航" }).click();
-  await page.getByRole("button", { name: "聚焦当前时间节点" }).click();
+  assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
+  assert.ok(await page.locator(".graph-node-temporal-detail").count() >= 1, "Near semantic zoom exposes anchors, confidence, and a short summary in place.");
+  if (output) await page.screenshot({ path: path.join(output, "D-1440x900-near-zoom-evidence.png"), fullPage: true });
+  await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
+  await canvas.getByRole("button", { name: "聚焦当前", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS", "Selecting a time node must open the only details surface.");
-  if (output) await page.screenshot({ path: path.join(output, "G-1440x900-cross-band-relation.png"), fullPage: true });
+  assert.equal(await page.getByLabel("时间位置检查器：雾港启航").count(), 1, "Selected nodes use the author-facing time position inspector.");
+  if (output) await page.screenshot({ path: path.join(output, "C-1440x900-inferred-event-inspector.png"), fullPage: true });
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelector('[data-projection-mode="graph"]'));
+  assert.equal(await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).locator(".graph-node-shell.is-selected").count(), 1, "Escape returns to the relationship graph without clearing selection.");
+  await selectEventView("时间轴");
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
   await page.setViewportSize({ width: 1152, height: 720 });
-  await page.getByRole("button", { name: "时间图总览" }).click();
+  await page.getByLabel("事件语义时间关系工作区").getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.waitForTimeout(260);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "1152 timeline view must pan without page overflow.");
-  const narrowTimelineWidth = await page.locator(".event-timeline-node").first().evaluate((node) => node.getBoundingClientRect().width);
+  const narrowTimelineWidth = await page.locator(".event-graph-flow .react-flow__node-event .graph-node-shell").first().evaluate((node) => node.getBoundingClientRect().width);
   assert.ok(narrowTimelineWidth >= 170, `1152 timeline nodes must remain readable=${narrowTimelineWidth}`);
-  if (output) await page.screenshot({ path: path.join(output, "H-1152x720-time-graph-readable-pan.png"), fullPage: true });
+  if (output) await page.screenshot({ path: path.join(output, "H-1152x720-semantic-time-readable-pan.png"), fullPage: true });
   const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  await reloadProduct(page);
+  await selectEventView("时间轴");
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
+  const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh reuses the cached projection and creates no new Run for the same graph revision.");
   const unknown = timelineFixture.unknown;
   const updated = await postFixture(`${apiUrl}/__local/story-studio/world-objects/update`, { projectId: fixtureProjectId, objectId: unknown.id, expectedHash: unknown.revisionToken, presentationExpectedHash: null, writeMarkdown: true, writePresentation: false, title: unknown.title, status: unknown.status, tags: [...unknown.tags, "时间：第 4 夜"], aliases: unknown.aliases, body: unknown.body, subtype: unknown.subtype, typedProperties: unknown.typedProperties, card: unknown.card, profile: unknown.profile });
   timelineFixture.unknown = updated.data.object;
   await reloadProduct(page);
-  await page.getByRole("button", { name: "时间轴", exact: true }).click();
-  assert.equal(await page.locator(".event-timeline-node.is-unknown").filter({ hasText: "待定访客" }).count(), 0, "Adding authored time must move the same node out of the unknown lane.");
-  assert.equal(await page.locator(".event-timeline-node").filter({ hasText: "待定访客" }).count(), 1, "Time supplementation must keep the stable Event node.");
+  await selectEventView("时间轴");
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
+    throw new Error(`Updated graph projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
+      state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
+      text: document.querySelector(".temporal-canvas-status")?.textContent,
+      projection: document.querySelector("[data-projection-mode]")?.getAttribute("data-projection-mode")
+    })))}`);
+  });
+  const runsAfterTimeUpdate = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  const currentUpdatedRun = runsAfterTimeUpdate.data.find((run) => run.status === "ready" && !run.stale);
+  const updatedPlacement = currentUpdatedRun?.placements.find((placement) => placement.versionedEventRef.eventId === unknown.id);
+  assert.equal(updatedPlacement?.placementKind, "anchored", `The refreshed projection must read the authored time as an explicit anchor=${JSON.stringify(updatedPlacement)}`);
+  await page.waitForFunction((eventTitle) => [...document.querySelectorAll(".event-graph-node.is-temporal-anchored")].some((node) => node.textContent?.includes(eventTitle)), "待定访客");
+  assert.equal(await page.locator(".event-graph-node.is-temporal-anchored").filter({ hasText: "待定访客" }).count(), 1, "Adding authored time makes the same stable Event an explicit anchor.");
+  assert.equal(await page.locator(".event-graph-node").filter({ hasText: "待定访客" }).count(), 1, "Time supplementation never duplicates the Event node.");
   const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Timeline proof may not write Canon.");
   assert.deepEqual(consoleProblems, [], "Timeline interaction must not add browser console errors.");
@@ -1190,11 +1292,22 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await panel.getByRole("button", { name: "开始推演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-view") === "running");
   assert.equal(await panel.getByRole("button", { name: "停止本次推演", exact: true }).count(), 1, "Running stage must expose exactly one primary stop action instead of adoption controls.");
-  try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing", undefined, { timeout: 8_000 }); }
+  try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing"); }
   catch (error) {
     const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
-    throw new Error(`Agent background recovery did not reach review. Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    const state = await page.evaluate(() => {
+      const element = document.querySelector(".tianyi-prediction-panel");
+      return {
+        phase: element?.getAttribute("data-prediction-phase") ?? null,
+        view: element?.getAttribute("data-prediction-view") ?? null,
+        runId: element?.getAttribute("data-run-id") ?? null,
+        announcedRun: window.__storyStudioPredictionRun ?? null,
+        announcedView: window.__storyStudioPredictionView ?? null
+      };
+    });
+    throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
   }
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length >= 5);
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
   assert.ok(await page.locator(".event-graph-prediction-node").count() >= 5, "Candidate overview must render all unique nodes from multiple paths before focus.");
   await page.waitForTimeout(260);
@@ -1686,6 +1799,40 @@ async function recordEventGraphOperation() {
   const recordingPath = video ? await video.path() : null;
   if (!recordingPath) throw new Error("Event graph recording was not written.");
   writeFileSync(path.join(eventGraphRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
+}
+
+async function recordTemporalProjectionOperation() {
+  mkdirSync(temporalProjectionRecordingDirectory, { recursive: true });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    recordVideo: { dir: temporalProjectionRecordingDirectory, size: { width: 1440, height: 900 } }
+  });
+  const page = await context.newPage();
+  const video = page.video();
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  await closeGlobalTianyiIfOpen(page);
+  await page.getByRole("button", { name: "关系图", exact: true }).filter({ visible: true }).first().click();
+  await page.getByLabel("事件关系工作区").waitFor();
+  await page.waitForTimeout(1_500);
+  await page.getByRole("button", { name: "时间轴", exact: true }).filter({ visible: true }).first().click();
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
+  await page.waitForTimeout(2_000);
+  const canvas = page.getByLabel("事件语义时间关系工作区");
+  await canvas.getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.waitForTimeout(2_000);
+  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
+  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
+  await page.waitForTimeout(2_000);
+  await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
+  await canvas.getByRole("button", { name: "聚焦当前", exact: true }).click();
+  await page.waitForTimeout(2_000);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelector('[data-projection-mode="graph"]'));
+  await page.waitForTimeout(2_000);
+  await context.close();
+  const recordingPath = video ? await video.path() : null;
+  if (!recordingPath) throw new Error("Semantic timeline recording was not written.");
+  writeFileSync(path.join(temporalProjectionRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
 }
 
 async function closeGlobalTianyiIfOpen(page) {

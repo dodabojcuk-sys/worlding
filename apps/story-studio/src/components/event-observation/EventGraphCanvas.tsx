@@ -308,6 +308,7 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-label="聚焦当前" title="聚焦当前" disabled={!currentEvent} onClick={() => {
           if (!currentEvent) return;
           if (mode === "temporal") {
+            selectNode(currentEvent.id);
             const currentNode = nodes.find((node) => node.id === currentEvent.id);
             if (currentNode) void flow?.setCenter(currentNode.position.x + 102, currentNode.position.y + 70, { zoom: 1, duration: 220 });
           } else focus(currentEvent.id);
@@ -526,16 +527,13 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const focusLayout = mode === "graph" && view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
   const visibleEvents = events.filter((event) => visible.has(event.id));
   const temporalByEvent = new Map(temporalRun?.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) ?? []);
-  const temporalRows = new Map<string, number>();
+  const temporalPositions = temporalEventPositions(visibleEvents, temporalByEvent, semanticZoom);
   const eventNodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
     const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 142 } : null;
     const temporal = temporalByEvent.get(event.id) ?? null;
-    const temporalKey = temporal ? String(Math.round(temporal.relativePosition / 90)) : "fallback";
-    const temporalRow = temporalRows.get(temporalKey) ?? 0;
-    temporalRows.set(temporalKey, temporalRow + 1);
-    const temporalPosition = temporal ? { x: 70 + temporal.relativePosition * 1.12, y: 150 + (temporalRow % 4) * 168 } : null;
+    const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
     return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
@@ -599,6 +597,26 @@ function temporalScreenNodes(run: TemporalProjectionRun, eventCount: number): No
     const unresolvedOffset = segment.kind === "unresolved" ? run.segments.filter((item) => item.kind === "unresolved").findIndex((item) => item.id === segment.id) * 235 : 0;
     return { id: `temporal-screen.${segment.id}`, type: "temporalScreen", className: "temporal-screen-node", position: { x: base.x + unresolvedOffset, y: 28 }, style: { width: segment.kind === "unresolved" ? 220 : base.width, height: Math.max(620, 230 + Math.ceil(eventCount / 4) * 168) }, draggable: false, connectable: false, selectable: false, focusable: false, zIndex: -10 - index, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, screen: true, screenLabel: segment.label, screenKind: segment.kind, screenConfidence: segment.confidence === null ? undefined : `置信度 ${Math.round(segment.confidence * 100)}%` } };
   });
+}
+
+function temporalEventPositions(events: readonly EventLineEventSummary[], placements: ReadonlyMap<string, TemporalPlacement>, semanticZoom: "far" | "medium" | "near"): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  const laneRightEdges: number[] = [];
+  const cardWidth = 246;
+  const horizontalGap = 32;
+  const laneHeight = semanticZoom === "near" ? 292 : semanticZoom === "far" ? 132 : 190;
+  const ordered = events.flatMap((event) => {
+    const placement = placements.get(event.id);
+    return placement ? [{ eventId: event.id, placement }] : [];
+  }).sort((left, right) => left.placement.relativePosition - right.placement.relativePosition || left.eventId.localeCompare(right.eventId));
+  for (const { eventId, placement } of ordered) {
+    const x = 70 + placement.relativePosition * 1.12;
+    let lane = laneRightEdges.findIndex((rightEdge) => rightEdge + horizontalGap <= x);
+    if (lane < 0) lane = laneRightEdges.length;
+    laneRightEdges[lane] = x + cardWidth;
+    positions.set(eventId, { x, y: 150 + lane * laneHeight });
+  }
+  return positions;
 }
 
 function relationEdge(relation: RelationReadProjectionR0, selection: Selection, crossTemporalScreen = false): Edge {
@@ -714,7 +732,9 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
   const contentHeight = maxY - minY;
   const zoom = Math.max(.84, Math.min(1, (canvas.width - 52) / Math.max(1, contentWidth), (canvas.height - 72) / Math.max(1, contentHeight)));
   const x = contentWidth * zoom > canvas.width - 52 ? 26 - minX * zoom : (canvas.width - contentWidth * zoom) / 2 - minX * zoom;
-  const y = (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
+  const y = contentHeight * zoom > canvas.height - 72
+    ? 36 - minY * zoom
+    : (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 240 });
 }
 function isDensityFixture() {

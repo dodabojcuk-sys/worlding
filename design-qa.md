@@ -60,6 +60,36 @@ final result: passed
 
 ---
 
+# Design QA — Tianyan AI Semantic Timeline R5
+
+- Motion reference: `/home/beelink/下载/1000003311.mp4` (1276×720, 10.75s); extracted reference contact sheet: `/home/beelink/.codex/visualizations/2026/09/01/tianyan-ai-semantic-timeline-r5/reference-video/contact-sheet.png`.
+- Final product evidence: `/home/beelink/.codex/visualizations/2026/09/01/tianyan-ai-semantic-timeline-r5/evidence-final4/`.
+- Final A–H comparison sheet: `/home/beelink/.codex/visualizations/2026/09/01/tianyan-ai-semantic-timeline-r5/evidence-final4/I-before-after-contact-sheet.png`.
+- Final interaction recording: `/home/beelink/.codex/visualizations/2026/09/01/tianyan-ai-semantic-timeline-r5/recording-final4/semantic-timeline-interaction-r5.webm` (19.52s).
+- Verified viewports: 1440×900 and 1152×720 at device scale 1.
+
+## Reference and implementation comparison
+
+- The reference's useful interaction principle is preserved: one continuous graph surface transitions in place, keeps connectors visible, supports semantic zoom, and retains a minimap. Its unrelated brand treatment and floating assistant skin were not copied.
+- Relationship and temporal modes render the same stable Event node family and Relation edges. Temporal mode adds low-contrast vertical paper screens behind them rather than mounting a second timeline card system.
+- Explicit, inferred, ambiguous, conflict and unplaced temporal states remain author-facing projections. Unknown formal time is semantically distributed and never upgraded to formal `worldTime`.
+- Medium zoom shows formal/inferred time state; far zoom reduces nodes to title, status and the main relation structure; near zoom expands anchors, confidence and a short evidence summary in place.
+- Closely positioned Events use collision-aware vertical lanes. At narrow widths, cards remain at least 170px wide and the canvas pans rather than shrinking the whole graph into dots.
+- Selection, conflict inspection, Agent-only Run receipt, Dialogue isolation, Escape return, cache reuse and revision refresh were exercised in the passing browser flow.
+- Provider-unconfigured evidence uses an intentionally intercepted isolated request and reports the failure honestly without an unknown bucket or fabricated timeline.
+- Browser console warnings/errors outside that explicitly attributed proof response: 0.
+
+## Visual findings
+
+- The first captured implementation exposed two P1 issues: timeline mode retained a duplicate prose toolbar and its default semantic layout allowed dense nodes to overlap. Both were corrected before the final evidence set.
+- The final 1440 overview keeps screen boundaries, Event titles and relation routes legible; vertical overflow remains reachable through panning instead of lowering the readable zoom floor.
+- The final 1152 state preserves the rightmost product rail, readable cards and continuous temporal background without page-level horizontal overflow.
+- No P0, P1 or P2 visual defect remains in the requested graph-to-time transition, semantic zoom, conflict inspector, provider-unavailable state or responsive proof.
+
+final result: passed
+
+---
+
 # Design QA — Tianyi Agent Graph Visual Polish and Provider Adapter Ready R1
 
 - Founder reference: `/tmp/codex-clipboard-422355c5-fe9e-44f5-9870-f0545b6fcf9e.png` (1568×1003)

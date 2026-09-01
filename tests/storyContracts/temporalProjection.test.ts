@@ -56,6 +56,25 @@ test("weak story order produces an ambiguous window rather than a fake date", as
   assert.equal(result.placements[0]?.authoredTimeLabel, null);
 });
 
+test("late weak-order evidence stays inside a valid ambiguous window", async () => {
+  const weakRequest = normalizeTemporalProjectionRequest({ ...request, eventRefs: [ref("event.late-weak")] });
+  const result = await createDeterministicTemporalProjectionGateway().generate({ request: weakRequest, events: [{ id: "event.late-weak", title: "后段雨声", summary: "", tags: [], storyOrder: 40, authoredTimeLabel: null, authoredTimeKind: "unknown" }], relations: [] });
+  const validated = validateTemporalProjectionResult({ request: weakRequest, result });
+  assert.ok(validated.placements[0]!.inferredWindow!.start <= validated.placements[0]!.inferredWindow!.end);
+});
+
+test("a long relation-only chain keeps every inferred window valid", async () => {
+  const refs = Array.from({ length: 12 }, (_, index) => ref(`event.chain-${index}`));
+  const chainRequest = normalizeTemporalProjectionRequest({ ...request, eventRefs: refs });
+  const result = await createDeterministicTemporalProjectionGateway().generate({
+    request: chainRequest,
+    events: refs.map((item, index) => ({ id: item.eventId, title: `链节 ${index + 1}`, summary: "", tags: [], storyOrder: index, authoredTimeLabel: null, authoredTimeKind: "unknown" as const })),
+    relations: refs.slice(0, -1).map((item, index) => ({ id: `relation.chain-${index}`, sourceEventId: item.eventId, targetEventId: refs[index + 1]!.eventId, label: "促使", strictBefore: true, confirmed: true }))
+  });
+  const validated = validateTemporalProjectionResult({ request: chainRequest, result });
+  assert.equal(validated.placements.every((item) => item.inferredWindow === null || item.inferredWindow.start <= item.inferredWindow.end), true);
+});
+
 test("a strict before/after cycle remains a conflict instead of being hard sorted", async () => {
   const cycleRequest = normalizeTemporalProjectionRequest({ ...request, eventRefs: [ref("event.a"), ref("event.b")] });
   const result = await createDeterministicTemporalProjectionGateway().generate({

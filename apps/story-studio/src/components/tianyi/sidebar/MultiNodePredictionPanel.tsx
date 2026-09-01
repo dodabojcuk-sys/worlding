@@ -38,6 +38,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   });
   const pollingGeneration = useRef(0);
   const runRecoveryGeneration = useRef(0);
+  const historyLoadGeneration = useRef(0);
   const stopRequested = useRef(false);
   const adjustGoalRef = useRef<HTMLTextAreaElement>(null);
   const focusGoalOnTask = useRef(false);
@@ -49,9 +50,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   useEffect(() => {
     if (!project || !props.eventRefs.length) { setRun(null); return; }
     let active = true;
+    const generation = ++historyLoadGeneration.current;
     setPhase("reading");
     void props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)).then((history) => {
-      if (!active) return;
+      if (!active || historyLoadGeneration.current !== generation) return;
       setRuns(history);
       const matching = history.find((candidate) => candidate.runId === props.runtime.activeAgentRunId)
         ?? history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey)
@@ -59,11 +61,11 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
         ?? null;
       setRun(matching);
       if (matching) props.runtime.setActiveAgentRunId(matching.runId);
-      setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "stopped" ? "stopped" : matching?.status === "failed" ? "failed" : "idle");
+      setPhase(matching?.status === "ready" ? "reviewing" : matching?.status === "stopped" ? "stopped" : matching?.status === "failed" ? "failed" : matching && ["created", "generating", "validating"].includes(matching.status) ? "validating" : "idle");
       setViewState(predictionViewStateFromPersistence({ runStatus: matching?.status ?? null, hasBundle: Boolean(matching?.bundle), selectedPathId: null, hasReceipt: false }));
       if (matching) {
         announceRun(matching);
-        if (["generating", "validating"].includes(matching.status)) { beginExecutionPolling(matching.runId); beginRunRecoveryPolling(matching.runId); }
+        if (["created", "generating", "validating"].includes(matching.status)) { beginExecutionPolling(matching.runId); beginRunRecoveryPolling(matching.runId); }
         void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: matching.runId, token })).then((projection) => { if (active && projection) { setExecution(projection); announceExecution(projection); } }).catch(() => undefined);
       } else if (props.runtime.activeAgentRunId || replayedPredictionRun(project.id, props.eventRefs)) beginSourceRecoveryPolling();
     }).catch(() => { if (active && !replayedPredictionRun(project.id, props.eventRefs)) { setRun(null); setPhase("idle"); } });
@@ -72,10 +74,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
 
   useEffect(() => {
     setPathId(null); setSelectedNodeIds([]); setReceipt(null);
-    if (run) {
-      announceRun(run);
-      setViewState(predictionViewStateFromPersistence({ runStatus: run.status, hasBundle: Boolean(run.bundle), selectedPathId: null, hasReceipt: false }));
-    }
+    if (run) announceRun(run);
   }, [run?.runId]);
 
   useEffect(() => {
@@ -131,6 +130,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
 
   const start = () => void (async () => {
     if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4 || busy) return;
+    historyLoadGeneration.current += 1;
     setBusy(true); setError(""); setReceipt(null); setPhase("generating");
     setViewState("running");
     stopRequested.current = false; announceAgentState(true, null);
@@ -142,11 +142,13 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       setRun(created); announceRun(created); setPhase("validating");
       beginExecutionPolling(created.runId);
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
+      historyLoadGeneration.current += 1;
       setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); announceRun(ready);
-      const execution = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
-      if (execution) { setExecution(execution); announceExecution(execution); }
       setBusy(false); setPhase("reviewing");
       setViewState("overview");
+      void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token })).then((projection) => {
+        if (projection) { setExecution(projection); announceExecution(projection); }
+      }).catch(() => undefined);
     } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "推演未完成，原事件没有改变。"); setPhase(stopRequested.current ? "stopped" : "failed"); setViewState("task"); }
     finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run?.runId ?? props.runtime.activeAgentRunId); }
   })();
@@ -250,10 +252,11 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     try {
       const ready = await props.runtime.withConnection((token) => retryMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
       setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); announceRun(ready);
-      const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token }));
-      if (projection) { setExecution(projection); announceExecution(projection); }
       setBusy(false); setPhase("reviewing");
       setViewState("overview");
+      void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token })).then((projection) => {
+        if (projection) { setExecution(projection); announceExecution(projection); }
+      }).catch(() => undefined);
     } catch (cause) { if (!stopRequested.current) setError(cause instanceof Error ? cause.message : "重试未完成。"); setPhase(stopRequested.current ? "stopped" : "failed"); setViewState("task"); }
     finally { pollingGeneration.current += 1; setBusy(false); announceAgentState(false, run.runId); }
   })();
@@ -398,7 +401,7 @@ function replayedPredictionRun(projectId: string | null, eventRefs: readonly Sto
 }
 
 function predictionPhaseForRun(run: PredictionRun | null): PredictionPhase {
-  return run?.status === "ready" ? "reviewing" : run?.status === "stopped" ? "stopped" : run?.status === "failed" ? "failed" : run && ["generating", "validating"].includes(run.status) ? "validating" : "idle";
+  return run?.status === "ready" ? "reviewing" : run?.status === "stopped" ? "stopped" : run?.status === "failed" ? "failed" : run && ["created", "generating", "validating"].includes(run.status) ? "validating" : "idle";
 }
 
 function PredictionProgress(props: { phase: PredictionPhase; run: PredictionRun | null }) {

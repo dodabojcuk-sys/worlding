@@ -9,6 +9,7 @@ export function TianyiAgentPanel(props: {
   eventRefs: StoryStudioEventReference[];
   sourceLabels?: string[];
   sourceUnitSummary?: string;
+  temporalRun?: ReactNode;
   generalRun: ReactNode;
   composer: ReactNode;
   error: string;
@@ -16,6 +17,7 @@ export function TianyiAgentPanel(props: {
   const predictionActive = props.eventRefs.length > 0;
   return <section className="tianyi-agent-panel" aria-label="天意 Agent" data-agent-run-preserved="true">
     {predictionActive ? <MultiNodePredictionPanel runtime={props.runtime} eventRefs={props.eventRefs} sourceLabels={props.sourceLabels} sourceUnitSummary={props.sourceUnitSummary} /> : props.generalRun}
+    {props.temporalRun}
     {props.error ? <p className="tianyi-error" role="alert">{props.error}</p> : null}
     {!predictionActive ? props.composer : null}
   </section>;

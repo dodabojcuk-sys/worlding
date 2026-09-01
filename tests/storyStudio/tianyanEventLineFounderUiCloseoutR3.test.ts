@@ -12,7 +12,7 @@ const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");
 
 test("prediction stages temporarily yield the Unit directory and restore it outside the flow", () => {
   assert.match(canvas, /predictionDirectoryCollapsed = \["overview", "focus", "review"\]/u);
-  assert.match(canvas, /data-unit-directory=\{predictionDirectoryCollapsed \? "temporarily-collapsed" : "restored"\}/u);
+  assert.match(canvas, /data-unit-directory=\{mode === "temporal" \|\| predictionDirectoryCollapsed \? "temporarily-collapsed" : "restored"\}/u);
   assert.match(graphStyles, /\[data-unit-directory="temporarily-collapsed"\] \.event-unit-directory \{ display: none; \}/u);
   assert.match(smoke, /Leaving the Agent prediction flow must restore the Unit directory/u);
 });

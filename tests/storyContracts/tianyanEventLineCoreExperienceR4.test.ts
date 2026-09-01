@@ -20,9 +20,9 @@ test("EVENT_GRAPH_AI_EDGE_CONTRACT requires connected CandidateSubgraphs and aut
   assert.match(productCore, /不得把叙事相邻静默猜成因果/u);
 });
 
-test("TIMELINE_CONTRACT keeps bands, Events, and Relations in one React Flow canvas", () => {
-  assert.match(productCore, /节点、正式关系、候选关系和纵向时间隔栏位于同一个 React Flow 画布/u);
-  assert.match(productCore, /“时间未定”是所有已知时间之后的最后一个同级背景隔栏/u);
-  assert.match(productCore, /关系线可以跨越时间隔栏/u);
-  assert.match(productCore, /同一 Event \/ Relation 必须保持同一稳定身份/u);
+test("TIMELINE_CONTRACT keeps one Event Graph foreground over a semantic screen projection", () => {
+  assert.match(productCore, /前景继续使用同一批 Event、正式 Relation 和 Relation candidate/u);
+  assert.match(productCore, /时间只作为关系画布背后的“屏风式背景投影”/u);
+  assert.match(productCore, /正式时间未确认的 Event 不得默认堆入最后一个“时间未定”栏/u);
+  assert.match(productCore, /关系线可以跨越所有屏风/u);
 });
