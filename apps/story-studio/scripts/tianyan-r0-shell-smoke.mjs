@@ -186,10 +186,21 @@ async function assertSingleGlobalSearch(page) {
   await page.getByRole("tab", { name: /已分类/u }).click();
 }
 
+async function openCharacterDirectory(page) {
+  const panel = page.locator(".project-directory-panel");
+  const characterCategory = panel.locator('[data-directory-node="directory.library.character"]');
+  if (!(await characterCategory.count())) {
+    const root = panel.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
+    if (await root.count()) await root.click();
+    await panel.locator('[data-directory-node="directory.library"]').click();
+  }
+  await characterCategory.click();
+}
+
 async function assertCharacterDirectoryAndInspector(page) {
-  const workspaceBefore = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
-  await page.locator('[data-directory-node="directory.library.character"]').click();
+  await openCharacterDirectory(page);
   await page.getByTestId("character-directory").waitFor();
+  const workspaceBefore = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
   assert.equal(await page.locator(".character-directory-list input[type=checkbox]").count(), 0, "Default directory has no selection checkboxes");
   assert.equal(await page.locator(".character-directory-list h3").count(), 0, "The default character directory must be a flat list without role group headings");
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Internal category IDs must not leak into the directory");
@@ -489,7 +500,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
     if (state === "character-directory") {
       const toggle = page.locator('[data-panel-toggle="project-directory"]');
       if (await toggle.getAttribute("aria-pressed") !== "true") await toggle.click();
-      await page.locator('[data-directory-node="directory.library.character"]').click();
+      await openCharacterDirectory(page);
       await page.getByTestId("character-directory").waitFor();
       await waitForCharacterDirectoryIdle(page);
       await page.getByRole("option", { name: new RegExp(characterName, "u") }).click();
@@ -500,7 +511,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
       await page.evaluate(() => { const target = document.querySelector(".shell-workspace-stage"); if (target instanceof HTMLElement) target.scrollTop = target.scrollHeight; });
     }
     if (!["settings", "agent-flow", "pending-review", "character-directory", "data-scroll"].includes(state)) {
-      await page.locator('[data-directory-node="directory.library.character"]').click();
+      await openCharacterDirectory(page);
       await page.getByTestId("character-directory").waitFor();
       await waitForCharacterDirectoryIdle(page);
     }
@@ -567,9 +578,10 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
 async function assertNoProjectDirectoryShell(page) {
   const panel = page.locator(".project-directory-panel");
   await panel.waitFor();
-  for (const label of ["故事结构", "节点", "单元", "故事线", "信息资料", "角色", "物品", "地点", "组织", "设定", "规则与设定", "来源", "来源文档", "创意", "剧情想法"]) {
+  for (const label of ["故事结构", "信息资料", "设定", "来源", "创意"]) {
     await panel.getByText(label, { exact: true }).waitFor();
   }
+  assert.equal(await panel.locator(".project-directory-reference").count(), 0, "The unopened directory root must not flatten nested categories or Event rows into the first screen.");
   assert.equal(await panel.locator(".project-directory-tree strong").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "No-project classified view keeps every fixed category at zero.");
   await panel.getByText("尚未打开作品", { exact: false }).waitFor();
   await panel.getByRole("button", { name: "新建作品", exact: true }).waitFor();
@@ -1042,6 +1054,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await page.waitForTimeout(120);
   assert.notEqual(await page.locator(".event-timeline-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
   await page.getByRole("button", { name: "时间图总览" }).click();
+  await page.waitForTimeout(240);
   await page.locator(".event-timeline-node").filter({ hasText: "雾港启航" }).click();
   await page.getByRole("button", { name: "聚焦当前时间节点" }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS", "Selecting a time node must open the only details surface.");

@@ -1,6 +1,6 @@
 import { Background, Controls, Handle, Position, ReactFlow, type Edge, type Node, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
 import { Clock3, Focus, MapPin, Maximize2, UsersRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
@@ -44,21 +44,22 @@ export function projectEventTimeline(events: readonly EventLineEventSummary[]): 
 
 export function EventTimelineProjection(props: { events: readonly EventLineEventSummary[]; relations: readonly RelationReadProjectionR0[]; selectedEventId: string | null; onSelect(eventId: string): void; }) {
   const timeline = useMemo(() => projectEventTimeline(props.events), [props.events]);
+  const flowHost = useRef<HTMLDivElement | null>(null);
   const [flow, setFlow] = useState<ReactFlowInstance<TimelineFlowNode, Edge> | null>(null);
   const projection = useMemo(() => deriveTimelineGraph(timeline, props.relations, props.selectedEventId), [props.relations, props.selectedEventId, timeline]);
   const focusOverview = (duration = 180) => {
     const knownBands = timeline.bands.filter((band) => !band.unknown).slice(0, 4);
-    const visibleBandIds = new Set((knownBands.length ? knownBands : timeline.bands.slice(-1)).map((band) => `timeline-band.${band.id}`));
-    const visibleBandKeys = new Set(knownBands.map((band) => band.id));
-    const overviewNodes = projection.nodes.filter((node) => visibleBandIds.has(node.id) || (node.type === "event" && visibleBandKeys.has(node.data.bandId)));
-    void flow?.fitView({ nodes: overviewNodes, padding: 0.08, duration, minZoom: 0.84, maxZoom: 1 });
+    const overviewBands = [...knownBands, ...timeline.bands.filter((band) => band.unknown).slice(-1)];
+    const bandCount = Math.max(1, overviewBands.length);
+    const rightEdge = 30 + (bandCount - 1) * (BAND_WIDTH + BAND_GAP) + BAND_WIDTH;
+    const availableWidth = flowHost.current?.clientWidth ?? rightEdge;
+    const zoom = Math.max(0.84, Math.min(1, (availableWidth - 32) / (rightEdge + 30)));
+    void flow?.setCenter((30 + rightEdge) / 2, 310, { zoom, duration });
   };
   useEffect(() => {
     if (!flow || !projection.nodes.length) return;
     const frame = window.requestAnimationFrame(() => {
-      const selected = projection.nodes.find((node) => node.type === "event" && node.id === props.selectedEventId);
-      if (selected) void flow.setCenter(selected.position.x + EVENT_WIDTH / 2, selected.position.y + 70, { zoom: 1, duration: 0 });
-      else focusOverview(0);
+      focusOverview(0);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [flow, projection.layoutKey, props.selectedEventId]);
@@ -69,7 +70,7 @@ export function EventTimelineProjection(props: { events: readonly EventLineEvent
   return <section className="event-timeline-projection" aria-label="事件时间关系画布" data-testid="event-timeline-projection" data-timeline-owner="event-read-projection" data-timeline-graph-engine="react-flow">
     <header className="event-timeline-heading"><div><small>故事世界时间投影</small><strong>时间关系图</strong><p>从左到右表达世界时间；关系跨越时间隔栏仍保持同一条连线。</p></div><dl><div><dt>可定位</dt><dd>{timeline.dated.length}</dd></div><div><dt>时间未定</dt><dd>{timeline.undated.length}</dd></div><div><dt>关系</dt><dd>{projection.edges.length}</dd></div></dl></header>
     <div className="event-timeline-canvas" data-timeline-canvas="world-time">
-      <div className="event-timeline-flow" aria-label="可平移缩放的时间化关系图"><ReactFlow<TimelineFlowNode, Edge> nodes={projection.nodes} edges={projection.edges} nodeTypes={nodeTypes} onInit={setFlow} onNodeClick={(_, node) => { if (node.type === "event") props.onSelect(node.id); }} minZoom={0.84} maxZoom={1.8} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }}><Background gap={20} size={1} color="rgba(20, 125, 120, 0.13)" /><Controls showInteractive={false} /></ReactFlow></div>
+      <div ref={flowHost} className="event-timeline-flow" aria-label="可平移缩放的时间化关系图"><ReactFlow<TimelineFlowNode, Edge> nodes={projection.nodes} edges={projection.edges} nodeTypes={nodeTypes} onInit={setFlow} onNodeClick={(_, node) => { if (node.type === "event") props.onSelect(node.id); }} minZoom={0.84} maxZoom={1.8} nodesDraggable={false} nodesConnectable={false} elementsSelectable proOptions={{ hideAttribution: true }}><Background gap={20} size={1} color="rgba(20, 125, 120, 0.13)" /><Controls showInteractive={false} /></ReactFlow></div>
       <div className="event-timeline-actions" aria-label="时间图聚焦操作"><button type="button" aria-label="时间图总览" onClick={() => focusOverview()}><Maximize2 />时间总览</button><button type="button" aria-label="聚焦当前时间节点" disabled={!props.selectedEventId} onClick={focusCurrent}><Focus />聚焦当前</button></div>
     </div>
   </section>;
