@@ -28,7 +28,7 @@ test("Dialogue names a retained background Agent task without mounting execution
 });
 
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {
-  assert.match(canvas, /minZoom=\{predictionPathId \? 0\.94 : 0\.25\}/u);
+  assert.match(canvas, /minZoom=\{\["overview", "focus", "review"\]\.includes\(predictionViewState\) \? 0\.94 : 0\.25\}/u);
   assert.match(canvas, /const zoom = Math\.max\(\.95, fittedZoom\)/u);
   assert.match(canvas, /const candidateNodes = nodes\.filter\(\(node\) => node\.type === "prediction"\)/u);
   assert.match(canvas, /paddingX - minX \* zoom/u);
@@ -43,7 +43,8 @@ test("time conflicts stay blocked with a correction route and no formal-write cl
   assert.match(prediction, /这条路径暂时不可采纳/u);
   assert.match(prediction, /返回修正推演要求/u);
   assert.match(prediction, /不会写入正式事件、正式关系或世界状态/u);
-  assert.match(prediction, /adjustGoalRef\.current\?\.focus\(\)/u);
+  assert.match(prediction, /focusGoalOnTask\.current = true/u);
+  assert.match(prediction, /window\.requestAnimationFrame\(\(\) => adjustGoalRef\.current\?\.focus\(\)\)/u);
 });
 
 test("invalid-record warning is a dismissible workspace card", () => {
