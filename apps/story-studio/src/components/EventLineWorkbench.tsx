@@ -47,8 +47,8 @@ import {
 import { PageContextDock, type PageContextDockLens, type PageContextDockState } from "./PageContextDock";
 import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../src/storyContracts/eventSemanticHierarchy";
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
-import { EventTimelineProjection } from "./event-observation/EventTimelineProjection";
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
 export type EventDraftInput = {
@@ -99,6 +99,7 @@ export function EventLineWorkbench(props: {
   onApproveModifiedGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onRejectGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onContinueReview(): void;
+  onEnsureTemporalProjection?(eventRefs: StoryStudioEventReference[]): Promise<TemporalProjectionRun>;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(null);
@@ -109,6 +110,9 @@ export function EventLineWorkbench(props: {
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
   const [compact, setCompact] = useState(false);
   const [projectionMode, setProjectionMode] = useState<EventWorkspaceView>(() => readProjectionMode(props.projectId));
+  const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
+  const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "failed" | "provider-unavailable">("idle");
+  const [temporalMessage, setTemporalMessage] = useState<string | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
@@ -316,6 +320,30 @@ export function EventLineWorkbench(props: {
     setProjectionMode(next);
   };
   useEffect(() => { writeProjectionMode(props.projectId, projectionMode); }, [projectionMode, props.projectId]);
+  useEffect(() => {
+    if (projectionMode !== "timeline" || !props.onEnsureTemporalProjection) return;
+    const refs = props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []);
+    if (!refs.length) { setTemporalState("idle"); setTemporalMessage("当前没有可用的版本化事件依据。"); return; }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setTemporalState("loading");
+      setTemporalMessage("正在核对本图修订的缓存投影。");
+      void props.onEnsureTemporalProjection!(refs).then((run) => {
+        if (cancelled) return;
+        setTemporalRun(run);
+        setTemporalState(run.stale ? "stale" : "ready");
+        setTemporalMessage(run.stale ? "当前显示上次投影，新图修订仍待更新。" : "同一图修订已命中缓存；切换、缩放和刷新不会重复运行。");
+        const host = window as Window & { __storyStudioTemporalProjectionRun?: TemporalProjectionRun };
+        host.__storyStudioTemporalProjectionRun = run;
+        window.dispatchEvent(new CustomEvent("story-studio-temporal-projection-run", { detail: run }));
+      }).catch((error) => {
+        if (cancelled) return;
+        setTemporalState(/provider|credential|model/iu.test(error instanceof Error ? error.message : "") ? "provider-unavailable" : "failed");
+        setTemporalMessage("语义时间尚未推断；若已有缓存则保留上次结果，且没有自动重试或写入时间事实。");
+      });
+    }, 380);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [eventIds, projectionMode, props.onEnsureTemporalProjection, props.projectId]);
   useEffect(() => { setInvalidRecordWarningDismissed(false); }, [props.listState.status === "ready" ? props.listState.invalidRecordCount : 0, props.projectId]);
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
@@ -380,7 +408,7 @@ export function EventLineWorkbench(props: {
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
+        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
           const references = (eventIds ?? []).flatMap((eventId) => {
             const event = props.events.find((item) => item.id === eventId);
             return event && (event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
@@ -389,7 +417,6 @@ export function EventLineWorkbench(props: {
           const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";
           props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId), unitSummary);
         }} /> : null}
-        {projectionMode === "timeline" ? <EventTimelineProjection events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelect={openEvent} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
         {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="故事脊柱">

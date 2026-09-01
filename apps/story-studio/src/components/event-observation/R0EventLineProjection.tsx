@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { confirmRelationCandidate, createRelationCandidate, createWorldObject, getBootstrap, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
+import { confirmRelationCandidate, createRelationCandidate, createTemporalProjectionRun, createWorldObject, executeTemporalProjectionRun, getBootstrap, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryUnits, rejectRelationCandidate, updateRelationCandidate, type RelationRecord, type RelationTypeDefinition, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
 import { eventWorkspaceProjectionSummaries, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -55,7 +55,14 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     await load();
     return created;
   };
-  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
+  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onEnsureTemporalProjection={(eventRefs) => props.runtime.withConnection(async (token) => {
+    const revision = await getTemporalGraphRevision({ projectId: state.projectId!, eventRefs, token });
+    const cached = await getTemporalProjectionByRevision({ projectId: state.projectId!, graphRevisionHash: revision.graphRevisionHash, token });
+    if (cached && !cached.stale) return cached;
+    const suffix = revision.graphRevisionHash.slice(0, 24);
+    const run = await createTemporalProjectionRun({ request: { projectId: state.projectId!, graphRevisionHash: revision.graphRevisionHash, eventRefs, operationId: `temporal-operation.auto.${suffix}`, trigger: "automatic" }, runId: `temporal-run.${suffix}`, token });
+    return run.status === "ready" ? run : executeTemporalProjectionRun({ projectId: state.projectId!, runId: run.runId, token });
+  })} onSaveEvent={saveDraftEvent} onCreateGraphRelation={({ sourceEventId, targetEventId }) => {
     const type = state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
     return props.runtime.withConnection((token) => createRelationCandidate({ projectId: state.projectId!, sourceObjectId: sourceEventId, targetObjectId: targetEventId, relationTypeId: type.relationTypeId, relationLabelSnapshot: type.label, direction: "forward", sourceRef: "event-graph-author-link", operationId: `event-graph-link-${crypto.randomUUID()}`, token })).then(() => { window.dispatchEvent(new Event("story-studio-pending-review-changed")); load(); });

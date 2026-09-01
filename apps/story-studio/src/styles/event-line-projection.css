@@ -242,7 +242,7 @@
   padding: 0 !important;
 }
 
-.shell-workspace-event-line .event-line-workbench[data-projection-mode="graph"] .event-line-spine-main > .event-graph-workspace {
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"]) .event-line-spine-main > .event-graph-workspace {
   align-self: stretch;
   block-size: auto !important;
   flex: 1 1 0;
@@ -258,47 +258,13 @@
   background: var(--color-workspace-background);
 }
 
-.shell-workspace-event-line .event-timeline-projection {
-  display: grid;
-  grid-template-rows: auto minmax(32rem, 1fr);
-  gap: var(--space-3);
-  inline-size: 100%;
-  min-block-size: 0;
-  block-size: 100%;
-}
-.shell-workspace-event-line .event-timeline-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding-inline: var(--space-2);
-}
-.shell-workspace-event-line .event-timeline-heading > div { display: grid; gap: 0.2rem; }
-.shell-workspace-event-line .event-timeline-heading small { color: var(--color-accent); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-heading strong { font-size: var(--font-size-xl); }
-.shell-workspace-event-line .event-timeline-heading p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-heading dl { display: flex; gap: var(--space-2); margin: 0; }
-.shell-workspace-event-line .event-timeline-heading dl div { min-inline-size: 5.75rem; padding: var(--space-2) var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-.shell-workspace-event-line .event-timeline-heading dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.shell-workspace-event-line .event-timeline-heading dd { margin: .15rem 0 0; font-weight: 750; }
-.shell-workspace-event-line .event-timeline-canvas { position: relative; min-block-size: 32rem; overflow: hidden; background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.shell-workspace-event-line .event-timeline-flow { position: absolute; inset: 0; overflow: hidden; }
-.shell-workspace-event-line .event-timeline-background-band { inline-size: 100%; block-size: 100%; background: color-mix(in srgb, var(--color-surface) 72%, transparent); border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent); border-radius: var(--radius-sm); }
-.shell-workspace-event-line .event-timeline-background-band.is-unknown { background: color-mix(in srgb, var(--color-surface-muted) 72%, transparent); border-style: dashed; }
-.shell-workspace-event-line .event-timeline-background-band > header { position: sticky; inset-block-start: 0; display: grid; gap: .15rem; min-block-size: 4.5rem; padding: .75rem .85rem; background: color-mix(in srgb, var(--color-surface) 92%, transparent); border-block-end: 1px solid var(--color-border); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
-.shell-workspace-event-line .event-timeline-background-band.is-unknown > header { background: color-mix(in srgb, var(--color-surface-muted) 94%, transparent); border-block-end-style: dashed; }
-.shell-workspace-event-line .event-timeline-background-band small { color: var(--color-accent); font-size: .75rem; font-weight: 700; }
-.shell-workspace-event-line .event-timeline-background-band strong { overflow: hidden; font-size: .875rem; text-overflow: ellipsis; white-space: nowrap; }
-.shell-workspace-event-line .event-timeline-background-band span { color: var(--color-text-muted); font-size: .75rem; }
-.shell-workspace-event-line .event-timeline-node { inline-size: 100%; min-inline-size: 13.75rem; display: grid; gap: .3rem; padding: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); box-shadow: 0 .25rem .8rem color-mix(in srgb, var(--color-text) 7%, transparent); cursor: pointer; }
-.shell-workspace-event-line .event-timeline-node:hover, .shell-workspace-event-line .event-timeline-node.is-selected { border: 2px solid var(--color-accent); background: var(--color-accent-soft); }
-.shell-workspace-event-line .event-timeline-node.is-unknown { border-style: dashed; }
-.shell-workspace-event-line .event-timeline-node small, .shell-workspace-event-line .event-timeline-node time, .shell-workspace-event-line .event-timeline-node > span { display: inline-flex; align-items: center; gap: .35rem; overflow: hidden; color: var(--color-text-muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
-.shell-workspace-event-line .event-timeline-node small { color: var(--color-accent); font-weight: 700; }
-.shell-workspace-event-line .event-timeline-node strong { overflow: hidden; font-size: .875rem; text-overflow: ellipsis; white-space: nowrap; }
-.shell-workspace-event-line .event-timeline-flow .timeline-cross-band-edge .react-flow__edge-path { stroke-width: 3; }
-.shell-workspace-event-line .event-timeline-actions { position: absolute; z-index: 5; inset-block-start: var(--space-3); inset-inline-end: var(--space-3); display: flex; gap: var(--space-2); padding: .3rem; background: color-mix(in srgb, var(--color-surface) 92%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
-.shell-workspace-event-line .event-timeline-actions button { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2.25rem; padding-inline: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .temporal-canvas-status { display: flex; align-items: center; gap: .65rem; min-block-size: 3.1rem; padding: .45rem var(--space-4); color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-accent-soft)); border-block-end: 1px solid var(--color-border); }
+.shell-workspace-event-line .temporal-canvas-status > svg { inline-size: 1rem; color: var(--color-accent); }
+.shell-workspace-event-line .temporal-canvas-status > div { display: grid; gap: .1rem; min-inline-size: 0; }
+.shell-workspace-event-line .temporal-canvas-status strong { color: var(--color-text); font-size: .875rem; }
+.shell-workspace-event-line .temporal-canvas-status span { overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .temporal-canvas-status:is(.is-failed, .is-provider-unavailable) > svg,
+.shell-workspace-event-line .temporal-canvas-status.is-stale > svg { color: var(--color-warning); }
 
 .shell-workspace-event-line .event-graph-commandbar,
 .shell-workspace-event-line .event-graph-command-actions,
@@ -497,6 +463,41 @@
   min-block-size: 0;
   background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%);
 }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-main { grid-template-columns: minmax(0, 1fr) 0 minmax(0, 0); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal.has-inspector .event-graph-main { grid-template-columns: minmax(0, 1fr) 0 minmax(17rem, 20rem); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-flow { grid-column: 1; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-local-rail { display: none; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-inspector { grid-column: 3; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__node { transition: transform 240ms cubic-bezier(.2, .75, .25, 1); }
+.shell-workspace-event-line .temporal-screen-node { pointer-events: none !important; }
+.shell-workspace-event-line .temporal-screen { box-sizing: border-box; inline-size: 100%; block-size: 100%; overflow: hidden; background: color-mix(in srgb, var(--color-surface) 57%, transparent); border-inline: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent); clip-path: polygon(0 0, calc(100% - .45rem) 0, 100% .55rem, calc(100% - .45rem) 1.1rem, 100% 1.65rem, calc(100% - .45rem) 2.2rem, 100% 2.75rem, calc(100% - .45rem) 100%, 0 100%); pointer-events: none; }
+.shell-workspace-event-line .temporal-screen.is-inferred_phase { background: color-mix(in srgb, var(--color-surface) 48%, var(--color-accent-soft)); }
+.shell-workspace-event-line .temporal-screen.is-interval { background: color-mix(in srgb, var(--color-surface-muted) 64%, transparent); border-inline-style: dashed; }
+.shell-workspace-event-line .temporal-screen.is-unresolved { background: color-mix(in srgb, var(--color-surface) 66%, var(--color-warning)); border-inline-style: dashed; }
+.shell-workspace-event-line .temporal-screen > header { display: grid; gap: .12rem; min-block-size: 4rem; padding: .7rem .85rem; background: color-mix(in srgb, var(--color-surface) 84%, transparent); border-block-end: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); }
+.shell-workspace-event-line .temporal-screen small { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .temporal-screen strong { font-size: .875rem; }
+.shell-workspace-event-line .temporal-screen span { color: var(--color-accent); font-size: .75rem; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__edge.temporal-cross-screen-edge .react-flow__edge-path { stroke-width: 2.25; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__node-event { min-inline-size: 12.75rem; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-inferred .graph-node-shell { border-style: dashed; border-color: color-mix(in srgb, var(--color-accent) 60%, var(--color-border)); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-ambiguous .graph-node-shell { border-style: dashed; box-shadow: 0 0 0 .28rem color-mix(in srgb, var(--color-accent-soft) 58%, transparent); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-conflict .graph-node-shell { border-color: var(--color-danger); box-shadow: 0 0 0 .22rem color-mix(in srgb, var(--color-danger) 13%, transparent); }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-unplaced .graph-node-shell { opacity: .78; border-style: dotted; }
+.shell-workspace-event-line .graph-node-temporal-detail { display: grid; gap: .28rem; padding-block-start: .35rem; border-block-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .graph-node-temporal-detail span { display: inline-flex; align-items: center; gap: .25rem; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .graph-node-temporal-detail p { margin: 0; color: var(--color-text); font-size: .75rem; line-height: 1.45; }
+.shell-workspace-event-line .temporal-position-inspector { grid-template-rows: auto minmax(0, 1fr); }
+.shell-workspace-event-line .temporal-inspector-state { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; padding: .75rem; background: var(--color-accent-soft); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .temporal-inspector-state > svg { color: var(--color-accent); }
+.shell-workspace-event-line .temporal-inspector-state > div { display: grid; gap: .18rem; }
+.shell-workspace-event-line .temporal-inspector-state small,
+.shell-workspace-event-line .temporal-inspector-state span { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .temporal-inspector-state.is-conflict { background: color-mix(in srgb, var(--color-surface) 90%, var(--color-danger)); border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border)); }
+.shell-workspace-event-line .temporal-inspector-conflict { display: grid; gap: .35rem; padding: .75rem; color: var(--color-danger); background: color-mix(in srgb, var(--color-surface) 92%, var(--color-danger)); border: 1px solid color-mix(in srgb, var(--color-danger) 48%, var(--color-border)); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .temporal-inspector-conflict p { margin: 0; color: var(--color-text-muted); line-height: 1.55; }
+.shell-workspace-event-line .temporal-inspector-actions { display: grid; gap: .45rem; }
+.shell-workspace-event-line .temporal-inspector-actions button { display: inline-flex; align-items: center; gap: .4rem; min-block-size: 2.3rem; padding-inline: .7rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
 
 .shell-workspace-event-line .event-graph-node {
   display: grid;
@@ -995,4 +996,20 @@
 
   .shell-workspace-event-line .event-timeline-heading { align-items: flex-start; }
   .shell-workspace-event-line .event-timeline-heading dl { display: none; }
+}
+
+@media (max-width: 75rem) {
+  .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-main,
+  .shell-workspace-event-line .event-graph-workspace.is-temporal.has-inspector .event-graph-main {
+    grid-template-columns: minmax(0, 1fr) 0;
+  }
+  .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-flow { grid-column: 1; }
+  .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-inspector {
+    position: absolute;
+    z-index: 5;
+    inset-block: 0;
+    inset-inline-end: 0;
+    inline-size: min(19rem, calc(100% - 3rem));
+    box-shadow: var(--shadow-panel);
+  }
 }

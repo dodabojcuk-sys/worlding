@@ -10,7 +10,7 @@ export type StoryStudioEventReference = {
    * The server re-reads the event and evaluates the actual state against its
    * consumer policy before any source bytes may be used.
    */
-  state: "planned" | "committed";
+  state: "draft" | "planned" | "committed";
   requestedUse: "simulate-from" | "compare-with" | "constraint";
 };
 
@@ -39,7 +39,7 @@ const CONSUMER_POLICIES: Record<StoryStudioEventReferenceConsumer, {
     requestedUses: ["simulate-from", "compare-with", "constraint"]
   },
   "tianyi-grounded": {
-    states: ["planned", "committed"],
+    states: ["draft", "planned", "committed"],
     requestedUses: ["constraint"]
   },
   "canon-material": {
@@ -57,8 +57,8 @@ export function createStoryStudioEventReference(input: {
   event: EventReferenceSource;
   requestedUse?: StoryStudioEventReference["requestedUse"];
 }): StoryStudioEventReference {
-  if (input.event.type !== "event" || (input.event.status !== "planned" && input.event.status !== "committed")) {
-    throw new Error("Story Studio event reference requires a planned or committed event.");
+  if (input.event.type !== "event" || (input.event.status !== "draft" && input.event.status !== "planned" && input.event.status !== "committed")) {
+    throw new Error("Story Studio event reference requires a draft, planned, or committed event.");
   }
   return normalizeStoryStudioEventReference({
     version: STORY_STUDIO_EVENT_REFERENCE_VERSION,
@@ -74,7 +74,7 @@ export function normalizeStoryStudioEventReference(value: unknown): StoryStudioE
   const input = plainObject(value, "Story Studio event reference");
   exact(input, ["version", "projectId", "eventId", "revisionToken", "state", "requestedUse"], "Story Studio event reference");
   if (input.version !== STORY_STUDIO_EVENT_REFERENCE_VERSION) throw new Error("Story Studio event reference version is invalid.");
-  const state = oneOf(input.state, ["planned", "committed"] as const, "Story Studio event reference state");
+  const state = oneOf(input.state, ["draft", "planned", "committed"] as const, "Story Studio event reference state");
   return {
     version: STORY_STUDIO_EVENT_REFERENCE_VERSION,
     projectId: projectId(input.projectId),
@@ -102,7 +102,7 @@ export function assertStoryStudioEventReferenceEligibility(input: {
   if (input.event.revisionToken !== input.reference.revisionToken || input.event.status !== input.reference.state) {
     throw new Error("Story Studio event reference is stale.");
   }
-  if (input.event.status !== "planned" && input.event.status !== "committed") {
+  if (input.event.status !== "draft" && input.event.status !== "planned" && input.event.status !== "committed") {
     throw new Error("Story Studio event reference state is unavailable to this consumer.");
   }
   if (!policy.states.includes(input.event.status) || !policy.requestedUses.includes(input.reference.requestedUse)) {

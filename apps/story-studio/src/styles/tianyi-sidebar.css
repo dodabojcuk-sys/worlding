@@ -242,6 +242,14 @@
 .tianyi-sidebar-message small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .tianyi-sidebar-message p { margin: 0; font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
 .tianyi-agent-compact { align-self: stretch; align-content: start; }
+.tianyi-temporal-run-card { display: grid; gap: var(--space-2); padding: var(--space-3); color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-accent-soft)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.tianyi-temporal-run-card > header { display: flex; align-items: center; gap: var(--space-2); }
+.tianyi-temporal-run-card > header > svg { flex: 0 0 auto; inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.tianyi-temporal-run-card > header > div { display: grid; gap: .1rem; min-inline-size: 0; }
+.tianyi-temporal-run-card > header strong { font-size: var(--font-size-sm); }
+.tianyi-temporal-run-card > header small { color: var(--color-text-muted); }
+.tianyi-temporal-run-card > p { font-size: var(--font-size-xs); line-height: 1.55; }
+.tianyi-temporal-run-card:is(.is-failed, .is-stale) > header > svg { color: var(--color-warning); }
 .tianyi-agent-run-status { display: grid; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .tianyi-agent-run-status strong { font-size: var(--font-size-sm); }
 .tianyi-agent-run-status span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
