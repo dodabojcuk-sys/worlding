@@ -88,6 +88,7 @@ export function EventGraphCanvas(props: {
   const graphRelations = densityFixture?.relations ?? props.relations;
   const expandPredictionSources = useCallback(() => setPredictionSourcesExpanded(true), []);
   const collapsePredictionSources = narrowPrediction && ["overview", "focus", "review"].includes(predictionViewState) && !predictionSourcesExpanded;
+  const predictionDirectoryCollapsed = ["overview", "focus", "review"].includes(predictionViewState);
   const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, selection, view]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
@@ -269,7 +270,7 @@ export function EventGraphCanvas(props: {
     return executionProjection ? <AgentExecutionGraph projection={executionProjection} onReturn={() => setGraphLayer("EVENT_GRAPH")} onOpenCandidates={() => setGraphLayer("EVENT_GRAPH")} onStop={() => window.dispatchEvent(new CustomEvent("story-studio-stop-agent-execution"))} onRetry={() => window.dispatchEvent(new CustomEvent("story-studio-retry-agent-execution"))} /> : <section className="agent-execution-workspace is-empty" aria-label="Agent 执行过程" data-graph-layer="AGENT_EXECUTION_GRAPH"><header><div><small>天意 Agent</small><strong>Agent 执行过程</strong><span>运行事件尚未到达</span></div><nav><button type="button" onClick={() => setGraphLayer("EVENT_GRAPH")}><ArrowLeft />返回事件图</button></nav></header><p>执行图只由实际 Run 事件构建，不显示静态装饰流程。</p></section>;
   }
 
-  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
+  return <section className={"event-graph-workspace " + (inspectorOpen ? "has-inspector" : "")} aria-label="事件关系工作区" data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
       <nav className="event-graph-view-switch" aria-label="事件视图">
@@ -462,7 +463,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const nodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
-    const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 125 } : null;
+    const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 142 } : null;
     const focused = event.id === validFocus;
     return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""}`, position: predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id) } } satisfies Node<NodeData>;
   });
@@ -475,7 +476,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   if (sourceIds && collapsePredictionSources) {
     nodes.push({ id: `prediction-source-summary.${predictionRun?.runId ?? "selection"}`, type: "predictionSourceSummary", draggable: false, connectable: false, selectable: false, position: { x: 42, y: 164 }, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, sourceSummary: true, sourceCount: visibleEvents.length, onExpandSources: onExpandPredictionSources } });
   } else if (sourceIds) {
-    nodes.push({ id: `prediction-scope.${predictionRun?.runId ?? "selection"}`, type: "predictionScope", draggable: false, connectable: false, selectable: false, position: { x: 24, y: 38 }, style: { width: 246, height: Math.max(390, visibleEvents.length * 125 + 50) }, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, scopeLabel: `推演依据 · ${visibleEvents.length} 个节点` } });
+    nodes.push({ id: `prediction-scope.${predictionRun?.runId ?? "selection"}`, type: "predictionScope", draggable: false, connectable: false, selectable: false, position: { x: 24, y: 38 }, style: { width: 246, height: Math.max(410, visibleEvents.length * 142 + 50) }, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, scopeLabel: `推演依据 · ${visibleEvents.length} 个节点` } });
   }
   if (predictionVisible && predictionRun?.bundle) {
     const overview = predictionViewState === "overview";
@@ -492,7 +493,11 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
       const indexInPath = firstPath?.candidateNodeIds.indexOf(node.id) ?? index;
       const lane = laneIndexes.length ? laneIndexes.reduce((sum, value) => sum + value, 0) / laneIndexes.length : 0;
       const candidateKind = node.timeConsistency.kind === "conflict" || node.identityResolution.kind === "unresolved" ? "conflict" : node.identityResolution.kind === "reference-existing" ? "existing-reference" : "new";
-      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node is-${candidateKind} ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: overview ? { x: (collapsePredictionSources ? 230 : 315) + indexInPath * 224, y: 72 + lane * 168 } : collapsePredictionSources ? { x: 230 + index * 224, y: 155 } : { x: 315 + index * 224, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, candidateKind, sharedAcrossPaths: memberships.length, runId: predictionRun.runId, pathLabel: memberships.length > 1 ? `共享于 ${memberships.length} 条路径` : firstPath?.title ?? "候选路径", reviewSelected: overview ? true : reviewSelected } });
+      const displayedSelected = overview || reviewSelected;
+      const laneLabel = memberships.length > 1
+        ? `共享于 ${memberships.map((path) => `路径 ${paths.indexOf(path) + 1}`).join("、")}`
+        : firstPath ? `路径 ${paths.indexOf(firstPath) + 1} · ${firstPath.title}` : "候选路径";
+      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node is-${candidateKind} ${displayedSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: overview ? { x: (collapsePredictionSources ? 244 : 292) + indexInPath * 232, y: 56 + lane * 190 } : collapsePredictionSources ? { x: 244 + index * 232, y: 155 } : { x: 292 + index * 232, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, candidateKind, sharedAcrossPaths: memberships.length, runId: predictionRun.runId, pathLabel: laneLabel, reviewSelected: displayedSelected } });
     });
     predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
     const first = pathNodes[0];
@@ -573,15 +578,14 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
 function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
   if (!canvas || !nodes.length) return;
-  // The selected candidate path is the focus target. Formal graph nodes and
-  // source context stay reachable by panning, but must not pull the active
-  // path underneath Tianyi or force its cards below the readable width.
-  const candidateNodes = nodes.filter((node) => node.type === "prediction");
-  const focusNodes = candidateNodes.length ? candidateNodes : nodes;
+  // Source context and the candidate lanes are one authored comparison range.
+  // At wide widths the range is centered together; at narrow widths its start
+  // remains readable and later nodes stay reachable by panning.
+  const focusNodes = nodes;
   const dimensions = (node: Node<NodeData>) => node.type === "predictionScope"
     ? { width: Number(node.style?.width) || 246, height: Number(node.style?.height) || 425 }
     : node.type === "predictionSourceSummary" ? { width: 176, height: 82 }
-    : node.type === "prediction" ? { width: 180, height: 126 } : { width: 204, height: 112 };
+    : node.type === "prediction" ? { width: 192, height: 132 } : { width: 204, height: 112 };
   const minX = Math.min(...focusNodes.map((node) => node.position.x));
   const minY = Math.min(...focusNodes.map((node) => node.position.y));
   const maxX = Math.max(...focusNodes.map((node) => node.position.x + dimensions(node).width));
@@ -591,8 +595,8 @@ function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, 
   const contentWidth = maxX - minX;
   const contentHeight = maxY - minY;
   const fittedZoom = Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, contentWidth), (canvas.height - paddingY * 2) / Math.max(1, contentHeight));
-  // Candidate cards are authored at 180px. Keeping the automatic viewport at
-  // or above .95 preserves at least 170px of rendered width. When the whole
+  // Candidate cards are authored at 192px. Keeping the automatic viewport at
+  // or above .95 preserves at least 182px of rendered width. When the whole
   // path is wider than the live canvas, align its beginning and leave the rest
   // available by panning instead of shrinking every card into unreadability.
   const zoom = Math.max(.95, fittedZoom);

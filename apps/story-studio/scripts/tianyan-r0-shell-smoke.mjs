@@ -1079,6 +1079,17 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.getByLabel("故事脊柱").waitFor();
   assert.ok(await page.locator(".event-line-direct-nodes").count() >= 1, "Story spine must expose direct Unit nodes without inventing a required collection-point layer.");
   assert.equal(await page.getByLabel("故事脊柱").getByText("未指定集点", { exact: true }).count(), 0, "Story spine must not render a compatibility placeholder as a product hierarchy.");
+  const spineDensity = await page.locator(".event-line-direct-nodes li > button").evaluateAll((cards) => {
+    const viewportBottom = window.innerHeight;
+    const visible = cards.map((card) => card.getBoundingClientRect()).filter((rect) => rect.top >= 0 && rect.bottom <= viewportBottom);
+    const bodyFont = cards.length ? Number.parseFloat(getComputedStyle(cards[0]).fontSize) : 0;
+    const meta = cards[0]?.querySelector("footer span");
+    return { visibleCount: visible.length, minHeight: visible.length ? Math.min(...visible.map((rect) => rect.height)) : 0, maxHeight: visible.length ? Math.max(...visible.map((rect) => rect.height)) : 0, bodyFont, metaFont: meta ? Number.parseFloat(getComputedStyle(meta).fontSize) : 0 };
+  });
+  assert.ok(spineDensity.visibleCount >= 4, `1440 story spine must show at least four complete Events=${JSON.stringify(spineDensity)}`);
+  assert.ok(spineDensity.minHeight >= 96 && spineDensity.maxHeight <= 132, `Story cards must keep a compact reading density=${JSON.stringify(spineDensity)}`);
+  assert.ok(spineDensity.bodyFont >= 14 && spineDensity.metaFont >= 12, `Story card body and metadata must remain readable=${JSON.stringify(spineDensity)}`);
+  assert.equal(await page.getByLabel("故事脊柱").getByText("这条事件暂未提供作者摘要。", { exact: true }).count(), 0, "Missing summaries must not repeat a large placeholder in every card.");
   await capture("J-1440x900-story-spine-reading-density.png");
   const relationsBefore = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1130,6 +1141,35 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   }
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
   assert.ok(await page.locator(".event-graph-prediction-node").count() >= 5, "Candidate overview must render all unique nodes from multiple paths before focus.");
+  await page.waitForTimeout(260);
+  const overviewGeometry = await page.locator(".event-graph-prediction-node").evaluateAll((nodes) => {
+    const canvas = document.querySelector(".event-graph-flow")?.getBoundingClientRect();
+    const directory = document.querySelector(".event-unit-directory");
+    const rects = nodes.map((node) => node.getBoundingClientRect());
+    const lanes = [...new Set(rects.map((rect) => Math.round(rect.top / 20) * 20))];
+    const ids = nodes.map((node) => node.getAttribute("data-id"));
+    const titles = nodes.map((node) => node.querySelector("strong"));
+    const meta = nodes.flatMap((node) => [...node.querySelectorAll("span")]);
+    return {
+      canvas: canvas ? { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, centerX: canvas.left + canvas.width / 2, centerY: canvas.top + canvas.height / 2 } : null,
+      directoryVisible: Boolean(directory && getComputedStyle(directory).display !== "none"),
+      minWidth: rects.length ? Math.min(...rects.map((rect) => rect.width)) : 0,
+      titleFont: titles.length ? Math.min(...titles.map((title) => Number.parseFloat(getComputedStyle(title).fontSize))) : 0,
+      metaFont: meta.length ? Math.min(...meta.map((item) => Number.parseFloat(getComputedStyle(item).fontSize))) : 0,
+      laneCount: lanes.length,
+      uniqueNodeCount: new Set(ids).size,
+      nodeCount: nodes.length,
+      centerX: rects.length ? (Math.min(...rects.map((rect) => rect.left)) + Math.max(...rects.map((rect) => rect.right))) / 2 : 0,
+      centerY: rects.length ? (Math.min(...rects.map((rect) => rect.top)) + Math.max(...rects.map((rect) => rect.bottom))) / 2 : 0
+    };
+  });
+  assert.equal(overviewGeometry.directoryVisible, false, `Candidate overview must temporarily collapse the wide Unit directory=${JSON.stringify(overviewGeometry)}`);
+  assert.ok(overviewGeometry.minWidth >= 180, `Every candidate card must render at least 180px wide=${JSON.stringify(overviewGeometry)}`);
+  assert.ok(overviewGeometry.titleFont >= 13 && overviewGeometry.metaFont >= 12, `Candidate title and metadata must remain readable=${JSON.stringify(overviewGeometry)}`);
+  assert.ok(overviewGeometry.laneCount >= 3, `The overview must expose three vertically separated horizontal path lanes=${JSON.stringify(overviewGeometry)}`);
+  assert.equal(overviewGeometry.uniqueNodeCount, overviewGeometry.nodeCount, `Shared candidate Events must have one rendered identity=${JSON.stringify(overviewGeometry)}`);
+  assert.ok(overviewGeometry.canvas && Math.abs(overviewGeometry.centerY - overviewGeometry.canvas.centerY) <= 100, `The initial path overview must be vertically centered rather than parked at the upper-left=${JSON.stringify(overviewGeometry)}`);
+  assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Technical receipts must be closed by default in candidate overview.");
   await capture("M-1440x900-multi-path-overview.png");
   const readyRunId = await panel.getAttribute("data-run-id");
   await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
@@ -1163,6 +1203,14 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await capture("C-1440x900-agent-execution-process-tool-gate-result.png");
   await page.getByRole("button", { name: "查看当前", exact: true }).click();
   await page.waitForTimeout(220);
+  const currentExecutionFocus = await page.evaluate(() => {
+    const flow = document.querySelector(".agent-execution-flow")?.getBoundingClientRect();
+    const result = document.querySelector("[data-node-family='agent-result']")?.getBoundingClientRect();
+    const review = document.querySelector("[data-node-family='agent-human-review']")?.getBoundingClientRect();
+    const visible = (rect) => Boolean(flow && rect && rect.left >= flow.left && rect.right <= flow.right && rect.top >= flow.top && rect.bottom <= flow.bottom);
+    return { resultVisible: visible(result), reviewVisible: visible(review) };
+  });
+  assert.deepEqual(currentExecutionFocus, { resultVisible: true, reviewVisible: true }, `View Current must directly locate Result and Human Review=${JSON.stringify(currentExecutionFocus)}`);
   await capture("C2-1440x900-agent-execution-gate-result.png");
 
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -1194,6 +1242,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
 
   await page.getByRole("button", { name: "返回事件图", exact: true }).click();
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
+  assert.equal(await page.getByLabel("单元目录").isHidden(), true, "Path focus must keep the Unit directory temporarily collapsed.");
+  assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Switching paths must close technical receipts.");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isDisabled(), true, "A time-conflict path must remain blocked.");
   assert.equal(await panel.getByText("这条路径暂时不可采纳", { exact: true }).count(), 1, "A blocked path must explain why it cannot be adopted.");
   const conflictRelations = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1220,9 +1270,20 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await page.locator(".graph-node-candidate-label", { hasText: "候选 · 尚未写入事件线" }).count() >= 1, true, "Candidate overlay must state that it is not written to the Event Line.");
   assert.equal(await panel.getByText(/时间未定/u).count() >= 1, true, "Unknown time stays explicit and reviewable.");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isEnabled(), true, "Unknown time does not block an otherwise valid path.");
+  assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Changing to path focus must not expose Run, Bundle or Candidate identifiers.");
   await capture("D-1440x900-candidate-event-overlay.png");
 
+  const runBeforeEscape = await panel.getAttribute("data-run-id");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-view") === "overview");
+  assert.equal(await panel.getAttribute("data-run-id"), runBeforeEscape, "Escape must preserve the current Run while returning to the path overview.");
+  assert.equal(await page.getByLabel("推演范围").getByText("推演范围 3/4", { exact: true }).count(), 1, "Escape must preserve the ordered source tray.");
+  await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length === 3);
+
   await panel.getByRole("button", { name: "进入节点审阅", exact: true }).click();
+  assert.equal(await page.getByLabel("单元目录").isHidden(), true, "Partial review must keep the Unit directory temporarily collapsed.");
+  assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Entering review must keep technical receipts closed.");
 
   const firstCandidateCheckbox = panel.locator(".tianyi-prediction-review input[type='checkbox']").first();
   await firstCandidateCheckbox.press("Space");
@@ -1319,10 +1380,14 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await summaryButton.press("Enter");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)").length === 3);
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
+  await panel.getByText("技术回执与历史", { exact: true }).click();
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
   await abandonButton.press("Enter");
   await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor();
   assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Keyboard abandonment must preserve the already-created draft projection.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(180);
+  assert.equal(await page.getByLabel("单元目录").isVisible(), true, "Leaving the Agent prediction flow must restore the Unit directory's prior visible state.");
   assert.deepEqual(consoleProblems, [], "Multi-node prediction must not add browser console warnings or errors.");
 }
 

@@ -141,7 +141,7 @@
 .shell-workspace-event-line .event-line-set-point header small {
   margin: 0;
   color: var(--color-accent);
-  font-size: var(--font-size-xs);
+  font-size: .75rem;
   letter-spacing: 0.08em;
 }
 
@@ -447,6 +447,15 @@
   grid-template-columns: 14rem minmax(0, 1fr) 3.25rem clamp(18rem, 22vw, 21rem);
 }
 
+.shell-workspace-event-line .event-graph-workspace[data-unit-directory="temporarily-collapsed"] .event-graph-main,
+.shell-workspace-event-line .event-graph-workspace[data-unit-directory="temporarily-collapsed"].has-inspector .event-graph-main {
+  grid-template-columns: minmax(0, 1fr) 3.25rem 0;
+}
+
+.shell-workspace-event-line .event-graph-workspace[data-unit-directory="temporarily-collapsed"] .event-unit-directory { display: none; }
+.shell-workspace-event-line .event-graph-workspace[data-unit-directory="temporarily-collapsed"] .event-graph-flow { grid-column: 1; }
+.shell-workspace-event-line .event-graph-workspace[data-unit-directory="temporarily-collapsed"] .event-graph-local-rail { grid-column: 2; }
+
 .shell-workspace-event-line .event-unit-directory {
   grid-column: 1;
   grid-row: 1;
@@ -461,7 +470,7 @@
 .shell-workspace-event-line .event-unit-directory > header svg { inline-size: .95rem; color: var(--color-accent); }
 .shell-workspace-event-line .event-unit-directory > section { padding: .65rem 0; border-block-start: 1px solid var(--color-border); }
 .shell-workspace-event-line .event-unit-directory h2,
-.shell-workspace-event-line .event-unit-directory h3 { margin: 0; padding: .3rem .35rem; color: var(--color-text); font-size: .73rem; }
+.shell-workspace-event-line .event-unit-directory h3 { margin: 0; padding: .3rem .35rem; color: var(--color-text); font-size: .75rem; }
 .shell-workspace-event-line .event-unit-directory h2,
 .shell-workspace-event-line .event-unit-directory h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-workspace-event-line .event-unit-directory h3 { margin-block-start: .4rem; color: var(--color-accent); }
@@ -469,8 +478,8 @@
 .shell-workspace-event-line .event-unit-directory li { display: grid; grid-template-columns: minmax(0, 1fr) 1.75rem; align-items: center; gap: .15rem; border-radius: var(--radius-sm); }
 .shell-workspace-event-line .event-unit-directory li.is-focused { background: var(--color-accent-soft); }
 .shell-workspace-event-line .event-unit-focus { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .35rem; min-width: 0; min-height: 2rem; padding: .35rem; color: var(--color-text); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
-.shell-workspace-event-line .event-unit-focus span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
-.shell-workspace-event-line .event-unit-focus small { color: var(--color-text-muted); font-size: .62rem; white-space: nowrap; }
+.shell-workspace-event-line .event-unit-focus span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .875rem; }
+.shell-workspace-event-line .event-unit-focus small { color: var(--color-text-muted); font-size: .75rem; white-space: nowrap; }
 .shell-workspace-event-line .event-unit-prediction-toggle { display: grid; place-items: center; inline-size: 1.65rem; block-size: 1.65rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
 .shell-workspace-event-line .event-unit-prediction-toggle[aria-pressed="true"] { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
 .shell-workspace-event-line .event-unit-prediction-toggle:disabled { opacity: .4; cursor: not-allowed; }
@@ -552,14 +561,14 @@
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 .shell-workspace-event-line .event-graph-node.is-prediction-selected { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.shell-workspace-event-line .event-graph-prediction-node { inline-size: 11.25rem; min-inline-size: 11.25rem; border-style: dashed; border-color: var(--color-warning); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-warning)); opacity: .88; }
+.shell-workspace-event-line .event-graph-prediction-node { inline-size: 12rem; min-inline-size: 12rem; border-style: dashed; border-color: var(--color-warning); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-warning)); opacity: .88; }
 .shell-workspace-event-line .event-graph-prediction-node small { color: var(--color-warning); }
 .shell-workspace-event-line .event-graph-prediction-node.is-review-selected { opacity: .94; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-warning) 20%, transparent); }
 .shell-workspace-event-line .event-graph-prediction-node.is-review-excluded { opacity: .58; filter: saturate(.55); }
 .shell-workspace-event-line .event-graph-prediction-node .react-flow__handle { background: var(--color-surface); border: 2px solid var(--color-warning); }
 .shell-workspace-event-line .event-graph-prediction-source-group { inline-size: 100%; block-size: 100%; box-sizing: border-box; display: grid; align-content: start; gap: .2rem; padding: .75rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 28%, transparent); border: 1px dashed color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); border-radius: var(--radius-md); pointer-events: none; }
 .shell-workspace-event-line .event-graph-prediction-source-group strong { font-size: .73rem; }
-.shell-workspace-event-line .event-graph-prediction-source-group small { color: var(--color-text-muted); font-size: .63rem; }
+.shell-workspace-event-line .event-graph-prediction-source-group small { color: var(--color-text-muted); font-size: .75rem; }
 .shell-workspace-event-line .event-graph-prediction-source-summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .5rem; inline-size: 10rem; min-block-size: 5.1rem; padding: .7rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 91%, var(--color-accent-soft)); border: 1px dashed var(--color-accent); border-radius: var(--radius-sm); box-shadow: 0 .25rem .7rem color-mix(in srgb, var(--color-text) 7%, transparent); cursor: pointer; text-align: start; }
 .shell-workspace-event-line .event-graph-prediction-source-summary > span { display: grid; gap: .18rem; min-width: 0; }
 .shell-workspace-event-line .event-graph-prediction-source-summary strong { color: var(--color-text); font-size: var(--font-size-sm); white-space: nowrap; }
@@ -605,26 +614,26 @@
 .shell-workspace-event-line .graph-node-shell:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 65%, white); outline-offset: 4px; }
 .shell-workspace-event-line .graph-node-shell.is-selected { border: 2px solid var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-soft); }
 .shell-workspace-event-line .graph-node-shell > strong { font-size: var(--font-size-sm); line-height: 1.35; }
-.shell-workspace-event-line .graph-node-shell > span { display: inline-flex; align-items: center; gap: .28rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.shell-workspace-event-line .graph-node-shell > span { display: inline-flex; align-items: center; gap: .28rem; color: var(--color-text-muted); font-size: .75rem; }
 .shell-workspace-event-line .graph-node-shell > span svg { inline-size: .78rem; block-size: .78rem; flex: 0 0 auto; }
 .shell-workspace-event-line .graph-node-state-strip { inline-size: fit-content; padding: .12rem .38rem; color: var(--color-accent) !important; background: var(--color-accent-soft); border-radius: 999px; font-weight: 750; }
 .shell-workspace-event-line .graph-node-shell.is-draft-event { border-inline-start: .3rem solid var(--color-warning); background: color-mix(in srgb, var(--color-surface) 96%, var(--color-warning)); }
 .shell-workspace-event-line .graph-node-shell.is-remote-event { border-style: dashed; border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 86%, var(--color-accent-soft)); }
 .shell-workspace-event-line .graph-node-shell.is-candidate-event,
 .shell-workspace-event-line .graph-node-shell.is-candidate-existing-reference,
-.shell-workspace-event-line .graph-node-shell.is-candidate-conflict { inline-size: 11.75rem; min-inline-size: 11.75rem; min-block-size: 7.5rem; border: 2px dashed color-mix(in srgb, var(--color-warning) 78%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 91%, var(--color-warning)); box-shadow: 0 .25rem .7rem color-mix(in srgb, var(--color-warning) 12%, transparent); }
+.shell-workspace-event-line .graph-node-shell.is-candidate-conflict { inline-size: 12rem; min-inline-size: 12rem; min-block-size: 8.25rem; border: 2px dashed color-mix(in srgb, var(--color-warning) 78%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 91%, var(--color-warning)); box-shadow: 0 .25rem .7rem color-mix(in srgb, var(--color-warning) 12%, transparent); }
 .shell-workspace-event-line .graph-node-shell.is-candidate-existing-reference { border-style: solid; border-inline-start: .35rem double var(--color-accent); background: color-mix(in srgb, var(--color-surface) 93%, var(--color-accent-soft)); }
 .shell-workspace-event-line .graph-node-shell.is-candidate-conflict { border-style: solid; border-color: var(--color-danger); clip-path: polygon(.55rem 0, 100% 0, 100% calc(100% - .55rem), calc(100% - .55rem) 100%, 0 100%, 0 .55rem); background: color-mix(in srgb, var(--color-surface) 92%, var(--color-danger)); }
 .shell-workspace-event-line .graph-node-candidate-header { display: flex; align-items: center; gap: .35rem; padding-block-end: .35rem; border-block-end: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
 .shell-workspace-event-line .graph-node-candidate-header svg { inline-size: .8rem; block-size: .8rem; }
-.shell-workspace-event-line .graph-node-candidate-header span { font-size: .65rem; font-weight: 800; }
+.shell-workspace-event-line .graph-node-candidate-header span { font-size: .75rem; font-weight: 800; }
 .shell-workspace-event-line .graph-node-shell.is-candidate-event:not(.is-selected) { opacity: .72; }
 .shell-workspace-event-line .graph-node-shell.is-candidate-event.is-selected { border-color: var(--color-warning); outline: 2px solid color-mix(in srgb, var(--color-warning) 24%, transparent); }
 .shell-workspace-event-line .graph-node-candidate-label { inline-size: fit-content; padding: .13rem .4rem; color: color-mix(in srgb, var(--color-warning) 72%, var(--color-text)) !important; background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px dashed var(--color-warning); border-radius: 999px; font-weight: 750; }
 .shell-workspace-event-line .graph-node-shell.is-collection-point { inline-size: 14rem; min-block-size: auto; padding: .42rem; border-style: double; background: color-mix(in srgb, var(--color-surface) 93%, var(--color-accent-soft)); }
 .shell-workspace-event-line .graph-node-shell.is-collection-point > button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; inline-size: 100%; padding: .45rem; color: var(--color-text); background: transparent; border: 0; cursor: pointer; text-align: start; }
 .shell-workspace-event-line .graph-node-shell.is-collection-point > button > span { display: grid; gap: .12rem; }
-.shell-workspace-event-line .graph-node-shell.is-collection-point small { color: var(--color-accent); font-size: .66rem; font-weight: 700; }
+.shell-workspace-event-line .graph-node-shell.is-collection-point small { color: var(--color-accent); font-size: .75rem; font-weight: 700; }
 .shell-workspace-event-line .graph-node-shell.is-collection-point strong { font-size: var(--font-size-sm); }
 .shell-workspace-event-line .graph-node-shell.is-collection-point em { color: var(--color-text-muted); font-size: var(--font-size-xs); font-style: normal; }
 .shell-workspace-event-line .graph-node-port.react-flow__handle { inline-size: 1.5rem; block-size: 1.5rem; background: transparent; border: 0; }
@@ -644,45 +653,45 @@
 .shell-workspace-event-line .agent-execution-workspace > header button { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2.35rem; padding-inline: .7rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
 .shell-workspace-event-line .agent-execution-workspace > header button.is-stop { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 50%, var(--color-border)); }
 .shell-workspace-event-line .agent-execution-workspace > header button svg { inline-size: .85rem; }
-.shell-workspace-event-line .agent-execution-outcome { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .35rem .7rem; margin: 0; padding: .5rem var(--space-4); color: var(--color-text-muted); background: var(--color-surface); border-block-end: 1px solid var(--color-border); font-size: .72rem; }
+.shell-workspace-event-line .agent-execution-outcome { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .35rem .7rem; margin: 0; padding: .5rem var(--space-4); color: var(--color-text-muted); background: var(--color-surface); border-block-end: 1px solid var(--color-border); font-size: .875rem; }
 .shell-workspace-event-line .agent-execution-outcome strong { color: var(--color-danger); }
 .shell-workspace-event-line .agent-execution-outcome[data-outcome="stopped"] strong { color: var(--color-warning); }
-.shell-workspace-event-line .agent-execution-outcome small { font-size: .65rem; }
+.shell-workspace-event-line .agent-execution-outcome small { font-size: .75rem; }
 .shell-workspace-event-line .agent-execution-main { min-inline-size: 0; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .shell-workspace-event-line .agent-execution-main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
 .shell-workspace-event-line .agent-execution-flow { position: relative; min-inline-size: 0; min-block-size: 0; overflow: hidden; }
-.shell-workspace-event-line .agent-execution-lane-guide { position: absolute; z-index: 3; inset-block-start: .75rem; inset-inline-start: 50%; translate: -50% 0; display: inline-flex; align-items: center; gap: .35rem; min-block-size: 1.8rem; padding-inline: .65rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 93%, transparent); border: 1px solid var(--color-border); border-radius: 999px; box-shadow: 0 .15rem .4rem color-mix(in srgb, var(--color-text) 5%, transparent); font-size: .66rem; pointer-events: none; }
+.shell-workspace-event-line .agent-execution-lane-guide { position: absolute; z-index: 3; inset-block-start: .75rem; inset-inline-start: 50%; translate: -50% 0; display: inline-flex; align-items: center; gap: .35rem; min-block-size: 1.8rem; padding-inline: .65rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 93%, transparent); border: 1px solid var(--color-border); border-radius: 999px; box-shadow: 0 .15rem .4rem color-mix(in srgb, var(--color-text) 5%, transparent); font-size: .75rem; pointer-events: none; }
 .shell-workspace-event-line .agent-execution-lane-guide svg { inline-size: .8rem; color: var(--color-accent); }
 .shell-workspace-event-line .agent-execution-locator { position: absolute; z-index: 4; inset-block-start: .7rem; inset-inline-end: .75rem; display: flex; gap: .35rem; }
-.shell-workspace-event-line .agent-execution-locator button { display: inline-flex; align-items: center; gap: .25rem; min-block-size: 1.9rem; padding-inline: .5rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 95%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .65rem; }
+.shell-workspace-event-line .agent-execution-locator button { display: inline-flex; align-items: center; gap: .25rem; min-block-size: 1.9rem; padding-inline: .5rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-surface) 95%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
 .shell-workspace-event-line .agent-execution-locator svg { inline-size: .75rem; }
 .shell-workspace-event-line .agent-execution-detail { min-inline-size: 0; overflow: auto; padding: var(--space-4); background: var(--color-surface); border-inline-start: 1px solid var(--color-border); }
 .shell-workspace-event-line .agent-execution-detail > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .shell-workspace-event-line .agent-execution-detail > header > div { display: grid; gap: .15rem; }
-.shell-workspace-event-line .agent-execution-detail > header small { color: var(--color-accent); font-size: .66rem; font-weight: 750; }
+.shell-workspace-event-line .agent-execution-detail > header small { color: var(--color-accent); font-size: .75rem; font-weight: 750; }
 .shell-workspace-event-line .agent-execution-detail > header button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: 50%; cursor: pointer; }
-.shell-workspace-event-line .agent-execution-detail > p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: .72rem; line-height: 1.55; }
+.shell-workspace-event-line .agent-execution-detail > p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: .875rem; line-height: 1.55; }
 .shell-workspace-event-line .agent-execution-detail dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; margin: var(--space-3) 0; }
 .shell-workspace-event-line .agent-execution-detail dl div { padding: .5rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
-.shell-workspace-event-line .agent-execution-detail dt { color: var(--color-text-muted); font-size: .65rem; }
-.shell-workspace-event-line .agent-execution-detail dd { margin: .15rem 0 0; font-size: .72rem; font-weight: 700; }
+.shell-workspace-event-line .agent-execution-detail dt { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .agent-execution-detail dd { margin: .15rem 0 0; font-size: .875rem; font-weight: 700; }
 .shell-workspace-event-line .agent-execution-detail section { display: grid; gap: .35rem; margin-block-start: var(--space-3); }
 .shell-workspace-event-line .agent-execution-detail section > ul { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
-.shell-workspace-event-line .agent-execution-detail section > ul li { display: flex; align-items: baseline; justify-content: space-between; gap: .65rem; padding: .4rem .5rem; background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .68rem; }
+.shell-workspace-event-line .agent-execution-detail section > ul li { display: flex; align-items: baseline; justify-content: space-between; gap: .65rem; padding: .4rem .5rem; background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .75rem; }
 .shell-workspace-event-line .agent-execution-detail section > ul span { color: var(--color-text-muted); }
 .shell-workspace-event-line .agent-execution-detail section > ul strong { text-align: end; overflow-wrap: anywhere; }
 .shell-workspace-event-line .agent-execution-detail details { margin-block-start: var(--space-3); }
-.shell-workspace-event-line .agent-execution-detail summary { color: var(--color-accent); cursor: pointer; font-size: .7rem; font-weight: 700; }
-.shell-workspace-event-line .agent-execution-detail pre { max-block-size: 10rem; margin: 0; overflow: auto; padding: .6rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .68rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.shell-workspace-event-line .agent-execution-detail summary { color: var(--color-accent); cursor: pointer; font-size: .75rem; font-weight: 700; }
+.shell-workspace-event-line .agent-execution-detail pre { max-block-size: 10rem; margin: 0; overflow: auto; padding: .6rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .shell-workspace-event-line .agent-execution-detail > small { display: block; margin-block-start: var(--space-3); color: var(--color-text-muted); line-height: 1.5; }
 .shell-workspace-event-line .agent-execution-flow .graph-node-shell { padding: .7rem; }
 .shell-workspace-event-line .agent-execution-flow .graph-node-shell > div:not(.agent-node-icon) { display: grid; gap: .15rem; min-inline-size: 0; }
-.shell-workspace-event-line .agent-execution-flow .graph-node-shell small { color: var(--color-text-muted); font-size: .65rem; }
-.shell-workspace-event-line .agent-execution-flow .graph-node-shell strong { font-size: .82rem; line-height: 1.3; }
-.shell-workspace-event-line .agent-execution-flow .graph-node-shell span { color: var(--color-text-muted); font-size: .67rem; line-height: 1.4; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell small { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell strong { font-size: .8125rem; line-height: 1.3; }
+.shell-workspace-event-line .agent-execution-flow .graph-node-shell span { color: var(--color-text-muted); font-size: .75rem; line-height: 1.4; }
 .shell-workspace-event-line .graph-node-shell.is-agent-process { grid-template-columns: 2.15rem minmax(0, 1fr); inline-size: 13.75rem; min-block-size: 7rem; padding-block-start: .8rem; border-inline-start: .34rem solid var(--color-accent); border-radius: var(--radius-sm); }
 .shell-workspace-event-line .agent-node-icon { align-self: stretch; display: grid; align-content: center; justify-items: center; gap: .25rem; color: var(--color-accent); background: var(--color-accent-soft); border-radius: .25rem; }
-.shell-workspace-event-line .agent-node-icon span { color: var(--color-accent) !important; font-size: .55rem !important; font-weight: 800; writing-mode: vertical-rl; letter-spacing: .08em; }
+.shell-workspace-event-line .agent-node-icon span { color: var(--color-accent) !important; font-size: .75rem !important; font-weight: 800; writing-mode: vertical-rl; letter-spacing: .08em; }
 .shell-workspace-event-line .graph-node-shell.is-agent-tool { grid-template-columns: 1.65rem minmax(0, 1fr); inline-size: 12rem; min-block-size: 5.4rem; background: color-mix(in srgb, var(--color-surface) 91%, var(--color-accent-soft)); border: 1px solid color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); border-radius: 1.15rem; box-shadow: 0 .18rem .55rem color-mix(in srgb, var(--color-text) 7%, transparent); }
 .shell-workspace-event-line .agent-tool-mark { display: grid !important; place-items: center; align-self: center; inline-size: 1.6rem; block-size: 1.6rem; color: var(--color-accent) !important; background: var(--color-surface); border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border)); border-radius: 50%; }
 .shell-workspace-event-line .graph-node-shell.is-agent-gate { grid-template-columns: 1.75rem minmax(0, 1fr); inline-size: 13.625rem; min-block-size: 6.5rem; border: 2px double color-mix(in srgb, var(--color-warning) 78%, var(--color-border)); border-radius: .25rem .9rem .25rem .9rem; background: color-mix(in srgb, var(--color-surface) 94%, var(--color-warning)); box-shadow: .28rem .28rem 0 color-mix(in srgb, var(--color-warning) 11%, transparent); }
@@ -691,12 +700,12 @@
 .shell-workspace-event-line .agent-result-mark { display: grid !important; place-items: center; align-self: stretch; color: var(--color-accent) !important; border-inline-end: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); }
 .shell-workspace-event-line .graph-node-shell.is-agent-human-review { grid-template-columns: 2rem minmax(0, 1fr); inline-size: 14.75rem; min-block-size: 7rem; border: 2px solid color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); border-radius: 1.4rem .35rem 1.4rem .35rem; background: var(--color-surface); box-shadow: .35rem .35rem 0 color-mix(in srgb, var(--color-accent) 11%, transparent); }
 .shell-workspace-event-line .agent-human-review-mark { display: grid !important; place-items: center; inline-size: 1.9rem; block-size: 1.9rem; color: var(--color-accent) !important; background: var(--color-accent-soft); border: 1px solid var(--color-accent); border-radius: 50%; }
-.shell-workspace-event-line .graph-node-shell.is-agent-human-review button { justify-self: start; min-block-size: 1.9rem; margin-block-start: .25rem; padding-inline: .55rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; font-size: .65rem; }
+.shell-workspace-event-line .graph-node-shell.is-agent-human-review button { justify-self: start; min-block-size: 1.9rem; margin-block-start: .25rem; padding-inline: .55rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
 .shell-workspace-event-line .agent-execution-flow .graph-node-shell > svg,
 .shell-workspace-event-line .agent-node-icon svg { inline-size: 1rem; color: var(--color-accent); }
 .shell-workspace-event-line .graph-node-shell.is-agent-gate > svg { color: var(--color-warning); }
-.shell-workspace-event-line .graph-node-shell.is-agent-result button { justify-self: start; min-block-size: 1.9rem; margin-block-start: .25rem; padding-inline: .55rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; font-size: .65rem; }
-.shell-workspace-event-line .agent-node-status { grid-column: 1 / -1; inline-size: fit-content; display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .4rem; color: var(--color-text-muted); background: var(--color-surface-muted); border-radius: 999px; font-size: .64rem; font-weight: 700; }
+.shell-workspace-event-line .graph-node-shell.is-agent-result button { justify-self: start; min-block-size: 1.9rem; margin-block-start: .25rem; padding-inline: .55rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
+.shell-workspace-event-line .agent-node-status { grid-column: 1 / -1; inline-size: fit-content; display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .4rem; color: var(--color-text-muted); background: var(--color-surface-muted); border-radius: 999px; font-size: .75rem; font-weight: 700; }
 .shell-workspace-event-line .agent-node-status[data-status="success"] { color: var(--color-accent); }
 .shell-workspace-event-line .agent-node-status[data-status="warning"],
 .shell-workspace-event-line .agent-node-status[data-status="blocked"] { color: color-mix(in srgb, var(--color-warning) 75%, var(--color-text)); }
@@ -854,11 +863,11 @@
   .shell-workspace-event-line .event-graph-flow .react-flow__minimap { display: none; }
   .shell-workspace-event-line .event-graph-command-actions button:not(:last-child) { padding-inline: 0.5rem; }
   .shell-workspace-event-line .event-graph-source-collapse { display: inline-flex; align-items: center; margin-inline-start: auto; color: var(--color-accent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-  .shell-workspace-event-line .event-graph-prediction-node { inline-size: 11.25rem; min-inline-size: 11.25rem; }
+  .shell-workspace-event-line .event-graph-prediction-node { inline-size: 12rem; min-inline-size: 12rem; }
   .shell-workspace-event-line .event-graph-prediction-node strong { font-size: .875rem; }
   .shell-workspace-event-line .graph-node-shell.is-candidate-event,
   .shell-workspace-event-line .graph-node-shell.is-candidate-existing-reference,
-  .shell-workspace-event-line .graph-node-shell.is-candidate-conflict { inline-size: 11.75rem; min-inline-size: 11.75rem; }
+  .shell-workspace-event-line .graph-node-shell.is-candidate-conflict { inline-size: 12rem; min-inline-size: 12rem; }
   .shell-workspace-event-line .agent-execution-workspace > header { align-items: flex-start; padding-inline: var(--space-3); }
   .shell-workspace-event-line .agent-execution-workspace > header nav { flex-wrap: wrap; justify-content: flex-end; }
   .shell-workspace-event-line .agent-execution-main,
@@ -893,7 +902,7 @@
 .shell-workspace-event-line .event-line-unit,
 .shell-workspace-event-line .event-line-set-point {
   display: grid;
-  gap: var(--space-3);
+  gap: .65rem;
 }
 
 .shell-workspace-event-line .event-line-unit > header,
@@ -931,7 +940,7 @@
 
 .shell-workspace-event-line .event-line-set-point ol {
   display: grid;
-  gap: var(--space-3);
+  gap: .55rem;
   margin: 0;
   padding: 0 0 0 var(--space-5);
   list-style: none;
@@ -945,7 +954,7 @@
 .shell-workspace-event-line .event-line-spine-node {
   position: absolute;
   inset-inline-start: calc(var(--space-5) * -1 - 0.375rem);
-  inset-block-start: var(--space-4);
+  inset-block-start: 1rem;
   display: grid;
   place-items: center;
   inline-size: 0.75rem;
@@ -959,8 +968,10 @@
 .shell-workspace-event-line .event-line-spine-node + button {
   inline-size: 100%;
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-4);
+  gap: .35rem;
+  min-block-size: 6rem;
+  max-block-size: 8.25rem;
+  padding: .65rem .8rem;
   color: var(--color-text);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -968,13 +979,14 @@
   cursor: pointer;
   text-align: start;
 }
-.shell-workspace-event-line .event-line-direct-nodes { margin-block: .75rem 1rem; padding: .75rem; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-accent-soft)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.shell-workspace-event-line .event-line-direct-nodes { margin-block: .5rem .75rem; padding: .65rem; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-accent-soft)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .shell-workspace-event-line .event-line-direct-nodes > header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-block-end: .65rem; }
 .shell-workspace-event-line .event-line-direct-nodes > header > div { display: grid; gap: .08rem; }
-.shell-workspace-event-line .event-line-direct-nodes > header small { color: var(--color-text-muted); font-size: .7rem; }
+.shell-workspace-event-line .event-line-direct-nodes > header small { color: var(--color-text-muted); font-size: .75rem; }
 .shell-workspace-event-line .event-line-direct-nodes > header h3 { margin: 0; font-size: .95rem; }
-.shell-workspace-event-line .event-line-direct-nodes > header > strong { color: var(--color-text-muted); font-size: .7rem; }
-.shell-workspace-event-line .event-line-direct-nodes > ol { margin: 0; }
+.shell-workspace-event-line .event-line-direct-nodes > header > strong { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .event-line-direct-nodes > ol { display: grid; gap: .55rem; margin: 0; padding: 0 0 0 var(--space-5); list-style: none; border-inline-start: 1px solid var(--color-border); }
+.shell-workspace-event-line .event-line-direct-nodes > ol > li { position: relative; }
 
 .shell-workspace-event-line .event-line-spine-node + button:hover,
 .shell-workspace-event-line li.is-selected .event-line-spine-node + button {
@@ -985,15 +997,37 @@
 .shell-workspace-event-line .event-line-spine-node + button > header {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  align-items: center;
+  gap: .35rem .75rem;
   color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  font-size: .75rem;
 }
+
+.shell-workspace-event-line .event-line-spine-node + button > header span { display: inline-flex; align-items: center; gap: .25rem; }
+.shell-workspace-event-line .event-line-spine-node + button > header svg { inline-size: .78rem; block-size: .78rem; }
 
 .shell-workspace-event-line .event-line-spine-node + button h3 {
   margin: 0;
-  font-size: var(--font-size-md);
+  overflow: hidden;
+  font-size: 1rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.shell-workspace-event-line .event-line-spine-node + button > p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: .875rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shell-workspace-event-line .event-line-spine-node + button > footer { display: flex; align-items: center; gap: .5rem 1rem; min-width: 0; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .event-line-spine-node + button > footer span { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .event-line-spine-node + button > footer svg { inline-size: .8rem; block-size: .8rem; }
 
 @media (max-width: 75rem) {
   .shell-workspace-event-line .event-line-spine-main {

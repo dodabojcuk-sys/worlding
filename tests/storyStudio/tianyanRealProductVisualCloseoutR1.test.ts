@@ -30,10 +30,10 @@ test("Dialogue names a retained background Agent task without mounting execution
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {
   assert.match(canvas, /minZoom=\{\["overview", "focus", "review"\]\.includes\(predictionViewState\) \? 0\.94 : 0\.25\}/u);
   assert.match(canvas, /const zoom = Math\.max\(\.95, fittedZoom\)/u);
-  assert.match(canvas, /const candidateNodes = nodes\.filter\(\(node\) => node\.type === "prediction"\)/u);
+  assert.match(canvas, /const focusNodes = nodes/u);
   assert.match(canvas, /paddingX - minX \* zoom/u);
-  assert.match(canvas, /width: 180, height: 126/u);
-  assert.match(graphStyles, /\.event-graph-prediction-node \{ inline-size: 11\.25rem; min-inline-size: 11\.25rem;/u);
+  assert.match(canvas, /width: 192, height: 132/u);
+  assert.match(graphStyles, /\.event-graph-prediction-node \{ inline-size: 12rem; min-inline-size: 12rem;/u);
   assert.match(graphStyles, /@media \(max-width: 75rem\)[\s\S]*?\.event-unit-directory \{ display: none; \}/u);
   assert.match(execution, /document\.querySelector<HTMLElement>\("\.agent-execution-flow"\)/u);
   assert.match(execution, /minZoom=\{\.89\}/u);

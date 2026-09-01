@@ -36,7 +36,7 @@ test("shared ports expose 24px targets while families retain readable dimensions
   assert.match(nodeShell, /className="graph-node-port"/u);
   assert.match(nodeShell, /aria-label=\{props\.label\}/u);
   assert.match(styles, /\.graph-node-port\.react-flow__handle \{ inline-size: 1\.5rem; block-size: 1\.5rem;/u);
-  assert.match(styles, /\.is-candidate-conflict \{ inline-size: 11\.75rem;/u);
+  assert.match(styles, /\.is-candidate-conflict \{ inline-size: 12rem;/u);
   assert.match(styles, /\.is-agent-process \{[\s\S]*inline-size: 13\.75rem;/u);
   assert.match(styles, /\.is-agent-tool \{[\s\S]*border-radius: 1\.15rem/u);
   assert.match(styles, /\.is-agent-gate \{[\s\S]*border-radius: \.25rem \.9rem \.25rem \.9rem/u);

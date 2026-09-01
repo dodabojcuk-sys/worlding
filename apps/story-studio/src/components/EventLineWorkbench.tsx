@@ -495,15 +495,10 @@ function EventSpineNode(props: {
   return <li className={props.selected ? "is-selected" : ""} data-confirmed-event-id={props.event.id} data-current-event={props.current ? "true" : "false"} data-event-status={semantic.status}>
     <span className="event-line-spine-node" aria-hidden="true">{props.sequence}</span>
     <button type="button" onClick={props.onOpen} aria-label={`查看正式事件：${props.event.title}`}>
-      <header><span className={semantic.status === "confirmed" ? "event-line-canon-state" : "event-line-candidate-marker"}><CheckCircle2 />{eventRecordLabel(semantic.status)}</span><span className="event-line-hierarchy-state">{semantic.storyLine.label} · {semanticStatusLabel(semantic.status)}</span>{props.current ? <span className="event-line-current-state"><LocateFixed />当前</span> : null}{props.candidateMarker ? <span className="event-line-candidate-marker"><GitBranch />{candidateStatusLabel(props.candidateMarker)}</span> : null}</header>
-      <h3>{props.event.title}</h3>
-      <p>{summary}</p>
-      <dl>
-        <div><dt>层级</dt><dd>{props.metadata.unitLabel ?? "未归入故事范围"}{props.metadata.setPointLabel ? ` · 集点：${props.metadata.setPointLabel}` : " · 直接属于单元"}</dd></div>
-        <div><dt><UsersRound />参与</dt><dd>{props.metadata.characterLabels.length ? props.metadata.characterLabels.join("、") : "未提供"}</dd></div>
-        <div><dt><Clock3 />时间</dt><dd>{semantic.time.label}</dd></div>
-        <div><dt>依据</dt><dd>{semantic.source.ref === props.event.id ? "Event 来源已核验" : authorSourceRef(semantic.source.ref)}</dd></div>
-      </dl>
+      <header><span className={semantic.status === "confirmed" ? "event-line-canon-state" : "event-line-candidate-marker"}><CheckCircle2 />{eventRecordLabel(semantic.status)}</span><span><Clock3 />{semantic.time.label}</span>{props.current ? <span className="event-line-current-state"><LocateFixed />当前</span> : null}{props.candidateMarker ? <span className="event-line-candidate-marker"><GitBranch />{candidateStatusLabel(props.candidateMarker)}</span> : null}</header>
+      <h3 title={props.event.title}>{props.event.title}</h3>
+      {summary ? <p>{summary}</p> : null}
+      <footer><span><UsersRound />{props.metadata.characterLabels.length ? props.metadata.characterLabels.join("、") : "人物未标注"}</span><span>{props.metadata.setPointLabel ? `集点 · ${props.metadata.setPointLabel}` : "直接属于单元"}</span></footer>
     </button>
   </li>;
 }
@@ -684,7 +679,7 @@ function authorEventBody(value: string): string[] {
 
 function eventSummaryFromTags(tags: readonly string[]): string {
   const summary = tags.find((tag) => /^(?:观测摘要|摘要)[：:]/u.test(tag));
-  return summary?.replace(/^(?:观测摘要|摘要)[：:]/u, "").trim() || "这条事件暂未提供作者摘要。";
+  return summary?.replace(/^(?:观测摘要|摘要)[：:]/u, "").trim() || "";
 }
 
 function isConfirmedEventSummary(event: EventLineEventSummary | undefined): boolean {

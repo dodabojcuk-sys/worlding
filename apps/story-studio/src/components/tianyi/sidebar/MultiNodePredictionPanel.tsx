@@ -31,6 +31,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<DraftReceipt | null>(null);
   const [execution, setExecution] = useState<TianyiPredictionExecutionProjection | null>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const [viewState, setViewState] = useState<TianyiPredictionViewState>(() => {
     const replay = replayedPredictionRun(props.runtime.project?.id ?? null, props.eventRefs);
     return predictionViewStateFromPersistence({ runStatus: replay?.status ?? null, hasBundle: Boolean(replay?.bundle), selectedPathId: null, hasReceipt: false });
@@ -105,6 +106,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     if (!run) return;
     announceViewState({ runId: run.runId, view: viewState, pathId });
   }, [pathId, run, viewState]);
+
+  useEffect(() => {
+    setTechnicalOpen(false);
+  }, [pathId, run?.runId, viewState]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -274,6 +279,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     setViewState("task");
   };
   const openExecution = () => {
+    setTechnicalOpen(false);
     if (execution) announceExecution(execution);
     if (run) window.dispatchEvent(new CustomEvent("story-studio-open-agent-execution", { detail: { runId: run.runId } }));
   };
@@ -340,7 +346,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
 
       {viewState === "receipt" && receipt ? <section className="tianyi-prediction-stage-content receipt-stage"><ReceiptView receipt={receipt} run={run} /></section> : null}
 
-      <details className="tianyi-prediction-technical-details"><summary>技术回执与历史<ChevronRight /></summary>
+      <details className="tianyi-prediction-technical-details" open={technicalOpen} onToggle={(event) => setTechnicalOpen(event.currentTarget.open)}><summary>技术回执与历史<ChevronRight /></summary>
         <dl><div><dt>当前运行</dt><dd>{run?.runId ?? "尚未创建"}</dd></div><div><dt>候选结果组</dt><dd>{run?.bundle?.bundleId ?? "尚未生成"}</dd></div><div><dt>状态</dt><dd>{run ? runStatusLabel(run.status) : "准备"}</dd></div></dl>
         {run ? <button type="button" disabled={!execution} onClick={openExecution}><Workflow />查看执行图</button> : null}
         {runs.length > 1 ? <label className="tianyi-prediction-history">推演历史<select value={run?.runId ?? ""} onChange={(event) => selectRun(event.target.value)}>{runs.map((item) => <option key={item.runId} value={item.runId}>{item.runId.slice(-8)} · {runStatusLabel(item.status)}</option>)}</select></label> : null}
