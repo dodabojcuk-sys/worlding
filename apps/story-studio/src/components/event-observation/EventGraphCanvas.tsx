@@ -8,7 +8,7 @@ import {
   FileText, Filter, Focus, Layers3, Link2, MapPin, Maximize2, Network,
   PanelLeftClose, PanelRightClose, Plus, RefreshCw, Sparkles, Tag, UsersRound, X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
@@ -88,6 +88,7 @@ export function EventGraphCanvas(props: {
   const [layoutRevision, setLayoutRevision] = useState(0);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
   const [semanticZoom, setSemanticZoom] = useState<"far" | "medium" | "near">("medium");
+  const [temporalViewport, setTemporalViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const globalViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const railViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const restoreGlobalViewport = useRef(false);
@@ -294,7 +295,7 @@ export function EventGraphCanvas(props: {
 
   const temporalPlacement = currentEvent ? props.temporalRun?.placements.find((item) => item.versionedEventRef.eventId === currentEvent.id) ?? null : null;
 
-  return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : ""}`} aria-label={mode === "temporal" ? "事件语义时间关系工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "shared" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
+  return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : ""}`} aria-label={mode === "temporal" ? "事件语义时间关系工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "shared" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-view-switch-provider-calls="0" data-view-switch-agent-runs="0" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
       <nav className="event-graph-view-switch" aria-label="事件视图">
@@ -354,7 +355,10 @@ export function EventGraphCanvas(props: {
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
           onPaneClick={() => { setSelection(null); closeInspector(); props.onClearSelection(); }}
           onInit={setFlow} fitView minZoom={["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25} maxZoom={1.8}
-          onMove={(_, viewport) => setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium")}
+          onMove={(_, viewport) => {
+            setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
+            if (mode === "temporal") setTemporalViewport(viewport);
+          }}
           nodesDraggable={mode === "graph"}
           nodesConnectable={mode === "graph" && Boolean(props.onCreateRelation)}
           connectionLineStyle={{ stroke: "var(--color-accent)", strokeWidth: 1.5 }}
@@ -364,7 +368,8 @@ export function EventGraphCanvas(props: {
           <Controls showInteractive={false} />
           {miniMapOpen ? <MiniMap pannable zoomable nodeColor={(node) => node.data?.candidate ? "#d9911d" : node.data?.remote ? "#77a6a1" : "#147d78"} /> : null}
         </ReactFlow>
-        <GraphLegend temporal={mode === "temporal"} />
+        {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
+        <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
       </div>
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
       {inspectorOpen && !props.createOpen ? <GraphInspector
@@ -394,6 +399,44 @@ function PredictionSourceSummaryNode(props: NodeProps<Node<NodeData>>) {
 
 function TemporalScreenNode(props: NodeProps<Node<NodeData>>) {
   return <section className={`temporal-screen is-${props.data.screenKind ?? "inferred_phase"}`} aria-hidden="true"><header><small>{props.data.screenKind === "authored_anchor" ? "可信时间锚点" : props.data.screenKind === "interval" ? "推断区间" : props.data.screenKind === "unresolved" ? "需要作者处理" : "语义阶段"}</small><strong>{props.data.screenLabel}</strong>{props.data.screenConfidence ? <span>{props.data.screenConfidence}</span> : null}</header></section>;
+}
+
+function TemporalCoordinateOverlay(props: {
+  run: TemporalProjectionRun | null;
+  events: readonly EventLineEventSummary[];
+  nodes: readonly Node<NodeData>[];
+  selectedEventId: string | null;
+  viewport: { x: number; y: number; zoom: number };
+  zoomLevel: "far" | "medium" | "near";
+}) {
+  const placements = props.run?.placements ?? [];
+  const visibleSegments = (props.run?.segments ?? []).filter((segment) => placements.some((placement) => placement.segmentId === segment.id));
+  const segmentTicks = visibleSegments.map((segment, index) => {
+    const positions = placements.filter((placement) => placement.segmentId === segment.id && placement.placementKind !== "unplaced").map((placement) => placement.relativePosition);
+    const relative = positions.length ? Math.min(...positions) : index * 260;
+    return { id: segment.id, label: segment.label, kind: segment.kind, x: (70 + relative * 1.12) * props.viewport.zoom + props.viewport.x };
+  });
+  const laneLabels = props.zoomLevel === "far" ? ["主序"] : props.zoomLevel === "medium" ? ["主序", "并行事件", "余波"] : ["主序", "第 1 夜", "并行事件", "余波"];
+  const laneHeight = props.zoomLevel === "near" ? 292 : props.zoomLevel === "far" ? 132 : 190;
+  const selectedNode = props.selectedEventId ? props.nodes.find((node) => node.id === props.selectedEventId) : null;
+  const selectedTitle = props.selectedEventId ? props.events.find((event) => event.id === props.selectedEventId)?.title : null;
+  const selectedX = selectedNode ? (selectedNode.position.x + 102) * props.viewport.zoom + props.viewport.x : null;
+  const selectedY = selectedNode ? (selectedNode.position.y + 70) * props.viewport.zoom + props.viewport.y : null;
+  const unresolvedCount = placements.filter((placement) => placement.placementKind === "unplaced").length;
+  const conflictCount = placements.filter((placement) => placement.placementKind === "conflict").length;
+  return <div className="temporal-coordinate-overlay" aria-label="二维时间坐标" data-zoom-density={props.zoomLevel}>
+    <div className="temporal-top-ruler" aria-label="时间标尺">
+      <strong>时间</strong>
+      {(segmentTicks.length ? segmentTicks : [{ id: "base", label: "故事阶段未定", kind: "unresolved" as const, x: 96 }]).map((tick) => <span key={tick.id} className={`is-${tick.kind}`} style={{ transform: `translateX(${Math.round(tick.x)}px)` }}><i />{tick.label}</span>)}
+    </div>
+    <div className="temporal-left-scale" aria-label="阶段内相对顺序">
+      <strong>相对顺序</strong>
+      {laneLabels.map((label, index) => <span key={label} style={{ transform: `translateY(${Math.round((150 + index * laneHeight) * props.viewport.zoom + props.viewport.y)}px)` }}><i />{label}</span>)}
+    </div>
+    {selectedX !== null && selectedY !== null ? <div className="temporal-crosshair" aria-label={`已定位事件：${selectedTitle ?? "当前事件"}`} style={{ "--crosshair-x": `${Math.round(selectedX)}px`, "--crosshair-y": `${Math.round(selectedY)}px` } as CSSProperties}><span>{selectedTitle}</span></div> : null}
+    {unresolvedCount ? <aside className="temporal-unplaced-tray" aria-label="未定位事件"><strong>未定位</strong><span>{unresolvedCount} 个事件保留在托盘，未被塞到时间末尾。</span></aside> : null}
+    {conflictCount ? <aside className="temporal-conflict-zone" aria-label="时间冲突区"><AlertTriangle /><strong>冲突区</strong><span>{conflictCount} 个事件等待作者修正</span></aside> : null}
+  </div>;
 }
 
 function EventUnitDirectory(props: {
@@ -426,8 +469,8 @@ function EventUnitDirectory(props: {
   return <aside className="event-unit-directory" aria-label="单元目录"><header><Layers3 /><strong>单元</strong></header>{units.map(([label, unit], index) => <section key={label}><h2 title={label} aria-label={`单元 ${String(index + 1).padStart(2, "0")}：${label}`}>单元 {String(index + 1).padStart(2, "0")} · {label}</h2>{unit.direct.length ? <ul aria-label={`${label}的直接节点`}>{unit.direct.map(item)}</ul> : null}{[...unit.setPoints.entries()].map(([setPoint, events]) => <div className="event-unit-set-point" key={setPoint}><h3 title={setPoint} aria-label={`可选集点：${setPoint}`}>集点 · {setPoint}</h3><ul aria-label={`${setPoint}集点内节点`}>{events.map(item)}</ul></div>)}</section>)}</aside>;
 }
 
-function GraphLegend(props: { temporal?: boolean }) {
-  return <aside className="event-graph-legend" aria-label={props.temporal ? "语义时间图图例" : "关系图图例"}><span><i className="formal" />正式关系</span><span><i className="candidate" />待确认</span>{props.temporal ? <><span><i className="temporal-inferred" />AI 推断位置</span><span><i className="temporal-conflict" />时间冲突</span></> : <span><i className="remote" />远端投影</span>}</aside>;
+function GraphLegend(props: { temporal?: boolean; hasTemporalProjection?: boolean }) {
+  return <aside className="event-graph-legend" aria-label={props.temporal ? "语义时间图图例" : "关系图图例"}><span><i className="formal" />正式关系</span><span><i className="candidate" />待确认</span>{props.temporal ? <><span><i className="temporal-inferred" />{props.hasTemporalProjection ? "AI 推断位置" : "基础布局"}</span><span><i className="temporal-conflict" />时间冲突</span></> : <span><i className="remote" />远端投影</span>}</aside>;
 }
 
 function GraphInspector(props: {
@@ -609,13 +652,23 @@ function temporalEventPositions(events: readonly EventLineEventSummary[], placem
     const placement = placements.get(event.id);
     return placement ? [{ eventId: event.id, placement }] : [];
   }).sort((left, right) => left.placement.relativePosition - right.placement.relativePosition || left.eventId.localeCompare(right.eventId));
-  for (const { eventId, placement } of ordered) {
+  const located = ordered.filter(({ placement }) => placement.placementKind !== "unplaced" && placement.placementKind !== "conflict");
+  const detached = ordered.filter(({ placement }) => placement.placementKind === "unplaced" || placement.placementKind === "conflict");
+  for (const { eventId, placement } of located) {
     const x = 70 + placement.relativePosition * 1.12;
     let lane = laneRightEdges.findIndex((rightEdge) => rightEdge + horizontalGap <= x);
     if (lane < 0) lane = laneRightEdges.length;
     laneRightEdges[lane] = x + cardWidth;
     positions.set(eventId, { x, y: 150 + lane * laneHeight });
   }
+  const locatedMaxX = located.length ? Math.max(...located.map(({ placement }) => 70 + placement.relativePosition * 1.12)) : 70;
+  detached.forEach(({ eventId, placement }, index) => {
+    const conflict = placement.placementKind === "conflict";
+    positions.set(eventId, {
+      x: locatedMaxX + 330 + (index % 2) * (cardWidth + horizontalGap),
+      y: conflict ? 165 + Math.floor(index / 2) * laneHeight : 520 + Math.floor(index / 2) * laneHeight
+    });
+  });
   return positions;
 }
 
