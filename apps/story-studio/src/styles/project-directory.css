@@ -51,9 +51,22 @@
 .project-directory-tabs button[aria-selected="true"] { color: var(--color-accent); border-block-end-color: var(--color-accent); font-weight: 600; }
 .project-directory-tabs strong { color: inherit; font-size: var(--font-size-xs); }
 
-.project-directory-tree { min-height: 0; flex: 1; padding: var(--space-2); overflow: auto; }
+.project-directory-tree { min-height: 0; flex: 1; display: flex; flex-direction: column; padding: var(--space-2); overflow: hidden; }
+.project-directory-search { min-height: 2.5rem; display: flex; align-items: center; gap: var(--space-2); margin-block-end: var(--space-2); padding-inline: var(--space-2); color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.project-directory-search svg { inline-size: 1rem; block-size: 1rem; flex: 0 0 auto; }
+.project-directory-search input { min-width: 0; flex: 1; padding: 0; color: var(--color-text); background: transparent; border: 0; outline: 0; font-size: var(--font-size-sm); }
+.project-directory-search:focus-within { outline: .1875rem solid var(--color-focus); outline-offset: .125rem; }
+.project-directory-breadcrumb { min-height: 2.25rem; display: flex; align-items: center; gap: 2px; overflow-x: auto; padding-block-end: var(--space-2); border-block-end: 1px solid var(--color-border); scrollbar-width: thin; }
+.project-directory-breadcrumb > span { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.project-directory-breadcrumb svg { inline-size: .875rem; block-size: .875rem; flex: 0 0 auto; color: var(--color-text-muted); }
+.project-directory-breadcrumb button { flex: 0 0 auto; min-height: 1.875rem; max-width: 10rem; padding-inline: var(--space-1); overflow: hidden; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-xs); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; font-size: var(--font-size-xs); }
+.project-directory-breadcrumb button[aria-current="page"] { color: var(--color-text); font-weight: 600; }
+.project-directory-back { inline-size: 1.875rem; display: grid !important; place-items: center; padding: 0 !important; }
+.project-directory-page, .project-directory-search-results { min-height: 0; flex: 1; overflow: auto; padding-block: var(--space-2); scrollbar-gutter: stable; }
+.project-directory-search-results > p { margin: var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .project-directory-tree section > button,
 .project-directory-tree .project-directory-category > button,
+.project-directory-entry,
 .project-directory-reference {
   width: 100%;
   min-height: 2.25rem;
@@ -71,10 +84,12 @@
 .project-directory-tree button:hover { background: var(--color-surface-muted); }
 .project-directory-tree button svg { inline-size: 0.875rem; block-size: 0.875rem; color: var(--color-text-muted); }
 .project-directory-tree button span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.project-directory-reference span small { display: block; margin-block-start: 2px; color: var(--color-text-muted); overflow-wrap: anywhere; font-size: var(--font-size-xs); font-weight: 400; }
 .project-directory-tree button strong { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .project-directory-tree section > div { padding-inline-start: var(--space-8); }
 .project-directory-tree .project-directory-category > button { color: var(--color-text-muted); font-size: var(--font-size-sm); }
-.project-directory-reference { min-height: 2rem; padding-inline-start: var(--space-5); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.project-directory-entry { min-height: 2.75rem; margin-block-end: 2px; font-size: var(--font-size-sm); }
+.project-directory-reference { min-height: 2.5rem; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .project-directory-reference[data-selected] { color: var(--color-accent); background: var(--color-surface-muted); }
 .project-directory-reference em { color: var(--color-accent); font-size: var(--font-size-xs); font-style: normal; }
 .project-directory-empty { margin: var(--space-4); color: var(--color-text-muted); font-size: var(--font-size-sm); }

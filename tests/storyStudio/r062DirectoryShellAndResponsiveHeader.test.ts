@@ -8,7 +8,7 @@ import { zhCN } from "../../apps/story-studio/src/product-shell/i18n/translation
 const source = (file: string) => readFileSync(file, "utf8");
 
 const expectedShell = [
-  ["故事结构", "节点", "单元", "故事线"],
+  ["故事结构", "单元", "故事线"],
   ["信息资料", "角色", "物品", "地点", "组织"],
   ["设定", "规则与设定"],
   ["来源", "来源文档"],
@@ -33,6 +33,15 @@ test("CLASSIFIED_SHELL_PRESENT_WITH_NO_OPEN_WORK", () => {
   assert.match(panel, /data-directory-empty-shell-actions="true"/);
   assert.match(panel, /directory\.newProject/);
   assert.match(panel, /directory\.openImport/);
+});
+
+test("CLASSIFIED_ROOT delegates hierarchy and cross-layer search to the directory tree", () => {
+  const tree = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryTree.tsx");
+  assert.match(tree, /data-directory-depth=\{path\.length\}/);
+  assert.match(tree, /flattenDirectoryReferences/);
+  assert.match(tree, /project-directory-breadcrumb/);
+  assert.match(tree, /event\.altKey && event\.key === "ArrowLeft"/);
+  assert.doesNotMatch(tree, /new Set\(props\.groups\.map/);
 });
 
 test("CLASSIFIED_SHELL_PRESENT_WITH_ZERO_ITEMS", () => {

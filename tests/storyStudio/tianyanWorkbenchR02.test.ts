@@ -19,9 +19,9 @@ test("project directory keeps Classified and Pending review in the same navigati
   assert.match(pending, /confirmAgentRecognitionObject/);
   assert.match(panel, /data-story-fact-owner="false"/);
   assert.match(panel, /project-directory-tabs/);
-  assert.doesNotMatch(panel, /project-directory-search-entry/);
+  assert.match(panel, /ProjectDirectoryTree/);
   assert.match(panel, /project-directory-close/);
-  assert.doesNotMatch(panel, /type="search"|filterProjectDirectory/);
+  assert.doesNotMatch(panel, /filterProjectDirectory/);
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });
 
