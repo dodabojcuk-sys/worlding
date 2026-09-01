@@ -86,6 +86,10 @@
 .tianyi-prediction-adoption-summary .is-blocked { grid-column: 1 / -1; }
 .tianyi-prediction-adoption-summary .is-blocked dt,
 .tianyi-prediction-adoption-summary .is-blocked dd { color: var(--color-danger); }
+.tianyi-prediction-conflict-help { display: grid; gap: .35rem; padding: .65rem .7rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 91%, var(--color-danger)); border: 1px solid color-mix(in srgb, var(--color-danger) 42%, var(--color-border)); border-radius: var(--radius-sm); font-size: .69rem; line-height: 1.5; }
+.tianyi-prediction-conflict-help strong { color: var(--color-danger); }
+.tianyi-prediction-conflict-help p { margin: 0; }
+.tianyi-prediction-conflict-help button { justify-self: start; min-block-size: 2rem; padding-inline: .6rem; color: var(--color-danger); background: var(--color-surface); border: 1px solid color-mix(in srgb, var(--color-danger) 55%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; font-size: .68rem; font-weight: 700; }
 .tianyi-prediction-node { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; padding: .5rem; background: var(--color-surface-muted); border: 1px dashed color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); border-radius: var(--radius-sm); cursor: pointer; }
 .tianyi-prediction-node input { margin-block-start: .2rem; accent-color: var(--color-accent); }
 .tianyi-prediction-node span { display: grid; gap: .12rem; min-width: 0; }
@@ -140,6 +144,9 @@
 .tianyi-agent-panel { min-height: 100%; display: flex; flex-direction: column; gap: var(--space-3); }
 .tianyi-agent-panel .tianyi-prediction-panel { flex: 1; }
 .tianyi-dialogue-panel .tianyi-sidebar-conversation { flex: 1; }
+.tianyi-dialogue-background-task { display: grid; gap: .2rem; padding: .65rem .75rem; color: var(--color-text-muted); background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-border)); border-radius: var(--radius-sm); }
+.tianyi-dialogue-background-task strong { color: var(--color-accent); font-size: var(--font-size-xs); }
+.tianyi-dialogue-background-task p { margin: 0; font-size: .69rem; line-height: 1.5; }
 .tianyi-dialogue-agent-handoff { display: grid; gap: .3rem; padding: var(--space-3); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .tianyi-dialogue-agent-handoff strong { font-size: var(--font-size-sm); }
 .tianyi-dialogue-agent-handoff p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }

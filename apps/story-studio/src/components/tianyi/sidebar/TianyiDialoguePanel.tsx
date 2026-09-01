@@ -10,6 +10,7 @@ export function TianyiDialoguePanel(props: {
   draft: string;
   busy: boolean;
   error: string;
+  agentTaskRetained: boolean;
   onDraft(value: string): void;
   onSubmit(): void;
   onOpenSettings(): void;
@@ -23,6 +24,7 @@ export function TianyiDialoguePanel(props: {
     props.onSubmit();
   };
   return <section className="tianyi-dialogue-panel" aria-label="天意对话" data-dialogue-agent-controls="absent">
+    {props.agentTaskRetained ? <section className="tianyi-dialogue-background-task" role="status"><strong>Agent 任务在后台保留</strong><p>当前对话不会操纵任务；切回 Agent 可查看原有进度。</p></section> : null}
     <section className="tianyi-sidebar-conversation" aria-label="普通消息流">
       {!props.projectReady ? <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>开始对话</strong><p>请先打开一个作品。</p></div>
         : !props.providerReady ? <div className="tianyi-sidebar-empty tianyi-provider-unavailable" data-provider-state="unconfigured"><Sparkles aria-hidden="true" /><strong>对话服务尚未连接</strong><p>连接模型服务后，可以解释当前选中内容并回答创作问题。</p><button type="button" onClick={props.onOpenSettings}>打开模型设置</button></div>

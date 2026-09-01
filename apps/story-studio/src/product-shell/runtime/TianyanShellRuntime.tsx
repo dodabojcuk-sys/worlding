@@ -112,6 +112,16 @@ export function TianyanShellRuntime() {
 
   const retryConnection = useCallback(() => setConnectionRevision((revision) => revision + 1), []);
 
+  useEffect(() => {
+    const refreshModelServiceProjection = () => retryConnection();
+    window.addEventListener("story-studio-model-service-status-changed", refreshModelServiceProjection);
+    window.addEventListener("focus", refreshModelServiceProjection);
+    return () => {
+      window.removeEventListener("story-studio-model-service-status-changed", refreshModelServiceProjection);
+      window.removeEventListener("focus", refreshModelServiceProjection);
+    };
+  }, [retryConnection]);
+
   const openActiveProject = useCallback(async (projectId: string) => {
     const nextProject = await withConnection((token) => openProject(projectId, token));
     setProject(nextProject);

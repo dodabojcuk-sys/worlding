@@ -114,16 +114,19 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
       }
     }
     await refreshRuntime(project);
+    window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     return result;
   };
   const discoverModels = async () => {
     const discovery = await withToken((token) => discoverProviderModels(token));
     await refreshRuntime(project);
+    window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     return discovery.models;
   };
   const disableProvider = async (expectedRevision: number) => {
     await withToken((token) => disableProviderProfile({ expectedRevision, token }));
     await refreshRuntime(project);
+    window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
   };
 
   const importPackage = () => new Promise<Awaited<ReturnType<typeof importStorageProject>>>((resolve, reject) => {

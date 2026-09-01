@@ -281,7 +281,7 @@ export function TianyiSidebar(props: {
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
-      {mode === "dialogue" ? <TianyiDialoguePanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.dialogueComposerDraft} busy={busy} error={error} onDraft={props.runtime.setDialogueComposerDraft} onSubmit={submitDialogue} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {mode === "dialogue" ? <TianyiDialoguePanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.dialogueComposerDraft} busy={busy} error={error} agentTaskRetained={agentRunning} onDraft={props.runtime.setDialogueComposerDraft} onSubmit={submitDialogue} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

@@ -292,7 +292,7 @@ export function EventGraphCanvas(props: {
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
           onPaneClick={() => { setSelection(null); closeInspector(); props.onClearSelection(); }}
-          onInit={setFlow} fitView minZoom={0.25} maxZoom={1.8}
+          onInit={setFlow} fitView minZoom={predictionPathId ? 0.94 : 0.25} maxZoom={1.8}
           nodesConnectable={Boolean(props.onCreateRelation)}
           connectionLineStyle={{ stroke: "var(--color-accent)", strokeWidth: 1.5 }}
           proOptions={{ hideAttribution: true }}
@@ -453,7 +453,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const pathNodes = activePath.candidateNodeIds.map((id) => predictionRun.bundle!.nodes.find((node) => node.id === id)).filter((node): node is NonNullable<typeof node> => Boolean(node));
     pathNodes.forEach((node, index) => {
       const reviewSelected = predictionSelectedNodeIds.has(node.id);
-      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 210 + index * 165, y: 155 } : { x: 315 + index * 185, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected } });
+      nodes.push({ id: node.id, type: "prediction", className: `event-graph-prediction-node ${reviewSelected ? "is-review-selected" : "is-review-excluded"}`, draggable: false, connectable: false, selectable: true, position: collapsePredictionSources ? { x: 230 + index * 204, y: 155 } : { x: 315 + index * 204, y: 155 }, data: { title: node.title, time: node.timeConsistency.kind === "unknown" ? "时间未定" : node.timeConsistency.label, location: "候选预览", status: node.identityResolution.kind === "unresolved" ? "候选 · 身份待决 · 尚未写入" : node.timeConsistency.kind === "conflict" ? "候选 · 时间冲突 · 尚未写入" : "候选 · 尚未写入事件线", focused: false, selected: false, candidate: true, runId: predictionRun.runId, pathLabel: activePath.title, reviewSelected } });
     });
     predictionRun.bundle.edges.filter((edge) => candidateIds.has(edge.sourceCandidateId) && candidateIds.has(edge.targetCandidateId)).forEach((edge) => edges.push({ id: edge.id, source: edge.sourceCandidateId, target: edge.targetCandidateId, type: "smoothstep", label: edge.label, markerEnd: { type: MarkerType.ArrowClosed }, style: { stroke: "#d9911d", strokeWidth: 1.9, strokeDasharray: "7 5", opacity: .84 }, labelStyle: { fill: "#a75c00", fontSize: 11 }, labelBgStyle: { fill: "#fbfaf6", fillOpacity: .92 } }));
     const first = pathNodes[0];
@@ -534,21 +534,33 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
 function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
   if (!canvas || !nodes.length) return;
-  const hasSourceSummary = nodes.some((node) => node.type === "predictionSourceSummary");
+  // The selected candidate path is the focus target. Formal graph nodes and
+  // source context stay reachable by panning, but must not pull the active
+  // path underneath Tianyi or force its cards below the readable width.
+  const candidateNodes = nodes.filter((node) => node.type === "prediction");
+  const focusNodes = candidateNodes.length ? candidateNodes : nodes;
   const dimensions = (node: Node<NodeData>) => node.type === "predictionScope"
     ? { width: Number(node.style?.width) || 246, height: Number(node.style?.height) || 425 }
-    : node.type === "predictionSourceSummary" ? { width: 160, height: 82 }
-    : node.type === "prediction" ? { width: hasSourceSummary ? 156 : 168, height: 126 } : { width: 204, height: 112 };
-  const minX = Math.min(...nodes.map((node) => node.position.x));
-  const minY = Math.min(...nodes.map((node) => node.position.y));
-  const maxX = Math.max(...nodes.map((node) => node.position.x + dimensions(node).width));
-  const maxY = Math.max(...nodes.map((node) => node.position.y + dimensions(node).height));
-  const paddingX = hasSourceSummary ? 44 : 26;
+    : node.type === "predictionSourceSummary" ? { width: 176, height: 82 }
+    : node.type === "prediction" ? { width: 180, height: 126 } : { width: 204, height: 112 };
+  const minX = Math.min(...focusNodes.map((node) => node.position.x));
+  const minY = Math.min(...focusNodes.map((node) => node.position.y));
+  const maxX = Math.max(...focusNodes.map((node) => node.position.x + dimensions(node).width));
+  const maxY = Math.max(...focusNodes.map((node) => node.position.y + dimensions(node).height));
+  const paddingX = 26;
   const paddingY = 34;
-  const fittedZoom = Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, maxX - minX), (canvas.height - paddingY * 2) / Math.max(1, maxY - minY));
-  const zoom = hasSourceSummary ? Math.max(.82, fittedZoom) : Math.max(.45, fittedZoom);
-  const x = (canvas.width - (maxX - minX) * zoom) / 2 - minX * zoom;
-  const y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
+  const contentWidth = maxX - minX;
+  const contentHeight = maxY - minY;
+  const fittedZoom = Math.min(1, (canvas.width - paddingX * 2) / Math.max(1, contentWidth), (canvas.height - paddingY * 2) / Math.max(1, contentHeight));
+  // Candidate cards are authored at 180px. Keeping the automatic viewport at
+  // or above .95 preserves at least 170px of rendered width. When the whole
+  // path is wider than the live canvas, align its beginning and leave the rest
+  // available by panning instead of shrinking every card into unreadability.
+  const zoom = Math.max(.95, fittedZoom);
+  const x = contentWidth * zoom > canvas.width - paddingX * 2
+    ? paddingX - minX * zoom
+    : (canvas.width - contentWidth * zoom) / 2 - minX * zoom;
+  const y = (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 0 });
 }
 function isDensityFixture() {

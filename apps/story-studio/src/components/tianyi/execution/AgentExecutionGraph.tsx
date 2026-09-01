@@ -24,8 +24,15 @@ export function AgentExecutionGraph(props: { projection: TianyiAgentExecutionPro
         if (graph.nodes[index]!.data.status === "running") { node = graph.nodes[index]!; break; }
       }
     }
-    const precedingContextOffset = which === "current" ? 34 : 0;
-    void flow.setCenter(node.position.x + executionNodeWidth(node.data.kind) / 2 - precedingContextOffset, node.position.y + 62, { zoom: .9, duration: 180 });
+    const canvas = document.querySelector<HTMLElement>(".agent-execution-flow")?.getBoundingClientRect();
+    const readableZoom = .9;
+    const renderedNodeWidth = executionNodeWidth(node.data.kind) * readableZoom;
+    const safeHorizontalInset = 24;
+    const availableContextOffset = canvas
+      ? Math.max(0, canvas.width / 2 - renderedNodeWidth / 2 - safeHorizontalInset)
+      : 0;
+    const precedingContextOffset = which === "current" ? Math.min(34, availableContextOffset) : 0;
+    void flow.setCenter(node.position.x + executionNodeWidth(node.data.kind) / 2 - precedingContextOffset, node.position.y + 62, { zoom: readableZoom, duration: 180 });
   }, [flow, graph.nodes]);
   useEffect(() => {
     if (!flow || !graph.nodes.length) return;
@@ -36,7 +43,7 @@ export function AgentExecutionGraph(props: { projection: TianyiAgentExecutionPro
     <header><div><small>天意 Agent</small><strong>Agent 执行过程</strong><span>本次推演 · {runStatusLabel(attempt.status)} · 从左到右</span></div><nav><button type="button" onClick={props.onReturn}><ArrowLeft aria-hidden="true" />返回事件图</button>{["running", "waiting_for_tool", "validating"].includes(attempt.status) ? <button type="button" className="is-stop" onClick={props.onStop}><Square aria-hidden="true" />停止本次推演</button> : null}{["failed", "stopped"].includes(attempt.status) ? <button type="button" onClick={props.onRetry}><RotateCcw aria-hidden="true" />重新推演</button> : null}</nav></header>
     {terminalEvent ? <p className="agent-execution-outcome" role={terminalEvent.type === "TianyiAgentRunFailed" ? "alert" : "status"} data-outcome={terminalEvent.type === "TianyiAgentRunFailed" ? terminalEvent.timedOut ? "timeout" : "failed" : "stopped"}><strong>{terminalEvent.type === "TianyiAgentRunFailed" ? terminalEvent.timedOut ? "运行超时" : "运行失败" : "作者已停止"}</strong><span>{terminalEvent.reason}</span><small>未产生正式 Event、Relation、Canon 或 WorldState 写入。</small></p> : null}
     <div className={`agent-execution-main ${selected ? "has-detail" : ""}`}>
-      <div className="agent-execution-flow"><div className="agent-execution-lane-guide" aria-hidden="true"><ArrowRight />从左到右执行 · 画布可平移</div><div className="agent-execution-locator" aria-label="执行图定位"><button type="button" onClick={() => focusNode("first")}><LocateFixed />查看起点</button><button type="button" onClick={() => focusNode("current")}><LocateFixed />查看当前</button></div><ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} onInit={setFlow} onNodeClick={(_, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId(null)} defaultViewport={{ x: 32, y: 90, zoom: .9 }} minZoom={.72} maxZoom={1.35} nodesDraggable={false} nodesConnectable={false} proOptions={{ hideAttribution: true }}><Background gap={22} size={1} color="rgba(20, 125, 120, .12)" /><Controls showInteractive={false} /></ReactFlow></div>
+      <div className="agent-execution-flow"><div className="agent-execution-lane-guide" aria-hidden="true"><ArrowRight />从左到右执行 · 画布可平移</div><div className="agent-execution-locator" aria-label="执行图定位"><button type="button" onClick={() => focusNode("first")}><LocateFixed />查看起点</button><button type="button" onClick={() => focusNode("current")}><LocateFixed />查看当前</button></div><ReactFlow nodes={graph.nodes} edges={graph.edges} nodeTypes={nodeTypes} onInit={setFlow} onNodeClick={(_, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId(null)} defaultViewport={{ x: 32, y: 90, zoom: .9 }} minZoom={.89} maxZoom={1.35} nodesDraggable={false} nodesConnectable={false} proOptions={{ hideAttribution: true }}><Background gap={22} size={1} color="rgba(20, 125, 120, .12)" /><Controls showInteractive={false} /></ReactFlow></div>
       {selected ? <aside className="agent-execution-detail" aria-label={`${selected.title} 运行详情`}><header><div><small>{nodeFamilyLabel(selected.kind)}</small><strong>{selected.title}</strong></div><button type="button" aria-label="关闭节点详情" onClick={() => setSelectedId(null)}>×</button></header><p>{selected.summary}</p><dl><div><dt>当前状态</dt><dd>{nodeStatusLabel(selected.status)}</dd></div><div><dt>处理用时</dt><dd>{selected.durationMs === null ? "未记录" : `${selected.durationMs} 毫秒`}</dd></div><div><dt>处理次数</dt><dd>{selected.callCount || 1}</dd></div></dl>{selected.safeInput ? <section><strong>本步核对内容</strong><ul>{formatSafeFacts(selected.safeInput)}</ul></section> : null}{selected.safeOutput ? <section><strong>本步处理结果</strong><ul>{formatSafeFacts(selected.safeOutput)}</ul></section> : null}<details><summary>查看技术回执</summary><pre>{formatSafe({ input: selected.safeInput, output: selected.safeOutput })}</pre></details><small>技术回执已脱敏，不显示 Prompt、密钥、原始 Provider 响应或模型私有思维链。</small></aside> : null}
     </div>
   </section>;

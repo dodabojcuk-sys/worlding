@@ -37,6 +37,32 @@
   cursor: pointer;
 }
 
+.shell-workspace-event-line .event-line-state.is-warning {
+  position: relative;
+  z-index: 2;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin: .75rem .75rem 0;
+  padding: .7rem .8rem;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-surface) 92%, var(--color-warning));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border));
+  border-radius: var(--radius-sm);
+  box-shadow: 0 .2rem .65rem color-mix(in srgb, var(--color-text) 6%, transparent);
+  font-size: var(--font-size-xs);
+}
+.shell-workspace-event-line .event-line-state.is-warning > svg { inline-size: 1.05rem; color: var(--color-warning); }
+.shell-workspace-event-line .event-line-state.is-warning > div { min-width: 0; display: grid; gap: .16rem; }
+.shell-workspace-event-line .event-line-state.is-warning strong,
+.shell-workspace-event-line .event-line-state.is-warning span { overflow-wrap: anywhere; }
+.shell-workspace-event-line .event-line-state.is-warning strong { color: var(--color-text); }
+.shell-workspace-event-line .event-line-state.is-warning button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-block-size: 2rem; padding-inline: .6rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .event-line-state.is-warning button svg { inline-size: .82rem; }
+.shell-workspace-event-line .event-line-state.is-warning .event-line-warning-dismiss { inline-size: 2rem; padding: 0; color: var(--color-text-muted); background: transparent; border-color: transparent; }
+
 .shell-workspace-event-line .event-line-workbench,
 .shell-workspace-event-line .event-line-shell,
 .shell-workspace-event-line .event-line-spine-main {
@@ -526,7 +552,7 @@
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 .shell-workspace-event-line .event-graph-node.is-prediction-selected { outline: 2px solid var(--color-accent); outline-offset: 3px; }
-.shell-workspace-event-line .event-graph-prediction-node { inline-size: 10.5rem; border-style: dashed; border-color: var(--color-warning); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-warning)); opacity: .88; }
+.shell-workspace-event-line .event-graph-prediction-node { inline-size: 11.25rem; min-inline-size: 11.25rem; border-style: dashed; border-color: var(--color-warning); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-warning)); opacity: .88; }
 .shell-workspace-event-line .event-graph-prediction-node small { color: var(--color-warning); }
 .shell-workspace-event-line .event-graph-prediction-node.is-review-selected { opacity: .94; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-warning) 20%, transparent); }
 .shell-workspace-event-line .event-graph-prediction-node.is-review-excluded { opacity: .58; filter: saturate(.55); }
@@ -816,7 +842,7 @@
   .shell-workspace-event-line .event-graph-flow .react-flow__minimap { display: none; }
   .shell-workspace-event-line .event-graph-command-actions button:not(:last-child) { padding-inline: 0.5rem; }
   .shell-workspace-event-line .event-graph-source-collapse { display: inline-flex; align-items: center; margin-inline-start: auto; color: var(--color-accent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-  .shell-workspace-event-line .event-graph-prediction-node { inline-size: 9.75rem; min-inline-size: 9.75rem; }
+  .shell-workspace-event-line .event-graph-prediction-node { inline-size: 11.25rem; min-inline-size: 11.25rem; }
   .shell-workspace-event-line .event-graph-prediction-node strong { font-size: .875rem; }
   .shell-workspace-event-line .graph-node-shell.is-candidate-event { inline-size: 11.25rem; min-inline-size: 11.25rem; }
   .shell-workspace-event-line .agent-execution-workspace > header { align-items: flex-start; padding-inline: var(--space-3); }

@@ -113,6 +113,7 @@ export function EventLineWorkbench(props: {
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
   const [creationError, setCreationError] = useState<string | null>(null);
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [invalidRecordWarningDismissed, setInvalidRecordWarningDismissed] = useState(false);
   const requestSequence = useRef(0);
   const spineRef = useRef<HTMLDivElement>(null);
   const pendingSpineAnchorRef = useRef<{ eventId: string | null; offset: number; scrollTop: number } | null>(null);
@@ -314,6 +315,7 @@ export function EventLineWorkbench(props: {
     setProjectionMode(next);
   };
   useEffect(() => { writeProjectionMode(props.projectId, projectionMode); }, [projectionMode, props.projectId]);
+  useEffect(() => { setInvalidRecordWarningDismissed(false); }, [props.listState.status === "ready" ? props.listState.invalidRecordCount : 0, props.projectId]);
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
     requestDockState({ open: true, activeLens: "review" });
@@ -376,7 +378,7 @@ export function EventLineWorkbench(props: {
           <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />紧凑显示</button> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
-        <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} onRetry={props.onRetry} />
+        <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
         {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
           const references = (eventIds ?? []).flatMap((eventId) => {
             const event = props.events.find((item) => item.id === eventId);
@@ -572,10 +574,10 @@ function DockEmpty(props: { icon: ReactNode; title: string; body: string }) {
   return <div className="event-line-dock-empty">{props.icon}<strong>{props.title}</strong><p>{props.body}</p></div>;
 }
 
-function EventLineListState(props: { state: VerifiedCanonEventListRead | { status: "loading" }; invalidRecordCount: number; eventCount: number; onRetry(): void }) {
+function EventLineListState(props: { state: VerifiedCanonEventListRead | { status: "loading" }; invalidRecordCount: number; eventCount: number; warningDismissed: boolean; onDismissWarning(): void; onRetry(): void }) {
   if (props.state.status === "loading") return <p className="event-line-state" data-testid="event-line-list-loading">正在核验已确认事件…</p>;
   if (props.state.status === "error") return <div className="event-line-state is-error" role="alert" data-testid="event-line-list-error" data-error-kind={props.state.error.kind}><strong>{canonReadFailureLabel(props.state.error.kind)}</strong><span>{props.state.error.message}</span><button type="button" onClick={props.onRetry}><RefreshCw />重新读取</button></div>;
-  if (props.invalidRecordCount > 0) return <><div className="event-line-state is-warning" role="alert" data-testid="event-line-invalid-records"><strong>发现 {props.invalidRecordCount} 条未通过验证的确认外观记录</strong><span>这些记录已排除，不会伪装成正式事实。</span><button type="button" onClick={props.onRetry}><RefreshCw />重新核验</button></div>{props.eventCount === 0 ? <p className="event-line-state" data-testid="event-line-no-verified-records">当前没有通过完整作者确认链验证的事件。</p> : null}</>;
+  if (props.invalidRecordCount > 0) return <>{!props.warningDismissed ? <div className="event-line-state is-warning is-dismissible" role="alert" data-testid="event-line-invalid-records"><AlertTriangle aria-hidden="true" /><div><strong>发现 {props.invalidRecordCount} 条未通过验证的确认外观记录</strong><span>这些记录已排除，不会伪装成正式事实。</span></div><button type="button" className="event-line-warning-retry" onClick={props.onRetry}><RefreshCw />重新核验</button><button type="button" className="event-line-warning-dismiss" aria-label="关闭核验警告" onClick={props.onDismissWarning}><X /></button></div> : null}{props.eventCount === 0 ? <p className="event-line-state" data-testid="event-line-no-verified-records">当前没有通过完整作者确认链验证的事件。</p> : null}</>;
   if (props.eventCount === 0) return <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>还没有已确认事件</strong><p>先新建一个故事可能，或从已有内容开始排演；只有作者完成影响确认后才会出现在这里。</p></section>;
   return null;
 }

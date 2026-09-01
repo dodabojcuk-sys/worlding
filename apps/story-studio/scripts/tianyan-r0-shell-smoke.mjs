@@ -1117,6 +1117,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.waitForFunction(() => ["generating", "validating", "reviewing"].includes(document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") ?? ""));
   if (output) {
     await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
+    await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
+    assert.equal(await tianyiSidebar.getByText("当前对话不会操纵任务；切回 Agent 可查看原有进度。", { exact: true }).count(), 1, "Dialogue must explain that it does not control the retained Agent task.");
+    assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel, .agent-execution-workspace").count(), 0, "Dialogue must not mount prediction or execution controls while the Agent task remains in the background.");
     await capture("F-1440x900-running-agent-switched-to-dialogue.png");
     await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   }
@@ -1163,6 +1166,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       sidebarRight: sidebar?.right ?? 0,
       flowWidth: flow?.width ?? 0,
       minNodeWidth: nodes.length ? Math.min(...nodes.map((node) => node.width)) : 0,
+      currentNodeVisible: nodes.length ? nodes.at(-1).left >= flow.left && nodes.at(-1).right <= flow.right : false,
       pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
       locatorVisible: Boolean(document.querySelector(".agent-execution-locator"))
     };
@@ -1171,6 +1175,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.ok(Math.abs(narrowExecution.sidebarRight - 1152) <= 1, `1152 execution Tianyi must remain rightmost=${JSON.stringify(narrowExecution)}`);
   assert.ok(narrowExecution.flowWidth >= 640, `1152 execution canvas must retain a readable pan surface=${JSON.stringify(narrowExecution)}`);
   assert.ok(narrowExecution.minNodeWidth >= 170, `1152 execution nodes must keep at least 170px of rendered width at the readable default zoom=${JSON.stringify(narrowExecution)}`);
+  assert.equal(narrowExecution.currentNodeVisible, true, `The current execution node must be focused inside the usable canvas rather than beneath Tianyi=${JSON.stringify(narrowExecution)}`);
   assert.equal(narrowExecution.pageOverflow, false, `1152 execution graph must not create page overflow=${JSON.stringify(narrowExecution)}`);
   assert.equal(narrowExecution.locatorVisible, true, `1152 execution graph must keep explicit locator controls=${JSON.stringify(narrowExecution)}`);
   await capture("H-1152x720-agent-execution-readable-pan.png");
@@ -1179,13 +1184,24 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
 
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isDisabled(), true, "A time-conflict path must remain blocked.");
+  assert.equal(await panel.getByText("这条路径暂时不可采纳", { exact: true }).count(), 1, "A blocked path must explain why it cannot be adopted.");
+  const conflictRelations = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const conflictCanon = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const conflictLibrary = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(conflictRelations.data.relations.length, relationsBefore.data.relations.length, "Previewing a time-conflict path must not write a Relation.");
+  assert.deepEqual(conflictCanon.data.eventIds, canonBefore.data.eventIds, "Previewing a time-conflict path must not write Canon.");
+  assert.equal(conflictLibrary.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftCountBefore, "Previewing a time-conflict path must not create a draft Event.");
+  await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).click();
+  assert.equal(await panel.locator(".tianyi-prediction-adjust textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
+  await capture("I-1440x900-time-conflict-blocked-no-write.png");
   await panel.locator('[data-path-id="prediction-path.lighthouse"] button').press("Enter");
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length === 3);
   await page.waitForTimeout(260);
-  assert.equal(await page.locator(".event-graph-prediction-node").evaluateAll((nodes) => {
+  const activePathGeometry = await page.locator(".event-graph-prediction-node").evaluateAll((nodes) => {
     const canvas = document.querySelector(".event-graph-flow")?.getBoundingClientRect();
-    return Boolean(canvas && nodes.every((node) => { const rect = node.getBoundingClientRect(); return rect.left >= canvas.left && rect.right <= canvas.right && rect.top >= canvas.top && rect.bottom <= canvas.bottom; }));
-  }), true, "The active continuous candidate path must remain fully visible in the canvas.");
+    return { canvas: canvas ? { left: canvas.left, right: canvas.right, top: canvas.top, bottom: canvas.bottom, width: canvas.width, height: canvas.height } : null, nodes: nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }; }) };
+  });
+  assert.equal(Boolean(activePathGeometry.canvas && activePathGeometry.nodes.every((node) => node.left >= activePathGeometry.canvas.left && node.right <= activePathGeometry.canvas.right && node.top >= activePathGeometry.canvas.top && node.bottom <= activePathGeometry.canvas.bottom)), true, `The active continuous candidate path must remain fully visible in the canvas=${JSON.stringify(activePathGeometry)}`);
   assert.equal(await page.getByText(/候选[／·]\s*尚未写入事件线/u).count() >= 1, true, "Candidate overlay must state that it is not written to the Event Line.");
   assert.equal(await panel.getByText(/时间未定（可继续审阅）/u).count(), 1, "Unknown time stays explicit and reviewable.");
   assert.equal(await panel.locator(".tianyi-prediction-accept").isEnabled(), true, "Unknown time does not block an otherwise valid path.");
@@ -1265,6 +1281,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       sourceSummary: document.querySelector(".event-graph-prediction-source-summary")?.textContent?.trim() ?? "",
       formalSourceCards: [...document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)")].filter((node) => /暗号传递|仓库对峙|旧仓库封锁/u.test(node.textContent ?? "")).length,
       candidateFont: candidateTitles.length ? Math.min(...candidateTitles.map((title) => Number.parseFloat(getComputedStyle(title).fontSize))) : 0,
+      minCandidateWidth: candidateTitles.length ? Math.min(...candidateTitles.map((title) => title.closest(".event-graph-prediction-node")?.getBoundingClientRect().width ?? 0)) : 0,
+      firstCandidateVisible: (() => { const flow = document.querySelector(".event-graph-flow")?.getBoundingClientRect(); const node = document.querySelector(".event-graph-prediction-node")?.getBoundingClientRect(); return Boolean(flow && node && node.left >= flow.left && node.right <= flow.right); })(),
       overflow: document.documentElement.scrollWidth > window.innerWidth
     };
   });
@@ -1274,6 +1292,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.match(narrow.sourceSummary, /3 个推演依据/u, `1152 must collapse formal sources to a semantic summary=${JSON.stringify(narrow)}`);
   assert.equal(narrow.formalSourceCards, 0, `1152 must not shrink three formal source cards beside the candidate path=${JSON.stringify(narrow)}`);
   assert.ok(narrow.candidateFont >= 14, `Candidate titles remain directly readable=${JSON.stringify(narrow)}`);
+  assert.ok(narrow.minCandidateWidth >= 170, `Candidate cards must retain at least 170px of rendered width=${JSON.stringify(narrow)}`);
+  assert.equal(narrow.firstCandidateVisible, true, `The current path must begin inside the usable canvas and leave later nodes available by panning=${JSON.stringify(narrow)}`);
   assert.equal(narrow.overflow, false, `Prediction workspace must not create page overflow=${JSON.stringify(narrow)}`);
   assert.equal(await panel.locator("text=/Pi Agent|Prompt|temperature|gateway|runtime graph|internal agent node/u").count(), 0, "Internal execution terms must not leak into the author UI.");
   await capture("G-1152x720-agent-current-candidate-path.png");

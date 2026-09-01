@@ -24,6 +24,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const [execution, setExecution] = useState<TianyiPredictionExecutionProjection | null>(null);
   const pollingGeneration = useRef(0);
   const stopRequested = useRef(false);
+  const adjustGoalRef = useRef<HTMLTextAreaElement>(null);
   const project = props.runtime.project;
   const sourceKey = props.eventRefs.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
   const activePath = run?.bundle?.paths.find((path) => path.id === pathId) ?? null;
@@ -176,6 +177,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const sourceLabels = props.eventRefs.map((reference, index) => props.sourceLabels?.[index] ?? reference.eventId);
   const pathNumber = activePath && run?.bundle ? run.bundle.paths.findIndex((path) => path.id === activePath.id) + 1 : 0;
   const adoption = summarizeAdoption(run, activePath, selectedNodeIds);
+  const hasTimeConflict = gate.reasons.some((reason) => reason.startsWith("time-conflict:"));
   return <section className="tianyi-prediction-panel" aria-label="多节点推演" data-prediction-phase={phase}>
     <header><div><small>事件线 · 结构化推演</small><strong>多节点推演</strong></div><span className="tianyi-prediction-candidate-badge">候选</span></header>
     {receipt ? <ReceiptView receipt={receipt} run={run} /> : null}
@@ -204,7 +206,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       <button type="button" className="primary-action tianyi-prediction-accept" disabled={!gate.allowed || !selectedNodeIds.length} onClick={accept}><Check />{adoptionButtonLabel(adoption)}</button>
       <div className="tianyi-prediction-secondary-actions"><button type="button" disabled={busy} onClick={start}><RotateCcw />生成新推演</button><button type="button" disabled={busy || run.status === "abandoned"} onClick={abandon}><Ban />放弃本次推演</button></div>
       {!gate.allowed ? <small className="tianyi-prediction-gate">采纳已禁用：{gateReason(gate.reasons)}</small> : null}
-      <label className="tianyi-prediction-adjust"><span>继续调整本次推演</span><textarea value={goal} maxLength={1000} rows={2} disabled={busy} onChange={(event) => setGoal(event.target.value)} /></label>
+      {hasTimeConflict ? <section className="tianyi-prediction-conflict-help" role="note"><strong>这条路径暂时不可采纳</strong><p>候选时间与现有故事顺序冲突；当前路径不会写入正式事件、正式关系或世界状态。</p><button type="button" onClick={() => adjustGoalRef.current?.focus()}>返回修正推演要求</button></section> : null}
+      <label className="tianyi-prediction-adjust"><span>继续调整本次推演</span><textarea ref={adjustGoalRef} value={goal} maxLength={1000} rows={2} disabled={busy} onChange={(event) => setGoal(event.target.value)} /></label>
     </section> : <p className="tianyi-prediction-empty"><RotateCcw />选择 1–4 个已有事件后，生成可审阅的连续候选路径。</p>}
     {runs.length > 1 ? <label className="tianyi-prediction-history">推演历史<select value={run?.runId ?? ""} onChange={(event) => selectRun(event.target.value)}>{runs.map((item) => <option key={item.runId} value={item.runId}>{item.runId.slice(-8)} · {runStatusLabel(item.status)}</option>)}</select></label> : null}
     {run?.status === "abandoned" ? <p className="tianyi-prediction-receipt" role="status">本次推演已放弃；既有草稿和历史回执均保留。</p> : null}
