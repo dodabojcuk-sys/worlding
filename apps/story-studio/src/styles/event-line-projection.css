@@ -597,6 +597,27 @@
   min-block-size: 0;
   background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%);
 }
+.shell-workspace-event-line .smart-relation-review-tray { position: absolute; z-index: 8; inset: .8rem .8rem auto auto; display: grid; gap: .55rem; inline-size: min(23rem, calc(100% - 2rem)); max-block-size: min(27rem, calc(100% - 4rem)); padding: .7rem; background: color-mix(in srgb, var(--color-surface) 97%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 42%, var(--color-border)); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
+.shell-workspace-event-line .smart-relation-review-tray > header,
+.shell-workspace-event-line .smart-relation-review-tray > header > div,
+.shell-workspace-event-line .smart-relation-review-tray > footer { display: flex; align-items: center; gap: .5rem; }
+.shell-workspace-event-line .smart-relation-review-tray > header { justify-content: space-between; }
+.shell-workspace-event-line .smart-relation-review-tray > header > div > svg { inline-size: 1rem; color: var(--color-warning-strong, #8c520b); }
+.shell-workspace-event-line .smart-relation-review-tray > header span { display: grid; gap: .08rem; }
+.shell-workspace-event-line .smart-relation-review-tray > header strong { font-size: .875rem; }
+.shell-workspace-event-line .smart-relation-review-tray > header small { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .smart-relation-review-tray button,
+.shell-workspace-event-line .smart-relation-review-tray select { min-block-size: 2rem; padding-inline: .55rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-xs); font: inherit; }
+.shell-workspace-event-line .smart-relation-review-list { display: grid; gap: .4rem; min-block-size: 0; overflow: auto; }
+.shell-workspace-event-line .smart-relation-review-list > label { display: grid; grid-template-columns: auto minmax(0, 1fr) 8rem; align-items: center; gap: .5rem; padding: .5rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .smart-relation-review-list > label > span { display: grid; gap: .1rem; min-inline-size: 0; }
+.shell-workspace-event-line .smart-relation-review-list > label strong { font-size: .8125rem; }
+.shell-workspace-event-line .smart-relation-review-list > label small { overflow: hidden; color: var(--color-text-muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .smart-relation-review-list > label:is(.is-accepted, .is-rejected) { opacity: .58; }
+.shell-workspace-event-line .smart-relation-review-tray > footer { justify-content: flex-end; }
+.shell-workspace-event-line .smart-relation-review-tray > footer button { display: inline-flex; align-items: center; gap: .3rem; }
+.shell-workspace-event-line .smart-relation-review-tray > footer svg { inline-size: .9rem; }
+.shell-workspace-event-line .react-flow__edge.smart-relation-candidate-edge .react-flow__edge-path { filter: drop-shadow(0 1px 1px rgb(140 82 11 / 16%)); }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-main { grid-template-columns: minmax(0, 1fr) 0 minmax(0, 0); }
 .shell-workspace-event-line .event-graph-workspace.is-temporal.has-inspector .event-graph-main { grid-template-columns: minmax(0, 1fr) 0 minmax(17rem, 20rem); }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-flow { grid-column: 1; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }

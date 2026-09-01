@@ -12,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
+import type { SmartRelationCandidate, StoryModelingRun } from "../../../../../src/storyContracts/storyModeling.ts";
+import { dedupeSmartRelationCandidates, reviewSmartRelationCandidates } from "../../../../../src/storyContracts/storyModelingReview.ts";
 import type { TemporalPlacement, TemporalProjectionRun, TemporalSegment } from "../../../../../src/storyContracts/temporalProjection.ts";
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
@@ -23,6 +25,7 @@ import { AgentExecutionGraph } from "../tianyi/execution/AgentExecutionGraph";
 type Selection =
   | { kind: "node"; id: string }
   | { kind: "relation"; id: string }
+  | { kind: "smart-relation"; id: string }
   | { kind: "remote"; direction: "past" | "future"; count: number }
   | null;
 type NodeData = {
@@ -46,7 +49,7 @@ export function EventGraphCanvas(props: {
   selectedEventId: string | null;
   onSelectEvent(eventId: string): void;
   onClearSelection(): void;
-  onCreateRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void> | void;
+  onCreateRelation?(input: { sourceEventId: string; targetEventId: string; relationTypeId?: string | null; sourceRef?: string }): Promise<void> | void;
   onConfirmRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
   onUpdateRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
   onApproveModifiedRelation?(relation: RelationReadProjectionR0): Promise<void> | void;
@@ -71,6 +74,9 @@ export function EventGraphCanvas(props: {
   const [selection, setSelection] = useState<Selection>(props.selectedEventId ? { kind: "node", id: props.selectedEventId } : null);
   const [predictionSelectionIds, setPredictionSelectionIds] = useState<string[]>([]);
   const [predictionRun, setPredictionRun] = useState<PredictionRun | null>(null);
+  const [storyModelingRun, setStoryModelingRun] = useState<StoryModelingRun | null>(null);
+  const [smartRelationReviews, setSmartRelationReviews] = useState<SmartRelationCandidate[]>([]);
+  const [smartRelationSelection, setSmartRelationSelection] = useState<string[]>([]);
   const [predictionPathId, setPredictionPathId] = useState<string | null>(null);
   const [predictionSelectedNodeIds, setPredictionSelectedNodeIds] = useState<string[]>([]);
   const [predictionViewState, setPredictionViewState] = useState<PredictionViewDetail["view"]>("task");
@@ -119,6 +125,20 @@ export function EventGraphCanvas(props: {
     window.addEventListener("story-studio-multi-node-prediction-run", receive);
     return () => window.removeEventListener("story-studio-multi-node-prediction-run", receive);
   }, [props.projectId]);
+
+  useEffect(() => {
+    const apply = (run: StoryModelingRun | undefined) => {
+      if (!run || run.projectId !== props.projectId || run.tool !== "smart-relations" || run.status !== "ready") return;
+      setStoryModelingRun(run);
+      const candidates = dedupeSmartRelationCandidates({ candidates: run.result?.relationCandidates ?? [], existing: graphRelations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, direction: relation.direction === "none" || relation.direction === "both" ? "undirected" as const : relation.direction === "reverse" ? "reverse" as const : "forward" as const })) });
+      setSmartRelationReviews(candidates);
+      setSmartRelationSelection(candidates.map((candidate) => candidate.candidateId));
+    };
+    const receive = (event: Event) => apply((event as CustomEvent<StoryModelingRun>).detail);
+    apply((window as Window & { __storyStudioStoryModelingRun?: StoryModelingRun }).__storyStudioStoryModelingRun);
+    window.addEventListener("story-studio-story-modeling-run", receive);
+    return () => window.removeEventListener("story-studio-story-modeling-run", receive);
+  }, [graphRelations, props.projectId]);
 
   useEffect(() => {
     const receiveProjection = (event: Event) => {
@@ -193,6 +213,22 @@ export function EventGraphCanvas(props: {
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
+    const smartEdges: Edge[] = smartRelationReviews.filter((candidate) => candidate.reviewState === "candidate").map((candidate) => ({
+      id: candidate.candidateId,
+      source: candidate.sourceEventId,
+      target: candidate.targetEventId,
+      type: "smoothstep",
+      className: "smart-relation-candidate-edge",
+      label: `${candidate.suggestedTypeLabel} · ${Math.round(candidate.confidence * 100)}%`,
+      markerEnd: candidate.direction === "undirected" ? undefined : { type: MarkerType.ArrowClosed },
+      style: { stroke: "#c47b16", strokeWidth: 2, strokeDasharray: "7 5" },
+      labelStyle: { fill: "#8c520b", fontSize: 12, fontWeight: 700 },
+      labelBgStyle: { fill: "#fbfaf6", fillOpacity: .95 },
+      data: { smartRelation: true }
+    }));
+    setEdges([...graph.edges, ...smartEdges]);
+  }, [graph.edges, setEdges, smartRelationReviews]);
+  useEffect(() => {
     if (props.selectedEventId) {
       if (relationSelectionActive.current) return;
       setSelection((current) => current?.kind === "relation" ? current : { kind: "node", id: props.selectedEventId! });
@@ -264,6 +300,7 @@ export function EventGraphCanvas(props: {
   };
   const currentEvent = selection?.kind === "node" ? graphEvents.find((event) => event.id === selection.id) ?? null : null;
   const currentRelation = selection?.kind === "relation" ? graphRelations.find((relation) => relation.relationId === selection.id) ?? null : null;
+  const currentSmartRelation = selection?.kind === "smart-relation" ? smartRelationReviews.find((relation) => relation.candidateId === selection.id) ?? null : null;
   const predictionSources = predictionSelectionIds.map((id) => graphEvents.find((event) => event.id === id)).filter((event): event is EventLineEventSummary => Boolean(event));
   const addCurrentToPrediction = () => {
     if (!currentEvent) return;
@@ -288,6 +325,19 @@ export function EventGraphCanvas(props: {
   };
   const remote = selection?.kind === "remote" ? selection : null;
   const candidateCount = graphRelations.filter((relation) => relation.reviewState === "candidate").length;
+  const reviewSmartRelations = (decision: "accepted" | "rejected") => setSmartRelationReviews((current) => reviewSmartRelationCandidates({ candidates: current, candidateIds: smartRelationSelection, decision }));
+  const acceptSmartRelations = async () => {
+    if (!props.onCreateRelation || !smartRelationSelection.length) return;
+    setBusy("smart-relations");
+    try {
+      for (const candidate of smartRelationReviews.filter((item) => smartRelationSelection.includes(item.candidateId))) {
+        await props.onCreateRelation({ sourceEventId: candidate.sourceEventId, targetEventId: candidate.targetEventId, relationTypeId: candidate.suggestedTypeId, sourceRef: `story-modeling:${storyModelingRun?.runId ?? candidate.sourceRunId}:${candidate.candidateId}` });
+      }
+      reviewSmartRelations("accepted");
+      setNotice("所选连线已进入待确认关系；正式 Relation 仍为 0 次自动写入。");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "候选关系未能进入待确认。"); }
+    finally { setBusy(null); }
+  };
 
   if (graphLayer === "AGENT_EXECUTION_GRAPH") {
     return executionProjection ? <AgentExecutionGraph projection={executionProjection} onReturn={() => setGraphLayer("EVENT_GRAPH")} onOpenCandidates={() => setGraphLayer("EVENT_GRAPH")} onStop={() => window.dispatchEvent(new CustomEvent("story-studio-stop-agent-execution"))} onRetry={() => window.dispatchEvent(new CustomEvent("story-studio-retry-agent-execution"))} /> : <section className="agent-execution-workspace is-empty" aria-label="Agent 执行过程" data-graph-layer="AGENT_EXECUTION_GRAPH"><header><div><small>天意 Agent</small><strong>Agent 执行过程</strong><span>运行事件尚未到达</span></div><nav><button type="button" onClick={() => setGraphLayer("EVENT_GRAPH")}><ArrowLeft />返回事件图</button></nav></header><p>执行图只由实际 Run 事件构建，不显示静态装饰流程。</p></section>;
@@ -352,7 +402,7 @@ export function EventGraphCanvas(props: {
             }
           }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
-          onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
+          onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: edge.data?.smartRelation ? "smart-relation" : "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
           onPaneClick={() => { setSelection(null); closeInspector(); props.onClearSelection(); }}
           onInit={setFlow} fitView minZoom={["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25} maxZoom={1.8}
           onMove={(_, viewport) => {
@@ -370,9 +420,10 @@ export function EventGraphCanvas(props: {
         </ReactFlow>
         {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
         <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
+        {mode === "graph" && smartRelationReviews.length ? <SmartRelationReviewTray candidates={smartRelationReviews} selectedIds={smartRelationSelection} relationTypes={props.relationTypes} busy={busy === "smart-relations"} onSelection={setSmartRelationSelection} onChangeType={(candidateId, relationTypeId) => setSmartRelationReviews((current) => current.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, suggestedTypeId: relationTypeId || null, suggestedTypeLabel: props.relationTypes.find((type) => type.relationTypeId === relationTypeId)?.label ?? "类型待确认" } : candidate))} onAccept={() => void acceptSmartRelations()} onReject={() => reviewSmartRelations("rejected")} /> : null}
       </div>
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
-      {inspectorOpen && !props.createOpen ? <GraphInspector
+      {inspectorOpen && !props.createOpen && !currentSmartRelation ? <GraphInspector
         event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} relationTypes={props.relationTypes} busy={busy}
         temporalPlacement={mode === "temporal" ? temporalPlacement : null} temporalStale={Boolean(props.temporalRun?.stale)}
         onClose={closeInspector} onFocus={focus} onOpenTianyi={(eventId) => props.onOpenTianyi?.(eventId ? [eventId] : undefined)}
@@ -381,6 +432,7 @@ export function EventGraphCanvas(props: {
         onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
         onExpand={() => { setDepth((value) => Math.min(value + 1, 3)); setSelection(focusId ? { kind: "node", id: focusId } : null); }}
       /> : null}
+      {inspectorOpen && currentSmartRelation ? <SmartRelationInspector candidate={currentSmartRelation} events={graphEvents} onClose={closeInspector} /> : null}
     </div>
   </section>;
 }
@@ -471,6 +523,42 @@ function EventUnitDirectory(props: {
 
 function GraphLegend(props: { temporal?: boolean; hasTemporalProjection?: boolean }) {
   return <aside className="event-graph-legend" aria-label={props.temporal ? "语义时间图图例" : "关系图图例"}><span><i className="formal" />正式关系</span><span><i className="candidate" />待确认</span>{props.temporal ? <><span><i className="temporal-inferred" />{props.hasTemporalProjection ? "AI 推断位置" : "基础布局"}</span><span><i className="temporal-conflict" />时间冲突</span></> : <span><i className="remote" />远端投影</span>}</aside>;
+}
+
+function SmartRelationReviewTray(props: {
+  candidates: readonly SmartRelationCandidate[];
+  selectedIds: readonly string[];
+  relationTypes: readonly RelationTypeDefinitionR0[];
+  busy: boolean;
+  onSelection(ids: string[]): void;
+  onChangeType(candidateId: string, relationTypeId: string): void;
+  onAccept(): void;
+  onReject(): void;
+}) {
+  const pending = props.candidates.filter((candidate) => candidate.reviewState === "candidate");
+  return <aside className="smart-relation-review-tray" aria-label="智能连线候选审查" data-formal-relation-writes="0">
+    <header><div><Sparkles /><span><strong>智能连线候选</strong><small>{pending.length} 条待审查 · 尚未成为正式关系</small></span></div><button type="button" disabled={!pending.length} onClick={() => props.onSelection(props.selectedIds.length === pending.length ? [] : pending.map((candidate) => candidate.candidateId))}>{props.selectedIds.length === pending.length ? "取消全选" : "全选"}</button></header>
+    <div className="smart-relation-review-list">{props.candidates.map((candidate) => <label key={candidate.candidateId} className={`is-${candidate.reviewState}`}>
+      <input type="checkbox" checked={props.selectedIds.includes(candidate.candidateId)} disabled={candidate.reviewState !== "candidate" || props.busy} onChange={() => props.onSelection(props.selectedIds.includes(candidate.candidateId) ? props.selectedIds.filter((id) => id !== candidate.candidateId) : [...props.selectedIds, candidate.candidateId])} />
+      <span><strong>{candidate.suggestedTypeLabel}</strong><small>{Math.round(candidate.confidence * 100)}% · {candidate.rationale}</small></span>
+      <select aria-label={`修改候选关系类型：${candidate.candidateId}`} value={candidate.suggestedTypeId ?? ""} disabled={candidate.reviewState !== "candidate" || props.busy} onChange={(event) => props.onChangeType(candidate.candidateId, event.target.value)}><option value="">类型待确认</option>{props.relationTypes.filter((type) => type.lifecycle === "active").map((type) => <option key={type.relationTypeId} value={type.relationTypeId}>{type.label}</option>)}</select>
+    </label>)}</div>
+    <footer><button type="button" className="primary-action" disabled={!props.selectedIds.length || props.busy} onClick={props.onAccept}><Check />接受为待确认</button><button type="button" disabled={!props.selectedIds.length || props.busy} onClick={props.onReject}><X />批量拒绝</button></footer>
+  </aside>;
+}
+
+function SmartRelationInspector(props: { candidate: SmartRelationCandidate; events: readonly EventLineEventSummary[]; onClose(): void }) {
+  const title = (eventId: string) => props.events.find((event) => event.id === eventId)?.title ?? eventId;
+  return <aside className="event-graph-inspector" aria-label="智能连线候选检查器">
+    <InspectorHeader title="关系候选" subtitle="AI 建议 · 尚未成为正式 Relation" onClose={props.onClose} />
+    <div className="event-graph-inspector-body relation-inspector">
+      <section className="event-graph-relation-status is-candidate">待确认 · {props.candidate.suggestedTypeLabel}</section>
+      <Facts facts={[[<ArrowRight />, "来源事件", title(props.candidate.sourceEventId)], [<ArrowRight />, "目标事件", title(props.candidate.targetEventId)], [<Link2 />, "方向", props.candidate.direction === "undirected" ? "方向待确认" : "来源 → 目标"], [<Sparkles />, "置信度", `${Math.round(props.candidate.confidence * 100)}%`]]} />
+      <TextBlock title="建议理由" text={props.candidate.rationale} />
+      <TextBlock title="来源证据" text={props.candidate.evidenceRefs.join("、")} />
+      <TextBlock title="写入边界" text="批量接受只会建立待确认 Relation candidate；未执行作者确认前，正式 Relation 不会增加。" />
+    </div>
+  </aside>;
 }
 
 function GraphInspector(props: {

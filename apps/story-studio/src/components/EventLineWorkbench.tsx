@@ -98,7 +98,7 @@ export function EventLineWorkbench(props: {
   onCreateUnit?(title: string): Promise<void>;
   onRenameUnit?(currentTitle: string, nextTitle: string): Promise<void>;
   onArchiveUnit?(title: string): Promise<void>;
-  onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
+  onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string; relationTypeId?: string | null; sourceRef?: string }): Promise<void>;
   relationTypes?: readonly RelationTypeDefinitionR0[];
   onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onUpdateGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;

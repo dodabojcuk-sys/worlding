@@ -9,6 +9,7 @@ import {
   estimateStoryModelingRun,
   normalizeStoryModelingRequest,
   recommendStoryModelingScope,
+  validateStoryModelingResult,
   type StoryModelingPrice,
   type StoryModelingRequest,
   type StoryModelingRun,
@@ -67,7 +68,8 @@ export function createStoryStudioStoryModelingOperations(options: {
         if (!Number.isSafeInteger(output.usage.providerRequests) || output.usage.providerRequests < 1 || output.usage.providerRequests > run.estimate.providerRequestRange.max) throw new Error("Story modeling Provider request count exceeded the confirmed estimate.");
         const totalTokens = output.usage.inputTokens + output.usage.outputTokens;
         const actualCost = options.price ? roundUsd(output.usage.inputTokens / 1_000_000 * options.price.inputPerMillionTokens + output.usage.outputTokens / 1_000_000 * options.price.outputPerMillionTokens) : null;
-        return structuredClone(replace({ ...running, status: "ready", provider: output.provider, actual: { providerRequests: output.usage.providerRequests, inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens, totalTokens, cost: actualCost === null ? null : { currency: "USD", value: actualCost } }, result: output.result, completedAt: now(), failureReason: null }));
+        const result = validateStoryModelingResult({ request, runId: run.runId, result: output.result });
+        return structuredClone(replace({ ...running, status: "ready", provider: output.provider, actual: { providerRequests: output.usage.providerRequests, inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens, totalTokens, cost: actualCost === null ? null : { currency: "USD", value: actualCost } }, result, completedAt: now(), failureReason: null }));
       } catch (cause) {
         replace({ ...running, status: controller.signal.aborted ? "stopped" : "failed", completedAt: now(), failureReason: cause instanceof Error ? cause.message.slice(0, 240) : "Story modeling failed." });
         throw cause;

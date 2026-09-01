@@ -120,6 +120,26 @@ export type SmartRelationCandidate = {
   sourceRunId: string;
 };
 
+export function validateStoryModelingResult(input: { request: StoryModelingRequest; runId: string; result: unknown }): StoryModelingResult {
+  if (!input.result || typeof input.result !== "object" || Array.isArray(input.result)) throw new Error("Story modeling result is invalid.");
+  const result = input.result as StoryModelingResult;
+  if (!Array.isArray(result.structureFindings) || !Array.isArray(result.temporalPlacements) || !Array.isArray(result.relationCandidates)) throw new Error("Story modeling result lists are invalid.");
+  const eventIds = new Set(input.request.eventRefs.map((reference) => reference.eventId));
+  const relationCandidates = result.relationCandidates.map((candidate) => normalizeSmartRelationCandidate(candidate, eventIds, input.runId));
+  if (new Set(relationCandidates.map((candidate) => candidate.candidateId)).size !== relationCandidates.length) throw new Error("Story modeling Relation candidate is duplicated.");
+  const temporalPlacements = result.temporalPlacements.map((placement) => {
+    if (!eventIds.has(placement.eventId)) throw new Error("Story modeling temporal placement is out of scope.");
+    const kind = oneOf(placement.kind, ["anchored", "inferred", "interval", "conflict", "unplaced"] as const, "Story modeling temporal kind");
+    const interval = placement.interval === null ? null : { start: finite(placement.interval.start, "Story modeling interval start"), end: finite(placement.interval.end, "Story modeling interval end") };
+    if (interval && interval.end < interval.start) throw new Error("Story modeling temporal interval is reversed.");
+    return { eventId: stableId(placement.eventId, "Story modeling temporal Event"), kind, x: finite(placement.x, "Story modeling temporal x"), y: finite(placement.y, "Story modeling temporal y"), label: text(placement.label, 120, "Story modeling temporal label"), interval, confidence: placement.confidence === null ? null : confidence(placement.confidence), sourceRefs: uniqueIds(placement.sourceRefs, "Story modeling temporal evidence") };
+  });
+  const structureFindings = result.structureFindings.map((finding) => ({ id: stableId(finding.id, "Story modeling finding"), kind: oneOf(finding.kind, ["core-line", "unit-boundary", "structure-break", "branch-comparison"] as const, "Story modeling finding kind"), title: text(finding.title, 120, "Story modeling finding title"), summary: text(finding.summary, 320, "Story modeling finding summary"), confidence: confidence(finding.confidence), sourceRefs: uniqueIds(finding.sourceRefs, "Story modeling finding source") }));
+  const serialized = JSON.stringify({ structureFindings, temporalPlacements, relationCandidates });
+  if (/"(?:prompt|messages|providerResponse|authorization|apiKey|toolCalls?)"\s*:/iu.test(serialized)) throw new Error("Story modeling result exposes internal Agent or Provider fields.");
+  return { structureFindings, temporalPlacements, relationCandidates };
+}
+
 export function createStoryModelingSourceManifest(input: { projectId: string; sources: StoryModelingSource[] }): StoryModelingSourceManifest {
   const projectId = stableId(input.projectId, "Story modeling project");
   if (!Array.isArray(input.sources) || input.sources.length === 0 || input.sources.length > 4096) throw new Error("Story modeling sources are invalid.");
@@ -225,6 +245,13 @@ function normalizeSource(value: StoryModelingSource): StoryModelingSource {
   if (!/^sha256:[a-f0-9]{64}$/u.test(value.contentDigest)) throw new Error("Story modeling source digest is invalid.");
   return { sourceId, sourceKind: oneOf(value.sourceKind, ["chapter", "scene", "unit", "event"] as const, "Story modeling source kind"), revision: stableId(value.revision, "Story modeling source revision"), contentDigest: value.contentDigest, characterCount: boundedInteger(value.characterCount, 0, 10_000_000, "Story modeling character count"), dependencySourceIds: deps.sort() };
 }
+function normalizeSmartRelationCandidate(candidate: SmartRelationCandidate, eventIds: ReadonlySet<string>, runId: string): SmartRelationCandidate {
+  const sourceEventId = stableId(candidate.sourceEventId, "Story modeling Relation source");
+  const targetEventId = stableId(candidate.targetEventId, "Story modeling Relation target");
+  if (sourceEventId === targetEventId || !eventIds.has(sourceEventId) || !eventIds.has(targetEventId)) throw new Error("Story modeling Relation candidate endpoints are invalid.");
+  if (candidate.sourceRunId !== runId) throw new Error("Story modeling Relation candidate Run provenance is invalid.");
+  return { candidateId: stableId(candidate.candidateId, "Story modeling Relation candidate"), sourceEventId, targetEventId, suggestedTypeId: candidate.suggestedTypeId === null ? null : stableId(candidate.suggestedTypeId, "Story modeling Relation type"), suggestedTypeLabel: text(candidate.suggestedTypeLabel, 80, "Story modeling Relation type label"), direction: oneOf(candidate.direction, ["forward", "reverse", "undirected"] as const, "Story modeling Relation direction"), confidence: confidence(candidate.confidence), rationale: text(candidate.rationale, 320, "Story modeling Relation rationale"), evidenceRefs: uniqueIds(candidate.evidenceRefs, "Story modeling Relation evidence"), reviewState: oneOf(candidate.reviewState, ["candidate", "accepted", "rejected"] as const, "Story modeling Relation review state"), sourceRunId: runId };
+}
 function normalizeScope(scope: StoryModelingScope, manifest: StoryModelingSourceManifest, eventRefs: StoryStudioEventReference[]): StoryModelingScope {
   const ids = new Set(manifest.sources.map((source) => source.sourceId));
   if (scope.kind === "incremental") return { kind: scope.kind, changedSourceIds: inManifest(scope.changedSourceIds, ids), dependencySourceIds: inManifest(scope.dependencySourceIds, ids) };
@@ -242,5 +269,7 @@ function text(value: unknown, maximum: number, label: string): string { if (type
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: string): T { if (typeof value !== "string" || !allowed.includes(value as T)) throw new Error(`${label} is invalid.`); return value as T; }
 function boundedInteger(value: unknown, min: number, max: number, label: string): number { if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max) throw new Error(`${label} is invalid.`); return value as number; }
 function finiteNonNegative(value: unknown, label: string): number { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`${label} is invalid.`); return value; }
+function finite(value: unknown, label: string): number { if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1_000_000) throw new Error(`${label} is invalid.`); return value; }
+function confidence(value: unknown): number { if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new Error("Story modeling confidence is invalid."); return value; }
 function sha(value: string): `sha256:${string}` { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
 function roundUsd(value: number): number { return Math.round(value * 1_000_000) / 1_000_000; }
