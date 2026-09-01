@@ -60,6 +60,41 @@ final result: passed
 
 ---
 
+# Design QA — Tianyan Event Line R6
+
+- Product baseline: remote review head `00b3566d36ee49652a2171cb3216420862a7bbe0`.
+- Final evidence: `/home/beelink/.codex/visualizations/2026/09/02/tianyan-event-line-r6/final/`.
+- Eight-state contact sheet: `/home/beelink/.codex/visualizations/2026/09/02/tianyan-event-line-r6/final/R6-CONTACT-SHEET.png`.
+- Uncut recordings: `R6-1440x900-story-modeling.webm` (44.48s) and `R6-1152x720-responsive.webm` (11.24s).
+- Verified viewports: 1440×900 and 1152×720 at device scale 1.
+
+## Contract and interaction checks
+
+- Story Spine, Relation Graph and Timeline view switching remain zero-cost reads. A missing temporal cache shows a clearly named base layout; a stale projection remains readable with an update recommendation.
+- Every modeling tool opens the same author confirmation boundary first. It exposes the recommended scope, chapter/event/dependency counts, bounded Provider request and token ranges, price-aware cost handling, output class and all protected write owners.
+- Cancel creates no Run. One confirmation creates one bounded isolated test-provider Run; evidence never claims the fixture is real AI proof.
+- Story Spine shows the main Unit as a control surface with semantic summary, direct Events, optional Collection Point and existing-owner actions. Unsafe split, merge, reorder, Nuwa and Multiverse actions remain visibly disabled rather than simulating writes.
+- Timeline keeps the Event Graph foreground, adds synchronized top and left coordinates, preserves unknown/conflict semantics and reserves an inset so rulers do not cover cards. Canvas resize refits the readable range when the 348px Tianyi Dock opens.
+- Smart Relation candidates show direction, type, confidence and source reason, deduplicate against current relations and remain candidate-only. The review tray keeps its header and batch actions visible while only the candidate list scrolls.
+
+## Visual findings and fixes
+
+- [Resolved P1] At 1152 the Story Spine action group overlapped the view switch. The responsive toolbar now uses two non-overlapping rows with horizontal overflow only inside the action row.
+- [Resolved P1] Initial temporal fitting allowed the left ruler to cover the first Event column. The final fit reserves the coordinate insets and responds to live canvas resize.
+- [Resolved P1] The Smart Relation review footer could fall behind the bottom AI toolbar. The tray now uses fixed header/footer tracks and a bounded scrolling list.
+- The 1440 Story Spine retains mature paper-white / deep-blue / teal hierarchy and exposes at least five complete Events without reverting to a table.
+- The 1152 proof keeps readable Event cards, a folded bottom tool surface and Tianyi fixed at the far right at 348px. It relies on panning instead of shrinking nodes below the reading threshold.
+- Browser console warnings/errors: 0 across the evidence recording flow and the passing standard E2E.
+- The two recordings were reviewed at two frames per second through complete frame sheets; no clipped transition, modal escape, duplicate write, blank surface or final-state console error was found.
+
+## Deferred owner contracts
+
+- Split at Event, merge adjacent Units, reorder impact application, Nuwa handoff and Multiverse-derived source creation remain disabled. Their current owners do not expose the required safe transactional contracts; R6 does not fabricate success or create a second owner.
+
+final result: passed
+
+---
+
 # Design QA — Tianyan AI Semantic Timeline R5
 
 - Motion reference: `/home/beelink/下载/1000003311.mp4` (1276×720, 10.75s); extracted reference contact sheet: `/home/beelink/.codex/visualizations/2026/09/01/tianyan-ai-semantic-timeline-r5/reference-video/contact-sheet.png`.

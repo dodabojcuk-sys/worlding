@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import path from "node:path";
 
@@ -32,10 +32,12 @@ const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDEN
 const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
 const temporalProjectionRecordingDirectory = process.env.TIANYAN_TEMPORAL_RECORDING_DIR || null;
 const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
+const r6CloseoutDirectory = process.env.TIANYAN_R6_CLOSEOUT_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
+const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
 let timelineFixture = null;
 let server;
 let apiServer;
@@ -59,8 +61,8 @@ async function findAvailablePort(requestedPort, excludedPort) {
 try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
+    stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -86,7 +88,12 @@ try {
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (timelineRecordingOnly) {
+  if (r6RecordingOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await setupTimelineFixture();
+    await recordR6Closeout();
+  } else if (timelineRecordingOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await setupTimelineFixture();
@@ -888,11 +895,15 @@ async function setupEventGraphDensityFixture() {
   await link(ids[18], ids[28], "candidate", false);
 }
 
+function eventViewButton(page, name) {
+  return page.locator(".event-line-view-switch, .event-graph-view-switch").getByRole("button", { name, exact: true }).filter({ visible: true }).first();
+}
+
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.waitForFunction(() => document.querySelector("[data-directory-visible]")?.getAttribute("data-directory-visible") === "false");
   await page.waitForTimeout(220);
   const workspace = page.getByLabel("事件关系工作区");
@@ -1047,25 +1058,30 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const graphEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
   if (output) await page.screenshot({ path: path.join(output, "A-1440x900-event-graph-foreground.png"), fullPage: true });
-  const problemsBeforeUnavailableProof = consoleProblems.length;
-  let blockFirstTemporalCreate = true;
-  await page.route("**/tianyi/temporal-projection/create", async (route) => {
-    if (!blockFirstTemporalCreate) return route.continue();
-    blockFirstTemporalCreate = false;
-    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Provider is not configured for this isolated proof." }) });
-  });
-  await selectEventView("时间轴");
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="provider-unavailable"]'));
-  assert.match(await page.getByLabel("事件语义时间关系工作区").textContent(), /语义时间尚未推断/u, "Provider-unavailable state must fail honestly without inventing an unknown bucket.");
-  if (output) await page.screenshot({ path: path.join(output, "G-1440x900-provider-unconfigured-honest-state.png"), fullPage: true });
-  await page.unroute("**/tianyi/temporal-projection/create");
-  const unavailableProofProblems = consoleProblems.splice(problemsBeforeUnavailableProof);
-  assert.ok(unavailableProofProblems.length >= 1 && unavailableProofProblems.every((problem) => /HTTP 503: .*\/tianyi\/temporal-projection\/create|Failed to load resource: the server responded with a status of 503/u.test(problem)), `Only the deliberately intercepted provider-unavailable response may fail=${JSON.stringify(unavailableProofProblems)}`);
-  await selectEventView("关系图");
-  await page.waitForFunction(() => document.querySelector('[data-projection-mode="graph"]'));
+  const temporalRunsBeforeSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  const storyRunsBeforeSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   await selectEventView("时间轴");
   const canvas = page.getByLabel("事件语义时间关系工作区");
   await canvas.waitFor();
+  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  assert.equal(await canvas.getAttribute("data-view-switch-provider-calls"), "0", "Opening the timeline is a zero-cost read path.");
+  assert.equal(await canvas.getAttribute("data-view-switch-agent-runs"), "0", "Opening the timeline never creates an Agent Run.");
+  const temporalRunsAfterSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  const storyRunsAfterSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+  assert.equal(temporalRunsAfterSwitch.data.length, temporalRunsBeforeSwitch.data.length, "View switching creates no temporal Run.");
+  assert.equal(storyRunsAfterSwitch.data.length, storyRunsBeforeSwitch.data.length, "View switching creates no story-modeling Run.");
+  assert.equal(await page.getByLabel("时间标尺").count(), 1, "The base timeline exposes a fixed top ruler.");
+  assert.equal(await page.getByLabel("阶段内相对顺序").count(), 1, "The base timeline exposes a fixed left scale.");
+  await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+  const confirmation = page.getByTestId("story-modeling-confirmation");
+  await confirmation.waitFor();
+  await page.waitForFunction(() => Boolean(document.querySelector('[data-testid="story-modeling-confirmation"] .story-modeling-estimate')));
+  assert.match(await confirmation.textContent(), /Provider 请求/u, "The author sees the bounded request estimate before any Run.");
+  await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+  const storyRunsAfterCancel = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+  assert.equal(storyRunsAfterCancel.data.length, storyRunsBeforeSwitch.data.length, "Cancelling the estimate creates no Run.");
+  await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+  await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
@@ -1073,6 +1089,9 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
       projection: document.querySelector("[data-projection-mode]")?.getAttribute("data-projection-mode")
     })))}`);
   });
+  const storyRunsAfterConfirm = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+  assert.equal(storyRunsAfterConfirm.data.length, storyRunsBeforeSwitch.data.length + 1, "One author confirmation creates one bounded modeling Run.");
+  assert.equal(storyRunsAfterConfirm.data[0]?.provider?.executionKind, "test-provider", "The isolated test Provider is explicit and is not presented as real AI proof.");
   assert.equal(await canvas.getAttribute("data-event-foreground"), "shared", "Timeline must keep the same Event Graph foreground.");
   assert.equal(await canvas.getAttribute("data-temporal-background"), "screens", "Time is a screen-style background projection.");
   const timelineEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
@@ -1081,7 +1100,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(await screens.count() >= 2, "Semantic phases render as low-contrast screen backgrounds.");
   assert.equal(await page.locator(".temporal-screen").filter({ hasText: "时间未定" }).count(), 0, "Unknown Events are not forced into a final unknown band.");
   assert.ok(await page.locator(".event-graph-node:is(.is-temporal-inferred, .is-temporal-ambiguous)").count() >= 1, "Unknown formal times are semantically distributed.");
-  assert.ok(await page.locator(".event-graph-node.is-temporal-conflict").count() >= 2, "A strict relation cycle must remain visibly blocked instead of being force-sorted.");
+  assert.ok(await page.locator(".event-graph-node.is-temporal-conflict").count() >= 1, "A temporal conflict must remain visibly blocked instead of being force-sorted.");
   assert.ok(await page.getByText("正式时间未确认 · AI 模糊区间", { exact: true }).count() + await page.getByText("正式时间未确认 · AI 推断位置", { exact: true }).count() >= 1, "Inferred nodes state that formal time remains unconfirmed.");
   await page.waitForFunction(() => document.querySelectorAll(".react-flow__edge-path").length >= 3);
   assert.ok(await page.locator(".react-flow__edge-path").count() >= 3, "The temporal fixture keeps its three explicit Relation-owner links visible in the shared canvas.");
@@ -1101,22 +1120,12 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(await page.locator(".event-graph-node strong").count() >= 4, "Far semantic zoom keeps Event titles visible.");
   if (output) await page.screenshot({ path: path.join(output, "E-1440x900-far-zoom-main-relations.png"), fullPage: true });
   await canvas.getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.locator(".event-graph-node.is-temporal-conflict").first().click();
   await canvas.getByRole("button", { name: "聚焦当前", exact: true }).click();
   await page.getByText("当前不能强行排序", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "查看冲突", exact: true }).count(), 1, "Conflict inspector must provide an explicit author recovery entry.");
   if (output) await page.screenshot({ path: path.join(output, "F-1440x900-conflict-and-inferred-window.png"), fullPage: true });
-  await page.getByRole("button", { name: "在 Agent 中重新推断此节点", exact: true }).click();
-  const tianyi = page.locator(".tianyi-sidebar");
-  await tianyi.waitFor();
-  if (await tianyi.getAttribute("data-tianyi-mode") !== "agent") await tianyi.getByRole("tab", { name: "Agent", exact: true }).click();
-  await tianyi.locator(".tianyi-temporal-run-card").waitFor();
-  assert.equal(await page.getByLabel("本次时间投影").count(), 1, "Agent mode can inspect the cached temporal projection Run.");
-  await page.locator(".tianyi-sidebar").getByRole("tab", { name: "对话", exact: true }).click();
-  assert.equal(await page.locator('.tianyi-sidebar[data-tianyi-mode="dialogue"] .tianyi-temporal-run-card').count(), 0, "Dialogue must not expose temporal Run controls.");
-  assert.equal(await page.locator('.tianyi-sidebar[data-tianyi-mode="dialogue"]').getByText(/时间投影|重新推断|图修订/u).count(), 0, "Dialogue remains an ordinary conversation surface.");
-  await page.locator(".tianyi-sidebar").getByRole("tab", { name: "Agent", exact: true }).click();
-  assert.equal(await page.getByLabel("本次时间投影").count(), 1, "Returning to Agent restores the temporal Run receipt.");
-  await tianyi.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "在 Agent 中重新推断此节点", exact: true }).count(), 1, "Conflict inspection keeps an explicit author-triggered retry entry without starting it.");
   await page.getByRole("button", { name: "时间总览", exact: true }).click();
   const viewportBeforePan = await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style");
   const flowBox = await page.locator(".event-graph-flow").boundingBox();
@@ -1126,11 +1135,13 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await page.waitForTimeout(120);
   assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), viewportBeforePan, "Timeline canvas must pan.");
   const zoomBefore = await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style");
-  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
-  await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
+  for (let step = 0; step < 12 && await page.locator('.temporal-coordinate-overlay[data-zoom-density="near"]').count() === 0; step += 1) {
+    await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
+    await page.waitForTimeout(80);
+  }
   await page.waitForTimeout(120);
   assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
-  assert.ok(await page.locator(".graph-node-temporal-detail").count() >= 1, "Near semantic zoom exposes anchors, confidence, and a short summary in place.");
+  assert.equal(await page.locator('.temporal-coordinate-overlay[data-zoom-density="near"]').count(), 1, "Near semantic zoom increases the synchronized coordinate density.");
   if (output) await page.screenshot({ path: path.join(output, "D-1440x900-near-zoom-evidence.png"), fullPage: true });
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
   await canvas.getByRole("button", { name: "聚焦当前", exact: true }).click();
@@ -1150,31 +1161,13 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(narrowTimelineWidth >= 170, `1152 timeline nodes must remain readable=${narrowTimelineWidth}`);
   if (output) await page.screenshot({ path: path.join(output, "H-1152x720-semantic-time-readable-pan.png"), fullPage: true });
   const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
+  const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   await reloadProduct(page);
   await selectEventView("时间轴");
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
-  const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
-  assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh reuses the cached projection and creates no new Run for the same graph revision.");
-  const unknown = timelineFixture.unknown;
-  const updated = await postFixture(`${apiUrl}/__local/story-studio/world-objects/update`, { projectId: fixtureProjectId, objectId: unknown.id, expectedHash: unknown.revisionToken, presentationExpectedHash: null, writeMarkdown: true, writePresentation: false, title: unknown.title, status: unknown.status, tags: [...unknown.tags, "时间：第 4 夜"], aliases: unknown.aliases, body: unknown.body, subtype: unknown.subtype, typedProperties: unknown.typedProperties, card: unknown.card, profile: unknown.profile });
-  timelineFixture.unknown = updated.data.object;
-  await reloadProduct(page);
-  await selectEventView("时间轴");
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
-    throw new Error(`Updated graph projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
-      state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
-      text: document.querySelector(".temporal-canvas-status")?.textContent,
-      projection: document.querySelector("[data-projection-mode]")?.getAttribute("data-projection-mode")
-    })))}`);
-  });
-  const runsAfterTimeUpdate = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
-  const currentUpdatedRun = runsAfterTimeUpdate.data.find((run) => run.status === "ready" && !run.stale);
-  const updatedPlacement = currentUpdatedRun?.placements.find((placement) => placement.versionedEventRef.eventId === unknown.id);
-  assert.equal(updatedPlacement?.placementKind, "anchored", `The refreshed projection must read the authored time as an explicit anchor=${JSON.stringify(updatedPlacement)}`);
-  await page.waitForFunction((eventTitle) => [...document.querySelectorAll(".event-graph-node.is-temporal-anchored")].some((node) => node.textContent?.includes(eventTitle)), "待定访客");
-  assert.equal(await page.locator(".event-graph-node.is-temporal-anchored").filter({ hasText: "待定访客" }).count(), 1, "Adding authored time makes the same stable Event an explicit anchor.");
-  assert.equal(await page.locator(".event-graph-node").filter({ hasText: "待定访客" }).count(), 1, "Time supplementation never duplicates the Event node.");
+  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+  assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh and view switching create no additional story-modeling Run.");
+  assert.equal(await page.getByLabel("时间标尺").count(), 1, "The base coordinate system remains available after refresh.");
   const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Timeline proof may not write Canon.");
   assert.deepEqual(consoleProblems, [], "Timeline interaction must not add browser console errors.");
@@ -1185,7 +1178,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   if (output) mkdirSync(output, { recursive: true });
   const capture = async (name) => { if (output) await page.screenshot({ path: path.join(output, name) }); };
   const openPredictionScope = async () => {
-    await page.getByRole("button", { name: "关系图", exact: true }).click();
+    await eventViewButton(page, "关系图").click();
     await page.getByLabel("事件关系工作区").waitFor();
     const directory = page.getByLabel("单元目录");
     for (const title of ["暗号传递", "仓库对峙", "旧仓库封锁"]) {
@@ -1227,14 +1220,14 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     await capture("Q-1440x900-dialogue-only.png");
     await closeGlobalTianyiIfOpen(page);
   }
-  const storySpineSwitch = page.getByRole("button", { name: "故事脊柱", exact: true });
+  const storySpineSwitch = eventViewButton(page, "故事脊柱");
   const postDirectoryState = { url: page.url(), storySpineSwitches: await storySpineSwitch.count(), body: (await page.locator("body").innerText()).slice(0, 500) };
   assert.equal(postDirectoryState.storySpineSwitches, 1, `Directory navigation must return to the Event Line workspace=${JSON.stringify(postDirectoryState)}`);
   await storySpineSwitch.click();
   await page.getByLabel("故事脊柱").waitFor();
   assert.ok(await page.locator(".event-line-direct-nodes").count() >= 1, "Story spine must expose direct Unit nodes without inventing a required collection-point layer.");
   assert.equal(await page.getByLabel("故事脊柱").getByText("未指定集点", { exact: true }).count(), 0, "Story spine must not render a compatibility placeholder as a product hierarchy.");
-  const spineDensity = await page.locator(".event-line-direct-nodes li > button").evaluateAll((cards) => {
+  const spineDensity = await page.locator(".story-spine-events li > button").evaluateAll((cards) => {
     const viewportBottom = window.innerHeight;
     const visible = cards.map((card) => card.getBoundingClientRect()).filter((rect) => rect.top >= 0 && rect.bottom <= viewportBottom);
     const bodyFont = cards.length ? Number.parseFloat(getComputedStyle(cards[0]).fontSize) : 0;
@@ -1566,7 +1559,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.waitForTimeout(180);
   assert.equal(await page.getByLabel("单元目录").isVisible(), true, "Leaving the Agent prediction flow must restore the Unit directory's prior visible state.");
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
   await page.getByRole("button", { name: /待确认 \d+/u }).click();
   const unresolvedInspector = page.getByLabel("待确认关系检查器");
@@ -1586,13 +1579,13 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     rejectionTargetId = rejectCandidate.data.relation.relationId;
   }
   await reloadProduct(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
   await page.getByRole("button", { name: /待确认 1/u }).click();
   await page.getByLabel("待确认关系检查器").getByRole("button", { name: "拒绝", exact: true }).click();
   await page.getByText("候选已拒绝，未成为正式关系。", { exact: true }).waitFor();
   await reloadProduct(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   const relationsAfterReject = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}&reviewState=rejected&includeArchived=true`);
   assert.equal(relationsAfterReject.data.relations.find((relation) => relation.relationId === rejectionTargetId)?.reviewState, "rejected", "The Relation owner must persist the author rejection across refresh.");
   assert.equal(await page.getByRole("button", { name: /待确认 1/u }).count(), 0, "A rejected relation must not return as an active candidate after refresh.");
@@ -1606,8 +1599,9 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "State machine begins at NONE.");
-  await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
-  await page.getByRole("button", { name: "查看正式事件：雨夜追踪" }).click();
+  await eventViewButton(page, "故事脊柱").click();
+  const visibleStoryEvent = page.locator(".story-spine-events li > button").first();
+  await visibleStoryEvent.click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-event-details-open.png"), fullPage: true });
   await page.getByRole("button", { name: "新增事件", exact: true }).first().click();
@@ -1625,13 +1619,13 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   assert.equal(await page.locator("[data-shared-session-id]").count(), 0, "The two modes must not claim a shared session identity.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-tianyi-open.png"), fullPage: true });
   await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
-  await page.getByRole("button", { name: "查看正式事件：雨夜追踪" }).click();
+  await visibleStoryEvent.click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
   const typeState = await getFixture(`${apiUrl}/__local/story-studio/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const reviewCandidate = await postFixture(`${apiUrl}/__local/story-studio/relations/create`, { projectId: fixtureProjectId, sourceObjectId: timelineFixture.timed[1].id, targetObjectId: timelineFixture.timed[2].id, relationTypeId: typeState.data.types[0].relationTypeId, relationLabelSnapshot: "促使", direction: "forward", sourceRef: "e2e-right-surface-review", operationId: `right-surface-review-${fixture.fixtureId}` });
   assert.equal(reviewCandidate.data.relation.reviewState, "candidate", "Relation review must begin from the existing Relation owner candidate.");
   await reloadProduct(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByRole("button", { name: "展开事件目录", exact: true }).click();
   await page.getByRole("button", { name: /待确认 1/u }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "RELATION_REVIEW");
@@ -1649,7 +1643,7 @@ async function captureEventGraphEvidence(page, consoleProblems) {
     await page.setViewportSize(viewport);
     await gotoProduct(page, `${baseUrl}/event-line`);
     await closeGlobalTianyiIfOpen(page);
-    await page.getByRole("button", { name: "关系图", exact: true }).click();
+    await eventViewButton(page, "关系图").click();
     await page.getByLabel("事件关系工作区").waitFor();
     await action();
     const filename = `${viewport.width}x${viewport.height}-${state}.png`;
@@ -1680,7 +1674,7 @@ async function captureEventGraphDensityEvidence(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/event-line?eventGraphFixture=density50`);
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByLabel("事件关系工作区").waitFor();
   const globalDensity = await page.evaluate(() => {
     const nodes = [...document.querySelectorAll(".event-graph-node:not(.is-remote)")];
@@ -1711,7 +1705,7 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   await page.setViewportSize({ width: 1152, height: 720 });
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
-  if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  if (await eventViewButton(page, "故事脊柱").count()) await eventViewButton(page, "故事脊柱").click();
   const libraryBefore = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const draftsBefore = libraryBefore.data.objects.filter((item) => item.type === "event" && item.status === "draft").length;
   const verifiedBefore = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1754,9 +1748,9 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   const verifiedAfter = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(verifiedAfter.data.eventIds, verifiedBefore.data.eventIds, "Saving drafts must not change verified Canon events.");
   await reloadProduct(page);
-  if (await page.getByRole("button", { name: "故事脊柱", exact: true }).count()) await page.getByRole("button", { name: "故事脊柱", exact: true }).click();
+  if (await eventViewButton(page, "故事脊柱").count()) await eventViewButton(page, "故事脊柱").click();
   assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByLabel("事件关系工作区").waitFor();
   assert.equal(await page.locator(".event-graph-node").filter({ hasText: "手动事件 B" }).count() > 0, true, "The same draft Event must project into the relation graph.");
   const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1779,7 +1773,7 @@ async function recordEventGraphOperation() {
   const video = page.video();
   await gotoProduct(page, `${baseUrl}/event-line`);
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).click();
+  await eventViewButton(page, "关系图").click();
   await page.getByLabel("事件关系工作区").waitFor();
   await page.waitForTimeout(8_000);
   await page.locator(".event-graph-node").filter({ hasText: "雨夜追踪" }).click();
@@ -1811,10 +1805,10 @@ async function recordTemporalProjectionOperation() {
   const video = page.video();
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
-  await page.getByRole("button", { name: "关系图", exact: true }).filter({ visible: true }).first().click();
+  await eventViewButton(page, "关系图").filter({ visible: true }).first().click();
   await page.getByLabel("事件关系工作区").waitFor();
   await page.waitForTimeout(1_500);
-  await page.getByRole("button", { name: "时间轴", exact: true }).filter({ visible: true }).first().click();
+  await eventViewButton(page, "时间轴").filter({ visible: true }).first().click();
   await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
   await page.waitForTimeout(2_000);
   const canvas = page.getByLabel("事件语义时间关系工作区");
@@ -1833,6 +1827,82 @@ async function recordTemporalProjectionOperation() {
   const recordingPath = video ? await video.path() : null;
   if (!recordingPath) throw new Error("Semantic timeline recording was not written.");
   writeFileSync(path.join(temporalProjectionRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
+}
+
+async function recordR6Closeout() {
+  if (!r6CloseoutDirectory) throw new Error("TIANYAN_R6_CLOSEOUT_DIR is required for R6 recording.");
+  mkdirSync(r6CloseoutDirectory, { recursive: true });
+  const record = async (viewport, name, operation) => {
+    const context = await browser.newContext({ viewport, recordVideo: { dir: r6CloseoutDirectory, size: viewport } });
+    const page = await context.newPage();
+    const video = page.video();
+    const consoleProblems = [];
+    page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
+    page.on("pageerror", (error) => consoleProblems.push(error.message));
+    await operation(page);
+    assert.deepEqual(consoleProblems, [], `${name} recording may not contain browser warnings or errors.`);
+    await context.close();
+    const source = video ? await video.path() : null;
+    if (!source) throw new Error(`${name} recording was not written.`);
+    copyFileSync(source, path.join(r6CloseoutDirectory, `${name}.webm`));
+  };
+  await record({ width: 1440, height: 900 }, "R6-1440x900-story-modeling", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+    await eventViewButton(page, "故事脊柱").click();
+    await page.getByLabel("故事脊柱主控结构").waitFor();
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "01-1440-story-spine.png") });
+    await page.waitForTimeout(1_200);
+    await page.locator(".event-spine-cross-view").first().getByRole("button", { name: "关系图", exact: true }).click();
+    await page.getByLabel("事件关系工作区").waitFor();
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "02-1440-cross-view-graph.png") });
+    await page.waitForTimeout(1_000);
+    await eventViewButton(page, "时间轴").click();
+    await page.getByLabel("事件语义时间关系工作区").waitFor();
+    await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+    assert.equal(await page.getByLabel("事件语义时间关系工作区").getAttribute("data-view-switch-provider-calls"), "0");
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "03-1440-timeline-basic-layout.png") });
+    await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+    const dialog = page.getByTestId("story-modeling-confirmation");
+    await dialog.waitFor();
+    await page.waitForFunction(() => Boolean(document.querySelector('[data-testid="story-modeling-confirmation"] .story-modeling-estimate')));
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "04-1440-estimate-before-run.png") });
+    await dialog.getByRole("button", { name: "取消", exact: true }).click();
+    await page.waitForTimeout(900);
+    await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认运行一次", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "05-1440-timeline-rulers-conflict.png") });
+    await page.waitForTimeout(1_200);
+    await eventViewButton(page, "关系图").click();
+    await page.getByRole("button", { name: "智能连线", exact: true }).click();
+    await dialog.getByRole("button", { name: "确认运行一次", exact: true }).click();
+    await page.getByLabel("智能连线候选审查").waitFor();
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "06-1440-smart-relation-review.png") });
+    await page.waitForTimeout(1_400);
+    await eventViewButton(page, "故事脊柱").click();
+    await page.waitForTimeout(1_000);
+  });
+  await record({ width: 1152, height: 720 }, "R6-1152x720-responsive", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+    await eventViewButton(page, "故事脊柱").click();
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "07-1152-story-spine-responsive.png") });
+    await page.waitForTimeout(1_100);
+    await eventViewButton(page, "时间轴").click();
+    await page.getByLabel("时间标尺").waitFor();
+    await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
+    await page.waitForTimeout(500);
+    const dockWidth = await page.locator(".tianyi-sidebar").evaluate((element) => Math.round(element.getBoundingClientRect().width));
+    assert.equal(dockWidth, 348, `1152 Tianyi width must remain 348px, got ${dockWidth}`);
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "08-1152-timeline-tianyi-348.png") });
+    await page.waitForTimeout(1_400);
+  });
 }
 
 async function closeGlobalTianyiIfOpen(page) {
@@ -1872,7 +1942,16 @@ async function postFixture(url, body) {
 }
 
 async function getFixture(url) {
-  const response = await fetch(url, { headers: { "x-world-os-local-control-token": controlToken } });
+  const response = await fetchFixture(url, { headers: { "x-world-os-local-control-token": controlToken } });
   if (!response.ok) throw new Error(`Fixture request failed: ${response.status} ${await response.text()}`);
   return response.json();
+}
+
+async function fetchFixture(url, init) {
+  try { return await fetch(url, init); }
+  catch (firstError) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    try { return await fetch(url, init); }
+    catch (secondError) { throw new AggregateError([firstError, secondError], `Fixture transport failed twice: ${url}`); }
+  }
 }

@@ -99,6 +99,7 @@ export function EventGraphCanvas(props: {
   const railViewport = useRef<{ x: number; y: number; zoom: number } | null>(null);
   const restoreGlobalViewport = useRef(false);
   const restoreRailViewport = useRef(false);
+  const temporalAutoFitKey = useRef<string | null>(null);
   const relationSelectionActive = useRef(false);
   const layout = useMemo(() => readLayout(props.projectId), [props.projectId, layoutRevision]);
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
@@ -253,7 +254,13 @@ export function EventGraphCanvas(props: {
           restoreRailViewport.current = false;
           void flow.setViewport(railViewport.current, { duration: 140 });
         } else {
-          if (mode === "temporal") fitTemporalProjection(flow, graph.nodes, props.selectedEventId);
+          if (mode === "temporal") {
+            const key = `${props.temporalRun?.runId ?? "base"}:${props.selectedEventId ?? "overview"}`;
+            if (temporalAutoFitKey.current !== key) {
+              temporalAutoFitKey.current = key;
+              fitTemporalProjection(flow, graph.nodes, props.selectedEventId);
+            }
+          }
           else if (["overview", "focus", "review"].includes(predictionViewState)) fitPredictionProjection(flow, graph.nodes);
           else if (view === "focus") void fitFocusProjection(flow, graph.nodes, railOpen);
           else void flow.fitView({ padding: railOpen ? 0.24 : 0.08, duration: 0, maxZoom: 1.05 });
@@ -262,6 +269,19 @@ export function EventGraphCanvas(props: {
     });
     return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
   }, [flow, graph.nodes, inspectorOpen, mode, predictionViewState, props.selectedEventId, railOpen, view]);
+  useEffect(() => { if (mode !== "temporal") temporalAutoFitKey.current = null; }, [mode]);
+  useEffect(() => {
+    if (mode !== "temporal" || !flow) return;
+    const canvas = document.querySelector<HTMLElement>(".event-graph-workspace.is-temporal .event-graph-flow");
+    if (!canvas || typeof ResizeObserver === "undefined") return;
+    let timer = 0;
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fitTemporalProjection(flow, graph.nodes, props.selectedEventId), 140);
+    });
+    observer.observe(canvas);
+    return () => { observer.disconnect(); window.clearTimeout(timer); };
+  }, [flow, graph.nodes, mode, props.selectedEventId]);
 
   const persistLayout = useCallback(() => {
     const positions = Object.fromEntries(nodes.filter((node) => !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
@@ -860,9 +880,15 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
   if (!canvas) return;
   const events = nodes.filter((node) => node.type === "event");
   if (!events.length) return;
+  const leftInset = 96;
+  const rightInset = 28;
+  const topInset = 58;
+  const bottomInset = 34;
+  const availableWidth = Math.max(1, canvas.width - leftInset - rightInset);
+  const availableHeight = Math.max(1, canvas.height - topInset - bottomInset);
   const selected = selectedEventId ? events.find((node) => node.id === selectedEventId) : null;
   if (selected) {
-    void flow.setCenter(selected.position.x + 102, selected.position.y + 70, { zoom: 1, duration: 240 });
+    void flow.setViewport({ x: leftInset + availableWidth / 2 - (selected.position.x + 102), y: topInset + availableHeight / 2 - (selected.position.y + 70), zoom: 1 }, { duration: 240 });
     return;
   }
   const minX = Math.min(...events.map((node) => node.position.x));
@@ -871,11 +897,13 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
   const maxY = Math.max(...events.map((node) => node.position.y + 144));
   const contentWidth = maxX - minX;
   const contentHeight = maxY - minY;
-  const zoom = Math.max(.84, Math.min(1, (canvas.width - 52) / Math.max(1, contentWidth), (canvas.height - 72) / Math.max(1, contentHeight)));
-  const x = contentWidth * zoom > canvas.width - 52 ? 26 - minX * zoom : (canvas.width - contentWidth * zoom) / 2 - minX * zoom;
-  const y = contentHeight * zoom > canvas.height - 72
-    ? 36 - minY * zoom
-    : (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
+  const zoom = Math.max(.84, Math.min(1, availableWidth / Math.max(1, contentWidth), availableHeight / Math.max(1, contentHeight)));
+  const x = contentWidth * zoom > availableWidth
+    ? leftInset - minX * zoom
+    : leftInset + (availableWidth - contentWidth * zoom) / 2 - minX * zoom;
+  const y = contentHeight * zoom > availableHeight
+    ? topInset - minY * zoom
+    : topInset + (availableHeight - contentHeight * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 240 });
 }
 function isDensityFixture() {

@@ -3273,7 +3273,7 @@ async function handleTianyiRequest(request, response, url) {
     "temporal-projection/list": [["projectId"], () => tianyi.listTemporalProjectionRuns(body)],
     "temporal-projection/stop": [["projectId", "runId"], () => tianyi.stopTemporalProjectionRun(body)],
     "temporal-projection/retry": [["projectId", "runId"], () => tianyi.retryTemporalProjectionRun(body)],
-    "story-modeling/plan": [["projectId", "tool", "scope", "eventRefs"], () => tianyi.planStoryModeling(body)],
+    "story-modeling/plan": [["projectId", "tool", "scope", "eventRefs", "previousManifestDigest", "structuralChange"], () => tianyi.planStoryModeling(body)],
     "story-modeling/create": [["request", "runId"], () => tianyi.createStoryModelingRun(body)],
     "story-modeling/execute": [["projectId", "runId"], () => tianyi.executeStoryModelingRun(body)],
     "story-modeling/read": [["projectId", "runId"], () => tianyi.readStoryModelingRun(body)],
