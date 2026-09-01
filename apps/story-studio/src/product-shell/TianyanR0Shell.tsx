@@ -142,7 +142,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       const params = new URLSearchParams(window.location.search); params.set("directoryView", "characters"); params.delete("directoryObject");
       window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`); setLocationRevision((value) => value + 1); return;
     }
-    const destination = node.id.startsWith("directory.story") ? "event-line" : "library";
+    const destination = node.id.startsWith("directory.story") || node.id.startsWith("unit:") ? "event-line" : "library";
     const route = storyStudioWorkspaceRoute(destination);
     window.history.pushState({}, "", route);
     setActiveId(destination);

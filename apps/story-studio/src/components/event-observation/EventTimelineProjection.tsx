@@ -55,9 +55,13 @@ export function EventTimelineProjection(props: { events: readonly EventLineEvent
   };
   useEffect(() => {
     if (!flow || !projection.nodes.length) return;
-    const frame = window.requestAnimationFrame(() => focusOverview(0));
+    const frame = window.requestAnimationFrame(() => {
+      const selected = projection.nodes.find((node) => node.type === "event" && node.id === props.selectedEventId);
+      if (selected) void flow.setCenter(selected.position.x + EVENT_WIDTH / 2, selected.position.y + 70, { zoom: 1, duration: 0 });
+      else focusOverview(0);
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [flow, projection.layoutKey]);
+  }, [flow, projection.layoutKey, props.selectedEventId]);
   const focusCurrent = () => {
     const selected = projection.nodes.find((node) => node.type === "event" && node.id === props.selectedEventId);
     if (selected) void flow?.setCenter(selected.position.x + EVENT_WIDTH / 2, selected.position.y + 70, { zoom: 1, duration: 180 });

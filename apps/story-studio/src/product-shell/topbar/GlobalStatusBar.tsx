@@ -60,7 +60,7 @@ export function GlobalStatusBar(props: {
 
   useEffect(() => {
     const closeDirectoryFromEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !props.directoryOpen) return;
+      if (event.defaultPrevented || event.key !== "Escape" || !props.directoryOpen) return;
       const focused = document.activeElement;
       if (!(focused instanceof HTMLElement) || !focused.closest(".project-directory-panel")) return;
       event.preventDefault();

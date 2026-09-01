@@ -3,7 +3,7 @@ import type { ProjectDirectoryNode, ProjectDirectoryProjection } from "../../../
 import { buildEventSemanticNode } from "../../../../../src/storyContracts/eventSemanticHierarchy.ts";
 import type { TranslationKey } from "../i18n/translations";
 
-type DirectoryData = { library: WorldLibraryBootstrap; units: readonly StoryUnit[]; sources: readonly SourceImportDocumentR0[]; workVersionId: string | null; pendingCount: number };
+type DirectoryData = { library: WorldLibraryBootstrap; units: readonly StoryUnit[]; sources: readonly SourceImportDocumentR0[]; workVersionId: string | null; pendingCount: number; verifiedEventIds: readonly string[] };
 
 function reference(object: WorldLibraryBootstrap["objects"][number], projectId: string, workVersionId: string | null): ProjectDirectoryNode {
   return { id: `object:${object.id}`, label: object.title, kind: "reference", aliases: object.aliases,
@@ -43,7 +43,8 @@ export function createEmptyProjectDirectoryProjection(t: (key: TranslationKey) =
 export function createProjectDirectoryViewModel(t: (key: TranslationKey) => string, data: DirectoryData): ProjectDirectoryProjection {
   const objects = data.library.objects;
   const objectNodes = (type: string) => objects.filter((item) => item.type === type).map((item) => reference(item, data.library.project.id, data.workVersionId));
-  const eventObjects = objects.filter((item) => item.type === "event");
+  const verifiedEventIds = new Set(data.verifiedEventIds);
+  const eventObjects = objects.filter((item) => item.type === "event" && (verifiedEventIds.has(item.id) || (item.status === "draft" && item.tags.includes("作者草稿"))));
   const eventById = new Map(eventObjects.map((event) => [event.id, event]));
   const claimedEventIds = new Set<string>();
   const unitNodes: ProjectDirectoryNode[] = [];
@@ -65,11 +66,12 @@ export function createProjectDirectoryViewModel(t: (key: TranslationKey) => stri
     for (const [setPoint, events] of setPoints) children.push(category(`unit:${id}:set-point:${setPoint}`, `${t("directory.optionalCollectionPoint")} · ${setPoint}`, events));
     return category(`unit:${id}`, label, children, unitEvents.length);
   };
-  for (const unit of data.units) {
+  for (const [unitIndex, unit] of data.units.entries()) {
     const linked = new Set([...unit.linkedEntityIds, ...unit.items.map((item) => item.subjectRef).filter((value): value is string => Boolean(value))]);
     const unitLabel = normalizeUnitLabel(unit.title);
     for (const event of eventObjects) if (normalizeUnitLabel(eventUnitLabel(event)) === unitLabel) linked.add(event.id);
-    unitNodes.push(buildUnitNode(unit.id, unit.title, [...linked]));
+    const directoryLabel = /^\s*单元\s*\d+/u.test(unit.title) ? unit.title : `单元 ${String(unitIndex + 1).padStart(2, "0")} · ${unit.title}`;
+    unitNodes.push(buildUnitNode(unit.id, directoryLabel, [...linked]));
   }
   const inferredUnits = new Map<string, string[]>();
   for (const event of eventObjects) if (!claimedEventIds.has(event.id)) {

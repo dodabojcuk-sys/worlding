@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronRight, Folder, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 import { useI18n } from "../i18n/I18nProvider";
 import { flattenDirectoryReferences } from "./projectDirectoryViewModel";
@@ -8,6 +8,7 @@ export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryN
   const { t } = useI18n();
   const [path, setPath] = useState<readonly string[]>([]);
   const [query, setQuery] = useState("");
+  const restoreFocusId = useRef<string | null>(null);
   const trail = useMemo(() => resolveDirectoryTrail(props.groups, path), [path, props.groups]);
   const current = trail.at(-1) ?? null;
   const visible = current?.children ?? props.groups;
@@ -15,6 +16,13 @@ export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryN
   useEffect(() => {
     if (trail.length !== path.length) setPath(trail.map((item) => item.id));
   }, [path, trail]);
+  useEffect(() => {
+    const focusId = restoreFocusId.current;
+    if (!focusId) return;
+    restoreFocusId.current = null;
+    const frame = window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-directory-node="${CSS.escape(focusId)}"]`)?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [path]);
   const enter = (node: ProjectDirectoryNode) => {
     if (node.reference) { props.onOpenReference(node.reference); return; }
     if (!node.children) return;
@@ -22,9 +30,8 @@ export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryN
     props.onNavigate(node);
   };
   const goBack = () => {
-    const focusId = path.at(-1) ?? null;
+    restoreFocusId.current = path.at(-1) ?? null;
     setPath(path.slice(0, -1));
-    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-directory-node="${CSS.escape(focusId ?? "")}"]`)?.focus());
   };
   return <nav className="project-directory-tree" aria-label={t("directory.tree")} onKeyDown={(event) => {
     if ((event.altKey && event.key === "ArrowLeft") || (event.key === "Escape" && !query && path.length)) { event.preventDefault(); goBack(); }
