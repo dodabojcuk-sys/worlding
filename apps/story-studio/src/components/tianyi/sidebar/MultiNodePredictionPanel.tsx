@@ -1,7 +1,7 @@
 import { ArrowLeft, Ban, Check, ChevronRight, CircleCheck, Clock3, GitBranch, LoaderCircle, Play, RotateCcw, Workflow } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { derivePredictionReviewGate, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
+import { derivePredictionReviewGate, type DraftCreationReceipt, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
 import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
 import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, retryMultiNodePredictionRun, stopMultiNodePredictionRun, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
@@ -15,7 +15,7 @@ import {
 } from "./tianyiPredictionViewState";
 
 type PredictionPhase = "idle" | "reading" | "generating" | "validating" | "reviewing" | "failed" | "stopped";
-type DraftReceipt = { operationId: string; runId: string; pathId: string; items: Array<{ candidateNodeId: string; action: "draft-created" | "referenced-existing" | "merge-review"; draftEventId: string | null; existingEventId: string | null }> };
+type DraftReceipt = DraftCreationReceipt;
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type PredictionViewDetail = { runId: string; view: TianyiPredictionViewState; pathId: string | null };
 
@@ -222,7 +222,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       const accepted = await props.runtime.withConnection((token) => acceptMultiNodePredictionReview({ projectId: project.id, reviewId: review.id, operationId: `prediction-accept.${review.id}`, decidedAt: new Date().toISOString(), token }));
       setReceipt(normalizeReceipt(accepted));
       setViewState("receipt");
-      if (accepted.status === "drafted") window.dispatchEvent(new CustomEvent("story-studio-prediction-drafts-created", { detail: { projectId: project.id, runId: run.runId } }));
+      if (accepted.status === "drafted") { window.dispatchEvent(new CustomEvent("story-studio-prediction-drafts-created", { detail: { projectId: project.id, runId: run.runId } })); window.dispatchEvent(new Event("story-studio-pending-review-changed")); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "采纳未完成，候选仍保持预览状态。"); }
     finally { setBusy(false); }
   })();
@@ -415,7 +415,9 @@ function ReceiptView(props: { receipt: DraftReceipt; run: PredictionRun | null }
   const selectedIds = new Set(props.receipt.items.map((item) => item.candidateNodeId));
   const unselectedIds = path?.candidateNodeIds.filter((id) => !selectedIds.has(id)) ?? [];
   const skippedIds = [...unselectedIds, ...mergeReview.map((item) => item.candidateNodeId)];
-  return <section className="tianyi-prediction-receipt-card is-primary" role="status" aria-label="本次采纳结果"><header><CircleCheck /><div><strong>这次采纳已保存</strong><small>作者草稿已保存 · 尚未进入正式故事</small></div></header><dl><div><dt>采纳路径</dt><dd>{path?.title ?? "已保存路径"}</dd></div><div><dt>本次选中</dt><dd>{props.receipt.items.length} 个节点</dd></div><div><dt>沿用已有事件</dt><dd>{referenced.length ? referenced.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>保存为作者草稿</dt><dd>{created.length ? created.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>未采纳或待合并</dt><dd>{skippedIds.length ? skippedIds.map((id) => nodeTitle(props.run, id)).join("、") : "无"}</dd></div><div><dt>因冲突未保存</dt><dd>无</dd></div></dl><details><summary>查看技术回执</summary><dl><div><dt>完整推演 ID</dt><dd>{props.receipt.runId}</dd></div><div><dt>路径 ID</dt><dd>{props.receipt.pathId}</dd></div><div><dt>回执 ID</dt><dd>{props.receipt.operationId}</dd></div></dl></details></section>;
+  const relationCandidates = props.receipt.relationItems.filter((item) => item.action === "candidate-created" || item.action === "relation-type-unresolved");
+  const unresolvedRelations = relationCandidates.filter((item) => item.action === "relation-type-unresolved");
+  return <section className="tianyi-prediction-receipt-card is-primary" role="status" aria-label="本次采纳结果"><header><CircleCheck /><div><strong>这次采纳已保存</strong><small>作者草稿与关系候选已保存 · 尚未进入正式故事</small></div></header><dl><div><dt>采纳路径</dt><dd>{path?.title ?? "已保存路径"}</dd></div><div><dt>本次选中</dt><dd>{props.receipt.items.length} 个节点</dd></div><div><dt>沿用已有事件</dt><dd>{referenced.length ? referenced.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>保存为作者草稿</dt><dd>{created.length ? created.map((item) => nodeTitle(props.run, item.candidateNodeId)).join("、") : "无"}</dd></div><div><dt>自动生成待确认关系</dt><dd>{relationCandidates.length ? `${relationCandidates.length} 条${unresolvedRelations.length ? ` · ${unresolvedRelations.length} 条类型待确认` : ""}` : "无"}</dd></div><div><dt>未采纳或待合并</dt><dd>{skippedIds.length ? skippedIds.map((id) => nodeTitle(props.run, id)).join("、") : "无"}</dd></div><div><dt>因冲突未保存</dt><dd>无</dd></div></dl><details><summary>查看技术回执</summary><dl><div><dt>完整推演 ID</dt><dd>{props.receipt.runId}</dd></div><div><dt>候选结果组</dt><dd>{props.receipt.bundleId}</dd></div><div><dt>路径 ID</dt><dd>{props.receipt.pathId}</dd></div><div><dt>回执 ID</dt><dd>{props.receipt.operationId}</dd></div></dl></details></section>;
 }
 
 type AdoptionSummary = { selected: number; referenced: number; drafts: number; skipped: number; blocked: number; mergeReview: number };
@@ -442,7 +444,7 @@ function announceViewState(detail: PredictionViewDetail): void { (window as Wind
 function announceExecution(projection: TianyiPredictionExecutionProjection): void { (window as Window & { __storyStudioAgentExecutionProjection?: TianyiPredictionExecutionProjection }).__storyStudioAgentExecutionProjection = projection; window.dispatchEvent(new CustomEvent("story-studio-agent-execution-projection", { detail: projection })); }
 function announceAgentState(running: boolean, runId: string | null): void { window.dispatchEvent(new CustomEvent("story-studio-prediction-agent-state", { detail: { running, runId } })); }
 function announceSelection(detail: PredictionSelectionDetail): void { (window as Window & { __storyStudioPredictionSelection?: PredictionSelectionDetail }).__storyStudioPredictionSelection = detail; window.dispatchEvent(new CustomEvent("story-studio-prediction-review-selection", { detail })); }
-function normalizeReceipt(review: MultiNodePredictionReviewProjection): DraftReceipt | null { const value = review.receipt; if (!value || typeof value !== "object" || Array.isArray(value)) return null; const record = value as Partial<DraftReceipt>; return typeof record.operationId === "string" && typeof record.runId === "string" && typeof record.pathId === "string" && Array.isArray(record.items) ? record as DraftReceipt : null; }
+function normalizeReceipt(review: MultiNodePredictionReviewProjection): DraftReceipt | null { const value = review.receipt; if (!value || typeof value !== "object" || Array.isArray(value)) return null; const record = value as Partial<DraftReceipt>; return typeof record.operationId === "string" && typeof record.runId === "string" && typeof record.pathId === "string" && Array.isArray(record.items) ? { ...record, bundleId: record.bundleId ?? "legacy-bundle", relationItems: Array.isArray(record.relationItems) ? record.relationItems : [] } as DraftReceipt : null; }
 function nodeTitle(run: PredictionRun | null, nodeId: string): string { return run?.bundle?.nodes.find((node) => node.id === nodeId)?.title ?? nodeId; }
 function runStatusLabel(status: PredictionRun["status"]): string { return status === "ready" ? "等待审阅" : status === "abandoned" ? "已放弃" : status === "stale" ? "来源失效" : status === "stopped" ? "已停止" : status === "failed" ? "失败" : "处理中"; }
 function identityLabel(kind: IdentityResolutionKind): string { return kind === "reference-existing" ? "引用已有事件" : kind === "merge-review" ? "待合并审查" : kind === "unresolved" ? "身份待决" : "新建草稿（已说明差异）"; }

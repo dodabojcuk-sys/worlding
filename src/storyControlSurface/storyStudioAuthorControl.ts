@@ -48,6 +48,8 @@ import {
   createStoryStudioWorkspaceOperations,
   type StoryStudioWorldObject
 } from "./storyStudioWorkspaceOperations.ts";
+import { createStoryStudioRelationOperations } from "./storyStudioRelationOperations.ts";
+import type { DraftCreationReceipt, PredictionRun, PredictionRelationReceiptItem } from "../storyContracts/multiNodePrediction.ts";
 
 const REVIEW_VERSION = "story-studio-impact-review/v1";
 const CHANGE_SET_VERSION = "story-studio-author-change-set/v1";
@@ -432,6 +434,7 @@ export function createStoryStudioAuthorControl(input: {
   ) => void;
 }) {
   const workspace = createStoryStudioWorkspaceOperations(input);
+  const relations = createStoryStudioRelationOperations({ workspaceOperations: workspace, verifyCanonEventRead: ({ projectId, eventId }) => isVerifiedCanonEventRead(projectId, eventId) });
   const now = input.now ?? (() => new Date().toISOString());
 
   /**
@@ -637,7 +640,38 @@ export function createStoryStudioAuthorControl(input: {
       const review = JSON.parse(readFileSync(target, "utf8")) as StoryStudioPredictionReview;
       if (review.projectId !== input.projectId) throw new Error("Prediction Review belongs to another project.");
       if (review.status === "drafted") return structuredClone(review);
-      const receipt = workspace.createPredictionDraftEventsOnce({ projectId: input.projectId, runId: review.runId, pathId: review.pathId, selectedCandidateNodeIds: review.selectedCandidateNodeIds, operationId: requireText(input.operationId, "Prediction acceptance operation", 160) });
+      const operationId = requireText(input.operationId, "Prediction acceptance operation", 160);
+      const draftReceipt = workspace.createPredictionDraftEventsOnce({ projectId: input.projectId, runId: review.runId, pathId: review.pathId, selectedCandidateNodeIds: review.selectedCandidateNodeIds, operationId });
+      const runPath = path.join(projectPath, ".world-os", "tianyi", "multi-node-predictions", `${review.runId}.json`);
+      const run = JSON.parse(readFileSync(runPath, "utf8")) as PredictionRun;
+      if (!run.bundle || run.bundle.bundleId !== draftReceipt.bundleId) throw new Error("Prediction Bundle changed before Relation candidate creation.");
+      const pathEntry = run.bundle.paths.find((item) => item.id === review.pathId);
+      if (!pathEntry) throw new Error("Prediction path no longer exists.");
+      const selected = new Set(review.selectedCandidateNodeIds);
+      const eventByCandidate = new Map(draftReceipt.items.flatMap((item) => {
+        const eventId = item.action === "draft-created" ? item.draftEventId : item.action === "referenced-existing" ? item.existingEventId : null;
+        return eventId ? [[item.candidateNodeId, eventId] as const] : [];
+      }));
+      const activeTypes = relations.listRelationTypes({ projectId: input.projectId }).types.filter((item) => item.lifecycle === "active");
+      const relationItems: PredictionRelationReceiptItem[] = pathEntry.candidateEdgeIds.map((edgeId) => {
+        const edge = run.bundle!.edges.find((item) => item.id === edgeId);
+        if (!edge) throw new Error("Prediction path references a missing candidate edge.");
+        if (!selected.has(edge.sourceCandidateId) || !selected.has(edge.targetCandidateId)) return relationReceipt(edge.id, edge.label, "excluded-unselected-endpoint", null, null, null, null);
+        const sourceEventId = eventByCandidate.get(edge.sourceCandidateId) ?? null;
+        const targetEventId = eventByCandidate.get(edge.targetCandidateId) ?? null;
+        if (!sourceEventId || !targetEventId) return relationReceipt(edge.id, edge.label, "excluded-unmapped-endpoint", sourceEventId, targetEventId, null, null);
+        if (sourceEventId === targetEventId) return relationReceipt(edge.id, edge.label, "excluded-collapsed-endpoint", sourceEventId, targetEventId, null, null);
+        const exactType = edge.relationTypeHint?.resolution === "exact" && edge.relationTypeHint.label
+          ? activeTypes.find((item) => item.label.normalize("NFC").trim() === edge.relationTypeHint.label!.normalize("NFC").trim()) ?? null
+          : null;
+        const relationOperationId = `prediction-relation.${stableHash({ operationId, edgeId }).slice(0, 32)}`;
+        const common = { projectId: input.projectId, operationId: relationOperationId, sourceObjectId: sourceEventId, targetObjectId: targetEventId, direction: edge.direction ?? "forward", sourceRevision: run.bundle!.bundleId, sourceRef: `prediction:${stableHash({ runId: run.runId, bundleId: run.bundle!.bundleId, pathId: review.pathId, edgeId }).slice(0, 40)}`, actor: "author-control.prediction-review", now: requireTimestamp(input.decidedAt) };
+        const created = exactType
+          ? relations.createRelationCandidate({ ...common, relationTypeId: exactType.relationTypeId, relationLabelSnapshot: exactType.label })
+          : relations.createUnresolvedRelationCandidate(common);
+        return relationReceipt(edge.id, edge.label, exactType ? "candidate-created" : "relation-type-unresolved", sourceEventId, targetEventId, created.relation.relationId, exactType?.relationTypeId ?? null);
+      });
+      const receipt: DraftCreationReceipt = { ...draftReceipt, relationItems };
       const next = { ...review, status: "drafted" as const, receipt, updatedAt: requireTimestamp(input.decidedAt) };
       writeFileSync(target, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       return structuredClone(next);
@@ -1906,6 +1940,10 @@ function requireTimestamp(value: string): string {
   const normalized = requireText(value, "Timestamp", 64);
   if (!Number.isFinite(Date.parse(normalized))) throw new Error("Timestamp is invalid.");
   return normalized;
+}
+
+function relationReceipt(candidateEdgeId: string, label: string, action: PredictionRelationReceiptItem["action"], sourceEventId: string | null, targetEventId: string | null, relationId: string | null, relationTypeId: string | null): PredictionRelationReceiptItem {
+  return { candidateEdgeId, label, action, sourceEventId, targetEventId, relationId, relationTypeId };
 }
 
 function previewBefore(preview: NonNullable<PersistedImpactReview["preview"]>): string[] {

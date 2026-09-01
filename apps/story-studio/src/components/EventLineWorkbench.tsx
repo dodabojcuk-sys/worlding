@@ -48,7 +48,7 @@ import { PageContextDock, type PageContextDockLens, type PageContextDockState } 
 import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../src/storyContracts/eventSemanticHierarchy";
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import { EventTimelineProjection } from "./event-observation/EventTimelineProjection";
-import type { RelationReadProjectionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
 export type EventDraftInput = {
@@ -93,6 +93,7 @@ export function EventLineWorkbench(props: {
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
+  relationTypes?: readonly RelationTypeDefinitionR0[];
   onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onUpdateGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
   onApproveModifiedGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
@@ -379,7 +380,7 @@ export function EventLineWorkbench(props: {
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
+        {projectionMode === "graph" ? <EventGraphCanvas projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
           const references = (eventIds ?? []).flatMap((eventId) => {
             const event = props.events.find((item) => item.id === eventId);
             return event && (event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];

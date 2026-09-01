@@ -80,6 +80,32 @@ export type PredictionAcceptanceSelection = {
   operationId: string;
 };
 
+export type PredictionDraftReceiptItem = {
+  candidateNodeId: string;
+  action: "draft-created" | "referenced-existing" | "merge-review";
+  draftEventId: string | null;
+  existingEventId: string | null;
+};
+
+export type PredictionRelationReceiptItem = {
+  candidateEdgeId: string;
+  label: string;
+  sourceEventId: string | null;
+  targetEventId: string | null;
+  action: "candidate-created" | "relation-type-unresolved" | "excluded-unselected-endpoint" | "excluded-unmapped-endpoint" | "excluded-collapsed-endpoint";
+  relationId: string | null;
+  relationTypeId: string | null;
+};
+
+export type DraftCreationReceipt = {
+  operationId: string;
+  runId: string;
+  bundleId: string;
+  pathId: string;
+  items: PredictionDraftReceiptItem[];
+  relationItems: PredictionRelationReceiptItem[];
+};
+
 export type PredictionReviewGate = { allowed: boolean; reasons: string[] };
 
 export function normalizeMultiNodePredictionRequest(value: unknown): MultiNodePredictionRequest {

@@ -89,7 +89,7 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(prediction, /summarizeAdoption/u);
   assert.match(prediction, /采纳 \$\{summary\.selected\} 个节点 · 新建 \$\{summary\.drafts\} 个草稿/u);
   assert.match(prediction, /这次采纳已保存/u);
-  assert.match(prediction, /作者草稿已保存 · 尚未进入正式故事/u);
+  assert.match(prediction, /作者草稿与关系候选已保存 · 尚未进入正式故事/u);
   assert.match(tianyi, /data-tianyi-mode=\{mode\}/u);
   assert.match(tianyi, /mode === "dialogue" \? <TianyiDialoguePanel[\s\S]*<TianyiAgentPanel/u);
   assert.match(tianyiStyles, /min-inline-size: var\(--tianyi-sidebar-width\)/u);
@@ -109,6 +109,15 @@ test("candidate overlay renders the validated path edge set with automatic routi
   assert.match(graph, /const roots = \[\.\.\.new Set\(paths\.map/);
   assert.match(graph, /共同推演依据/);
   assert.doesNotMatch(graph, /const first = pathNodes\[0\]/);
+});
+
+test("adopted prediction edges remain pending until Relation owner review", () => {
+  assert.match(graph, /relationTypeResolution === "unresolved"/);
+  assert.match(graph, /关系类型待确认/);
+  assert.match(graph, /选择已有关系类型/);
+  assert.match(graph, /disabled=\{isBusy \|\| unresolvedType\}/);
+  assert.match(prediction, /自动生成待确认关系/);
+  assert.match(prediction, /relationItems/);
 });
 
 test("story spine keeps direct Unit nodes separate from optional collection points", () => {

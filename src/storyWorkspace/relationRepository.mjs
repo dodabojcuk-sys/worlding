@@ -16,6 +16,8 @@ export const RELATION_REPOSITORY_V1_VERSION = "story-relation-repository/v1";
 export const RELATION_REPOSITORY_VERSION = "story-relation-repository/v2";
 export const RELATION_TYPE_METADATA_VERSION = "story-relation-type-definition/v1";
 export const RELATION_PROJECTION_VERSION = "story-relation-projection/v1";
+export const UNRESOLVED_RELATION_TYPE_ID = "relation-type.unresolved";
+export const UNRESOLVED_RELATION_TYPE_LABEL = "关系类型待确认";
 
 const RELATION_DIRECTORY = ".world-os/relations";
 const RELATION_FILE = `${RELATION_DIRECTORY}/relations.json`;
@@ -58,6 +60,11 @@ export function retrieveDecisionReceipt(rootPath, relationId) {
 
 export function createRelationCandidate(rootPath, input) {
   return createRelationCandidateInternal(rootPath, input);
+}
+
+/** Persists an untyped edge inside the sole Relation owner without inventing a RelationType. */
+export function createUnresolvedRelationCandidate(rootPath, input) {
+  return createRelationCandidateInternal(rootPath, input, { unresolvedType: true });
 }
 
 export function confirmRelation(rootPath, input) {
@@ -355,6 +362,7 @@ export function confirmRelationCandidate(rootPath, input, options = {}) {
   const current = findRelation(store, relationId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   assertCandidateIsEditable(current);
+  if (current.relationTypeId === UNRESOLVED_RELATION_TYPE_ID) throw new Error("Relation type must be selected before confirmation.");
   assertRelationEvidenceConfirmable(store, current, options);
   const next = { ...current, reviewState: "confirmed", archived: false, revision: current.revision + 1, decisionReceipt: null };
   return commitRelationMutation(root, store, current, next, {
@@ -1250,9 +1258,10 @@ function buildCandidateRelation(root, store, input, options = {}) {
   if (sourceObjectId === targetObjectId) throw new Error("Relation cannot connect an object to itself.");
   const known = new Set(listWorkspaceNotes(root).map((note) => note.id));
   if (!known.has(sourceObjectId) || !known.has(targetObjectId)) throw new Error("Relation endpoint is not a stable WorldObject reference.");
-  const relationTypeId = requireText(input?.relationTypeId, "Relation type id", 180);
-  const type = requireActiveRelationType(store, relationTypeId);
-  if (input?.relationLabelSnapshot !== undefined && normalizeRelationSnapshot(input.relationLabelSnapshot, "Relation label snapshot") !== type.label) {
+  const unresolvedType = options.unresolvedType === true;
+  const relationTypeId = unresolvedType ? UNRESOLVED_RELATION_TYPE_ID : requireText(input?.relationTypeId, "Relation type id", 180);
+  const type = unresolvedType ? null : requireActiveRelationType(store, relationTypeId);
+  if (!unresolvedType && input?.relationLabelSnapshot !== undefined && normalizeRelationSnapshot(input.relationLabelSnapshot, "Relation label snapshot") !== type.label) {
     throw new Error("Relation label snapshot does not match the selected Relation type.");
   }
   const actor = requireText(input?.actor || "author", "Relation actor", 120);
@@ -1267,15 +1276,17 @@ function buildCandidateRelation(root, store, input, options = {}) {
   const evidenceRefs = [manualEvidence, ...normalizeEvidenceSet(input?.evidenceRefs)];
   const supersedesRelationId = options.supersedesRelationId ? requireText(options.supersedesRelationId, "Superseded Relation id", 180) : null;
   const authorActionReceiptId = optionalReceiptId(input?.authorActionReceiptId);
-  const provenance = options.correction
-    ? { kind: "correction", operationId: input.operationId, actor, supersedesRelationId, ...(authorActionReceiptId ? { authorActionReceiptId } : {}) }
-    : { kind: "manual-author", operationId: input.operationId, actor, sourceRef: optionalSourceRef(input?.sourceRef), ...(authorActionReceiptId ? { authorActionReceiptId } : {}) };
+  const provenance = unresolvedType
+    ? { kind: "prediction-unresolved-type", operationId: input.operationId, actor, sourceRef: optionalSourceRef(input?.sourceRef), ...(authorActionReceiptId ? { authorActionReceiptId } : {}) }
+    : options.correction
+      ? { kind: "correction", operationId: input.operationId, actor, supersedesRelationId, ...(authorActionReceiptId ? { authorActionReceiptId } : {}) }
+      : { kind: "manual-author", operationId: input.operationId, actor, sourceRef: optionalSourceRef(input?.sourceRef), ...(authorActionReceiptId ? { authorActionReceiptId } : {}) };
   return {
     relationId: requireText(input?.relationId, "Relation id", 180),
     sourceObjectId,
     targetObjectId,
     relationTypeId,
-    relationLabelSnapshot: type.label,
+    relationLabelSnapshot: unresolvedType ? UNRESOLVED_RELATION_TYPE_LABEL : type.label,
     direction: input?.direction === undefined ? "none" : requireDirection(input.direction),
     reviewState: "candidate",
     evidenceRefs,

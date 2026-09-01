@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
@@ -39,6 +39,7 @@ export function EventGraphCanvas(props: {
   projectId: string;
   events: readonly EventLineEventSummary[];
   relations: readonly RelationReadProjectionR0[];
+  relationTypes: readonly RelationTypeDefinitionR0[];
   selectedEventId: string | null;
   onSelectEvent(eventId: string): void;
   onClearSelection(): void;
@@ -334,7 +335,7 @@ export function EventGraphCanvas(props: {
       </div>
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
       {inspectorOpen && !props.createOpen ? <GraphInspector
-        event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} busy={busy}
+        event={currentEvent} relation={currentRelation} remote={remote} events={graphEvents} relations={graphRelations} relationTypes={props.relationTypes} busy={busy}
         onClose={closeInspector} onFocus={focus} onOpenTianyi={(eventId) => props.onOpenTianyi?.(eventId ? [eventId] : undefined)}
         onConfirm={(relation) => void act(relation, "confirm")} onUpdate={(relation) => void act(relation, "update")} onApproveModified={(relation) => void act(relation, "approve-modified")}
         onReject={(relation) => void act(relation, "reject")} onDefer={() => setNotice("候选已保留在待确认中，尚未成为正式关系。")}
@@ -392,7 +393,7 @@ function GraphLegend() {
 
 function GraphInspector(props: {
   event: EventLineEventSummary | null; relation: RelationReadProjectionR0 | null; remote: Extract<Selection, { kind: "remote" }> | null;
-  events: readonly EventLineEventSummary[]; relations: readonly RelationReadProjectionR0[]; busy: string | null;
+  events: readonly EventLineEventSummary[]; relations: readonly RelationReadProjectionR0[]; relationTypes: readonly RelationTypeDefinitionR0[]; busy: string | null;
   onClose(): void; onFocus(id: string): void; onOpenTianyi?(id?: string): void; onConfirm(relation: RelationReadProjectionR0): void;
   onUpdate(relation: RelationReadProjectionR0): void; onApproveModified(relation: RelationReadProjectionR0): void; onReject(relation: RelationReadProjectionR0): void; onDefer(): void; onExpand(): void;
 }) {
@@ -423,17 +424,19 @@ function RelationInspector(props: Omit<Parameters<typeof GraphInspector>[0], "re
   const source = props.events.find((event) => event.id === props.relation.sourceObjectId)?.title ?? "来源事件不可用";
   const target = props.events.find((event) => event.id === props.relation.targetObjectId)?.title ?? "目标事件不可用";
   const pending = props.relation.reviewState === "candidate";
+  const unresolvedType = props.relation.relationTypeResolution === "unresolved" || props.relation.relationTypeId === "relation-type.unresolved";
   const isBusy = props.busy === props.relation.relationId;
   const [direction, setDirection] = useState(props.relation.direction);
-  useEffect(() => { setDirection(props.relation.direction); }, [props.relation.direction, props.relation.relationId]);
-  const editedRelation = direction === props.relation.direction ? props.relation : { ...props.relation, direction };
+  const [relationTypeId, setRelationTypeId] = useState(unresolvedType ? "" : props.relation.relationTypeId);
+  useEffect(() => { setDirection(props.relation.direction); setRelationTypeId(unresolvedType ? "" : props.relation.relationTypeId); }, [props.relation.direction, props.relation.relationId, props.relation.relationTypeId, unresolvedType]);
+  const editedRelation = { ...props.relation, direction, relationTypeId: relationTypeId || props.relation.relationTypeId };
   return <aside className="event-graph-inspector" aria-label={pending ? "待确认关系检查器" : "正式关系检查器"}>
     <InspectorHeader title={pending ? "关系候选" : "正式关系"} subtitle={pending ? "尚未成为正式关系" : "已由作者确认"} onClose={props.onClose} />
     <div className="event-graph-inspector-body relation-inspector">
-      <section className={pending ? "event-graph-relation-status is-candidate" : "event-graph-relation-status is-confirmed"}>{pending ? "待确认 · 候选关系" : "已确认 · 正式关系"}</section>
+      <section className={pending ? "event-graph-relation-status is-candidate" : "event-graph-relation-status is-confirmed"}>{unresolvedType ? "待确认 · 关系类型待确认" : pending ? "待确认 · 候选关系" : "已确认 · 正式关系"}</section>
       <Facts facts={[[<ArrowRight />, "来源事件", source], [<ArrowRight />, "目标事件", target], [<Link2 />, "关系类型", props.relation.currentTypeLabel ?? props.relation.relationLabelSnapshot], [<ArrowRight />, "方向", directionLabel(props.relation.direction)], [<FileText />, "说明", relationReason(props.relation)]]} />
       <TextBlock title="证据或来源" text={evidenceLabel(props.relation)} />
-      {pending ? <><TextBlock title="影响范围" text={"确认后将在“" + source + "”与“" + target + "”之间建立一条正式关系；作者确认前，正式关系不会增加。"} /><label className="event-graph-candidate-editor">修改方向<select aria-label="候选关系方向" value={direction} disabled={isBusy} onChange={(event) => setDirection(event.target.value as RelationReadProjectionR0["direction"])}><option value="forward">来源 → 目标</option><option value="reverse">目标 → 来源</option><option value="both">双向</option><option value="none">未指定方向</option></select></label><footer className="event-graph-candidate-actions"><button type="button" className="primary-action" disabled={isBusy} onClick={() => props.onConfirm(props.relation)}><Check />通过并保存</button><button type="button" disabled={isBusy} onClick={() => props.onApproveModified(editedRelation)}><Eye />修改后通过</button><button type="button" className="danger-action" disabled={isBusy} onClick={() => props.onReject(props.relation)}><X />拒绝</button><button type="button" disabled={isBusy} onClick={props.onDefer}>暂不处理</button></footer></> : null}
+      {pending ? <><TextBlock title="影响范围" text={"确认后将在“" + source + "”与“" + target + "”之间建立一条正式关系；作者确认前，正式关系不会增加。"} />{unresolvedType ? <label className="event-graph-candidate-editor">选择已有关系类型<select aria-label="候选关系类型" value={relationTypeId} disabled={isBusy} onChange={(event) => setRelationTypeId(event.target.value)}><option value="">关系类型待确认</option>{props.relationTypes.filter((type) => type.lifecycle === "active").map((type) => <option key={type.relationTypeId} value={type.relationTypeId}>{type.label}</option>)}</select></label> : null}<label className="event-graph-candidate-editor">修改方向<select aria-label="候选关系方向" value={direction} disabled={isBusy} onChange={(event) => setDirection(event.target.value as RelationReadProjectionR0["direction"])}><option value="forward">来源 → 目标</option><option value="reverse">目标 → 来源</option><option value="both">双向</option><option value="none">未指定方向</option></select></label><footer className="event-graph-candidate-actions"><button type="button" className="primary-action" disabled={isBusy || unresolvedType} title={unresolvedType ? "请先选择已有关系类型" : undefined} onClick={() => props.onConfirm(props.relation)}><Check />通过并保存</button><button type="button" disabled={isBusy || (unresolvedType && !relationTypeId)} onClick={() => props.onApproveModified(editedRelation)}><Eye />{unresolvedType ? "选择类型后通过" : "修改后通过"}</button><button type="button" className="danger-action" disabled={isBusy} onClick={() => props.onReject(props.relation)}><X />拒绝</button><button type="button" disabled={isBusy} onClick={props.onDefer}>暂不处理</button></footer></> : null}
     </div>
   </aside>;
 }

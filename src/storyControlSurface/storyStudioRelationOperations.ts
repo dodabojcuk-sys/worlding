@@ -87,6 +87,7 @@ export type RelationEvidenceStatusR0 = {
 export type RelationReadProjectionR0 = RelationRecordR0 & {
   currentTypeLabel: string | null;
   relationType: RelationTypeDefinitionR0 | null;
+  relationTypeResolution?: "resolved" | "unresolved";
   evidenceWarnings: RelationEvidenceStatusR0[];
 };
 
@@ -124,6 +125,7 @@ type RelationRepositoryModuleR0 = {
   archiveConfirmedRelation(rootPath: string, input: Record<string, unknown>): unknown;
   confirmRelationCandidate(rootPath: string, input: Record<string, unknown>, options?: Record<string, unknown>): unknown;
   createRelationCandidate(rootPath: string, input: Record<string, unknown>): unknown;
+  createUnresolvedRelationCandidate(rootPath: string, input: Record<string, unknown>): unknown;
   createRelationCorrectionCandidate(rootPath: string, input: Record<string, unknown>): unknown;
   createRelationType(rootPath: string, input: Record<string, unknown>): unknown;
   inspectRelationEvidence(rootPath: string, input: Record<string, unknown>, options?: Record<string, unknown>): unknown;
@@ -170,6 +172,7 @@ export function createStoryStudioRelationOperations(input: {
       ...relation,
       currentTypeLabel: type?.label || null,
       relationType: type,
+      relationTypeResolution: relation.relationTypeId === "relation-type.unresolved" ? "unresolved" : "resolved",
       evidenceWarnings: evidence.warnings as RelationEvidenceStatusR0[]
     };
   }
@@ -230,6 +233,10 @@ export function createStoryStudioRelationOperations(input: {
 
     createRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
       return relationRepository.createRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+    },
+
+    createUnresolvedRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
+      return relationRepository.createUnresolvedRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
     },
 
     updateRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {

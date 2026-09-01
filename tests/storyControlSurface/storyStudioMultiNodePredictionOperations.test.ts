@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioMultiNodePredictionOperations } from "../../src/storyControlSurface/storyStudioMultiNodePredictionOperations.ts";
+import { createStoryStudioRelationOperations } from "../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
 test("Pi-stub Tianyi prediction runs persist independently without Event, Relation, Canon, or WorldState writes", async () => {
@@ -14,6 +15,8 @@ test("Pi-stub Tianyi prediction runs persist independently without Event, Relati
   try {
     const workspace = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
     workspace.createProject({ title: "长夜将明", folderSlug: projectId });
+    const relationOperations = createStoryStudioRelationOperations({ workspaceOperations: workspace });
+    relationOperations.createRelationType({ projectId, operationId: "relation-type.cause", label: "促使" });
     const sources = ["暗号传递", "仓库对峙", "旧仓库封锁"].map((title) => workspace.createPlanningEvent({ projectId, title }));
     const before = workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects;
     const operations = createStoryStudioMultiNodePredictionOperations({ rootPath, stateFilePath, now: () => "2026-08-30T12:00:00.000Z" });
@@ -33,23 +36,62 @@ test("Pi-stub Tianyi prediction runs persist independently without Event, Relati
     assert.equal(JSON.stringify(execution).includes("systemPrompt"), false);
     assert.deepEqual(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects, before);
     const authorControl = createStoryStudioAuthorControl({ rootPath, stateFilePath });
-    const review = authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.rain", selectedCandidateNodeIds: ["prediction-node.rain-trace"], decidedAt: "2026-08-30T12:01:00.000Z" });
+    const review = authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.lighthouse", selectedCandidateNodeIds: ["prediction-node.lighthouse-fire", "prediction-node.harbor-departure"], decidedAt: "2026-08-30T12:01:00.000Z" });
     assert.equal(review.status, "reviewing");
-    assert.equal(authorControl.readPredictionReview({ projectId, reviewId: review.id })?.selectedCandidateNodeIds[0], "prediction-node.rain-trace");
+    assert.deepEqual(authorControl.readPredictionReview({ projectId, reviewId: review.id })?.selectedCandidateNodeIds, ["prediction-node.lighthouse-fire", "prediction-node.harbor-departure"]);
     assert.equal(authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.lighthouse", selectedCandidateNodeIds: ["prediction-node.harbor-departure"], decidedAt: "2026-08-30T12:01:30.000Z" }).status, "reviewing", "unknown time remains reviewable");
     assert.throws(() => authorControl.createPredictionReview({ projectId, runId: created.runId, pathId: "prediction-path.conflict", selectedCandidateNodeIds: ["prediction-node.reversed-signal"], decidedAt: "2026-08-30T12:01:40.000Z" }), /time validation/u);
     const drafted = authorControl.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.1", decidedAt: "2026-08-30T12:02:00.000Z" });
     assert.equal(drafted.status, "drafted");
     assert.equal((drafted.receipt as { items: Array<{ action: string }> }).items[0]?.action, "draft-created");
+    const relationReceipt = drafted.receipt as { relationItems: Array<{ action: string; relationId: string | null }> };
+    assert.deepEqual(relationReceipt.relationItems.map((item) => item.action), ["candidate-created", "excluded-unselected-endpoint"], "partial adoption filters the dangling edge to the skipped node");
+    assert.equal(relationOperations.listRelations({ projectId, reviewState: "candidate" }).relations.length, 1);
+    assert.equal(relationOperations.listRelations({ projectId, reviewState: "confirmed" }).relations.length, 0);
     assert.equal(authorControl.listPredictionReviews({ projectId, runId: created.runId }).find((item) => item.id === review.id)?.status, "drafted", "a reloadable Run review retains its draft receipt");
     assert.equal(authorControl.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.1", decidedAt: "2026-08-30T12:03:00.000Z" }).status, "drafted");
+    assert.equal(relationOperations.listRelations({ projectId, reviewState: "candidate" }).relations.length, 1, "replaying the adoption operation does not duplicate Relation candidates");
     const second = operations.createPredictionRun({ request: { ...request, operationId: "prediction.operation.2" }, runId: "prediction-run.second" });
     assert.equal(operations.abandonPredictionRun({ projectId, runId: second.runId }).status, "abandoned");
     assert.equal(operations.listPredictionRuns({ projectId }).length, 2);
     assert.equal(second.runId, "prediction-run.second");
-    assert.equal(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects.filter((event) => event.status === "draft").length, 1);
+    assert.equal(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects.filter((event) => event.status === "draft").length, 2);
     const changedSource = workspace.readWorldObject({ projectId, objectId: sources[0]!.id });
     workspace.updateWorldObject({ projectId, objectId: changedSource.id, expectedHash: changedSource.revisionToken, title: changedSource.title, status: changedSource.status, tags: changedSource.tags, aliases: changedSource.aliases, body: `${changedSource.body}\n来源版本已改变。` });
     assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.status, "stale", "a changed source immediately disables a previously ready Run");
+  } finally { await rm(rootPath, { recursive: true, force: true }); }
+});
+
+test("prediction adoption keeps unmatched edge types pending until the author selects an existing RelationType", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-prediction-relations-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  const projectId = "long-night-unresolved";
+  try {
+    const workspace = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+    workspace.createProject({ title: "长夜将明", folderSlug: projectId });
+    const sources = ["暗号传递", "仓库对峙", "旧仓库封锁"].map((title) => workspace.createPlanningEvent({ projectId, title }));
+    const operations = createStoryStudioMultiNodePredictionOperations({ rootPath, stateFilePath, now: () => "2026-08-30T12:00:00.000Z" });
+    const request = { projectId, sourceEventRefs: sources.map((event) => ({ version: "story-studio-event-reference/v1" as const, projectId, eventId: event.id, revisionToken: event.revisionToken, state: "planned" as const, requestedUse: "constraint" as const })), authorGoal: "推演后续", predictionMode: "forward-development", operationId: "prediction.operation.unresolved" };
+    const run = await operations.executePredictionRun({ projectId, runId: operations.createPredictionRun({ request, runId: "prediction-run.unresolved" }).runId });
+    const control = createStoryStudioAuthorControl({ rootPath, stateFilePath });
+    const review = control.createPredictionReview({ projectId, runId: run.runId, pathId: "prediction-path.lighthouse", selectedCandidateNodeIds: ["prediction-node.lighthouse-fire", "prediction-node.harbor-departure", "prediction-node.signal-merge"], decidedAt: "2026-08-30T12:01:00.000Z" });
+    const accepted = control.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.unresolved", decidedAt: "2026-08-30T12:02:00.000Z" });
+    const receipt = accepted.receipt as { relationItems: Array<{ action: string; relationId: string }> };
+    assert.deepEqual(receipt.relationItems.map((item) => item.action), ["relation-type-unresolved", "relation-type-unresolved"]);
+    const relationOperations = createStoryStudioRelationOperations({ workspaceOperations: workspace });
+    const pending = relationOperations.listRelations({ projectId, reviewState: "candidate" }).relations;
+    assert.equal(pending.length, 2);
+    assert.ok(pending.every((relation) => relation.relationTypeResolution === "unresolved" && relation.relationLabelSnapshot === "关系类型待确认"));
+    assert.throws(() => relationOperations.confirmRelationCandidate({ projectId, relationId: pending[0]!.relationId, expectedRelationRevision: pending[0]!.revision, operationId: "relation.confirm.blocked" }), /type must be selected/u);
+    const type = relationOperations.createRelationType({ projectId, operationId: "relation-type.existing", label: "促使" });
+    const resolved = relationOperations.updateRelationCandidate({ projectId, relationId: pending[0]!.relationId, expectedRelationRevision: pending[0]!.revision, relationTypeId: type.type.relationTypeId, operationId: "relation.resolve.existing-type" });
+    relationOperations.confirmRelationCandidate({ projectId, relationId: resolved.relation.relationId, expectedRelationRevision: resolved.relation.revision, operationId: "relation.confirm.author" });
+    relationOperations.rejectRelationCandidate({ projectId, relationId: pending[1]!.relationId, expectedRelationRevision: pending[1]!.revision, operationId: "relation.reject.author" });
+    const restartedRelations = createStoryStudioRelationOperations({ workspaceOperations: createStoryStudioWorkspaceOperations({ rootPath, stateFilePath }) });
+    assert.equal(restartedRelations.listRelations({ projectId, reviewState: "confirmed" }).relations.length, 1);
+    assert.equal(restartedRelations.listRelations({ projectId, reviewState: "candidate" }).relations.length, 0);
+    assert.equal(restartedRelations.listRelations({ projectId, includeArchived: true, reviewState: "rejected" }).relations.length, 1);
+    assert.equal(control.acceptPredictionReview({ projectId, reviewId: review.id, operationId: "prediction.accept.unresolved", decidedAt: "2026-08-30T12:03:00.000Z" }).status, "drafted");
+    assert.equal(restartedRelations.listRelations({ projectId, includeArchived: true }).relations.length, 2, "replay does not recreate a rejected edge");
   } finally { await rm(rootPath, { recursive: true, force: true }); }
 });

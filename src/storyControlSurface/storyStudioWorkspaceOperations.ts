@@ -35,6 +35,7 @@ import {
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
+import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
 
 import {
   createWorkspaceNote,
@@ -1007,18 +1008,19 @@ export function createStoryStudioWorkspaceOperations(input: {
       return readProductObject(projectPath, note.id);
     },
 
-    createPredictionDraftEventsOnce(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; operationId: string }): { operationId: string; runId: string; pathId: string; items: Array<{ candidateNodeId: string; action: "draft-created" | "referenced-existing" | "merge-review"; draftEventId: string | null; existingEventId: string | null }> } {
+    createPredictionDraftEventsOnce(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; operationId: string }): DraftCreationReceipt {
       const projectPath = resolveProjectPath(rootPath, input.projectId);
       const runId = requireArtifactId(input.runId, "Prediction Run identifier");
       const operationId = requireArtifactId(input.operationId, "Prediction acceptance operation");
       const pathId = requireArtifactId(input.pathId, "Prediction path identifier");
       const receiptsDirectory = path.join(projectPath, ".world-os", "workspace", "prediction-draft-receipts");
       const receiptPath = path.join(receiptsDirectory, `${operationId}.json`);
-      if (existsSync(receiptPath)) return clone(JSON.parse(readFileSync(receiptPath, "utf8")));
+      const existingReceipt = existsSync(receiptPath) ? JSON.parse(readFileSync(receiptPath, "utf8")) as Partial<DraftCreationReceipt> : null;
       const runPath = path.join(projectPath, ".world-os", "tianyi", "multi-node-predictions", `${runId}.json`);
       if (!existsSync(runPath)) throw new Error("Prediction Run does not exist.");
       const run = JSON.parse(readFileSync(runPath, "utf8")) as any;
       if (run.projectId !== input.projectId || run.runId !== runId || run.status !== "ready" || !run.bundle) throw new Error("Prediction Run is not ready for draft creation.");
+      if (existingReceipt) return clone({ ...existingReceipt, operationId, runId, bundleId: existingReceipt.bundleId ?? run.bundle.bundleId, pathId, items: existingReceipt.items ?? [], relationItems: existingReceipt.relationItems ?? [] } as DraftCreationReceipt);
       for (const reference of run.sourceSnapshot as Array<{ eventId: string; revisionToken: string }>) {
         const event = this.readWorldObject({ projectId: input.projectId, objectId: reference.eventId });
         if (event.revisionToken !== reference.revisionToken) throw new Error("Prediction source is stale.");
@@ -1041,7 +1043,7 @@ export function createStoryStudioWorkspaceOperations(input: {
         return { candidateNodeId: node.id, action: "draft-created" as const, draftEventId: created.id, existingEventId: null };
       });
       mkdirSync(receiptsDirectory, { recursive: true });
-      const receipt = { operationId, runId, pathId, items };
+      const receipt: DraftCreationReceipt = { operationId, runId, bundleId: requireArtifactId(run.bundle.bundleId, "Prediction Bundle identifier"), pathId, items, relationItems: [] };
       const temporary = `${receiptPath}.tmp`;
       writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
       renameSync(temporary, receiptPath);
