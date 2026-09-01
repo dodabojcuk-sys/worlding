@@ -79,12 +79,22 @@
 
 .shell-workspace-event-line .event-line-shell { position: relative; }
 
+.shell-workspace-event-line .event-line-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
 .shell-workspace-event-line .event-line-shell > .event-line-spine-main {
+  grid-column: 1;
+  grid-row: 1;
   flex: 1 1 auto;
   inline-size: auto;
 }
 
 .shell-workspace-event-line .page-context-dock {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   position: relative;
   flex: 0 0 3.25rem;
   min-inline-size: 0;
@@ -120,19 +130,20 @@
 .shell-workspace-event-line .event-line-spine-main {
   overflow: auto;
   padding: clamp(1.5rem, 3vw, 3rem);
-  padding-block-end: 7.5rem;
+  padding-block-end: clamp(1.5rem, 3vw, 3rem);
 }
 
 .shell-workspace-event-line .story-modeling-toolbar {
-  position: absolute;
+  position: relative;
   z-index: 12;
-  inset-inline: clamp(.75rem, 2vw, 2rem) 4rem;
-  inset-block-end: .75rem;
+  grid-column: 1;
+  grid-row: 2;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: .65rem;
   min-block-size: 3.25rem;
+  margin: .5rem clamp(.75rem, 2vw, 2rem) .75rem;
   padding: .55rem .65rem;
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-surface) 96%, transparent);
@@ -141,7 +152,7 @@
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(16px);
 }
-.shell-workspace-event-line .story-modeling-toolbar.is-collapsed { grid-template-columns: auto; inline-size: fit-content; inset-inline-end: auto; }
+.shell-workspace-event-line .story-modeling-toolbar.is-collapsed { grid-template-columns: auto; inline-size: fit-content; }
 .shell-workspace-event-line .story-modeling-toolbar button { min-block-size: 2.25rem; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding-inline: .7rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .875rem; }
 .shell-workspace-event-line .story-modeling-toolbar button:hover { border-color: var(--color-accent); }
 .shell-workspace-event-line .story-modeling-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
@@ -180,13 +191,69 @@
 .story-modeling-confirmation > footer .primary-action { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
 .story-modeling-error { color: var(--color-danger); }
 
+.shell-workspace-event-line .story-spine-zoom { display: inline-flex; align-items: center; gap: .4rem; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .story-spine-zoom select { min-block-size: 2.25rem; padding-inline: .55rem 1.8rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .8125rem; }
+.shell-workspace-event-line .unit-create-bar { display: flex; align-items: end; gap: .6rem; margin-block-end: 1rem; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.shell-workspace-event-line .unit-create-bar label { flex: 1 1 auto; display: grid; gap: .3rem; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .unit-create-bar input { min-block-size: 2.5rem; padding-inline: .65rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .875rem; }
+.shell-workspace-event-line .unit-create-bar button { min-block-size: 2.5rem; padding-inline: .8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.shell-workspace-event-line .unit-action-message { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 0 0 1rem; padding: .65rem .8rem; color: var(--color-text-muted); background: var(--color-accent-soft); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .8125rem; }
+.shell-workspace-event-line .unit-action-message button { display: grid; place-items: center; inline-size: 1.8rem; block-size: 1.8rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 0; }
+.shell-workspace-event-line .unit-action-message svg { inline-size: .9rem; }
+
+.shell-workspace-event-line .story-spine-map { position: relative; display: grid; gap: 1.15rem; max-inline-size: none; margin: 0; padding: .25rem 0 1rem; }
+.shell-workspace-event-line .story-spine-map::before { content: ""; position: absolute; inset-block: 1.25rem; inset-inline-start: 1.32rem; inline-size: 2px; background: linear-gradient(var(--color-accent), color-mix(in srgb, var(--color-accent) 20%, var(--color-border))); }
+.shell-workspace-event-line .story-spine-unit { position: relative; display: grid; grid-template-columns: 2.7rem minmax(0, 1fr); align-items: start; gap: .8rem; }
+.shell-workspace-event-line .story-spine-unit.is-branch-unit { margin-inline-start: clamp(3.5rem, 8vw, 8rem); }
+.shell-workspace-event-line .story-spine-unit.is-branch-unit::before { content: ""; position: absolute; inset-inline-start: calc(clamp(3.5rem, 8vw, 8rem) * -1 + 1.35rem); inset-block-start: 1.32rem; inline-size: calc(clamp(3.5rem, 8vw, 8rem) - 1.35rem); border-block-start: 1px solid var(--color-accent); }
+.shell-workspace-event-line .story-spine-trunk-marker { position: relative; z-index: 2; display: grid; place-items: center; inline-size: 2.7rem; block-size: 2.7rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 4px solid var(--color-workspace-background); border-radius: 50%; font-size: .75rem; font-weight: 750; }
+.shell-workspace-event-line .story-spine-unit.is-branch-unit .story-spine-trunk-marker { color: var(--color-accent); background: var(--color-surface); border-color: var(--color-workspace-background); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.shell-workspace-event-line .story-spine-unit-card { min-width: 0; display: grid; gap: .8rem; padding: .95rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 .2rem .75rem color-mix(in srgb, var(--color-text) 5%, transparent); }
+.shell-workspace-event-line .story-spine-unit[data-current-unit="true"] .story-spine-unit-card { border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); box-shadow: inset 3px 0 0 var(--color-accent); }
+.shell-workspace-event-line .story-spine-unit-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.shell-workspace-event-line .story-spine-unit-card > header > div { min-width: 0; display: grid; gap: .2rem; }
+.shell-workspace-event-line .story-spine-unit-card > header small { color: var(--color-accent); font-size: .75rem; letter-spacing: .07em; }
+.shell-workspace-event-line .story-spine-unit-card h2 { margin: 0; font: 600 1.16rem/1.25 var(--font-display); }
+.shell-workspace-event-line .story-spine-unit-card > header p { margin: 0; color: var(--color-text-muted); font-size: .875rem; line-height: 1.45; }
+.shell-workspace-event-line .story-spine-unit-card > header form { display: flex; gap: .4rem; }
+.shell-workspace-event-line .story-spine-unit-card > header input { min-block-size: 2.25rem; padding-inline: .55rem; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .story-spine-unit-card > header form button { padding-inline: .55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .story-spine-sync-state { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .35rem; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .story-spine-sync-state svg { inline-size: .9rem; color: var(--color-accent); }
+.shell-workspace-event-line .story-spine-unit-semantics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; margin: 0; }
+.shell-workspace-event-line .story-spine-unit-semantics div { min-width: 0; display: grid; gap: .2rem; padding: .55rem .6rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .story-spine-unit-semantics dt { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .story-spine-unit-semantics dd { margin: 0; overflow: hidden; font-size: .8125rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .story-spine-unit-stats { display: flex; flex-wrap: wrap; gap: .45rem 1rem; color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .story-spine-unit-stats b { color: var(--color-text); }
+.shell-workspace-event-line .story-spine-unit-actions { display: flex; flex-wrap: wrap; gap: .4rem; padding-block: .15rem .7rem; border-block-end: 1px solid var(--color-border); }
+.shell-workspace-event-line .story-spine-unit-actions button { min-block-size: 2rem; display: inline-flex; align-items: center; gap: .3rem; padding-inline: .55rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
+.shell-workspace-event-line .story-spine-unit-actions button:hover:not(:disabled) { color: var(--color-accent); border-color: var(--color-accent); }
+.shell-workspace-event-line .story-spine-unit-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.shell-workspace-event-line .story-spine-unit-actions svg { inline-size: .82rem; }
+.shell-workspace-event-line .story-spine-events { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, .72fr); gap: .75rem; align-items: start; }
+.shell-workspace-event-line .story-spine-map.is-medium .story-spine-events { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.shell-workspace-event-line .story-spine-map.is-far .story-spine-unit-card { min-block-size: 9rem; }
+.shell-workspace-event-line .story-spine-events .event-line-direct-nodes, .shell-workspace-event-line .story-spine-events .event-line-set-point { margin: 0; padding: .6rem; }
+.shell-workspace-event-line .story-spine-events ol { padding-inline-start: 1.25rem; }
+.shell-workspace-event-line .story-spine-events .event-line-spine-node { inset-inline-start: -1.65rem; }
+.shell-workspace-event-line .event-spine-cross-view { position: absolute; inset-inline-end: .55rem; inset-block-end: .45rem; display: flex; gap: .3rem; }
+.shell-workspace-event-line .event-spine-cross-view button { min-block-size: 1.75rem; display: inline-flex; align-items: center; gap: .25rem; padding-inline: .4rem; color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
+.shell-workspace-event-line .event-spine-cross-view svg { inline-size: .75rem; }
+.shell-workspace-event-line .story-spine-events .event-line-spine-node + button { padding-block-end: 2.35rem; }
+
 @media (max-width: 75rem) {
-  .shell-workspace-event-line .story-modeling-toolbar { inset-inline: .6rem 3.85rem; grid-template-columns: auto minmax(0, 1fr); }
+  .shell-workspace-event-line .story-modeling-toolbar { grid-template-columns: auto minmax(0, 1fr); margin-inline: .6rem; }
   .shell-workspace-event-line .story-modeling-toolbar:not(.is-collapsed) .story-modeling-last-run { display: none; }
   .shell-workspace-event-line .story-modeling-toolbar-actions { justify-content: flex-start; }
   .shell-workspace-event-line .story-modeling-toolbar-actions button { inline-size: 2.35rem; padding: 0; font-size: 0; }
   .shell-workspace-event-line .story-modeling-toolbar-actions button svg { inline-size: 1rem; }
   .story-modeling-estimate { grid-template-columns: 1fr; }
+  .shell-workspace-event-line .story-spine-unit.is-branch-unit { margin-inline-start: 0; }
+  .shell-workspace-event-line .story-spine-unit.is-branch-unit::before { display: none; }
+  .shell-workspace-event-line .story-spine-unit-semantics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .shell-workspace-event-line .story-spine-events, .shell-workspace-event-line .story-spine-map.is-medium .story-spine-events { grid-template-columns: 1fr; }
+  .shell-workspace-event-line .story-spine-unit-actions { max-block-size: 4.8rem; overflow: auto; }
 }
 
 .shell-workspace-event-line .event-line-spine-toolbar {

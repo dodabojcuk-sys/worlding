@@ -15,8 +15,8 @@ import {
   MessageCircle,
   Network,
   PanelRight,
+  Plus,
   RefreshCw,
-  ScanLine,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -95,6 +95,9 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
+  onCreateUnit?(title: string): Promise<void>;
+  onRenameUnit?(currentTitle: string, nextTitle: string): Promise<void>;
+  onArchiveUnit?(title: string): Promise<void>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string }): Promise<void>;
   relationTypes?: readonly RelationTypeDefinitionR0[];
   onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
@@ -113,7 +116,6 @@ export function EventLineWorkbench(props: {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<CanonReadFailure | null>(null);
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
-  const [compact, setCompact] = useState(false);
   const [projectionMode, setProjectionMode] = useState<EventWorkspaceView>(() => readProjectionMode(props.projectId));
   const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
   const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable">("idle");
@@ -124,6 +126,9 @@ export function EventLineWorkbench(props: {
   const [modelingPlanState, setModelingPlanState] = useState<"idle" | "loading" | "ready" | "running" | "failed">("idle");
   const [modelingRun, setModelingRun] = useState<StoryModelingRunProjection | null>(null);
   const [aiToolbarExpanded, setAiToolbarExpanded] = useState(true);
+  const [spineZoom, setSpineZoom] = useState<"far" | "medium" | "near">("medium");
+  const [unitCreateOpen, setUnitCreateOpen] = useState(false);
+  const [unitActionMessage, setUnitActionMessage] = useState<string | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [dockState, setDockState] = useState<PageContextDockState<EventLinePageDockLens>>(() => ({ open: Boolean(props.selectedEventId), activeLens: "detail" }));
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
@@ -431,6 +436,11 @@ export function EventLineWorkbench(props: {
     setFilter({ kind: "all" });
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-confirmed-event-id="${CSS.escape(selectedEvent.id)}"]`)?.scrollIntoView({ block: "center" }));
   };
+  const openEventInView = (eventId: string, view: "graph" | "timeline") => {
+    setSelectedEventId(eventId);
+    requestDockState({ open: false, activeLens: "detail" }, eventId);
+    selectView(view);
+  };
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
     ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
@@ -481,7 +491,7 @@ export function EventLineWorkbench(props: {
             <button type="button" aria-pressed={projectionMode === "graph"} onClick={() => selectView("graph")}><Network />关系图</button>
             <button type="button" aria-pressed={projectionMode === "timeline"} onClick={() => selectView("timeline")}><Clock3 />时间轴</button>
           </nav>
-          <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <button type="button" aria-pressed={compact} onClick={() => setCompact((value) => !value)}><ScanLine />紧凑显示</button> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
+          <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <><button type="button" aria-pressed={unitCreateOpen} onClick={() => setUnitCreateOpen((value) => !value)}><Plus />新建单元</button><label className="story-spine-zoom"><span>层级</span><select value={spineZoom} onChange={(event) => setSpineZoom(event.target.value as typeof spineZoom)}><option value="far">远景 · 单元</option><option value="medium">中景 · 关键事件</option><option value="near">近景 · 全部事件</option></select></label></> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
@@ -496,22 +506,10 @@ export function EventLineWorkbench(props: {
         }} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
-        {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine ${compact ? "is-compact" : ""}`} data-testid="confirmed-story-spine" aria-label="故事脊柱">
-          {groupedEvents.map((group) => <section className="event-line-unit" key={group.label} data-current-unit={group.label === props.currentUnitLabel ? "true" : "false"}>
-            <header><span><Layers3 /></span><div><small>{group.label === props.currentUnitLabel ? "故事单元 · 当前故事范围" : "故事单元"}</small><h2>{group.label}</h2></div><strong>{group.direct.length + group.setPoints.reduce((count, item) => count + item.events.length, 0)} 个已确认事件</strong></header>
-            {group.direct.length ? <section className="event-line-direct-nodes"><header><div><small>直接属于单元</small><h3>单元节点</h3></div><strong>{group.direct.length} 个节点</strong></header><ol>{group.direct.map((event) => <EventSpineNode key={event.id} event={event} detail={detailsById[event.id] ?? null} metadata={metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === selectedEventId} current={event.id === selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => openEvent(event.id)} />)}</ol></section> : null}
-            {group.setPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode
-                key={event.id}
-                event={event}
-                detail={detailsById[event.id] ?? null}
-                metadata={metadataById[event.id]}
-                sequence={props.events.findIndex((item) => item.id === event.id) + 1}
-                selected={event.id === selectedEventId}
-                current={event.id === selectedEventId}
-                candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)}
-                onOpen={() => openEvent(event.id)}
-              />)}</ol></section>)}
-          </section>)}
+        {projectionMode === "spine" && unitCreateOpen ? <UnitCreateBar busy={false} onCancel={() => setUnitCreateOpen(false)} onCreate={async (title) => { if (!props.onCreateUnit) return; try { await props.onCreateUnit(title); setUnitActionMessage(`已创建单元“${title}”。`); setUnitCreateOpen(false); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "新建单元失败。"); } }} /> : null}
+        {projectionMode === "spine" && unitActionMessage ? <p className="unit-action-message" role="status">{unitActionMessage}<button type="button" aria-label="关闭单元操作提示" onClick={() => setUnitActionMessage(null)}><X /></button></p> : null}
+        {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine story-spine-map is-${spineZoom}`} data-testid="confirmed-story-spine" aria-label="故事脊柱主控结构" data-spine-zoom={spineZoom}>
+          {groupedEvents.map((group, unitIndex) => <StorySpineUnit key={group.label} group={group} unitIndex={unitIndex} current={group.label === props.currentUnitLabel} zoom={spineZoom} events={props.events} detailsById={detailsById} metadataById={metadataById} selectedEventId={selectedEventId} goldenLoop={props.goldenLoop} rejectedCandidateIds={props.rejectedCandidateIds} acceptedCandidateIds={props.acceptedCandidateIds} onOpenEvent={openEvent} onOpenGraph={(eventId) => openEventInView(eventId, "graph")} onOpenTimeline={(eventId) => openEventInView(eventId, "timeline")} onOpenUnitGraph={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "graph"); }} onOpenUnitTimeline={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "timeline"); }} onRename={async (nextTitle) => { if (!props.onRenameUnit) return; try { await props.onRenameUnit(group.label, nextTitle); setUnitActionMessage(`单元已重命名为“${nextTitle}”。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "重命名单元失败。"); } }} onArchive={async () => { if (!props.onArchiveUnit) return; try { await props.onArchiveUnit(group.label); setUnitActionMessage(`单元“${group.label}”已归档；事件仍由原 owner 保留。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "归档单元失败。"); } }} />)}
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
@@ -547,6 +545,45 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
     {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : "本次建模未完成"}</strong><span>{props.run.provider?.executionKind === "test-provider" ? "测试 Provider" : "Provider"} · {props.run.actual?.providerRequests ?? 0} 次请求 · {props.run.actual?.totalTokens ?? 0} tokens</span><span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
   </aside>;
 }
+
+function UnitCreateBar(props: { busy: boolean; onCancel(): void; onCreate(title: string): Promise<void> }) {
+  const [title, setTitle] = useState("");
+  return <form className="unit-create-bar" onSubmit={(event) => { event.preventDefault(); const value = title.trim(); if (value) void props.onCreate(value); }}><label><span>新单元名称</span><input autoFocus value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} placeholder="例如：雾港封锁" /></label><button type="button" onClick={props.onCancel}>取消</button><button type="submit" className="primary-action" disabled={props.busy || !title.trim()}>创建单元</button></form>;
+}
+
+function StorySpineUnit(props: {
+  group: ReturnType<typeof groupEventsByUnit>[number]; unitIndex: number; current: boolean; zoom: "far" | "medium" | "near";
+  events: readonly EventLineEventSummary[]; detailsById: Record<string, EventLineEventDetail>; metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>; selectedEventId: string | null;
+  goldenLoop: GoldenLoopResult | null; rejectedCandidateIds: readonly string[]; acceptedCandidateIds: readonly string[];
+  onOpenEvent(id: string): void; onOpenGraph(id: string): void; onOpenTimeline(id: string): void; onOpenUnitGraph(): void; onOpenUnitTimeline(): void; onRename(title: string): Promise<void>; onArchive(): Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(props.group.label.replace(/^单元\s*\d+\s*·\s*/u, ""));
+  const allEvents = [...props.group.direct, ...props.group.setPoints.flatMap((item) => item.events)];
+  const visibleDirect = props.zoom === "near" ? props.group.direct : props.group.direct.slice(0, props.zoom === "medium" ? 3 : 0);
+  const visibleSetPoints = props.zoom === "near" ? props.group.setPoints : props.zoom === "medium" ? props.group.setPoints.map((item) => ({ ...item, events: item.events.slice(0, 2) })) : [];
+  const tags = allEvents.flatMap((event) => event.tags);
+  const summary = allEvents.map((event) => eventSummaryFromTags(event.tags)).find(Boolean) ?? `${allEvents.length} 个事件构成当前叙事范围。`;
+  const confirmed = allEvents.filter((event) => eventLineSemanticNode(event).status === "confirmed").length;
+  const candidate = allEvents.length - confirmed;
+  const conflicts = tags.filter((tag) => /冲突|conflict/iu.test(tag)).length;
+  const branch = /分支|支线|派生/iu.test(props.group.label);
+  return <section className={`story-spine-unit ${branch ? "is-branch-unit" : "is-main-unit"}`} data-current-unit={props.current ? "true" : "false"} data-unit-id={`story-unit.${props.unitIndex + 1}`}>
+    <div className="story-spine-trunk-marker"><span>{String(props.unitIndex + 1).padStart(2, "0")}</span></div>
+    <article className="story-spine-unit-card">
+      <header><div><small>{branch ? "分支单元" : props.current ? "主干单元 · 当前范围" : "主干单元"}</small>{editing ? <form onSubmit={(event) => { event.preventDefault(); const next = title.trim(); if (next) void props.onRename(next).then(() => setEditing(false)); }}><input aria-label={`重命名单元 ${props.group.label}`} value={title} onChange={(event) => setTitle(event.target.value)} /><button type="submit">保存</button><button type="button" onClick={() => setEditing(false)}>取消</button></form> : <h2>{props.group.label}</h2>}<p>{summary}</p></div><span className="story-spine-sync-state"><CheckCircle2 />与正式事件同步</span></header>
+      <dl className="story-spine-unit-semantics"><div><dt>单元目标</dt><dd>{unitTag(tags, "目标") ?? "推进当前故事目标"}</dd></div><div><dt>核心冲突</dt><dd>{unitTag(tags, "冲突") ?? "待作者补充"}</dd></div><div><dt>关键转折</dt><dd>{unitTag(tags, "转折") ?? allEvents[Math.max(0, Math.floor(allEvents.length / 2))]?.title ?? "待定位"}</dd></div><div><dt>结果 / 开放钩子</dt><dd>{unitTag(tags, "钩子") ?? allEvents.at(-1)?.title ?? "待作者补充"}</dd></div></dl>
+      <div className="story-spine-unit-stats"><span>已确认 <b>{confirmed}</b></span><span>候选 <b>{candidate}</b></span><span>冲突 <b>{conflicts}</b></span><span>来源：{branch ? "派生故事范围" : "主故事"}</span></div>
+      <nav className="story-spine-unit-actions" aria-label={`${props.group.label} 单元操作`}><button type="button" onClick={props.onOpenUnitGraph}><Network />在关系图中查看</button><button type="button" onClick={props.onOpenUnitTimeline}><Clock3 />在时间轴中查看</button><button type="button" onClick={() => setEditing(true)}>重命名</button><button type="button" onClick={() => void props.onArchive()}>归档</button><button type="button" disabled title="当前 Unit owner 尚无批量拆分事务合同">在选定事件处拆分</button><button type="button" disabled title="当前 Unit owner 尚无相邻单元合并事务合同">合并相邻单元</button><button type="button" disabled title="执行前影响预览合同尚未建立">调整叙事顺序</button><button type="button" disabled title="Nuwa 范围移交 owner 合同尚未建立">移交女娲推演</button><button type="button" disabled title="Multiverse 来源 owner 合同尚未建立">创建多元派生来源</button></nav>
+      {props.zoom !== "far" ? <div className="story-spine-events">
+        {visibleDirect.length ? <section className="event-line-direct-nodes"><header><div><small>直接属于单元</small><h3>关键事件</h3></div><strong>{props.group.direct.length} 个节点</strong></header><ol>{visibleDirect.map((event) => <EventSpineNode key={event.id} event={event} detail={props.detailsById[event.id] ?? null} metadata={props.metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === props.selectedEventId} current={event.id === props.selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => props.onOpenEvent(event.id)} onOpenGraph={() => props.onOpenGraph(event.id)} onOpenTimeline={() => props.onOpenTimeline(event.id)} />)}</ol></section> : null}
+        {visibleSetPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>可选集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode key={event.id} event={event} detail={props.detailsById[event.id] ?? null} metadata={props.metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === props.selectedEventId} current={event.id === props.selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => props.onOpenEvent(event.id)} onOpenGraph={() => props.onOpenGraph(event.id)} onOpenTimeline={() => props.onOpenTimeline(event.id)} />)}</ol></section>)}
+      </div> : null}
+    </article>
+  </section>;
+}
+
+function unitTag(tags: readonly string[], label: string): string | null { return tags.map((tag) => new RegExp(`^(?:Unit )?${label}[：:]\\s*(.+)$`, "iu").exec(tag)?.[1]?.trim()).find(Boolean) ?? null; }
 
 function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: StoryModelingScope["kind"]; plan: StoryModelingPlanProjection | null; state: "idle" | "loading" | "ready" | "running" | "failed"; onScope(kind: StoryModelingScope["kind"]): void; onCancel(): void; onConfirm(): void }) {
   const estimate = props.plan?.estimate;
@@ -675,6 +712,8 @@ function EventSpineNode(props: {
   current: boolean;
   candidateMarker: EventCandidateStatus | null;
   onOpen(): void;
+  onOpenGraph(): void;
+  onOpenTimeline(): void;
 }) {
   const summary = props.detail ? authorEventBody(props.detail.body)[0] : eventSummaryFromTags(props.event.tags);
   const semantic = props.detail ? eventLineSemanticNode(props.detail) : eventLineSemanticNode(props.event);
@@ -686,6 +725,7 @@ function EventSpineNode(props: {
       {summary ? <p>{summary}</p> : null}
       <footer><span><UsersRound />{props.metadata.characterLabels.length ? props.metadata.characterLabels.join("、") : "人物未标注"}</span><span>{props.metadata.setPointLabel ? `集点 · ${props.metadata.setPointLabel}` : "直接属于单元"}</span></footer>
     </button>
+    <nav className="event-spine-cross-view" aria-label={`${props.event.title} 跨视图定位`}><button type="button" onClick={props.onOpenGraph}><Network />关系图</button><button type="button" onClick={props.onOpenTimeline}><Clock3 />时间轴</button></nav>
   </li>;
 }
 
