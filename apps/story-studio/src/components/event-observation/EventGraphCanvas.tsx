@@ -475,7 +475,10 @@ export function EventGraphCanvas(props: {
           onPaneClick={() => {
             setContextMenu(null); setSelection(null); setWorkspaceSelectionIds([]); closeInspector(); props.onClearSelection();
           }}
-          onInit={setFlow} fitView minZoom={["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25} maxZoom={1.8}
+          onInit={setFlow}
+          fitView={mode !== "temporal"}
+          minZoom={mode === "temporal" ? 0.84 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25}
+          maxZoom={1.8}
           onMove={(_, viewport) => {
             setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
             if (mode === "temporal") setTemporalViewport(viewport);
