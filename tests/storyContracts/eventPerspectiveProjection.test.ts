@@ -19,16 +19,31 @@ test("perspective comparison uses formal metadata and relations without requirin
   assert.equal(projection[0]?.mode, "compare");
 });
 
-test("single perspective exposes direct experience, formal knowledge and author-visible blind spots", () => {
+test("single perspective defaults to evidence-backed events and reveals blind spots only when requested", () => {
   const character = { id: "character.lin", type: "character" as const, label: "林昭", ownerId: "long-night", version: "character.lin.r1", formal: true };
   const projection = buildSinglePerspectiveProjection({ events: [
     { id: "event.a", title: "暗号传递", tags: ["人物：林昭"] },
     { id: "event.b", title: "错误口令", tags: ["知情：林昭=误解"] },
     { id: "event.c", title: "密室决议", tags: ["人物：顾舟"] }
   ], relations: [], selected: character });
-  assert.deepEqual(projection.map((item) => item.matches[0]?.visibility), ["experienced", "misunderstood", "blind-spot"]);
-  assert.equal(projection[2]?.matches[0]?.knowledgeState, "unknown");
-  assert.equal(projection[2]?.matches[0]?.evidenceRefs.includes("owner:long-night@character.lin.r1"), true);
+  assert.deepEqual(projection.map((item) => item.matches[0]?.visibility), ["experienced", "misunderstood"]);
+  const withBlindSpots = buildSinglePerspectiveProjection({ events: [
+    { id: "event.a", title: "暗号传递", tags: ["人物：林昭"] },
+    { id: "event.b", title: "错误口令", tags: ["知情：林昭=误解"] },
+    { id: "event.c", title: "密室决议", tags: ["人物：顾舟"] }
+  ], relations: [], selected: character, includeBlindSpots: true });
+  assert.deepEqual(withBlindSpots.map((item) => item.matches[0]?.visibility), ["experienced", "misunderstood", "blind-spot"]);
+  assert.equal(withBlindSpots[2]?.matches[0]?.knowledgeState, "unknown");
+  assert.equal(withBlindSpots[2]?.matches[0]?.evidenceRefs.includes("owner:long-night@character.lin.r1"), true);
+});
+
+test("single perspective returns an honest empty projection when no formal evidence exists", () => {
+  const projection = buildSinglePerspectiveProjection({
+    events: [{ id: "event.hidden", title: "密会", tags: ["人物：顾舟"] }],
+    relations: [],
+    selected: { id: "character.lin", type: "character", label: "林昭", ownerId: "character-owner", version: "r3", formal: true }
+  });
+  assert.deepEqual(projection, []);
 });
 
 test("selection cardinality switches deterministically between single and compare modes", () => {

@@ -5,6 +5,7 @@ import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TemporalPlacement, TemporalProjectionRun } from "../../../../../src/storyContracts/temporalProjection.ts";
 import { TEMPORAL_COORDINATE_TRACKS } from "../../../../../src/storyContracts/temporalCoordinateTracks.ts";
+import { resolveTemporalTrackProjection } from "../../../../../src/storyContracts/temporalCompositionCache.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 
 type TemporalNodeData = {
@@ -13,6 +14,16 @@ type TemporalNodeData = {
   sourceLabel: string;
   state: "anchored" | "inferred" | "ambiguous" | "unplaced" | "conflict";
   detail: "compact" | "standard" | "expanded";
+  trackId: string;
+  trackLabel: string;
+  trackOrigin: "author-formal" | "ai-suggested" | "ai-suggested-stale";
+};
+
+export type TemporalCanvasTrack = {
+  id: string;
+  label: string;
+  coordinateY: number;
+  origin: TemporalNodeData["trackOrigin"];
 };
 
 const nodeTypes = { temporalEvent: TemporalEventNode };
@@ -64,6 +75,7 @@ export function TemporalCanvas(props: {
       </div>
     </header>
     <div className={`temporal-canvas-status is-${props.temporalState}`} role="status"><Clock3 /><div><strong>{stateLabel}</strong><span>{props.temporalMessage ?? "切换、缩放、平移和刷新均不会启动分析或产生费用。"}</span></div></div>
+    {projection.conflictCount ? <aside className="temporal-conflict-summary" aria-label="时间冲突区"><AlertTriangle /><div><strong>冲突区 · {projection.conflictCount}</strong><span>冲突事件与正式时间、推断区间严格分离；可由作者从 AI 工具选择“检查时间冲突”重算。</span></div></aside> : null}
     <div className="temporal-flow" tabIndex={0}>
       <ReactFlow<Node<TemporalNodeData>, Edge>
         nodes={projection.nodes}
@@ -83,16 +95,16 @@ export function TemporalCanvas(props: {
         <Background gap={24} size={1} color="rgba(20, 78, 88, .10)" />
         <Controls showInteractive={false} position="bottom-right" />
       </ReactFlow>
-      <TemporalCoordinateOverlay nodes={projection.nodes} viewport={viewport} detail={detail} selected={selectedNode} selectedScreenPosition={selectedScreenPosition} unresolvedCount={projection.unresolvedCount} conflictCount={projection.conflictCount} />
+      <TemporalCoordinateOverlay nodes={projection.nodes} tracks={projection.tracks} viewport={viewport} detail={detail} selected={selectedNode} selectedScreenPosition={selectedScreenPosition} unresolvedCount={projection.unresolvedCount} />
     </div>
   </section>;
 }
 
 function TemporalEventNode(props: NodeProps<Node<TemporalNodeData>>) {
   const data = props.data;
-  return <article className={`temporal-event-card is-${data.state} is-${data.detail}`} aria-label={`${data.title}，${data.timeLabel}，${temporalStateLabel(data.state)}`}>
+  return <article className={`temporal-event-card is-${data.state} is-${data.detail}`} data-temporal-track={data.trackId} data-track-origin={data.trackOrigin} aria-label={`${data.title}，${data.timeLabel}，${data.trackLabel}，${temporalStateLabel(data.state)}`}>
     <Handle className="temporal-event-port is-input" type="target" position={Position.Left} isConnectable={false} />
-    <header><Clock3 aria-hidden="true" /><span>{temporalStateLabel(data.state)}</span></header>
+    <header><Clock3 aria-hidden="true" /><span>{data.trackOrigin === "author-formal" ? "作者正式轨道" : data.trackOrigin === "ai-suggested-stale" ? "AI 建议轨道 · 已过期" : "AI 建议轨道"} · {temporalStateLabel(data.state)}</span></header>
     <strong>{data.title}</strong>
     <time>{data.timeLabel}</time>
     {data.detail === "expanded" ? <small>{data.sourceLabel}</small> : null}
@@ -100,8 +112,17 @@ function TemporalEventNode(props: NodeProps<Node<TemporalNodeData>>) {
   </article>;
 }
 
-function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], run: TemporalProjectionRun | null, detail: TemporalNodeData["detail"], selectedEventId: string | null): { nodes: Node<TemporalNodeData>[]; edges: Edge[]; unresolvedCount: number; conflictCount: number } {
+export function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], run: TemporalProjectionRun | null, detail: TemporalNodeData["detail"], selectedEventId: string | null): { nodes: Node<TemporalNodeData>[]; edges: Edge[]; tracks: TemporalCanvasTrack[]; unresolvedCount: number; conflictCount: number } {
   const placementByEvent = new Map(run?.status === "ready" ? run.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) : []);
+  const resolvedTracks = resolveTemporalTrackProjection({
+    eventIds: events.map((event) => event.id),
+    fallbackTrackByEventId: Object.fromEntries(events.map((event) => { const semantic = eventLineSemanticNode(event); return [event.id, TEMPORAL_COORDINATE_TRACKS[trackIndex(semantic.storyLine.kind)]!.id]; })),
+    cache: run?.status === "ready" ? run.compositionCache : null,
+    stale: Boolean(run?.stale)
+  });
+  const cacheTrackByEvent = new Map(Object.entries(resolvedTracks.trackByEventId));
+  const tracks = resolvedTracks.tracks.map((track) => ({ id: track.id, label: track.label, coordinateY: 150 + track.order * 190, origin: resolvedTracks.origin }));
+  const trackById = new Map(tracks.map((track) => [track.id, track]));
   const ordered = events.map((event, index) => ({ event, index, semantic: eventLineSemanticNode(event), placement: placementByEvent.get(event.id) ?? null }));
   const resolvedValues = ordered.filter((item) => temporalState(item.semantic.time.kind, item.placement) !== "unplaced" && temporalState(item.semantic.time.kind, item.placement) !== "conflict").map((item) => item.placement?.relativePosition ?? item.index);
   const minimum = resolvedValues.length ? Math.min(...resolvedValues) : 0;
@@ -111,18 +132,21 @@ function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[],
   let conflictIndex = 0;
   const nodes = ordered.map(({ event, index, semantic, placement }): Node<TemporalNodeData> => {
     const state = temporalState(semantic.time.kind, placement);
-    const track = TEMPORAL_COORDINATE_TRACKS[trackIndex(semantic.storyLine.kind)]!;
+    const fallbackTrack = TEMPORAL_COORDINATE_TRACKS[trackIndex(semantic.storyLine.kind)]!;
+    const trackId = cacheTrackByEvent.get(event.id) ?? fallbackTrack.id;
+    const track = trackById.get(trackId) ?? tracks[0]!;
+    const reserveY = tracks.at(-1)!.coordinateY;
     const position = state === "unplaced"
-      ? { x: 150 + unresolvedIndex++ * 244, y: 735 }
+      ? { x: 150 + unresolvedIndex++ * 244, y: reserveY + 205 }
       : state === "conflict"
-        ? { x: 150 + conflictIndex++ * 244, y: 930 }
+        ? { x: 150 + conflictIndex++ * 244, y: reserveY + 400 }
         : { x: 150 + (((placement?.relativePosition ?? index) - minimum) / span) * Math.max(780, events.length * 190), y: track.coordinateY };
     const timeLabel = placement?.authoredTimeLabel ?? (placement?.inferredWindow ? `推断区间 ${placement.inferredWindow.start}–${placement.inferredWindow.end}` : semantic.time.label);
-    return { id: event.id, type: "temporalEvent", position, sourcePosition: Position.Right, targetPosition: Position.Left, data: { title: event.title, timeLabel, state, detail, sourceLabel: eventLineEventMetadata(event).unitLabel ?? "未归入单元" }, className: `temporal-event-node is-${state}` };
+    return { id: event.id, type: "temporalEvent", position, sourcePosition: Position.Right, targetPosition: Position.Left, data: { title: event.title, timeLabel, state, detail, sourceLabel: eventLineEventMetadata(event).unitLabel ?? "未归入单元", trackId: track.id, trackLabel: track.label, trackOrigin: track.origin }, className: `temporal-event-node is-${state}` };
   });
   const ids = new Set(events.map((event) => event.id));
   const edges = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && relation.reviewState === "confirmed" && (isTemporalRelation(relation) || isSelectedCausalChain(relation, selectedEventId))).map((relation): Edge => ({ id: `temporal.${relation.relationId}`, source: relation.sourceObjectId, target: relation.targetObjectId, type: "smoothstep", label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, markerEnd: { type: MarkerType.ArrowClosed }, className: "temporal-constraint-edge" }));
-  return { nodes, edges, unresolvedCount: unresolvedIndex, conflictCount: conflictIndex };
+  return { nodes, edges, tracks, unresolvedCount: unresolvedIndex, conflictCount: conflictIndex };
 }
 
 function temporalState(timeKind: ReturnType<typeof eventLineSemanticNode>["time"]["kind"], placement: TemporalPlacement | null): TemporalNodeData["state"] {
@@ -153,14 +177,13 @@ function isSelectedCausalChain(relation: RelationReadProjectionR0, selectedEvent
   return Boolean(selectedEventId && (relation.sourceObjectId === selectedEventId || relation.targetObjectId === selectedEventId) && /(?:cause|causal|因果|导致|促使)/iu.test(`${relation.relationTypeId} ${relation.currentTypeLabel ?? ""} ${relation.relationLabelSnapshot}`));
 }
 
-function TemporalCoordinateOverlay(props: { nodes: readonly Node<TemporalNodeData>[]; viewport: { x: number; y: number; zoom: number }; detail: TemporalNodeData["detail"]; selected: Node<TemporalNodeData> | null; selectedScreenPosition: { x: number; y: number } | null; unresolvedCount: number; conflictCount: number }) {
+function TemporalCoordinateOverlay(props: { nodes: readonly Node<TemporalNodeData>[]; tracks: readonly TemporalCanvasTrack[]; viewport: { x: number; y: number; zoom: number }; detail: TemporalNodeData["detail"]; selected: Node<TemporalNodeData> | null; selectedScreenPosition: { x: number; y: number } | null; unresolvedCount: number }) {
   const resolved = props.nodes.filter((node) => node.data.state !== "unplaced" && node.data.state !== "conflict");
   const ruler = resolved.filter((_, index) => props.detail !== "compact" || index % 2 === 0).slice(0, 14);
   return <div className="temporal-coordinate-overlay" aria-label="二维时间坐标" data-zoom-density={props.detail}>
     <div className="temporal-top-ruler" aria-label="时间标尺"><strong>故事时间 →</strong>{ruler.map((node) => <span key={node.id} style={{ left: `${node.position.x * props.viewport.zoom + props.viewport.x}px` }}><i />{node.data.timeLabel}</span>)}</div>
-    <div className="temporal-left-scale" aria-label="稳定故事轨道"><strong>稳定轨道</strong>{TEMPORAL_COORDINATE_TRACKS.map((track) => <span key={track.id} data-track-id={track.id} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
+    <div className="temporal-left-scale" aria-label="稳定故事轨道"><strong>稳定轨道</strong>{props.tracks.map((track) => <span key={track.id} data-track-id={track.id} data-track-origin={track.origin} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
     {props.selected && props.selectedScreenPosition ? <div className="temporal-crosshair" style={{ "--crosshair-x": `${props.selectedScreenPosition.x}px`, "--crosshair-y": `${props.selectedScreenPosition.y}px` } as CSSProperties}><span>{props.selected.data.title}</span></div> : null}
     {props.unresolvedCount ? <aside className="temporal-unplaced-tray" aria-label="未定位事件"><Clock3 /><strong>未定位托盘 · {props.unresolvedCount}</strong><span>未知时间保持未定位，不会被塞到时间末尾。</span></aside> : null}
-    {props.conflictCount ? <aside className="temporal-conflict-zone" aria-label="时间冲突区"><AlertTriangle /><strong>冲突区域 · {props.conflictCount}</strong><span>冲突事件与正式时间、推断区间严格分离。</span></aside> : null}
   </div>;
 }

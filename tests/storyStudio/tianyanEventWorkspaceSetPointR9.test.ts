@@ -11,6 +11,8 @@ test("R9 exposes Collection Point creation through selection and keyboard contex
   assert.match(graph, /event\.shiftKey && event\.key === "F10"/u);
   assert.match(graph, /解散集点（保留 Event）/u);
   assert.match(graph, /formalUnit\?\.collectionPoints/u);
+  assert.match(graph, /CollectionPointRenameDialog/u);
+  assert.doesNotMatch(graph, /window\.prompt/u);
 });
 
 test("R9 routes Collection Point mutations through the Story Workspace owner", () => {

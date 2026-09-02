@@ -288,12 +288,25 @@ export function EventLineWorkbench(props: {
     const latest = props.modelingRuns?.[0] ?? null;
     if (!latest || modelingPlanState === "running") return;
     setModelingRun(latest);
-    if (["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(latest.tool) && latest.result) {
-      setTemporalRun(modelingRunToTemporalProjection(latest, modelingEventRefs));
-      setTemporalState(latest.status === "ready" ? "ready" : "stale");
-      setTemporalMessage(latest.status === "ready" ? "已恢复上次只读时间建模结果。" : "已恢复历史时间结果，当前来源需要重新核对。");
+    const latestTemporal = props.modelingRuns?.find((run) => run.status === "ready" && ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(run.tool) && run.result) ?? null;
+    if (latestTemporal) {
+      const temporal = restoreTemporalProjectionFromModelingRun(latestTemporal, modelingEventRefs);
+      setTemporalRun(temporal);
+      setTemporalState(temporal.stale ? "stale" : "ready");
+      setTemporalMessage(temporal.stale ? "已恢复历史时间结果；来源已变化，建议由作者重算受影响范围。" : "已恢复上次只读时间建模结果。");
     }
   }, [modelingPlanState, modelingEventRefs, props.modelingRuns]);
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const run = (event as CustomEvent<TemporalProjectionRun>).detail;
+      if (!run || run.projectId !== props.projectId || run.status !== "ready") return;
+      setTemporalRun(run);
+      setTemporalState(run.stale ? "stale" : "ready");
+      setTemporalMessage(run.stale ? "正在显示已过期的 AI 建议轨道；来源已变化，可由作者选择变化范围重算。" : "时间轨道已从当前只读组合缓存同步。");
+    };
+    window.addEventListener("story-studio-temporal-projection-run", receive);
+    return () => window.removeEventListener("story-studio-temporal-projection-run", receive);
+  }, [props.projectId]);
   const modelingRefsForIds = useCallback((eventIds: readonly string[]) => {
     const ids = new Set(eventIds);
     return modelingEventRefs.filter((reference) => ids.has(reference.eventId));
@@ -378,6 +391,9 @@ export function EventLineWorkbench(props: {
         setTemporalRun(temporal);
         setTemporalState("ready");
         setTemporalMessage(run.provider?.executionKind === "test-provider" ? "测试 Provider 已生成只读时间候选；未写入正式时间。" : "故事建模已生成只读时间候选；未写入正式时间。");
+        const host = window as Window & { __storyStudioTemporalProjectionRun?: TemporalProjectionRun };
+        host.__storyStudioTemporalProjectionRun = temporal;
+        window.dispatchEvent(new CustomEvent("story-studio-temporal-projection-run", { detail: temporal }));
       }
       setModelingPlanState("idle");
       setModelingTool(null);
@@ -485,20 +501,34 @@ export function EventLineWorkbench(props: {
     if (projectionMode !== "timeline" || !props.onReadTemporalProjectionCache) return;
     const refs = props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []);
     if (!refs.length) { setTemporalState("idle"); setTemporalMessage("当前没有可用的版本化事件依据。"); return; }
+    const historicalModelingRun = props.modelingRuns?.find((run) => run.status === "ready" && ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(run.tool) && run.result) ?? null;
+    const historicalTemporalRun = historicalModelingRun ? restoreTemporalProjectionFromModelingRun(historicalModelingRun, refs) : null;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      setTemporalState("loading");
-      setTemporalMessage("正在读取本图修订的本地缓存；不会启动 AI 分析。");
+      if (historicalTemporalRun) {
+        setTemporalRun(historicalTemporalRun);
+        setTemporalState(historicalTemporalRun.stale ? "stale" : "ready");
+        setTemporalMessage(historicalTemporalRun.stale ? "已恢复历史时间结果；来源已变化，建议由作者重算受影响范围。" : "已从本地建模历史恢复只读时间轨道；刷新不会启动新 Run。");
+      } else {
+        setTemporalState("loading");
+        setTemporalMessage("正在读取本图修订的本地缓存；不会启动 AI 分析。");
+      }
       void props.onReadTemporalProjectionCache!(refs).then((cache) => {
         if (cancelled) return;
-        setTemporalRun(cache.run);
-        setTemporalState(cache.status === "current" ? "ready" : cache.status);
+        const modelingFallback = cache.status === "missing" ? historicalModelingRun : null;
+        const run = cache.run ?? (modelingFallback ? restoreTemporalProjectionFromModelingRun(modelingFallback, refs) : null);
+        const status = cache.status === "current" ? "ready" : cache.status === "missing" && run ? run.stale ? "stale" : "ready" : cache.status;
+        setTemporalRun(run);
+        setTemporalState(status);
         setTemporalMessage(cache.status === "current"
           ? "正在显示当前缓存投影；切换、缩放和刷新不会启动新 Run。"
           : cache.status === "stale"
             ? `正在显示旧投影；约 ${cache.changedEventCount} 个事件或依赖已变化，可由作者选择更新范围。`
+            : run?.stale
+              ? "已恢复历史时间结果；来源已变化，建议由作者重算受影响范围。"
+              : run
+                ? "已从本地建模历史恢复只读时间轨道；刷新不会启动新 Run。"
             : "尚无 AI 时间投影；当前显示正式事件与关系生成的基础布局。");
-        const run = cache.run;
         if (!run) return;
         const host = window as Window & { __storyStudioTemporalProjectionRun?: TemporalProjectionRun };
         host.__storyStudioTemporalProjectionRun = run;
@@ -511,7 +541,7 @@ export function EventLineWorkbench(props: {
       });
     }, 380);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [eventIds, projectionMode, props.onReadTemporalProjectionCache, props.projectId]);
+  }, [eventIds, projectionMode, props.modelingRuns, props.onReadTemporalProjectionCache, props.projectId]);
   useEffect(() => { setInvalidRecordWarningDismissed(false); }, [props.listState.status === "ready" ? props.listState.invalidRecordCount : 0, props.projectId]);
   const openCandidate = (candidateId: string) => {
     setSelectedCandidateId(candidateId);
@@ -639,20 +669,22 @@ function PerspectiveLens(props: { events: readonly EventLineEventSummary[]; obje
   const evidenceObjects = useMemo(() => listPerspectiveObjects(props.events), [props.events]);
   const objects = props.objects;
   const [selected, setSelected] = useState<PerspectiveObjectRef[]>([]);
+  const [showBlindSpots, setShowBlindSpots] = useState(false);
   const mode = perspectiveModeForSelection(selected);
+  useEffect(() => setShowBlindSpots(false), [mode, selected.map((object) => object.id).join("\u0000")]);
   const projection = useMemo(() => {
     const relations = props.relations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState }));
     return mode === "single"
-      ? buildSinglePerspectiveProjection({ events: props.events, relations, selected: selected[0]!, aiMatches: props.aiMatches })
+      ? buildSinglePerspectiveProjection({ events: props.events, relations, selected: selected[0]!, aiMatches: props.aiMatches, includeBlindSpots: showBlindSpots })
       : mode === "compare"
         ? buildPerspectiveComparison({ events: props.events, relations, selected, aiMatches: props.aiMatches })
         : [];
-  }, [mode, props.aiMatches, props.events, props.relations, selected]);
+  }, [mode, props.aiMatches, props.events, props.relations, selected, showBlindSpots]);
   const toggle = (object: PerspectiveObjectRef) => setSelected((current) => current.some((item) => item.id === object.id) ? current.filter((item) => item.id !== object.id) : current.length < 5 ? [...current, object] : current);
   return <section className="event-perspective-workspace" aria-label="事件视角轴" data-provider-calls-on-open="0">
     <span className="sr-only">选择 1–5 个人物、地点或物品；切换不会调用 AI</span>
     <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角观察</strong><span>1 个对象单独查看，2–5 个对象并排比较</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式 Owner 中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}；Event 标签仅作证据。</small> : null}</fieldset>)}{evidenceObjects.length ? <small className="event-perspective-evidence-note">Event 中识别到 {evidenceObjects.length} 个证据标记，未自动创建正式对象。</small> : null}</aside>
-    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用 · {mode === "single" ? "单对象" : mode === "compare" ? "对象比较" : "等待选择"}</small><h2>{mode === "single" ? `从 ${selected[0]!.label} 看故事` : mode === "compare" ? `${selected.map((item) => item.label).join(" × ")} 的知情比较` : "选择一个视角对象即可查看"}</h2></div><button type="button" disabled={!mode} onClick={() => props.onOpenAi(selected)}><Sparkles />深度分析</button></header>{!mode ? <div className="event-perspective-empty"><CircleDot /><strong>选择一个正式对象</strong><p>基础投影会立即显示，不会产生 Provider 调用。</p></div> : <><div className="event-perspective-results">{projection.map((item) => <article key={item.eventId} className={`is-${item.shared ? "shared" : "divergent"}`}><small>{mode === "single" ? perspectiveVisibilityLabel(item.matches[0]!.visibility) : item.shared ? "共同知情" : "知情差异"}</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id} data-visibility={match.visibility}><strong>{match.object.label}</strong><span>{perspectiveVisibilityLabel(match.visibility)} · {perspectiveRelationLabel(match.relationKind)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>{evidenceSummary(item.matches)}</p></article>)}</div><p className="event-perspective-prose-note">第一人称改写属于“多元”的派生副本；此处只呈现可追溯的知情视角。</p></>}</div>
+    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用 · {mode === "single" ? "单对象" : mode === "compare" ? "对象比较" : "等待选择"}</small><h2>{mode === "single" ? `从 ${selected[0]!.label} 看故事` : mode === "compare" ? `${selected.map((item) => item.label).join(" × ")} 的知情比较` : "选择一个视角对象即可查看"}</h2></div><button type="button" disabled={!mode} onClick={() => props.onOpenAi(selected)}><Sparkles />深度分析</button></header>{!mode ? <div className="event-perspective-empty"><CircleDot /><strong>选择一个正式对象</strong><p>基础投影会立即显示，不会产生 Provider 调用。</p></div> : <>{mode === "single" ? <label className="event-perspective-blind-spot-toggle"><input type="checkbox" checked={showBlindSpots} onChange={(event) => setShowBlindSpots(event.target.checked)} /><span>显示作者可见盲区</span><small>默认只显示该对象有经历、目击、参与、被告知或推断证据的事件。</small></label> : null}{projection.length ? <div className="event-perspective-results">{projection.map((item) => <article key={item.eventId} className={`is-${item.shared ? "shared" : "divergent"}`}><small>{mode === "single" ? perspectiveVisibilityLabel(item.matches[0]!.visibility) : item.shared ? "共同知情" : "知情差异"}</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id} data-visibility={match.visibility}><strong>{match.object.label}</strong><span>{perspectiveVisibilityLabel(match.visibility)} · {perspectiveRelationLabel(match.relationKind)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>{evidenceSummary(item.matches)}</p></article>)}</div> : <div className="event-perspective-empty"><CircleDot /><strong>当前没有可显示的正式证据</strong><p>没有找到与 {selected[0]?.label} 经历、目击、参与或得知相关的事件。可主动打开“作者可见盲区”核对。</p></div>}<p className="event-perspective-prose-note">角色视野只读观察知情边界；第一人称正文改写是“多元”的独立派生合同，本视图不改写正文。</p></>}</div>
   </section>;
 }
 
@@ -662,7 +694,7 @@ function StoryLogicPanel(props: { findings: readonly StoryLogicFinding[]; aiFind
 }
 
 function perspectiveRelationLabel(kind: PerspectiveProjectionMatch["relationKind"]): string { return kind === "formal-participation" ? "正式参与" : kind === "formal-relation-impact" ? "正式关系影响" : kind === "upstream" ? "上游影响" : kind === "downstream" ? "下游影响" : kind === "none" ? "角色未知" : "AI 推断"; }
-function perspectiveVisibilityLabel(kind: PerspectiveVisibility): string { return ({ experienced: "亲历", witnessed: "目击", informed: "正式关系告知", known: "已知", misunderstood: "误解", unknown: "未知", "blind-spot": "角色未知 · 作者可见盲区" })[kind]; }
+function perspectiveVisibilityLabel(kind: PerspectiveVisibility): string { return ({ experienced: "亲历", witnessed: "目击", informed: "正式关系告知", inferred: "有证据推断", known: "已知", misunderstood: "误解", unknown: "未知", "blind-spot": "角色未知 · 作者可见盲区" })[kind]; }
 function evidenceSummary(matches: readonly PerspectiveProjectionMatch[]): string { const eventCount = new Set(matches.flatMap((match) => match.evidenceRefs).filter((ref) => ref.startsWith("event:"))).size; const ownerCount = new Set(matches.map((match) => `${match.object.ownerId ?? match.object.id}@${match.object.version ?? "unknown"}`)).size; return `证据：${eventCount} 个事件来源 · ${ownerCount} 个 Owner 版本`; }
 function logicKindLabel(kind: StoryLogicFinding["kind"]): string { return ({ "dangling-relation": "悬空关系", "stale-version": "版本已变化", "duplicate-id": "身份重复", "temporal-cycle": "时间循环", "orphan-unit-reference": "单元引用缺失", "deleted-reference": "引用对象已删除", "unresolved-relation-type": "关系类型待确认", "stale-cache": "缓存已过期", "causal-gap": "因果缺口", "motivation-break": "动机断裂", "knowledge-boundary": "知情边界", "item-continuity": "物品连续性", "location-continuity": "地点连续性", "temporal-plausibility": "时间合理性", "setup-payoff": "伏笔回收", "storyline-disconnect": "线索脱节", "emotion-pace-arc": "情绪节奏弧" })[kind]; }
 
@@ -727,6 +759,13 @@ function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: 
 
 function modelingToolLabel(tool: StoryModelingTool): string {
   return ({ "analyze-core-story": "分析核心故事线", "suggest-unit-boundaries": "建议单元边界", "check-structure-breaks": "检查结构断点", "compare-branch-units": "比较分支单元", "smart-relations": "智能连线", "check-broken-links": "检查断链", "suggest-causal-relations": "补充因果候选", "infer-temporal-position": "推断时间位置", "check-temporal-conflicts": "检查时间冲突", "update-changed-scope": "更新变化范围", "run-logic-check": "运行剧情逻辑检查", "analyze-perspective": "深度分析当前视角" })[tool];
+}
+
+function restoreTemporalProjectionFromModelingRun(run: StoryModelingRunProjection, refs: StoryStudioEventReference[]): TemporalProjectionRun {
+  const currentRevisionByEvent = new Map(refs.map((reference) => [reference.eventId, reference.revisionToken]));
+  const stale = run.sourceEventRefs.length !== refs.length
+    || run.sourceEventRefs.some((reference) => currentRevisionByEvent.get(reference.eventId) !== reference.revisionToken);
+  return { ...modelingRunToTemporalProjection(run, refs), stale };
 }
 
 function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: StoryStudioEventReference[]): TemporalProjectionRun {
@@ -1058,7 +1097,14 @@ export function readProjectionMode(projectId: string): EventWorkspaceView {
   } catch { return "spine"; }
 }
 export function writeProjectionMode(projectId: string, mode: EventWorkspaceView): void {
-  try { window.localStorage.setItem(projectionModeKey(projectId), mode); } catch {}
+  try {
+    window.localStorage.setItem(projectionModeKey(projectId), mode);
+    const url = new URL(window.location.href);
+    if (url.pathname.endsWith("/event-line") && url.searchParams.get("eventView") !== mode) {
+      url.searchParams.set("eventView", mode);
+      window.history.replaceState(window.history.state, "", url);
+    }
+  } catch {}
 }
 
 function authorSourceRef(value: string | null | undefined): string {

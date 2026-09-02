@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
-import { buildEventNarrativeLayout } from "../../../../../src/storyContracts/eventNarrativeLayout.ts";
+import { buildEventNarrativeLayout, buildNarrativeNavigation } from "../../../../../src/storyContracts/eventNarrativeLayout.ts";
 import type { SmartRelationCandidate, StoryModelingRun } from "../../../../../src/storyContracts/storyModeling.ts";
 import { dedupeSmartRelationCandidates, reviewSmartRelationCandidates } from "../../../../../src/storyContracts/storyModelingReview.ts";
 import type { TemporalPlacement, TemporalProjectionRun, TemporalSegment } from "../../../../../src/storyContracts/temporalProjection.ts";
@@ -41,7 +41,7 @@ type NodeData = {
   temporal?: boolean; temporalKind?: TemporalPlacement["placementKind"]; temporalSummary?: string; temporalAnchors?: string; temporalConfidence?: string; semanticZoom?: "far" | "medium" | "near";
   screen?: boolean; screenLabel?: string; screenKind?: TemporalSegment["kind"]; screenConfidence?: string;
   collectionPoint?: boolean; unitId?: string; eventCount?: number; expanded?: boolean; onToggle?: () => void;
-  trackLabel?: string;
+  trackId?: string; trackLabel?: string;
   eventRole?: "ordinary" | "turning";
   portMode?: "narrative" | "relation"; branching?: boolean;
 };
@@ -120,6 +120,9 @@ export function EventGraphCanvas(props: {
   const [notice, setNotice] = useState<string | null>(null);
   const [collectionPointDraftOpen, setCollectionPointDraftOpen] = useState(false);
   const [collectionPointTitle, setCollectionPointTitle] = useState("");
+  const [collectionPointRename, setCollectionPointRename] = useState<{ unitId: string; point: StoryCollectionPoint; title: string } | null>(null);
+  const [activeNarrativeTrackId, setActiveNarrativeTrackId] = useState("main");
+  const [otherBranchesCollapsed, setOtherBranchesCollapsed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [layoutRevision, setLayoutRevision] = useState(0);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
@@ -143,9 +146,18 @@ export function EventGraphCanvas(props: {
   const collapsePredictionSources = narrowPrediction && ["overview", "focus", "review"].includes(predictionViewState) && !predictionSourcesExpanded;
   const predictionDirectoryCollapsed = ["overview", "focus", "review"].includes(predictionViewState);
   const storyUnits = densityFixture?.storyUnits ?? props.storyUnits ?? [];
+  const narrativeNavigation = useMemo(() => buildNarrativeNavigation({
+    events: graphEvents.map((event, order) => { const semantic = eventLineSemanticNode(event); const branch = semantic.storyLine.kind !== "main"; return { id: event.id, sourceVersion: event.revisionToken, order, trackKind: branch ? "branch" as const : "main" as const, trackId: branch ? semantic.storyLine.id : null }; }),
+    relations: graphRelations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, confirmed: relation.reviewState === "confirmed" && !relation.archived }))
+  }), [graphEvents, graphRelations]);
   const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, storyUnits, canvasKind, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom, (unitId, point) => void props.onUpdateCollectionPoint?.({ unitId, point, collapsed: !point.collapsed })), [canvasKind, collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.onUpdateCollectionPoint, props.temporalRun, selection, semanticZoom, storyUnits, view, workspaceSelectionIds]);
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
+  const displayedGraph = useMemo(() => {
+    if (!otherBranchesCollapsed || mode !== "graph" || canvasKind !== "narrative" || ["overview", "focus", "review"].includes(predictionViewState)) return graph;
+    const visibleNodeIds = new Set(graph.nodes.filter((node) => !node.data.trackId || node.data.trackId === "main" || node.data.trackId === activeNarrativeTrackId).map((node) => node.id));
+    return { nodes: graph.nodes.filter((node) => visibleNodeIds.has(node.id)), edges: graph.edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)) };
+  }, [activeNarrativeTrackId, canvasKind, graph, mode, otherBranchesCollapsed, predictionViewState]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(displayedGraph.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(displayedGraph.edges);
   const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
   const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
     workspaceDockCoordinator.openPageInspector("event-line", mode);
@@ -270,10 +282,10 @@ export function EventGraphCanvas(props: {
   }, [contextMenu]);
 
   useEffect(() => {
-    temporalNodesRef.current = graph.nodes;
-    setNodes(graph.nodes);
-    setEdges(graph.edges);
-  }, [graph.edges, graph.nodes, setEdges, setNodes]);
+    temporalNodesRef.current = displayedGraph.nodes;
+    setNodes(displayedGraph.nodes);
+    setEdges(displayedGraph.edges);
+  }, [displayedGraph.edges, displayedGraph.nodes, setEdges, setNodes]);
   useEffect(() => {
     const smartEdges: Edge[] = smartRelationReviews.filter((candidate) => candidate.reviewState === "candidate").map((candidate) => ({
       id: candidate.candidateId,
@@ -288,8 +300,9 @@ export function EventGraphCanvas(props: {
       labelBgStyle: { fill: "#fbfaf6", fillOpacity: .95 },
       data: { smartRelation: true }
     }));
-    setEdges([...graph.edges, ...smartEdges]);
-  }, [graph.edges, setEdges, smartRelationReviews]);
+    const visibleIds = new Set(displayedGraph.nodes.map((node) => node.id));
+    setEdges([...displayedGraph.edges, ...smartEdges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))]);
+  }, [displayedGraph.edges, displayedGraph.nodes, setEdges, smartRelationReviews]);
   useEffect(() => {
     if (props.selectedEventId) {
       if (relationSelectionActive.current) return;
@@ -302,7 +315,7 @@ export function EventGraphCanvas(props: {
     if (props.createOpen) openInspector("EVENT_CREATE");
   }, [openInspector, props.createOpen]);
   useEffect(() => {
-    if (!flow || !graph.nodes.length) return;
+    if (!flow || !displayedGraph.nodes.length) return;
     let timer = 0;
     const frame = window.requestAnimationFrame(() => {
       // React Flow replaces its internal nodes and observes the grid resize
@@ -320,18 +333,18 @@ export function EventGraphCanvas(props: {
             const key = `${props.temporalRun?.runId ?? "base"}:${props.selectedEventId ?? "overview"}`;
             if (temporalAutoFitKey.current !== key) {
               temporalAutoFitKey.current = key;
-              fitTemporalProjection(flow, graph.nodes, props.selectedEventId);
+              fitTemporalProjection(flow, displayedGraph.nodes, props.selectedEventId);
             }
           }
-          else if (["overview", "focus", "review"].includes(predictionViewState)) fitPredictionProjection(flow, graph.nodes);
-          else if (view === "focus") void fitFocusProjection(flow, graph.nodes, railOpen);
-          else if (canvasKind === "narrative") fitNarrativeProjection(flow, graph.nodes);
+          else if (["overview", "focus", "review"].includes(predictionViewState)) fitPredictionProjection(flow, displayedGraph.nodes);
+          else if (view === "focus") void fitFocusProjection(flow, displayedGraph.nodes, railOpen);
+          else if (canvasKind === "narrative") fitNarrativeProjection(flow, displayedGraph.nodes, narrativeNavigation);
           else void flow.fitView({ padding: railOpen ? 0.24 : 0.08, duration: 0, maxZoom: 1.05 });
         }
       }, 180);
     });
     return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
-  }, [flow, graph.nodes, inspectorOpen, mode, predictionViewState, props.selectedEventId, railOpen, view]);
+  }, [canvasKind, displayedGraph.nodes, flow, inspectorOpen, mode, narrativeNavigation, predictionViewState, props.selectedEventId, railOpen, view]);
   useEffect(() => { if (mode !== "temporal") temporalAutoFitKey.current = null; }, [mode]);
   useEffect(() => {
     if (mode !== "temporal" || !flow) return;
@@ -354,12 +367,13 @@ export function EventGraphCanvas(props: {
     writeLayout(props.projectId, canvasKind, positions, graphSourceVersion);
     setLayoutRevision((value) => value + 1);
   }, [canvasKind, graphSourceVersion, layout.positions, nodes, props.projectId, workspaceSelectionIds]);
+  const activateNarrativeTrack = (eventId: string) => setActiveNarrativeTrackId(narrativeNavigation.trackByEventId[eventId] ?? "main");
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
-    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
+    activateNarrativeTrack(eventId); setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
   };
-  const selectNode = (eventId: string) => { relationSelectionActive.current = false; setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId); };
-  const toggleWorkspaceNode = (eventId: string) => { relationSelectionActive.current = false; setWorkspaceSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : [...current, eventId]); setSelection({ kind: "node", id: eventId }); };
+  const selectNode = (eventId: string) => { relationSelectionActive.current = false; activateNarrativeTrack(eventId); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId); };
+  const toggleWorkspaceNode = (eventId: string) => { relationSelectionActive.current = false; activateNarrativeTrack(eventId); setWorkspaceSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : [...current, eventId]); setSelection({ kind: "node", id: eventId }); };
   const returnGlobal = () => { restoreGlobalViewport.current = true; setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
   const toggleRail = () => {
     if (railOpen) {
@@ -402,6 +416,26 @@ export function EventGraphCanvas(props: {
       await props.onCreateCollectionPoint({ title: collectionPointTitle.trim(), eventIds: workspaceSelectionIds });
       setCollectionPointDraftOpen(false); setCollectionPointTitle(""); setWorkspaceSelectionIds([]); setNotice("集点已保存；Event 身份与正式 Relation 端点未改变。");
     } catch (error) { setNotice(error instanceof Error ? error.message : "集点未能保存。"); }
+    finally { setBusy(null); }
+  };
+  const renameCollectionPoint = async (title: string) => {
+    if (!collectionPointRename || !props.onUpdateCollectionPoint) return;
+    setBusy("collection-point-rename");
+    try {
+      await props.onUpdateCollectionPoint({ unitId: collectionPointRename.unitId, point: collectionPointRename.point, title });
+      setCollectionPointRename(null);
+      setNotice("集点已重命名；Event 身份与正式 Relation 端点未改变。");
+      window.requestAnimationFrame(() => contextMenuTriggerRef.current?.focus());
+    } catch (error) { setNotice(error instanceof Error ? error.message : "集点未能重命名。"); }
+    finally { setBusy(null); }
+  };
+  const moveCollectionPointRight = async () => {
+    if (!currentCollectionPoint || !props.onUpdateCollectionPoint) return;
+    setBusy("collection-point-move");
+    try {
+      await props.onUpdateCollectionPoint({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, layout: { x: Math.round(currentCollectionPoint.point.layout.x + 80), y: currentCollectionPoint.point.layout.y, pinned: true } });
+      setNotice("集点位置已保存；Event 身份与正式 Relation 端点未改变。");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "集点位置未能保存。"); }
     finally { setBusy(null); }
   };
   const togglePredictionCandidate = (candidateId: string) => {
@@ -449,6 +483,27 @@ export function EventGraphCanvas(props: {
   const contextNode = contextMenu?.nodeId ? nodes.find((node) => node.id === contextMenu.nodeId) ?? null : null;
   const contextEvent = contextNode ? graphEvents.find((event) => event.id === contextNode.id) ?? null : null;
   const selectedWorkspaceEvents = workspaceSelectionIds.filter((id) => graphEvents.some((event) => event.id === id));
+  const navigationEventId = selection?.kind === "node" ? selection.id : props.selectedEventId ?? narrativeNavigation.branchPoints[0]?.eventId ?? null;
+  const navigationOrder = navigationEventId ? narrativeNavigation.eventOrderById[navigationEventId] ?? -1 : -1;
+  const previousBranchPoint = [...narrativeNavigation.branchPoints].reverse().find((point) => (narrativeNavigation.eventOrderById[point.eventId] ?? -1) < navigationOrder) ?? null;
+  const currentOrNextBranchPoint = narrativeNavigation.branchPoints.find((point) => (narrativeNavigation.eventOrderById[point.eventId] ?? -1) >= navigationOrder) ?? narrativeNavigation.branchPoints[0] ?? null;
+  const nextMergePoint = narrativeNavigation.mergePoints.find((point) => (narrativeNavigation.eventOrderById[point.eventId] ?? -1) > navigationOrder) ?? null;
+  const focusNarrativeAnchor = (eventId: string | null) => {
+    if (!eventId || !flow) return;
+    const node = nodes.find((item) => item.id === eventId);
+    if (!node) return;
+    activateNarrativeTrack(eventId);
+    setSelection({ kind: "node", id: eventId });
+    setWorkspaceSelectionIds([eventId]);
+    props.onSelectEvent(eventId);
+    void flow.setCenter(node.position.x + 117, node.position.y + 76, { zoom: 1, duration: 220 });
+  };
+  const focusActiveTrack = () => {
+    if (!flow) return;
+    const trackNodes = nodes.filter((node) => node.type === "event" && node.data.trackId === activeNarrativeTrackId);
+    if (!trackNodes.length) return;
+    focusNarrativeRange(flow, trackNodes);
+  };
 
   return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : canvasKind === "narrative" ? "is-narrative" : "is-relational"}`} aria-label={mode === "temporal" ? "时间线工作区" : canvasKind === "narrative" ? "水平事件编排工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "temporal-projection" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-view-switch-provider-calls="0" data-view-switch-agent-runs="0" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-canvas-kind={canvasKind} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
@@ -481,6 +536,14 @@ export function EventGraphCanvas(props: {
         <button type="button" aria-label={inspectorOpen ? "收起检查器" : "展开检查器"} aria-pressed={inspectorOpen} onClick={() => inspectorOpen ? closeInspector() : openInspector(selection?.kind === "relation" ? "RELATION_REVIEW" : props.createOpen ? "EVENT_CREATE" : "EVENT_DETAILS")}>{inspectorOpen ? <PanelRightClose /> : <ChevronLeft />}</button>
       </div>
     </header>
+    {mode === "graph" && canvasKind === "narrative" && !["overview", "focus", "review"].includes(predictionViewState) ? <nav className="event-narrative-navigator" aria-label="分支与合流导航" data-active-track={activeNarrativeTrackId}>
+      <span><GitBranch />当前轨道：{activeNarrativeTrackId === "main" ? "主线" : graphEvents.find((event) => (eventLineSemanticNode(event).storyLine.id === activeNarrativeTrackId)) ? eventLineSemanticNode(graphEvents.find((event) => eventLineSemanticNode(event).storyLine.id === activeNarrativeTrackId)!).storyLine.label : "分支"}</span>
+      <button type="button" disabled={!previousBranchPoint} onClick={() => focusNarrativeAnchor(previousBranchPoint?.eventId ?? null)}><ArrowLeft />上一分叉</button>
+      <button type="button" disabled={!currentOrNextBranchPoint} onClick={() => focusNarrativeAnchor(currentOrNextBranchPoint?.eventId ?? null)}><GitBranch />跳到分叉</button>
+      <button type="button" disabled={!nextMergePoint} onClick={() => focusNarrativeAnchor(nextMergePoint?.eventId ?? null)}><ArrowRight />下一合流</button>
+      <button type="button" onClick={focusActiveTrack}><Focus />聚焦当前轨道</button>
+      <button type="button" aria-pressed={otherBranchesCollapsed} onClick={() => setOtherBranchesCollapsed((value) => !value)}><Layers3 />{otherBranchesCollapsed ? "展开其他分支" : "折叠其他分支"}</button>
+    </nav> : null}
     {mode === "temporal" ? <div className={`temporal-canvas-status is-${props.temporalState ?? "idle"}`} role="status" aria-live="polite"><Sparkles aria-hidden="true" /><div><strong>{props.temporalState === "loading" ? "正在读取时间投影缓存" : props.temporalState === "missing" ? "基础布局" : props.temporalState === "failed" ? "时间投影暂不可读" : props.temporalRun?.conflicts.length ? "需要作者处理冲突" : props.temporalRun?.stale ? "旧投影 · 待更新" : props.temporalRun ? "时间投影已更新" : "基础布局"}</strong><span>{props.temporalMessage ?? (props.temporalRun ? "时间位置是只读投影，不会改写正式时间。" : "基于正式事件与关系展示；尚未执行 AI 分析。")}</span></div></div> : null}
     {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id} title={event.title} aria-label={`第 ${index + 1} 个推演依据：${event.title}`}><b>{index + 1}</b>{event.title}<button type="button" title={`移出推演范围：${event.title}`} aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}{narrowPrediction && predictionPathId ? <button type="button" className="event-graph-source-collapse" aria-expanded={predictionSourcesExpanded} onClick={() => setPredictionSourcesExpanded((expanded) => !expanded)}>{predictionSourcesExpanded ? `折叠为 ${predictionSources.length} 个推演依据` : `展开 ${predictionSources.length} 个推演依据`}</button> : null}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
     {selectedWorkspaceEvents.length > 1 ? <section className="event-graph-selection-bar" aria-label="画布多选操作" data-testid="event-graph-selection-bar"><strong>已选择 {selectedWorkspaceEvents.length} 个事件</strong>{collectionPointDraftOpen ? <form className="event-graph-collection-create" onSubmit={(event) => { event.preventDefault(); void createCollectionPoint(); }}><label><span className="sr-only">集点名称</span><input autoFocus value={collectionPointTitle} maxLength={100} placeholder="集点名称" onChange={(event) => setCollectionPointTitle(event.target.value)} /></label><button type="submit" disabled={!collectionPointTitle.trim() || busy === "collection-point-create"}>保存集点</button><button type="button" onClick={() => { setCollectionPointDraftOpen(false); setCollectionPointTitle(""); }}>取消</button></form> : <button type="button" disabled={!props.onCreateCollectionPoint} onClick={() => setCollectionPointDraftOpen(true)}><Layers3 />创建集点</button>}<button type="button" onClick={() => props.onOpenTianyi?.(selectedWorkspaceEvents)}><Sparkles />围绕所选预测</button><button type="button" onClick={() => props.onOpenLogicCheck?.(selectedWorkspaceEvents)}><ShieldCheck />剧情逻辑检测</button><button type="button" onClick={() => { setWorkspaceSelectionIds([]); setCollectionPointDraftOpen(false); }}><X />清除选择</button></section> : null}
@@ -552,12 +615,13 @@ export function EventGraphCanvas(props: {
         >
           <Background gap={20} size={1} color={mode === "temporal" ? "rgba(45, 74, 83, 0.08)" : "rgba(20, 125, 120, 0.13)"} />
           <Controls showInteractive={false} />
-          {miniMapOpen ? <MiniMap pannable zoomable nodeColor={(node) => node.data?.candidate ? "#d9911d" : node.data?.remote ? "#77a6a1" : "#147d78"} /> : null}
+          {miniMapOpen ? <MiniMap pannable zoomable aria-label="事件轨道小地图" nodeColor={(node) => node.data?.candidate ? "#d9911d" : node.data?.remote ? "#77a6a1" : canvasKind === "narrative" && node.data?.trackId === activeNarrativeTrackId ? "#0d716d" : canvasKind === "narrative" && node.data?.trackId ? "#aeb9b6" : "#147d78"} nodeStrokeWidth={canvasKind === "narrative" ? 3 : 1} /> : null}
         </ReactFlow>
         {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
         <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
+        {currentCollectionPoint ? <div className="event-graph-collection-tools" aria-label={`集点工具：${currentCollectionPoint.point.title}`}><button type="button" disabled={busy === "collection-point-move"} onClick={() => void moveCollectionPointRight()}>向右移动集点</button></div> : null}
         {contextMenu ? <div ref={contextMenuRef} className="event-graph-context-menu" role="menu" aria-label={currentCollectionPoint ? "可选集点菜单" : contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }} onKeyDown={(event) => { if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return; event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement); items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }}>
-          {currentCollectionPoint ? <><button type="button" role="menuitem" onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, collapsed: !currentCollectionPoint.point.collapsed }); setContextMenu(null); }}>{currentCollectionPoint.point.collapsed ? "展开集点" : "折叠集点"}</button><button type="button" role="menuitem" onClick={() => { const title = window.prompt("重命名集点", currentCollectionPoint.point.title)?.trim(); if (title) void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, title }); setContextMenu(null); }}>重命名集点</button><button type="button" role="menuitem" disabled={selectedWorkspaceEvents.length < 2} onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, eventIds: selectedWorkspaceEvents }); setContextMenu(null); }}>用当前选择替换成员</button><button type="button" role="menuitem" onClick={() => { void props.onDissolveCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point }); setContextMenu(null); }}>解散集点（保留 Event）</button></> : contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button>{selectedWorkspaceEvents.length > 1 ? <button type="button" role="menuitem" disabled={!props.onCreateCollectionPoint} onClick={() => { setCollectionPointDraftOpen(true); setContextMenu(null); }}>创建集点</button> : null}<button type="button" role="menuitem" onClick={() => { props.onExplainWithTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button>{contextEvent.status === "draft" ? <button type="button" role="menuitem" disabled={!props.onTrashDraftEvent} onClick={() => { void props.onTrashDraftEvent?.(contextEvent.id).then(() => setNotice("草稿已进入回收站。"), (error: unknown) => setNotice(error instanceof Error ? error.message : "草稿未能进入回收站。")); setContextMenu(null); }}>移入回收站</button> : <button type="button" role="menuitem" disabled title="正式 Event 只提供归档、作废与影响预览，不允许硬删除">正式事件不可删除</button>}</> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
+          {currentCollectionPoint ? <><button type="button" role="menuitem" onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, collapsed: !currentCollectionPoint.point.collapsed }); setContextMenu(null); }}>{currentCollectionPoint.point.collapsed ? "展开集点" : "折叠集点"}</button><button type="button" role="menuitem" onClick={() => { setCollectionPointRename({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, title: currentCollectionPoint.point.title }); setContextMenu(null); }}>重命名集点</button><button type="button" role="menuitem" disabled={selectedWorkspaceEvents.length < 2} onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, eventIds: selectedWorkspaceEvents }); setContextMenu(null); }}>用当前选择替换成员</button><button type="button" role="menuitem" onClick={() => { void props.onDissolveCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point }); setContextMenu(null); }}>解散集点（保留 Event）</button></> : contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button>{selectedWorkspaceEvents.length > 1 ? <button type="button" role="menuitem" disabled={!props.onCreateCollectionPoint} onClick={() => { setCollectionPointDraftOpen(true); setContextMenu(null); }}>创建集点</button> : null}<button type="button" role="menuitem" onClick={() => { props.onExplainWithTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button>{contextEvent.status === "draft" ? <button type="button" role="menuitem" disabled={!props.onTrashDraftEvent} onClick={() => { void props.onTrashDraftEvent?.(contextEvent.id).then(() => setNotice("草稿已进入回收站。"), (error: unknown) => setNotice(error instanceof Error ? error.message : "草稿未能进入回收站。")); setContextMenu(null); }}>移入回收站</button> : <button type="button" role="menuitem" disabled title="正式 Event 只提供归档、作废与影响预览，不允许硬删除">正式事件不可删除</button>}</> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
         </div> : null}
         {mode === "graph" && smartRelationReviews.length ? <SmartRelationReviewTray candidates={smartRelationReviews} selectedIds={smartRelationSelection} relationTypes={props.relationTypes} busy={busy === "smart-relations"} onSelection={setSmartRelationSelection} onChangeType={(candidateId, relationTypeId) => setSmartRelationReviews((current) => current.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, suggestedTypeId: relationTypeId || null, suggestedTypeLabel: props.relationTypes.find((type) => type.relationTypeId === relationTypeId)?.label ?? "类型待确认" } : candidate))} onAccept={() => void acceptSmartRelations()} onReject={() => reviewSmartRelations("rejected")} /> : null}
       </div>
@@ -573,7 +637,18 @@ export function EventGraphCanvas(props: {
       /> : null}
       {inspectorOpen && currentSmartRelation ? <SmartRelationInspector candidate={currentSmartRelation} events={graphEvents} onClose={closeInspector} /> : null}
     </div>
+    {collectionPointRename ? <CollectionPointRenameDialog title={collectionPointRename.title} busy={busy === "collection-point-rename"} onCancel={() => { setCollectionPointRename(null); window.requestAnimationFrame(() => contextMenuTriggerRef.current?.focus()); }} onConfirm={renameCollectionPoint} /> : null}
   </section>;
+}
+
+function CollectionPointRenameDialog(props: { title: string; busy: boolean; onCancel(): void; onConfirm(title: string): Promise<void> }) {
+  const [title, setTitle] = useState(props.title);
+  return <div className="event-graph-dialog-backdrop" role="presentation"><form className="event-graph-dialog" role="dialog" aria-modal="true" aria-labelledby="collection-point-rename-title" onSubmit={(event) => { event.preventDefault(); const next = title.trim(); if (next) void props.onConfirm(next); }} onKeyDown={(event) => { if (event.key === "Escape" && !props.busy) { event.preventDefault(); props.onCancel(); } }}>
+    <header><div><small>可选集点</small><h2 id="collection-point-rename-title">重命名集点</h2></div><button type="button" aria-label="关闭重命名对话框" disabled={props.busy} onClick={props.onCancel}><X /></button></header>
+    <label><span>集点名称</span><input autoFocus maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+    <p>重命名只修改集点标签，不复制 Event，不改变正式 Relation 端点。</p>
+    <footer><button type="button" disabled={props.busy} onClick={props.onCancel}>取消</button><button type="submit" className="primary-action" disabled={props.busy || !title.trim()}>{props.busy ? "正在保存…" : "保存名称"}</button></footer>
+  </form></div>;
 }
 
 function PredictionScopeNode(props: NodeProps<Node<NodeData>>) {
@@ -829,14 +904,18 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
     const graphPosition = canvasKind === "narrative" ? narrativeLayout?.positions[event.id] : positions[event.id] ?? relationGraphPosition(index);
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? graphPosition ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
+    const trackId = semantic.storyLine.kind === "main" ? "main" : semantic.storyLine.id;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? graphPosition ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, trackId, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
   });
   const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
     const rows = Math.ceil(point.eventIds.length / 2);
-    return { id: point.id, type: "collectionPoint", className: `event-graph-collection-point ${point.collapsed ? "is-collapsed" : "is-expanded"}`, position: collectionPointPosition(point, pointIndex), style: point.collapsed ? { width: 224, height: 76 } : { width: 482, height: 86 + rows * 158 }, zIndex: point.collapsed ? 1 : -2, data: { title: point.title, time: "", location: "", status: "可选集点", focused: false, selected: selection?.kind === "collection-point" && selection.id === point.id, collectionPoint: true, unitId, eventCount: point.eventIds.length, expanded: !point.collapsed, onToggle: () => onToggleCollectionPoint(unitId, point) } };
+    const firstMember = events.find((event) => point.eventIds.includes(event.id));
+    const storyLine = firstMember ? eventLineSemanticNode(firstMember).storyLine : null;
+    const trackId = storyLine?.kind === "main" || !storyLine ? "main" : storyLine.id;
+    return { id: point.id, type: "collectionPoint", className: `event-graph-collection-point ${point.collapsed ? "is-collapsed" : "is-expanded"}`, position: collectionPointPosition(point, pointIndex), style: point.collapsed ? { width: 224, height: 76 } : { width: 482, height: 86 + rows * 158 }, zIndex: point.collapsed ? 1 : -2, data: { title: point.title, time: "", location: "", status: "可选集点", focused: false, selected: selection?.kind === "collection-point" && selection.id === point.id, collectionPoint: true, unitId, eventCount: point.eventIds.length, expanded: !point.collapsed, trackId, onToggle: () => onToggleCollectionPoint(unitId, point) } };
   });
   const trackLabelById = new Map(visibleEvents.map((event) => { const storyLine = eventLineSemanticNode(event).storyLine; return [storyLine.kind === "main" ? "main" : storyLine.id, storyLine.label] as const; }));
-  const trackNodes: Node<NodeData>[] = mode === "graph" && canvasKind === "narrative" && !predictionVisible && view === "global" ? (narrativeLayout?.tracks ?? []).map((track) => ({ id: `narrative-track.${track.id}`, type: "narrativeTrack", draggable: false, selectable: false, connectable: false, focusable: false, position: { x: 24, y: track.y - 52 }, zIndex: -4, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, trackLabel: track.kind === "main" ? "主线" : trackLabelById.get(track.id) ?? "分支轨道" } })) : [];
+  const trackNodes: Node<NodeData>[] = mode === "graph" && canvasKind === "narrative" && !predictionVisible && view === "global" ? (narrativeLayout?.tracks ?? []).map((track) => ({ id: `narrative-track.${track.id}`, type: "narrativeTrack", draggable: false, selectable: false, connectable: false, focusable: false, position: { x: 24, y: track.y - 52 }, zIndex: -4, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, trackId: track.id, trackLabel: track.kind === "main" ? "主线" : trackLabelById.get(track.id) ?? "分支轨道" } })) : [];
   const screenNodes: Node<NodeData>[] = mode === "temporal" && temporalRun?.status === "ready" ? temporalScreenNodes(temporalRun, visibleEvents.length) : [];
   const nodes: Node<NodeData>[] = [...screenNodes, ...trackNodes, ...collectionNodes, ...eventNodes];
   if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
@@ -1028,10 +1107,17 @@ function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, 
   const y = (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 0 });
 }
-function fitNarrativeProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
+function fitNarrativeProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], navigation: ReturnType<typeof buildNarrativeNavigation>) {
   const canvas = document.querySelector<HTMLElement>('[data-canvas-kind="narrative"] .event-graph-flow')?.getBoundingClientRect();
   const content = nodes.filter((node) => node.type === "event" || node.type === "narrativeTrack");
   if (!canvas || !content.length) return;
+  const firstBranch = navigation.branchPoints[0];
+  const branchTargetId = firstBranch?.targetEventIds.find((id) => navigation.trackByEventId[id] !== navigation.trackByEventId[firstBranch.eventId]) ?? firstBranch?.targetEventIds[0];
+  const initialRange = firstBranch && branchTargetId ? nodes.filter((node) => node.id === firstBranch.eventId || node.id === branchTargetId) : [];
+  if (initialRange.length === 2) {
+    focusNarrativeRange(flow, initialRange, canvas);
+    return;
+  }
   const dimensions = (node: Node<NodeData>) => node.type === "narrativeTrack" ? { width: 148, height: 30 } : { width: 234, height: 164 };
   const minX = Math.min(...content.map((node) => node.position.x));
   const minY = Math.min(...content.map((node) => node.position.y));
@@ -1045,6 +1131,22 @@ function fitNarrativeProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, n
   // Wide narrative paths start at the authored beginning and remain pannable;
   // they are never centered as one tiny, unreadable wall of cards.
   void flow.setViewport({ x: padding - minX * zoom, y, zoom }, { duration: 0 });
+}
+function focusNarrativeRange(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], measuredCanvas?: DOMRect) {
+  const canvas = measuredCanvas ?? document.querySelector<HTMLElement>('[data-canvas-kind="narrative"] .event-graph-flow')?.getBoundingClientRect();
+  if (!canvas || !nodes.length) return;
+  const zoom = .92;
+  const width = 234;
+  const height = 164;
+  const minX = Math.min(...nodes.map((node) => node.position.x));
+  const minY = Math.min(...nodes.map((node) => node.position.y));
+  const maxX = Math.max(...nodes.map((node) => node.position.x + width));
+  const maxY = Math.max(...nodes.map((node) => node.position.y + height));
+  const contentWidth = (maxX - minX) * zoom;
+  const contentHeight = (maxY - minY) * zoom;
+  const x = Math.max(28 - minX * zoom, (canvas.width - contentWidth) / 2 - minX * zoom);
+  const y = Math.max(28 - minY * zoom, (canvas.height - contentHeight) / 2 - minY * zoom);
+  void flow.setViewport({ x, y, zoom }, { duration: 220 });
 }
 function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], selectedEventId: string | null) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-workspace.is-temporal .event-graph-flow")?.getBoundingClientRect();

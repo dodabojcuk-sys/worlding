@@ -20,6 +20,12 @@ export type TemporalCompositionCache = {
   items: TemporalCompositionCacheItem[];
 };
 
+export type TemporalTrackProjection = {
+  origin: "author-formal" | "ai-suggested" | "ai-suggested-stale";
+  trackByEventId: Record<string, string>;
+  tracks: Array<{ id: string; order: number; label: string }>;
+};
+
 export function buildTemporalCompositionCache(input: {
   sourceManifestDigest: string;
   layoutRevision: string;
@@ -87,4 +93,39 @@ export function validateTemporalCompositionCache(value: unknown, eventRefs: read
     branchTrackByEventId: Object.fromEntries(input.items.map((item) => [item.versionedEventRef.eventId, item.branchTrack]))
   });
   return { ...cache, items: input.items.map((item) => ({ ...item, evidenceRefs: [...item.evidenceRefs], alternatives: item.alternatives.map((alternative) => ({ ...alternative })) })) };
+}
+
+/** Resolves the cache-owned stable branch tracks, falling back only when the cache is absent or invalid. */
+export function resolveTemporalTrackProjection(input: {
+  eventIds: readonly string[];
+  fallbackTrackByEventId: Readonly<Record<string, string>>;
+  cache?: TemporalCompositionCache | null;
+  stale?: boolean;
+}): TemporalTrackProjection {
+  const eventIds = [...new Set(input.eventIds)];
+  const eventScope = new Set(eventIds);
+  const cached = new Map<string, string>();
+  let valid = Boolean(input.cache && input.cache.items.length === eventIds.length);
+  for (const item of input.cache?.items ?? []) {
+    const eventId = item.versionedEventRef.eventId;
+    if (!eventScope.has(eventId) || cached.has(eventId) || !/^[\p{L}\p{N}][\p{L}\p{N}._:-]*$/u.test(item.branchTrack)) valid = false;
+    cached.set(eventId, item.branchTrack);
+  }
+  if (cached.size !== eventIds.length) valid = false;
+  const trackByEventId = Object.fromEntries(eventIds.map((eventId) => [eventId, valid ? cached.get(eventId)! : input.fallbackTrackByEventId[eventId] ?? "primary"]));
+  const origin: TemporalTrackProjection["origin"] = valid ? input.stale ? "ai-suggested-stale" : "ai-suggested" : "author-formal";
+  const tracks = [...new Set(Object.values(trackByEventId))]
+    .sort((left, right) => temporalTrackOrder(left) - temporalTrackOrder(right) || left.localeCompare(right, "zh-CN"))
+    .map((id, order) => ({ id, order, label: temporalTrackLabel(id, origin) }));
+  return { origin, trackByEventId, tracks };
+}
+
+function temporalTrackOrder(id: string): number {
+  return id === "track.primary" || id === "primary" ? 0 : id === "track.parallel" || id === "parallel" ? 1 : id === "track.aftermath" || id === "aftermath" ? 2 : 100;
+}
+
+function temporalTrackLabel(id: string, origin: TemporalTrackProjection["origin"]): string {
+  const prefix = origin === "author-formal" ? "作者正式" : "AI 建议";
+  const label = id === "track.primary" || id === "primary" ? "主序轨道" : id === "track.parallel" || id === "parallel" ? "并行轨道" : id === "track.aftermath" || id === "aftermath" ? "余波轨道" : id.replace(/^track[._:-]?/u, "").replace(/[._:-]+/gu, " ").trim() || "故事轨道";
+  return `${prefix}·${label}`;
 }

@@ -4,7 +4,7 @@ export type PerspectiveObjectType = "character" | "location" | "item";
 export type PerspectiveObjectRef = { id: string; type: PerspectiveObjectType; label: string; ownerId?: string; version?: string; scope?: "project" | "unit" | "selection"; formal?: boolean };
 export type PerspectiveEvent = { id: string; title: string; tags: readonly string[] };
 export type PerspectiveRelation = { sourceEventId: string; targetEventId: string; reviewState: string };
-export type PerspectiveVisibility = "experienced" | "witnessed" | "informed" | "known" | "misunderstood" | "unknown" | "blind-spot";
+export type PerspectiveVisibility = "experienced" | "witnessed" | "informed" | "inferred" | "known" | "misunderstood" | "unknown" | "blind-spot";
 export type PerspectiveProjectionMatch = {
   object: PerspectiveObjectRef;
   relationKind: PerspectiveMatch["relationKind"] | "none";
@@ -30,14 +30,17 @@ export function listPerspectiveObjects(events: readonly PerspectiveEvent[]): Per
   return [...objects.values()].sort((a, b) => a.type.localeCompare(b.type) || a.label.localeCompare(b.label, "zh-CN"));
 }
 
-/** Builds one Owner's complete read-only lens, including explicit author-visible blind spots. */
+/** Builds one Owner's evidence-backed read-only lens. Blind spots are opt-in. */
 export function buildSinglePerspectiveProjection(input: {
   events: readonly PerspectiveEvent[];
   relations: readonly PerspectiveRelation[];
   selected: PerspectiveObjectRef;
   aiMatches?: readonly PerspectiveMatch[];
+  includeBlindSpots?: boolean;
 }): PerspectiveProjectionItem[] {
-  return input.events.map((event) => ({ eventId: event.id, title: event.title, mode: "single", shared: true, matches: [resolveMatch(event, input.selected, input.events, input.relations, input.aiMatches ?? [])] }));
+  return input.events
+    .map((event) => ({ eventId: event.id, title: event.title, mode: "single" as const, shared: true, matches: [resolveMatch(event, input.selected, input.events, input.relations, input.aiMatches ?? [])] }))
+    .filter((item) => input.includeBlindSpots || !isBlindSpot(item.matches[0]!.visibility));
 }
 
 /** Builds a 2–5 Owner comparison without collapsing divergent knowledge into an intersection. */
@@ -82,8 +85,12 @@ function resolveMatch(event: PerspectiveEvent, object: PerspectiveObjectRef, eve
   const downstream = formalRelations.find((relation) => relation.sourceEventId === event.id && directByEvent.get(relation.targetEventId));
   if (downstream) return { object, relationKind: "downstream", knowledgeState: "unknown", visibility: "unknown", confidence: .8, evidenceRefs: [`event:${event.id}`, `event:${downstream.targetEventId}`, ownerEvidence] };
   const inferred = ai.find((match) => match.eventId === event.id && match.perspectiveObjectId === object.id && match.perspectiveType === object.type);
-  if (inferred) return { object, relationKind: inferred.relationKind, knowledgeState: inferred.knowledgeState, visibility: inferred.knowledgeState === "known" ? "known" : inferred.knowledgeState === "misunderstood" ? "misunderstood" : "unknown", confidence: inferred.confidence, evidenceRefs: inferred.evidenceRefs };
+  if (inferred) return { object, relationKind: inferred.relationKind, knowledgeState: inferred.knowledgeState, visibility: inferred.knowledgeState === "known" ? "inferred" : inferred.knowledgeState === "misunderstood" ? "misunderstood" : "unknown", confidence: inferred.confidence, evidenceRefs: inferred.evidenceRefs };
   return { object, relationKind: "none", knowledgeState: "unknown", visibility: "blind-spot", confidence: 1, evidenceRefs: [`event:${event.id}`, ownerEvidence] };
+}
+
+function isBlindSpot(visibility: PerspectiveVisibility): boolean {
+  return visibility === "blind-spot" || visibility === "unknown";
 }
 
 const PREFIXES: Record<PerspectiveObjectType, readonly string[]> = { character: ["Character", "Actor", "角色", "人物"], location: ["Location", "地点", "场所"], item: ["Item", "Object", "物品", "道具"] };

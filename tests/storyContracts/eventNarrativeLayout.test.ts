@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { buildEventNarrativeLayout } from "../../src/storyContracts/eventNarrativeLayout.ts";
+import { buildEventNarrativeLayout, buildNarrativeNavigation } from "../../src/storyContracts/eventNarrativeLayout.ts";
 
 test("event narrative layout advances left to right across stable main and branch tracks", () => {
   const events = [
@@ -30,6 +30,23 @@ test("pinned Event positions survive source-compatible recomposition and revisio
   assert.deepEqual(first.positions["event.a"], { x: 777, y: 333 });
   assert.notEqual(first.sourceVersion, second.sourceVersion);
   assert.notEqual(first.revision, second.revision);
+});
+
+test("branch navigation exposes stable fork, merge and track identities", () => {
+  const navigation = buildNarrativeNavigation({ events: [
+    { id: "event.start", sourceVersion: "r1", order: 0, trackKind: "main" },
+    { id: "event.main-next", sourceVersion: "r1", order: 1, trackKind: "main" },
+    { id: "event.branch-next", sourceVersion: "r1", order: 2, trackKind: "branch", trackId: "branch.harbor" },
+    { id: "event.merge", sourceVersion: "r1", order: 3, trackKind: "main" }
+  ], relations: [
+    { sourceEventId: "event.start", targetEventId: "event.main-next", confirmed: true },
+    { sourceEventId: "event.start", targetEventId: "event.branch-next", confirmed: true },
+    { sourceEventId: "event.main-next", targetEventId: "event.merge", confirmed: true },
+    { sourceEventId: "event.branch-next", targetEventId: "event.merge", confirmed: true }
+  ] });
+  assert.deepEqual(navigation.trackIds, ["main", "branch.harbor"]);
+  assert.deepEqual(navigation.branchPoints, [{ eventId: "event.start", targetEventIds: ["event.main-next", "event.branch-next"], branchTrackIds: ["branch.harbor"] }]);
+  assert.deepEqual(navigation.mergePoints, [{ eventId: "event.merge", sourceEventIds: ["event.main-next", "event.branch-next"], sourceTrackIds: ["branch.harbor"] }]);
 });
 
 test("formal workspace exposes grouped navigation and keeps narrative layout out of temporal projection", async () => {

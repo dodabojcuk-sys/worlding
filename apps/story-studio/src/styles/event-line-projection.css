@@ -426,6 +426,9 @@
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas h2 { margin: .2rem 0 0; font: 600 1.3rem/1.25 var(--font-display); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas > header small { color: var(--color-accent); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas button { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.35rem; padding-inline: .75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-blind-spot-toggle { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .15rem .55rem; margin-block-end: 1rem; padding: .75rem 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-blind-spot-toggle > span { font-weight: 700; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-blind-spot-toggle > small { grid-column: 2; color: var(--color-text-muted); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article { padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article > small { color: var(--color-accent); }
@@ -470,6 +473,7 @@
 }
 
 .shell-workspace-event-line .event-graph-workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   inline-size: 100%;
@@ -489,6 +493,8 @@
 .shell-workspace-event-line .event-graph-context-menu button { min-height: 2.1rem; padding: .35rem .55rem; color: var(--color-text); background: transparent; border: 0; border-radius: .3rem; text-align: start; }
 .shell-workspace-event-line .event-graph-context-menu button:hover:not(:disabled), .shell-workspace-event-line .event-graph-context-menu button:focus-visible { background: var(--color-accent-soft); outline: none; }
 .shell-workspace-event-line .event-graph-context-menu button:disabled { color: var(--color-text-muted); opacity: .58; }
+.shell-workspace-event-line .event-graph-collection-tools { position: absolute; z-index: 8; inset: auto auto .75rem .75rem; display: flex; gap: .35rem; padding: .35rem; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+.shell-workspace-event-line .event-graph-collection-tools button { min-block-size: 2rem; padding-inline: .6rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 
 .shell-workspace-event-line .temporal-canvas-status { display: flex; align-items: center; gap: .65rem; min-block-size: 3.1rem; padding: .45rem var(--space-4); pointer-events: none; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 88%, var(--color-accent-soft)); border-block-end: 1px solid var(--color-border); }
 .shell-workspace-event-line .temporal-canvas-status > svg { inline-size: 1rem; color: var(--color-accent); }
@@ -554,6 +560,13 @@
 .shell-workspace-event-line .event-graph-local-rail svg,
 .shell-workspace-event-line .event-graph-inspector svg { inline-size: 1rem; block-size: 1rem; }
 
+.shell-workspace-event-line .event-narrative-navigator { display: flex; align-items: center; gap: .4rem; min-inline-size: 0; min-block-size: 2.8rem; padding: .35rem .75rem; overflow-x: auto; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-accent-soft)); border-block-end: 1px solid var(--color-border); scrollbar-width: thin; }
+.shell-workspace-event-line .event-narrative-navigator > span { display: inline-flex; align-items: center; gap: .35rem; flex: 0 0 auto; margin-inline-end: .2rem; color: var(--color-accent); font-size: .8125rem; font-weight: 700; }
+.shell-workspace-event-line .event-narrative-navigator svg { inline-size: .9rem; block-size: .9rem; }
+.shell-workspace-event-line .event-narrative-navigator button { display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto; min-block-size: 2rem; padding: .35rem .55rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.shell-workspace-event-line .event-narrative-navigator button[aria-pressed="true"] { color: var(--color-accent); background: var(--color-accent-soft); border-color: var(--color-accent); }
+.shell-workspace-event-line .event-narrative-navigator button:disabled { opacity: .45; cursor: not-allowed; }
+
 .shell-workspace-event-line .event-graph-directory-toggle { inline-size: 2.4rem; padding: 0; }
 
 .shell-workspace-event-line .event-graph-filter-row,
@@ -573,6 +586,20 @@
 .shell-workspace-event-line .event-graph-notice button {
   margin-inline-start: auto;
 }
+
+.shell-workspace-event-line .event-graph-dialog-backdrop { position: absolute; z-index: 30; inset: 0; display: grid; place-items: center; padding: 1rem; background: color-mix(in srgb, var(--color-text) 24%, transparent); }
+.shell-workspace-event-line .event-graph-dialog { display: grid; gap: 1rem; inline-size: min(28rem, 100%); padding: 1rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.shell-workspace-event-line .event-graph-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.shell-workspace-event-line .event-graph-dialog h2 { margin: .15rem 0 0; font-size: 1.125rem; }
+.shell-workspace-event-line .event-graph-dialog small { color: var(--color-accent); font-weight: 700; }
+.shell-workspace-event-line .event-graph-dialog > header button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; padding: 0; background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-graph-dialog > header svg { inline-size: 1rem; }
+.shell-workspace-event-line .event-graph-dialog label { display: grid; gap: .4rem; font-size: .8125rem; font-weight: 700; }
+.shell-workspace-event-line .event-graph-dialog input { min-block-size: 2.5rem; padding-inline: .7rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; }
+.shell-workspace-event-line .event-graph-dialog p { margin: 0; color: var(--color-text-muted); font-size: .8125rem; line-height: 1.5; }
+.shell-workspace-event-line .event-graph-dialog footer { display: flex; justify-content: flex-end; gap: .5rem; }
+.shell-workspace-event-line .event-graph-dialog footer button { min-block-size: 2.25rem; padding-inline: .8rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-graph-dialog footer .primary-action { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); }
 
 .shell-workspace-event-line .event-graph-notice button {
   display: grid;
@@ -691,8 +718,11 @@
   grid-column: 2;
   grid-row: 1;
   position: relative;
-  min-inline-size: 0;
-  min-block-size: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 18rem;
+  min-block-size: 18rem;
+  overflow: hidden;
   background: color-mix(in srgb, var(--color-workspace-background) 96%, var(--color-accent) 4%);
 }
 .shell-workspace-event-line .smart-relation-review-tray { position: absolute; z-index: 8; inset: .8rem .8rem 5.4rem auto; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: .55rem; inline-size: min(23rem, calc(100% - 2rem)); padding: .7rem; background: color-mix(in srgb, var(--color-surface) 97%, transparent); border: 1px solid color-mix(in srgb, var(--color-warning) 42%, var(--color-border)); border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
@@ -722,7 +752,7 @@
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-local-rail { display: none; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-inspector { grid-column: 3; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__node { transition: transform 240ms cubic-bezier(.2, .75, .25, 1); }
-.shell-workspace-event-line .temporal-workspace { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-block-size: 0; block-size: 100%; overflow: hidden; background: var(--color-workspace-background); }
+.shell-workspace-event-line .temporal-workspace { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); min-block-size: 0; block-size: 100%; overflow: hidden; background: var(--color-workspace-background); }
 .shell-workspace-event-line .temporal-commandbar { display: flex; align-items: center; gap: .8rem; min-block-size: 3rem; padding: .4rem .7rem; background: var(--color-surface); border-block-end: 1px solid var(--color-border); }
 .shell-workspace-event-line .temporal-commandbar > strong { display: inline-flex; align-items: center; gap: .4rem; color: var(--color-text); }
 .shell-workspace-event-line .temporal-commandbar > strong svg { inline-size: 1rem; color: var(--color-accent); }
@@ -731,7 +761,12 @@
 .shell-workspace-event-line .temporal-commandbar button { display: inline-flex; align-items: center; gap: .3rem; min-block-size: 2.15rem; padding-inline: .65rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
 .shell-workspace-event-line .temporal-commandbar button:disabled { opacity: .45; cursor: not-allowed; }
 .shell-workspace-event-line .temporal-commandbar button svg { inline-size: .9rem; }
-.shell-workspace-event-line .temporal-flow { position: relative; min-block-size: 0; overflow: hidden; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }
+.shell-workspace-event-line .temporal-conflict-summary { position: relative; z-index: 6; display: flex; align-items: center; gap: .65rem; min-inline-size: 0; padding: .55rem .8rem; color: var(--color-danger); background: color-mix(in srgb, var(--color-surface) 94%, var(--color-danger)); border-block-end: 1px solid color-mix(in srgb, var(--color-danger) 36%, var(--color-border)); }
+.shell-workspace-event-line .temporal-conflict-summary > svg { flex: 0 0 auto; inline-size: 1rem; }
+.shell-workspace-event-line .temporal-conflict-summary > div { display: flex; align-items: baseline; gap: .65rem; min-inline-size: 0; }
+.shell-workspace-event-line .temporal-conflict-summary strong { flex: 0 0 auto; font-size: .8125rem; }
+.shell-workspace-event-line .temporal-conflict-summary span { min-inline-size: 0; overflow: hidden; color: var(--color-text-muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .temporal-flow { position: relative; inline-size: 100%; block-size: 100%; min-inline-size: 18rem; min-block-size: 18rem; overflow: hidden; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }
 .shell-workspace-event-line .temporal-flow > .react-flow { position: absolute; inset: 0; }
 .shell-workspace-event-line .temporal-event-node { inline-size: 14rem; }
 .shell-workspace-event-line .temporal-event-card { display: grid; gap: .28rem; inline-size: 14rem; min-block-size: 6.25rem; padding: .65rem .72rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-inline-start: .28rem solid var(--color-accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
@@ -772,7 +807,6 @@
 .shell-workspace-event-line .temporal-unplaced-tray,
 .shell-workspace-event-line .temporal-conflict-zone { position: absolute; z-index: 3; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .18rem .5rem; max-inline-size: 20rem; padding: .5rem .65rem; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
 .shell-workspace-event-line .temporal-unplaced-tray { inset: auto auto .8rem 6rem; }
-.shell-workspace-event-line .temporal-conflict-zone { inset: 3.8rem .8rem auto auto; color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border)); }
 .shell-workspace-event-line .temporal-unplaced-tray strong,
 .shell-workspace-event-line .temporal-conflict-zone strong { font-size: .8125rem; }
 .shell-workspace-event-line .temporal-unplaced-tray span,
@@ -934,7 +968,7 @@
 .shell-workspace-event-line .agent-execution-outcome small { font-size: .75rem; }
 .shell-workspace-event-line .agent-execution-main { min-inline-size: 0; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .shell-workspace-event-line .agent-execution-main.has-detail { grid-template-columns: minmax(0, 1fr) minmax(15rem, 20rem); }
-.shell-workspace-event-line .agent-execution-flow { position: relative; min-inline-size: 0; min-block-size: 0; overflow: hidden; }
+.shell-workspace-event-line .agent-execution-flow { position: relative; inline-size: 100%; block-size: 100%; min-inline-size: 18rem; min-block-size: 18rem; overflow: hidden; }
 .shell-workspace-event-line .agent-execution-lane-guide { position: absolute; z-index: 3; inset-block-start: .75rem; inset-inline-start: 50%; translate: -50% 0; display: inline-flex; align-items: center; gap: .35rem; min-block-size: 1.8rem; padding-inline: .65rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 93%, transparent); border: 1px solid var(--color-border); border-radius: 999px; box-shadow: 0 .15rem .4rem color-mix(in srgb, var(--color-text) 5%, transparent); font-size: .75rem; pointer-events: none; }
 .shell-workspace-event-line .agent-execution-lane-guide svg { inline-size: .8rem; color: var(--color-accent); }
 .shell-workspace-event-line .agent-execution-locator { position: absolute; z-index: 4; inset-block-start: .7rem; inset-inline-end: .75rem; display: flex; gap: .35rem; }

@@ -125,9 +125,17 @@ test("Collection Point owns one non-nested Event reference group with durable re
   assert.equal(updated.collectionPoint?.collapsed, true);
   assert.equal(updated.collectionPoint?.revision, 2);
 
+  const expanded = input.operations.updateStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, collectionPointId: created.collectionPoint!.id, expectedUnitVersion: updated.unit.version, expectedRevision: 2, operationId: "collection.update.warehouse.members", eventIds: [events[0]!.id, events[2]!.id], collapsed: false, layout: { x: 760, y: 420, pinned: true } });
+  assert.deepEqual(expanded.collectionPoint?.eventIds, [events[0]!.id, events[2]!.id]);
+  assert.equal(expanded.collectionPoint?.collapsed, false);
+  assert.deepEqual(expanded.collectionPoint?.layout, { x: 760, y: 420, pinned: true });
+  assert.equal(expanded.collectionPoint?.revision, 3);
+
   const restarted = createStoryStudioWorkspaceOperations({ rootPath: input.rootPath, stateFilePath: path.join(input.rootPath, ".app-state.json") });
   assert.equal(restarted.readStoryUnit({ projectId: input.project.id, unitId: unit.id }).collectionPoints[0]?.title, "仓库决断");
-  const dissolved = restarted.dissolveStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, collectionPointId: created.collectionPoint!.id, expectedUnitVersion: updated.unit.version, expectedRevision: 2, operationId: "collection.dissolve.warehouse" });
+  assert.deepEqual(restarted.readStoryUnit({ projectId: input.project.id, unitId: unit.id }).collectionPoints[0]?.eventIds, [events[0]!.id, events[2]!.id]);
+  assert.deepEqual(restarted.readStoryUnit({ projectId: input.project.id, unitId: unit.id }).collectionPoints[0]?.layout, { x: 760, y: 420, pinned: true });
+  const dissolved = restarted.dissolveStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, collectionPointId: created.collectionPoint!.id, expectedUnitVersion: expanded.unit.version, expectedRevision: 3, operationId: "collection.dissolve.warehouse" });
   assert.equal(dissolved.conflict, false);
   assert.deepEqual(dissolved.unit.collectionPoints, []);
   assert.equal(restarted.getStoryStudioWorldLibraryBootstrap({ projectId: input.project.id }).objects.filter((event) => events.some((source) => source.id === event.id)).length, 3);
