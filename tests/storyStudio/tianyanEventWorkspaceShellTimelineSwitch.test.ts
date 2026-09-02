@@ -11,11 +11,14 @@ const tianyiSidebar = readFileSync("apps/story-studio/src/components/tianyi/side
 const coordinator = readFileSync("apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts", "utf8");
 const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "utf8");
 
-test("event workspace offers one named three-view switch and retains the local selection", () => {
-  assert.match(workspace, /aria-label="事件视图"/u);
-  assert.match(workspace, /故事脊柱/u);
-  assert.match(workspace, /关系图/u);
-  assert.match(workspace, /时间轴/u);
+test("event workspace offers two primary views and three canvas dimensions while retaining local selection", () => {
+  assert.match(workspace, /aria-label="事件线一级视图"/u);
+  assert.match(workspace, /故事结构/u);
+  assert.match(workspace, /事件画布/u);
+  assert.match(workspace, /aria-label="事件画布观察维度"/u);
+  assert.match(workspace, />关系</u);
+  assert.match(workspace, />时间</u);
+  assert.match(workspace, />视角</u);
   assert.match(workspace, /selectedEventId=\{selectedEventId\}/u);
   assert.match(workspace, /readProjectionMode\(props\.projectId\)/u);
   assert.match(workspace, /writeProjectionMode\(props\.projectId, projectionMode\)/u);
@@ -34,14 +37,15 @@ test("timeline keeps the same Event Graph foreground over a semantic screen back
   assert.match(graph, /Math\.max\(\.84/u);
   assert.match(graph, /temporal-cross-screen-edge/u);
   assert.match(graph, /props\.onReturnGraph/u);
-  assert.match(workspace, /next === "graph" \|\| next === "timeline"/u);
+  assert.match(workspace, /next === "graph" \|\| next === "timeline" \|\| next === "perspective"/u);
   assert.doesNotMatch(graph, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
   assert.equal(workspace.includes("EventTimelineProjection"), false);
 });
 
-test("graph reuses the named workspace switch and does not make authors guess a clock icon", () => {
+test("graph leaves dimension switching to the named workspace navigation", () => {
   assert.match(graph, /onOpenTimeline/u);
-  assert.match(graph, /<Clock3 \/>时间轴/u);
+  assert.match(graph, /event-graph-command-title/u);
+  assert.doesNotMatch(graph, /aria-label="事件视图"/u);
   assert.match(graph, /<Focus \/><span>聚焦当前<\/span>/u);
 });
 

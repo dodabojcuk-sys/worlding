@@ -51,7 +51,9 @@ import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
 import type { StoryModelingPlanProjection, StoryModelingRunProjection } from "../lib/localTransport";
-import type { StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
+import type { PerspectiveMatch, StoryLogicFinding, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
+import { runLocalStoryLogicChecks } from "../../../../src/storyContracts/storyLogicChecks.ts";
+import { buildPerspectiveIntersection, listPerspectiveObjects, type PerspectiveObjectRef } from "../../../../src/storyContracts/eventPerspectiveProjection.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
 export type EventDraftInput = {
@@ -125,7 +127,8 @@ export function EventLineWorkbench(props: {
   const [modelingPlan, setModelingPlan] = useState<StoryModelingPlanProjection | null>(null);
   const [modelingPlanState, setModelingPlanState] = useState<"idle" | "loading" | "ready" | "running" | "failed">("idle");
   const [modelingRun, setModelingRun] = useState<StoryModelingRunProjection | null>(null);
-  const [aiToolbarExpanded, setAiToolbarExpanded] = useState(true);
+  const [aiToolbarExpanded, setAiToolbarExpanded] = useState(false);
+  const [logicPanelOpen, setLogicPanelOpen] = useState(false);
   const [spineZoom, setSpineZoom] = useState<"far" | "medium" | "near">("medium");
   const [unitCreateOpen, setUnitCreateOpen] = useState(false);
   const [unitActionMessage, setUnitActionMessage] = useState<string | null>(null);
@@ -248,6 +251,11 @@ export function EventLineWorkbench(props: {
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
   const formalRelations = props.relations ?? [];
+  const localLogicFindings = useMemo(() => runLocalStoryLogicChecks({
+    events: props.events.map((event) => ({ id: event.id, revisionToken: event.revisionToken, status: event.status, tags: event.tags })),
+    relations: formalRelations.map((relation) => ({ relationId: relation.relationId, sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState, relationTypeId: relation.relationTypeId, relationTypeResolution: relation.relationTypeResolution })),
+    unitIds: unitLabels
+  }), [eventIds, formalRelations, props.events, unitLabels]);
   const creationOpen = dockState.open && dockState.activeLens === "create";
   const modelingEventRefs = useMemo(() => props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []), [eventIds, props.events, props.projectId]);
 
@@ -389,7 +397,7 @@ export function EventLineWorkbench(props: {
   };
   const selectView = (next: EventWorkspaceView) => {
     requestDockState({ open: false, activeLens: "detail" });
-    if (next === "graph" || next === "timeline") {
+    if (next === "graph" || next === "timeline" || next === "perspective") {
       window.dispatchEvent(new Event("story-studio-close-project-directory"));
     }
     setProjectionMode(next);
@@ -486,16 +494,22 @@ export function EventLineWorkbench(props: {
       {scopeOpen ? <button type="button" className="event-line-scope-backdrop" aria-label="关闭故事范围" onClick={() => setScopeOpen(false)} /> : null}</> : null}
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar" aria-label="事件视图工具栏">
-          <nav className="event-line-view-switch" aria-label="事件视图">
-            <button type="button" aria-pressed={projectionMode === "spine"} onClick={() => selectView("spine")}><Layers3 />故事脊柱</button>
-            <button type="button" aria-pressed={projectionMode === "graph"} onClick={() => selectView("graph")}><Network />关系图</button>
-            <button type="button" aria-pressed={projectionMode === "timeline"} onClick={() => selectView("timeline")}><Clock3 />时间轴</button>
-          </nav>
+          <div className="event-line-view-navigation">
+            <nav className="event-line-view-switch is-primary" aria-label="事件线一级视图">
+              <button type="button" aria-pressed={projectionMode === "spine"} onClick={() => selectView("spine")}><Layers3 />故事结构</button>
+              <button type="button" aria-pressed={projectionMode !== "spine"} onClick={() => selectView(projectionMode === "spine" ? "graph" : projectionMode)}><Network />事件画布</button>
+            </nav>
+            {projectionMode !== "spine" ? <nav className="event-line-view-switch is-secondary" aria-label="事件画布观察维度">
+              <button type="button" aria-pressed={projectionMode === "graph"} onClick={() => selectView("graph")}><Network />关系</button>
+              <button type="button" aria-pressed={projectionMode === "timeline"} onClick={() => selectView("timeline")}><Clock3 />时间</button>
+              <button type="button" aria-pressed={projectionMode === "perspective"} onClick={() => selectView("perspective")}><UsersRound />视角</button>
+            </nav> : null}
+          </div>
           <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <><button type="button" aria-pressed={unitCreateOpen} onClick={() => setUnitCreateOpen((value) => !value)}><Plus />新建单元</button><label className="story-spine-zoom"><span>层级</span><select value={spineZoom} onChange={(event) => setSpineZoom(event.target.value as typeof spineZoom)}><option value="far">远景 · 单元</option><option value="medium">中景 · 关键事件</option><option value="near">近景 · 全部事件</option></select></label></> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenTianyi={(eventIds) => {
+        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={() => setLogicPanelOpen(true)} onOpenTianyi={(eventIds) => {
           const references = (eventIds ?? []).flatMap((eventId) => {
             const event = props.events.find((item) => item.id === eventId);
             return event && (event.status === "draft" || event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
@@ -504,6 +518,7 @@ export function EventLineWorkbench(props: {
           const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";
           props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId), unitSummary);
         }} /> : null}
+        {projectionMode === "perspective" ? <PerspectiveLens events={props.events} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={() => void openModelingTool("analyze-perspective")} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
         {projectionMode === "spine" && unitCreateOpen ? <UnitCreateBar busy={false} onCancel={() => setUnitCreateOpen(false)} onCreate={async (title) => { if (!props.onCreateUnit) return; try { await props.onCreateUnit(title); setUnitActionMessage(`已创建单元“${title}”。`); setUnitCreateOpen(false); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "新建单元失败。"); } }} /> : null}
@@ -513,14 +528,15 @@ export function EventLineWorkbench(props: {
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
-      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} run={modelingRun} />
+      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => setLogicPanelOpen(true)} localFindingCount={localLogicFindings.length} run={modelingRun} />
       {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
     {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
+    {logicPanelOpen ? <StoryLogicPanel findings={localLogicFindings} aiFindings={modelingRun?.tool === "run-logic-check" ? modelingRun.result?.logicFindings ?? [] : []} onClose={() => setLogicPanelOpen(false)} onRunAi={() => { setLogicPanelOpen(false); void openModelingTool("run-logic-check"); }} onLocate={(eventId) => { setLogicPanelOpen(false); openEventInView(eventId, "graph"); }} /> : null}
   </section>;
 }
 
-function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; run: StoryModelingRunProjection | null; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void }) {
+function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; localFindingCount: number; run: StoryModelingRunProjection | null; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void; onOpenLocalLogic(): void }) {
   const tools: Record<EventWorkspaceView, Array<{ id: StoryModelingTool; label: string }>> = {
     spine: [
       { id: "analyze-core-story", label: "分析核心故事线" },
@@ -537,14 +553,37 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
       { id: "infer-temporal-position", label: "推断时间位置" },
       { id: "check-temporal-conflicts", label: "检查时间冲突" },
       { id: "update-changed-scope", label: "更新变化范围" }
-    ]
+    ],
+    perspective: [{ id: "analyze-perspective", label: "深度分析视角交集" }]
   };
   return <aside className={`story-modeling-toolbar ${props.expanded ? "is-expanded" : "is-collapsed"}`} aria-label="故事建模 AI 工具" data-testid="story-modeling-toolbar">
-    <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>{props.view === "spine" ? "故事脊柱工具" : props.view === "graph" ? "关系图工具" : "时间轴工具"}</span><b>{props.expanded ? "收起" : "展开"}</b></button>
-    {props.expanded ? <div className="story-modeling-toolbar-actions">{tools[props.view].map((tool) => <button key={tool.id} type="button" disabled={props.disabled} onClick={() => props.onTool(tool.id)}><Sparkles />{tool.label}</button>)}</div> : null}
+    <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>AI 工具</span><b>{props.expanded ? "关闭" : "打开"}</b></button>
+    {props.expanded ? <div className="story-modeling-toolbar-actions"><button type="button" onClick={props.onOpenLocalLogic}><ShieldCheck />本地逻辑检测{props.localFindingCount ? ` · ${props.localFindingCount}` : ""}</button>{tools[props.view].map((tool) => <button key={tool.id} type="button" disabled={props.disabled} onClick={() => props.onTool(tool.id)}><Sparkles />{tool.label}</button>)}</div> : null}
     {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : "本次建模未完成"}</strong><span>{props.run.provider?.executionKind === "test-provider" ? "测试 Provider" : "Provider"} · {props.run.actual?.providerRequests ?? 0} 次请求 · {props.run.actual?.totalTokens ?? 0} tokens</span><span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
   </aside>;
 }
+
+function PerspectiveLens(props: { events: readonly EventLineEventSummary[]; relations: readonly RelationReadProjectionR0[]; aiMatches: readonly PerspectiveMatch[]; onOpenAi(): void }) {
+  const objects = useMemo(() => listPerspectiveObjects(props.events), [props.events]);
+  const [selected, setSelected] = useState<PerspectiveObjectRef[]>([]);
+  const projection = useMemo(() => buildPerspectiveIntersection({ events: props.events, relations: props.relations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState })), selected, aiMatches: props.aiMatches }), [props.aiMatches, props.events, props.relations, selected]);
+  const toggle = (object: PerspectiveObjectRef) => setSelected((current) => current.some((item) => item.id === object.id) ? current.filter((item) => item.id !== object.id) : current.length < 5 ? [...current, object] : current);
+  return <section className="event-perspective-workspace" aria-label="事件视角轴" data-provider-calls-on-open="0">
+    <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角交集</strong><span>选择 2–5 个人物、地点或物品</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式元数据中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}标记</small> : null}</fieldset>)}</aside>
+    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用</small><h2>{selected.length < 2 ? "请选择至少两个视角对象" : `${selected.map((item) => item.label).join(" × ")} 的故事交集`}</h2></div><button type="button" disabled={selected.length < 2} onClick={props.onOpenAi}><Sparkles />深度分析</button></header>{selected.length >= 2 && !projection.length ? <div className="event-perspective-empty"><CircleDot /><strong>当前没有共同事件</strong><p>基础投影只使用正式事件元数据与已确认关系；AI 候选不会被伪装成正式事实。</p></div> : <div className="event-perspective-results">{projection.map((item) => <article key={item.eventId}><small>共同事件</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id}><strong>{match.object.label}</strong><span>{perspectiveRelationLabel(match.relationKind)} · {knowledgeLabel(match.knowledgeState)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>证据：{[...new Set(item.matches.flatMap((match) => match.evidenceRefs))].join(" · ")}</p></article>)}</div>}</div>
+  </section>;
+}
+
+function StoryLogicPanel(props: { findings: readonly StoryLogicFinding[]; aiFindings: readonly StoryLogicFinding[]; onClose(): void; onRunAi(): void; onLocate(eventId: string): void }) {
+  const [statuses, setStatuses] = useState<Record<string, StoryLogicFinding["authorStatus"]>>({});
+  const all = [...props.findings, ...props.aiFindings].map((finding) => ({ ...finding, authorStatus: statuses[finding.findingId] ?? finding.authorStatus }));
+  const setStatus = (findingId: string, authorStatus: StoryLogicFinding["authorStatus"]) => setStatuses((current) => ({ ...current, [findingId]: authorStatus }));
+  return <div className="story-logic-backdrop" role="presentation"><section className="story-logic-panel" role="dialog" aria-modal="true" aria-labelledby="story-logic-title"><header><div><small>剧情逻辑检测</small><h2 id="story-logic-title">本地完整性与 AI 语义检查</h2></div><button type="button" aria-label="关闭逻辑检测" onClick={props.onClose}><X /></button></header><div className="story-logic-levels"><article><ShieldCheck /><strong>本地完整性</strong><span>确定性检查 · 0 tokens · 自动可用</span></article><article><Sparkles /><strong>AI 语义逻辑</strong><span>仅在作者确认范围与费用后运行</span></article></div>{all.length ? <div className="story-logic-findings">{all.map((finding) => <article key={finding.findingId} className={`is-${finding.severity} is-${finding.authorStatus}`}><header><strong>{logicKindLabel(finding.kind)}</strong><span>{finding.source === "local" ? "本地确定性" : `AI 候选 · ${Math.round(finding.confidence * 100)}%`} · {finding.authorStatus === "pending" ? "待处理" : finding.authorStatus === "ignored" ? "已忽略" : "已处理"}</span></header><p>{finding.rationale}</p><small>{finding.impact}</small><footer>{finding.affectedEventIds[0] ? <button type="button" onClick={() => props.onLocate(finding.affectedEventIds[0]!)}><LocateFixed />定位事件</button> : null}<button type="button" disabled title="修复建议只生成候选；当前 owner 合同尚未开放自动修复">生成修复候选</button><button type="button" aria-pressed={finding.authorStatus === "ignored"} onClick={() => setStatus(finding.findingId, "ignored")}>忽略</button><button type="button" aria-pressed={finding.authorStatus === "resolved"} onClick={() => setStatus(finding.findingId, "resolved")}>标记已处理</button></footer></article>)}</div> : <p className="story-logic-clear"><CheckCircle2 />当前本地完整性检查未发现问题。</p>}<footer><button type="button" onClick={props.onClose}>关闭</button><button type="button" className="primary-action" onClick={props.onRunAi}><Sparkles />配置 AI 语义检查</button></footer></section></div>;
+}
+
+function perspectiveRelationLabel(kind: PerspectiveMatch["relationKind"]): string { return kind === "formal-participation" ? "正式参与" : kind === "formal-relation-impact" ? "正式关系影响" : kind === "upstream" ? "上游影响" : kind === "downstream" ? "下游影响" : "AI 推断"; }
+function knowledgeLabel(kind: PerspectiveMatch["knowledgeState"]): string { return kind === "known" ? "已知" : kind === "misunderstood" ? "误解" : kind === "unknown" ? "未知" : "不适用"; }
+function logicKindLabel(kind: StoryLogicFinding["kind"]): string { return ({ "dangling-relation": "悬空关系", "stale-version": "版本已变化", "duplicate-id": "身份重复", "temporal-cycle": "时间循环", "orphan-unit-reference": "单元引用缺失", "deleted-reference": "引用对象已删除", "unresolved-relation-type": "关系类型待确认", "stale-cache": "缓存已过期", "causal-gap": "因果缺口", "motivation-break": "动机断裂", "knowledge-boundary": "知情边界", "item-continuity": "物品连续性", "location-continuity": "地点连续性", "temporal-plausibility": "时间合理性", "setup-payoff": "伏笔回收", "storyline-disconnect": "线索脱节", "emotion-pace-arc": "情绪节奏弧" })[kind]; }
 
 function UnitCreateBar(props: { busy: boolean; onCancel(): void; onCreate(title: string): Promise<void> }) {
   const [title, setTitle] = useState("");
@@ -597,7 +636,7 @@ function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: 
       {props.plan && estimate ? <>
         <section className="story-modeling-recommendation"><small>当前建议</small><strong>{recommendation}</strong><p>{props.plan.recommendation.reason} 作者仍可改选其他范围。</p></section>
         <fieldset><legend>运行范围</legend><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "incremental"} onChange={() => props.onScope("incremental")} />增量建模</label><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "selection"} onChange={() => props.onScope("selection")} />选定范围</label><label><input type="radio" name="story-modeling-scope" checked={props.scopeKind === "full-book"} onChange={() => props.onScope("full-book")} />全书建模</label></fieldset>
-        <dl className="story-modeling-estimate"><div><dt>来源</dt><dd>{estimate.sourceCount} 个章节/场景来源</dd></div><div><dt>事件</dt><dd>{estimate.eventCount} 个</dd></div><div><dt>依赖</dt><dd>{estimate.dependencyCount} 个</dd></div><div><dt>Provider 请求</dt><dd>{estimate.providerRequestRange.min}–{estimate.providerRequestRange.max} 次</dd></div><div><dt>输入 tokens</dt><dd>{estimate.inputTokenRange.min.toLocaleString()}–{estimate.inputTokenRange.max.toLocaleString()}</dd></div><div><dt>输出 tokens</dt><dd>{estimate.outputTokenRange.min.toLocaleString()}–{estimate.outputTokenRange.max.toLocaleString()}</dd></div><div><dt>合计 tokens</dt><dd>{estimate.totalTokenRange.min.toLocaleString()}–{estimate.totalTokenRange.max.toLocaleString()}</dd></div><div><dt>预计费用</dt><dd>{estimate.cost.status === "available" ? `$${estimate.cost.min.toFixed(4)}–$${estimate.cost.max.toFixed(4)} USD` : "费用暂无法换算（当前模型缺少价格元数据）"}</dd></div></dl>
+        <dl className="story-modeling-estimate"><div><dt>原始来源</dt><dd>{estimate.originalSourceCount} 个章节/场景/导入文档</dd></div><div><dt>结构化依据</dt><dd>{estimate.structuredEventCount} 个 Event</dd></div><div><dt>影响事件</dt><dd>{estimate.eventCount} 个</dd></div><div><dt>依赖</dt><dd>{estimate.dependencyCount} 个</dd></div><div><dt>Provider 请求</dt><dd>{estimate.providerRequestRange.min}–{estimate.providerRequestRange.max} 次</dd></div><div><dt>输入 tokens</dt><dd>{estimate.inputTokenRange.min.toLocaleString()}–{estimate.inputTokenRange.max.toLocaleString()}</dd></div><div><dt>输出 tokens</dt><dd>{estimate.outputTokenRange.min.toLocaleString()}–{estimate.outputTokenRange.max.toLocaleString()}</dd></div><div><dt>合计 tokens</dt><dd>{estimate.totalTokenRange.min.toLocaleString()}–{estimate.totalTokenRange.max.toLocaleString()}</dd></div><div><dt>预计费用</dt><dd>{estimate.cost.status === "available" ? `$${estimate.cost.min.toFixed(4)}–$${estimate.cost.max.toFixed(4)} USD` : "费用暂无法换算（当前模型缺少价格元数据）"}</dd></div></dl>
         <section className="story-modeling-output"><strong>将产生什么</strong><p>{props.tool === "smart-relations" || props.tool === "suggest-causal-relations" ? "带方向、类型建议、置信度、理由和来源证据的关系候选。" : props.tool === "infer-temporal-position" ? "时间推断点、推断区间、冲突与未定位托盘中的只读投影。" : "带来源引用与置信度的结构候选和只读故事投影。"}</p><p><ShieldCheck />不会自动写入 Event、正式 Relation、Canon 或 WorldState。</p></section>
       </> : null}
       <footer><button type="button" disabled={props.state === "running"} onClick={props.onCancel}>取消</button><button type="button" className="primary-action" disabled={props.state !== "ready"} onClick={props.onConfirm}>{props.state === "running" ? "正在运行…" : "确认运行一次"}</button></footer>
@@ -916,14 +955,14 @@ function splitAuthorList(value: string): string[] {
   return [...new Set(value.split(/[，,]/u).map((item) => item.trim()).filter(Boolean))].slice(0, 20);
 }
 
-export type EventWorkspaceView = "spine" | "graph" | "timeline";
+export type EventWorkspaceView = "spine" | "graph" | "timeline" | "perspective";
 function projectionModeKey(projectId: string): string { return `tianyan.event-line-view/v1:${projectId}`; }
 export function readProjectionMode(projectId: string): EventWorkspaceView {
   try {
     const view = new URLSearchParams(window.location.search).get("eventView");
-    if (view === "graph" || view === "timeline" || view === "spine") return view;
+    if (view === "graph" || view === "timeline" || view === "perspective" || view === "spine") return view;
     const stored = window.localStorage.getItem(projectionModeKey(projectId));
-    return stored === "graph" || stored === "timeline" ? stored : "spine";
+    return stored === "graph" || stored === "timeline" || stored === "perspective" ? stored : "spine";
   } catch { return "spine"; }
 }
 export function writeProjectionMode(projectId: string, mode: EventWorkspaceView): void {

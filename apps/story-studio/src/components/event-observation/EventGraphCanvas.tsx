@@ -6,7 +6,7 @@ import {
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronLeft, CircleDot, Clock3, Expand, Eye,
   FileText, Filter, Focus, Layers3, Link2, MapPin, Maximize2, Network,
-  PanelLeftClose, PanelRightClose, Plus, RefreshCw, Sparkles, Tag, UsersRound, X
+  PanelLeftClose, PanelRightClose, Plus, RefreshCw, ShieldCheck, Sparkles, Tag, UsersRound, X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -61,6 +61,7 @@ export function EventGraphCanvas(props: {
   createInspector?: ReactNode;
   onCloseCreate?(): void;
   onOpenTianyi?(eventIds?: string[]): void;
+  onOpenLogicCheck?(eventIds: string[]): void;
   mode?: "graph" | "temporal";
   temporalRun?: TemporalProjectionRun | null;
   temporalState?: "idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable";
@@ -72,6 +73,9 @@ export function EventGraphCanvas(props: {
   const [focusId, setFocusId] = useState<string | null>(props.selectedEventId);
   const [depth, setDepth] = useState(1);
   const [selection, setSelection] = useState<Selection>(props.selectedEventId ? { kind: "node", id: props.selectedEventId } : null);
+  const [workspaceSelectionIds, setWorkspaceSelectionIds] = useState<string[]>(props.selectedEventId ? [props.selectedEventId] : []);
+  const [spacePanning, setSpacePanning] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string | null } | null>(null);
   const [predictionSelectionIds, setPredictionSelectionIds] = useState<string[]>([]);
   const [predictionRun, setPredictionRun] = useState<PredictionRun | null>(null);
   const [storyModelingRun, setStoryModelingRun] = useState<StoryModelingRun | null>(null);
@@ -108,7 +112,7 @@ export function EventGraphCanvas(props: {
   const expandPredictionSources = useCallback(() => setPredictionSourcesExpanded(true), []);
   const collapsePredictionSources = narrowPrediction && ["overview", "focus", "review"].includes(predictionViewState) && !predictionSourcesExpanded;
   const predictionDirectoryCollapsed = ["overview", "focus", "review"].includes(predictionViewState);
-  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.temporalRun, selection, semanticZoom, view]);
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.temporalRun, selection, semanticZoom, view, workspaceSelectionIds]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
   const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
@@ -211,6 +215,16 @@ export function EventGraphCanvas(props: {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, props.onReturnGraph]);
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.code === "Space" && !target?.closest("input, textarea, select, button, [contenteditable=true]")) { event.preventDefault(); setSpacePanning(true); }
+      if (event.key === "Escape" && contextMenu) { event.preventDefault(); setContextMenu(null); }
+    };
+    const up = (event: KeyboardEvent) => { if (event.code === "Space") setSpacePanning(false); };
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [contextMenu]);
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
@@ -233,6 +247,7 @@ export function EventGraphCanvas(props: {
     if (props.selectedEventId) {
       if (relationSelectionActive.current) return;
       setSelection((current) => current?.kind === "relation" ? current : { kind: "node", id: props.selectedEventId! });
+      setWorkspaceSelectionIds((current) => current.includes(props.selectedEventId!) ? current : [props.selectedEventId!]);
       openInspector("EVENT_DETAILS");
     }
   }, [openInspector, props.selectedEventId]);
@@ -289,9 +304,10 @@ export function EventGraphCanvas(props: {
   }, [nodes, props.projectId]);
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
-    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
+    setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
   };
-  const selectNode = (eventId: string) => { relationSelectionActive.current = false; setSelection({ kind: "node", id: eventId }); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId); };
+  const selectNode = (eventId: string) => { relationSelectionActive.current = false; setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId); };
+  const toggleWorkspaceNode = (eventId: string) => { relationSelectionActive.current = false; setWorkspaceSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : [...current, eventId]); setSelection({ kind: "node", id: eventId }); };
   const returnGlobal = () => { restoreGlobalViewport.current = true; setView("global"); setSelection(focusId ? { kind: "node", id: focusId } : null); };
   const toggleRail = () => {
     if (railOpen) {
@@ -364,15 +380,14 @@ export function EventGraphCanvas(props: {
   }
 
   const temporalPlacement = currentEvent ? props.temporalRun?.placements.find((item) => item.versionedEventRef.eventId === currentEvent.id) ?? null : null;
+  const contextNode = contextMenu?.nodeId ? nodes.find((node) => node.id === contextMenu.nodeId) ?? null : null;
+  const contextEvent = contextNode ? graphEvents.find((event) => event.id === contextNode.id) ?? null : null;
+  const selectedWorkspaceEvents = workspaceSelectionIds.filter((id) => graphEvents.some((event) => event.id === id));
 
   return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : ""}`} aria-label={mode === "temporal" ? "事件语义时间关系工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "shared" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-view-switch-provider-calls="0" data-view-switch-agent-runs="0" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
-      <nav className="event-graph-view-switch" aria-label="事件视图">
-        <button type="button" aria-pressed="false" onClick={() => props.onOpenStorySpine?.()}><Layers3 />故事脊柱</button>
-        <button type="button" className={mode === "graph" ? "is-active" : ""} aria-pressed={mode === "graph"} onClick={() => mode === "temporal" ? props.onReturnGraph?.() : returnGlobal()}><Network />关系图</button>
-        <button type="button" className={mode === "temporal" ? "is-active" : ""} aria-pressed={mode === "temporal"} onClick={() => mode === "temporal" ? undefined : props.onOpenTimeline?.()}><Clock3 />时间轴</button>
-      </nav>
+      <strong className="event-graph-command-title">{mode === "temporal" ? "时间观察" : "关系观察"}</strong>
       <div className="event-graph-command-actions">
         <button type="button" aria-label="新增事件" title="新增事件" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
         {view === "focus" ? <button type="button" aria-label="返回全局" title="返回全局" onClick={returnGlobal}><ArrowLeft /><span>返回全局</span></button> : null}
@@ -396,6 +411,7 @@ export function EventGraphCanvas(props: {
     </header>
     {mode === "temporal" ? <div className={`temporal-canvas-status is-${props.temporalState ?? "idle"}`} role="status" aria-live="polite"><Sparkles aria-hidden="true" /><div><strong>{props.temporalState === "loading" ? "正在读取时间投影缓存" : props.temporalState === "missing" ? "基础布局" : props.temporalState === "failed" ? "时间投影暂不可读" : props.temporalRun?.conflicts.length ? "需要作者处理冲突" : props.temporalRun?.stale ? "旧投影 · 待更新" : props.temporalRun ? "时间投影已更新" : "基础布局"}</strong><span>{props.temporalMessage ?? (props.temporalRun ? "时间位置是只读投影，不会改写正式时间。" : "基于正式事件与关系展示；尚未执行 AI 分析。")}</span></div></div> : null}
     {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id} title={event.title} aria-label={`第 ${index + 1} 个推演依据：${event.title}`}><b>{index + 1}</b>{event.title}<button type="button" title={`移出推演范围：${event.title}`} aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}{narrowPrediction && predictionPathId ? <button type="button" className="event-graph-source-collapse" aria-expanded={predictionSourcesExpanded} onClick={() => setPredictionSourcesExpanded((expanded) => !expanded)}>{predictionSourcesExpanded ? `折叠为 ${predictionSources.length} 个推演依据` : `展开 ${predictionSources.length} 个推演依据`}</button> : null}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
+    {selectedWorkspaceEvents.length > 1 ? <section className="event-graph-selection-bar" aria-label="画布多选操作" data-testid="event-graph-selection-bar"><strong>已选择 {selectedWorkspaceEvents.length} 个事件</strong><button type="button" onClick={() => props.onOpenTianyi?.(selectedWorkspaceEvents)}><Sparkles />围绕所选预测</button><button type="button" onClick={() => props.onOpenLogicCheck?.(selectedWorkspaceEvents)}><ShieldCheck />剧情逻辑检测</button><button type="button" onClick={() => setWorkspaceSelectionIds([])}><X />清除选择</button></section> : null}
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}
     <div className="event-graph-main">
@@ -406,7 +422,16 @@ export function EventGraphCanvas(props: {
         <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
         <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate" && item.relationTypeResolution === "unresolved") ?? graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); openInspector("RELATION_REVIEW"); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
-      <div className="event-graph-flow" onPointerUp={mode === "graph" ? persistLayout : undefined}>
+      <div className={`event-graph-flow ${spacePanning ? "is-space-panning" : ""}`} tabIndex={0} onPointerUp={mode === "graph" ? persistLayout : undefined} onDoubleClickCapture={(event) => {
+        const target = event.target;
+        if (target instanceof Element && target.closest(".react-flow__pane") && !target.closest(".react-flow__node")) props.onCreateEvent?.();
+      }} onKeyDown={(event) => {
+        if (!(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+        event.preventDefault();
+        const activeId = workspaceSelectionIds.at(-1) ?? props.selectedEventId;
+        const host = event.currentTarget.getBoundingClientRect();
+        setContextMenu({ x: Math.round(host.width / 2), y: Math.round(host.height / 2), nodeId: activeId ?? null });
+      }}>
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={connect}
@@ -417,13 +442,17 @@ export function EventGraphCanvas(props: {
               if (predictionViewState === "overview") { chooseCandidatePath(node.id); setNotice("已聚焦候选所在路径；它仍未写入事件线。"); }
               else { togglePredictionCandidate(node.id); setNotice("已同步更新候选节点的审阅选择；它仍未写入事件线。"); }
             } else {
-              if (event.shiftKey) setPredictionSelectionIds((current) => current.includes(node.id) ? current.filter((id) => id !== node.id) : current.length < 4 ? [...current, node.id] : current);
+              if (event.shiftKey || event.ctrlKey || event.metaKey) toggleWorkspaceNode(node.id);
               else selectNode(node.id);
             }
           }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: edge.data?.smartRelation ? "smart-relation" : "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
-          onPaneClick={() => { setSelection(null); closeInspector(); props.onClearSelection(); }}
+          onNodeContextMenu={(event, node) => { event.preventDefault(); if (!workspaceSelectionIds.includes(node.id) && !node.data.candidate) setWorkspaceSelectionIds([node.id]); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: node.id }); }}
+          onPaneContextMenu={(event) => { event.preventDefault(); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: null }); }}
+          onPaneClick={() => {
+            setContextMenu(null); setSelection(null); setWorkspaceSelectionIds([]); closeInspector(); props.onClearSelection();
+          }}
           onInit={setFlow} fitView minZoom={["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25} maxZoom={1.8}
           onMove={(_, viewport) => {
             setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
@@ -431,6 +460,10 @@ export function EventGraphCanvas(props: {
           }}
           nodesDraggable={mode === "graph"}
           nodesConnectable={mode === "graph" && Boolean(props.onCreateRelation)}
+          selectionOnDrag={!spacePanning}
+          panOnDrag={spacePanning ? [0, 1, 2] : [1, 2]}
+          multiSelectionKeyCode={["Shift", "Control", "Meta"]}
+          onSelectionChange={({ nodes: selectedNodes }) => { const ids = selectedNodes.filter((node) => graphEvents.some((event) => event.id === node.id)).map((node) => node.id); if (ids.length) setWorkspaceSelectionIds((current) => [...new Set([...current, ...ids])]); }}
           connectionLineStyle={{ stroke: "var(--color-accent)", strokeWidth: 1.5 }}
           proOptions={{ hideAttribution: true }}
         >
@@ -440,6 +473,9 @@ export function EventGraphCanvas(props: {
         </ReactFlow>
         {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
         <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
+        {contextMenu ? <div className="event-graph-context-menu" role="menu" aria-label={contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }}>
+          {contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button><button type="button" role="menuitem" disabled title={contextEvent.status === "committed" ? "正式 Event 不允许硬删除" : "回收站 owner 尚未开放此入口"}>{contextEvent.status === "committed" ? "正式事件不可删除" : "移入回收站"}</button></> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
+        </div> : null}
         {mode === "graph" && smartRelationReviews.length ? <SmartRelationReviewTray candidates={smartRelationReviews} selectedIds={smartRelationSelection} relationTypes={props.relationTypes} busy={busy === "smart-relations"} onSelection={setSmartRelationSelection} onChangeType={(candidateId, relationTypeId) => setSmartRelationReviews((current) => current.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, suggestedTypeId: relationTypeId || null, suggestedTypeLabel: props.relationTypes.find((type) => type.relationTypeId === relationTypeId)?.label ?? "类型待确认" } : candidate))} onAccept={() => void acceptSmartRelations()} onReject={() => reviewSmartRelations("rejected")} /> : null}
       </div>
       {inspectorOpen && props.createOpen && props.createInspector ? <aside className="event-graph-inspector event-create-graph-inspector" aria-label="新建事件检查器"><InspectorHeader title="新建事件" subtitle="保存为草稿后会出现在故事脊柱与关系图中" onClose={() => props.onCloseCreate?.()} />{props.createInspector}</aside> : null}
@@ -662,7 +698,7 @@ function Tab(props: { active: boolean; children: ReactNode; onClick(): void }) {
 function Facts(props: { facts: Array<[ReactNode, string, string]> }) { return <dl className="event-graph-facts">{props.facts.map(([icon, label, value]) => <div key={label}><dt>{icon}{label}</dt><dd>{value}</dd></div>)}</dl>; }
 function TextBlock(props: { title: string; text: string }) { return <section className="event-graph-text-block"><h3>{props.title}</h3><p>{props.text}</p></section>; }
 
-function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near"): { nodes: Node<NodeData>[]; edges: Edge[] } {
+function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, workspaceSelectionIds: ReadonlySet<string>, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near"): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const ids = new Set(events.map((event) => event.id));
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
@@ -672,7 +708,11 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   // the prediction scope. At narrow widths the Unit directory may be hidden,
   // so filtering the canvas after the first selection would make the second
   // source impossible to choose. Source focusing starts only with a real path.
-  const sourceIds = predictionVisible && predictionRun ? new Set(predictionRun.sourceSnapshot.map((source) => source.eventId)) : null;
+  // Runs written before source snapshots became mandatory remain reviewable.
+  // Their candidate graph is still useful, while the missing snapshot must not
+  // crash the Event workspace or be fabricated from current Event versions.
+  const predictionSources = predictionRun?.sourceSnapshot ?? [];
+  const sourceIds = predictionVisible && predictionRun ? new Set(predictionSources.map((source) => source.eventId)) : null;
   const visible = mode === "temporal" ? ids : sourceIds ?? (view === "global" || !validFocus ? ids : focusIds(validFocus, active, depth));
   const remote = mode === "graph" && view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
   const focusLayout = mode === "graph" && view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
@@ -687,7 +727,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: selection?.kind === "node" && selection.id === event.id, predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
   });
   const screenNodes: Node<NodeData>[] = mode === "temporal" && temporalRun?.status === "ready" ? temporalScreenNodes(temporalRun, visibleEvents.length) : [];
   const nodes: Node<NodeData>[] = [...screenNodes, ...eventNodes];
@@ -730,7 +770,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
       const summaryId = `prediction-source-summary.${predictionRun.runId}`;
       roots.forEach((root, index) => edges.push({ id: `prediction-source-summary-edge.${predictionRun.runId}.${root}`, source: summaryId, target: root, type: "smoothstep", label: index === 0 ? "推演预览" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .72 }, markerEnd: { type: MarkerType.ArrowClosed } }));
     } else {
-      predictionRun.sourceSnapshot.forEach((source, sourceIndex) => roots.forEach((root, rootIndex) => { if (ids.has(source.eventId)) edges.push({ id: `prediction-source.${source.eventId}.${root}`, source: source.eventId, target: root, type: "smoothstep", label: sourceIndex === 0 && rootIndex === 0 ? "共同推演依据" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .58 }, markerEnd: { type: MarkerType.ArrowClosed } }); }));
+      predictionSources.forEach((source, sourceIndex) => roots.forEach((root, rootIndex) => { if (ids.has(source.eventId)) edges.push({ id: `prediction-source.${source.eventId}.${root}`, source: source.eventId, target: root, type: "smoothstep", label: sourceIndex === 0 && rootIndex === 0 ? "共同推演依据" : undefined, style: { stroke: "#147d78", strokeWidth: 1.35, strokeDasharray: "3 5", opacity: .58 }, markerEnd: { type: MarkerType.ArrowClosed } }); }));
     }
   }
   return { nodes, edges };
