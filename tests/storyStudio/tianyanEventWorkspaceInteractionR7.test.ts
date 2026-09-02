@@ -30,7 +30,8 @@ test("R7 exposes local logic checks and the current perspective lens", () => {
   assert.match(workbench, /本地逻辑检测/u);
   assert.match(workbench, /确定性检查 · 0 tokens/u);
   assert.match(workbench, /AI 语义逻辑/u);
-  assert.match(workbench, /选择 1–5 个人物、地点或物品/u);
+  assert.match(workbench, /选择 1–5 个正式人物/u);
+  assert.match(workbench, /地点与物品只能进入参与观察/u);
   assert.match(workbench, /data-provider-calls-on-open="0"/u);
   assert.match(workbench, /正式参与/u);
   assert.match(workbench, /深度分析当前视角/u);

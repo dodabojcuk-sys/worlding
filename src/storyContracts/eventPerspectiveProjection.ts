@@ -25,7 +25,7 @@ export function listPerspectiveObjects(events: readonly PerspectiveEvent[]): Per
   const objects = new Map<string, PerspectiveObjectRef>();
   for (const event of events) for (const [type, prefixes] of Object.entries(PREFIXES) as Array<[PerspectiveObjectType, readonly string[]]>) for (const label of taggedValues(event.tags, prefixes)) {
     const id = `${type}.${slug(label)}`;
-    objects.set(id, { id, type, label });
+    objects.set(id, { id, type, label, formal: false });
   }
   return [...objects.values()].sort((a, b) => a.type.localeCompare(b.type) || a.label.localeCompare(b.label, "zh-CN"));
 }
@@ -38,6 +38,7 @@ export function buildSinglePerspectiveProjection(input: {
   aiMatches?: readonly PerspectiveMatch[];
   includeBlindSpots?: boolean;
 }): PerspectiveProjectionItem[] {
+  if (!isFormalPerspectiveCharacter(input.selected)) return [];
   return input.events
     .map((event) => ({ eventId: event.id, title: event.title, mode: "single" as const, shared: true, matches: [resolveMatch(event, input.selected, input.events, input.relations, input.aiMatches ?? [])] }))
     .filter((item) => input.includeBlindSpots || !isBlindSpot(item.matches[0]!.visibility));
@@ -50,7 +51,7 @@ export function buildPerspectiveComparison(input: {
   selected: readonly PerspectiveObjectRef[];
   aiMatches?: readonly PerspectiveMatch[];
 }): PerspectiveProjectionItem[] {
-  if (input.selected.length < 2 || input.selected.length > 5) return [];
+  if (input.selected.length < 2 || input.selected.length > 5 || !input.selected.every(isFormalPerspectiveCharacter)) return [];
   return input.events.map((event) => {
     const matches = input.selected.map((object) => resolveMatch(event, object, input.events, input.relations, input.aiMatches ?? []));
     return { eventId: event.id, title: event.title, mode: "compare" as const, shared: matches.every((match) => match.visibility !== "blind-spot"), matches };
@@ -63,7 +64,12 @@ export function buildPerspectiveIntersection(input: Parameters<typeof buildPersp
 }
 
 export function perspectiveModeForSelection(selected: readonly PerspectiveObjectRef[]): PerspectiveMode | null {
+  if (!selected.every(isFormalPerspectiveCharacter)) return null;
   return selected.length === 1 ? "single" : selected.length >= 2 && selected.length <= 5 ? "compare" : null;
+}
+
+export function isFormalPerspectiveCharacter(object: PerspectiveObjectRef): boolean {
+  return object.formal === true && object.type === "character";
 }
 
 function resolveMatch(event: PerspectiveEvent, object: PerspectiveObjectRef, events: readonly PerspectiveEvent[], relations: readonly PerspectiveRelation[], ai: readonly PerspectiveMatch[]): PerspectiveProjectionMatch {

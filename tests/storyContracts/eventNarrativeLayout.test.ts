@@ -51,12 +51,14 @@ test("branch navigation exposes stable fork, merge and track identities", () => 
 
 test("formal workspace exposes grouped navigation and keeps narrative layout out of temporal projection", async () => {
   const workbench = await readFile(new URL("../../apps/story-studio/src/components/EventLineWorkbench.tsx", import.meta.url), "utf8");
+  const controls = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventObservationControls.tsx", import.meta.url), "utf8");
   const graph = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", import.meta.url), "utf8");
-  assert.match(workbench, />结构</u);
-  assert.match(workbench, />编排</u);
-  assert.match(workbench, />观察</u);
-  assert.match(workbench, />故事脊柱</u);
-  assert.match(workbench, />事件线</u);
+  assert.match(controls, /布局坐标/u);
+  assert.match(controls, /主观察镜头/u);
+  assert.match(controls, /叙事顺序/u);
+  assert.match(controls, /世界时间/u);
+  assert.match(controls, /关系网络/u);
+  assert.match(workbench, /EventObservationControls/u);
   assert.match(graph, /canvasKind === "narrative"/u);
   assert.doesNotMatch(graph, /gridPosition\(total > 24/u);
 });

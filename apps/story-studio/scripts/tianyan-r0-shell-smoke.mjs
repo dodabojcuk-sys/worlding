@@ -37,6 +37,7 @@ const r7CloseoutDirectory = process.env.TIANYAN_R7_CLOSEOUT_DIR || null;
 const r8CloseoutDirectory = process.env.TIANYAN_R8_CLOSEOUT_DIR || null;
 const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const r10EvidenceDirectory = process.env.TIANYAN_R10_EVIDENCE_DIR || null;
+const r11ObservationEvidenceDirectory = process.env.TIANYAN_R11_OBSERVATION_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
@@ -46,7 +47,9 @@ const r7RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r7-interaction-record
 const r8RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r8-foundation-recording";
 const r9RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r9-evidence-recording";
 const r10RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r10-closeout-recording";
+const r11ObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r11-observation-workspace";
 let timelineFixture = null;
+let observationFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -96,7 +99,11 @@ try {
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (r10RecordingOnly) {
+  if (r11ObservationOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await assertR11ObservationWorkspace(page, consoleProblems);
+  } else if (r10RecordingOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await setupTimelineFixture();
@@ -793,6 +800,93 @@ async function setupCharacterFixture() {
   });
 }
 
+async function setupObservationFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", tags: ["港区"] });
+  await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "雾灯匣", status: "active", tags: ["关键物品"] });
+  const definitions = [
+    { key: "revealed-consequence", title: "先揭示的港口后果", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03", "人物：林昭", "地点：雾港", "物品：雾灯匣"] },
+    { key: "revealed-cause", title: "后揭示的码头起因", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01", "目击：林昭", "地点：雾港"] },
+    { key: "explicit-absence", title: "密室中的明确缺席", tags: ["作者草稿", "单元：雾港追踪", "时间：之后三天", "缺席：林昭", "物品：雾灯匣"] },
+    { key: "unknown", title: "时间未定的匿名来客", tags: ["作者草稿", "单元：雾港追踪"] }
+  ];
+  const created = [];
+  for (const definition of definitions) {
+    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: definition.title, status: "draft", tags: definition.tags, body: `${definition.title}只用于 R11 隔离观察工作台验收。` });
+    created.push({ ...definition, id: result.data.id });
+  }
+  observationFixture = Object.fromEntries(created.map((event) => [event.key, event]));
+}
+
+async function assertR11ObservationWorkspace(page, consoleProblems) {
+  assert.ok(observationFixture, "R11 observation fixture must exist.");
+  if (r11ObservationEvidenceDirectory) mkdirSync(r11ObservationEvidenceDirectory, { recursive: true });
+  const providerRequests = [];
+  page.on("request", (request) => {
+    if (/story-modeling\/(?:plan|runs|execute)|\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventLayout=narrative&eventLens=participation&eventScale=event&eventLayers=source-evidence`);
+  await closeGlobalTianyiIfOpen(page);
+  const workspace = page.getByTestId("event-participation-workspace");
+  await workspace.waitFor();
+  assert.equal(await page.getByRole("button", { name: "参与", exact: true }).getAttribute("aria-pressed"), "true");
+  for (const label of ["林昭", "雾港", "雾灯匣"]) await workspace.getByRole("checkbox", { name: label, exact: true }).check();
+  assert.equal(await workspace.locator(".event-participation-focus button").count(), 3, "R11 keeps all three formal focus types visible.");
+  const cellsFor = (key) => workspace.locator(`.event-participation-cell[data-event-id="${observationFixture[key].id}"]`);
+  assert.equal(await cellsFor("revealed-consequence").filter({ hasText: "参与" }).count(), 3);
+  assert.equal(await cellsFor("revealed-cause").first().getAttribute("data-participation-state"), "witnessed");
+  assert.equal(await cellsFor("explicit-absence").first().getAttribute("data-participation-state"), "explicit-absence");
+  assert.equal(await cellsFor("unknown").first().getAttribute("data-participation-state"), "unknown");
+  assert.equal(await page.getByRole("button", { name: "关系网络", exact: true }).isDisabled(), true, "An incompatible coordinate stays unavailable while participation is active.");
+  await page.getByRole("button", { name: "保存组合", exact: true }).click();
+  await page.getByText("当前组合已保存到本机；未写入故事事实", { exact: true }).waitFor();
+  if (r11ObservationEvidenceDirectory) await page.screenshot({ path: path.join(r11ObservationEvidenceDirectory, "01-1440-narrative-participation.png"), fullPage: false });
+  await cellsFor("revealed-consequence").first().press("Enter");
+  await page.locator(".page-context-dock-panel").getByText("先揭示的港口后果", { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1487, height: 1059 });
+  if (r11ObservationEvidenceDirectory) await page.screenshot({ path: path.join(r11ObservationEvidenceDirectory, "00-1487-reference-viewport-narrative-detail.png"), fullPage: false });
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.getByRole("button", { name: "世界时间", exact: true }).press("Enter");
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-participation-workspace"]')?.getAttribute("data-layout") === "world-time");
+  const orderedTitles = await workspace.locator(".event-participation-event strong").allTextContents();
+  assert.deepEqual(orderedTitles.slice(0, 2), ["后揭示的码头起因", "先揭示的港口后果"], "World-time ordering differs from reveal order when strict dates disagree.");
+  assert.equal(orderedTitles.at(-1), "时间未定的匿名来客");
+  await cellsFor("revealed-consequence").first().press("Enter");
+  if (r11ObservationEvidenceDirectory) await page.screenshot({ path: path.join(r11ObservationEvidenceDirectory, "02-1440-world-time-shared-event-detail.png"), fullPage: false });
+
+  await reloadProduct(page);
+  await page.getByTestId("event-participation-workspace").waitFor();
+  assert.equal(await page.getByTestId("event-participation-workspace").getAttribute("data-layout"), "world-time");
+  assert.equal(await page.getByTestId("event-participation-workspace").locator('.event-participation-picker input[type="checkbox"]:checked').count(), 3, "Saved formal focus restores after refresh.");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R11 has no page-level horizontal overflow at 1152px.");
+  if (r11ObservationEvidenceDirectory) await page.screenshot({ path: path.join(r11ObservationEvidenceDirectory, "03-1152-world-time-restored.png"), fullPage: false });
+  await page.setViewportSize({ width: 743, height: 529 });
+  await page.waitForTimeout(200);
+  const closeDirectory = page.locator(".project-directory-close");
+  if (await closeDirectory.isVisible()) await closeDirectory.click();
+  const zoomEquivalentState = await page.getByTestId("event-participation-workspace").evaluate((node) => {
+    const controls = document.querySelector(".event-observation-controls");
+    const checkedFocus = node.querySelectorAll('.event-participation-picker input[type="checkbox"]:checked');
+    return {
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth,
+      controlsVisible: controls instanceof HTMLElement && controls.getBoundingClientRect().height > 0,
+      workspaceVisible: node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0,
+      checkedFocusCount: checkedFocus.length
+    };
+  });
+  assert.equal(zoomEquivalentState.pageOverflow, false, `R11 200% equivalent CSS viewport must reflow without page-level overflow=${JSON.stringify(zoomEquivalentState)}`);
+  assert.equal(zoomEquivalentState.controlsVisible, true, `R11 axes remain reachable at a 200% equivalent CSS viewport=${JSON.stringify(zoomEquivalentState)}`);
+  assert.equal(zoomEquivalentState.workspaceVisible, true, `R11 workspace remains visible at a 200% equivalent CSS viewport=${JSON.stringify(zoomEquivalentState)}`);
+  assert.equal(zoomEquivalentState.checkedFocusCount, 3, `R11 focus state survives 200% equivalent reflow=${JSON.stringify(zoomEquivalentState)}`);
+  if (r11ObservationEvidenceDirectory) await page.screenshot({ path: path.join(r11ObservationEvidenceDirectory, "04-743x529-200-percent-equivalent.png"), fullPage: false });
+  assert.deepEqual(providerRequests, [], "Layout, lens, focus, save and refresh may not call a Provider.");
+  assert.deepEqual(consoleProblems, [], "R11 observation workspace may not produce console warnings or errors.");
+}
+
 async function setupEventGraphFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   const branchStoryUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
@@ -959,8 +1053,8 @@ async function setupEventGraphDensityFixture() {
 }
 
 function eventViewButton(page, name) {
-  const label = name === "关系图" ? "关系" : name === "时间轴" ? "时间线" : name;
-  return page.locator(".event-line-view-switch, .event-graph-view-switch").getByRole("button", { name: label, exact: true }).filter({ visible: true }).first();
+  const label = ({ "故事脊柱": "结构", "事件线": "叙事顺序", "关系图": "关系网络", "时间轴": "世界时间", "视角": "角色视角" })[name] ?? name;
+  return page.locator(".event-observation-controls, .event-graph-view-switch").getByRole("button", { name: label, exact: true }).filter({ visible: true }).first();
 }
 
 async function switchEventView(page, name) {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const workspace = readFileSync("apps/story-studio/src/components/EventLineWorkbench.tsx", "utf8");
+const controls = readFileSync("apps/story-studio/src/components/event-observation/EventObservationControls.tsx", "utf8");
 const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
 const shellStyles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 const graph = readFileSync("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "utf8");
@@ -12,20 +13,23 @@ const tianyiSidebar = readFileSync("apps/story-studio/src/components/tianyi/side
 const coordinator = readFileSync("apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts", "utf8");
 const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "utf8");
 
-test("event workspace groups structure, arrangement and observation while retaining local selection", () => {
-  assert.match(workspace, /aria-label="事件工作区视图"/u);
-  assert.match(workspace, />结构</u);
-  assert.match(workspace, />编排</u);
-  assert.match(workspace, />观察</u);
-  assert.match(workspace, /故事脊柱/u);
-  assert.match(workspace, /事件线/u);
-  assert.match(workspace, />关系</u);
-  assert.match(workspace, />时间线</u);
-  assert.match(workspace, />视角</u);
+test("event workspace separates layout coordinate from observation lens while retaining local selection", () => {
+  assert.match(controls, /aria-label="事件观察组合"/u);
+  assert.match(controls, /布局坐标/u);
+  assert.match(controls, /主观察镜头/u);
+  assert.match(controls, /structure/u);
+  assert.match(controls, /narrative/u);
+  assert.match(controls, /world-time/u);
+  assert.match(controls, /relation-network/u);
+  assert.match(controls, /participation/u);
+  assert.match(controls, /character-perspective/u);
+  assert.match(controls, /relationship-evolution/u);
   assert.match(workspace, /selectedEventId=\{selectedEventId\}/u);
-  assert.match(workspace, /readProjectionMode\(props\.projectId\)/u);
-  assert.match(workspace, /writeProjectionMode\(props\.projectId, projectionMode\)/u);
+  assert.match(workspace, /readEventObservationState\(props\.projectId/u);
+  assert.match(workspace, /writeEventObservationState\(props\.projectId, observationState\)/u);
   assert.match(workspace, /eventView/u);
+  assert.match(workspace, /eventLayout/u);
+  assert.match(workspace, /eventLens/u);
 });
 
 test("timeline owns an independent projection while preserving formal Event ids", () => {
@@ -38,7 +42,7 @@ test("timeline owns an independent projection while preserving formal Event ids"
   assert.match(timeline, /temporal-conflict-summary/u);
   assert.doesNotMatch(timeline, /temporal-conflict-zone/u);
   assert.match(timeline, /props\.onReturnGraph/u);
-  assert.match(workspace, /next === "line" \|\| next === "graph" \|\| next === "timeline"/u);
+  assert.match(workspace, /next === "line" \|\| next === "graph" \|\| next === "timeline" \|\| next === "perspective"/u);
   assert.doesNotMatch(timeline, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
   assert.match(formalEventNode, /正式时间未确认 ·/u);
 });

@@ -1,4 +1,4 @@
-# R0.5 character directory design QA
++# R0.5 character directory design QA
 
 - Source visual truth: `/tmp/codex-clipboard-4c1afdc3-8d26-4107-8033-23f4c720b4a3.png`
 - Source pixels: 1560 × 1008; desktop reference.
@@ -177,5 +177,47 @@ final result: passed
 - The review UI is intentionally denser than the reference because it exposes the frozen identity, time and write-target gates; the new count summary keeps the primary action unambiguous.
 - The 1152 evidence now uses semantic collapse rather than shrinking six cards into the viewport; neither the source summary nor the current candidate path is clipped.
 - No P0, P1 or P2 visual defect remains in the four requested evidence states.
+
+final result: passed
+
+---
+
+# R11 Design QA
+
+## Visual sources and evidence
+
+- Direction source: `data/2026-09-02_天衍R11事件观察工作台/截图/R11_SOURCE_DIRECTION.png` (1487 × 1059).
+- Matched implementation state: `data/2026-09-02_天衍R11事件观察工作台/截图/R11_IMPLEMENTATION_1487_NARRATIVE_DETAIL.png` (1487 × 1059).
+- Combined comparison input: `data/2026-09-02_天衍R11事件观察工作台/R11_VISUAL_COMPARISON.html` and `截图/R11_VISUAL_COMPARISON_FULL.png`.
+- Accessibility reflow evidence: `截图/R11_IMPLEMENTATION_743_200_PERCENT_EQUIVALENT.png`, equivalent to a 1486 px desktop viewed at 200% CSS zoom.
+
+## Comparison history
+
+### Iteration 1
+
+- Method: opened source and implementation together in the Codex in-app Browser at the same 1487 × 1059 state, then inspected the observation controls, participant rows/matrix, and shared Event detail at original image dimensions.
+- P2 finding: the observation toolbar could retain a horizontal scroll position that hid the layout axis in the available workspace width.
+- Fix: participation mode now wraps complete axis groups; the legacy line/graph canvases keep a compact single-line toolbar so their established height is not reduced.
+- P2 finding from complete historical E2E: an over-broad 1440 px breakpoint forced a second toolbar row and reduced relationship-canvas height by about 25 px.
+- Fix: narrowed the breakpoint and removed the always-visible save explanatory string while keeping the safety statement in the button title and post-save status.
+
+### Iteration 2
+
+- Method: regenerated the matched implementation screenshot, replaced it in the same comparison page, reloaded that page in the in-app Browser, and inspected both full-frame and focused source/implementation regions together.
+- Result: all four layout coordinates, all four lens choices, semantic scale, source layer, save action, selected formal objects, four-state participation cells, horizontal matrix affordance, and shared Event detail are legible and reachable.
+- Responsive check: 1152 × 720 has no page-level horizontal overflow; the 743 × 529 200%-equivalent CSS viewport reflows the axes and object picker without hiding the workspace.
+- Accessibility check: semantic buttons/checkboxes have accessible names, pressed/current state is exposed, keyboard activation reaches world-time and Event detail, and unknown is textually distinguished from explicit absence.
+- Console/network check: no browser error/warning and no Provider request during layout, lens, focus, scale, save, detail, refresh, or reflow interactions.
+
+## Intentional differences from the direction source
+
+- The source is an information-architecture direction, not a pixel contract. R11 keeps the existing Tianyan shell, project navigation, right-dock owner, typography, colors, spacing, and icon library.
+- The production slice uses an inspectable matrix instead of drawing decorative continuous lines that could imply unsupported temporal or relational facts.
+- Unit overview strips, minimap, custom named views, and relationship evolution are not reproduced because they are not part of this bounded production slice; relationship evolution remains visibly unavailable until a versioned relation-state contract exists.
+- Large matrices are horizontally scrollable, keep a sticky participant column, cap visible Event columns at 240, and ask the author to narrow the unit scope rather than rendering an unbounded DOM.
+
+## Remaining human gate
+
+Automated design QA is complete. Founder experience acceptance must still be performed independently and is not implied by this result.
 
 final result: passed
