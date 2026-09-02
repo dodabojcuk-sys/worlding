@@ -66,7 +66,7 @@ test("event graph R2 keeps the canvas primary and translates implementation term
   assert.match(graph, /openInspector\("RELATION_REVIEW"\)/u);
   assert.doesNotMatch(graph, /setInspectorOpen|useState\(Boolean\(props\.selectedEventId\)\)/u);
   assert.doesNotMatch(styles, /tianyan-r0-shell:has\(.event-graph-workspace\)[\s\S]*--directory-current/u);
-  assert.match(styles, /event-line-workbench:is\(\[data-projection-mode="graph"\], \[data-projection-mode="timeline"\], \[data-projection-mode="perspective"\]\) \.event-line-spine-toolbar/u);
+  assert.match(styles, /event-line-workbench:is\(\[data-projection-mode="line"\], \[data-projection-mode="graph"\], \[data-projection-mode="timeline"\], \[data-projection-mode="perspective"\]\) \.event-line-spine-toolbar/u);
   assert.match(styles, /event-graph-workspace\.has-inspector .event-graph-main/u);
   assert.doesNotMatch(graph, /尚未写入正式 Relation/u);
   assert.doesNotMatch(graph, /Relation owner/u);

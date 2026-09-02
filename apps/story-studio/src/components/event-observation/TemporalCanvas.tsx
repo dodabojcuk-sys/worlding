@@ -30,7 +30,7 @@ export function TemporalCanvas(props: {
   const [flow, setFlow] = useState<ReactFlowInstance<Node<TemporalNodeData>, Edge> | null>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
   const detail = viewport.zoom < .72 ? "compact" : viewport.zoom > 1.18 ? "expanded" : "standard";
-  const projection = useMemo(() => buildTemporalCanvasProjection(props.events, props.relations, props.temporalRun, detail), [detail, props.events, props.relations, props.temporalRun]);
+  const projection = useMemo(() => buildTemporalCanvasProjection(props.events, props.relations, props.temporalRun, detail, props.selectedEventId), [detail, props.events, props.relations, props.selectedEventId, props.temporalRun]);
   const selectedNode = projection.nodes.find((node) => node.id === props.selectedEventId) ?? null;
   const focusCurrent = useCallback(() => {
     if (!flow || !props.selectedEventId) return;
@@ -87,7 +87,7 @@ function TemporalEventNode(props: NodeProps<Node<TemporalNodeData>>) {
   </article>;
 }
 
-function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], run: TemporalProjectionRun | null, detail: TemporalNodeData["detail"]): { nodes: Node<TemporalNodeData>[]; edges: Edge[]; unresolvedCount: number; conflictCount: number } {
+function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], run: TemporalProjectionRun | null, detail: TemporalNodeData["detail"], selectedEventId: string | null): { nodes: Node<TemporalNodeData>[]; edges: Edge[]; unresolvedCount: number; conflictCount: number } {
   const placementByEvent = new Map(run?.status === "ready" ? run.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) : []);
   const ordered = events.map((event, index) => ({ event, index, semantic: eventLineSemanticNode(event), placement: placementByEvent.get(event.id) ?? null }));
   const resolvedValues = ordered.filter((item) => temporalState(item.semantic.time.kind, item.placement) !== "unplaced" && temporalState(item.semantic.time.kind, item.placement) !== "conflict").map((item) => item.placement?.relativePosition ?? item.index);
@@ -108,7 +108,7 @@ function buildTemporalCanvasProjection(events: readonly EventLineEventSummary[],
     return { id: event.id, type: "temporalEvent", position, sourcePosition: Position.Right, targetPosition: Position.Left, data: { title: event.title, timeLabel, state, detail, sourceLabel: eventLineEventMetadata(event).unitLabel ?? "未归入单元" }, className: `temporal-event-node is-${state}` };
   });
   const ids = new Set(events.map((event) => event.id));
-  const edges = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && relation.reviewState === "confirmed" && isTemporalRelation(relation)).map((relation): Edge => ({ id: `temporal.${relation.relationId}`, source: relation.sourceObjectId, target: relation.targetObjectId, type: "smoothstep", label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, markerEnd: { type: MarkerType.ArrowClosed }, className: "temporal-constraint-edge" }));
+  const edges = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && relation.reviewState === "confirmed" && (isTemporalRelation(relation) || isSelectedCausalChain(relation, selectedEventId))).map((relation): Edge => ({ id: `temporal.${relation.relationId}`, source: relation.sourceObjectId, target: relation.targetObjectId, type: "smoothstep", label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, markerEnd: { type: MarkerType.ArrowClosed }, className: "temporal-constraint-edge" }));
   return { nodes, edges, unresolvedCount: unresolvedIndex, conflictCount: conflictIndex };
 }
 
@@ -134,6 +134,10 @@ function trackIndex(kind: ReturnType<typeof eventLineSemanticNode>["storyLine"][
 
 function isTemporalRelation(relation: RelationReadProjectionR0): boolean {
   return /(?:time|temporal|before|after|时间|早于|晚于|先于|后于)/iu.test(`${relation.relationTypeId} ${relation.currentTypeLabel ?? ""} ${relation.relationLabelSnapshot}`);
+}
+
+function isSelectedCausalChain(relation: RelationReadProjectionR0, selectedEventId: string | null): boolean {
+  return Boolean(selectedEventId && (relation.sourceObjectId === selectedEventId || relation.targetObjectId === selectedEventId) && /(?:cause|causal|因果|导致|促使)/iu.test(`${relation.relationTypeId} ${relation.currentTypeLabel ?? ""} ${relation.relationLabelSnapshot}`));
 }
 
 function TemporalCoordinateOverlay(props: { nodes: readonly Node<TemporalNodeData>[]; viewport: { x: number; y: number; zoom: number }; detail: TemporalNodeData["detail"]; selected: Node<TemporalNodeData> | null; selectedScreenPosition: { x: number; y: number } | null; unresolvedCount: number; conflictCount: number }) {

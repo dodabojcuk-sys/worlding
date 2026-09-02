@@ -388,17 +388,18 @@
   padding: 0;
 }
 
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-toolbar { flex: 0 0 auto; margin: 0; padding: .55rem .75rem; background: var(--color-surface); }
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-toolbar { flex: 0 0 auto; margin: 0; padding: .55rem .75rem; background: var(--color-surface); }
 
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-shell,
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-main,
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"]) .event-graph-workspace {
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-shell,
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-main,
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"]) .event-graph-workspace,
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="timeline"] .temporal-workspace {
   flex: 1 1 auto;
   min-block-size: 0;
   block-size: calc(100vh - var(--topbar-height));
 }
 
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-main {
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"], [data-projection-mode="timeline"], [data-projection-mode="perspective"]) .event-line-spine-main {
   display: flex;
   flex-direction: column;
   inline-size: 100%;
@@ -457,7 +458,8 @@
   .shell-workspace-event-line .event-line-view-navigation { flex-wrap: nowrap; overflow-x: auto; }
 }
 
-.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="graph"], [data-projection-mode="timeline"]) .event-line-spine-main > .event-graph-workspace {
+.shell-workspace-event-line .event-line-workbench:is([data-projection-mode="line"], [data-projection-mode="graph"]) .event-line-spine-main > .event-graph-workspace,
+.shell-workspace-event-line .event-line-workbench[data-projection-mode="timeline"] .event-line-spine-main > .temporal-workspace {
   align-self: stretch;
   block-size: auto !important;
   flex: 1 1 0;

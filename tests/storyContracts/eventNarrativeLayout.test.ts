@@ -42,3 +42,13 @@ test("formal workspace exposes grouped navigation and keeps narrative layout out
   assert.match(graph, /canvasKind === "narrative"/u);
   assert.doesNotMatch(graph, /gridPosition\(total > 24/u);
 });
+
+test("density fixture represents branches, merges, groups and blocked candidates instead of a card wall", async () => {
+  const graph = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", import.meta.url), "utf8");
+  assert.match(graph, /Array\.from\(\{ length: 50 \}/u);
+  assert.match(graph, /\[\[3, 21, 30, 8\], \[7, 31, 40, 14\], \[12, 41, 50, 19\]\]/u);
+  assert.match(graph, /\[\[4, 5\], \[12, 13, 14\], \[24, 25\], \[35, 36, 37\]\]/u);
+  assert.match(graph, /makeRelation\(18, 28, true\)/u);
+  assert.match(graph, /时间冲突：需要作者处理/u);
+  assert.match(graph, /canvasKind === "narrative" \? 0\.68/u);
+});

@@ -43,6 +43,7 @@ type NodeData = {
   collectionPoint?: boolean; unitId?: string; eventCount?: number; expanded?: boolean; onToggle?: () => void;
   trackLabel?: string;
   eventRole?: "ordinary" | "turning";
+  portMode?: "narrative" | "relation"; branching?: boolean;
 };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type PredictionViewDetail = { runId: string; view: "task" | "running" | "overview" | "focus" | "review" | "receipt"; pathId: string | null };
@@ -533,7 +534,7 @@ export function EventGraphCanvas(props: {
           }}
           onInit={setFlow}
           fitView={mode !== "temporal"}
-          minZoom={mode === "temporal" ? 0.58 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25}
+          minZoom={mode === "temporal" ? 0.58 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : canvasKind === "narrative" ? 0.68 : 0.25}
           maxZoom={1.8}
           onMove={(_, viewport) => {
             setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
@@ -826,7 +827,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? narrativeLayout?.positions[event.id] ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary" } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? narrativeLayout?.positions[event.id] ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
   });
   const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
     const rows = Math.ceil(point.eventIds.length / 2);

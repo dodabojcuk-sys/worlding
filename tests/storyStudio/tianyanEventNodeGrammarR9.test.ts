@@ -12,6 +12,8 @@ const styles = readFileSync("apps/story-studio/src/styles/event-line-projection.
 test("Event families differ by structure and semantics rather than color alone", () => {
   assert.match(formal, /turning-event/u);
   assert.match(formal, /关键转折/u);
+  assert.match(formal, /portMode === "narrative"/u);
+  assert.match(formal, /branching \? <GraphPort/u);
   assert.match(candidate, /candidate-existing-reference/u);
   assert.match(candidate, /candidate-conflict/u);
   assert.match(candidate, /已有事件引用/u);

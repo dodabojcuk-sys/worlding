@@ -13,6 +13,8 @@ export type FormalEventNodeData = {
   temporalConfidence?: string;
   semanticZoom?: "far" | "medium" | "near";
   eventRole?: "ordinary" | "turning";
+  portMode?: "narrative" | "relation";
+  branching?: boolean;
 };
 
 export function FormalEventNode(props: NodeProps<Node<FormalEventNodeData>>) {
@@ -21,7 +23,7 @@ export function FormalEventNode(props: NodeProps<Node<FormalEventNodeData>>) {
   const zoom = props.data.semanticZoom ?? "medium";
   const temporalLabel = props.data.temporalKind === "anchored" ? "明确时间锚点" : props.data.temporalKind === "conflict" ? "时间冲突" : props.data.temporalKind === "unplaced" ? "暂无法定位" : props.data.temporalKind === "ambiguous" ? "AI 模糊区间" : "AI 推断位置";
   return <NodeShell family={family} status={props.data.status} selected={props.data.selected || props.data.focused} ariaLabel={`${props.data.title}，${label}，${props.data.time}${props.data.temporal ? `，${temporalLabel}` : ""}`}>
-    {props.data.remote ? <><GraphPort type="target" position={Position.Left} connectable={false} label="远端投影输入" /><GraphPort type="source" position={Position.Right} connectable={false} label="远端投影输出" /></> : <><GraphPort type="target" position={Position.Left} label="事件输入" /><GraphPort type="target" position={Position.Top} label="上方输入" /><GraphPort type="source" position={Position.Right} label="事件输出" /><GraphPort type="source" position={Position.Bottom} label="下方输出" /></>}
+    {props.data.remote ? <><GraphPort type="target" position={Position.Left} connectable={false} label="远端投影输入" /><GraphPort type="source" position={Position.Right} connectable={false} label="远端投影输出" /></> : props.data.portMode === "narrative" ? <><GraphPort type="target" position={Position.Left} label="叙事前序输入" /><GraphPort type="source" position={Position.Right} label="叙事后续输出" />{props.data.branching ? <GraphPort type="source" position={Position.Bottom} label="分支输出" /> : null}</> : <><GraphPort type="target" position={Position.Left} label="关系输入" /><GraphPort type="target" position={Position.Top} label="上方关系输入" /><GraphPort type="source" position={Position.Right} label="关系输出" /><GraphPort type="source" position={Position.Bottom} label="下方关系输出" /></>}
     <span className="graph-node-state-strip">{props.data.eventRole === "turning" ? <Diamond aria-hidden="true" /> : null}{props.data.eventRole === "turning" ? "关键转折 · " : ""}{label}</span>
     <strong>{props.data.title}</strong>
     {zoom !== "far" ? <span className="graph-node-time-state"><Clock3 aria-hidden="true" />{props.data.temporal && props.data.temporalKind !== "anchored" ? "正式时间未确认 · " + temporalLabel : props.data.time}</span> : null}
