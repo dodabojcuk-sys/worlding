@@ -33,11 +33,13 @@ const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_D
 const temporalProjectionRecordingDirectory = process.env.TIANYAN_TEMPORAL_RECORDING_DIR || null;
 const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
 const r6CloseoutDirectory = process.env.TIANYAN_R6_CLOSEOUT_DIR || null;
+const r7CloseoutDirectory = process.env.TIANYAN_R7_CLOSEOUT_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
 const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
+const r7RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r7-interaction-recording";
 let timelineFixture = null;
 let server;
 let apiServer;
@@ -88,7 +90,12 @@ try {
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (r6RecordingOnly) {
+  if (r7RecordingOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await setupTimelineFixture();
+    await recordR7Interaction();
+  } else if (r6RecordingOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await setupTimelineFixture();
@@ -848,7 +855,7 @@ async function setupTimelineFixture() {
   ];
   const created = [];
   for (const [title, time] of timed) {
-    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title, status: "draft", tags: ["作者草稿", "单元：雾港", `时间：${time}`, "地点：雾港"], body: `${title}仅用于隔离时间关系图验收。` });
+    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title, status: "draft", tags: ["作者草稿", "单元：雾港", `时间：${time}`, "地点：雾港", "人物：林昭", "物品：航海日志"], body: `${title}仅用于隔离时间关系图与视角交集验收。` });
     created.push(result.data);
   }
   const unknown = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: "待定访客", status: "draft", tags: ["作者草稿", "单元：雾港", "地点：雾港"], body: "该事件的世界时间尚未由作者补充。" })).data;
@@ -1857,6 +1864,118 @@ async function recordTemporalProjectionOperation() {
   const recordingPath = video ? await video.path() : null;
   if (!recordingPath) throw new Error("Semantic timeline recording was not written.");
   writeFileSync(path.join(temporalProjectionRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
+}
+
+async function recordR7Interaction() {
+  if (!r7CloseoutDirectory) throw new Error("TIANYAN_R7_CLOSEOUT_DIR is required for R7 recording.");
+  mkdirSync(r7CloseoutDirectory, { recursive: true });
+  const record = async (viewport, name, operation) => {
+    const context = await browser.newContext({ viewport, recordVideo: { dir: r7CloseoutDirectory, size: viewport } });
+    const page = await context.newPage();
+    const video = page.video();
+    const consoleProblems = [];
+    page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
+    page.on("pageerror", (error) => consoleProblems.push(error.message));
+    await operation(page);
+    assert.deepEqual(consoleProblems, [], `${name} recording may not contain browser warnings or errors.`);
+    await context.close();
+    const source = video ? await video.path() : null;
+    if (!source) throw new Error(`${name} recording was not written.`);
+    copyFileSync(source, path.join(r7CloseoutDirectory, `${name}.webm`));
+  };
+  const pause = (page, duration = 850) => page.waitForTimeout(duration);
+
+  await record({ width: 1440, height: 900 }, "TIANYAN_R7_1440x900_FULL_FLOW", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+    await switchEventView(page, "故事脊柱");
+    await page.getByLabel("故事脊柱主控结构").waitFor();
+    await pause(page);
+    await switchEventView(page, "关系图");
+    await page.getByLabel("事件关系工作区").waitFor();
+    const formalNodes = page.locator(".event-graph-node:not(.is-remote):not(.event-graph-prediction-node)");
+    const firstFormal = formalNodes.filter({ hasText: "暗号传递" });
+    const secondFormal = formalNodes.filter({ hasText: "仓库对峙" });
+    await firstFormal.click({ force: true });
+    await secondFormal.click({ force: true, modifiers: ["Shift"] });
+    await page.getByTestId("event-graph-selection-bar").waitFor();
+    await pause(page);
+    await secondFormal.click({ force: true, button: "right" });
+    const menu = page.getByRole("menu", { name: /事件菜单/u });
+    await menu.waitFor();
+    assert.equal(await menu.getByRole("menuitem", { name: "正式事件不可删除", exact: true }).isDisabled(), true, "Formal Event hard-delete stays blocked.");
+    await pause(page);
+    await menu.getByRole("menuitem", { name: "剧情逻辑检测", exact: true }).click();
+    const logic = page.getByRole("dialog", { name: "本地完整性与 AI 语义检查" });
+    await logic.waitFor();
+    await pause(page);
+    const runsBeforeCancel = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+    await logic.getByRole("button", { name: "配置 AI 语义检查", exact: true }).click();
+    const confirmation = page.getByTestId("story-modeling-confirmation");
+    await confirmation.waitFor();
+    await pause(page);
+    await confirmation.getByRole("button", { name: "取消", exact: true }).click();
+    const runsAfterCancel = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
+    assert.equal(runsAfterCancel.data.length, runsBeforeCancel.data.length, "Cancelling R7 semantic analysis creates no Run and no Provider request.");
+    await openStoryModelingTools(page);
+    await page.getByRole("button", { name: /本地逻辑检测/u }).click();
+    const secondLogic = page.getByRole("dialog", { name: "本地完整性与 AI 语义检查" });
+    await secondLogic.getByRole("button", { name: "配置 AI 语义检查", exact: true }).click();
+    await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
+    await page.getByText("本次建模已完成", { exact: true }).waitFor();
+    await page.getByRole("button", { name: /本地逻辑检测/u }).click();
+    await page.waitForFunction(() => document.querySelectorAll(".story-logic-findings article").length > 0);
+    await pause(page, 1_100);
+    await page.getByRole("button", { name: "关闭逻辑检测", exact: true }).click();
+    await switchEventView(page, "时间轴");
+    await page.getByLabel("时间标尺").waitFor();
+    await pause(page);
+    await switchEventView(page, "视角");
+    const perspective = page.getByLabel("事件视角轴");
+    await perspective.waitFor();
+    const choices = perspective.locator('.event-perspective-picker input[type="checkbox"]');
+    assert.ok(await choices.count() >= 2, "The isolated story exposes at least two perspective objects.");
+    await choices.nth(0).click();
+    await choices.nth(1).click();
+    await page.waitForFunction(() => /故事交集/u.test(document.querySelector(".event-perspective-canvas h2")?.textContent ?? ""));
+    await pause(page, 1_200);
+    await switchEventView(page, "关系图");
+    await page.locator(".event-graph-node:not(.is-remote)").filter({ hasText: "暗号传递" }).click({ force: true, button: "right" });
+    await page.getByRole("menu", { name: /事件菜单/u }).waitFor();
+    await pause(page, 1_100);
+  });
+
+  await record({ width: 1152, height: 720 }, "TIANYAN_R7_1152x720_RESPONSIVE", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+    await closeGlobalTianyiIfOpen(page);
+    const closeDirectory = page.getByRole("button", { name: "关闭工程目录", exact: true });
+    if (await closeDirectory.count()) await closeDirectory.click();
+    const openDirectory = page.getByRole("button", { name: "打开工程目录", exact: true });
+    await openDirectory.click();
+    await pause(page);
+    await closeDirectory.click();
+    await switchEventView(page, "关系图");
+    await page.getByLabel("事件关系工作区").waitFor();
+    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
+    await pause(page);
+    await closeGlobalTianyiIfOpen(page);
+    const nodes = page.locator(".event-graph-node:not(.is-remote)");
+    const first = nodes.filter({ hasText: "暗号传递" });
+    const second = nodes.filter({ hasText: "仓库对峙" });
+    await first.click({ force: true });
+    await second.click({ force: true, modifiers: ["Shift"] });
+    await page.getByTestId("event-graph-selection-bar").waitFor();
+    await second.click({ force: true, button: "right" });
+    await page.getByRole("menu", { name: /事件菜单/u }).waitFor();
+    await pause(page);
+    await page.keyboard.press("Escape");
+    await openStoryModelingTools(page);
+    assert.equal(await page.getByRole("button", { name: /AI 工具/u }).first().getAttribute("aria-expanded"), "true", "The 1152 AI tools entry keeps its visible author-facing label.");
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "The 1152 R7 workspace has no page-level horizontal overflow.");
+    await pause(page, 1_100);
+  });
 }
 
 async function recordR6Closeout() {
