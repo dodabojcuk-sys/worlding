@@ -6,8 +6,9 @@ import { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
 
 export { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
 
-export const PROVIDER_PROFILE_SCHEMA_VERSION = 1;
+export const PROVIDER_PROFILE_SCHEMA_VERSION = 2;
 export const DEFAULT_PROVIDER_PROFILE_ID = "siliconflow.default";
+export const RADEON_CLOUD_PROVIDER_PROFILE_ID = "radeon-cloud.default";
 export const MAX_PROVIDER_MODELS = 500;
 export const MAX_PROVIDER_HISTORY = 20;
 
@@ -28,6 +29,20 @@ export function defaultProviderProfileState(now = new Date()) {
       lastVerifiedAt: null,
       lastError: null,
       availableModels: [],
+      lastModelDiscoveryAt: null,
+      updatedAt: now.toISOString()
+    }, {
+      id: RADEON_CLOUD_PROVIDER_PROFILE_ID,
+      provider: "radeon-cloud",
+      displayName: "AMD Radeon Cloud",
+      baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
+      modelId: "DeepSeek-V4-Flash-Vision-Exp",
+      enabled: true,
+      credentialRef: RADEON_CLOUD_PROVIDER_PROFILE_ID,
+      connectionStatus: "unknown",
+      lastVerifiedAt: null,
+      lastError: null,
+      availableModels: ["DeepSeek-V4-Flash-Vision-Exp"],
       lastModelDiscoveryAt: null,
       updatedAt: now.toISOString()
     }],
@@ -68,20 +83,23 @@ export function createPersistentProviderProfileStore(options = {}) {
     const current = read();
     assertExpectedRevision(input.expectedRevision, current.revision);
     const existing = current.profiles.find((profile) => profile.id === current.activeProfileId) || current.profiles[0];
+    const requestedProvider = input.provider ?? existing.provider;
+    const target = current.profiles.find((profile) => profile.provider === requestedProvider);
+    if (!target) throw profileStoreError("provider-profile-unsupported-provider");
     const nextProfile = normalizeProviderProfileEntry({
-      ...existing,
-      id: existing.id,
-      provider: "siliconflow",
-      displayName: input.displayName ?? existing.displayName,
-      baseUrl: input.baseUrl ?? existing.baseUrl,
-      modelId: input.modelId ?? existing.modelId,
-      enabled: input.enabled ?? existing.enabled,
-      credentialRef: existing.credentialRef,
-      connectionStatus: input.connectionStatus ?? existing.connectionStatus,
-      lastVerifiedAt: input.lastVerifiedAt === undefined ? existing.lastVerifiedAt : input.lastVerifiedAt,
-      lastError: input.lastError === undefined ? existing.lastError : input.lastError,
-      availableModels: input.availableModels === undefined ? existing.availableModels : input.availableModels,
-      lastModelDiscoveryAt: input.lastModelDiscoveryAt === undefined ? existing.lastModelDiscoveryAt : input.lastModelDiscoveryAt,
+      ...target,
+      id: target.id,
+      provider: target.provider,
+      displayName: input.displayName ?? target.displayName,
+      baseUrl: input.baseUrl ?? target.baseUrl,
+      modelId: input.modelId ?? target.modelId,
+      enabled: input.enabled ?? target.enabled,
+      credentialRef: target.credentialRef,
+      connectionStatus: input.connectionStatus ?? target.connectionStatus,
+      lastVerifiedAt: input.lastVerifiedAt === undefined ? target.lastVerifiedAt : input.lastVerifiedAt,
+      lastError: input.lastError === undefined ? target.lastError : input.lastError,
+      availableModels: input.availableModels === undefined ? target.availableModels : input.availableModels,
+      lastModelDiscoveryAt: input.lastModelDiscoveryAt === undefined ? target.lastModelDiscoveryAt : input.lastModelDiscoveryAt,
       updatedAt: now().toISOString()
     });
     assertProviderModelIdentity(nextProfile.displayName, nextProfile.modelId);
@@ -91,8 +109,8 @@ export function createPersistentProviderProfileStore(options = {}) {
     const next = normalizeProviderProfile({
       schemaVersion: PROVIDER_PROFILE_SCHEMA_VERSION,
       revision: current.revision + 1,
-      activeProfileId: existing.id,
-      profiles: [nextProfile],
+      activeProfileId: target.id,
+      profiles: current.profiles.map((profile) => profile.id === target.id ? nextProfile : profile),
       history
     });
     atomicWrite(next);
@@ -184,6 +202,7 @@ export function createPersistentProviderProfileStore(options = {}) {
 
 export function normalizeProviderProfile(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw profileStoreError("provider-profile-schema");
+  if (value.schemaVersion === 1) return normalizeLegacyProviderProfile(value);
   if (value.schemaVersion !== PROVIDER_PROFILE_SCHEMA_VERSION) throw profileStoreError("provider-profile-schema");
   if (!Number.isInteger(value.revision) || value.revision < 0) throw profileStoreError("provider-profile-schema");
   if (!Array.isArray(value.profiles) || value.profiles.length < 1 || value.profiles.length > 8) throw profileStoreError("provider-profile-schema");
@@ -211,7 +230,7 @@ function normalizeProviderProfileEntry(value) {
   const modelId = boundedText(value.modelId, 240);
   const credentialRef = boundedText(value.credentialRef, 120);
   const connectionStatus = ["unknown", "verified", "failed", "disabled"].includes(value.connectionStatus) ? value.connectionStatus : "unknown";
-  if (!id || provider !== "siliconflow" || !displayName || !baseUrl || !credentialRef) throw profileStoreError("provider-profile-schema");
+  if (!id || !["siliconflow", "radeon-cloud"].includes(provider) || !displayName || !baseUrl || !credentialRef) throw profileStoreError("provider-profile-schema");
   let parsedUrl;
   try { parsedUrl = new URL(baseUrl); } catch { throw profileStoreError("provider-profile-schema"); }
   if (!/^https?:$/u.test(parsedUrl.protocol) || /[\r\n\0]/u.test(baseUrl)) throw profileStoreError("provider-profile-schema");
@@ -235,6 +254,21 @@ function normalizeProviderProfileEntry(value) {
     lastModelDiscoveryAt: value.lastModelDiscoveryAt || null,
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : ""
   };
+}
+
+function normalizeLegacyProviderProfile(value) {
+  if (!Number.isInteger(value.revision) || value.revision < 0 || !Array.isArray(value.profiles) || value.profiles.length !== 1) {
+    throw profileStoreError("provider-profile-schema");
+  }
+  const legacy = normalizeProviderProfileEntry(value.profiles[0]);
+  if (legacy.provider !== "siliconflow") throw profileStoreError("provider-profile-schema");
+  return normalizeProviderProfile({
+    schemaVersion: PROVIDER_PROFILE_SCHEMA_VERSION,
+    revision: value.revision,
+    activeProfileId: typeof value.activeProfileId === "string" && value.activeProfileId === legacy.id ? legacy.id : DEFAULT_PROVIDER_PROFILE_ID,
+    profiles: [legacy, defaultProviderProfileState(new Date(legacy.updatedAt || 0)).profiles.find((profile) => profile.id === RADEON_CLOUD_PROVIDER_PROFILE_ID)],
+    history: Array.isArray(value.history) ? value.history : []
+  });
 }
 
 function normalizeAvailableModels(value) {
@@ -298,6 +332,7 @@ function profileStoreError(code, cause) {
     "provider-profile-schema": "本机 Provider 配置格式不受支持，未覆盖原文件。",
     "provider-profile-permission": "本机 Provider 配置目录不可写，配置未保存。",
     "provider-profile-write-failed": "本机 Provider 配置保存失败，原配置保持不变。",
+    "provider-profile-unsupported-provider": "当前 Provider 不受支持。",
     "provider-profile-revision-conflict": "Provider 配置已在别处更新，请重新载入后再保存。",
     "provider-profile-model-id-display-name": "默认模型必须使用模型 ID，不能使用 Provider 显示名称。"
   };

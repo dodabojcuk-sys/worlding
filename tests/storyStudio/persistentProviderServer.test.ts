@@ -178,6 +178,60 @@ test("Provider Settings persists non-sensitive profile across restart and protec
   }
 });
 
+test("Provider Settings can select AMD Radeon Cloud with an isolated credential and a verified local OpenAI-compatible response", async () => {
+  const storyRoot = mkdtempSync(path.join(tmpdir(), "tianyan-radeon-server-story-"));
+  const providerRoot = mkdtempSync(path.join(tmpdir(), "tianyan-radeon-server-config-"));
+  const port = 49_000 + (process.pid % 800);
+  const base = `http://127.0.0.1:${port}`;
+  const fakeProvider = await startFakeRadeonCloud();
+  const env = {
+    ...process.env,
+    NODE_ENV: "test",
+    PORT: String(port),
+    WORLD_OS_STORY_STUDIO_ROOT: storyRoot,
+    WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(storyRoot, "state.json"),
+    TIANYAN_PROVIDER_APP_DATA_ROOT: providerRoot,
+    TIANYAN_CREDENTIAL_BACKEND: "LOCAL_FILE_DEVELOPMENT_ONLY"
+  };
+  const logs: string[] = [];
+  const child = spawnServer(env, logs);
+  try {
+    await waitForServer(base);
+    const session = await fetch(`${base}/__local/story-studio/storage/session`, { headers: { origin: base } });
+    const headers = { cookie: session.headers.get("set-cookie") || "", origin: base, "content-type": "application/json" };
+    const configured = await jsonPost(base, "model-service/profile/save", {
+      expectedRevision: 0,
+      provider: "radeon-cloud",
+      displayName: "AMD Radeon Cloud",
+      baseUrl: fakeProvider.baseUrl,
+      modelId: "DeepSeek-V4-Flash-Vision-Exp",
+      enabled: true,
+      apiKey: "fixture-amd-secret"
+    }, headers);
+    assert.equal(configured.status, 200);
+    assert.equal(configured.data.profile.provider, "radeon-cloud");
+    assert.equal(configured.data.credential.configured, true);
+    assert.equal(JSON.stringify(configured).includes("fixture-amd-secret"), false);
+    assert.equal(readFileSync(path.join(providerRoot, "credentials", "radeon-cloud.default.credential"), "utf8").trim(), "fixture-amd-secret");
+    assert.equal(logs.join("").includes("fixture-amd-secret"), false);
+
+    const models = await jsonPost(base, "model-service/models", {}, headers);
+    assert.equal(models.status, 200);
+    assert.equal(models.data.providerId, "radeon-cloud");
+    assert.deepEqual(models.data.models, ["DeepSeek-V4-Flash-Vision-Exp"]);
+
+    const inference = await jsonPost(base, "model-service/minimal-inference", {}, headers);
+    assert.equal(inference.status, 200);
+    assert.equal(inference.data.modelId, "DeepSeek-V4-Flash-Vision-Exp");
+    assert.equal(inference.data.content, "AMD OK");
+    assert.equal(fakeProvider.calls.completions, 1);
+    assert.equal(fakeProvider.authorization, "Bearer fixture-amd-secret");
+  } finally {
+    await terminateChildProcess(child, { label: "AMD Radeon Cloud Provider server test", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
+    await closeServer(fakeProvider.server);
+  }
+});
+
 async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string; calls: { models: number; completions: number } }> {
   const calls = { models: 0, completions: 0 };
   const server = createServer((request, response) => {
@@ -205,6 +259,36 @@ async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Fake SiliconFlow server did not expose a port.");
   return { server, baseUrl: `http://127.0.0.1:${address.port}/v1`, calls };
+}
+
+async function startFakeRadeonCloud(): Promise<{ server: Server; baseUrl: string; calls: { completions: number }; authorization: string | null }> {
+  const calls = { completions: 0 };
+  let authorization: string | null = null;
+  const server = createServer((request, response) => {
+    if (request.url === "/api/v1/chat/completions" && request.method === "POST") {
+      calls.completions += 1;
+      authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : null;
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const model = JSON.parse(body).model;
+        response.writeHead(200, { "content-type": "application/json", "x-request-id": "amd-server-fixture" });
+        response.end(JSON.stringify({ model, choices: [{ message: { content: "AMD OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 } }));
+      });
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => resolve()); });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Fake Radeon Cloud server did not expose a port.");
+  return {
+    server,
+    baseUrl: `http://127.0.0.1:${address.port}/api/v1`,
+    calls,
+    get authorization() { return authorization; }
+  };
 }
 
 async function closeServer(server: Server): Promise<void> {

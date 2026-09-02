@@ -20,17 +20,43 @@ export const SILICONFLOW_MODEL_METADATA = Object.freeze([
 const MAX_SSE_EVENT_BYTES = 256 * 1024;
 
 export function createSiliconFlowAdapter(options = {}) {
+  return createOpenAiCompatibleAdapter({
+    ...options,
+    id: SILICONFLOW_PROVIDER_ID,
+    label: "SiliconFlow",
+    modelMetadata: SILICONFLOW_MODEL_METADATA,
+    defaultBaseUrl: "https://api.siliconflow.cn/v1",
+    apiKeyEnvironmentName: "SILICONFLOW_API_KEY",
+    modelDiscovery: { pathname: "models", search: { type: "text", sub_type: "chat" } },
+    traceHeader: "x-siliconcloud-trace-id",
+    enableThinking: true
+  });
+}
+
+/**
+ * Small server-only adapter for providers that implement the OpenAI Chat
+ * Completions and SSE shape. Product routing, credential ownership and
+ * author permissions continue to live outside this transport adapter.
+ */
+export function createOpenAiCompatibleAdapter(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const environment = options.environment || process.env;
-  const apiKeyProvider = typeof options.apiKeyProvider === "function" ? options.apiKeyProvider : () => readApiKey(environment);
-  const baseUrlProvider = typeof options.baseUrlProvider === "function" ? options.baseUrlProvider : () => "https://api.siliconflow.cn/v1";
+  const providerId = requiredProviderId(options.id);
+  const label = typeof options.label === "string" && options.label.trim() ? options.label.trim() : providerId;
+  const modelMetadata = Array.isArray(options.modelMetadata) && options.modelMetadata.length ? options.modelMetadata : [];
+  const apiKeyEnvironmentName = typeof options.apiKeyEnvironmentName === "string" ? options.apiKeyEnvironmentName : "SILICONFLOW_API_KEY";
+  const apiKeyProvider = typeof options.apiKeyProvider === "function" ? options.apiKeyProvider : () => readApiKey(environment, apiKeyEnvironmentName);
+  const baseUrlProvider = typeof options.baseUrlProvider === "function" ? options.baseUrlProvider : () => options.defaultBaseUrl || "https://api.siliconflow.cn/v1";
+  const modelDiscovery = options.modelDiscovery || null;
+  const traceHeader = typeof options.traceHeader === "string" && options.traceHeader ? options.traceHeader : "x-request-id";
+  const enableThinking = options.enableThinking === true;
   const telemetry = { callCount: 0, lastLatencyMs: null, lastUsage: null, lastTraceId: null };
-  let discoveredModels = SILICONFLOW_MODEL_METADATA;
+  let discoveredModels = Object.freeze(modelMetadata.map((model) => Object.freeze({ ...model, capabilities: Object.freeze([...(model.capabilities || [])]) })));
   if (typeof fetchImpl !== "function") throw new TypeError("SiliconFlow adapter requires fetch.");
 
   return Object.freeze({
-    id: SILICONFLOW_PROVIDER_ID,
-    label: "SiliconFlow",
+    id: providerId,
+    label,
     get models() { return discoveredModels; },
     status() {
       return Object.freeze({ configured: readCredential(apiKeyProvider).length > 0, ...telemetry });
@@ -38,8 +64,13 @@ export function createSiliconFlowAdapter(options = {}) {
     async discoverModels(input = {}) {
       const apiKey = readCredential(apiKeyProvider);
       if (!apiKey) throw providerGatewayError("unconfigured");
+      if (!modelDiscovery) {
+        const ids = discoveredModels.map((model) => model.id);
+        if (!ids.length) throw providerGatewayError("invalid-response");
+        return Object.freeze({ providerId, modelIds: Object.freeze(ids) });
+      }
       const startedAt = Date.now();
-      const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, "models", { type: "text", sub_type: "chat" }), {
+      const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, modelDiscovery.pathname, modelDiscovery.search), {
         method: "GET",
         redirect: "error",
         headers: { accept: "application/json", authorization: `Bearer ${apiKey}` }
@@ -60,7 +91,7 @@ export function createSiliconFlowAdapter(options = {}) {
         capabilities: Object.freeze(["chat", "streaming"])
       })));
       telemetry.lastLatencyMs = Date.now() - startedAt;
-      return Object.freeze({ providerId: SILICONFLOW_PROVIDER_ID, modelIds: Object.freeze(ids) });
+      return Object.freeze({ providerId, modelIds: Object.freeze(ids) });
     },
     async openChatCompletion(input) {
       const apiKey = readCredential(apiKeyProvider);
@@ -83,7 +114,7 @@ export function createSiliconFlowAdapter(options = {}) {
           stream: false,
           max_tokens: input.maxOutputTokens,
           temperature: input.temperature,
-          enable_thinking: input.enableThinking === true,
+          ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
           ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
         })
       }, input);
@@ -99,7 +130,7 @@ export function createSiliconFlowAdapter(options = {}) {
       const usage = normalizeUsage(payload?.usage);
       if (!content && !finishReason) throw providerGatewayError("invalid-response");
       telemetry.lastUsage = usage;
-      telemetry.lastTraceId = boundedTraceId(response.headers?.get?.("x-siliconcloud-trace-id"));
+      telemetry.lastTraceId = boundedTraceId(response.headers?.get?.(traceHeader));
       telemetry.lastLatencyMs = Date.now() - startedAt;
       return Object.freeze({
         modelId: typeof payload?.model === "string" ? payload.model : input.modelId,
@@ -143,7 +174,7 @@ export function createSiliconFlowAdapter(options = {}) {
             stream: true,
             max_tokens: input.maxOutputTokens,
             temperature: input.temperature,
-            enable_thinking: input.enableThinking === true,
+            ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
             ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
             ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
           }),
@@ -168,7 +199,7 @@ export function createSiliconFlowAdapter(options = {}) {
         throw providerGatewayError("invalid-response");
       }
 
-      const traceId = boundedTraceId(response.headers?.get?.("x-siliconcloud-trace-id"));
+      const traceId = boundedTraceId(response.headers?.get?.(traceHeader));
       telemetry.lastTraceId = traceId;
 
       return Object.freeze({
@@ -428,8 +459,14 @@ async function discardResponseBody(response) {
   }
 }
 
-function readApiKey(environment) {
-  return typeof environment?.SILICONFLOW_API_KEY === "string" ? environment.SILICONFLOW_API_KEY.trim() : "";
+function requiredProviderId(value) {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/u.test(id)) throw new TypeError("OpenAI-compatible adapter requires a stable provider id.");
+  return id;
+}
+
+function readApiKey(environment, keyName) {
+  return typeof environment?.[keyName] === "string" ? environment[keyName].trim() : "";
 }
 
 function readCredential(provider) {

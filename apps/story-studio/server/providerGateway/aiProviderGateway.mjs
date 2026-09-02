@@ -35,6 +35,17 @@ export const DEFAULT_MODEL_PROFILES = Object.freeze([
     temperature: 0.35,
     timeoutMs: 45_000,
     enableThinking: false
+  }),
+  Object.freeze({
+    id: "radeon-cloud-deepseek-v4-flash-vision-exp",
+    label: "DeepSeek V4 Flash Vision Exp · AMD Radeon Cloud",
+    purpose: "structured-story",
+    providerId: "radeon-cloud",
+    modelId: "DeepSeek-V4-Flash-Vision-Exp",
+    maxOutputTokens: 2_400,
+    temperature: 0.35,
+    timeoutMs: 45_000,
+    enableThinking: false
   })
 ]);
 
@@ -168,14 +179,15 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       // response bounds and a hard timeout before this boundary.
       return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
     },
-    selectDiscoveredModel(modelIds) {
+    selectDiscoveredModel(modelIds, options = {}) {
       const modelId = selectStructuredChatModel(modelIds);
-      const matchingProfile = frozenProfiles.find((profile) => profile.modelId === modelId);
+      const providerId = typeof options.providerId === "string" && adapterMap.has(options.providerId) ? options.providerId : "siliconflow";
+      const matchingProfile = frozenProfiles.find((profile) => profile.providerId === providerId && profile.modelId === modelId);
       activeProfiles = [matchingProfile || validateProfile({
-        id: "siliconflow-session-structured",
+        id: `${providerId}-session-structured`,
         label: `${modelId} · 当前账户`,
         purpose: "structured-story",
-        providerId: "siliconflow",
+        providerId,
         modelId,
         maxOutputTokens: 2_400,
         temperature: 0.25,

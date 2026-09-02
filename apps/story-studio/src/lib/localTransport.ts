@@ -246,12 +246,12 @@ export type ModelServiceStatus = {
 };
 
 export type ProviderProfileProjection = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   revision: number;
   activeProfileId: string;
   profile: {
     id: string;
-    provider: "siliconflow";
+    provider: "siliconflow" | "radeon-cloud";
     displayName: string;
     baseUrl: string;
     modelId: string;
@@ -291,7 +291,7 @@ export type ProviderOperationHistoryEntry = {
 export type ProviderSessionConnection = {
   version: "story-studio-provider-session/v1";
   connected: true;
-  providerId: "siliconflow";
+  providerId: "siliconflow" | "radeon-cloud";
   modelId: string;
   profileId: string;
   availableModelCount: number;
@@ -1244,6 +1244,7 @@ export async function getProviderProfile(token: string): Promise<ProviderProfile
 
 export async function saveProviderProfile(input: {
   expectedRevision: number;
+  provider: "siliconflow" | "radeon-cloud";
   displayName: string;
   baseUrl: string;
   modelId: string;
@@ -1268,8 +1269,8 @@ export async function clearProviderCredential(token: string): Promise<ProviderPr
   return request<ProviderProfileProjection>(`${basePath}/model-service/profile/clear-credential`, { method: "POST", token, body: { confirmed: true } });
 }
 
-export async function discoverProviderModels(token: string): Promise<{ providerId: "siliconflow"; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ providerId: "siliconflow"; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
+export async function discoverProviderModels(token: string): Promise<{ providerId: "siliconflow" | "radeon-cloud"; models: string[]; profile: ProviderProfileProjection }> {
+  return request<{ providerId: "siliconflow" | "radeon-cloud"; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
 export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {

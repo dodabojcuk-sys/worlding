@@ -4,6 +4,7 @@ import type { AgentPermissionProfile, AgentPermissionState, ModelServiceStatus }
 
 export type ProviderProfileUpdate = {
   expectedRevision: number;
+  provider: "siliconflow" | "radeon-cloud";
   displayName: string;
   baseUrl: string;
   modelId: string;
@@ -42,8 +43,14 @@ export function AgentSettingsSection(props: {
   const [providerNotice, setProviderNotice] = useState("");
   const [showCredentialDraft, setShowCredentialDraft] = useState(false);
   const [manualModelEntry, setManualModelEntry] = useState(false);
-  const selectedModelNeedsManualEntry = Boolean(selected?.modelId && !availableModels.includes(selected.modelId));
-  const useManualModelEntry = manualModelEntry || availableModels.length === 0 || selectedModelNeedsManualEntry;
+  const [providerId, setProviderId] = useState<"siliconflow" | "radeon-cloud">(selected?.provider ?? "siliconflow");
+  const selectedProviderMatches = selected?.provider === providerId;
+  const providerPreset = providerId === "radeon-cloud"
+    ? { displayName: "AMD Radeon Cloud", baseUrl: "https://developer.amd.com.cn/radeon/api/v1", modelId: "DeepSeek-V4-Flash-Vision-Exp", models: ["DeepSeek-V4-Flash-Vision-Exp"] }
+    : { displayName: "硅基流动", baseUrl: "https://api.siliconflow.cn/v1", modelId: "", models: [] as string[] };
+  const visibleModels = selectedProviderMatches ? availableModels : providerPreset.models;
+  const selectedModelNeedsManualEntry = Boolean((selectedProviderMatches ? selected?.modelId : providerPreset.modelId) && !visibleModels.includes(selectedProviderMatches ? selected?.modelId ?? "" : providerPreset.modelId));
+  const useManualModelEntry = manualModelEntry || visibleModels.length === 0 || selectedModelNeedsManualEntry;
 
   const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "扩大授权范围" };
   const updatePermission = (profile: AgentPermissionProfile) => void props.onPermissionProfile?.(profile);
@@ -57,6 +64,7 @@ export function AgentSettingsSection(props: {
     try {
       const result = await props.onSaveProviderProfile({
         expectedRevision: props.status?.profile.revision ?? 0,
+        provider: providerId,
         displayName: String(fields.get("displayName") ?? "").trim(),
         baseUrl: String(fields.get("baseUrl") ?? "").trim(),
         modelId: String(fields.get("modelId") ?? "").trim(),
@@ -130,7 +138,7 @@ export function AgentSettingsSection(props: {
       {agentRuntime?.message && <p role="status">{agentRuntime.message}</p>}
       <div className="agent-runtime-plugin-actions"><button type="button" data-agent-runtime-update="check" disabled={props.busy || !props.onRefresh} onClick={props.onRefresh}>检查内置运行时状态</button><small>升级必须由产品更新流程显式提供并通过 ABI 兼容测试；此处不会拉取外部代码。</small></div>
     </section>
-    <form id="settings-agent-provider" className="agent-provider-profile" onSubmit={saveProvider} key={props.status?.profile.revision ?? "initial"}>
+    <form id="settings-agent-provider" className="agent-provider-profile" onSubmit={saveProvider} key={`${props.status?.profile.revision ?? "initial"}:${providerId}`}>
       <div>
         <strong>Provider 配置</strong>
         <p>模型调用只经 Provider Gateway；密钥在提交后由服务器凭据 owner 持有，UI 仅显示掩码和连接状态。</p>
@@ -141,17 +149,18 @@ export function AgentSettingsSection(props: {
         <div><dt>配置范围</dt><dd>{props.status?.profile.storage.scope === "authoritative" ? "本机权威配置" : "隔离开发／测试配置"}</dd></div>
       </dl>
       {props.status?.profile.storage.compatibilityNotice && <p role="status">{props.status.profile.storage.compatibilityNotice}</p>}
-      <label>显示名称<input name="displayName" required defaultValue={selected?.displayName ?? "硅基流动"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
-      <label>服务地址<input name="baseUrl" type="url" required defaultValue={selected?.baseUrl ?? "https://api.siliconflow.cn/v1"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
+      <label>Provider<select name="provider" value={providerId} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onChange={(event) => { setProviderId(event.target.value === "radeon-cloud" ? "radeon-cloud" : "siliconflow"); setManualModelEntry(false); }}><option value="siliconflow">硅基流动</option><option value="radeon-cloud">AMD Radeon Cloud</option></select></label>
+      <label>显示名称<input name="displayName" required defaultValue={selectedProviderMatches ? selected?.displayName ?? providerPreset.displayName : providerPreset.displayName} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
+      <label>服务地址<input name="baseUrl" type="url" required defaultValue={selectedProviderMatches ? selected?.baseUrl ?? providerPreset.baseUrl : providerPreset.baseUrl} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <div className="agent-provider-model-field">
         <label htmlFor="provider-model-id">模型</label>
         {useManualModelEntry
-          ? <input id="provider-model-id" ref={modelInput} name="modelId" defaultValue={selected?.modelId ?? ""} placeholder="保存凭据后选择；也可手动填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
-          : <select id="provider-model-id" ref={modelSelect} name="modelId" defaultValue={selected?.modelId ?? ""} disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>
+          ? <input id="provider-model-id" ref={modelInput} name="modelId" defaultValue={selectedProviderMatches ? selected?.modelId ?? providerPreset.modelId : providerPreset.modelId} placeholder="保存凭据后选择；也可手动填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
+          : <select id="provider-model-id" ref={modelSelect} name="modelId" defaultValue={selectedProviderMatches ? selected?.modelId ?? providerPreset.modelId : providerPreset.modelId} disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>
             <option value="">请选择可用模型</option>
-            {availableModels.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
+            {visibleModels.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
           </select>}
-        <div className="agent-provider-model-meta"><small>{availableModels.length ? `已获取 ${availableModels.length} 个可用模型。` : credential?.configured ? "凭据已保存，尚未获取模型。请点击“获取可用模型”。" : "首次保存不需要模型 ID；保存凭据后会自动获取模型。"}</small>{availableModels.length > 0 && <button type="button" onClick={() => setManualModelEntry((current) => !current)}>{useManualModelEntry ? "从列表选择" : "手动填写模型 ID"}</button>}</div>
+        <div className="agent-provider-model-meta"><small>{visibleModels.length ? `已获取 ${visibleModels.length} 个可用模型。` : credential?.configured ? "凭据已保存，尚未获取模型。请点击“获取可用模型”。" : "首次保存不需要模型 ID；保存凭据后会自动获取模型。"}</small>{visibleModels.length > 0 && <button type="button" onClick={() => setManualModelEntry((current) => !current)}>{useManualModelEntry ? "从列表选择" : "手动填写模型 ID"}</button>}</div>
       </div>
       <div className="agent-provider-secret-field">
         <label htmlFor="provider-api-key">新的 API Key（可选）</label>

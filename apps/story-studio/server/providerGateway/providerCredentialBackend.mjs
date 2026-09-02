@@ -116,7 +116,8 @@ export function createLocalFileDevelopmentCredentialBackend(options = {}) {
     fsyncSync,
     closeSync
   };
-  const filePath = path.resolve(options.filePath || path.join(defaultProviderAppDataRoot(), "credentials", "siliconflow.default.credential"));
+  const credentialRef = safeCredentialRef(options.credentialRef || DEFAULT_KEYCHAIN_ACCOUNT);
+  const filePath = path.resolve(options.filePath || path.join(options.appDataRoot || defaultProviderAppDataRoot(), "credentials", `${credentialRef}.credential`));
 
   function ensureParent() {
     fsImpl.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
@@ -163,9 +164,10 @@ export function createProviderCredentialBackend(options = {}) {
   const nodeEnvironment = environment.NODE_ENV || "development";
   const explicit = environment.TIANYAN_CREDENTIAL_BACKEND || "";
   const appDataRoot = options.appDataRoot || defaultProviderAppDataRoot();
+  const credentialRef = safeCredentialRef(options.credentialRef || DEFAULT_KEYCHAIN_ACCOUNT);
   const fallback = () => createLocalFileDevelopmentCredentialBackend({
     fsImpl: options.fsImpl,
-    filePath: path.join(appDataRoot, "credentials", "siliconflow.default.credential")
+    filePath: path.join(appDataRoot, "credentials", `${credentialRef}.credential`)
   });
 
   if (explicit === "LOCAL_FILE_DEVELOPMENT_ONLY") {
@@ -181,13 +183,19 @@ export function createProviderCredentialBackend(options = {}) {
       commandPath,
       promptCommandPath: options.promptCommandPath,
       service: options.service,
-      account: options.account,
+      account: options.account || credentialRef,
       spawnSyncImpl: options.spawnSyncImpl,
       promptRunImpl: options.promptRunImpl
     });
   }
   if (nodeEnvironment !== "production") return fallback();
   throw credentialBackendError("production-keychain-required");
+}
+
+function safeCredentialRef(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z0-9][a-z0-9._-]{0,119}$/u.test(normalized)) throw credentialBackendError("credential-backend-unsupported");
+  return normalized;
 }
 
 export function validateCredential(value) {

@@ -75,6 +75,7 @@ import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { createSiliconFlowAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
+import { createRadeonCloudAdapter, RADEON_CLOUD_BASE_URL, RADEON_CLOUD_PROVIDER_ID } from "./providerGateway/radeonCloudAdapter.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
 import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
 import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
@@ -176,20 +177,35 @@ const providerRootResolution = resolveProviderServerAppDataRoot({
 const providerAppDataRoot = providerRootResolution.rootPath;
 const providerProfileStore = createPersistentProviderProfileStore({ appDataRoot: providerAppDataRoot });
 let providerProfileState = providerProfileStore.read();
-const providerCredentialBackend = createProviderCredentialBackend({ appDataRoot: providerAppDataRoot });
+const providerCredentialBackends = new Map(providerProfileState.profiles.map((profile) => [profile.credentialRef, createProviderCredentialBackend({
+  appDataRoot: providerAppDataRoot,
+  credentialRef: profile.credentialRef
+})]));
+function readActiveCredentialBackend() {
+  const active = providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId);
+  const backend = active && providerCredentialBackends.get(active.credentialRef);
+  if (!backend) throw new Error("Provider credential backend is unavailable for the active profile.");
+  return backend;
+}
+function readCredentialBackendForProvider(providerId) {
+  const profile = providerProfileState.profiles.find((item) => item.provider === providerId);
+  const backend = profile && providerCredentialBackends.get(profile.credentialRef);
+  if (!backend) throw new Error("Provider credential backend is unavailable.");
+  return backend;
+}
 const providerCredential = createSessionCredentialController({
   backend: {
-    kind: providerCredentialBackend.kind,
+    get kind() { return readActiveCredentialBackend().kind; },
     read() {
       const active = providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId);
-      return active?.enabled === false ? "" : providerCredentialBackend.read();
+      return active?.enabled === false ? "" : readActiveCredentialBackend().read();
     },
     configured() {
       const active = providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId);
-      return active?.enabled === false ? false : providerCredentialBackend.configured();
+      return active?.enabled === false ? false : readActiveCredentialBackend().configured();
     },
-    write(value) { providerCredentialBackend.write(value); },
-    clear() { providerCredentialBackend.clear(); }
+    write(value) { readActiveCredentialBackend().write(value); },
+    clear() { readActiveCredentialBackend().clear(); }
   }
 });
 const providerBudgetLedger = createProviderRequestBudgetLedger({
@@ -199,7 +215,16 @@ const providerBudgetLedger = createProviderRequestBudgetLedger({
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
 const providerGateway = createAiProviderGateway({
-  adapters: [createSiliconFlowAdapter({ apiKeyProvider: () => providerCredential.readForProvider(), baseUrlProvider: () => validatedProviderBaseUrl() })],
+  adapters: [
+    createSiliconFlowAdapter({
+      apiKeyProvider: () => readProviderCredential("siliconflow"),
+      baseUrlProvider: () => validatedProviderBaseUrl("siliconflow")
+    }),
+    createRadeonCloudAdapter({
+      apiKeyProvider: () => readProviderCredential(RADEON_CLOUD_PROVIDER_ID),
+      baseUrlProvider: () => validatedProviderBaseUrl(RADEON_CLOUD_PROVIDER_ID)
+    })
+  ],
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
@@ -351,10 +376,11 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       throw error;
     }
     const metadata = providerGateway.metadata();
+    const activeProvider = readActiveProviderProfile()?.provider;
     const profile = agentFakeProviderStreamAllowed
       ? { id: "local-fake-agent-stream", providerId: "local-fake", modelId: "deterministic-text-fixture" }
-      : metadata.profiles.find((candidate) => candidate.providerId === "siliconflow") || metadata.profiles[0];
-    if (!agentFakeProviderStreamAllowed && (!profile || !metadata.providers.some((provider) => provider.id === "siliconflow" && provider.configured))) {
+      : metadata.profiles.find((candidate) => candidate.providerId === activeProvider) || null;
+    if (!agentFakeProviderStreamAllowed && (!profile || !metadata.providers.some((provider) => provider.id === activeProvider && provider.configured))) {
       const error = new Error("当前没有可用的真实 Provider；原话与 Agent 任务仍已保留，可以稍后重试。");
       error.name = "ProviderUnavailable";
       error.code = "provider-unavailable";
@@ -2171,19 +2197,22 @@ async function handleModelServiceRequest(request, response, url) {
   }
   if (request.method === "POST" && route === "profile/save") {
     const body = await readJsonBody(request, 8 * 1024);
-    requireAllowedKeys(body, ["expectedRevision", "displayName", "baseUrl", "modelId", "enabled", "apiKey"]);
-    assertSiliconFlowBaseUrl(body.baseUrl ?? readActiveProviderProfile()?.baseUrl);
+    requireAllowedKeys(body, ["expectedRevision", "provider", "displayName", "baseUrl", "modelId", "enabled", "apiKey"]);
+    const requestedProvider = body.provider ?? readActiveProviderProfile()?.provider;
+    assertProviderBaseUrl(requestedProvider, body.baseUrl ?? providerProfileState.profiles.find((profile) => profile.provider === requestedProvider)?.baseUrl);
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
     const current = providerProfileStore.assertRevision(body.expectedRevision);
     providerProfileState = current;
-    const active = readActiveProviderProfile();
+    const active = providerProfileState.profiles.find((profile) => profile.provider === requestedProvider) || readActiveProviderProfile();
     const profileChanged = Boolean(apiKey)
       || ["displayName", "baseUrl", "modelId", "enabled"].some((key) => body[key] !== undefined && body[key] !== active?.[key]);
-    const previousCredential = apiKey ? providerCredential.readForProvider() : "";
-    if (body.apiKey !== undefined && apiKey) providerCredential.replace(body.apiKey);
+    const targetCredentialBackend = active ? readCredentialBackendForProvider(active.provider) : null;
+    const previousCredential = apiKey ? targetCredentialBackend?.read() || "" : "";
+    if (body.apiKey !== undefined && apiKey) targetCredentialBackend?.write(apiKey);
     try {
       providerProfileState = providerProfileStore.save({
         expectedRevision: body.expectedRevision,
+        provider: requestedProvider,
         displayName: body.displayName,
         baseUrl: body.baseUrl,
         modelId: body.modelId,
@@ -2198,7 +2227,7 @@ async function handleModelServiceRequest(request, response, url) {
         }
       });
     } catch (error) {
-      if (apiKey) restoreProviderCredential(previousCredential);
+      if (apiKey && targetCredentialBackend) restoreProviderCredential(previousCredential, targetCredentialBackend);
       throw error;
     }
     syncProviderGatewayProfile();
@@ -2248,7 +2277,8 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, []);
     const startedAt = Date.now();
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
+      const active = readActiveProviderProfile();
+      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
       providerProfileState = providerProfileStore.markConnection({
         expectedRevision: providerProfileState.revision,
         availableModels: discovery.modelIds,
@@ -2264,7 +2294,7 @@ async function handleModelServiceRequest(request, response, url) {
       });
       sendJson(response, 200, {
         data: {
-          providerId: "siliconflow",
+          providerId: active?.provider,
           models: discovery.modelIds,
           profile: readProviderProfileProjection()
         }
@@ -2295,11 +2325,11 @@ async function handleModelServiceRequest(request, response, url) {
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起连接测试。", 412);
     const startedAt = Date.now();
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
+      const discovery = await providerGateway.discoverModels({ providerId: active.provider, timeoutMs: 15_000 });
       const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
       const modelId = requestedModelId
         ? (discovery.modelIds.includes(requestedModelId) ? requestedModelId : (() => { throw productError("选中的模型 ID 当前不可用，请更新模型后重试。", 409); })())
-        : providerGateway.selectDiscoveredModel(discovery.modelIds).modelId;
+        : providerGateway.selectDiscoveredModel(discovery.modelIds, { providerId: active.provider }).modelId;
       providerProfileState = providerProfileStore.markConnection({
         expectedRevision: providerProfileState.revision,
         connectionStatus: "verified",
@@ -2321,7 +2351,7 @@ async function handleModelServiceRequest(request, response, url) {
       sendJson(response, 200, {
         data: {
           gate: "connection",
-          providerId: "siliconflow",
+          providerId: active.provider,
           modelId,
           availableModelCount: discovery.modelIds.length,
           models: discovery.modelIds,
@@ -2373,7 +2403,7 @@ async function handleModelServiceRequest(request, response, url) {
           status: "success",
           occurredAt: new Date().toISOString(),
           modelId: result.modelId,
-          latencyMs: providerGateway.metadata().providers.find((provider) => provider.id === "siliconflow")?.lastLatencyMs ?? null,
+          latencyMs: providerGateway.metadata().providers.find((provider) => provider.id === active?.provider)?.lastLatencyMs ?? null,
           traceId: result.traceId
         }
       });
@@ -2396,8 +2426,9 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["apiKey"]);
     try {
       providerCredential.replace(body.apiKey);
-      const discovery = await providerGateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
-      const preferredProfile = providerGateway.selectDiscoveredModel(discovery.modelIds);
+      const active = readActiveProviderProfile();
+      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
+      const preferredProfile = providerGateway.selectDiscoveredModel(discovery.modelIds, { providerId: active?.provider });
       providerProfileState = providerProfileStore.save({
         expectedRevision: providerProfileState.revision,
         modelId: preferredProfile.modelId,
@@ -2410,7 +2441,7 @@ async function handleModelServiceRequest(request, response, url) {
         data: {
           version: "story-studio-provider-session/v1",
           connected: true,
-          providerId: "siliconflow",
+          providerId: active?.provider,
           modelId: preferredProfile.modelId,
           profileId: preferredProfile.id,
           availableModelCount: discovery.modelIds.length,
@@ -2671,7 +2702,7 @@ async function handleModelServiceRequest(request, response, url) {
     const tianyiDialogueReady = selectedModelReady || agentFakeProviderStreamAllowed;
     const persistedModels = activeProfile?.availableModels || [];
     const models = persistedModels.length
-      ? persistedModels.map((id) => ({ providerId: "siliconflow", id, label: id.split("/").at(-1) || id, capabilities: ["chat", "streaming"] }))
+      ? persistedModels.map((id) => ({ providerId: activeProfile.provider, id, label: id.split("/").at(-1) || id, capabilities: ["chat", "streaming"] }))
       : metadata.models;
     sendJson(response, 200, {
       data: {
@@ -2773,7 +2804,7 @@ function syncProviderGatewayProfile(preferredModelId = null) {
     return;
   }
   try {
-    providerGateway.selectDiscoveredModel([modelId]);
+    providerGateway.selectDiscoveredModel([modelId], { providerId: active?.provider });
   } catch {
     // Keep the persisted model visible to Settings while the Gateway remains
     // on its safe built-in profile until a successful model test occurs.
@@ -2781,20 +2812,25 @@ function syncProviderGatewayProfile(preferredModelId = null) {
   }
 }
 
-function restoreProviderCredential(previousCredential) {
+function restoreProviderCredential(previousCredential, backend = readActiveCredentialBackend()) {
   try {
-    if (previousCredential) providerCredential.replace(previousCredential);
-    else providerCredential.clear();
+    if (previousCredential) backend.write(previousCredential);
+    else backend.clear();
   } catch {
     // The original save error remains the actionable result. A failed
     // rollback is still fail-closed because the credential is never returned.
   }
 }
 
-function validatedProviderBaseUrl() {
-  const active = readActiveProviderProfile();
-  assertSiliconFlowBaseUrl(active?.baseUrl);
-  return active.baseUrl.trim().replace(/\/$/u, "");
+function readProviderCredential(providerId) {
+  const profile = providerProfileState.profiles.find((item) => item.provider === providerId);
+  return !profile || profile.enabled === false ? "" : readCredentialBackendForProvider(providerId).read();
+}
+
+function validatedProviderBaseUrl(providerId) {
+  const profile = providerProfileState.profiles.find((item) => item.provider === providerId);
+  assertProviderBaseUrl(providerId, profile?.baseUrl);
+  return profile.baseUrl.trim().replace(/\/$/u, "");
 }
 
 function safeProviderErrorSummary(error) {
@@ -2804,15 +2840,16 @@ function safeProviderErrorSummary(error) {
   return message.replace(/Bearer\s+[^\s]+/giu, "Bearer [已隐藏]").slice(0, 240);
 }
 
-function assertSiliconFlowBaseUrl(value) {
-  if (typeof value !== "string" || !value.trim()) throw productError("SiliconFlow Base URL 不能为空。", 400);
+function assertProviderBaseUrl(providerId, value) {
+  const label = providerId === RADEON_CLOUD_PROVIDER_ID ? "AMD Radeon Cloud" : "SiliconFlow";
+  if (typeof value !== "string" || !value.trim()) throw productError(`${label} Base URL 不能为空。`, 400);
   let parsed;
-  try { parsed = new URL(value.trim()); } catch { throw productError("SiliconFlow Base URL 无效。", 400); }
+  try { parsed = new URL(value.trim()); } catch { throw productError(`${label} Base URL 无效。`, 400); }
   const normalized = value.trim().replace(/\/$/u, "");
-  const official = "https://api.siliconflow.cn/v1";
+  const official = providerId === RADEON_CLOUD_PROVIDER_ID ? RADEON_CLOUD_BASE_URL : "https://api.siliconflow.cn/v1";
   const localFixtureAllowed = (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development") && /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/.*)?$/u.test(normalized);
   if (parsed.protocol !== "https:" && !localFixtureAllowed) throw productError("生产 Provider 只允许 HTTPS Base URL。", 400);
-  if (normalized !== official && !localFixtureAllowed) throw productError("本轮只支持 SiliconFlow 官方 Base URL。", 400);
+  if (normalized !== official && !localFixtureAllowed) throw productError(`本轮只支持 ${label} 官方 Base URL。`, 400);
 }
 
 async function createGoldenLoopReceipt(input) {
@@ -2873,7 +2910,7 @@ async function createGoldenLoopReceipt(input) {
     agentId: tianyiAgentId,
     personaRevision: 1,
     relationshipPolicyRevision: 1,
-    runtime: { mode: "provider", providerId: "siliconflow", modelId: input.profile.modelId, profileId: input.profile.id },
+    runtime: { mode: "provider", providerId: input.profile.providerId, modelId: input.profile.modelId, profileId: input.profile.id },
     project: { id: input.project.id, surface: input.snapshotHash },
     selection: {
       documentId: binding.documentId,

@@ -106,10 +106,33 @@ test("Keychain adapter does not pass the credential in argv", () => {
 
 test("default profile is non-secret and versioned", () => {
   const state = defaultProviderProfileState(new Date("2026-08-22T00:00:00.000Z"));
-  assert.equal(state.schemaVersion, 1);
+  assert.equal(state.schemaVersion, 2);
   assert.equal(state.revision, 0);
   assert.equal(state.profiles[0].credentialRef, "siliconflow.default");
+  assert.deepEqual(state.profiles.map((profile) => profile.provider), ["siliconflow", "radeon-cloud"]);
   assert.equal(JSON.stringify(state).includes("apiKey"), false);
+});
+
+test("switching to AMD Radeon Cloud preserves SiliconFlow's non-secret profile and isolates credentials", () => {
+  const appDataRoot = mkdtempSync(path.join(tmpdir(), "tianyan-provider-radeon-profile-"));
+  const store = createPersistentProviderProfileStore({ appDataRoot });
+  const saved = store.save({
+    expectedRevision: 0,
+    provider: "radeon-cloud",
+    displayName: "AMD Radeon Cloud",
+    baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
+    modelId: "DeepSeek-V4-Flash-Vision-Exp",
+    enabled: true
+  });
+  assert.equal(saved.activeProfileId, "radeon-cloud.default");
+  assert.equal(saved.profiles.find((profile) => profile.provider === "siliconflow")?.credentialRef, "siliconflow.default");
+  assert.equal(saved.profiles.find((profile) => profile.provider === "radeon-cloud")?.credentialRef, "radeon-cloud.default");
+  const amdCredential = createLocalFileDevelopmentCredentialBackend({ appDataRoot, credentialRef: "radeon-cloud.default" });
+  const siliconCredential = createLocalFileDevelopmentCredentialBackend({ appDataRoot, credentialRef: "siliconflow.default" });
+  amdCredential.write("test-amd-credential");
+  assert.equal(amdCredential.configured(), true);
+  assert.equal(siliconCredential.configured(), false);
+  assert.equal(readFileSync(store.profilePath, "utf8").includes("test-amd-credential"), false);
 });
 
 test("profile keeps bounded non-sensitive model discovery and operation history in the same owner", () => {
