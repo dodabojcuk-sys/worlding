@@ -50,16 +50,17 @@ export function createProjectDirectoryViewModel(t: (key: TranslationKey) => stri
   const unitNodes: ProjectDirectoryNode[] = [];
   const normalizeUnitLabel = (value: string) => value.replace(/^\s*单元\s*\d*\s*[\u00b7・:\uff1a-]?\s*/u, "").trim().toLocaleLowerCase();
   const eventUnitLabel = (event: (typeof eventObjects)[number]) => buildEventSemanticNode({ id: event.id, title: event.title, tags: event.tags, revision: event.revisionToken, status: event.status }).storyUnit.label;
-  const buildUnitNode = (id: string, label: string, eventIds: readonly string[]): ProjectDirectoryNode => {
+  const buildUnitNode = (id: string, label: string, eventIds: readonly string[], collectionPoints: ReadonlyArray<StoryUnit["collectionPoints"][number]> = []): ProjectDirectoryNode => {
     const unitEvents = eventIds.map((eventId) => eventById.get(eventId)).filter((event): event is (typeof eventObjects)[number] => event !== undefined).filter((event) => !claimedEventIds.has(event.id));
     for (const event of unitEvents) claimedEventIds.add(event.id);
     const direct: ProjectDirectoryNode[] = [];
     const setPoints = new Map<string, ProjectDirectoryNode[]>();
+    const collectionByEvent = new Map(collectionPoints.flatMap((point) => point.eventIds.map((eventId) => [eventId, point.title] as const)));
     for (const event of unitEvents) {
-      const semantic = buildEventSemanticNode({ id: event.id, title: event.title, tags: event.tags, revision: event.revisionToken, status: event.status });
       const node = reference(event, data.library.project.id, data.workVersionId);
-      if (semantic.setPoint.label === "未指定集点") direct.push(node);
-      else setPoints.set(semantic.setPoint.label, [...(setPoints.get(semantic.setPoint.label) ?? []), node]);
+      const collectionTitle = collectionByEvent.get(event.id);
+      if (!collectionTitle) direct.push(node);
+      else setPoints.set(collectionTitle, [...(setPoints.get(collectionTitle) ?? []), node]);
     }
     const children: ProjectDirectoryNode[] = [];
     if (direct.length) children.push(category(`unit:${id}:direct`, t("directory.directNodes"), direct));
@@ -71,7 +72,7 @@ export function createProjectDirectoryViewModel(t: (key: TranslationKey) => stri
     const unitLabel = normalizeUnitLabel(unit.title);
     for (const event of eventObjects) if (normalizeUnitLabel(eventUnitLabel(event)) === unitLabel) linked.add(event.id);
     const directoryLabel = /^\s*单元\s*\d+/u.test(unit.title) ? unit.title : `单元 ${String(unitIndex + 1).padStart(2, "0")} · ${unit.title}`;
-    unitNodes.push(buildUnitNode(unit.id, directoryLabel, [...linked]));
+    unitNodes.push(buildUnitNode(unit.id, directoryLabel, [...linked], unit.collectionPoints ?? []));
   }
   const inferredUnits = new Map<string, string[]>();
   for (const event of eventObjects) if (!claimedEventIds.has(event.id)) {

@@ -421,6 +421,30 @@ export type StoryUnitItem = {
   createdBy: "author" | "system" | "ai";
 };
 
+/** A layout-aware Event reference container owned by the Story Workspace.
+ * It never owns, copies, nests, or rewrites an Event. */
+export type StoryCollectionPoint = {
+  id: string;
+  title: string;
+  eventIds: string[];
+  order: number;
+  collapsed: boolean;
+  sourceVersionRef: string;
+  revision: number;
+  layout: { x: number; y: number; pinned: boolean };
+  lastOperationId: string;
+};
+
+export type StoryCollectionPointReceipt = {
+  operationId: string;
+  action: "created" | "updated" | "dissolved";
+  unitId: string;
+  collectionPointId: string;
+  eventIds: string[];
+  formalEventWrites: 0;
+  formalRelationWrites: 0;
+};
+
 export type StoryStudioStoryUnit = {
   id: string;
   relativeId: string;
@@ -440,6 +464,7 @@ export type StoryStudioStoryUnit = {
   lifecycle: StoryUnitLifecycle;
   sourceRefs: StoryUnitSourceRef[];
   items: StoryUnitItem[];
+  collectionPoints: StoryCollectionPoint[];
   linkedEntityIds: string[];
   unresolvedQuestionIds: string[];
   generationConstraints: Record<string, unknown>;
@@ -2032,6 +2057,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       openHook?: string;
       sourceRefs?: StoryUnitSourceRef[];
       items?: StoryUnitItem[];
+      collectionPoints?: StoryCollectionPoint[];
       linkedEntityIds?: string[];
       unresolvedQuestionIds?: string[];
       generationConstraints?: Record<string, unknown>;
@@ -2074,6 +2100,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       lifecycle?: StoryUnitLifecycle;
       sourceRefs?: StoryUnitSourceRef[];
       items?: StoryUnitItem[];
+      collectionPoints?: StoryCollectionPoint[];
       linkedEntityIds?: string[];
       unresolvedQuestionIds?: string[];
       generationConstraints?: Record<string, unknown>;
@@ -2103,6 +2130,65 @@ export function createStoryStudioWorkspaceOperations(input: {
 
     archiveStoryUnit(unitInput: { projectId: string; unitId: string; expectedVersion: string }): { conflict: boolean; unit: StoryStudioStoryUnit } {
       return this.updateStoryUnit({ projectId: unitInput.projectId, unitId: unitInput.unitId, expectedVersion: unitInput.expectedVersion, lifecycle: "archived" });
+    },
+
+    createStoryCollectionPoint(pointInput: {
+      projectId: string;
+      unitId: string;
+      expectedUnitVersion: string;
+      operationId: string;
+      title: string;
+      eventIds: string[];
+      sourceVersionRef: string;
+      order?: number;
+      collapsed?: boolean;
+      layout?: { x: number; y: number; pinned?: boolean };
+    }): { conflict: boolean; unit: StoryStudioStoryUnit; collectionPoint: StoryCollectionPoint | null; receipt: StoryCollectionPointReceipt | null } {
+      const unit = this.readStoryUnit({ projectId: pointInput.projectId, unitId: pointInput.unitId });
+      const operationId = requireText(pointInput.operationId, "Collection Point operation", 180);
+      const pointId = `collection-point.${createHash("sha256").update(operationId, "utf8").digest("hex").slice(0, 24)}`;
+      const existing = unit.collectionPoints.find((point) => point.id === pointId || point.lastOperationId === operationId);
+      if (existing) return { conflict: false, unit, collectionPoint: existing, receipt: collectionPointReceipt(operationId, "created", unit.id, existing) };
+      if (unit.version !== requireText(pointInput.expectedUnitVersion, "Story Unit version", 128)) return { conflict: true, unit, collectionPoint: null, receipt: null };
+      const eventIds = validateCollectionPointMembership(unit, pointInput.eventIds, null);
+      const point = normalizeStoryCollectionPoint({ id: pointId, title: pointInput.title, eventIds, order: pointInput.order ?? unit.collectionPoints.length, collapsed: pointInput.collapsed ?? false, sourceVersionRef: pointInput.sourceVersionRef, revision: 1, layout: pointInput.layout ?? { x: 0, y: 0, pinned: false }, lastOperationId: operationId });
+      const result = this.updateStoryUnit({ projectId: pointInput.projectId, unitId: unit.id, expectedVersion: unit.version, collectionPoints: [...unit.collectionPoints, point] });
+      return { conflict: result.conflict, unit: result.unit, collectionPoint: result.conflict ? null : point, receipt: result.conflict ? null : collectionPointReceipt(operationId, "created", unit.id, point) };
+    },
+
+    updateStoryCollectionPoint(pointInput: {
+      projectId: string;
+      unitId: string;
+      collectionPointId: string;
+      expectedUnitVersion: string;
+      expectedRevision: number;
+      operationId: string;
+      title?: string;
+      eventIds?: string[];
+      collapsed?: boolean;
+      order?: number;
+      layout?: { x: number; y: number; pinned?: boolean };
+    }): { conflict: boolean; unit: StoryStudioStoryUnit; collectionPoint: StoryCollectionPoint | null; receipt: StoryCollectionPointReceipt | null } {
+      const unit = this.readStoryUnit({ projectId: pointInput.projectId, unitId: pointInput.unitId });
+      const operationId = requireText(pointInput.operationId, "Collection Point operation", 180);
+      const current = unit.collectionPoints.find((point) => point.id === pointInput.collectionPointId);
+      if (!current) throw new Error("Collection Point does not exist.");
+      if (current.lastOperationId === operationId) return { conflict: false, unit, collectionPoint: current, receipt: collectionPointReceipt(operationId, "updated", unit.id, current) };
+      if (unit.version !== requireText(pointInput.expectedUnitVersion, "Story Unit version", 128) || current.revision !== pointInput.expectedRevision) return { conflict: true, unit, collectionPoint: current, receipt: null };
+      const eventIds = pointInput.eventIds === undefined ? current.eventIds : validateCollectionPointMembership(unit, pointInput.eventIds, current.id);
+      const updated = normalizeStoryCollectionPoint({ ...current, ...pointInput, eventIds, revision: current.revision + 1, lastOperationId: operationId, layout: pointInput.layout ?? current.layout });
+      const result = this.updateStoryUnit({ projectId: pointInput.projectId, unitId: unit.id, expectedVersion: unit.version, collectionPoints: unit.collectionPoints.map((point) => point.id === current.id ? updated : point) });
+      return { conflict: result.conflict, unit: result.unit, collectionPoint: result.conflict ? current : updated, receipt: result.conflict ? null : collectionPointReceipt(operationId, "updated", unit.id, updated) };
+    },
+
+    dissolveStoryCollectionPoint(pointInput: { projectId: string; unitId: string; collectionPointId: string; expectedUnitVersion: string; expectedRevision: number; operationId: string }): { conflict: boolean; unit: StoryStudioStoryUnit; receipt: StoryCollectionPointReceipt | null } {
+      const unit = this.readStoryUnit({ projectId: pointInput.projectId, unitId: pointInput.unitId });
+      const operationId = requireText(pointInput.operationId, "Collection Point operation", 180);
+      const current = unit.collectionPoints.find((point) => point.id === pointInput.collectionPointId);
+      if (!current) throw new Error("Collection Point does not exist.");
+      if (unit.version !== requireText(pointInput.expectedUnitVersion, "Story Unit version", 128) || current.revision !== pointInput.expectedRevision) return { conflict: true, unit, receipt: null };
+      const result = this.updateStoryUnit({ projectId: pointInput.projectId, unitId: unit.id, expectedVersion: unit.version, collectionPoints: unit.collectionPoints.filter((point) => point.id !== current.id) });
+      return { conflict: result.conflict, unit: result.unit, receipt: result.conflict ? null : collectionPointReceipt(operationId, "dissolved", unit.id, current) };
     },
 
     listOutputArtifacts(artifactInput: { projectId: string; includeArchived?: boolean }): StoryStudioOutputArtifact[] {
@@ -3172,6 +3258,7 @@ function createStoryUnitPayload(input: {
   lifecycle?: unknown;
   sourceRefs?: unknown;
   items?: unknown;
+  collectionPoints?: unknown;
   linkedEntityIds?: unknown;
   unresolvedQuestionIds?: unknown;
   generationConstraints?: unknown;
@@ -3197,6 +3284,7 @@ function createStoryUnitPayload(input: {
     lifecycle: requireStoryUnitLifecycle(input.lifecycle ?? "draft"),
     sourceRefs: normalizeStoryUnitSourceRefs(input.sourceRefs ?? []),
     items: normalizeStoryUnitItems(input.items ?? []),
+    collectionPoints: normalizeStoryCollectionPoints(input.collectionPoints ?? []),
     linkedEntityIds: normalizeStableIds(input.linkedEntityIds ?? [], "Story Unit linked entity", 512),
     unresolvedQuestionIds: normalizeStableIds(input.unresolvedQuestionIds ?? [], "Story Unit unresolved question", 256),
     generationConstraints: normalizeStructuredRecord(input.generationConstraints ?? {}, "Story Unit generation constraints"),
@@ -3516,6 +3604,64 @@ function normalizeStoryUnitItems(value: unknown): StoryUnitItem[] {
       createdBy: requireCreatedBy(record.createdBy)
     };
   });
+}
+
+function normalizeStoryCollectionPoints(value: unknown): StoryCollectionPoint[] {
+  if (!Array.isArray(value) || value.length > 128) throw new Error("Story Unit Collection Points are invalid.");
+  const pointIds = new Set<string>();
+  const eventIds = new Set<string>();
+  return value.map((item) => {
+    const point = normalizeStoryCollectionPoint(item);
+    if (pointIds.has(point.id)) throw new Error("Collection Point identifier is duplicated.");
+    pointIds.add(point.id);
+    for (const eventId of point.eventIds) {
+      if (eventIds.has(eventId)) throw new Error("An Event may have only one primary Collection Point in a Story Unit.");
+      eventIds.add(eventId);
+    }
+    return point;
+  }).sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+}
+
+function normalizeStoryCollectionPoint(value: unknown): StoryCollectionPoint {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Collection Point is invalid.");
+  const record = value as Record<string, unknown>;
+  const layout = record.layout && typeof record.layout === "object" && !Array.isArray(record.layout) ? record.layout as Record<string, unknown> : {};
+  const eventIds = normalizeStableIds(record.eventIds, "Collection Point Event", 128);
+  if (eventIds.length < 2) throw new Error("Collection Point requires at least two Event references.");
+  return {
+    id: requireText(record.id, "Collection Point identifier", 160),
+    title: requireText(record.title, "Collection Point title", 100),
+    eventIds,
+    order: requireBoundedInteger(record.order ?? 0, 0, 100_000, "Collection Point order"),
+    collapsed: record.collapsed === true,
+    sourceVersionRef: requireText(record.sourceVersionRef, "Collection Point source version", 240),
+    revision: requireBoundedInteger(record.revision ?? 1, 1, 1_000_000, "Collection Point revision"),
+    layout: {
+      x: requireLayoutCoordinate(layout.x ?? 0, "Collection Point x"),
+      y: requireLayoutCoordinate(layout.y ?? 0, "Collection Point y"),
+      pinned: layout.pinned === true
+    },
+    lastOperationId: requireText(record.lastOperationId, "Collection Point operation", 180)
+  };
+}
+
+function validateCollectionPointMembership(unit: StoryStudioStoryUnit, inputEventIds: unknown, currentPointId: string | null): string[] {
+  const eventIds = normalizeStableIds(inputEventIds, "Collection Point Event", 128);
+  if (eventIds.length < 2) throw new Error("Collection Point requires at least two Event references.");
+  const unitEvents = new Set(unit.linkedEntityIds);
+  if (eventIds.some((eventId) => !unitEvents.has(eventId))) throw new Error("Collection Point Events must belong to the same Story Unit.");
+  const occupied = new Set(unit.collectionPoints.filter((point) => point.id !== currentPointId).flatMap((point) => point.eventIds));
+  if (eventIds.some((eventId) => occupied.has(eventId))) throw new Error("An Event may have only one primary Collection Point in a Story Unit.");
+  return eventIds;
+}
+
+function collectionPointReceipt(operationId: string, action: StoryCollectionPointReceipt["action"], unitId: string, point: StoryCollectionPoint): StoryCollectionPointReceipt {
+  return { operationId, action, unitId, collectionPointId: point.id, eventIds: [...point.eventIds], formalEventWrites: 0, formalRelationWrites: 0 };
+}
+
+function requireLayoutCoordinate(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < -100_000 || value > 100_000) throw new Error(`${label} is invalid.`);
+  return value;
 }
 
 function normalizeOutputSourceUnits(projectPath: string | null, value: unknown): StoryStudioOutputSourceUnitRef[] {

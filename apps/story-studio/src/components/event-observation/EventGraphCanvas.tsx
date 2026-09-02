@@ -20,13 +20,16 @@ import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
 import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
+import { CollectionPointNode, type CollectionPointNodeData } from "../graph-nodes/CollectionPointNode";
 import { FormalEventNode } from "../graph-nodes/FormalEventNode";
 import { AgentExecutionGraph } from "../tianyi/execution/AgentExecutionGraph";
+import type { StoryCollectionPoint, StoryUnit } from "../../lib/localTransport";
 
 type Selection =
   | { kind: "node"; id: string }
   | { kind: "relation"; id: string }
   | { kind: "smart-relation"; id: string }
+  | { kind: "collection-point"; id: string }
   | { kind: "remote"; direction: "past" | "future"; count: number }
   | null;
 type NodeData = {
@@ -36,17 +39,23 @@ type NodeData = {
   candidateKind?: "new" | "existing-reference" | "conflict"; sharedAcrossPaths?: number;
   temporal?: boolean; temporalKind?: TemporalPlacement["placementKind"]; temporalSummary?: string; temporalAnchors?: string; temporalConfidence?: string; semanticZoom?: "far" | "medium" | "near";
   screen?: boolean; screenLabel?: string; screenKind?: TemporalSegment["kind"]; screenConfidence?: string;
+  collectionPoint?: boolean; unitId?: string; eventCount?: number; expanded?: boolean; onToggle?: () => void;
 };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type PredictionViewDetail = { runId: string; view: "task" | "running" | "overview" | "focus" | "review" | "receipt"; pathId: string | null };
 type Layout = { version: "tianyan-event-graph-layout/v2"; positions: Record<string, { x: number; y: number }> };
-const nodeTypes = { event: FormalEventNode, prediction: CandidateEventNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode, temporalScreen: TemporalScreenNode };
+const nodeTypes = { event: FormalEventNode, prediction: CandidateEventNode, collectionPoint: CollectionPointGraphNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode, temporalScreen: TemporalScreenNode };
+
+function CollectionPointGraphNode(props: NodeProps<Node<NodeData>>) {
+  return <CollectionPointNode {...props as unknown as NodeProps<Node<CollectionPointNodeData>>} />;
+}
 
 export function EventGraphCanvas(props: {
   projectId: string;
   events: readonly EventLineEventSummary[];
   relations: readonly RelationReadProjectionR0[];
   relationTypes: readonly RelationTypeDefinitionR0[];
+  storyUnits?: readonly StoryUnit[];
   selectedEventId: string | null;
   onSelectEvent(eventId: string): void;
   onClearSelection(): void;
@@ -65,6 +74,9 @@ export function EventGraphCanvas(props: {
   onOpenTianyi?(eventIds?: string[]): void;
   onExplainWithTianyi?(eventIds?: string[]): void;
   onOpenLogicCheck?(eventIds: string[]): void;
+  onCreateCollectionPoint?(input: { title: string; eventIds: string[] }): Promise<void>;
+  onUpdateCollectionPoint?(input: { unitId: string; point: StoryCollectionPoint; title?: string; eventIds?: string[]; collapsed?: boolean; layout?: { x: number; y: number; pinned?: boolean } }): Promise<void>;
+  onDissolveCollectionPoint?(input: { unitId: string; point: StoryCollectionPoint }): Promise<void>;
   mode?: "graph" | "temporal";
   temporalRun?: TemporalProjectionRun | null;
   temporalState?: "idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable";
@@ -97,6 +109,8 @@ export function EventGraphCanvas(props: {
   const [railOpen, setRailOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [collectionPointDraftOpen, setCollectionPointDraftOpen] = useState(false);
+  const [collectionPointTitle, setCollectionPointTitle] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [layoutRevision, setLayoutRevision] = useState(0);
   const [flow, setFlow] = useState<ReactFlowInstance<Node<NodeData>, Edge> | null>(null);
@@ -118,7 +132,8 @@ export function EventGraphCanvas(props: {
   const expandPredictionSources = useCallback(() => setPredictionSourcesExpanded(true), []);
   const collapsePredictionSources = narrowPrediction && ["overview", "focus", "review"].includes(predictionViewState) && !predictionSourcesExpanded;
   const predictionDirectoryCollapsed = ["overview", "focus", "review"].includes(predictionViewState);
-  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.temporalRun, selection, semanticZoom, view, workspaceSelectionIds]);
+  const storyUnits = props.storyUnits ?? [];
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, storyUnits, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom, (unitId, point) => void props.onUpdateCollectionPoint?.({ unitId, point, collapsed: !point.collapsed })), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.onUpdateCollectionPoint, props.temporalRun, selection, semanticZoom, storyUnits, view, workspaceSelectionIds]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
   const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
@@ -321,7 +336,7 @@ export function EventGraphCanvas(props: {
   }, [flow, mode, props.selectedEventId]);
 
   const persistLayout = useCallback(() => {
-    const positions = Object.fromEntries(nodes.filter((node) => !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
+    const positions = Object.fromEntries(nodes.filter((node) => node.type === "event" && !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
     writeLayout(props.projectId, positions);
   }, [nodes, props.projectId]);
   const focus = (eventId: string) => {
@@ -359,10 +374,20 @@ export function EventGraphCanvas(props: {
   const currentEvent = selection?.kind === "node" ? graphEvents.find((event) => event.id === selection.id) ?? null : null;
   const currentRelation = selection?.kind === "relation" ? graphRelations.find((relation) => relation.relationId === selection.id) ?? null : null;
   const currentSmartRelation = selection?.kind === "smart-relation" ? smartRelationReviews.find((relation) => relation.candidateId === selection.id) ?? null : null;
+  const currentCollectionPoint = selection?.kind === "collection-point" ? storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unit, point }))).find(({ point }) => point.id === selection.id) ?? null : null;
   const predictionSources = predictionSelectionIds.map((id) => graphEvents.find((event) => event.id === id)).filter((event): event is EventLineEventSummary => Boolean(event));
   const addCurrentToPrediction = () => {
     if (!currentEvent) return;
     setPredictionSelectionIds((current) => current.includes(currentEvent.id) || current.length >= 4 ? current : [...current, currentEvent.id]);
+  };
+  const createCollectionPoint = async () => {
+    if (!props.onCreateCollectionPoint || workspaceSelectionIds.length < 2 || !collectionPointTitle.trim()) return;
+    setBusy("collection-point-create");
+    try {
+      await props.onCreateCollectionPoint({ title: collectionPointTitle.trim(), eventIds: workspaceSelectionIds });
+      setCollectionPointDraftOpen(false); setCollectionPointTitle(""); setWorkspaceSelectionIds([]); setNotice("集点已保存；Event 身份与正式 Relation 端点未改变。");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "集点未能保存。"); }
+    finally { setBusy(null); }
   };
   const togglePredictionCandidate = (candidateId: string) => {
     if (!predictionRun || !predictionPathId) return;
@@ -443,11 +468,11 @@ export function EventGraphCanvas(props: {
     </header>
     {mode === "temporal" ? <div className={`temporal-canvas-status is-${props.temporalState ?? "idle"}`} role="status" aria-live="polite"><Sparkles aria-hidden="true" /><div><strong>{props.temporalState === "loading" ? "正在读取时间投影缓存" : props.temporalState === "missing" ? "基础布局" : props.temporalState === "failed" ? "时间投影暂不可读" : props.temporalRun?.conflicts.length ? "需要作者处理冲突" : props.temporalRun?.stale ? "旧投影 · 待更新" : props.temporalRun ? "时间投影已更新" : "基础布局"}</strong><span>{props.temporalMessage ?? (props.temporalRun ? "时间位置是只读投影，不会改写正式时间。" : "基于正式事件与关系展示；尚未执行 AI 分析。")}</span></div></div> : null}
     {predictionSources.length ? <section className="event-graph-prediction-scope" aria-label="推演范围" aria-live="polite"><strong>推演范围 {predictionSources.length}/4</strong>{predictionSources.map((event, index) => <span key={event.id} title={event.title} aria-label={`第 ${index + 1} 个推演依据：${event.title}`}><b>{index + 1}</b>{event.title}<button type="button" title={`移出推演范围：${event.title}`} aria-label={`移出推演范围：${event.title}`} onClick={() => setPredictionSelectionIds((current) => current.filter((id) => id !== event.id))}><X /></button></span>)}{narrowPrediction && predictionPathId ? <button type="button" className="event-graph-source-collapse" aria-expanded={predictionSourcesExpanded} onClick={() => setPredictionSourcesExpanded((expanded) => !expanded)}>{predictionSourcesExpanded ? `折叠为 ${predictionSources.length} 个推演依据` : `展开 ${predictionSources.length} 个推演依据`}</button> : null}<button type="button" onClick={() => setPredictionSelectionIds([])}>清空</button></section> : null}
-    {selectedWorkspaceEvents.length > 1 ? <section className="event-graph-selection-bar" aria-label="画布多选操作" data-testid="event-graph-selection-bar"><strong>已选择 {selectedWorkspaceEvents.length} 个事件</strong><button type="button" onClick={() => props.onOpenTianyi?.(selectedWorkspaceEvents)}><Sparkles />围绕所选预测</button><button type="button" onClick={() => props.onOpenLogicCheck?.(selectedWorkspaceEvents)}><ShieldCheck />剧情逻辑检测</button><button type="button" onClick={() => setWorkspaceSelectionIds([])}><X />清除选择</button></section> : null}
+    {selectedWorkspaceEvents.length > 1 ? <section className="event-graph-selection-bar" aria-label="画布多选操作" data-testid="event-graph-selection-bar"><strong>已选择 {selectedWorkspaceEvents.length} 个事件</strong>{collectionPointDraftOpen ? <form className="event-graph-collection-create" onSubmit={(event) => { event.preventDefault(); void createCollectionPoint(); }}><label><span className="sr-only">集点名称</span><input autoFocus value={collectionPointTitle} maxLength={100} placeholder="集点名称" onChange={(event) => setCollectionPointTitle(event.target.value)} /></label><button type="submit" disabled={!collectionPointTitle.trim() || busy === "collection-point-create"}>保存集点</button><button type="button" onClick={() => { setCollectionPointDraftOpen(false); setCollectionPointTitle(""); }}>取消</button></form> : <button type="button" disabled={!props.onCreateCollectionPoint} onClick={() => setCollectionPointDraftOpen(true)}><Layers3 />创建集点</button>}<button type="button" onClick={() => props.onOpenTianyi?.(selectedWorkspaceEvents)}><Sparkles />围绕所选预测</button><button type="button" onClick={() => props.onOpenLogicCheck?.(selectedWorkspaceEvents)}><ShieldCheck />剧情逻辑检测</button><button type="button" onClick={() => { setWorkspaceSelectionIds([]); setCollectionPointDraftOpen(false); }}><X />清除选择</button></section> : null}
     {filterOpen ? <div className="event-graph-filter-row" role="status"><Filter /><span>当前展示全部正式事件、待确认关系与远端投影；筛选只改变本机观察范围。</span><button type="button" onClick={() => setFilterOpen(false)}>完成</button></div> : null}
     {notice ? <p className="event-graph-notice" role="status">{notice}<button type="button" aria-label="关闭提示" onClick={() => setNotice(null)}><X /></button></p> : null}
     <div className="event-graph-main">
-      {mode === "graph" ? <EventUnitDirectory events={graphEvents} selectedEventId={selection?.kind === "node" ? selection.id : null} predictionSelectionIds={predictionSelectionIds} onSelect={selectNode} onTogglePrediction={(eventId) => setPredictionSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : current.length < 4 ? [...current, eventId] : current)} /> : null}
+      {mode === "graph" ? <EventUnitDirectory events={graphEvents} storyUnits={storyUnits} selectedEventId={selection?.kind === "node" ? selection.id : null} predictionSelectionIds={predictionSelectionIds} onSelect={selectNode} onTogglePrediction={(eventId) => setPredictionSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : current.length < 4 ? [...current, eventId] : current)} /> : null}
       <aside className={"event-graph-local-rail " + (railOpen ? "is-open" : "")} aria-label="事件图局部目录" data-event-graph-drawer={railOpen ? "open" : "closed"}>
         <button type="button" className="is-active">{mode === "temporal" ? <Clock3 /> : <Network />}<span>{mode === "temporal" ? "时间投影" : "关系图"}</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
@@ -469,7 +494,9 @@ export function EventGraphCanvas(props: {
           nodes={nodes} edges={edges} nodeTypes={nodeTypes}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={connect}
           onNodeClick={(event, node) => {
-            if (node.id.startsWith("projection.remote")) {
+            if (node.data.collectionPoint) {
+              setSelection({ kind: "collection-point", id: node.id }); setContextMenu(null);
+            } else if (node.id.startsWith("projection.remote")) {
               setSelection({ kind: "remote", direction: node.data.direction ?? "future", count: node.data.count ?? 0 }); openInspector("EVENT_DETAILS");
             } else if (node.data.candidate) {
               if (predictionViewState === "overview") { chooseCandidatePath(node.id); setNotice("已聚焦候选所在路径；它仍未写入事件线。"); }
@@ -479,9 +506,14 @@ export function EventGraphCanvas(props: {
               else selectNode(node.id);
             }
           }}
+          onNodeDragStop={(_, node) => {
+            if (!node.data.collectionPoint) return;
+            const match = storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unit, point }))).find(({ point }) => point.id === node.id);
+            if (match) void props.onUpdateCollectionPoint?.({ unitId: match.unit.id, point: match.point, layout: { x: Math.round(node.position.x), y: Math.round(node.position.y), pinned: true } }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "集点位置未能保存。"));
+          }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: edge.data?.smartRelation ? "smart-relation" : "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
-          onNodeContextMenu={(event, node) => { event.preventDefault(); contextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".react-flow__node") : null; if (!workspaceSelectionIds.includes(node.id) && !node.data.candidate) setWorkspaceSelectionIds([node.id]); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: node.id }); }}
+          onNodeContextMenu={(event, node) => { event.preventDefault(); contextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".react-flow__node") : null; if (node.data.collectionPoint) setSelection({ kind: "collection-point", id: node.id }); else if (!workspaceSelectionIds.includes(node.id) && !node.data.candidate) setWorkspaceSelectionIds([node.id]); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: node.id }); }}
           onPaneContextMenu={(event) => { event.preventDefault(); contextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : null; const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: null }); }}
           onPaneClick={() => {
             setContextMenu(null); setSelection(null); setWorkspaceSelectionIds([]); closeInspector(); props.onClearSelection();
@@ -509,8 +541,8 @@ export function EventGraphCanvas(props: {
         </ReactFlow>
         {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
         <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
-        {contextMenu ? <div ref={contextMenuRef} className="event-graph-context-menu" role="menu" aria-label={contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }} onKeyDown={(event) => { if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return; event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement); items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }}>
-          {contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button><button type="button" role="menuitem" onClick={() => { props.onExplainWithTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button>{contextEvent.status === "draft" ? <button type="button" role="menuitem" disabled={!props.onTrashDraftEvent} onClick={() => { void props.onTrashDraftEvent?.(contextEvent.id).then(() => setNotice("草稿已进入回收站。"), (error: unknown) => setNotice(error instanceof Error ? error.message : "草稿未能进入回收站。")); setContextMenu(null); }}>移入回收站</button> : <button type="button" role="menuitem" disabled title="正式 Event 只提供归档、作废与影响预览，不允许硬删除">正式事件不可删除</button>}</> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
+        {contextMenu ? <div ref={contextMenuRef} className="event-graph-context-menu" role="menu" aria-label={currentCollectionPoint ? "可选集点菜单" : contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }} onKeyDown={(event) => { if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return; event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement); items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }}>
+          {currentCollectionPoint ? <><button type="button" role="menuitem" onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, collapsed: !currentCollectionPoint.point.collapsed }); setContextMenu(null); }}>{currentCollectionPoint.point.collapsed ? "展开集点" : "折叠集点"}</button><button type="button" role="menuitem" onClick={() => { const title = window.prompt("重命名集点", currentCollectionPoint.point.title)?.trim(); if (title) void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, title }); setContextMenu(null); }}>重命名集点</button><button type="button" role="menuitem" disabled={selectedWorkspaceEvents.length < 2} onClick={() => { void props.onUpdateCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point, eventIds: selectedWorkspaceEvents }); setContextMenu(null); }}>用当前选择替换成员</button><button type="button" role="menuitem" onClick={() => { void props.onDissolveCollectionPoint?.({ unitId: currentCollectionPoint.unit.id, point: currentCollectionPoint.point }); setContextMenu(null); }}>解散集点（保留 Event）</button></> : contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button>{selectedWorkspaceEvents.length > 1 ? <button type="button" role="menuitem" disabled={!props.onCreateCollectionPoint} onClick={() => { setCollectionPointDraftOpen(true); setContextMenu(null); }}>创建集点</button> : null}<button type="button" role="menuitem" onClick={() => { props.onExplainWithTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button>{contextEvent.status === "draft" ? <button type="button" role="menuitem" disabled={!props.onTrashDraftEvent} onClick={() => { void props.onTrashDraftEvent?.(contextEvent.id).then(() => setNotice("草稿已进入回收站。"), (error: unknown) => setNotice(error instanceof Error ? error.message : "草稿未能进入回收站。")); setContextMenu(null); }}>移入回收站</button> : <button type="button" role="menuitem" disabled title="正式 Event 只提供归档、作废与影响预览，不允许硬删除">正式事件不可删除</button>}</> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
         </div> : null}
         {mode === "graph" && smartRelationReviews.length ? <SmartRelationReviewTray candidates={smartRelationReviews} selectedIds={smartRelationSelection} relationTypes={props.relationTypes} busy={busy === "smart-relations"} onSelection={setSmartRelationSelection} onChangeType={(candidateId, relationTypeId) => setSmartRelationReviews((current) => current.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, suggestedTypeId: relationTypeId || null, suggestedTypeLabel: props.relationTypes.find((type) => type.relationTypeId === relationTypeId)?.label ?? "类型待确认" } : candidate))} onAccept={() => void acceptSmartRelations()} onReject={() => reviewSmartRelations("rejected")} /> : null}
       </div>
@@ -584,6 +616,7 @@ function TemporalCoordinateOverlay(props: {
 
 function EventUnitDirectory(props: {
   events: readonly EventLineEventSummary[];
+  storyUnits: readonly StoryUnit[];
   selectedEventId: string | null;
   predictionSelectionIds: readonly string[];
   onSelect(eventId: string): void;
@@ -593,14 +626,16 @@ function EventUnitDirectory(props: {
     const grouped = new Map<string, { direct: EventLineEventSummary[]; setPoints: Map<string, EventLineEventSummary[]> }>();
     for (const event of props.events) {
       const metadata = eventLineEventMetadata(event);
-      const label = metadata.unitLabel ?? "未归入单元";
+      const formalUnit = props.storyUnits.find((unit) => unit.linkedEntityIds.includes(event.id));
+      const label = formalUnit?.title ?? metadata.unitLabel ?? "未归入单元";
       const unit = grouped.get(label) ?? { direct: [], setPoints: new Map<string, EventLineEventSummary[]>() };
-      if (metadata.setPointLabel) unit.setPoints.set(metadata.setPointLabel, [...(unit.setPoints.get(metadata.setPointLabel) ?? []), event]);
+      const collectionTitle = formalUnit?.collectionPoints?.find((point) => point.eventIds.includes(event.id))?.title;
+      if (collectionTitle) unit.setPoints.set(collectionTitle, [...(unit.setPoints.get(collectionTitle) ?? []), event]);
       else unit.direct.push(event);
       grouped.set(label, unit);
     }
     return [...grouped.entries()];
-  }, [props.events]);
+  }, [props.events, props.storyUnits]);
   const item = (event: EventLineEventSummary) => {
     const selected = props.predictionSelectionIds.includes(event.id);
     const semantic = eventLineSemanticNode(event);
@@ -733,7 +768,7 @@ function Tab(props: { active: boolean; children: ReactNode; onClick(): void }) {
 function Facts(props: { facts: Array<[ReactNode, string, string]> }) { return <dl className="event-graph-facts">{props.facts.map(([icon, label, value]) => <div key={label}><dt>{icon}{label}</dt><dd>{value}</dd></div>)}</dl>; }
 function TextBlock(props: { title: string; text: string }) { return <section className="event-graph-text-block"><h3>{props.title}</h3><p>{props.text}</p></section>; }
 
-function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, workspaceSelectionIds: ReadonlySet<string>, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near"): { nodes: Node<NodeData>[]; edges: Edge[] } {
+function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], storyUnits: readonly StoryUnit[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, workspaceSelectionIds: ReadonlySet<string>, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near", onToggleCollectionPoint: (unitId: string, point: StoryCollectionPoint) => void): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const ids = new Set(events.map((event) => event.id));
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
@@ -752,9 +787,17 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const remote = mode === "graph" && view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
   const focusLayout = mode === "graph" && view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
   const visibleEvents = events.filter((event) => visible.has(event.id));
+  const collectionPoints = mode === "graph" && !predictionVisible && view === "global" ? storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unitId: unit.id, point }))).filter(({ point }) => point.eventIds.some((eventId) => visible.has(eventId))) : [];
+  const collapsedMembership = new Map<string, string>();
+  const collectionMemberPositions = new Map<string, { x: number; y: number }>();
+  collectionPoints.forEach(({ point }, pointIndex) => {
+    const base = collectionPointPosition(point, pointIndex);
+    if (point.collapsed) point.eventIds.forEach((eventId) => collapsedMembership.set(eventId, point.id));
+    else point.eventIds.forEach((eventId, index) => collectionMemberPositions.set(eventId, { x: base.x + 28 + (index % 2) * 226, y: base.y + 72 + Math.floor(index / 2) * 158 }));
+  });
   const temporalByEvent = new Map(temporalRun?.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) ?? []);
   const temporalPositions = temporalEventPositions(visibleEvents, temporalByEvent, semanticZoom);
-  const eventNodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.map((event, index) => {
+  const eventNodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.filter((event) => !collapsedMembership.has(event.id)).map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
     const predictionPosition = sourceIds ? { x: 50, y: 95 + index * 142 } : null;
@@ -762,14 +805,27 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
+  });
+  const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
+    const rows = Math.ceil(point.eventIds.length / 2);
+    return { id: point.id, type: "collectionPoint", className: `event-graph-collection-point ${point.collapsed ? "is-collapsed" : "is-expanded"}`, position: collectionPointPosition(point, pointIndex), style: point.collapsed ? { width: 224, height: 76 } : { width: 482, height: 86 + rows * 158 }, zIndex: point.collapsed ? 1 : -2, data: { title: point.title, time: "", location: "", status: "可选集点", focused: false, selected: selection?.kind === "collection-point" && selection.id === point.id, collectionPoint: true, unitId, eventCount: point.eventIds.length, expanded: !point.collapsed, onToggle: () => onToggleCollectionPoint(unitId, point) } };
   });
   const screenNodes: Node<NodeData>[] = mode === "temporal" && temporalRun?.status === "ready" ? temporalScreenNodes(temporalRun, visibleEvents.length) : [];
-  const nodes: Node<NodeData>[] = [...screenNodes, ...eventNodes];
+  const nodes: Node<NodeData>[] = [...screenNodes, ...collectionNodes, ...eventNodes];
   if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
   if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection, focusLayout?.remote.future));
   const nodeIds = new Set(eventNodes.map((node) => node.id));
-  const edges = active.filter((relation) => nodeIds.has(relation.sourceObjectId) && nodeIds.has(relation.targetObjectId)).map((relation) => relationEdge(relation, selection, mode === "temporal" && temporalByEvent.get(relation.sourceObjectId)?.segmentId !== temporalByEvent.get(relation.targetObjectId)?.segmentId));
+  const projectedEdgeKeys = new Set<string>();
+  const edges: Edge[] = active.flatMap((relation): Edge[] => {
+    const source = collapsedMembership.get(relation.sourceObjectId) ?? relation.sourceObjectId;
+    const target = collapsedMembership.get(relation.targetObjectId) ?? relation.targetObjectId;
+    if (source === target || (!nodeIds.has(relation.sourceObjectId) && !collapsedMembership.has(relation.sourceObjectId)) || (!nodeIds.has(relation.targetObjectId) && !collapsedMembership.has(relation.targetObjectId))) return [];
+    const key = `${source}\u0000${target}\u0000${relation.relationTypeId}`;
+    if (projectedEdgeKeys.has(key)) return [];
+    projectedEdgeKeys.add(key);
+    return [{ ...relationEdge(relation, selection, mode === "temporal" && temporalByEvent.get(relation.sourceObjectId)?.segmentId !== temporalByEvent.get(relation.targetObjectId)?.segmentId), id: source === relation.sourceObjectId && target === relation.targetObjectId ? relation.relationId : `collection-projection.${relation.relationId}`, source, target, label: source === relation.sourceObjectId && target === relation.targetObjectId ? relation.currentTypeLabel ?? relation.relationLabelSnapshot : "集点折叠投影 · 端点未改" }];
+  });
   if (validFocus && remote.past.size) edges.push(remoteEdge("past", validFocus));
   if (validFocus && remote.future.size) edges.push(remoteEdge("future", validFocus));
   if (sourceIds && collapsePredictionSources) {
@@ -876,6 +932,7 @@ function remoteIds(focusId: string, eventIds: ReadonlySet<string>, visible: Read
   const visit = (lookup: ReadonlyMap<string, string[]>, target: Set<string>) => { const queue = [...(lookup.get(focusId) ?? [])], seen = new Set<string>(); while (queue.length) { const id = queue.shift()!; if (seen.has(id)) continue; seen.add(id); if (!visible.has(id) && eventIds.has(id)) target.add(id); for (const next of lookup.get(id) ?? []) queue.push(next); } };
   visit(inbound, past); visit(outbound, future); return { past, future };
 }
+function collectionPointPosition(point: StoryCollectionPoint, index: number) { return point.layout.x || point.layout.y ? { x: point.layout.x, y: point.layout.y } : { x: 80 + index * 520, y: 100 + (index % 2) * 330 }; }
 function gridPosition(index: number, total: number) { const columns = total > 24 ? 6 : total > 10 ? 5 : 4; return { x: 90 + (index % columns) * 225, y: 170 + Math.floor(index / columns) * 175 }; }
 function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId: string, relations: readonly RelationReadProjectionR0[], remote: { past: ReadonlySet<string>; future: ReadonlySet<string> }) {
   const inbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === event.id && relation.targetObjectId === focusId));

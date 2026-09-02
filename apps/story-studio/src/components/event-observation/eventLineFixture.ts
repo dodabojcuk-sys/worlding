@@ -82,6 +82,10 @@ export function createEventLineFixture(projectId: string): EventLineFixture {
       subjectRef: event.id,
       createdBy: "author" as const
     })),
+    collectionPoints: [
+      { id: "fixture.collection-point.letter", title: "来信", eventIds: [events[0]!.id, events[1]!.id], order: 0, collapsed: false, sourceVersionRef: "fixture-work-version-v1", revision: 1, layout: { x: 220, y: 140, pinned: false }, lastOperationId: "fixture.collection-point.letter.create" },
+      { id: "fixture.collection-point.lighthouse", title: "灯塔", eventIds: [events[2]!.id, events[3]!.id], order: 1, collapsed: false, sourceVersionRef: "fixture-work-version-v1", revision: 1, layout: { x: 760, y: 140, pinned: false }, lastOperationId: "fixture.collection-point.lighthouse.create" }
+    ],
     linkedEntityIds: events.map((event) => event.id),
     unresolvedQuestionIds: definitions.flatMap((definition, index) => definition.questions.map((_, questionIndex) => `fixture.question.${index + 1}.${questionIndex + 1}`)),
     generationConstraints: {},
@@ -142,7 +146,7 @@ export function createNuwaConfirmedEventLineFixture(projectId: string, eventId: 
     projectTitle: "潮痕来信 · 隔离演示",
     events: [event], details: { [eventId]: detail },
     listState: { status: "ready", eventIds: [eventId], invalidRecordCount: 0 },
-    storyUnits: [{ id: "fixture.story-unit.tide-letter.nuwa-confirmed", relativeId: "story-units/fixture.tide-letter.nuwa-confirmed.md", title: "潮痕来信", summary: "沈砚与阿芜在进入灯塔前先核对旧名守夜记录；寄信人与精确时间仍未知。", kind: "main", parentUnitId: null, branchPointEventId: null, mergeTargetUnitId: null, order: 0, sourceVersionRef: "fixture-work-version-v1", status: "active", objective: "核对旧名守夜记录。", coreConflict: "人物记忆与记录存在分歧。", turningPoint: "未设置", openHook: "寄信人身份未知。", lifecycle: "active", sourceRefs: [sourceRef], items: [{ id: "fixture.story-unit.item.nuwa-confirmed", kind: "event", authority: "canon", content: { title: event.title }, sourceRefs: [sourceRef], subjectRef: eventId, createdBy: "author" }], linkedEntityIds: [eventId], unresolvedQuestionIds: ["fixture.question.nuwa-confirmed.1", "fixture.question.nuwa-confirmed.2"], generationConstraints: {}, version: "fixture-story-unit-v1", createdAt: capturedAt, updatedAt: capturedAt, source: "markdown" }],
+    storyUnits: [{ id: "fixture.story-unit.tide-letter.nuwa-confirmed", relativeId: "story-units/fixture.tide-letter.nuwa-confirmed.md", title: "潮痕来信", summary: "沈砚与阿芜在进入灯塔前先核对旧名守夜记录；寄信人与精确时间仍未知。", kind: "main", parentUnitId: null, branchPointEventId: null, mergeTargetUnitId: null, order: 0, sourceVersionRef: "fixture-work-version-v1", status: "active", objective: "核对旧名守夜记录。", coreConflict: "人物记忆与记录存在分歧。", turningPoint: "未设置", openHook: "寄信人身份未知。", lifecycle: "active", sourceRefs: [sourceRef], items: [{ id: "fixture.story-unit.item.nuwa-confirmed", kind: "event", authority: "canon", content: { title: event.title }, sourceRefs: [sourceRef], subjectRef: eventId, createdBy: "author" }], collectionPoints: [], linkedEntityIds: [eventId], unresolvedQuestionIds: ["fixture.question.nuwa-confirmed.1", "fixture.question.nuwa-confirmed.2"], generationConstraints: {}, version: "fixture-story-unit-v1", createdAt: capturedAt, updatedAt: capturedAt, source: "markdown" }],
   };
 }
 

@@ -845,6 +845,10 @@
 .shell-workspace-event-line .graph-node-shell.is-collection-point small { color: var(--color-accent); font-size: .75rem; font-weight: 700; }
 .shell-workspace-event-line .graph-node-shell.is-collection-point strong { font-size: var(--font-size-sm); }
 .shell-workspace-event-line .graph-node-shell.is-collection-point em { color: var(--color-text-muted); font-size: var(--font-size-xs); font-style: normal; }
+.shell-workspace-event-line .react-flow__node-collectionPoint.is-expanded .graph-node-shell.is-collection-point { inline-size: 100%; block-size: 100%; align-items: start; border-style: dashed; background: color-mix(in srgb, var(--color-accent-soft) 34%, transparent); }
+.shell-workspace-event-line .react-flow__node-collectionPoint.is-expanded .graph-node-shell.is-collection-point > button { align-self: start; inline-size: 14rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-graph-collection-create { display: flex; align-items: center; gap: var(--space-1); }
+.shell-workspace-event-line .event-graph-collection-create input { min-height: 2rem; inline-size: 11rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .shell-workspace-event-line .graph-node-port.react-flow__handle { inline-size: 1.5rem; block-size: 1.5rem; background: transparent; border: 0; }
 .shell-workspace-event-line .graph-node-port.react-flow__handle::after { content: ""; position: absolute; inset: 50% auto auto 50%; inline-size: .68rem; block-size: .68rem; translate: -50% -50%; box-sizing: border-box; background: var(--color-surface); border: 2px solid var(--color-accent); border-radius: 50%; }
 .shell-workspace-event-line .is-candidate-event .graph-node-port.react-flow__handle::after { border-color: var(--color-warning); }

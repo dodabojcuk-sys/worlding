@@ -1516,7 +1516,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/story-units/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
+    requireAllowedKeys(body, ["projectId", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "sourceRefs", "items", "collectionPoints", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
     recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createStoryUnit(body)) });
     return;
@@ -1524,7 +1524,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/story-units/update") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "unitId", "expectedVersion", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "lifecycle", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
+    requireAllowedKeys(body, ["projectId", "unitId", "expectedVersion", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "lifecycle", "sourceRefs", "items", "collectionPoints", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
     recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
     sendJson(response, 200, { data: runProductOperation(() => operations.updateStoryUnit(body)) });
     return;
@@ -1535,6 +1535,30 @@ async function handleProductRequest(request, response, url) {
     requireAllowedKeys(body, ["projectId", "unitId", "expectedVersion"]);
     recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
     sendJson(response, 200, { data: runProductOperation(() => operations.archiveStoryUnit(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/story-collection-points/create") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "unitId", "expectedUnitVersion", "operationId", "title", "eventIds", "sourceVersionRef", "order", "collapsed", "layout"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.createStoryCollectionPoint(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/story-collection-points/update") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "unitId", "collectionPointId", "expectedUnitVersion", "expectedRevision", "operationId", "title", "eventIds", "collapsed", "order", "layout"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.updateStoryCollectionPoint(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/story-collection-points/dissolve") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "unitId", "collectionPointId", "expectedUnitVersion", "expectedRevision", "operationId"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.dissolveStoryCollectionPoint(body)) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/output-artifacts") {

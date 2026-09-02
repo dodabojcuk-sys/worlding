@@ -660,9 +660,11 @@ export type NarrativeAuthority = "canon" | "author-intent" | "candidate" | "infe
 export type OutputArtifactType = "novel" | "screenplay" | "storyboard" | "comic" | "motion-comic" | "interactive-drama";
 export type StoryUnitSourceRef = { sourceKind: StoryUnitSourceKind; ownerId: string; entityId: string; entityVersion?: string; capturedAt: string; staleState?: "fresh" | "stale" | "missing" };
 export type StoryUnitItem = { id: string; kind: string; authority: NarrativeAuthority; possibilityStatus?: "proposed" | "compared" | "selected-for-output" | "rejected" | "paused" | "abandoned"; content: Record<string, unknown>; sourceRefs: StoryUnitSourceRef[]; evidenceRefs?: string[]; subjectRef?: string; createdBy: "author" | "system" | "ai" };
+export type StoryCollectionPoint = { id: string; title: string; eventIds: string[]; order: number; collapsed: boolean; sourceVersionRef: string; revision: number; layout: { x: number; y: number; pinned: boolean }; lastOperationId: string };
+export type StoryCollectionPointReceipt = { operationId: string; action: "created" | "updated" | "dissolved"; unitId: string; collectionPointId: string; eventIds: string[]; formalEventWrites: 0; formalRelationWrites: 0 };
 export type StoryUnitKind = "main" | "branch";
 export type StoryUnitStatus = "draft" | "active" | "candidate" | "conflict" | "archived";
-export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; kind: StoryUnitKind; parentUnitId: string | null; branchPointEventId: string | null; mergeTargetUnitId: string | null; order: number; sourceVersionRef: string | null; status: StoryUnitStatus; objective: string; coreConflict: string; turningPoint: string; openHook: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
+export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; kind: StoryUnitKind; parentUnitId: string | null; branchPointEventId: string | null; mergeTargetUnitId: string | null; order: number; sourceVersionRef: string | null; status: StoryUnitStatus; objective: string; coreConflict: string; turningPoint: string; openHook: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; collectionPoints: StoryCollectionPoint[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
 export type OutputSourceUnitRef = { unitId: string; unitVersion: string; role: "primary" | "supporting"; includedItemIds: string[] };
 export type CreationSourceReconciliationReceipt = { schemaVersion: "tianyan-creation-source-reconciliation-receipt/r0"; artifactId: string; originalArtifactRevisionId: string; newArtifactRevisionId: string; sourceWorkVersionId: string; fromRevision: number; fromManifestDigest: string; toRevision: number; toManifestDigest: string; semanticDiffDigest: `sha256:${string}`; bodyDigestBefore: `sha256:${string}`; bodyDigestAfter: `sha256:${string}`; confirmedDifferenceIds: string[]; unresolvedDifferenceIds: string[]; idempotencyKey: string; executionStage: "artifact_revision_appended"; expectedWorkVersionReceiptId: string; blockedReason: null; createdAt: string };
 export type WorkVersionOutputArtifactSource = { schemaVersion: "tianyan-work-version-output-artifact-source/r0"; sourceKind: "work-version"; projectId: string; workVersionId: string; workVersionKind: "root"; pinnedRevision: number; manifestId: string; manifestDigest: string; selectedStoryUnitRefs: Array<{ unitId: string; unitVersion: string }>; selectedEventRefs: Array<{ eventId: string; eventRevision: string }>; sourceAnchorRefs: string[]; neutralStoryPackageId: string; neutralStoryPackageDigest: `sha256:${string}`; sourceOwnerReceiptRefs: string[]; creationOperationReceipt: { operationId: string; idempotencyKey: string; payloadDigest: `sha256:${string}` }; sourceReconciliationReceipt?: CreationSourceReconciliationReceipt; createdAt: string };
@@ -1769,6 +1771,7 @@ export async function createStoryUnit(input: {
   openHook?: string;
   sourceRefs?: StoryUnitSourceRef[];
   items?: StoryUnitItem[];
+  collectionPoints?: StoryCollectionPoint[];
   linkedEntityIds?: string[];
   unresolvedQuestionIds?: string[];
   generationConstraints?: Record<string, unknown>;
@@ -1798,6 +1801,7 @@ export async function updateStoryUnit(input: {
   lifecycle?: StoryUnit["lifecycle"];
   sourceRefs?: StoryUnitSourceRef[];
   items?: StoryUnitItem[];
+  collectionPoints?: StoryCollectionPoint[];
   linkedEntityIds?: string[];
   unresolvedQuestionIds?: string[];
   generationConstraints?: Record<string, unknown>;
@@ -1810,6 +1814,21 @@ export async function updateStoryUnit(input: {
 export async function archiveStoryUnit(input: { projectId: string; unitId: string; expectedVersion: string; token: string }): Promise<{ conflict: boolean; unit: StoryUnit }> {
   const { token, ...body } = input;
   return request(`${basePath}/story-units/archive`, { method: "POST", token, body });
+}
+
+export async function createStoryCollectionPoint(input: { projectId: string; unitId: string; expectedUnitVersion: string; operationId: string; title: string; eventIds: string[]; sourceVersionRef: string; order?: number; collapsed?: boolean; layout?: { x: number; y: number; pinned?: boolean }; token: string }): Promise<{ conflict: boolean; unit: StoryUnit; collectionPoint: StoryCollectionPoint | null; receipt: StoryCollectionPointReceipt | null }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/story-collection-points/create`, { method: "POST", token, body });
+}
+
+export async function updateStoryCollectionPoint(input: { projectId: string; unitId: string; collectionPointId: string; expectedUnitVersion: string; expectedRevision: number; operationId: string; title?: string; eventIds?: string[]; collapsed?: boolean; order?: number; layout?: { x: number; y: number; pinned?: boolean }; token: string }): Promise<{ conflict: boolean; unit: StoryUnit; collectionPoint: StoryCollectionPoint | null; receipt: StoryCollectionPointReceipt | null }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/story-collection-points/update`, { method: "POST", token, body });
+}
+
+export async function dissolveStoryCollectionPoint(input: { projectId: string; unitId: string; collectionPointId: string; expectedUnitVersion: string; expectedRevision: number; operationId: string; token: string }): Promise<{ conflict: boolean; unit: StoryUnit; receipt: StoryCollectionPointReceipt | null }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/story-collection-points/dissolve`, { method: "POST", token, body });
 }
 
 export async function listOutputArtifacts(projectId: string, includeArchived = false): Promise<OutputArtifact[]> {

@@ -103,6 +103,34 @@ test("legacy Story Unit records receive compatible explicit structure defaults",
   assert.equal(unit.order, 0);
   assert.equal(unit.status, "draft");
   assert.equal(unit.objective, "");
+  assert.deepEqual(unit.collectionPoints, []);
+});
+
+test("Collection Point owns one non-nested Event reference group with durable receipts", () => {
+  const input = fixture();
+  const events = ["仓库对峙", "旧仓库封锁", "雾港启航"].map((title) => input.operations.createWorldObject({ projectId: input.project.id, type: "event", title, status: "draft", body: `${title}的作者草稿。` }));
+  const unit = input.operations.createStoryUnit({ projectId: input.project.id, title: "雾港", linkedEntityIds: events.map((event) => event.id), sourceVersionRef: "work-version.collection-r1" });
+  const created = input.operations.createStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, expectedUnitVersion: unit.version, operationId: "collection.create.warehouse", title: "仓库冲突", eventIds: events.slice(0, 2).map((event) => event.id), sourceVersionRef: "work-version.collection-r1", layout: { x: 320, y: 180, pinned: true } });
+  assert.equal(created.conflict, false);
+  assert.deepEqual(created.collectionPoint?.eventIds, events.slice(0, 2).map((event) => event.id));
+  assert.deepEqual(created.receipt && [created.receipt.formalEventWrites, created.receipt.formalRelationWrites], [0, 0]);
+
+  const repeated = input.operations.createStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, expectedUnitVersion: unit.version, operationId: "collection.create.warehouse", title: "仓库冲突", eventIds: events.slice(0, 2).map((event) => event.id), sourceVersionRef: "work-version.collection-r1" });
+  assert.equal(repeated.collectionPoint?.id, created.collectionPoint?.id);
+  assert.equal(repeated.unit.version, created.unit.version);
+
+  assert.throws(() => input.operations.createStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, expectedUnitVersion: created.unit.version, operationId: "collection.create.overlap", title: "重叠集点", eventIds: [events[1]!.id, events[2]!.id], sourceVersionRef: "work-version.collection-r1" }), /one primary Collection Point/u);
+  const updated = input.operations.updateStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, collectionPointId: created.collectionPoint!.id, expectedUnitVersion: created.unit.version, expectedRevision: 1, operationId: "collection.update.warehouse", title: "仓库决断", collapsed: true });
+  assert.equal(updated.collectionPoint?.title, "仓库决断");
+  assert.equal(updated.collectionPoint?.collapsed, true);
+  assert.equal(updated.collectionPoint?.revision, 2);
+
+  const restarted = createStoryStudioWorkspaceOperations({ rootPath: input.rootPath, stateFilePath: path.join(input.rootPath, ".app-state.json") });
+  assert.equal(restarted.readStoryUnit({ projectId: input.project.id, unitId: unit.id }).collectionPoints[0]?.title, "仓库决断");
+  const dissolved = restarted.dissolveStoryCollectionPoint({ projectId: input.project.id, unitId: unit.id, collectionPointId: created.collectionPoint!.id, expectedUnitVersion: updated.unit.version, expectedRevision: 2, operationId: "collection.dissolve.warehouse" });
+  assert.equal(dissolved.conflict, false);
+  assert.deepEqual(dissolved.unit.collectionPoints, []);
+  assert.equal(restarted.getStoryStudioWorldLibraryBootstrap({ projectId: input.project.id }).objects.filter((event) => events.some((source) => source.id === event.id)).length, 3);
 });
 
 test("six output types are peers and keep Unit lineage without promoting a candidate", () => {
