@@ -1152,8 +1152,11 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const storyRunsAfterCancel = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   assert.equal(storyRunsAfterCancel.data.length, storyRunsBeforeSwitch.data.length, "Cancelling the estimate creates no Run.");
   await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+  const executionResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/__local/story-studio/tianyi/story-modeling/execute"), { timeout: 90_000 });
   await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
+  const completedResponse = await executionResponse;
+  assert.equal(completedResponse.ok(), true, `Confirmed temporal modeling transport must finish successfully: HTTP ${completedResponse.status()}.`);
+  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'), undefined, { timeout: 10_000 }).catch(async () => {
     const runs = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),

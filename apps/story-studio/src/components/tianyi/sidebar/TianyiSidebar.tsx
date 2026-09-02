@@ -260,11 +260,13 @@ export function TianyiSidebar(props: {
     if (!project || !props.runtime.agentSessionId || !run) return;
     stopping.current = true;
     const activeStream = streamController.current;
+    // Stop the in-flight stream before persisting cancellation so a late
+    // streamed projection cannot overwrite the terminal cancelled state.
+    activeStream?.abort();
     try {
       const cancelled = await props.runtime.withConnection((token) => cancelTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, reason: t("tianyi.stopRun"), operationId: operationId("agent-cancel"), token }));
       setRun(cancelled);
     } catch (cause) {
-      activeStream?.abort();
       setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
     } finally {
       stopping.current = false;
