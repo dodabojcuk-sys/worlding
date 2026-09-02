@@ -1154,11 +1154,12 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
   await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]')).catch(async () => {
+    const runs = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
       text: document.querySelector(".temporal-canvas-status")?.textContent,
       projection: document.querySelector("[data-projection-mode]")?.getAttribute("data-projection-mode")
-    })))}`);
+    })))} runs=${JSON.stringify(runs.data.map((run) => ({ tool: run.tool, status: run.status, failureReason: run.failureReason, completedBatches: run.progress?.completedBatches, totalBatches: run.progress?.totalBatches })))}`);
   });
   const storyRunsAfterConfirm = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   assert.equal(storyRunsAfterConfirm.data.length, storyRunsBeforeSwitch.data.length + 1, "One author confirmation creates one bounded modeling Run.");

@@ -347,7 +347,14 @@ export function EventLineWorkbench(props: {
       const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool: modelingTool, scope: scopeFor(kind, refs), eventRefs: refs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null, structuralChange: kind === "full-book" });
       setModelingPlan(plan);
       setModelingPlanState("ready");
-    } catch { setModelingPlanState("failed"); }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "本次故事建模失败。";
+      setModelingPlanState("failed");
+      if (["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(modelingTool)) {
+        setTemporalState(/provider|credential|model/iu.test(reason) ? "provider-unavailable" : "failed");
+        setTemporalMessage(reason);
+      }
+    }
   }, [activeModelingEventRefs, modelingEventRefs, modelingRun?.sourceManifestDigest, modelingTool, props.onPlanStoryModeling, props.projectId, scopeFor]);
 
   const confirmModeling = useCallback(async () => {
