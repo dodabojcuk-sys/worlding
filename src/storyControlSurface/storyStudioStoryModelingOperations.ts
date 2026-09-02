@@ -57,31 +57,47 @@ export function createStoryStudioStoryModelingOperations(options: {
     async executeStoryModelingRun(input: { projectId: string; runId: string }) {
       const run = requireRun(input.projectId, input.runId);
       if (run.status === "ready") return structuredClone(run);
-      if (run.status !== "created") throw new Error("Story modeling Run cannot execute from its current state.");
+      if (!["created", "failed", "stopped"].includes(run.status)) throw new Error("Story modeling Run cannot execute from its current state.");
       const key = `${run.projectId}\u0000${run.runId}`;
       if (active.has(key)) throw new Error("Story modeling Run already has an active Attempt.");
       const controller = new AbortController();
       active.set(key, controller);
-      const running = replace({ ...run, status: "running", failureReason: null });
+      const running = replace({ ...run, status: "running", failureReason: null, completedAt: null, budgetReservation: { ...run.budgetReservation, status: "reserved" }, progress: { ...run.progress, currentBatch: run.progress.completedBatches, stage: "extracting" } });
       try {
         const request = requestFromRun(running);
         const snapshot = snapshotRequest(run.projectId, run.sourceEventRefs);
         const sourceIds = new Set(run.affectedSourceIds);
         const sources = snapshot.sources.filter((source) => sourceIds.has(source.sourceId));
-        const output = await gateway.generate({ request, runId: run.runId, signal: controller.signal, sources });
+        const output = await gateway.generate({
+          request,
+          runId: run.runId,
+          signal: controller.signal,
+          sources,
+          completedBatches: running.batchReceipts.map((receipt) => ({ batchIndex: receipt.batchIndex, inputTokens: receipt.inputTokens, outputTokens: receipt.outputTokens, result: receipt.result })),
+          async onBatch(batch) {
+            if (controller.signal.aborted) throw new Error("Story modeling Run was stopped before the next batch.");
+            const latest = requireRun(run.projectId, run.runId);
+            if (latest.status !== "running") throw new Error("Story modeling Run is no longer active.");
+            const receipt = { batchIndex: batch.batchIndex, status: "ready" as const, providerRequests: 1 as const, inputTokens: batch.inputTokens, outputTokens: batch.outputTokens, result: batch.result };
+            const receipts = [...latest.batchReceipts.filter((item) => item.batchIndex !== batch.batchIndex), receipt].sort((left, right) => left.batchIndex - right.batchIndex);
+            replace({ ...latest, batchReceipts: receipts, progress: { ...latest.progress, completedBatches: receipts.length, currentBatch: receipts.length < latest.progress.totalBatches ? batch.batchIndex + 1 : null, stage: receipts.length < latest.progress.totalBatches ? "extracting" : "aggregating", inputTokens: receipts.reduce((sum, item) => sum + item.inputTokens, 0), outputTokens: receipts.reduce((sum, item) => sum + item.outputTokens, 0) } });
+          }
+        });
         if (!Number.isSafeInteger(output.usage.providerRequests) || output.usage.providerRequests < 1 || output.usage.providerRequests > run.estimate.providerRequestRange.max) throw new Error("Story modeling Provider request count exceeded the confirmed estimate.");
         const totalTokens = output.usage.inputTokens + output.usage.outputTokens;
         const actualCost = options.price ? roundUsd(output.usage.inputTokens / 1_000_000 * options.price.inputPerMillionTokens + output.usage.outputTokens / 1_000_000 * options.price.outputPerMillionTokens) : null;
         const result = validateStoryModelingResult({ request, runId: run.runId, result: output.result });
-        return structuredClone(replace({ ...running, status: "ready", provider: output.provider, actual: { providerRequests: output.usage.providerRequests, inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens, totalTokens, cost: actualCost === null ? null : { currency: "USD", value: actualCost } }, result, completedAt: now(), failureReason: null }));
+        const latest = requireRun(run.projectId, run.runId);
+        return structuredClone(replace({ ...latest, status: "ready", provider: output.provider, actual: { providerRequests: output.usage.providerRequests, inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens, totalTokens, cost: actualCost === null ? null : { currency: "USD", value: actualCost } }, result, progress: { ...latest.progress, completedBatches: latest.progress.totalBatches, currentBatch: null, stage: "complete", inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens }, budgetReservation: { ...latest.budgetReservation, status: "consumed" }, completedAt: now(), failureReason: null }));
       } catch (cause) {
-        replace({ ...running, status: controller.signal.aborted ? "stopped" : "failed", completedAt: now(), failureReason: cause instanceof Error ? cause.message.slice(0, 240) : "Story modeling failed." });
+        const latest = requireRun(run.projectId, run.runId);
+        replace({ ...latest, status: controller.signal.aborted ? "stopped" : "failed", progress: { ...latest.progress, currentBatch: null, stage: controller.signal.aborted ? "stopped" : "failed" }, completedAt: now(), failureReason: cause instanceof Error ? cause.message.slice(0, 240) : "Story modeling failed." });
         throw cause;
       } finally { active.delete(key); }
     },
     readStoryModelingRun(input: { projectId: string; runId: string }) { return readStored(input.projectId, input.runId); },
     listStoryModelingRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(run)); },
-    stopStoryModelingRun(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); active.get(`${run.projectId}\u0000${run.runId}`)?.abort(); return structuredClone(replace({ ...run, status: "stopped", completedAt: now(), failureReason: "作者已停止本次故事建模。" })); }
+    stopStoryModelingRun(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); active.get(`${run.projectId}\u0000${run.runId}`)?.abort(); return structuredClone(replace({ ...run, status: "stopped", progress: { ...run.progress, currentBatch: null, stage: "stopped" }, budgetReservation: { ...run.budgetReservation, status: "released" }, completedAt: now(), failureReason: "作者已停止本次故事建模。" })); }
   };
 
   function snapshotRequest(projectId: string, refs: StoryStudioEventReference[]): { events: Array<{ reference: StoryStudioEventReference; event: ReturnType<typeof workspace.readWorldObject> }>; sources: StoryModelingEvidenceSource[] } {
@@ -102,8 +118,8 @@ export function createStoryStudioStoryModelingOperations(options: {
     if (!sources.length) throw new Error("Story modeling requires original source material or structured Event evidence.");
     return { events, sources };
   }
-  function requestFromRun(run: StoredRun): StoryModelingRequest { const snapshot = snapshotRequest(run.projectId, run.sourceEventRefs); const manifest = createStoryModelingSourceManifest({ projectId: run.projectId, sources: snapshot.sources.map(({ content: _content, ...source }) => source) }); if (manifest.digest !== run.sourceManifestDigest) throw new Error("Story modeling sources changed after author confirmation."); return { projectId: run.projectId, operationId: run.operationId, tool: run.tool, trigger: run.trigger, scope: run.scope, manifest, eventRefs: run.sourceEventRefs, estimate: run.estimate, authorConfirmedAt: run.createdAt }; }
-  function readStored(projectId: string, runId: string): StoredRun | null { const source = readExistingUtf8(projectPath(projectId), runFile(projectId, runId)); if (!source) return null; const parsed = JSON.parse(source) as StoredRun; if (parsed.storeVersion !== STORE_VERSION || parsed.projectId !== projectId || parsed.runId !== runId) throw new Error("Story modeling artifact scope is invalid."); return parsed; }
+  function requestFromRun(run: StoredRun): StoryModelingRequest { const snapshot = snapshotRequest(run.projectId, run.sourceEventRefs); const manifest = createStoryModelingSourceManifest({ projectId: run.projectId, sources: snapshot.sources.map(({ content: _content, ...source }) => source) }); if (manifest.digest !== run.sourceManifestDigest) throw new Error("Story modeling sources changed after author confirmation."); return { projectId: run.projectId, operationId: run.operationId, tool: run.tool, trigger: run.trigger, scope: run.scope, manifest, eventRefs: run.sourceEventRefs, selectedPerspectiveRefs: run.selectedPerspectiveRefs, estimate: run.estimate, authorConfirmedAt: run.createdAt }; }
+  function readStored(projectId: string, runId: string): StoredRun | null { const source = readExistingUtf8(projectPath(projectId), runFile(projectId, runId)); if (!source) return null; const parsed = JSON.parse(source) as StoredRun; if (parsed.storeVersion !== STORE_VERSION || parsed.projectId !== projectId || parsed.runId !== runId) throw new Error("Story modeling artifact scope is invalid."); const batchPlan = parsed.batchPlan ?? []; return { ...parsed, selectedPerspectiveRefs: parsed.selectedPerspectiveRefs ?? [], batchPlan, progress: parsed.progress ?? { totalBatches: batchPlan.length, completedBatches: 0, currentBatch: null, stage: parsed.status === "ready" ? "complete" : "queued", inputTokens: parsed.actual?.inputTokens ?? 0, outputTokens: parsed.actual?.outputTokens ?? 0 }, batchReceipts: parsed.batchReceipts ?? [], budgetReservation: parsed.budgetReservation ?? { reservationId: `story-modeling-budget.${parsed.runId}`, providerRequestLimit: parsed.estimate.providerRequestRange.max, status: parsed.status === "ready" ? "consumed" : "confirmed" } }; }
   function writeNew(run: StoredRun): StoredRun { const target = runFile(run.projectId, run.runId); const outcome = publishFileNoReplace({ rootPath: projectPath(run.projectId), targetPath: target, content: `${JSON.stringify(run, null, 2)}\n` }); return outcome === "exists" ? readStored(run.projectId, run.runId)! : run; }
   function replace(run: StoredRun): StoredRun { replaceFileAtomically({ rootPath: projectPath(run.projectId), targetPath: runFile(run.projectId, run.runId), content: `${JSON.stringify(run, null, 2)}\n` }); return run; }
   function requireRun(projectId: string, runId: string): StoredRun { const run = readStored(projectId, runId); if (!run) throw new Error("Story modeling Run does not exist."); return run; }

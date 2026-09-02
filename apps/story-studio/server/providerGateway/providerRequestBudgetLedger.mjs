@@ -40,6 +40,45 @@ export function createProviderRequestBudgetLedger(options) {
   let state = readOrInitialize();
 
   return Object.freeze({
+    reserveBatch(input) {
+      if (!Array.isArray(input?.requests) || input.requests.length < 1 || input.requests.length > 64) throw budgetError("PROVIDER_BUDGET_INVALID_REQUEST", "Provider budget batch reservation is invalid.");
+      const requests = input.requests.map(normalizeReservation);
+      if (new Set(requests.map((request) => request.idempotencyKey)).size !== requests.length) throw budgetError("PROVIDER_IDEMPOTENCY_CONFLICT", "Provider budget batch contains duplicate request identities.");
+      state = readState(target);
+      const existing = requests.map((request) => state.reservations.find((item) => item.idempotencyKey === request.idempotencyKey) || null);
+      if (existing.some(Boolean)) {
+        if (!existing.every(Boolean)) throw budgetError("PROVIDER_IDEMPOTENCY_CONFLICT", "Provider budget batch was only partially reserved.");
+        existing.forEach((reservation, index) => { if (reservation.requestDigest !== requests[index].requestDigest) throw budgetError("PROVIDER_IDEMPOTENCY_CONFLICT", "Provider request identity was reused with different dispatch semantics."); });
+        return Object.freeze({ reused: true, reservations: Object.freeze(existing.map(publicReservation)), ledger: publicLedger(state) });
+      }
+      const generationIncrease = requests.filter((request) => request.kind === "generation").length;
+      const setupIncrease = requests.length - generationIncrease;
+      const authorizationIds = [...new Set(requests.map((request) => request.authorizationReceiptId).filter(Boolean))];
+      if (authorizationIds.length > 1) throw budgetError("PROVIDER_BUDGET_AUTHORIZATION_CONFLICT", "Provider budget batch must use one authorization receipt.");
+      const authorization = authorizationIds[0] ? state.authorizations.find((item) => item.receiptId === authorizationIds[0]) || null : null;
+      if (authorizationIds[0] && !authorization) throw budgetError("PROVIDER_BUDGET_AUTHORIZATION_MISSING", "Provider budget batch authorization is missing.");
+      const limits = authorization?.limits ?? state.limits;
+      if (state.counts.generationCalls + generationIncrease > limits.generationCalls || state.counts.totalCalls + requests.length > limits.totalCalls) {
+        throw budgetError("PROVIDER_BUDGET_EXHAUSTED", "Provider request batch budget is exhausted; all dispatches were blocked before transport.", { counts: state.counts, limits, requestedCalls: requests.length });
+      }
+      const reservations = requests.map((request) => ({ reservationId: stableId(request.idempotencyKey), idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest, kind: request.kind, toolLoopTurn: request.toolLoopTurn, retry: request.retry, authorizationReceiptId: authorization?.receiptId ?? null, outcome: "reserved", reservedAt: now(), completedAt: null, traceId: null }));
+      state = { ...state, revision: state.revision + 1, counts: { setupCalls: state.counts.setupCalls + setupIncrease, generationCalls: state.counts.generationCalls + generationIncrease, toolLoopTurns: state.counts.toolLoopTurns + requests.filter((request) => request.toolLoopTurn).length, retryCalls: state.counts.retryCalls + requests.filter((request) => request.retry).length, totalCalls: state.counts.totalCalls + requests.length }, reservations: [...state.reservations, ...reservations] };
+      writeState(target, state);
+      return Object.freeze({ reused: false, reservations: Object.freeze(reservations.map(publicReservation)), ledger: publicLedger(state) });
+    },
+
+    claim(input) {
+      state = readState(target);
+      const index = state.reservations.findIndex((item) => item.reservationId === input?.reservationId);
+      if (index < 0) throw budgetError("PROVIDER_RESERVATION_MISSING", "Provider reservation does not exist.");
+      const existing = state.reservations[index];
+      if (existing.outcome !== "reserved") throw budgetError("PROVIDER_IDEMPOTENCY_CONFLICT", "Provider reservation has already been dispatched or completed.");
+      const next = { ...existing, outcome: "dispatching" };
+      state = { ...state, revision: state.revision + 1, reservations: state.reservations.map((item, itemIndex) => itemIndex === index ? next : item) };
+      writeState(target, state);
+      return publicReservation(next);
+    },
+
     reserve(input) {
       const request = normalizeReservation(input);
       state = readState(target);

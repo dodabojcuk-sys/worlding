@@ -53,6 +53,11 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
   }
 
   return Object.freeze({
+    reserveGenerationBatch(input) {
+      if (!budgetLedger || typeof budgetLedger.reserveBatch !== "function") return Object.freeze({ reservations: Object.freeze([]), ledger: null });
+      if (!Array.isArray(input?.requests) || input.requests.length < 1 || input.requests.length > 64) throw providerGatewayError("invalid-request");
+      return budgetLedger.reserveBatch({ requests: input.requests.map((request) => ({ idempotencyKey: request.idempotencyKey, kind: "generation", toolLoopTurn: false, retry: false, authorizationReceiptId: request.authorizationReceiptId ?? defaultAuthorizationReceiptId, scope: request.budgetScope })) });
+    },
     metadata() {
       return Object.freeze({
         version: "story-studio-provider-gateway/v1",
@@ -123,7 +128,9 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         timeoutMs: boundedInteger(input?.timeoutMs ?? Math.min(profile.timeoutMs, 30_000), 50, 120_000), signal: input?.signal,
         responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: false
       });
-      const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
+      const reservation = input?.budgetReservationId && budgetLedger
+        ? { reused: false, reservation: budgetLedger.claim({ reservationId: input.budgetReservationId }) }
+        : reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
       try {
         receipt = beginReceiptEnvelope(receiptEnvelopeStore, reservation, input, profile);

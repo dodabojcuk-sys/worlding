@@ -4,6 +4,7 @@ import {
   normalizeStoryStudioEventReference,
   type StoryStudioEventReference
 } from "./storyStudioEventReference.ts";
+import { createStoryModelingBatchPlan, type StoryModelingBatchPlanItem } from "./storyModelingBatchPlan.ts";
 
 export const STORY_MODELING_VERSION = "tianyan-story-modeling/v1" as const;
 
@@ -72,6 +73,15 @@ export type StoryModelingEstimate = {
   cost: { status: "available"; currency: "USD"; min: number; max: number; priceSource: string } | { status: "unavailable"; reason: "price-metadata-missing" };
 };
 
+export type StoryModelingPerspectiveRef = {
+  objectId: string;
+  objectType: "character" | "location" | "item";
+  ownerId: string;
+  version: string;
+  scope: "project" | "unit" | "selection";
+  label: string;
+};
+
 export type StoryModelingRequest = {
   projectId: string;
   operationId: string;
@@ -80,6 +90,7 @@ export type StoryModelingRequest = {
   scope: StoryModelingScope;
   manifest: StoryModelingSourceManifest;
   eventRefs: StoryStudioEventReference[];
+  selectedPerspectiveRefs: StoryModelingPerspectiveRef[];
   estimate: StoryModelingEstimate;
   authorConfirmedAt: string;
 };
@@ -95,9 +106,14 @@ export type StoryModelingRun = {
   sourceManifestId: string;
   sourceManifestDigest: `sha256:${string}`;
   sourceEventRefs: StoryStudioEventReference[];
+  selectedPerspectiveRefs: StoryModelingPerspectiveRef[];
   sourceSnapshot: StoryModelingSource[];
   estimate: StoryModelingEstimate;
   status: "created" | "running" | "ready" | "failed" | "stopped";
+  batchPlan: StoryModelingBatchPlanItem[];
+  progress: { totalBatches: number; completedBatches: number; currentBatch: number | null; stage: "queued" | "extracting" | "aggregating" | "complete" | "stopped" | "failed"; inputTokens: number; outputTokens: number };
+  batchReceipts: Array<{ batchIndex: number; status: "ready"; providerRequests: 1; inputTokens: number; outputTokens: number; result: StoryModelingResult }>;
+  budgetReservation: { reservationId: string; providerRequestLimit: number; status: "confirmed" | "reserved" | "consumed" | "released" };
   cacheKey: string;
   provider: { providerId: string; modelId: string; executionKind: "real-provider" | "test-provider" } | null;
   actual: { providerRequests: number; inputTokens: number; outputTokens: number; totalTokens: number; cost: { currency: "USD"; value: number } | null } | null;
@@ -194,7 +210,9 @@ export function createStoryModelingSourceManifest(input: { projectId: string; so
 export function recommendStoryModelingScope(input: { manifest: StoryModelingSourceManifest; previousManifestDigest?: string | null; changedSourceIds: string[]; structuralChange: boolean }): StoryModelingRecommendation {
   const changed = uniqueIds(input.changedSourceIds, "Changed story source");
   if (input.previousManifestDigest === input.manifest.digest && changed.length === 0) return { scopeKind: "reuse-cache", reason: "内容版本没有变化，建议复用当前缓存。", authorMayOverride: true };
-  if (input.structuralChange || changed.length > Math.max(8, Math.ceil(input.manifest.sources.length * .35))) return { scopeKind: "full-book", reason: "来源发生大规模重排或结构变化，建议重新综合全书。", authorMayOverride: true };
+  const hasOriginalSources = input.manifest.sources.some((source) => source.sourceOrigin === "original-prose");
+  if (hasOriginalSources && (input.structuralChange || changed.length > Math.max(8, Math.ceil(input.manifest.sources.length * .35)))) return { scopeKind: "full-book", reason: "来源发生大规模重排或结构变化，建议重新综合全书。", authorMayOverride: true };
+  if (!hasOriginalSources) return { scopeKind: "incremental", reason: "当前没有原始正文；只能进行 Event 证据分析，不称为全书建模。", authorMayOverride: true };
   return { scopeKind: "incremental", reason: "只有少量章节或依赖变化，建议重算变化块与受影响索引。", authorMayOverride: true };
 }
 
@@ -203,9 +221,9 @@ export function estimateStoryModelingRun(input: { scope: StoryModelingScope; man
   const scoped = input.manifest.sources.filter((source) => sourceIds.includes(source.sourceId));
   const sourceCount = scoped.length;
   const dependencyCount = new Set(scoped.flatMap((source) => source.dependencySourceIds)).size;
-  const chunks = Math.max(1, scoped.reduce((sum, source) => sum + Math.max(1, Math.ceil(source.characterCount / 6_000)), 0));
-  const providerMax = Math.min(64, chunks + (input.scope.kind === "full-book" ? 2 : 1));
-  const providerMin = Math.max(1, Math.ceil(providerMax * .65));
+  const plannedRequests = createStoryModelingBatchPlan(scoped).length;
+  const providerMax = plannedRequests;
+  const providerMin = plannedRequests;
   const inputMin = Math.max(128, Math.ceil(scoped.reduce((sum, source) => sum + source.characterCount, 0) / 3.2));
   const inputMax = Math.max(inputMin, Math.ceil(inputMin * 1.35 + dependencyCount * 64));
   const perRequest = boundedInteger(input.maxOutputTokensPerRequest ?? 512, 64, 4096, "Story modeling output token limit");
@@ -237,6 +255,9 @@ export function normalizeStoryModelingRequest(value: unknown): StoryModelingRequ
   const eventRefs = (input.eventRefs ?? []).map(normalizeStoryStudioEventReference);
   if (eventRefs.some((ref) => ref.projectId !== manifest.projectId || ref.requestedUse !== "constraint")) throw new Error("Story modeling Event reference is out of scope.");
   const scope = normalizeScope(input.scope, manifest, eventRefs);
+  const selectedPerspectiveRefs = normalizePerspectiveRefs(input.selectedPerspectiveRefs ?? [], tool(input.tool), manifest.projectId);
+  const plannedRequests = createStoryModelingBatchPlan(manifest.sources.filter((source) => scopeSourceIds(scope).includes(source.sourceId))).length;
+  if (input.estimate?.providerRequestRange?.min !== plannedRequests || input.estimate?.providerRequestRange?.max !== plannedRequests) throw new Error("Story modeling estimate does not match the shared Provider call plan.");
   if (typeof input.authorConfirmedAt !== "string" || !Number.isFinite(Date.parse(input.authorConfirmedAt))) throw new Error("Story modeling author confirmation time is invalid.");
   const authorConfirmedAt = new Date(input.authorConfirmedAt).toISOString();
   if (authorConfirmedAt !== input.authorConfirmedAt) throw new Error("Story modeling author confirmation time is invalid.");
@@ -248,6 +269,7 @@ export function normalizeStoryModelingRequest(value: unknown): StoryModelingRequ
     scope,
     manifest,
     eventRefs,
+    selectedPerspectiveRefs,
     estimate: structuredClone(input.estimate),
     authorConfirmedAt
   };
@@ -259,6 +281,7 @@ export function createStoryModelingRun(input: { request: StoryModelingRequest; r
   if (!runId.startsWith("story-modeling-run.")) throw new Error("Story modeling Run identifier is invalid.");
   const createdAt = new Date(input.now).toISOString();
   if (createdAt !== input.now) throw new Error("Story modeling Run time is invalid.");
+  const batchPlan = createStoryModelingBatchPlan(request.manifest.sources.filter((source) => scopeSourceIds(request.scope).includes(source.sourceId)));
   return {
     version: STORY_MODELING_VERSION,
     runId,
@@ -270,9 +293,14 @@ export function createStoryModelingRun(input: { request: StoryModelingRequest; r
     sourceManifestId: request.manifest.manifestId,
     sourceManifestDigest: request.manifest.digest,
     sourceEventRefs: request.eventRefs,
+    selectedPerspectiveRefs: request.selectedPerspectiveRefs,
     sourceSnapshot: request.manifest.sources,
     estimate: request.estimate,
     status: "created",
+    batchPlan,
+    progress: { totalBatches: batchPlan.length, completedBatches: 0, currentBatch: null, stage: "queued", inputTokens: 0, outputTokens: 0 },
+    batchReceipts: [],
+    budgetReservation: { reservationId: `story-modeling-budget.${runId}`, providerRequestLimit: batchPlan.length, status: "confirmed" },
     cacheKey: `story-modeling-cache.${request.manifest.digest.slice(7, 31)}.${request.tool}.${request.scope.kind}`,
     provider: null,
     actual: null,
@@ -303,6 +331,20 @@ function normalizePerspectiveMatch(match: PerspectiveMatch, eventIds: ReadonlySe
   if (!eventIds.has(eventId)) throw new Error("Perspective match Event is out of scope.");
   return { matchId: stableId(match.matchId, "Perspective match"), perspectiveType: oneOf(match.perspectiveType, ["character", "location", "item"] as const, "Perspective type"), perspectiveObjectId: stableId(match.perspectiveObjectId, "Perspective object"), eventId, relationKind: oneOf(match.relationKind, ["formal-participation", "formal-relation-impact", "ai-inferred", "upstream", "downstream"] as const, "Perspective relation kind"), knowledgeState: oneOf(match.knowledgeState, ["known", "misunderstood", "unknown", "not-applicable"] as const, "Perspective knowledge state"), confidence: confidence(match.confidence), evidenceRefs: uniqueIds(match.evidenceRefs, "Perspective evidence"), rationale: text(match.rationale, 360, "Perspective rationale") };
 }
+
+function normalizePerspectiveRefs(value: unknown, selectedTool: StoryModelingTool, projectId: string): StoryModelingPerspectiveRef[] {
+  if (!Array.isArray(value) || value.length > 5) throw new Error("Story modeling perspective references are invalid.");
+  const refs = value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Story modeling perspective reference is invalid.");
+    const ref = entry as StoryModelingPerspectiveRef;
+    return { objectId: stableId(ref.objectId, "Perspective object"), objectType: oneOf(ref.objectType, ["character", "location", "item"] as const, "Perspective object type"), ownerId: stableId(ref.ownerId, "Perspective owner"), version: stableId(ref.version, "Perspective object version"), scope: oneOf(ref.scope, ["project", "unit", "selection"] as const, "Perspective scope"), label: text(ref.label, 120, "Perspective object label") };
+  });
+  if (new Set(refs.map((ref) => `${ref.ownerId}\u0000${ref.objectId}`)).size !== refs.length) throw new Error("Story modeling perspective reference is duplicated.");
+  if (refs.some((ref) => ref.ownerId !== projectId && !ref.ownerId.startsWith(`${projectId}.`))) throw new Error("Story modeling perspective reference belongs to another project.");
+  if (selectedTool === "analyze-perspective" && (refs.length < 2 || refs.length > 5)) throw new Error("Perspective analysis requires 2–5 selected objects.");
+  if (selectedTool !== "analyze-perspective" && refs.length) throw new Error("Perspective references are only allowed for perspective analysis.");
+  return refs;
+}
 function assertToolSpecificResultFamily(toolName: StoryModelingTool, result: Omit<StoryModelingResult, "tool">): void {
   const structural = ["analyze-core-story", "suggest-unit-boundaries", "check-structure-breaks", "compare-branch-units"].includes(toolName);
   const temporal = ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(toolName);
@@ -320,9 +362,9 @@ function normalizeSmartRelationCandidate(candidate: SmartRelationCandidate, even
 }
 function normalizeScope(scope: StoryModelingScope, manifest: StoryModelingSourceManifest, eventRefs: StoryStudioEventReference[]): StoryModelingScope {
   const ids = new Set(manifest.sources.map((source) => source.sourceId));
-  if (scope.kind === "incremental") return { kind: scope.kind, changedSourceIds: inManifest(scope.changedSourceIds, ids), dependencySourceIds: inManifest(scope.dependencySourceIds, ids) };
-  if (scope.kind === "full-book") return { kind: scope.kind, sourceIds: inManifest(scope.sourceIds, ids) };
-  if (scope.kind === "selection") return { kind: scope.kind, sourceIds: inManifest(scope.sourceIds, ids), unitIds: uniqueIds(scope.unitIds, "Story modeling Unit"), eventRefs };
+  if (scope.kind === "incremental") { const changedSourceIds = inManifest(scope.changedSourceIds, ids); const dependencySourceIds = inManifest(scope.dependencySourceIds, ids); if (!changedSourceIds.length && !dependencySourceIds.length) throw new Error("Incremental story modeling scope is empty."); return { kind: scope.kind, changedSourceIds, dependencySourceIds }; }
+  if (scope.kind === "full-book") { if (!manifest.sources.some((source) => source.sourceOrigin === "original-prose")) throw new Error("Full-book modeling requires original prose sources; Event evidence analysis is available instead."); const sourceIds = inManifest(scope.sourceIds, ids); if (!sourceIds.length) throw new Error("Full-book story modeling scope is empty."); return { kind: scope.kind, sourceIds }; }
+  if (scope.kind === "selection") { const sourceIds = inManifest(scope.sourceIds, ids); if (!sourceIds.length) throw new Error("Selected story modeling scope is empty."); return { kind: scope.kind, sourceIds, unitIds: uniqueIds(scope.unitIds, "Story modeling Unit"), eventRefs }; }
   throw new Error("Story modeling scope is invalid.");
 }
 function inManifest(values: string[], ids: Set<string>): string[] { const result = uniqueIds(values, "Story modeling scope source"); if (result.some((id) => !ids.has(id))) throw new Error("Story modeling scope contains an unknown source."); return result; }

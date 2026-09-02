@@ -8,8 +8,15 @@ export type StoryModelingGatewayResult = {
   result: StoryModelingResult;
 };
 
+export type StoryModelingBatchProgress = {
+  batchIndex: number;
+  inputTokens: number;
+  outputTokens: number;
+  result: StoryModelingResult;
+};
+
 export type StoryModelingGateway = {
-  generate(input: { request: StoryModelingRequest; runId: string; signal: AbortSignal; sources: StoryModelingEvidenceSource[] }): Promise<StoryModelingGatewayResult>;
+  generate(input: { request: StoryModelingRequest; runId: string; signal: AbortSignal; sources: StoryModelingEvidenceSource[]; completedBatches?: StoryModelingBatchProgress[]; onBatch?(progress: StoryModelingBatchProgress): void | Promise<void> }): Promise<StoryModelingGatewayResult>;
 };
 
 export function createUnavailableStoryModelingGateway(): StoryModelingGateway {
@@ -19,7 +26,7 @@ export function createUnavailableStoryModelingGateway(): StoryModelingGateway {
 /** Networkless, explicitly labelled test Provider used only by isolated test/evidence runtimes. */
 export function createStoryModelingTestGateway(): StoryModelingGateway {
   return {
-    async generate({ request, runId, signal }) {
+    async generate({ request, runId, signal, onBatch }) {
       if (signal.aborted) throw new Error("Story modeling test Provider was stopped.");
       const ids = request.eventRefs.map((ref) => ref.eventId);
       const temporalPlacements = ids.map((eventId, index) => ({
@@ -45,17 +52,19 @@ export function createStoryModelingTestGateway(): StoryModelingGateway {
         reviewState: "candidate" as const,
         sourceRunId: runId
       }));
+      const result: StoryModelingResult = {
+        tool: request.tool,
+        structureFindings: structureFindingsForTool(request.tool, runId, request.manifest.sources.slice(0, 4).map((source) => source.sourceId)),
+        temporalPlacements: ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(request.tool) ? temporalPlacements : [],
+        relationCandidates: ["smart-relations", "check-broken-links", "suggest-causal-relations"].includes(request.tool) ? relationCandidates : [],
+        logicFindings: request.tool === "run-logic-check" || request.tool === "check-structure-breaks" ? [{ findingId: `logic-finding.${runId}.causal`, kind: "causal-gap", source: "ai", severity: "warning", confidence: .74, affectedEventIds: ids.slice(0, 2), affectedUnitIds: [], affectedAgentIds: [], evidenceRefs: ids.slice(0, 2).map((id) => `event:${id}`), rationale: "两个相邻事件缺少作者已确认的因果过程。", impact: "读者可能无法理解行动为何在此刻发生。", authorStatus: "pending" }] : [],
+        perspectiveMatches: request.tool === "analyze-perspective" && ids[0] ? request.selectedPerspectiveRefs.map((ref, index) => ({ matchId: `perspective-match.${runId}.${index + 1}`, perspectiveType: ref.objectType, perspectiveObjectId: ref.objectId, eventId: ids[index % ids.length]!, relationKind: "ai-inferred", knowledgeState: index % 2 ? "misunderstood" : "unknown", confidence: .68, evidenceRefs: [`event:${ids[index % ids.length]}`], rationale: "测试 Provider 只返回可审阅的视角匹配。" })) : []
+      };
+      await onBatch?.({ batchIndex: 0, inputTokens: Math.min(request.estimate.inputTokenRange.max, Math.max(128, request.estimate.inputTokenRange.min)), outputTokens: Math.min(request.estimate.outputTokenRange.max, 256), result });
       return {
         provider: { providerId: "tianyi-test-provider", modelId: "networkless-story-modeling-fixture", executionKind: "test-provider" },
         usage: { providerRequests: Math.min(request.estimate.providerRequestRange.max, Math.max(1, request.scope.kind === "full-book" ? 3 : 1)), inputTokens: Math.min(request.estimate.inputTokenRange.max, Math.max(128, request.estimate.inputTokenRange.min)), outputTokens: Math.min(request.estimate.outputTokenRange.max, 256) },
-        result: {
-          tool: request.tool,
-          structureFindings: structureFindingsForTool(request.tool, runId, request.manifest.sources.slice(0, 4).map((source) => source.sourceId)),
-          temporalPlacements: ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(request.tool) ? temporalPlacements : [],
-          relationCandidates: ["smart-relations", "check-broken-links", "suggest-causal-relations"].includes(request.tool) ? relationCandidates : [],
-          logicFindings: request.tool === "run-logic-check" || request.tool === "check-structure-breaks" ? [{ findingId: `logic-finding.${runId}.causal`, kind: "causal-gap", source: "ai", severity: "warning", confidence: .74, affectedEventIds: ids.slice(0, 2), affectedUnitIds: [], affectedAgentIds: [], evidenceRefs: ids.slice(0, 2).map((id) => `event:${id}`), rationale: "两个相邻事件缺少作者已确认的因果过程。", impact: "读者可能无法理解行动为何在此刻发生。", authorStatus: "pending" }] : [],
-          perspectiveMatches: request.tool === "analyze-perspective" && ids[0] ? [{ matchId: `perspective-match.${runId}.1`, perspectiveType: "character", perspectiveObjectId: "character.fixture", eventId: ids[0], relationKind: "ai-inferred", knowledgeState: "unknown", confidence: .68, evidenceRefs: [`event:${ids[0]}`], rationale: "测试 Provider 只返回可审阅的视角匹配。" }] : []
-        }
+        result
       };
     }
   };

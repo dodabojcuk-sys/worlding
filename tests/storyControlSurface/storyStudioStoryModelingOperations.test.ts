@@ -50,6 +50,57 @@ test("one author confirmation creates one idempotent Run and test Provider outpu
   } finally { await fixture.dispose(); }
 });
 
+test("stopping a running StoryModeling Run prevents every subsequent batch", async () => {
+  const fixture = await setup();
+  try {
+    let batchCalls = 0;
+    let releaseFirstBatch!: () => void;
+    const firstBatchPersisted = new Promise<void>((resolve) => { releaseFirstBatch = resolve; });
+    const gateway = {
+      async generate(input: Parameters<ReturnType<typeof createStoryModelingTestGateway>["generate"]>[0]) {
+        batchCalls += 1;
+        await input.onBatch?.({ batchIndex: 0, inputTokens: 40, outputTokens: 20, result: { tool: input.request.tool, structureFindings: [], temporalPlacements: [], relationCandidates: [], logicFindings: [], perspectiveMatches: [] } });
+        releaseFirstBatch();
+        await new Promise<void>((resolve, reject) => {
+          if (input.signal.aborted) return reject(Object.assign(new Error("stopped"), { name: "AbortError" }));
+          input.signal.addEventListener("abort", () => reject(Object.assign(new Error("stopped"), { name: "AbortError" })), { once: true });
+        });
+        throw new Error("unreachable");
+      }
+    };
+    const modeling = createStoryStudioStoryModelingOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, gateway });
+    const plan = modeling.planStoryModeling({ projectId: fixture.projectId, tool: "analyze-core-story", scope: { kind: "full-book", sourceIds: [] }, eventRefs: fixture.refs });
+    const request = { projectId: fixture.projectId, operationId: "story-modeling-operation.stop", tool: "analyze-core-story" as const, trigger: "author-requested" as const, scope: plan.scope, manifest: plan.manifest, eventRefs: fixture.refs, selectedPerspectiveRefs: [], estimate: plan.estimate, authorConfirmedAt: "2026-09-02T01:59:59.000Z" };
+    const run = modeling.createStoryModelingRun({ request, runId: "story-modeling-run.stop" });
+    const execution = modeling.executeStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
+    await firstBatchPersisted;
+    const stopped = modeling.stopStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
+    assert.equal(stopped.status, "stopped");
+    await assert.rejects(execution, /stopped/u);
+    assert.equal(batchCalls, 1);
+    const restored = modeling.readStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
+    assert.equal(restored?.status, "stopped");
+    assert.equal(restored?.progress.completedBatches, 1);
+  } finally { await fixture.dispose(); }
+});
+
+test("results from multiple StoryModeling tools survive an operations restart", async () => {
+  const fixture = await setup();
+  try {
+    const first = createStoryStudioStoryModelingOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, gateway: createStoryModelingTestGateway(), now: () => "2026-09-02T02:00:00.000Z" });
+    for (const [index, tool] of (["analyze-core-story", "infer-temporal-position"] as const).entries()) {
+      const plan = first.planStoryModeling({ projectId: fixture.projectId, tool, scope: { kind: "selection", sourceIds: [], eventRefs: fixture.refs, unitIds: [] }, eventRefs: fixture.refs });
+      const run = first.createStoryModelingRun({ request: { projectId: fixture.projectId, operationId: `story-modeling-operation.restore.${index}`, tool, trigger: "author-requested", scope: plan.scope, manifest: plan.manifest, eventRefs: fixture.refs, selectedPerspectiveRefs: [], estimate: plan.estimate, authorConfirmedAt: "2026-09-02T01:59:59.000Z" }, runId: `story-modeling-run.restore.${index}` });
+      await first.executeStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
+    }
+    const restarted = createStoryStudioStoryModelingOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, gateway: createStoryModelingTestGateway() });
+    const restored = restarted.listStoryModelingRuns({ projectId: fixture.projectId });
+    assert.equal(restored.length, 2);
+    assert.deepEqual(new Set(restored.map((run) => run.tool)), new Set(["analyze-core-story", "infer-temporal-position"]));
+    assert.equal(restored.every((run) => run.status === "ready" && run.result !== null), true);
+  } finally { await fixture.dispose(); }
+});
+
 async function setup() {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-story-modeling-"));
   const stateFilePath = path.join(rootPath, "state.json");

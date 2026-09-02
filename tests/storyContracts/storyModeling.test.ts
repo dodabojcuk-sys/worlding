@@ -35,6 +35,29 @@ test("scope recommendation keeps cache, incremental and full-book as author-over
   assert.equal(full.authorMayOverride, true);
 });
 
+test("Event-only evidence never recommends or accepts full-book modeling", () => {
+  const eventManifest = createStoryModelingSourceManifest({ projectId: "long-night", sources: [{ ...source("event-source.event.a", 480, []), sourceKind: "event", sourceOrigin: "structured-event" }] });
+  const recommendation = recommendStoryModelingScope({ manifest: eventManifest, changedSourceIds: ["event-source.event.a"], structuralChange: true });
+  assert.equal(recommendation.scopeKind, "incremental");
+  assert.match(recommendation.reason, /Event 证据分析/u);
+  const scope = { kind: "full-book" as const, sourceIds: ["event-source.event.a"] };
+  assert.throws(() => normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.event-only", tool: "analyze-core-story", trigger: "author-requested", scope, manifest: eventManifest, eventRefs: [], selectedPerspectiveRefs: [], estimate: estimateStoryModelingRun({ manifest: eventManifest, scope, eventCount: 0 }), authorConfirmedAt: "2026-09-02T01:00:00.000Z" }), /requires original prose/u);
+});
+
+test("perspective request preserves the author's exact 2–5 versioned Owner references", () => {
+  const eventRef = { version: "story-studio-event-reference/v1" as const, projectId: "long-night", eventId: "event.a", revisionToken: "b".repeat(64), state: "planned" as const, requestedUse: "constraint" as const };
+  const eventManifest = createStoryModelingSourceManifest({ projectId: "long-night", sources: [{ ...source("event-source.event.a", 480, []), sourceKind: "event", sourceOrigin: "structured-event" }] });
+  const scope = { kind: "selection" as const, sourceIds: ["event-source.event.a"], eventRefs: [eventRef], unitIds: [] };
+  const refs = [
+    { objectId: "character.lin", objectType: "character" as const, ownerId: "long-night", version: "character.lin.r1", scope: "project" as const, label: "林昭" },
+    { objectId: "location.harbor", objectType: "location" as const, ownerId: "long-night", version: "location.harbor.r2", scope: "project" as const, label: "雾港" },
+    { objectId: "item.signal", objectType: "item" as const, ownerId: "long-night", version: "item.signal.r3", scope: "selection" as const, label: "暗号" }
+  ];
+  const normalized = normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.perspective", tool: "analyze-perspective", trigger: "author-requested", scope, manifest: eventManifest, eventRefs: [eventRef], selectedPerspectiveRefs: refs, estimate: estimateStoryModelingRun({ manifest: eventManifest, scope, eventCount: 1 }), authorConfirmedAt: "2026-09-02T01:00:00.000Z" });
+  assert.deepEqual(normalized.selectedPerspectiveRefs, refs);
+  assert.throws(() => normalizeStoryModelingRequest({ ...normalized, selectedPerspectiveRefs: refs.slice(0, 1) }), /requires 2–5/u);
+});
+
 test("token and request estimates are bounded and missing price never becomes zero cost", () => {
   const scope = { kind: "full-book" as const, sourceIds: manifest.sources.map((item) => item.sourceId) };
   const unknown = estimateStoryModelingRun({ manifest, scope, eventCount: 12 });
@@ -79,7 +102,7 @@ test("story modeling rejects result families outside the exact confirmed tool", 
 });
 
 function source(sourceId: string, characterCount: number, dependencySourceIds: string[]) {
-  return { sourceId, sourceKind: "chapter" as const, sourceOrigin: "original-prose" as const, label: sourceId, revision: `${sourceId}.revision.1`, contentDigest: `sha256:${"a".repeat(64)}` as const, characterCount, dependencySourceIds };
+  return { sourceId, sourceKind: "chapter" as "chapter" | "event", sourceOrigin: "original-prose" as "original-prose" | "structured-event", label: sourceId, revision: `${sourceId}.revision.1`, contentDigest: `sha256:${"a".repeat(64)}` as const, characterCount, dependencySourceIds };
 }
 
 function modelingResult(tool: "smart-relations", overrides: Record<string, unknown> = {}) { return { tool, structureFindings: [], temporalPlacements: [], relationCandidates: [], logicFindings: [], perspectiveMatches: [], ...overrides }; }

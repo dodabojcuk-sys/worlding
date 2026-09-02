@@ -52,3 +52,15 @@ test("higher caps require an explicit persisted authorization receipt", () => {
   ledger.reserve({ idempotencyKey: "after-auth", kind: "generation", scope: "authorized", authorizationReceiptId: "author-receipt-r0" });
   assert.equal(ledger.snapshot().counts.totalCalls, 2);
 });
+
+test("whole-run batch reservation is atomic and each reserved dispatch can be claimed once", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "tianyan-provider-budget-batch-"));
+  const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: { ...zeroProviderBudgetBaseline(), authorizedGenerationCap: 3, authorizedTotalCap: 3 } });
+  assert.throws(() => ledger.reserveBatch({ requests: Array.from({ length: 4 }, (_, index) => ({ idempotencyKey: `batch-overflow-${index}`, kind: "generation", scope: "story-modeling" })) }), /batch budget is exhausted/i);
+  assert.equal(ledger.snapshot().counts.totalCalls, 0);
+  const batch = ledger.reserveBatch({ requests: Array.from({ length: 3 }, (_, index) => ({ idempotencyKey: `batch-ok-${index}`, kind: "generation", scope: "story-modeling" })) });
+  assert.equal(batch.reservations.length, 3);
+  assert.equal(ledger.snapshot().counts.totalCalls, 3);
+  ledger.claim({ reservationId: batch.reservations[0]!.reservationId });
+  assert.throws(() => ledger.claim({ reservationId: batch.reservations[0]!.reservationId }), /already been dispatched/i);
+});
