@@ -8,6 +8,7 @@ const settings = source("apps/story-studio/src/settings/storage/SettingsStorageR
 const dialogue = source("apps/story-studio/src/components/tianyi/sidebar/TianyiDialoguePanel.tsx");
 const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
 const canvas = source("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx");
+const timeline = source("apps/story-studio/src/components/event-observation/TemporalCanvas.tsx");
 const execution = source("apps/story-studio/src/components/tianyi/execution/AgentExecutionGraph.tsx");
 const prediction = source("apps/story-studio/src/components/tianyi/sidebar/MultiNodePredictionPanel.tsx");
 const workbench = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
@@ -28,8 +29,8 @@ test("Dialogue names a retained background Agent task without mounting execution
 });
 
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {
-  assert.match(canvas, /fitView=\{mode !== "temporal"\}/u);
   assert.match(canvas, /minZoom=\{mode === "temporal" \? 0\.58 : \["overview", "focus", "review"\]\.includes\(predictionViewState\) \? 0\.94 : 0\.25\}/u);
+  assert.match(timeline, /minZoom=\{\.58\}/u);
   assert.match(canvas, /const zoom = Math\.max\(\.95, fittedZoom\)/u);
   assert.match(canvas, /const focusNodes = nodes/u);
   assert.match(canvas, /paddingX - minX \* zoom/u);

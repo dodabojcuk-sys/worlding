@@ -91,23 +91,23 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
   const archiveUnitById = async (unitId: string) => { const unit = state.storyUnits.find((item) => item.id === unitId); if (!unit) throw new Error("Story Unit is not available for archive in the current project."); await props.runtime.withConnection((token) => archiveStoryUnit({ projectId: state.projectId!, unitId: unit.id, expectedVersion: unit.version, token })); await load(); };
   const createCollectionPoint = async (input: { title: string; eventIds: string[] }) => {
     const unit = state.storyUnits.find((candidate) => input.eventIds.every((eventId) => candidate.linkedEntityIds.includes(eventId)));
-    if (!unit) throw new Error("集点中的 Event 必须同属一个正式故事单元。");
+    if (!unit) throw new Error("Collection Point Events must belong to one formal Story Unit.");
     const result = await props.runtime.withConnection((token) => createStoryCollectionPoint({ projectId: state.projectId!, unitId: unit.id, expectedUnitVersion: unit.version, operationId: `collection-point-create.${crypto.randomUUID()}`, title: input.title, eventIds: input.eventIds, sourceVersionRef: unit.sourceVersionRef ?? unit.version, token }));
-    if (result.conflict) throw new Error("单元已更新，请核对后重试集点创建。");
+    if (result.conflict) throw new Error("The Story Unit changed; reload before creating this Collection Point.");
     await load();
   };
   const updateCollectionPoint = async (input: { unitId: string; point: StoryCollectionPoint; title?: string; eventIds?: string[]; collapsed?: boolean; layout?: { x: number; y: number; pinned?: boolean } }) => {
     const unit = state.storyUnits.find((candidate) => candidate.id === input.unitId);
-    if (!unit) throw new Error("集点所属单元不可用。");
+    if (!unit) throw new Error("The Collection Point Story Unit is unavailable.");
     const result = await props.runtime.withConnection((token) => updateStoryCollectionPoint({ projectId: state.projectId!, unitId: unit.id, collectionPointId: input.point.id, expectedUnitVersion: unit.version, expectedRevision: input.point.revision, operationId: `collection-point-update.${crypto.randomUUID()}`, title: input.title, eventIds: input.eventIds, collapsed: input.collapsed, layout: input.layout, token }));
-    if (result.conflict) throw new Error("集点已在其他位置更新，请重新读取。");
+    if (result.conflict) throw new Error("The Collection Point changed elsewhere; reload before updating it.");
     await load();
   };
   const dissolveCollectionPoint = async (input: { unitId: string; point: StoryCollectionPoint }) => {
     const unit = state.storyUnits.find((candidate) => candidate.id === input.unitId);
-    if (!unit) throw new Error("集点所属单元不可用。");
+    if (!unit) throw new Error("The Collection Point Story Unit is unavailable.");
     const result = await props.runtime.withConnection((token) => dissolveStoryCollectionPoint({ projectId: state.projectId!, unitId: unit.id, collectionPointId: input.point.id, expectedUnitVersion: unit.version, expectedRevision: input.point.revision, operationId: `collection-point-dissolve.${crypto.randomUUID()}`, token }));
-    if (result.conflict) throw new Error("集点已更新，未解散。");
+    if (result.conflict) throw new Error("The Collection Point changed; it was not dissolved.");
     await load();
   };
   const trashDraftEvent = async (eventId: string) => {

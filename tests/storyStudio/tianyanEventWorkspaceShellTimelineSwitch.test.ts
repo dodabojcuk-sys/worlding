@@ -6,18 +6,21 @@ const workspace = readFileSync("apps/story-studio/src/components/EventLineWorkbe
 const shell = readFileSync("apps/story-studio/src/product-shell/TianyanR0Shell.tsx", "utf8");
 const shellStyles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 const graph = readFileSync("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "utf8");
+const timeline = readFileSync("apps/story-studio/src/components/event-observation/TemporalCanvas.tsx", "utf8");
 const formalEventNode = readFileSync("apps/story-studio/src/components/graph-nodes/FormalEventNode.tsx", "utf8");
 const tianyiSidebar = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
 const coordinator = readFileSync("apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts", "utf8");
 const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "utf8");
 
-test("event workspace offers two primary views and three canvas dimensions while retaining local selection", () => {
-  assert.match(workspace, /aria-label="事件线一级视图"/u);
-  assert.match(workspace, /故事结构/u);
-  assert.match(workspace, /事件画布/u);
-  assert.match(workspace, /aria-label="事件画布观察维度"/u);
+test("event workspace groups structure, arrangement and observation while retaining local selection", () => {
+  assert.match(workspace, /aria-label="事件工作区视图"/u);
+  assert.match(workspace, />结构</u);
+  assert.match(workspace, />编排</u);
+  assert.match(workspace, />观察</u);
+  assert.match(workspace, /故事脊柱/u);
+  assert.match(workspace, /事件线/u);
   assert.match(workspace, />关系</u);
-  assert.match(workspace, />时间</u);
+  assert.match(workspace, />时间线</u);
   assert.match(workspace, />视角</u);
   assert.match(workspace, /selectedEventId=\{selectedEventId\}/u);
   assert.match(workspace, /readProjectionMode\(props\.projectId\)/u);
@@ -25,21 +28,18 @@ test("event workspace offers two primary views and three canvas dimensions while
   assert.match(workspace, /eventView/u);
 });
 
-test("timeline keeps the same Event Graph foreground over a semantic screen background", () => {
-  assert.match(workspace, /mode=\{projectionMode === "timeline" \? "temporal" : "graph"\}/u);
-  assert.match(graph, /data-event-foreground=\{mode === "temporal" \? "shared" : "formal"\}/u);
-  assert.match(graph, /data-temporal-background=\{mode === "temporal" \? "screens" : "none"\}/u);
-  assert.match(graph, /type: "temporalScreen"/u);
-  assert.match(graph, /zIndex: -10 - index/u);
+test("timeline owns an independent projection while preserving formal Event ids", () => {
+  assert.match(workspace, /<TemporalCanvas/u);
+  assert.doesNotMatch(workspace, /<EventGraphCanvas[^>]+mode=\{projectionMode === "timeline"/u);
+  assert.match(timeline, /data-temporal-projection="independent"/u);
+  assert.match(timeline, /id: event\.id, type: "temporalEvent"/u);
+  assert.match(timeline, /TemporalEventNode/u);
+  assert.match(timeline, /temporal-unplaced-tray/u);
+  assert.match(timeline, /temporal-conflict-zone/u);
+  assert.match(timeline, /props\.onReturnGraph/u);
+  assert.match(workspace, /next === "line" \|\| next === "graph" \|\| next === "timeline"/u);
+  assert.doesNotMatch(timeline, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
   assert.match(formalEventNode, /正式时间未确认 ·/u);
-  assert.match(graph, /semanticZoom/u);
-  assert.match(graph, /fitTemporalProjection/u);
-  assert.match(graph, /Math\.max\(\.84/u);
-  assert.match(graph, /temporal-cross-screen-edge/u);
-  assert.match(graph, /props\.onReturnGraph/u);
-  assert.match(workspace, /next === "graph" \|\| next === "timeline" \|\| next === "perspective"/u);
-  assert.doesNotMatch(graph, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
-  assert.equal(workspace.includes("EventTimelineProjection"), false);
 });
 
 test("graph leaves dimension switching to the named workspace navigation", () => {

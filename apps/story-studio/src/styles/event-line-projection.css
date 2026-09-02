@@ -712,6 +712,34 @@
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-local-rail { display: none; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-inspector { grid-column: 3; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__node { transition: transform 240ms cubic-bezier(.2, .75, .25, 1); }
+.shell-workspace-event-line .temporal-workspace { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-block-size: 0; block-size: 100%; overflow: hidden; background: var(--color-workspace-background); }
+.shell-workspace-event-line .temporal-commandbar { display: flex; align-items: center; gap: .8rem; min-block-size: 3rem; padding: .4rem .7rem; background: var(--color-surface); border-block-end: 1px solid var(--color-border); }
+.shell-workspace-event-line .temporal-commandbar > strong { display: inline-flex; align-items: center; gap: .4rem; color: var(--color-text); }
+.shell-workspace-event-line .temporal-commandbar > strong svg { inline-size: 1rem; color: var(--color-accent); }
+.shell-workspace-event-line .temporal-commandbar > span { min-inline-size: 0; overflow: hidden; color: var(--color-text-muted); font-size: .8125rem; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .temporal-commandbar > div { display: flex; gap: .35rem; margin-inline-start: auto; }
+.shell-workspace-event-line .temporal-commandbar button { display: inline-flex; align-items: center; gap: .3rem; min-block-size: 2.15rem; padding-inline: .65rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.shell-workspace-event-line .temporal-commandbar button:disabled { opacity: .45; cursor: not-allowed; }
+.shell-workspace-event-line .temporal-commandbar button svg { inline-size: .9rem; }
+.shell-workspace-event-line .temporal-flow { position: relative; min-block-size: 0; overflow: hidden; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }
+.shell-workspace-event-line .temporal-flow > .react-flow { position: absolute; inset: 0; }
+.shell-workspace-event-line .temporal-event-node { inline-size: 13.25rem; }
+.shell-workspace-event-line .temporal-event-card { display: grid; gap: .28rem; inline-size: 13.25rem; min-block-size: 6.25rem; padding: .65rem .72rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-inline-start: .28rem solid var(--color-accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+.shell-workspace-event-line .temporal-event-card > header { display: flex; align-items: center; gap: .28rem; color: var(--color-accent); font-size: .75rem; font-weight: 700; }
+.shell-workspace-event-line .temporal-event-card > header svg { inline-size: .82rem; }
+.shell-workspace-event-line .temporal-event-card > strong { overflow: hidden; font-size: .875rem; text-overflow: ellipsis; white-space: nowrap; }
+.shell-workspace-event-line .temporal-event-card > time,
+.shell-workspace-event-line .temporal-event-card > small { color: var(--color-text-muted); font-size: .75rem; }
+.shell-workspace-event-line .temporal-event-card.is-compact { min-block-size: 4.8rem; }
+.shell-workspace-event-line .temporal-event-card.is-inferred,
+.shell-workspace-event-line .temporal-event-card.is-ambiguous { border-style: dashed; }
+.shell-workspace-event-line .temporal-event-card.is-ambiguous { border-inline-start-color: var(--color-warning); }
+.shell-workspace-event-line .temporal-event-card.is-unplaced { opacity: .82; border-style: dotted; }
+.shell-workspace-event-line .temporal-event-card.is-conflict { border-color: var(--color-danger); border-inline-start-color: var(--color-danger); }
+.shell-workspace-event-line .temporal-event-card.is-conflict > header { color: var(--color-danger); }
+.shell-workspace-event-line .temporal-constraint-edge .react-flow__edge-path { stroke: color-mix(in srgb, var(--color-accent) 62%, var(--color-border)); stroke-width: 1.6; }
+.shell-workspace-event-line .temporal-constraint-edge .react-flow__edge-text { font-size: .75rem; }
+.shell-workspace-event-line .temporal-workspace .temporal-coordinate-overlay { inset-block-start: 0; }
 .shell-workspace-event-line .temporal-coordinate-overlay { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
 .shell-workspace-event-line .temporal-top-ruler { position: absolute; inset: 0 0 auto 0; block-size: 3rem; overflow: hidden; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border-block-end: 1px solid var(--color-border); box-shadow: 0 .18rem .65rem color-mix(in srgb, var(--color-text) 7%, transparent); }
 .shell-workspace-event-line .temporal-top-ruler > strong { position: absolute; inset: .35rem auto auto .55rem; z-index: 2; padding: .18rem .4rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-xs); font-size: .75rem; }

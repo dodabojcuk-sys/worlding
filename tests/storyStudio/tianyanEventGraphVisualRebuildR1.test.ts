@@ -15,7 +15,7 @@ test("event graph R1 keeps global and focus in one projection component", () => 
   assert.match(graph, /function deriveGraph/u);
   assert.match(graph, /returnGlobal/u);
   assert.match(graph, /展开一层/u);
-  assert.match(graph, /tianyan-event-graph-layout\/v2/u);
+  assert.match(graph, /tianyan-event-graph-layout\/v3/u);
   assert.match(graph, /localStorage/u);
 });
 
@@ -56,7 +56,7 @@ test("event graph R1 uses one contextual inspector rather than the spine page do
   assert.match(graph, /事件检查器/u);
   assert.match(graph, /待确认关系检查器/u);
   assert.match(graph, /正式关系检查器/u);
-  assert.match(workspace, /projectionMode !== "graph" \? <PageContextDock/u);
+  assert.match(workspace, /\["line", "graph", "timeline"\][^\n]+includes\(projectionMode\)[^\n]+<PageContextDock/u);
   assert.match(workspace, /onClearSelection/u);
 });
 
