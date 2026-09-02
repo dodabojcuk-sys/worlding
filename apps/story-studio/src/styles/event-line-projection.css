@@ -273,7 +273,9 @@
 }
 
 .shell-workspace-event-line .event-line-spine-toolbar > div:first-child {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
 }
 
 .shell-workspace-event-line .event-line-unit header small,
@@ -301,6 +303,8 @@
 .shell-workspace-event-line .event-line-view-switch {
   display: inline-flex;
   min-width: 0;
+  max-inline-size: 100%;
+  overflow-x: auto;
   padding: 0.2rem;
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
@@ -743,6 +747,9 @@
 .shell-workspace-event-line .temporal-event-card.is-unplaced { opacity: .82; border-style: dotted; }
 .shell-workspace-event-line .temporal-event-card.is-conflict { border-color: var(--color-danger); border-inline-start-color: var(--color-danger); }
 .shell-workspace-event-line .temporal-event-card.is-conflict > header { color: var(--color-danger); }
+.shell-workspace-event-line .temporal-event-port { inline-size: .58rem; block-size: .58rem; background: var(--color-surface); border: 2px solid var(--color-accent); }
+.shell-workspace-event-line .temporal-event-port.is-input { inset-inline-start: -.28rem; }
+.shell-workspace-event-line .temporal-event-port.is-output { inset-inline-end: -.28rem; }
 .shell-workspace-event-line .temporal-constraint-edge .react-flow__edge-path { stroke: color-mix(in srgb, var(--color-accent) 62%, var(--color-border)); stroke-width: 1.6; }
 .shell-workspace-event-line .temporal-constraint-edge .react-flow__edge-text { font-size: .75rem; }
 .shell-workspace-event-line .temporal-workspace .temporal-coordinate-overlay { inset-block-start: 0; }

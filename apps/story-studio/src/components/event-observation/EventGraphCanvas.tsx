@@ -134,7 +134,7 @@ export function EventGraphCanvas(props: {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuTriggerRef = useRef<HTMLElement | null>(null);
   const contextMenuWasOpen = useRef(false);
-  const layout = useMemo(() => readLayout(props.projectId), [props.projectId, layoutRevision]);
+  const layout = useMemo(() => readLayout(props.projectId, canvasKind), [canvasKind, props.projectId, layoutRevision]);
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
   const graphRelations = densityFixture?.relations ?? props.relations;
@@ -350,9 +350,9 @@ export function EventGraphCanvas(props: {
     const positions = { ...layout.positions };
     for (const node of nodes) if (node.type === "event" && movedIds.has(node.id)) positions[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) };
     positions[movedNode.id] = { x: Math.round(movedNode.position.x), y: Math.round(movedNode.position.y) };
-    writeLayout(props.projectId, positions, graphSourceVersion);
+    writeLayout(props.projectId, canvasKind, positions, graphSourceVersion);
     setLayoutRevision((value) => value + 1);
-  }, [graphSourceVersion, layout.positions, nodes, props.projectId, workspaceSelectionIds]);
+  }, [canvasKind, graphSourceVersion, layout.positions, nodes, props.projectId, workspaceSelectionIds]);
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
     setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
@@ -466,7 +466,7 @@ export function EventGraphCanvas(props: {
           } else focus(currentEvent.id);
         }}><Focus /><span>聚焦当前</span></button>
         {view === "focus" ? <button type="button" aria-label="展开一层" title="展开一层" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 /><span>展开一层</span></button> : null}
-        {mode === "graph" ? <><button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}, graphSourceVersion); setLayoutRevision((value) => value + 1); setNotice("已以当前来源版本重新水平编排；上一版位置可恢复。"); }}><RefreshCw /><span>自动布局</span></button>{layout.history.length ? <button type="button" aria-label="恢复上一版布局" onClick={() => { restorePreviousLayout(props.projectId); setLayoutRevision((value) => value + 1); setNotice("已恢复上一版布局。"); }}><ArrowLeft /><span>恢复上一版</span></button> : null}</> : null}
+        {mode === "graph" ? <><button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, canvasKind, {}, graphSourceVersion); setLayoutRevision((value) => value + 1); setNotice(canvasKind === "narrative" ? "已以当前来源版本重新水平编排；上一版位置可恢复。" : "已重新整理关系投影；上一版位置可恢复。"); }}><RefreshCw /><span>自动布局</span></button>{layout.history.length ? <button type="button" aria-label="恢复上一版布局" onClick={() => { restorePreviousLayout(props.projectId, canvasKind); setLayoutRevision((value) => value + 1); setNotice("已恢复上一版布局。"); }}><ArrowLeft /><span>恢复上一版</span></button> : null}</> : null}
         <button type="button" aria-label="筛选" title="筛选" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter /><span>筛选</span></button>
         <button type="button" aria-label={mode === "temporal" ? "时间总览" : "适应视图"} onClick={() => {
           if (mode === "temporal" && flow) {
@@ -811,7 +811,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   });
   const temporalByEvent = new Map(temporalRun?.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) ?? []);
   const temporalPositions = temporalEventPositions(visibleEvents, temporalByEvent, semanticZoom);
-  const narrativeLayout = mode === "graph" ? buildEventNarrativeLayout({
+  const narrativeLayout = mode === "graph" && canvasKind === "narrative" ? buildEventNarrativeLayout({
     events: visibleEvents.map((event, order) => {
       const semantic = eventLineSemanticNode(event);
       const branch = canvasKind === "narrative" && semantic.storyLine.kind !== "main";
@@ -827,7 +827,8 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? narrativeLayout?.positions[event.id] ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
+    const graphPosition = canvasKind === "narrative" ? narrativeLayout?.positions[event.id] : positions[event.id] ?? relationGraphPosition(index);
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? graphPosition ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
   });
   const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
     const rows = Math.ceil(point.eventIds.length / 2);
@@ -959,15 +960,16 @@ function remoteIds(focusId: string, eventIds: ReadonlySet<string>, visible: Read
 function collectionPointPosition(point: StoryCollectionPoint, index: number) { return point.layout.x || point.layout.y ? { x: point.layout.x, y: point.layout.y } : { x: 80 + index * 520, y: 100 + (index % 2) * 330 }; }
 /** Development-only fallback for malformed fixtures; product layout uses buildEventNarrativeLayout. */
 function developmentGridFallback(index: number) { return { x: 90 + index * 270, y: 160 }; }
+function relationGraphPosition(index: number) { return { x: 90 + (index % 3) * 280, y: 92 + Math.floor(index / 3) * 184 }; }
 function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId: string, relations: readonly RelationReadProjectionR0[], remote: { past: ReadonlySet<string>; future: ReadonlySet<string> }) {
   const inbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === event.id && relation.targetObjectId === focusId));
   const outbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === focusId && relation.targetObjectId === event.id));
   const assigned = new Set([focusId, ...inbound.map((event) => event.id), ...outbound.map((event) => event.id)]);
   const remaining = events.filter((event) => !assigned.has(event.id));
-  const positions: Record<string, { x: number; y: number }> = { [focusId]: { x: 500, y: 260 } };
+  const positions: Record<string, { x: number; y: number }> = { [focusId]: { x: 400, y: 260 } };
   inbound.forEach((event, index) => { positions[event.id] = { x: 60, y: 100 + index * 170 }; });
-  outbound.forEach((event, index) => { positions[event.id] = { x: 940, y: 100 + index * 170 }; });
-  remaining.forEach((event, index) => { positions[event.id] = { x: 500, y: 70 + index * 170 }; });
+  outbound.forEach((event, index) => { positions[event.id] = { x: 720, y: 100 + index * 170 }; });
+  remaining.forEach((event, index) => { positions[event.id] = { x: 400, y: 70 + index * 170 }; });
   const remoteY = (count: number) => Math.max(450, 100 + Math.max(0, count - 1) * 170 + 180);
   return {
     positions,
@@ -977,33 +979,22 @@ function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId
     // remote cluster beneath it.
     remote: {
       past: remote.past.size ? { x: 40, y: remoteY(inbound.length) } : undefined,
-      future: remote.future.size ? { x: 960, y: remoteY(outbound.length) } : undefined
+      future: remote.future.size ? { x: 740, y: remoteY(outbound.length) } : undefined
     }
   };
 }
 function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], drawerOpen: boolean) {
-  const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
-  if (!canvas || !nodes.length) return;
-  // These are the measured outer card dimensions at zoom 1. The focus layout
-  // intentionally remains independent from saved coordinates, while viewport
-  // fitting is calculated from the current DOM canvas after its inspector has
-  // taken its real width.
-  const nodeWidth = 234;
-  // Focus cards may grow a few pixels when the host font metrics wrap a status
-  // line (CI Linux fonts are slightly taller than the bundled desktop font).
-  // Fit against the conservative rendered envelope so remote clusters stay
-  // inside the live canvas without shrinking the node typography.
-  const nodeHeight = 164;
-  const minX = Math.min(...nodes.map((node) => node.position.x));
-  const maxX = Math.max(...nodes.map((node) => node.position.x + nodeWidth));
-  const minY = Math.min(...nodes.map((node) => node.position.y));
-  const maxY = Math.max(...nodes.map((node) => node.position.y + nodeHeight));
-  const horizontalPadding = drawerOpen ? 170 : 52;
-  const verticalPadding = 52;
-  const zoom = Math.min(1.05, (canvas.width - horizontalPadding * 2) / Math.max(1, maxX - minX), (canvas.height - verticalPadding * 2) / Math.max(1, maxY - minY));
-  const x = (canvas.width - (maxX - minX) * zoom) / 2 - minX * zoom;
-  const y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
-  void flow.setViewport({ x, y, zoom: Math.max(0.25, zoom) }, { duration: 0 });
+  if (!nodes.length) return;
+  // React Flow owns the live viewport dimensions. Asking the instance to fit
+  // the explicit focus projection avoids measuring a clipped ancestor when
+  // the workspace inspector or local directory is layered over the canvas.
+  void flow.fitView({
+    nodes: nodes.map((node) => ({ id: node.id })),
+    padding: drawerOpen ? .18 : .08,
+    minZoom: .25,
+    maxZoom: 1.05,
+    duration: 0
+  });
 }
 function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect();
@@ -1104,31 +1095,31 @@ function syntheticDensityFixture(): { events: EventLineEventSummary[]; relations
 function directionLabel(direction: RelationReadProjectionR0["direction"]) { return direction === "reverse" ? "目标 → 来源" : direction === "both" ? "双向" : direction === "none" ? "未指定方向" : "来源 → 目标"; }
 function relationReason(relation: RelationReadProjectionR0) { const source = typeof relation.provenance.sourceRef === "string" ? relation.provenance.sourceRef : ""; return /pi|agent|tianyi/iu.test(source) ? "由天意提出，等待作者确认" : "由作者操作提出，等待作者确认"; }
 function evidenceLabel(relation: RelationReadProjectionR0) { return relation.evidenceWarnings.length ? String(relation.evidenceWarnings.length) + " 条证据仍需核验。" : relation.evidenceRefs.length ? "已有可追溯的关系证据。" : "当前未附加额外证据。"; }
-function layoutKey(projectId: string) { return "tianyan.event-graph-layout/v3:" + projectId; }
-function readLayout(projectId: string): Layout {
+function layoutKey(projectId: string, canvasKind: "narrative" | "relation") { return `tianyan.event-graph-layout/v3:${canvasKind}:${projectId}`; }
+function readLayout(projectId: string, canvasKind: "narrative" | "relation"): Layout {
   try {
-    const value = window.localStorage.getItem(layoutKey(projectId));
+    const value = window.localStorage.getItem(layoutKey(projectId, canvasKind));
     const parsed = value ? JSON.parse(value) as Partial<Layout> : null;
     if (parsed?.version === "tianyan-event-graph-layout/v3" && parsed.positions && typeof parsed.positions === "object") return { version: parsed.version, sourceVersion: typeof parsed.sourceVersion === "string" ? parsed.sourceVersion : "unknown", positions: parsed.positions as Layout["positions"], history: Array.isArray(parsed.history) ? parsed.history.slice(-5) as LayoutSnapshot[] : [] };
-    const legacy = window.localStorage.getItem("tianyan.event-graph-layout/v2:" + projectId);
+    const legacy = canvasKind === "relation" ? window.localStorage.getItem("tianyan.event-graph-layout/v2:" + projectId) : null;
     const legacyLayout = legacy ? JSON.parse(legacy) as { positions?: Layout["positions"] } : null;
     if (legacyLayout?.positions) return { version: "tianyan-event-graph-layout/v3", sourceVersion: "legacy-v2", positions: legacyLayout.positions, history: [] };
   } catch {}
   return { version: "tianyan-event-graph-layout/v3", sourceVersion: "unknown", positions: {}, history: [] };
 }
-function writeLayout(projectId: string, positions: Layout["positions"], sourceVersion: string) {
+function writeLayout(projectId: string, canvasKind: "narrative" | "relation", positions: Layout["positions"], sourceVersion: string) {
   try {
-    const current = readLayout(projectId);
+    const current = readLayout(projectId, canvasKind);
     const changed = JSON.stringify(current.positions) !== JSON.stringify(positions) || current.sourceVersion !== sourceVersion;
     const history = changed && Object.keys(current.positions).length ? [...current.history, { sourceVersion: current.sourceVersion, positions: current.positions }].slice(-5) : current.history;
-    window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion, positions, history } satisfies Layout));
+    window.localStorage.setItem(layoutKey(projectId, canvasKind), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion, positions, history } satisfies Layout));
   } catch {}
 }
-function restorePreviousLayout(projectId: string) {
+function restorePreviousLayout(projectId: string, canvasKind: "narrative" | "relation") {
   try {
-    const current = readLayout(projectId);
+    const current = readLayout(projectId, canvasKind);
     const previous = current.history.at(-1);
     if (!previous) return;
-    window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion: previous.sourceVersion, positions: previous.positions, history: current.history.slice(0, -1) } satisfies Layout));
+    window.localStorage.setItem(layoutKey(projectId, canvasKind), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion: previous.sourceVersion, positions: previous.positions, history: current.history.slice(0, -1) } satisfies Layout));
   } catch {}
 }

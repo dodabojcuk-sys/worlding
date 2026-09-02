@@ -22,7 +22,7 @@ test("event, candidate overlay and Agent execution remain three explicit graph l
 });
 
 test("seven semantic node families have distinct product components", () => {
-  assert.match(formalEvent, /family = props\.data\.remote \? "remote-event" : props\.data\.status === "\u8349\u7a3f"[\s\S]*"draft-event" : "formal-event"/u);
+  assert.match(formalEvent, /family = props\.data\.remote \? "remote-event"[\s\S]*"draft-event"[\s\S]*"turning-event" : "formal-event"/u);
   assert.match(candidateEvent, /"candidate-existing-reference"/u);
   assert.match(candidateEvent, /"candidate-conflict"/u);
   assert.match(candidateEvent, /\u5019\u9009 \u00b7 \u5c1a\u672a\u5199\u5165\u4e8b\u4ef6\u7ebf/u);

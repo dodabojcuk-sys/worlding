@@ -1,4 +1,4 @@
-import { Background, Controls, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
+import { Background, Controls, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
 import { AlertTriangle, Clock3, Focus, LocateFixed, Network } from "lucide-react";
 import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
@@ -49,7 +49,7 @@ export function TemporalCanvas(props: {
       <div>
         <button type="button" onClick={() => props.onReturnGraph()}><Network />返回关系图</button>
         <button type="button" disabled={!props.selectedEventId} onClick={focusCurrent}><LocateFixed />定位所选</button>
-        <button type="button" onClick={() => void flow?.fitView({ duration: 280, padding: .18, minZoom: .58, maxZoom: 1 })}><Focus />时间总览</button>
+        <button type="button" onClick={() => void flow?.fitView({ duration: 280, padding: .18, minZoom: .82, maxZoom: 1 })}><Focus />时间总览</button>
       </div>
     </header>
     <div className={`temporal-canvas-status is-${props.temporalState}`} role="status"><Clock3 /><div><strong>{stateLabel}</strong><span>{props.temporalMessage ?? "切换、缩放、平移和刷新均不会启动分析或产生费用。"}</span></div></div>
@@ -80,10 +80,12 @@ export function TemporalCanvas(props: {
 function TemporalEventNode(props: NodeProps<Node<TemporalNodeData>>) {
   const data = props.data;
   return <article className={`temporal-event-card is-${data.state} is-${data.detail}`} aria-label={`${data.title}，${data.timeLabel}，${temporalStateLabel(data.state)}`}>
+    <Handle className="temporal-event-port is-input" type="target" position={Position.Left} isConnectable={false} />
     <header><Clock3 aria-hidden="true" /><span>{temporalStateLabel(data.state)}</span></header>
     <strong>{data.title}</strong>
     <time>{data.timeLabel}</time>
     {data.detail === "expanded" ? <small>{data.sourceLabel}</small> : null}
+    <Handle className="temporal-event-port is-output" type="source" position={Position.Right} isConnectable={false} />
   </article>;
 }
 
@@ -143,11 +145,11 @@ function isSelectedCausalChain(relation: RelationReadProjectionR0, selectedEvent
 function TemporalCoordinateOverlay(props: { nodes: readonly Node<TemporalNodeData>[]; viewport: { x: number; y: number; zoom: number }; detail: TemporalNodeData["detail"]; selected: Node<TemporalNodeData> | null; selectedScreenPosition: { x: number; y: number } | null; unresolvedCount: number; conflictCount: number }) {
   const resolved = props.nodes.filter((node) => node.data.state !== "unplaced" && node.data.state !== "conflict");
   const ruler = resolved.filter((_, index) => props.detail !== "compact" || index % 2 === 0).slice(0, 14);
-  return <div className="temporal-coordinate-overlay" data-zoom-density={props.detail}>
-    <div className="temporal-top-ruler"><strong>故事时间 →</strong>{ruler.map((node) => <span key={node.id} style={{ left: `${node.position.x * props.viewport.zoom + props.viewport.x}px` }}><i />{node.data.timeLabel}</span>)}</div>
-    <div className="temporal-left-scale"><strong>稳定轨道</strong>{TEMPORAL_COORDINATE_TRACKS.map((track) => <span key={track.id} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
+  return <div className="temporal-coordinate-overlay" aria-label="二维时间坐标" data-zoom-density={props.detail}>
+    <div className="temporal-top-ruler" aria-label="时间标尺"><strong>故事时间 →</strong>{ruler.map((node) => <span key={node.id} style={{ left: `${node.position.x * props.viewport.zoom + props.viewport.x}px` }}><i />{node.data.timeLabel}</span>)}</div>
+    <div className="temporal-left-scale" aria-label="稳定故事轨道"><strong>稳定轨道</strong>{TEMPORAL_COORDINATE_TRACKS.map((track) => <span key={track.id} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
     {props.selected && props.selectedScreenPosition ? <div className="temporal-crosshair" style={{ "--crosshair-x": `${props.selectedScreenPosition.x}px`, "--crosshair-y": `${props.selectedScreenPosition.y}px` } as CSSProperties}><span>{props.selected.data.title}</span></div> : null}
-    {props.unresolvedCount ? <aside className="temporal-unplaced-tray"><Clock3 /><strong>未定位托盘 · {props.unresolvedCount}</strong><span>未知时间保持未定位，不会被塞到时间末尾。</span></aside> : null}
-    {props.conflictCount ? <aside className="temporal-conflict-zone"><AlertTriangle /><strong>冲突区域 · {props.conflictCount}</strong><span>冲突事件与正式时间、推断区间严格分离。</span></aside> : null}
+    {props.unresolvedCount ? <aside className="temporal-unplaced-tray" aria-label="未定位事件"><Clock3 /><strong>未定位托盘 · {props.unresolvedCount}</strong><span>未知时间保持未定位，不会被塞到时间末尾。</span></aside> : null}
+    {props.conflictCount ? <aside className="temporal-conflict-zone" aria-label="时间冲突区"><AlertTriangle /><strong>冲突区域 · {props.conflictCount}</strong><span>冲突事件与正式时间、推断区间严格分离。</span></aside> : null}
   </div>;
 }
