@@ -483,6 +483,9 @@
 .shell-workspace-event-line .event-observation-options :is(select, input):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .shell-workspace-event-line .event-observation-options { flex: 0 0 auto; display: flex; align-items: center; gap: .45rem; padding-inline-start: .6rem; border-inline-start: 1px solid var(--color-border); }
 .shell-workspace-event-line .event-observation-options label { display: inline-flex; align-items: center; gap: .3rem; color: var(--color-text-muted); font-size: .7rem; white-space: nowrap; }
+.shell-workspace-event-line .event-observation-render { display: inline-flex; align-items: center; gap: .2rem; color: var(--color-text-muted); font-size: .7rem; white-space: nowrap; }
+.shell-workspace-event-line .event-observation-render button { min-block-size: 1.8rem; padding-inline: .42rem; color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .72rem; }
+.shell-workspace-event-line .event-observation-render button[aria-pressed="true"] { color: var(--color-accent); background: var(--color-accent-soft); font-weight: 750; }
 .shell-workspace-event-line .event-observation-options select { min-block-size: 2rem; padding-inline: .45rem 1.5rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .75rem; }
 .shell-workspace-event-line .event-observation-save { color: var(--color-text); background: var(--color-surface); border-color: var(--color-border); }
 .shell-workspace-event-line .event-observation-save-notice { max-inline-size: 10rem; color: var(--color-text-muted); font-size: .66rem; line-height: 1.25; }
@@ -551,6 +554,49 @@
 :is(.shell-workspace-event-line, .event-line-workbench) .event-participation-empty { flex: 1 1 0; display: grid; place-content: center; justify-items: center; gap: .5rem; min-block-size: 15rem; color: var(--color-text-muted); text-align: center; }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-participation-empty > svg { inline-size: 2rem; color: var(--color-accent); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-participation-empty p { max-inline-size: 30rem; margin: 0; line-height: 1.6; }
+
+/* R11.1: selection is progressive disclosure; the canvas owns the available width. */
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace { display: block; overflow: hidden; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-canvas { block-size: 100%; padding: clamp(.55rem, 1.1vw, .9rem); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-selection { flex: 0 0 auto; display: flex; align-items: center; gap: .5rem; min-block-size: 2.2rem; padding-block-end: .45rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker-trigger { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .35rem; min-block-size: 2rem; padding-inline: .6rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .75rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker-trigger svg { inline-size: .85rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker-trigger > svg:last-child { transition: transform .15s ease; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker-trigger[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker { z-index: 3; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .75rem; max-block-size: 12rem; margin-block-end: .5rem; padding: .65rem .75rem; overflow: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker > header { min-inline-size: 10rem; margin: 0; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker > div { display: flex; flex-wrap: wrap; gap: .45rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-picker fieldset { min-inline-size: 9rem; margin: 0; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-focus { min-block-size: 0; padding-block-end: 0; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-scroll { min-block-size: 0; overflow-x: auto; overflow-y: hidden; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-matrix .event-participation-scroll { overflow: auto; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-matrix { min-inline-size: 100%; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-object { min-block-size: 3.8rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell { position: relative; min-block-size: 3.8rem; grid-template-columns: 1fr; place-content: center; padding: .35rem; background: transparent; border-block-end: 0; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell::before { content: ""; position: absolute; z-index: 0; inset-inline: -1px; inset-block-start: 50%; block-size: 2px; background: color-mix(in srgb, var(--color-accent) 30%, var(--color-border)); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell > :not(.sr-only) { position: relative; z-index: 1; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell > svg { inline-size: 1.45rem; block-size: 1.45rem; padding: .2rem; background: var(--color-surface); border: 2px solid currentColor; border-radius: 50%; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell.is-witnessed > svg { border-style: dashed; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell.is-explicit-absence > svg { border-radius: var(--radius-sm); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell.is-unknown { color: color-mix(in srgb, var(--color-text-muted) 55%, transparent); background: transparent; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell.is-unknown::before { background: color-mix(in srgb, var(--color-border) 70%, transparent); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-workspace.is-trajectory .event-participation-cell.is-unknown > svg { inline-size: .52rem; block-size: .52rem; padding: 0; border-width: 1px; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine { flex: 0 0 auto; display: flex; align-items: center; gap: .35rem; min-block-size: 2.15rem; margin-block-start: .45rem; padding: .35rem .5rem; overflow-x: auto; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-accent-soft) 40%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .67rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine > span { flex: 0 0 auto; color: var(--color-text); font-weight: 750; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine button { display: inline-flex; align-items: center; gap: .2rem; padding: 0; color: inherit; background: transparent; border: 0; font-size: inherit; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine i { inline-size: .45rem; block-size: .45rem; background: var(--color-border); border-radius: 50%; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine button[aria-current="true"] { color: var(--color-accent); font-weight: 750; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine button[aria-current="true"] i { inline-size: .7rem; block-size: .7rem; background: var(--color-accent); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-participation-spine strong { margin-inline-start: auto; white-space: nowrap; }
+
+@media (max-width: 85rem) {
+  /* Keep the canonical create action reachable while reclaiming secondary toolbar space for the reading canvas. */
+  .shell-workspace-event-line .event-line-shell[data-page-dock-open="true"] .event-line-view-actions > :not(.primary-action) { display: none; }
+  /* Participation already owns the reading surface; its duplicate create button can yield this width to two-line controls. */
+  .shell-workspace-event-line .event-line-shell[data-page-dock-open="true"]:has(.event-participation-workspace.is-trajectory) .event-line-view-actions { display: none; }
+  .shell-workspace-event-line .event-line-shell[data-page-dock-open="true"] .event-observation-axis button { gap: 0; padding-inline: .38rem; }
+  .shell-workspace-event-line .event-line-shell[data-page-dock-open="true"] .event-observation-axis button svg { display: none; }
+}
 
 .story-logic-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 1rem; background: color-mix(in srgb, var(--color-structure-background) 45%, transparent); }
 .story-logic-panel { width: min(48rem, 100%); max-height: calc(100vh - 2rem); display: grid; gap: 1rem; overflow: auto; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); }

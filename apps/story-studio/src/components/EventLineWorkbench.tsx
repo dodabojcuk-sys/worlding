@@ -68,7 +68,8 @@ import {
   type EventObservationLayout,
   type EventObservationLens,
   type EventObservationScale,
-  type EventObservationState
+  type EventObservationState,
+  type ParticipationRenderMode
 } from "../../../../src/storyContracts/eventObservation.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
@@ -516,7 +517,7 @@ export function EventLineWorkbench(props: {
       window.dispatchEvent(new Event("story-studio-close-project-directory"));
     }
     setObservationState((current) => {
-      if (next === "participation") return normalizeEventObservationState({ ...current, layout: current.layout === "world-time" ? "world-time" : "narrative", lens: "participation" }, props.perspectiveObjects ?? []);
+      if (next === "participation") return normalizeEventObservationState({ ...current, layout: current.layout === "world-time" ? "world-time" : "narrative", lens: "participation", renderMode: current.lens === "participation" ? current.renderMode : "trajectory" }, props.perspectiveObjects ?? []);
       const migrated = eventObservationStateFromLegacyView(next, props.perspectiveObjects ?? []);
       return normalizeEventObservationState({ ...migrated, focusObjectIds: current.focusObjectIds, layers: current.layers, scale: current.scale }, props.perspectiveObjects ?? []);
     });
@@ -537,12 +538,18 @@ export function EventLineWorkbench(props: {
     setObservationState((current) => normalizeEventObservationState({
       ...current,
       layout: lens === "participation" && current.layout !== "narrative" && current.layout !== "world-time" ? "narrative" : lens === "character-perspective" ? "narrative" : current.layout,
-      lens
+      lens,
+      renderMode: lens === "participation" && current.lens !== "participation" ? "trajectory" : current.renderMode
     }, props.perspectiveObjects ?? []));
   };
   const selectObservationScale = (scale: EventObservationScale) => {
     setObservationSaveNotice(null);
     setObservationState((current) => normalizeEventObservationState({ ...current, scale }, props.perspectiveObjects ?? []));
+  };
+  const selectParticipationRenderMode = (renderMode: ParticipationRenderMode) => {
+    setObservationSaveNotice(null);
+    // Rendering changes neither the participation projection nor the shared Event selection/Dock.
+    setObservationState((current) => normalizeEventObservationState({ ...current, renderMode }, props.perspectiveObjects ?? []));
   };
   const toggleObservationLayer = (layer: EventObservationLayer, enabled: boolean) => {
     setObservationSaveNotice(null);
@@ -662,14 +669,14 @@ export function EventLineWorkbench(props: {
       {scopeOpen ? <button type="button" className="event-line-scope-backdrop" aria-label="关闭故事范围" onClick={() => setScopeOpen(false)} /> : null}</> : null}
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar" aria-label="事件视图工具栏">
-          <EventObservationControls state={observationState} characterCount={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").length} saveNotice={observationSaveNotice} onLayout={selectObservationLayout} onLens={selectObservationLens} onScale={selectObservationScale} onLayer={toggleObservationLayer} onSave={saveObservationCombination} />
+          <EventObservationControls state={observationState} characterCount={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").length} saveNotice={observationSaveNotice} onLayout={selectObservationLayout} onLens={selectObservationLens} onScale={selectObservationScale} onRenderMode={selectParticipationRenderMode} onLayer={toggleObservationLayer} onSave={saveObservationCombination} />
           <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <><button type="button" aria-pressed={unitCreateOpen} onClick={() => setUnitCreateOpen((value) => !value)}><Plus />新建单元</button><label className="story-spine-zoom"><span>层级</span><select value={spineZoom} onChange={(event) => setSpineZoom(event.target.value as typeof spineZoom)}><option value="far">远景 · 单元</option><option value="medium">中景 · 关键事件</option><option value="near">近景 · 全部事件</option></select></label></> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
         {projectionMode === "line" || projectionMode === "graph" ? <EventGraphCanvas mode="graph" canvasKind={projectionMode === "line" ? "narrative" : "relation"} projectId={props.projectId} events={props.events} storyUnits={props.storyUnits} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={projectionMode === "line" ? props.onCreateCollectionPoint : undefined} onUpdateCollectionPoint={projectionMode === "line" ? props.onUpdateCollectionPoint : undefined} onDissolveCollectionPoint={projectionMode === "line" ? props.onDissolveCollectionPoint : undefined} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={projectionMode === "graph" ? props.onCreateGraphRelation : undefined} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
         {projectionMode === "timeline" ? <TemporalCanvas events={props.events} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onReturnGraph={() => selectView("graph")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} /> : null}
-        {projectionMode === "participation" ? <ParticipationObservation events={props.events} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} layout={observationState.layout === "world-time" ? "world-time" : "narrative"} scale={observationState.scale} showSources={observationState.layers.includes("source-evidence")} selectedEventId={selectedEventId} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} /> : null}
+        {projectionMode === "participation" ? <ParticipationObservation events={props.events} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} layout={observationState.layout === "world-time" ? "world-time" : "narrative"} scale={observationState.scale} renderMode={observationState.renderMode} showSources={observationState.layers.includes("source-evidence")} selectedEventId={selectedEventId} detailsOpen={dockState.open} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} /> : null}
         {projectionMode === "perspective" ? <PerspectiveLens events={props.events} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} onFocusObjectIds={selectObservationFocus} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={(selected) => void openModelingTool("analyze-perspective", { perspectiveRefs: selected.map((object) => ({ objectId: object.id, objectType: object.type, ownerId: object.ownerId ?? props.projectId, version: object.version ?? "unknown", scope: object.scope ?? "project", label: object.label })) })} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
@@ -1144,7 +1151,8 @@ function splitAuthorList(value: string): string[] {
 
 export type EventWorkspaceView = "spine" | "line" | "graph" | "timeline" | "participation" | "perspective";
 function projectionModeKey(projectId: string): string { return `tianyan.event-line-view/v1:${projectId}`; }
-function observationStateKey(projectId: string): string { return `tianyan.event-observation/v1:${projectId}`; }
+function observationStateKey(projectId: string): string { return `tianyan.event-observation/v2:${projectId}`; }
+function legacyObservationStateKey(projectId: string): string { return `tianyan.event-observation/v1:${projectId}`; }
 export function readProjectionMode(projectId: string): EventWorkspaceView {
   const state = readEventObservationState(projectId, []);
   return state.lens === "participation" ? "participation" : eventObservationLegacyView(state);
@@ -1153,16 +1161,27 @@ export function readEventObservationState(projectId: string, objects: readonly P
   try {
     const query = new URLSearchParams(window.location.search);
     const legacyQuery = query.get("eventView");
-    const stored = window.localStorage.getItem(observationStateKey(projectId));
+    const storedV2 = window.localStorage.getItem(observationStateKey(projectId));
+    const storedV1 = window.localStorage.getItem(legacyObservationStateKey(projectId));
     const legacyStored = window.localStorage.getItem(projectionModeKey(projectId));
-    const base = legacyQuery ? eventObservationStateFromLegacyView(legacyQuery, objects) : parseEventObservationState(stored, legacyStored, objects);
-    const hasObservationQuery = ["eventLayout", "eventLens", "eventScale", "eventFocus", "eventLayers"].some((key) => query.has(key));
+    // A persisted R11 state has more authority than its compatibility URL alias.
+    // In particular, a v1 state without renderMode upgrades to the retained audit
+    // matrix instead of being silently recast as the new trajectory view.
+    const base = storedV2
+      ? parseEventObservationState(storedV2, legacyStored, objects)
+      : storedV1
+        ? parseEventObservationState(storedV1, legacyStored, objects)
+        : legacyQuery
+          ? eventObservationStateFromLegacyView(legacyQuery, objects)
+          : parseEventObservationState(null, legacyStored, objects);
+    const hasObservationQuery = ["eventLayout", "eventLens", "eventScale", "eventRender", "eventFocus", "eventLayers"].some((key) => query.has(key));
     if (!hasObservationQuery) return base;
     return normalizeEventObservationState({
       ...base,
       layout: query.get("eventLayout") ?? base.layout,
       lens: query.get("eventLens") ?? base.lens,
       scale: query.get("eventScale") ?? base.scale,
+      renderMode: query.get("eventRender") ?? base.renderMode,
       focusObjectIds: query.has("eventFocus") ? query.get("eventFocus")?.split(",").filter(Boolean) ?? [] : base.focusObjectIds,
       layers: query.has("eventLayers") ? query.get("eventLayers")?.split(",").filter(Boolean) ?? [] : base.layers
     }, objects);
@@ -1184,6 +1203,7 @@ export function writeEventObservationState(projectId: string, state: EventObserv
       url.searchParams.set("eventLayout", state.layout);
       url.searchParams.set("eventLens", state.lens);
       url.searchParams.set("eventScale", state.scale);
+      url.searchParams.set("eventRender", state.renderMode);
       if (state.focusObjectIds.length) url.searchParams.set("eventFocus", state.focusObjectIds.join(","));
       else url.searchParams.delete("eventFocus");
       if (state.layers.length) url.searchParams.set("eventLayers", state.layers.join(","));

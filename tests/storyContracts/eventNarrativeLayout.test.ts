@@ -53,8 +53,8 @@ test("formal workspace exposes grouped navigation and keeps narrative layout out
   const workbench = await readFile(new URL("../../apps/story-studio/src/components/EventLineWorkbench.tsx", import.meta.url), "utf8");
   const controls = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventObservationControls.tsx", import.meta.url), "utf8");
   const graph = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", import.meta.url), "utf8");
-  assert.match(controls, /布局坐标/u);
-  assert.match(controls, /主观察镜头/u);
+  assert.match(controls, /排列/u);
+  assert.match(controls, /观察/u);
   assert.match(controls, /叙事顺序/u);
   assert.match(controls, /世界时间/u);
   assert.match(controls, /关系网络/u);

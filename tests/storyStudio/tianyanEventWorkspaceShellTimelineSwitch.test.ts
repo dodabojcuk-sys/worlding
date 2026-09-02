@@ -15,8 +15,8 @@ const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/
 
 test("event workspace separates layout coordinate from observation lens while retaining local selection", () => {
   assert.match(controls, /aria-label="事件观察组合"/u);
-  assert.match(controls, /布局坐标/u);
-  assert.match(controls, /主观察镜头/u);
+  assert.match(controls, /排列/u);
+  assert.match(controls, /观察/u);
   assert.match(controls, /structure/u);
   assert.match(controls, /narrative/u);
   assert.match(controls, /world-time/u);

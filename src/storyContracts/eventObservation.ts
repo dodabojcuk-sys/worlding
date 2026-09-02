@@ -1,7 +1,7 @@
 import { buildEventSemanticNode, type EventNarrativeTime } from "./eventSemanticHierarchy.ts";
 import type { PerspectiveObjectRef } from "./eventPerspectiveProjection.ts";
 
-export const EVENT_OBSERVATION_STATE_VERSION = "tianyan-event-observation/v1" as const;
+export const EVENT_OBSERVATION_STATE_VERSION = "tianyan-event-observation/v2" as const;
 export const EVENT_OBSERVATION_MAX_FOCUS = 5;
 export const EVENT_OBSERVATION_MAX_VISIBLE_EVENTS = 240;
 
@@ -9,6 +9,8 @@ export type EventObservationLayout = "structure" | "narrative" | "world-time" | 
 export type EventObservationLens = "none" | "participation" | "character-perspective" | "relationship-evolution";
 export type EventObservationLayer = "causal" | "temporal-constraints" | "candidate-conflict" | "source-evidence";
 export type EventObservationScale = "story" | "unit" | "event";
+/** Visual encoding only. It must never create a second participation projection. */
+export type ParticipationRenderMode = "trajectory" | "matrix";
 
 export type EventObservationState = {
   version: typeof EVENT_OBSERVATION_STATE_VERSION;
@@ -17,6 +19,7 @@ export type EventObservationState = {
   layers: EventObservationLayer[];
   focusObjectIds: string[];
   scale: EventObservationScale;
+  renderMode: ParticipationRenderMode;
 };
 
 export type LegacyEventWorkspaceView = "spine" | "line" | "graph" | "timeline" | "perspective";
@@ -27,7 +30,8 @@ export const DEFAULT_EVENT_OBSERVATION_STATE: EventObservationState = {
   lens: "none",
   layers: ["source-evidence"],
   focusObjectIds: [],
-  scale: "unit"
+  scale: "unit",
+  renderMode: "trajectory"
 };
 
 export type EventObservationCombinationSupport = { supported: true } | { supported: false; reason: string };
@@ -48,6 +52,9 @@ export function normalizeEventObservationState(value: unknown, objects: readonly
   let layout = isLayout(record.layout) ? record.layout : DEFAULT_EVENT_OBSERVATION_STATE.layout;
   let lens = isLens(record.lens) ? record.lens : DEFAULT_EVENT_OBSERVATION_STATE.lens;
   const scale = isScale(record.scale) ? record.scale : DEFAULT_EVENT_OBSERVATION_STATE.scale;
+  // R11 v1 did not store a rendering choice and displayed the audit matrix.
+  // Preserve that intentional reading mode when its state is restored.
+  const renderMode = isRenderMode(record.renderMode) ? record.renderMode : "matrix";
   const layers = unique((Array.isArray(record.layers) ? record.layers : DEFAULT_EVENT_OBSERVATION_STATE.layers).filter(isLayer));
   const validObjects = new Map(objects.filter((object) => object.formal === true).map((object) => [object.id, object]));
   let focusObjectIds = unique((Array.isArray(record.focusObjectIds) ? record.focusObjectIds : []).filter((id): id is string => typeof id === "string" && validObjects.has(id))).slice(0, EVENT_OBSERVATION_MAX_FOCUS);
@@ -64,7 +71,8 @@ export function normalizeEventObservationState(value: unknown, objects: readonly
     lens,
     layers,
     focusObjectIds,
-    scale
+    scale,
+    renderMode
   };
 }
 
@@ -107,7 +115,8 @@ export function serializeEventObservationState(state: EventObservationState): st
     lens: state.lens,
     layers: state.layers,
     focusObjectIds: state.focusObjectIds,
-    scale: state.scale
+    scale: state.scale,
+    renderMode: state.renderMode
   });
 }
 
@@ -215,4 +224,5 @@ function isLayout(value: unknown): value is EventObservationLayout { return valu
 function isLens(value: unknown): value is EventObservationLens { return value === "none" || value === "participation" || value === "character-perspective" || value === "relationship-evolution"; }
 function isLayer(value: unknown): value is EventObservationLayer { return value === "causal" || value === "temporal-constraints" || value === "candidate-conflict" || value === "source-evidence"; }
 function isScale(value: unknown): value is EventObservationScale { return value === "story" || value === "unit" || value === "event"; }
+function isRenderMode(value: unknown): value is ParticipationRenderMode { return value === "trajectory" || value === "matrix"; }
 function unique<T>(values: readonly T[]): T[] { return [...new Set(values)]; }

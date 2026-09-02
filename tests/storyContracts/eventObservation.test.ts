@@ -24,12 +24,13 @@ test("observation state migrates legacy peer views into coordinate and lens axes
   assert.equal(perspective.lens, "character-perspective");
   assert.equal(eventObservationLegacyView(perspective), "perspective");
   assert.deepEqual(eventObservationStateFromLegacyView("timeline", objects), {
-    version: "tianyan-event-observation/v1",
+    version: "tianyan-event-observation/v2",
     layout: "world-time",
     lens: "none",
     layers: ["source-evidence"],
     focusObjectIds: [],
-    scale: "unit"
+    scale: "unit",
+    renderMode: "trajectory"
   });
 });
 
@@ -46,12 +47,13 @@ test("saved observation state keeps only validated view fields and drops missing
   }, objects);
   assert.deepEqual(state.focusObjectIds, ["character.jiang", "location.harbor"]);
   assert.deepEqual(JSON.parse(serializeEventObservationState(state)), {
-    version: "tianyan-event-observation/v1",
+    version: "tianyan-event-observation/v2",
     layout: "world-time",
     lens: "participation",
     layers: ["source-evidence"],
     focusObjectIds: ["character.jiang", "location.harbor"],
-    scale: "event"
+    scale: "event",
+    renderMode: "matrix"
   });
 });
 
@@ -115,4 +117,12 @@ test("character perspective removes locations and items from restored focus", ()
   const state = normalizeEventObservationState({ layout: "world-time", lens: "character-perspective", layers: ["source-evidence"], focusObjectIds: objects.map((object) => object.id), scale: "unit" }, objects);
   assert.equal(state.layout, "narrative");
   assert.deepEqual(state.focusObjectIds, ["character.jiang"]);
+});
+
+test("R11.1 keeps the old matrix reading mode but defaults new participation to trajectory", () => {
+  const restored = parseEventObservationState(JSON.stringify({ version: "tianyan-event-observation/v1", layout: "narrative", lens: "participation", layers: [], focusObjectIds: [], scale: "unit" }), null, objects);
+  assert.equal(restored.renderMode, "matrix");
+  assert.equal(eventObservationStateFromLegacyView("line", objects).renderMode, "trajectory");
+  const projection = buildEventParticipationProjection({ events: [{ id: "event.unknown", title: "未知", tags: [] }], objects, focusObjectIds: ["character.jiang"], layout: "narrative" });
+  assert.equal(projection.columns[0]?.cells[0]?.state, "unknown", "render mode cannot turn unknown into absence");
 });
