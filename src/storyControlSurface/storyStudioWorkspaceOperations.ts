@@ -395,6 +395,8 @@ export type StoryStudioWritingBootstrap = {
 export type StoryUnitSourceKind = "event-line" | "nuwa-run" | "nuwa-candidate" | "tianyi-intent" | "story-workspace" | "writing-selection" | "library" | "import";
 export type NarrativeAuthority = "canon" | "author-intent" | "candidate" | "inference" | "belief" | "unknown" | "conflict" | "derived";
 export type StoryUnitLifecycle = "draft" | "active" | "frozen" | "superseded" | "archived";
+export type StoryUnitKind = "main" | "branch";
+export type StoryUnitStatus = "draft" | "active" | "candidate" | "conflict" | "archived";
 export type OutputArtifactType = "novel" | "screenplay" | "storyboard" | "comic" | "motion-comic" | "interactive-drama";
 export type OutputArtifactLifecycle = "draft" | "queued" | "generating" | "review" | "approved" | "archived";
 
@@ -424,6 +426,17 @@ export type StoryStudioStoryUnit = {
   relativeId: string;
   title: string;
   summary: string;
+  kind: StoryUnitKind;
+  parentUnitId: string | null;
+  branchPointEventId: string | null;
+  mergeTargetUnitId: string | null;
+  order: number;
+  sourceVersionRef: string | null;
+  status: StoryUnitStatus;
+  objective: string;
+  coreConflict: string;
+  turningPoint: string;
+  openHook: string;
   lifecycle: StoryUnitLifecycle;
   sourceRefs: StoryUnitSourceRef[];
   items: StoryUnitItem[];
@@ -2006,6 +2019,17 @@ export function createStoryStudioWorkspaceOperations(input: {
       projectId: string;
       title: string;
       summary?: string;
+      kind?: StoryUnitKind;
+      parentUnitId?: string | null;
+      branchPointEventId?: string | null;
+      mergeTargetUnitId?: string | null;
+      order?: number;
+      sourceVersionRef?: string | null;
+      status?: StoryUnitStatus;
+      objective?: string;
+      coreConflict?: string;
+      turningPoint?: string;
+      openHook?: string;
       sourceRefs?: StoryUnitSourceRef[];
       items?: StoryUnitItem[];
       linkedEntityIds?: string[];
@@ -2017,7 +2041,8 @@ export function createStoryStudioWorkspaceOperations(input: {
       const current = listStoryUnits(projectPath, true);
       const id = uniqueStoryUnitId(title, new Set(current.map((unit) => unit.id)));
       const now = new Date().toISOString();
-      const payload = createStoryUnitPayload({ ...unitInput, id, title, now });
+      assertStoryUnitStructure(projectPath, { ...unitInput, id });
+      const payload = createStoryUnitPayload({ ...unitInput, id, title, order: unitInput.order ?? nextStoryUnitOrder(current), now });
       const note = createWorkspaceNote(projectPath, {
         id,
         type: "story-unit",
@@ -2035,6 +2060,17 @@ export function createStoryStudioWorkspaceOperations(input: {
       expectedVersion: string;
       title?: string;
       summary?: string;
+      kind?: StoryUnitKind;
+      parentUnitId?: string | null;
+      branchPointEventId?: string | null;
+      mergeTargetUnitId?: string | null;
+      order?: number;
+      sourceVersionRef?: string | null;
+      status?: StoryUnitStatus;
+      objective?: string;
+      coreConflict?: string;
+      turningPoint?: string;
+      openHook?: string;
       lifecycle?: StoryUnitLifecycle;
       sourceRefs?: StoryUnitSourceRef[];
       items?: StoryUnitItem[];
@@ -2047,6 +2083,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       if (current.contentHash !== requireText(unitInput.expectedVersion, "Story Unit version", 128)) return { conflict: true, unit: projectStoryUnit(current) };
       const previous = parseStoryUnitPayload(current);
       if (previous.lifecycle === "archived" && unitInput.lifecycle !== "archived") throw new Error("Archived Story Unit must be restored explicitly.");
+      assertStoryUnitStructure(projectPath, { ...previous, ...unitInput, id: previous.id });
       const payload = createStoryUnitPayload({
         ...previous,
         ...unitInput,
@@ -3088,6 +3125,8 @@ type OutputArtifactPayload = Omit<StoryStudioOutputArtifact, "relativeId" | "ver
 const STORY_UNIT_SOURCE_KINDS = new Set<StoryUnitSourceKind>(["event-line", "nuwa-run", "nuwa-candidate", "tianyi-intent", "story-workspace", "writing-selection", "library", "import"]);
 const NARRATIVE_AUTHORITIES = new Set<NarrativeAuthority>(["canon", "author-intent", "candidate", "inference", "belief", "unknown", "conflict", "derived"]);
 const STORY_UNIT_LIFECYCLES = new Set<StoryUnitLifecycle>(["draft", "active", "frozen", "superseded", "archived"]);
+const STORY_UNIT_KINDS = new Set<StoryUnitKind>(["main", "branch"]);
+const STORY_UNIT_STATUSES = new Set<StoryUnitStatus>(["draft", "active", "candidate", "conflict", "archived"]);
 const OUTPUT_ARTIFACT_TYPES = new Set<OutputArtifactType>(["novel", "screenplay", "storyboard", "comic", "motion-comic", "interactive-drama"]);
 const OUTPUT_ARTIFACT_LIFECYCLES = new Set<OutputArtifactLifecycle>(["draft", "queued", "generating", "review", "approved", "archived"]);
 const POSSIBILITY_STATUSES = new Set<NonNullable<StoryUnitItem["possibilityStatus"]>>(["proposed", "compared", "selected-for-output", "rejected", "paused", "abandoned"]);
@@ -3096,7 +3135,7 @@ function listStoryUnits(projectPath: string, includeArchived: boolean): StoryStu
   return getWorkspaceTree(projectPath).groups.storyUnits
     .map((entry) => projectStoryUnit(readWorkspaceNote(projectPath, entry.relativePath)))
     .filter((unit) => includeArchived || unit.lifecycle !== "archived")
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.title.localeCompare(right.title));
+    .sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt) || left.title.localeCompare(right.title));
 }
 
 function findStoryUnitNote(projectPath: string, unitId: string) {
@@ -3119,6 +3158,17 @@ function createStoryUnitPayload(input: {
   id: string;
   title: string;
   summary?: unknown;
+  kind?: unknown;
+  parentUnitId?: unknown;
+  branchPointEventId?: unknown;
+  mergeTargetUnitId?: unknown;
+  order?: unknown;
+  sourceVersionRef?: unknown;
+  status?: unknown;
+  objective?: unknown;
+  coreConflict?: unknown;
+  turningPoint?: unknown;
+  openHook?: unknown;
   lifecycle?: unknown;
   sourceRefs?: unknown;
   items?: unknown;
@@ -3133,6 +3183,17 @@ function createStoryUnitPayload(input: {
     id: requireText(input.id, "Story Unit identifier", 160),
     title: requireText(input.title, "Story Unit title", 100),
     summary: optionalText(input.summary, "Story Unit summary", 2_000) || "",
+    kind: requireStoryUnitKind(input.kind ?? "main"),
+    parentUnitId: optionalStableId(input.parentUnitId, "Story Unit parent"),
+    branchPointEventId: optionalStableId(input.branchPointEventId, "Story Unit branch point Event"),
+    mergeTargetUnitId: optionalStableId(input.mergeTargetUnitId, "Story Unit merge target"),
+    order: requireBoundedInteger(input.order ?? 0, 0, 100_000, "Story Unit order"),
+    sourceVersionRef: optionalText(input.sourceVersionRef, "Story Unit source version", 240) || null,
+    status: requireStoryUnitStatus(input.status ?? lifecycleToStoryUnitStatus(input.lifecycle)),
+    objective: optionalText(input.objective, "Story Unit objective", 600) || "",
+    coreConflict: optionalText(input.coreConflict, "Story Unit core conflict", 600) || "",
+    turningPoint: optionalText(input.turningPoint, "Story Unit turning point", 600) || "",
+    openHook: optionalText(input.openHook, "Story Unit open hook", 600) || "",
     lifecycle: requireStoryUnitLifecycle(input.lifecycle ?? "draft"),
     sourceRefs: normalizeStoryUnitSourceRefs(input.sourceRefs ?? []),
     items: normalizeStoryUnitItems(input.items ?? []),
@@ -3154,6 +3215,33 @@ function parseStoryUnitPayload(note: ReturnType<typeof readWorkspaceNote>): Stor
 function storyUnitBody(payload: StoryUnitPayload): string {
   const sources = payload.sourceRefs.length ? payload.sourceRefs.map((source) => `- ${source.sourceKind}: ${source.entityId}${source.entityVersion ? ` @ ${source.entityVersion}` : ""}`).join("\n") : "- 尚未关联来源";
   return `# ${payload.title}\n\n${payload.summary || "此故事单元仍在整理中。"}\n\n## 来源\n\n${sources}\n`;
+}
+
+function nextStoryUnitOrder(units: StoryStudioStoryUnit[]): number {
+  return units.reduce((highest, unit) => Math.max(highest, unit.order), -1) + 1;
+}
+
+function assertStoryUnitStructure(projectPath: string, input: {
+  id: string;
+  kind?: StoryUnitKind;
+  parentUnitId?: string | null;
+  branchPointEventId?: string | null;
+  mergeTargetUnitId?: string | null;
+}): void {
+  const kind = requireStoryUnitKind(input.kind ?? "main");
+  const units = listStoryUnits(projectPath, true);
+  const unitIds = new Set(units.map((unit) => unit.id));
+  const parentUnitId = optionalStableId(input.parentUnitId, "Story Unit parent");
+  const mergeTargetUnitId = optionalStableId(input.mergeTargetUnitId, "Story Unit merge target");
+  const branchPointEventId = optionalStableId(input.branchPointEventId, "Story Unit branch point Event");
+  if (kind === "main" && (parentUnitId || branchPointEventId)) throw new Error("Main Story Unit cannot declare a branch parent or branch point.");
+  if (kind === "branch" && (!parentUnitId || !branchPointEventId)) throw new Error("Branch Story Unit requires a parent Unit and branch point Event.");
+  if (parentUnitId && (!unitIds.has(parentUnitId) || parentUnitId === input.id)) throw new Error("Story Unit parent does not exist or is recursive.");
+  if (mergeTargetUnitId && (!unitIds.has(mergeTargetUnitId) || mergeTargetUnitId === input.id)) throw new Error("Story Unit merge target does not exist or is recursive.");
+  if (branchPointEventId) {
+    const event = getWorkspaceTree(projectPath).groups.events.find((entry) => entry.id === branchPointEventId);
+    if (!event || readWorkspaceNote(projectPath, event.relativePath).type !== "event") throw new Error("Story Unit branch point Event does not exist.");
+  }
 }
 
 function listOutputArtifacts(projectPath: string, includeArchived: boolean): StoryStudioOutputArtifact[] {
@@ -3518,6 +3606,11 @@ function normalizeStableIds(value: unknown, label: string, maximum: number): str
 function requireStoryUnitSourceKind(value: unknown): StoryUnitSourceKind { if (typeof value === "string" && STORY_UNIT_SOURCE_KINDS.has(value as StoryUnitSourceKind)) return value as StoryUnitSourceKind; throw new Error("Story Unit source kind is invalid."); }
 function requireNarrativeAuthority(value: unknown): NarrativeAuthority { if (typeof value === "string" && NARRATIVE_AUTHORITIES.has(value as NarrativeAuthority)) return value as NarrativeAuthority; throw new Error("Narrative authority is invalid."); }
 function requireStoryUnitLifecycle(value: unknown): StoryUnitLifecycle { if (typeof value === "string" && STORY_UNIT_LIFECYCLES.has(value as StoryUnitLifecycle)) return value as StoryUnitLifecycle; throw new Error("Story Unit lifecycle is invalid."); }
+function requireStoryUnitKind(value: unknown): StoryUnitKind { if (typeof value === "string" && STORY_UNIT_KINDS.has(value as StoryUnitKind)) return value as StoryUnitKind; throw new Error("Story Unit kind is invalid."); }
+function requireStoryUnitStatus(value: unknown): StoryUnitStatus { if (typeof value === "string" && STORY_UNIT_STATUSES.has(value as StoryUnitStatus)) return value as StoryUnitStatus; throw new Error("Story Unit status is invalid."); }
+function lifecycleToStoryUnitStatus(value: unknown): StoryUnitStatus { return value === "archived" ? "archived" : value === "active" || value === "frozen" ? "active" : "draft"; }
+function optionalStableId(value: unknown, label: string): string | null { return value == null || value === "" ? null : requireText(value, label, 160); }
+function requireBoundedInteger(value: unknown, minimum: number, maximum: number, label: string): number { if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new Error(`${label} is invalid.`); return value as number; }
 function requireOutputArtifactType(value: unknown): OutputArtifactType { if (typeof value === "string" && OUTPUT_ARTIFACT_TYPES.has(value as OutputArtifactType)) return value as OutputArtifactType; throw new Error("Output artifact type is invalid."); }
 function requireOutputArtifactLifecycle(value: unknown): OutputArtifactLifecycle { if (typeof value === "string" && OUTPUT_ARTIFACT_LIFECYCLES.has(value as OutputArtifactLifecycle)) return value as OutputArtifactLifecycle; throw new Error("Output artifact lifecycle is invalid."); }
 function requirePossibilityStatus(value: unknown): NonNullable<StoryUnitItem["possibilityStatus"]> { if (typeof value === "string" && POSSIBILITY_STATUSES.has(value as NonNullable<StoryUnitItem["possibilityStatus"]>)) return value as NonNullable<StoryUnitItem["possibilityStatus"]>; throw new Error("Story Unit possibility status is invalid."); }

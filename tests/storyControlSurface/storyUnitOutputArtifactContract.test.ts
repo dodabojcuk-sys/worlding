@@ -46,6 +46,65 @@ test("Story Unit persists item-level authority and source references without cre
   assert.equal(restored.sourceRefs[0]?.entityId, "event.confirmed.1");
 });
 
+test("Story Unit branch identity is formal, versioned, and survives rename", () => {
+  const input = fixture();
+  const main = input.operations.createStoryUnit({
+    projectId: input.project.id,
+    title: "雾港",
+    kind: "main",
+    order: 10,
+    sourceVersionRef: "work-version.1",
+    status: "active",
+    objective: "找到暗号的来源。"
+  });
+  const branchPoint = input.operations.createWorldObject({
+    projectId: input.project.id,
+    type: "event",
+    title: "仓库对峙",
+    status: "draft",
+    tags: ["单元：雾港"],
+    body: "分支从这里开始。"
+  });
+  const branch = input.operations.createStoryUnit({
+    projectId: input.project.id,
+    title: "灯塔余波",
+    kind: "branch",
+    parentUnitId: main.id,
+    branchPointEventId: branchPoint.id,
+    mergeTargetUnitId: main.id,
+    order: 20,
+    sourceVersionRef: main.version,
+    status: "candidate",
+    coreConflict: "是否公开失踪名单。"
+  });
+
+  const renamed = input.operations.updateStoryUnit({
+    projectId: input.project.id,
+    unitId: branch.id,
+    expectedVersion: branch.version,
+    title: "不含分支字样的新名称"
+  });
+
+  assert.equal(renamed.conflict, false);
+  assert.equal(renamed.unit.kind, "branch");
+  assert.equal(renamed.unit.parentUnitId, main.id);
+  assert.equal(renamed.unit.branchPointEventId, branchPoint.id);
+  assert.equal(renamed.unit.mergeTargetUnitId, main.id);
+  assert.equal(renamed.unit.objective, "");
+  assert.equal(renamed.unit.coreConflict, "是否公开失踪名单。");
+  assert.deepEqual(input.operations.listStoryUnits({ projectId: input.project.id }).map((unit) => unit.id), [main.id, branch.id]);
+});
+
+test("legacy Story Unit records receive compatible explicit structure defaults", () => {
+  const input = fixture();
+  const unit = input.operations.createStoryUnit({ projectId: input.project.id, title: "旧版单元" });
+  assert.equal(unit.kind, "main");
+  assert.equal(unit.parentUnitId, null);
+  assert.equal(unit.order, 0);
+  assert.equal(unit.status, "draft");
+  assert.equal(unit.objective, "");
+});
+
 test("six output types are peers and keep Unit lineage without promoting a candidate", () => {
   const input = fixture();
   const unit = input.operations.createStoryUnit({ projectId: input.project.id, title: "海雾中的决定", items: [{ id: "candidate.1", kind: "possibility", authority: "candidate", possibilityStatus: "selected-for-output", content: { branch: "留下" }, sourceRefs: [source("candidate.1")], createdBy: "ai" }] });
