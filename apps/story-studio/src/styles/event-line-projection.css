@@ -227,6 +227,10 @@
 .shell-workspace-event-line .story-spine-unit-semantics dd { margin: 0; overflow: hidden; font-size: .8125rem; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .shell-workspace-event-line .story-spine-unit-stats { display: flex; flex-wrap: wrap; gap: .45rem 1rem; color: var(--color-text-muted); font-size: .75rem; }
 .shell-workspace-event-line .story-spine-unit-stats b { color: var(--color-text); }
+.shell-workspace-event-line .story-spine-topology-source,
+.shell-workspace-event-line .story-spine-topology-merge { display: inline-flex; align-items: center; gap: .28rem; padding: .15rem .42rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 999px; }
+.shell-workspace-event-line .story-spine-topology-merge { color: var(--color-accent); border-style: dashed; }
+.shell-workspace-event-line .story-spine-topology-merge svg { inline-size: .72rem; }
 .shell-workspace-event-line .story-spine-unit-actions { display: flex; flex-wrap: wrap; gap: .4rem; padding-block: .15rem .7rem; border-block-end: 1px solid var(--color-border); }
 .shell-workspace-event-line .story-spine-unit-actions button { min-block-size: 2rem; display: inline-flex; align-items: center; gap: .3rem; padding-inline: .55rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .75rem; }
 .shell-workspace-event-line .story-spine-unit-actions button:hover:not(:disabled) { color: var(--color-accent); border-color: var(--color-accent); }
@@ -872,6 +876,8 @@
 .shell-workspace-event-line .graph-node-shell > span svg { inline-size: .78rem; block-size: .78rem; flex: 0 0 auto; }
 .shell-workspace-event-line .graph-node-state-strip { inline-size: fit-content; padding: .12rem .38rem; color: var(--color-accent) !important; background: var(--color-accent-soft); border-radius: 999px; font-weight: 750; }
 .shell-workspace-event-line .graph-node-shell.is-draft-event { border-inline-start: .3rem solid var(--color-warning); background: color-mix(in srgb, var(--color-surface) 96%, var(--color-warning)); }
+.shell-workspace-event-line .graph-node-shell.is-turning-event { border-inline-start: .36rem solid var(--color-accent); clip-path: polygon(0 0, calc(100% - .7rem) 0, 100% .7rem, 100% 100%, 0 100%); box-shadow: .32rem .32rem 0 var(--color-accent-soft), 0 .35rem .9rem color-mix(in srgb, var(--color-text) 9%, transparent); }
+.shell-workspace-event-line .graph-node-shell.is-turning-event .graph-node-state-strip svg { inline-size: .68rem; }
 .shell-workspace-event-line .graph-node-shell.is-remote-event { border-style: dashed; border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border)); background: color-mix(in srgb, var(--color-surface) 86%, var(--color-accent-soft)); }
 .shell-workspace-event-line .graph-node-shell.is-candidate-event,
 .shell-workspace-event-line .graph-node-shell.is-candidate-existing-reference,
