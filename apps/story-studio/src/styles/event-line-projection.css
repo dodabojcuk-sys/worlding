@@ -302,6 +302,22 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
+.shell-workspace-event-line .event-line-view-switch.is-grouped { gap: .2rem; }
+.shell-workspace-event-line .event-line-view-switch.is-grouped > span {
+  display: inline-flex;
+  align-items: center;
+  gap: .15rem;
+  padding-inline-start: .35rem;
+  border-inline-start: 1px solid var(--color-border);
+}
+.shell-workspace-event-line .event-line-view-switch.is-grouped > span:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.shell-workspace-event-line .event-line-view-switch.is-grouped b {
+  padding-inline: .35rem .2rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+  white-space: nowrap;
+}
 .shell-workspace-event-line .event-line-view-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; min-width: 0; }
 .shell-workspace-event-line .event-line-view-switch.is-secondary { background: transparent; }
 .shell-workspace-event-line .event-line-view-switch.is-secondary button { min-block-size: 2rem; padding-inline: .7rem; }
@@ -351,6 +367,7 @@
   .shell-workspace-event-line .event-line-view-switch { inline-size: fit-content; max-inline-size: 100%; overflow-x: auto; }
   .shell-workspace-event-line .event-line-view-actions { min-inline-size: 0; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; padding-block-end: .15rem; }
   .shell-workspace-event-line .event-line-view-actions > * { flex: 0 0 auto; }
+  .shell-workspace-event-line .event-line-view-switch.is-grouped b { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
 .shell-workspace-event-line .event-line-spine {
@@ -849,6 +866,8 @@
 .shell-workspace-event-line .react-flow__node-collectionPoint.is-expanded .graph-node-shell.is-collection-point > button { align-self: start; inline-size: 14rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .shell-workspace-event-line .event-graph-collection-create { display: flex; align-items: center; gap: var(--space-1); }
 .shell-workspace-event-line .event-graph-collection-create input { min-height: 2rem; inline-size: 11rem; padding-inline: var(--space-2); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.shell-workspace-event-line .event-narrative-track-label { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 8rem; color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .04em; }
+.shell-workspace-event-line .event-narrative-track-label svg { inline-size: 1rem; block-size: 1rem; }
 .shell-workspace-event-line .graph-node-port.react-flow__handle { inline-size: 1.5rem; block-size: 1.5rem; background: transparent; border: 0; }
 .shell-workspace-event-line .graph-node-port.react-flow__handle::after { content: ""; position: absolute; inset: 50% auto auto 50%; inline-size: .68rem; block-size: .68rem; translate: -50% -50%; box-sizing: border-box; background: var(--color-surface); border: 2px solid var(--color-accent); border-radius: 50%; }
 .shell-workspace-event-line .is-candidate-event .graph-node-port.react-flow__handle::after { border-color: var(--color-warning); }

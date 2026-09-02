@@ -472,7 +472,7 @@ export function EventLineWorkbench(props: {
   };
   const selectView = (next: EventWorkspaceView) => {
     requestDockState({ open: false, activeLens: "detail" });
-    if (next === "graph" || next === "timeline" || next === "perspective") {
+    if (next === "line" || next === "graph" || next === "timeline" || next === "perspective") {
       window.dispatchEvent(new Event("story-studio-close-project-directory"));
     }
     setProjectionMode(next);
@@ -570,21 +570,17 @@ export function EventLineWorkbench(props: {
       <main className="event-line-spine-main" ref={spineRef}>
         <header className="event-line-spine-toolbar" aria-label="事件视图工具栏">
           <div className="event-line-view-navigation">
-            <nav className="event-line-view-switch is-primary" aria-label="事件线一级视图">
-              <button type="button" aria-pressed={projectionMode === "spine"} onClick={() => selectView("spine")}><Layers3 />故事结构</button>
-              <button type="button" aria-pressed={projectionMode !== "spine"} onClick={() => selectView(projectionMode === "spine" ? "graph" : projectionMode)}><Network />事件画布</button>
+            <nav className="event-line-view-switch is-grouped" aria-label="事件工作区视图">
+              <span><b>结构</b><button type="button" aria-pressed={projectionMode === "spine"} onClick={() => selectView("spine")}><Layers3 />故事脊柱</button></span>
+              <span><b>编排</b><button type="button" aria-pressed={projectionMode === "line"} onClick={() => selectView("line")}><GitBranch />事件线</button><button type="button" aria-pressed={projectionMode === "timeline"} onClick={() => selectView("timeline")}><Clock3 />时间线</button></span>
+              <span><b>观察</b><button type="button" aria-pressed={projectionMode === "graph"} onClick={() => selectView("graph")}><Network />关系</button><button type="button" aria-pressed={projectionMode === "perspective"} onClick={() => selectView("perspective")}><UsersRound />视角</button></span>
             </nav>
-            {projectionMode !== "spine" ? <nav className="event-line-view-switch is-secondary" aria-label="事件画布观察维度">
-              <button type="button" aria-pressed={projectionMode === "graph"} onClick={() => selectView("graph")}><Network />关系</button>
-              <button type="button" aria-pressed={projectionMode === "timeline"} onClick={() => selectView("timeline")}><Clock3 />时间</button>
-              <button type="button" aria-pressed={projectionMode === "perspective"} onClick={() => selectView("perspective")}><UsersRound />视角</button>
-            </nav> : null}
           </div>
           <div className="event-line-view-actions">{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />新增事件</button> : null}{projectionMode === "spine" ? <><button type="button" aria-pressed={unitCreateOpen} onClick={() => setUnitCreateOpen((value) => !value)}><Plus />新建单元</button><label className="story-spine-zoom"><span>层级</span><select value={spineZoom} onChange={(event) => setSpineZoom(event.target.value as typeof spineZoom)}><option value="far">远景 · 单元</option><option value="medium">中景 · 关键事件</option><option value="near">近景 · 全部事件</option></select></label></> : null}<button type="button" disabled={!selectedEvent} onClick={revealCurrentEvent}><LocateFixed />聚焦当前</button></div>
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} storyUnits={props.storyUnits} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={props.onCreateCollectionPoint} onUpdateCollectionPoint={props.onUpdateCollectionPoint} onDissolveCollectionPoint={props.onDissolveCollectionPoint} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
+        {projectionMode === "line" || projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} canvasKind={projectionMode === "line" ? "narrative" : "relation"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} storyUnits={props.storyUnits} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={projectionMode === "line" ? props.onCreateCollectionPoint : undefined} onUpdateCollectionPoint={projectionMode === "line" ? props.onUpdateCollectionPoint : undefined} onDissolveCollectionPoint={projectionMode === "line" ? props.onDissolveCollectionPoint : undefined} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={projectionMode === "graph" ? props.onCreateGraphRelation : undefined} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
         {projectionMode === "perspective" ? <PerspectiveLens events={props.events} objects={props.perspectiveObjects ?? []} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={(selected) => void openModelingTool("analyze-perspective", { perspectiveRefs: selected.map((object) => ({ objectId: object.id, objectType: object.type, ownerId: object.ownerId ?? props.projectId, version: object.version ?? "unknown", scope: object.scope ?? "project", label: object.label })) })} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
@@ -596,7 +592,7 @@ export function EventLineWorkbench(props: {
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
       <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => { setLogicSelectionIds([]); setLogicPanelOpen(true); }} localFindingCount={reviewedLogicFindings.length} run={modelingRun} history={props.modelingRuns ?? []} onStop={props.onStopStoryModeling ? async () => { if (!modelingRun || !["created", "running"].includes(modelingRun.status)) return; const stopped = await props.onStopStoryModeling!(modelingRun.runId); setModelingRun(stopped); setModelingPlanState("idle"); } : undefined} />
-      {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
+      {!(["line", "graph", "timeline"] as EventWorkspaceView[]).includes(projectionMode) ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
     {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
     {logicPanelOpen ? <StoryLogicPanel findings={reviewedLogicFindings} aiFindings={(modelingRun?.tool === "run-logic-check" ? modelingRun.result?.logicFindings ?? [] : []).map((finding) => ({ ...finding, authorStatus: props.logicReviews?.find((review) => review.findingId === finding.findingId)?.authorStatus ?? finding.authorStatus }))} onReview={props.onReviewLogicFinding} onClose={() => setLogicPanelOpen(false)} onRunAi={() => { setLogicPanelOpen(false); void openModelingTool("run-logic-check", { eventRefs: modelingRefsForIds(logicSelectionIds) }); }} onLocate={(eventId) => { setLogicPanelOpen(false); openEventInView(eventId, "graph"); }} /> : null}
@@ -610,6 +606,10 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
       { id: "suggest-unit-boundaries", label: "建议单元边界" },
       { id: "check-structure-breaks", label: "检查结构断点" },
       { id: "compare-branch-units", label: "比较分支单元" }
+    ],
+    line: [
+      { id: "check-structure-breaks", label: "检查叙事断点" },
+      { id: "suggest-unit-boundaries", label: "建议编排边界" }
     ],
     graph: [
       { id: "smart-relations", label: "智能连线" },
@@ -1037,14 +1037,14 @@ function splitAuthorList(value: string): string[] {
   return [...new Set(value.split(/[，,]/u).map((item) => item.trim()).filter(Boolean))].slice(0, 20);
 }
 
-export type EventWorkspaceView = "spine" | "graph" | "timeline" | "perspective";
+export type EventWorkspaceView = "spine" | "line" | "graph" | "timeline" | "perspective";
 function projectionModeKey(projectId: string): string { return `tianyan.event-line-view/v1:${projectId}`; }
 export function readProjectionMode(projectId: string): EventWorkspaceView {
   try {
     const view = new URLSearchParams(window.location.search).get("eventView");
-    if (view === "graph" || view === "timeline" || view === "perspective" || view === "spine") return view;
+    if (view === "line" || view === "graph" || view === "timeline" || view === "perspective" || view === "spine") return view;
     const stored = window.localStorage.getItem(projectionModeKey(projectId));
-    return stored === "graph" || stored === "timeline" || stored === "perspective" ? stored : "spine";
+    return stored === "line" || stored === "graph" || stored === "timeline" || stored === "perspective" ? stored : "spine";
   } catch { return "spine"; }
 }
 export function writeProjectionMode(projectId: string, mode: EventWorkspaceView): void {

@@ -5,13 +5,14 @@ import {
 } from "@xyflow/react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronLeft, CircleDot, Clock3, Expand, Eye,
-  FileText, Filter, Focus, Layers3, Link2, MapPin, Maximize2, Network,
+  FileText, Filter, Focus, GitBranch, Layers3, Link2, MapPin, Maximize2, Network,
   PanelLeftClose, PanelRightClose, Plus, RefreshCw, ShieldCheck, Sparkles, Tag, UsersRound, X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { PredictionRun } from "../../../../../src/storyContracts/multiNodePrediction.ts";
+import { buildEventNarrativeLayout } from "../../../../../src/storyContracts/eventNarrativeLayout.ts";
 import type { SmartRelationCandidate, StoryModelingRun } from "../../../../../src/storyContracts/storyModeling.ts";
 import { dedupeSmartRelationCandidates, reviewSmartRelationCandidates } from "../../../../../src/storyContracts/storyModelingReview.ts";
 import type { TemporalPlacement, TemporalProjectionRun, TemporalSegment } from "../../../../../src/storyContracts/temporalProjection.ts";
@@ -40,15 +41,19 @@ type NodeData = {
   temporal?: boolean; temporalKind?: TemporalPlacement["placementKind"]; temporalSummary?: string; temporalAnchors?: string; temporalConfidence?: string; semanticZoom?: "far" | "medium" | "near";
   screen?: boolean; screenLabel?: string; screenKind?: TemporalSegment["kind"]; screenConfidence?: string;
   collectionPoint?: boolean; unitId?: string; eventCount?: number; expanded?: boolean; onToggle?: () => void;
+  trackLabel?: string;
 };
 type PredictionSelectionDetail = { runId: string; pathId: string; selectedCandidateNodeIds: string[]; origin: "tianyi" | "canvas" };
 type PredictionViewDetail = { runId: string; view: "task" | "running" | "overview" | "focus" | "review" | "receipt"; pathId: string | null };
-type Layout = { version: "tianyan-event-graph-layout/v2"; positions: Record<string, { x: number; y: number }> };
-const nodeTypes = { event: FormalEventNode, prediction: CandidateEventNode, collectionPoint: CollectionPointGraphNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode, temporalScreen: TemporalScreenNode };
+type LayoutSnapshot = { sourceVersion: string; positions: Record<string, { x: number; y: number }> };
+type Layout = { version: "tianyan-event-graph-layout/v3"; sourceVersion: string; positions: Record<string, { x: number; y: number }>; history: LayoutSnapshot[] };
+const nodeTypes = { event: FormalEventNode, prediction: CandidateEventNode, collectionPoint: CollectionPointGraphNode, narrativeTrack: NarrativeTrackNode, predictionScope: PredictionScopeNode, predictionSourceSummary: PredictionSourceSummaryNode, temporalScreen: TemporalScreenNode };
 
 function CollectionPointGraphNode(props: NodeProps<Node<NodeData>>) {
   return <CollectionPointNode {...props as unknown as NodeProps<Node<CollectionPointNodeData>>} />;
 }
+
+function NarrativeTrackNode(props: NodeProps<Node<NodeData>>) { return <span className="event-narrative-track-label"><GitBranch aria-hidden="true" />{props.data.trackLabel}</span>; }
 
 export function EventGraphCanvas(props: {
   projectId: string;
@@ -78,12 +83,14 @@ export function EventGraphCanvas(props: {
   onUpdateCollectionPoint?(input: { unitId: string; point: StoryCollectionPoint; title?: string; eventIds?: string[]; collapsed?: boolean; layout?: { x: number; y: number; pinned?: boolean } }): Promise<void>;
   onDissolveCollectionPoint?(input: { unitId: string; point: StoryCollectionPoint }): Promise<void>;
   mode?: "graph" | "temporal";
+  canvasKind?: "narrative" | "relation";
   temporalRun?: TemporalProjectionRun | null;
   temporalState?: "idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable";
   temporalMessage?: string | null;
   onReturnGraph?(): void;
 }) {
   const mode = props.mode ?? "graph";
+  const canvasKind = props.canvasKind ?? "relation";
   const [view, setView] = useState<"global" | "focus">("global");
   const [focusId, setFocusId] = useState<string | null>(props.selectedEventId);
   const [depth, setDepth] = useState(1);
@@ -129,11 +136,12 @@ export function EventGraphCanvas(props: {
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
   const graphRelations = densityFixture?.relations ?? props.relations;
+  const graphSourceVersion = graphEvents.map((event) => `${event.id}@${event.revisionToken}`).join("|");
   const expandPredictionSources = useCallback(() => setPredictionSourcesExpanded(true), []);
   const collapsePredictionSources = narrowPrediction && ["overview", "focus", "review"].includes(predictionViewState) && !predictionSourcesExpanded;
   const predictionDirectoryCollapsed = ["overview", "focus", "review"].includes(predictionViewState);
-  const storyUnits = props.storyUnits ?? [];
-  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, storyUnits, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom, (unitId, point) => void props.onUpdateCollectionPoint?.({ unitId, point, collapsed: !point.collapsed })), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.onUpdateCollectionPoint, props.temporalRun, selection, semanticZoom, storyUnits, view, workspaceSelectionIds]);
+  const storyUnits = densityFixture?.storyUnits ?? props.storyUnits ?? [];
+  const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, storyUnits, canvasKind, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom, (unitId, point) => void props.onUpdateCollectionPoint?.({ unitId, point, collapsed: !point.collapsed })), [canvasKind, collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.onUpdateCollectionPoint, props.temporalRun, selection, semanticZoom, storyUnits, view, workspaceSelectionIds]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
   const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
@@ -335,10 +343,14 @@ export function EventGraphCanvas(props: {
     return () => { observer.disconnect(); window.clearTimeout(timer); };
   }, [flow, mode, props.selectedEventId]);
 
-  const persistLayout = useCallback(() => {
-    const positions = Object.fromEntries(nodes.filter((node) => node.type === "event" && !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
-    writeLayout(props.projectId, positions);
-  }, [nodes, props.projectId]);
+  const persistMovedEvents = useCallback((movedNode: Node<NodeData>) => {
+    const movedIds = new Set(movedNode.selected ? workspaceSelectionIds : [movedNode.id]);
+    const positions = { ...layout.positions };
+    for (const node of nodes) if (node.type === "event" && movedIds.has(node.id)) positions[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) };
+    positions[movedNode.id] = { x: Math.round(movedNode.position.x), y: Math.round(movedNode.position.y) };
+    writeLayout(props.projectId, positions, graphSourceVersion);
+    setLayoutRevision((value) => value + 1);
+  }, [graphSourceVersion, layout.positions, nodes, props.projectId, workspaceSelectionIds]);
   const focus = (eventId: string) => {
     if (view === "global") globalViewport.current = flow?.getViewport() ?? null;
     setFocusId(eventId); setDepth(1); setView("focus"); setSelection({ kind: "node", id: eventId }); setWorkspaceSelectionIds([eventId]); openInspector("EVENT_DETAILS"); props.onSelectEvent(eventId);
@@ -435,10 +447,10 @@ export function EventGraphCanvas(props: {
   const contextEvent = contextNode ? graphEvents.find((event) => event.id === contextNode.id) ?? null : null;
   const selectedWorkspaceEvents = workspaceSelectionIds.filter((id) => graphEvents.some((event) => event.id === id));
 
-  return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : ""}`} aria-label={mode === "temporal" ? "事件语义时间关系工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "shared" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-view-switch-provider-calls="0" data-view-switch-agent-runs="0" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
+  return <section className={`event-graph-workspace ${inspectorOpen ? "has-inspector" : ""} ${mode === "temporal" ? "is-temporal" : canvasKind === "narrative" ? "is-narrative" : "is-relational"}`} aria-label={mode === "temporal" ? "时间线工作区" : canvasKind === "narrative" ? "水平事件编排工作区" : "事件关系工作区"} data-event-graph-owner="projection" data-graph-layer="EVENT_GRAPH" data-event-foreground={mode === "temporal" ? "temporal-projection" : "formal"} data-temporal-background={mode === "temporal" ? "screens" : "none"} data-temporal-state={mode === "temporal" ? props.temporalState ?? "idle" : undefined} data-view-switch-provider-calls="0" data-view-switch-agent-runs="0" data-candidate-overlay={["overview", "focus", "review"].includes(predictionViewState) ? "visible" : "hidden"} data-prediction-view={predictionViewState} data-unit-directory={mode === "temporal" || predictionDirectoryCollapsed ? "temporarily-collapsed" : "restored"} data-graph-view={view} data-canvas-kind={canvasKind} data-event-graph-density={densityFixture ? "synthetic-50" : undefined}>
     <header className="event-graph-commandbar">
       <button type="button" className="event-graph-directory-toggle" aria-label={railOpen ? "收起事件目录" : "展开事件目录"} aria-pressed={railOpen} onClick={toggleRail}>{railOpen ? <PanelLeftClose /> : <Network />}</button>
-      <strong className="event-graph-command-title">{mode === "temporal" ? "时间观察" : "关系观察"}</strong>
+      <strong className="event-graph-command-title">{mode === "temporal" ? "时间编排" : canvasKind === "narrative" ? "事件线编排" : "关系观察"}</strong>
       <div className="event-graph-command-actions">
         <button type="button" aria-label="新增事件" title="新增事件" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
         {view === "focus" ? <button type="button" aria-label="返回全局" title="返回全局" onClick={returnGlobal}><ArrowLeft /><span>返回全局</span></button> : null}
@@ -452,7 +464,7 @@ export function EventGraphCanvas(props: {
           } else focus(currentEvent.id);
         }}><Focus /><span>聚焦当前</span></button>
         {view === "focus" ? <button type="button" aria-label="展开一层" title="展开一层" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 /><span>展开一层</span></button> : null}
-        {mode === "graph" ? <button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw /><span>自动布局</span></button> : null}
+        {mode === "graph" ? <><button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}, graphSourceVersion); setLayoutRevision((value) => value + 1); setNotice("已以当前来源版本重新水平编排；上一版位置可恢复。"); }}><RefreshCw /><span>自动布局</span></button>{layout.history.length ? <button type="button" aria-label="恢复上一版布局" onClick={() => { restorePreviousLayout(props.projectId); setLayoutRevision((value) => value + 1); setNotice("已恢复上一版布局。"); }}><ArrowLeft /><span>恢复上一版</span></button> : null}</> : null}
         <button type="button" aria-label="筛选" title="筛选" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter /><span>筛选</span></button>
         <button type="button" aria-label={mode === "temporal" ? "时间总览" : "适应视图"} onClick={() => {
           if (mode === "temporal" && flow) {
@@ -474,12 +486,12 @@ export function EventGraphCanvas(props: {
     <div className="event-graph-main">
       {mode === "graph" ? <EventUnitDirectory events={graphEvents} storyUnits={storyUnits} selectedEventId={selection?.kind === "node" ? selection.id : null} predictionSelectionIds={predictionSelectionIds} onSelect={selectNode} onTogglePrediction={(eventId) => setPredictionSelectionIds((current) => current.includes(eventId) ? current.filter((id) => id !== eventId) : current.length < 4 ? [...current, eventId] : current)} /> : null}
       <aside className={"event-graph-local-rail " + (railOpen ? "is-open" : "")} aria-label="事件图局部目录" data-event-graph-drawer={railOpen ? "open" : "closed"}>
-        <button type="button" className="is-active">{mode === "temporal" ? <Clock3 /> : <Network />}<span>{mode === "temporal" ? "时间投影" : "关系图"}</span></button>
+        <button type="button" className="is-active">{mode === "temporal" ? <Clock3 /> : canvasKind === "narrative" ? <GitBranch /> : <Network />}<span>{mode === "temporal" ? "时间投影" : canvasKind === "narrative" ? "事件线" : "关系图"}</span></button>
         <button type="button" onClick={() => props.onOpenStorySpine?.()}><Layers3 /><span>故事脊柱</span></button>
         <button type="button" onClick={() => props.onCreateEvent?.() ?? setNotice("当前无法打开新建事件。")}><Plus /><span>新增事件</span></button>
         <button type="button" onClick={() => { const relation = graphRelations.find((item) => item.reviewState === "candidate" && item.relationTypeResolution === "unresolved") ?? graphRelations.find((item) => item.reviewState === "candidate"); if (relation) { restoreRailViewport.current = false; railViewport.current = null; setSelection({ kind: "relation", id: relation.relationId }); openInspector("RELATION_REVIEW"); setRailOpen(false); } else setNotice("当前没有待确认关系。"); }}><CircleDot /><span>待确认 {candidateCount}</span></button>
       </aside>
-      <div className={`event-graph-flow ${spacePanning ? "is-space-panning" : ""}`} tabIndex={0} onPointerUp={mode === "graph" ? persistLayout : undefined} onDoubleClickCapture={(event) => {
+      <div className={`event-graph-flow ${spacePanning ? "is-space-panning" : ""}`} tabIndex={0} onDoubleClickCapture={(event) => {
         const target = event.target;
         if (target instanceof Element && target.closest(".react-flow__pane") && !target.closest(".react-flow__node")) props.onCreateEvent?.();
       }} onKeyDown={(event) => {
@@ -507,7 +519,7 @@ export function EventGraphCanvas(props: {
             }
           }}
           onNodeDragStop={(_, node) => {
-            if (!node.data.collectionPoint) return;
+            if (!node.data.collectionPoint) { if (node.type === "event") persistMovedEvents(node); return; }
             const match = storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unit, point }))).find(({ point }) => point.id === node.id);
             if (match) void props.onUpdateCollectionPoint?.({ unitId: match.unit.id, point: match.point, layout: { x: Math.round(node.position.x), y: Math.round(node.position.y), pinned: true } }).catch((error: unknown) => setNotice(error instanceof Error ? error.message : "集点位置未能保存。"));
           }}
@@ -768,7 +780,7 @@ function Tab(props: { active: boolean; children: ReactNode; onClick(): void }) {
 function Facts(props: { facts: Array<[ReactNode, string, string]> }) { return <dl className="event-graph-facts">{props.facts.map(([icon, label, value]) => <div key={label}><dt>{icon}{label}</dt><dd>{value}</dd></div>)}</dl>; }
 function TextBlock(props: { title: string; text: string }) { return <section className="event-graph-text-block"><h3>{props.title}</h3><p>{props.text}</p></section>; }
 
-function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], storyUnits: readonly StoryUnit[], view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, workspaceSelectionIds: ReadonlySet<string>, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near", onToggleCollectionPoint: (unitId: string, point: StoryCollectionPoint) => void): { nodes: Node<NodeData>[]; edges: Edge[] } {
+function deriveGraph(events: readonly EventLineEventSummary[], relations: readonly RelationReadProjectionR0[], storyUnits: readonly StoryUnit[], canvasKind: "narrative" | "relation", view: "global" | "focus", focusId: string | null, depth: number, positions: Layout["positions"], selection: Selection, workspaceSelectionIds: ReadonlySet<string>, predictionSelectionIds: ReadonlySet<string>, predictionRun: PredictionRun | null, predictionPathId: string | null, predictionViewState: PredictionViewDetail["view"], predictionSelectedNodeIds: ReadonlySet<string>, collapsePredictionSources: boolean, onExpandPredictionSources: () => void, mode: "graph" | "temporal", temporalRun: TemporalProjectionRun | null, semanticZoom: "far" | "medium" | "near", onToggleCollectionPoint: (unitId: string, point: StoryCollectionPoint) => void): { nodes: Node<NodeData>[]; edges: Edge[] } {
   const ids = new Set(events.map((event) => event.id));
   const validFocus = focusId && ids.has(focusId) ? focusId : null;
   const active = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && !relation.archived && relation.reviewState !== "rejected");
@@ -787,7 +799,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   const remote = mode === "graph" && view === "focus" && validFocus ? remoteIds(validFocus, ids, visible, active) : { past: new Set<string>(), future: new Set<string>() };
   const focusLayout = mode === "graph" && view === "focus" && validFocus ? focusProjectionLayout(events.filter((event) => visible.has(event.id)), validFocus, active, remote) : null;
   const visibleEvents = events.filter((event) => visible.has(event.id));
-  const collectionPoints = mode === "graph" && !predictionVisible && view === "global" ? storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unitId: unit.id, point }))).filter(({ point }) => point.eventIds.some((eventId) => visible.has(eventId))) : [];
+  const collectionPoints = mode === "graph" && canvasKind === "narrative" && !predictionVisible && view === "global" ? storyUnits.flatMap((unit) => (unit.collectionPoints ?? []).map((point) => ({ unitId: unit.id, point }))).filter(({ point }) => point.eventIds.some((eventId) => visible.has(eventId))) : [];
   const collapsedMembership = new Map<string, string>();
   const collectionMemberPositions = new Map<string, { x: number; y: number }>();
   collectionPoints.forEach(({ point }, pointIndex) => {
@@ -797,6 +809,14 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
   });
   const temporalByEvent = new Map(temporalRun?.placements.map((placement) => [placement.versionedEventRef.eventId, placement]) ?? []);
   const temporalPositions = temporalEventPositions(visibleEvents, temporalByEvent, semanticZoom);
+  const narrativeLayout = mode === "graph" ? buildEventNarrativeLayout({
+    events: visibleEvents.map((event, order) => {
+      const semantic = eventLineSemanticNode(event);
+      const branch = canvasKind === "narrative" && semantic.storyLine.kind !== "main";
+      return { id: event.id, sourceVersion: event.revisionToken, order, trackKind: branch ? "branch" as const : "main" as const, trackId: branch ? semantic.storyLine.id : null, pinnedPosition: positions[event.id] ?? null };
+    }),
+    relations: active.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, confirmed: relation.reviewState === "confirmed" }))
+  }) : null;
   const eventNodes: Node<NodeData>[] = collapsePredictionSources ? [] : visibleEvents.filter((event) => !collapsedMembership.has(event.id)).map((event, index) => {
     const metadata = eventLineEventMetadata(event);
     const semantic = eventLineSemanticNode(event);
@@ -805,14 +825,16 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalPosition = temporal ? temporalPositions.get(event.id) ?? null : null;
     const focused = event.id === validFocus;
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? gridPosition(index, events.length) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? positions[event.id] ?? gridPosition(index, events.length), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? narrativeLayout?.positions[event.id] ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom } } satisfies Node<NodeData>;
   });
   const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
     const rows = Math.ceil(point.eventIds.length / 2);
     return { id: point.id, type: "collectionPoint", className: `event-graph-collection-point ${point.collapsed ? "is-collapsed" : "is-expanded"}`, position: collectionPointPosition(point, pointIndex), style: point.collapsed ? { width: 224, height: 76 } : { width: 482, height: 86 + rows * 158 }, zIndex: point.collapsed ? 1 : -2, data: { title: point.title, time: "", location: "", status: "可选集点", focused: false, selected: selection?.kind === "collection-point" && selection.id === point.id, collectionPoint: true, unitId, eventCount: point.eventIds.length, expanded: !point.collapsed, onToggle: () => onToggleCollectionPoint(unitId, point) } };
   });
+  const trackLabelById = new Map(visibleEvents.map((event) => { const storyLine = eventLineSemanticNode(event).storyLine; return [storyLine.kind === "main" ? "main" : storyLine.id, storyLine.label] as const; }));
+  const trackNodes: Node<NodeData>[] = mode === "graph" && canvasKind === "narrative" && !predictionVisible && view === "global" ? (narrativeLayout?.tracks ?? []).map((track) => ({ id: `narrative-track.${track.id}`, type: "narrativeTrack", draggable: false, selectable: false, connectable: false, focusable: false, position: { x: 24, y: track.y - 52 }, zIndex: -4, data: { title: "", time: "", location: "", status: "", focused: false, selected: false, trackLabel: track.kind === "main" ? "主线" : trackLabelById.get(track.id) ?? "分支轨道" } })) : [];
   const screenNodes: Node<NodeData>[] = mode === "temporal" && temporalRun?.status === "ready" ? temporalScreenNodes(temporalRun, visibleEvents.length) : [];
-  const nodes: Node<NodeData>[] = [...screenNodes, ...collectionNodes, ...eventNodes];
+  const nodes: Node<NodeData>[] = [...screenNodes, ...trackNodes, ...collectionNodes, ...eventNodes];
   if (remote.past.size) nodes.push(remoteNode("past", remote.past.size, selection, focusLayout?.remote.past));
   if (remote.future.size) nodes.push(remoteNode("future", remote.future.size, selection, focusLayout?.remote.future));
   const nodeIds = new Set(eventNodes.map((node) => node.id));
@@ -933,7 +955,8 @@ function remoteIds(focusId: string, eventIds: ReadonlySet<string>, visible: Read
   visit(inbound, past); visit(outbound, future); return { past, future };
 }
 function collectionPointPosition(point: StoryCollectionPoint, index: number) { return point.layout.x || point.layout.y ? { x: point.layout.x, y: point.layout.y } : { x: 80 + index * 520, y: 100 + (index % 2) * 330 }; }
-function gridPosition(index: number, total: number) { const columns = total > 24 ? 6 : total > 10 ? 5 : 4; return { x: 90 + (index % columns) * 225, y: 170 + Math.floor(index / columns) * 175 }; }
+/** Development-only fallback for malformed fixtures; product layout uses buildEventNarrativeLayout. */
+function developmentGridFallback(index: number) { return { x: 90 + index * 270, y: 160 }; }
 function focusProjectionLayout(events: readonly EventLineEventSummary[], focusId: string, relations: readonly RelationReadProjectionR0[], remote: { past: ReadonlySet<string>; future: ReadonlySet<string> }) {
   const inbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === event.id && relation.targetObjectId === focusId));
   const outbound = events.filter((event) => event.id !== focusId && relations.some((relation) => relation.sourceObjectId === focusId && relation.targetObjectId === event.id));
@@ -1045,13 +1068,13 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
 function isDensityFixture() {
   return import.meta.env.DEV && new URLSearchParams(window.location.search).get("eventGraphFixture") === "density50";
 }
-function syntheticDensityFixture(): { events: EventLineEventSummary[]; relations: RelationReadProjectionR0[] } {
+function syntheticDensityFixture(): { events: EventLineEventSummary[]; relations: RelationReadProjectionR0[]; storyUnits: StoryUnit[] } {
   const events = Array.from({ length: 50 }, (_, index) => ({
     id: `synthetic-density-event-${index + 1}`,
     type: "event",
     title: `密度事件 ${String(index + 1).padStart(2, "0")}`,
-    status: "committed",
-    tags: ["作者确认", `时间：第${index + 1}回`, `地点：区域 ${index % 7 + 1}`],
+    status: index === 46 ? "draft" : "committed",
+    tags: [index === 46 ? "状态：候选" : "作者确认", `时间：第${index + 1}回`, `地点：区域 ${index % 7 + 1}`, `故事线：${index < 20 ? "主线" : index < 30 ? "支线·船坞" : index < 40 ? "支线·灯塔" : "隐线·潮声"}`, ...(index === 47 ? ["状态：未知", "时间冲突：需要作者处理"] : [])],
     revisionToken: `synthetic-${index + 1}`
   } as EventLineEventSummary));
   const makeRelation = (source: number, target: number, candidate = false) => ({
@@ -1068,14 +1091,42 @@ function syntheticDensityFixture(): { events: EventLineEventSummary[]; relations
     createdAt: "local", updatedAt: "local", operationReceipt: null
   } as unknown as RelationReadProjectionR0);
   const relations: RelationReadProjectionR0[] = [];
-  for (let index = 1; index < 50; index += 1) relations.push(makeRelation(index, index + 1));
-  for (let index = 2; index < 45; index += 6) relations.push(makeRelation(index, index + 5));
+  for (let index = 1; index < 20; index += 1) relations.push(makeRelation(index, index + 1));
+  [[3, 21, 30, 8], [7, 31, 40, 14], [12, 41, 50, 19]].forEach(([branchAt, start, end, mergeAt]) => { relations.push(makeRelation(branchAt!, start!)); for (let index = start!; index < end!; index += 1) relations.push(makeRelation(index, index + 1)); relations.push(makeRelation(end!, mergeAt!)); });
   relations.push(makeRelation(18, 28, true));
-  return { events, relations };
+  const collectionPoints: StoryCollectionPoint[] = [[4, 5], [12, 13, 14], [24, 25], [35, 36, 37]].map((members, index) => ({ id: `synthetic-collection-point-${index + 1}`, title: `编排集点 ${index + 1}`, eventIds: members.map((member) => events[member - 1]!.id), order: index, collapsed: index === 2, sourceVersionRef: "synthetic-density-r9", revision: 1, layout: { x: 900 + index * 560, y: 650 + index % 2 * 360, pinned: false }, lastOperationId: `synthetic-collection-point-${index + 1}.create` }));
+  const now = "2026-09-02T00:00:00.000Z";
+  const storyUnits: StoryUnit[] = [{ id: "synthetic-story-unit-density", relativeId: "story-units/synthetic-density.md", title: "长夜将明·密度校验", summary: "主线、三条分支、合流、四个集点与候选冲突的隔离测试。", kind: "main", parentUnitId: null, branchPointEventId: null, mergeTargetUnitId: null, order: 0, sourceVersionRef: "synthetic-density-r9", status: "active", objective: "验证水平叙事编排", coreConflict: "多分支密度", turningPoint: "第 12 事件", openHook: "候选冲突", lifecycle: "active", sourceRefs: [], items: [], collectionPoints, linkedEntityIds: events.map((event) => event.id), unresolvedQuestionIds: [], generationConstraints: {}, version: "synthetic-density-r9", createdAt: now, updatedAt: now, source: "markdown" }];
+  return { events, relations, storyUnits };
 }
 function directionLabel(direction: RelationReadProjectionR0["direction"]) { return direction === "reverse" ? "目标 → 来源" : direction === "both" ? "双向" : direction === "none" ? "未指定方向" : "来源 → 目标"; }
 function relationReason(relation: RelationReadProjectionR0) { const source = typeof relation.provenance.sourceRef === "string" ? relation.provenance.sourceRef : ""; return /pi|agent|tianyi/iu.test(source) ? "由天意提出，等待作者确认" : "由作者操作提出，等待作者确认"; }
 function evidenceLabel(relation: RelationReadProjectionR0) { return relation.evidenceWarnings.length ? String(relation.evidenceWarnings.length) + " 条证据仍需核验。" : relation.evidenceRefs.length ? "已有可追溯的关系证据。" : "当前未附加额外证据。"; }
-function layoutKey(projectId: string) { return "tianyan.event-graph-layout/v2:" + projectId; }
-function readLayout(projectId: string): Layout { try { const value = window.localStorage.getItem(layoutKey(projectId)); const parsed = value ? JSON.parse(value) as Partial<Layout> : null; if (parsed?.version === "tianyan-event-graph-layout/v2" && parsed.positions && typeof parsed.positions === "object") return { version: parsed.version, positions: parsed.positions as Layout["positions"] }; } catch {} return { version: "tianyan-event-graph-layout/v2", positions: {} }; }
-function writeLayout(projectId: string, positions: Layout["positions"]) { try { window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v2", positions } satisfies Layout)); } catch {} }
+function layoutKey(projectId: string) { return "tianyan.event-graph-layout/v3:" + projectId; }
+function readLayout(projectId: string): Layout {
+  try {
+    const value = window.localStorage.getItem(layoutKey(projectId));
+    const parsed = value ? JSON.parse(value) as Partial<Layout> : null;
+    if (parsed?.version === "tianyan-event-graph-layout/v3" && parsed.positions && typeof parsed.positions === "object") return { version: parsed.version, sourceVersion: typeof parsed.sourceVersion === "string" ? parsed.sourceVersion : "unknown", positions: parsed.positions as Layout["positions"], history: Array.isArray(parsed.history) ? parsed.history.slice(-5) as LayoutSnapshot[] : [] };
+    const legacy = window.localStorage.getItem("tianyan.event-graph-layout/v2:" + projectId);
+    const legacyLayout = legacy ? JSON.parse(legacy) as { positions?: Layout["positions"] } : null;
+    if (legacyLayout?.positions) return { version: "tianyan-event-graph-layout/v3", sourceVersion: "legacy-v2", positions: legacyLayout.positions, history: [] };
+  } catch {}
+  return { version: "tianyan-event-graph-layout/v3", sourceVersion: "unknown", positions: {}, history: [] };
+}
+function writeLayout(projectId: string, positions: Layout["positions"], sourceVersion: string) {
+  try {
+    const current = readLayout(projectId);
+    const changed = JSON.stringify(current.positions) !== JSON.stringify(positions) || current.sourceVersion !== sourceVersion;
+    const history = changed && Object.keys(current.positions).length ? [...current.history, { sourceVersion: current.sourceVersion, positions: current.positions }].slice(-5) : current.history;
+    window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion, positions, history } satisfies Layout));
+  } catch {}
+}
+function restorePreviousLayout(projectId: string) {
+  try {
+    const current = readLayout(projectId);
+    const previous = current.history.at(-1);
+    if (!previous) return;
+    window.localStorage.setItem(layoutKey(projectId), JSON.stringify({ version: "tianyan-event-graph-layout/v3", sourceVersion: previous.sourceVersion, positions: previous.positions, history: current.history.slice(0, -1) } satisfies Layout));
+  } catch {}
+}

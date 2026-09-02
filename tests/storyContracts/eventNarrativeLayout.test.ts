@@ -1,0 +1,44 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+import { buildEventNarrativeLayout } from "../../src/storyContracts/eventNarrativeLayout.ts";
+
+test("event narrative layout advances left to right across stable main and branch tracks", () => {
+  const events = [
+    { id: "event.a", sourceVersion: "a1", order: 0, trackKind: "main" as const },
+    { id: "event.b", sourceVersion: "b1", order: 1, trackKind: "main" as const },
+    { id: "event.branch", sourceVersion: "c1", order: 2, trackKind: "branch" as const, trackId: "branch.harbor" },
+    { id: "event.merge", sourceVersion: "d1", order: 3, trackKind: "main" as const }
+  ];
+  const projection = buildEventNarrativeLayout({ events, relations: [
+    { sourceEventId: "event.a", targetEventId: "event.b", confirmed: true },
+    { sourceEventId: "event.a", targetEventId: "event.branch", confirmed: true },
+    { sourceEventId: "event.b", targetEventId: "event.merge", confirmed: true },
+    { sourceEventId: "event.branch", targetEventId: "event.merge", confirmed: true }
+  ] });
+  assert.ok(projection.positions["event.a"]!.x < projection.positions["event.b"]!.x);
+  assert.ok(projection.positions["event.branch"]!.y > projection.positions["event.a"]!.y);
+  assert.ok(projection.positions["event.merge"]!.x > projection.positions["event.branch"]!.x);
+  assert.equal(projection.tracks.length, 2);
+});
+
+test("pinned Event positions survive source-compatible recomposition and revisions follow source versions", () => {
+  const first = buildEventNarrativeLayout({ events: [{ id: "event.a", sourceVersion: "a1", order: 0, pinnedPosition: { x: 777, y: 333 } }], relations: [] });
+  const second = buildEventNarrativeLayout({ events: [{ id: "event.a", sourceVersion: "a2", order: 0, pinnedPosition: { x: 777, y: 333 } }], relations: [] });
+  assert.deepEqual(first.positions["event.a"], { x: 777, y: 333 });
+  assert.notEqual(first.sourceVersion, second.sourceVersion);
+  assert.notEqual(first.revision, second.revision);
+});
+
+test("formal workspace exposes grouped navigation and keeps narrative layout out of temporal projection", async () => {
+  const workbench = await readFile(new URL("../../apps/story-studio/src/components/EventLineWorkbench.tsx", import.meta.url), "utf8");
+  const graph = await readFile(new URL("../../apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", import.meta.url), "utf8");
+  assert.match(workbench, />结构</u);
+  assert.match(workbench, />编排</u);
+  assert.match(workbench, />观察</u);
+  assert.match(workbench, />故事脊柱</u);
+  assert.match(workbench, />事件线</u);
+  assert.match(graph, /canvasKind === "narrative"/u);
+  assert.doesNotMatch(graph, /gridPosition\(total > 24/u);
+});
