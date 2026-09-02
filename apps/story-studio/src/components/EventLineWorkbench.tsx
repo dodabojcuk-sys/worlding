@@ -51,6 +51,7 @@ import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import { TemporalCanvas } from "./event-observation/TemporalCanvas";
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
+import { buildTemporalCompositionCache } from "../../../../src/storyContracts/temporalCompositionCache.ts";
 import type { StoryCollectionPoint, StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
 import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import { runLocalStoryLogicChecks } from "../../../../src/storyContracts/storyLogicChecks.ts";
@@ -730,6 +731,15 @@ function modelingToolLabel(tool: StoryModelingTool): string {
 
 function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: StoryStudioEventReference[]): TemporalProjectionRun {
   const placementById = new Map(run.result?.temporalPlacements.map((item) => [item.eventId, item]) ?? []);
+  const placements: TemporalProjectionRun["placements"] = refs.map((reference, index) => {
+    const candidate = placementById.get(reference.eventId);
+    const kind = candidate?.kind === "interval" ? "ambiguous" : candidate?.kind ?? "unplaced";
+    return { versionedEventRef: reference, placementKind: kind, relativePosition: candidate?.x ?? 160 + index * 180, segmentId: kind === "anchored" ? "temporal-segment.authored" : kind === "conflict" ? "temporal-segment.conflict" : kind === "unplaced" ? "temporal-segment.unplaced" : "temporal-segment.inferred", authoredTimeLabel: kind === "anchored" ? candidate?.label ?? null : null, inferredWindow: candidate?.interval ?? (kind === "inferred" ? { start: Math.max(0, (candidate?.x ?? 0) - 40), end: (candidate?.x ?? 0) + 40 } : null), anchorBeforeEventIds: [], anchorAfterEventIds: [], confidence: candidate?.confidence ?? null, evidenceRefs: candidate?.sourceRefs ?? [], authorFacingSummary: candidate?.label ?? "暂无足够证据定位。", alternatives: [] };
+  });
+  const branchTrackByEventId = Object.fromEntries(refs.map((reference) => {
+    const y = placementById.get(reference.eventId)?.y ?? 0;
+    return [reference.eventId, y >= 430 ? "track.aftermath" : y >= 240 ? "track.parallel" : "track.primary"];
+  }));
   return {
     version: "tianyan-temporal-projection/v1",
     runId: `temporal-run.${run.runId.slice("story-modeling-run.".length)}`,
@@ -741,11 +751,7 @@ function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: 
     status: "ready",
     createdAt: run.createdAt,
     stale: false,
-    placements: refs.map((reference, index) => {
-      const candidate = placementById.get(reference.eventId);
-      const kind = candidate?.kind === "interval" ? "ambiguous" : candidate?.kind ?? "unplaced";
-      return { versionedEventRef: reference, placementKind: kind, relativePosition: candidate?.x ?? 160 + index * 180, segmentId: kind === "anchored" ? "temporal-segment.authored" : kind === "conflict" ? "temporal-segment.conflict" : kind === "unplaced" ? "temporal-segment.unplaced" : "temporal-segment.inferred", authoredTimeLabel: kind === "anchored" ? candidate?.label ?? null : null, inferredWindow: candidate?.interval ?? (kind === "inferred" ? { start: Math.max(0, (candidate?.x ?? 0) - 40), end: (candidate?.x ?? 0) + 40 } : null), anchorBeforeEventIds: [], anchorAfterEventIds: [], confidence: candidate?.confidence ?? null, evidenceRefs: candidate?.sourceRefs ?? [], authorFacingSummary: candidate?.label ?? "暂无足够证据定位。", alternatives: [] };
-    }),
+    placements,
     segments: [
       { id: "temporal-segment.authored", order: 0, label: "正式时间锚点", kind: "authored_anchor", startAnchorEventIds: [], endAnchorEventIds: [], confidence: 1 },
       { id: "temporal-segment.inferred", order: 1, label: "推断时间区间", kind: "interval", startAnchorEventIds: [], endAnchorEventIds: [], confidence: .72 },
@@ -753,7 +759,8 @@ function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: 
       { id: "temporal-segment.unplaced", order: 3, label: "未定位托盘", kind: "unresolved", startAnchorEventIds: [], endAnchorEventIds: [], confidence: null }
     ],
     conflicts: run.result?.temporalPlacements.filter((item) => item.kind === "conflict").map((item) => ({ id: `temporal-conflict.${item.eventId}`, eventIds: [item.eventId, refs.find((ref) => ref.eventId !== item.eventId)?.eventId ?? item.eventId], summary: item.label, evidenceRefs: item.sourceRefs })) ?? [],
-    failureReason: null
+    failureReason: null,
+    compositionCache: buildTemporalCompositionCache({ sourceManifestDigest: run.sourceManifestDigest, layoutRevision: `temporal-layout.${run.runId.slice("story-modeling-run.".length)}`, placements, branchTrackByEventId })
   };
 }
 

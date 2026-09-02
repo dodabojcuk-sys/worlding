@@ -16,6 +16,7 @@ import {
   type TemporalProjectionRequest,
   type TemporalProjectionRun
 } from "../storyContracts/temporalProjection.ts";
+import { buildTemporalCompositionCache } from "../storyContracts/temporalCompositionCache.ts";
 import { assertStoryStudioEventReferenceEligibility } from "../storyContracts/storyStudioEventReference.ts";
 import { publishFileNoReplace, readExistingUtf8, replaceFileAtomically } from "./atomicNoReplaceFile.ts";
 import { createStoryStudioRelationOperations, type RelationReadProjectionR0 } from "./storyStudioRelationOperations.ts";
@@ -94,7 +95,9 @@ export function createStoryStudioTemporalProjectionOperations(options: {
       assertCurrentGraphRevision(request, evidence.relations);
       const result = await raceAbort(gateway.generate({ request, ...evidence, runtime: { runId: run.runId, attemptId: `temporal-attempt.${run.runId}.1`, signal: controller.signal } }), controller.signal);
       const projection = validateTemporalProjectionResult({ request, result });
-      return structuredClone(replace({ ...generating, ...projection, status: "ready", stale: false, failureReason: null }));
+      const branchTrackByEventId = Object.fromEntries(evidence.events.map((event) => [event.id, event.tags.some((tag) => /(?:分支|支线|暗线|人物线|地点线)/u.test(tag)) ? "track.parallel" : "track.primary"]));
+      const compositionCache = buildTemporalCompositionCache({ sourceManifestDigest: `sha256:${run.graphRevisionHash}`, layoutRevision: `temporal-layout.${run.graphRevisionHash.slice(0, 16)}`, placements: projection.placements, branchTrackByEventId });
+      return structuredClone(replace({ ...generating, ...projection, compositionCache, status: "ready", stale: false, failureReason: null }));
     } catch (cause) {
       const stopped = controller.signal.aborted;
       replace({ ...generating, status: stopped ? "stopped" : "failed", failureReason: stopped ? "时间位置推断已安全停止。" : safeFailure(cause) });

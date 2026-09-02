@@ -2,6 +2,7 @@ import {
   normalizeStoryStudioEventReference,
   type StoryStudioEventReference
 } from "./storyStudioEventReference.ts";
+import { validateTemporalCompositionCache, type TemporalCompositionCache } from "./temporalCompositionCache.ts";
 
 export const TEMPORAL_PROJECTION_VERSION = "tianyan-temporal-projection/v1" as const;
 
@@ -69,6 +70,7 @@ export type TemporalProjectionRun = {
   segments: TemporalSegment[];
   conflicts: TemporalConflict[];
   failureReason: string | null;
+  compositionCache?: TemporalCompositionCache;
 };
 
 export function normalizeTemporalProjectionRequest(value: unknown): TemporalProjectionRequest {
@@ -132,7 +134,7 @@ export function validateTemporalProjectionResult(input: {
 }
 
 export function validateTemporalProjectionRun(value: unknown): TemporalProjectionRun {
-  const input = exactObject(value, ["version", "runId", "projectId", "graphRevisionHash", "operationId", "trigger", "sourceSnapshot", "status", "createdAt", "stale", "placements", "segments", "conflicts", "failureReason"], "Temporal projection run");
+  const input = exactObjectWithOptional(value, ["version", "runId", "projectId", "graphRevisionHash", "operationId", "trigger", "sourceSnapshot", "status", "createdAt", "stale", "placements", "segments", "conflicts", "failureReason"], ["compositionCache"], "Temporal projection run");
   if (input.version !== TEMPORAL_PROJECTION_VERSION) throw new Error("Temporal projection run version is invalid.");
   const request: TemporalProjectionRequest = {
     projectId: requireProjectId(input.projectId),
@@ -147,6 +149,7 @@ export function validateTemporalProjectionRun(value: unknown): TemporalProjectio
   const result = status === "ready"
     ? validateTemporalProjectionResult({ request, result: { placements: input.placements, segments: input.segments, conflicts: input.conflicts } })
     : emptyOrValidatedResult(input, request);
+  const compositionCache = input.compositionCache === undefined ? undefined : validateTemporalCompositionCache(input.compositionCache, request.eventRefs);
   return {
     version: TEMPORAL_PROJECTION_VERSION,
     runId: requireRunId(input.runId),
@@ -159,7 +162,8 @@ export function validateTemporalProjectionRun(value: unknown): TemporalProjectio
     createdAt: requireIsoDate(input.createdAt),
     stale: requireBoolean(input.stale, "Temporal projection stale state"),
     ...result,
-    failureReason: input.failureReason === null ? null : requireText(input.failureReason, 240, "Temporal projection failure reason")
+    failureReason: input.failureReason === null ? null : requireText(input.failureReason, 240, "Temporal projection failure reason"),
+    ...(compositionCache ? { compositionCache } : {})
   };
 }
 
@@ -260,6 +264,15 @@ function exactObject(value: unknown, keys: readonly string[], label: string): Re
   const actual = Object.keys(input).sort();
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) throw new Error(`${label} fields are invalid.`);
+  return input;
+}
+
+function exactObjectWithOptional(value: unknown, required: readonly string[], optional: readonly string[], label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error(`${label} must be a plain object.`);
+  const input = value as Record<string, unknown>;
+  const actual = Object.keys(input);
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((key) => !(key in input)) || actual.some((key) => !allowed.has(key))) throw new Error(`${label} fields are invalid.`);
   return input;
 }
 

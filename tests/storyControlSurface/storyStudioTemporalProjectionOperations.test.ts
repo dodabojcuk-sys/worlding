@@ -33,9 +33,15 @@ test("temporal projection creates Runs only for author requests and keeps operat
     const ready = await operations.executeTemporalProjectionRun({ projectId, runId: created.runId });
     assert.equal(ready.status, "ready");
     assert.equal(ready.placements.length, sources.length);
+    assert.equal(ready.compositionCache?.version, "tianyan-temporal-composition-cache/v1");
+    assert.equal(ready.compositionCache?.sourceManifestDigest, `sha256:${revision.graphRevisionHash}`);
+    assert.deepEqual(ready.compositionCache?.items.map((item) => item.versionedEventRef.eventId), refs.map((reference) => reference.eventId));
+    assert.equal(ready.compositionCache?.items.every((item) => item.branchTrack === "track.primary"), true);
     assert.equal(ready.placements.filter((item) => item.placementKind === "unplaced").length, 0, "story order remains weak evidence instead of a final unknown bucket");
     assert.equal(operations.readTemporalProjectionByRevision({ projectId, graphRevisionHash: revision.graphRevisionHash })?.runId, created.runId);
-    assert.equal(createStoryStudioTemporalProjectionOperations({ rootPath, stateFilePath }).readTemporalProjectionRun({ projectId, runId: created.runId })?.status, "ready", "restart restores the persisted projection");
+    const restarted = createStoryStudioTemporalProjectionOperations({ rootPath, stateFilePath }).readTemporalProjectionRun({ projectId, runId: created.runId });
+    assert.equal(restarted?.status, "ready", "restart restores the persisted projection");
+    assert.equal(restarted?.compositionCache?.layoutRevision, ready.compositionCache?.layoutRevision, "restart restores the same versioned composition layout");
     assert.deepEqual(workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects, before);
     assert.equal(JSON.stringify(ready).includes("worldTime"), false);
     assert.equal(JSON.stringify(ready).includes("prompt"), false);
