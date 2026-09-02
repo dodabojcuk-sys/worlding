@@ -191,6 +191,39 @@ export type AgentActionKind = "read-context" | "draft-write" | "library-write" |
 export type AgentActivityReceipt = { id: string; recordedAt: string; actor: "tianyi" | "nuwa" | "author"; action: AgentActionKind; targets: string[]; outcome: "allowed" | "requires-author" | "blocked"; reason: string; reversible: boolean; checkpointId: string | null; actionClass: "read" | "draft" | "persistent" | "review" | "protected" | "external"; projectScope: string; targetType: string; riskLevel: "low" | "medium" | "high" | "critical"; estimatedProviderCost: number; requiredPermission: AgentPermissionProfile | "author-confirmation" };
 export type AgentPermissionState = { version: "story-studio-action-permission-broker/v1"; profile: AgentPermissionProfile; updatedAt: string; receipts: AgentActivityReceipt[] };
 
+export type ProviderPresetId = "openai" | "deepseek" | "zhipu" | "siliconflow" | "radeon-cloud" | "ollama" | "lemonade" | "vllm" | "custom-openai";
+export type ModelCapability = "llm" | "embedding" | "vlm" | "rerank" | "asr" | "tts";
+export type CapabilitySource = "preset-declared" | "user-declared" | "probed" | "unknown";
+export type ModelCatalogEntry = { id: string; label: string; source: "endpoint" | "manual" | "preset" | "unverified"; revision: string; capabilityClaims: Array<{ capability: ModelCapability; source: CapabilitySource }>; dimensions?: number };
+export type ModelCatalogSnapshot = { schemaVersion: 1; providerInstanceId: string; configRevision: number; status: "never_fetched" | "loading" | "ready" | "stale" | "failed" | "unsupported"; source: "endpoint" | "manual" | "preset"; lastAttemptAt: string | null; lastSuccessAt: string | null; fetchedAt: string | null; entries: ModelCatalogEntry[]; failure: { category: string; message: string; occurredAt: string | null } | null; lastKnownGood: boolean };
+
+export type ProviderInstanceProjection = {
+  id: string;
+  providerInstanceId: string;
+  provider: ProviderPresetId;
+  preset: ProviderPresetId;
+  protocolAdapter: "openai-compatible" | "ollama-native";
+  displayName: string;
+  baseUrl: string;
+  endpointIdentity: string;
+  modelId: string;
+  embeddingModelId: string;
+  defaultModels: { llm: { providerInstanceId: string; modelId: string } | null; embedding: { providerInstanceId: string; modelId: string } | null };
+  enabled: boolean;
+  credentialRef: string;
+  configRevision: number;
+  connectionStatus: "unknown" | "verified" | "failed" | "disabled";
+  lastVerifiedAt: string | null;
+  lastError: string | null;
+  catalog: ModelCatalogSnapshot;
+  suggestedModels: ModelCatalogEntry[];
+  embeddingProbe: { status: "success"; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; verifiedAt: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  availableModels: string[];
+  lastModelDiscoveryAt: string | null;
+};
+
 export type ModelServiceStatus = {
   version: "story-studio-model-service/v1";
   providers: Array<{
@@ -201,7 +234,7 @@ export type ModelServiceStatus = {
     lastUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null;
     lastTraceId: string | null;
   }>;
-  models: Array<{ providerId: string; id: string; label: string; capabilities: string[] }>;
+  models: Array<{ providerId: string; providerInstanceId: string; id: string; label: string; capabilities: ModelCapability[]; capabilityClaims: Array<{ capability: ModelCapability; source: CapabilitySource }>; source: ModelCatalogEntry["source"]; revision: string }>;
   profiles: Array<{
     id: string;
     label: string;
@@ -246,24 +279,12 @@ export type ModelServiceStatus = {
 };
 
 export type ProviderProfileProjection = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   revision: number;
   activeProfileId: string;
-  profile: {
-    id: string;
-    provider: "siliconflow" | "radeon-cloud";
-    displayName: string;
-    baseUrl: string;
-    modelId: string;
-    enabled: boolean;
-    credentialRef: string;
-    connectionStatus: "unknown" | "verified" | "failed" | "disabled";
-    lastVerifiedAt: string | null;
-    lastError: string | null;
-    availableModels: string[];
-    lastModelDiscoveryAt: string | null;
-    updatedAt: string;
-  } | null;
+  profile: ProviderInstanceProjection | null;
+  providerInstances: ProviderInstanceProjection[];
+  presets: Array<{ id: ProviderPresetId; label: string; protocolAdapter: "openai-compatible" | "ollama-native"; defaultBaseUrl: string; credentialRequired: boolean }>;
   history: ProviderOperationHistoryEntry[];
   credential: {
     configured: boolean;
@@ -274,11 +295,12 @@ export type ProviderProfileProjection = {
     smokeCompatibleByDefault: boolean;
     compatibilityNotice: string | null;
   };
+  credentialRequired: boolean;
 };
 
 export type ProviderOperationHistoryEntry = {
   id: string;
-  kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference";
+  kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference" | "embedding";
   status: "success" | "failed";
   occurredAt: string;
   modelId: string | null;
@@ -291,7 +313,7 @@ export type ProviderOperationHistoryEntry = {
 export type ProviderSessionConnection = {
   version: "story-studio-provider-session/v1";
   connected: true;
-  providerId: "siliconflow" | "radeon-cloud";
+  providerId: ProviderPresetId;
   modelId: string;
   profileId: string;
   availableModelCount: number;
@@ -1244,10 +1266,11 @@ export async function getProviderProfile(token: string): Promise<ProviderProfile
 
 export async function saveProviderProfile(input: {
   expectedRevision: number;
-  provider: "siliconflow" | "radeon-cloud";
+  provider: ProviderPresetId;
   displayName: string;
   baseUrl: string;
-  modelId: string;
+  llmModelId: string;
+  embeddingModelId: string;
   enabled: boolean;
   apiKey?: string;
   token: string;
@@ -1269,12 +1292,16 @@ export async function clearProviderCredential(token: string): Promise<ProviderPr
   return request<ProviderProfileProjection>(`${basePath}/model-service/profile/clear-credential`, { method: "POST", token, body: { confirmed: true } });
 }
 
-export async function discoverProviderModels(token: string): Promise<{ providerId: "siliconflow" | "radeon-cloud"; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ providerId: "siliconflow" | "radeon-cloud"; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
+export async function discoverProviderModels(token: string): Promise<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }> {
+  return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
 export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
   return request<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+}
+
+export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {
+  return request(`${basePath}/model-service/embedding-probe`, { method: "POST", token, body: { modelId } });
 }
 
 export async function runProviderMinimalInference(token: string): Promise<{ gate: "minimal-inference"; modelId: string; content: string; finishReason: string | null; usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null; traceId: string | null; profile: ProviderProfileProjection }> {

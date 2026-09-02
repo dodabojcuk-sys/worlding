@@ -25,7 +25,7 @@ Original evidence is preserved verbatim. Summaries, extracted entities, embeddin
 | Capability | Owner/configuration boundary |
 | --- | --- |
 | Dialogue and reasoning model | Agent configuration through the existing Provider boundary |
-| Embedding model | Project memory-index configuration; changing it requires a new index version or a full rebuild |
+| Embedding model | Global configuration supplies only the default for future indexes; every dataset remains bound to its immutable index-generation manifest, and an incompatible change requires a new generation or full rebuild |
 | Reranker | Retrieval service configuration |
 | Image generation and visual understanding | Tool capabilities, never implicit character or Canon writers |
 | API credentials | System Provider configuration only |

@@ -184,16 +184,16 @@
     {
       "id": "provider-runtime",
       "status": "PARTIAL",
-      "maturity": "real-provider-connected",
-      "entrypoints": ["apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs"],
-      "sourceFiles": ["apps/story-studio/server/server.mjs", "apps/story-studio/server/providerGateway/goldenLoopOperation.mjs", "apps/story-studio/server/providerGateway/goldenLoopSourceAuthority.mjs", "apps/story-studio/server/providerGateway/goldenLoopSourceBinding.mjs", "src/storyContinuity/tianyiGroundedAnswer.ts", "src/storyContinuity/tianyiGroundedAnswerOperation.ts"],
-      "domainOwners": ["apps/story-studio/server/providerGateway/aiProviderGateway.mjs"],
-      "stateOwners": ["apps/story-studio/server/server.mjs"],
-      "persistenceOwner": "current server process memory only",
-      "providerDependency": "SiliconFlow OpenAI-compatible API",
-      "tests": ["tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyStudio/goldenLoopSourceAuthority.test.ts", "tests/storyStudio/goldenLoopSourceAuthorityServer.test.ts", "tests/storyContinuity/tianyiGroundedAnswerAndObjectContext.test.ts"],
+      "maturity": "provider-catalog-and-explicit-embedding-probe-r0",
+      "entrypoints": ["apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/providerProtocolAdapterFactory.mjs"],
+      "sourceFiles": ["apps/story-studio/server/server.mjs", "apps/story-studio/server/providerGateway/providerCatalog.mjs", "apps/story-studio/server/providerGateway/persistentProviderProfileStore.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "apps/story-studio/server/providerGateway/ollamaNativeAdapter.mjs", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyContinuity/embeddingIndexBinding.ts", "apps/story-studio/server/providerGateway/goldenLoopOperation.mjs", "apps/story-studio/server/providerGateway/goldenLoopSourceAuthority.mjs", "apps/story-studio/server/providerGateway/goldenLoopSourceBinding.mjs", "src/storyContinuity/tianyiGroundedAnswer.ts", "src/storyContinuity/tianyiGroundedAnswerOperation.ts", "docs/architecture/TIANYAN_PROVIDER_CATALOG_AND_EMBEDDING_BINDING_R0.md"],
+      "domainOwners": ["apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "src/storyContinuity/embeddingIndexBinding.ts"],
+      "stateOwners": ["apps/story-studio/server/providerGateway/persistentProviderProfileStore.mjs"],
+      "persistenceOwner": "Persistent Provider Profile schema v3 owns non-sensitive Provider instances, catalog snapshots, capability evidence and probe metadata; credentials remain in the existing credential backend; future dataset index generations own their own immutable embedding manifests",
+      "providerDependency": "OpenAI-Compatible and Ollama Native through one Gateway; only author-triggered catalog, connection, embedding or existing inference actions may call a Provider; automated validation uses mocks or local fake servers",
+      "tests": ["tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/persistentProviderProfile.test.ts", "tests/storyStudio/persistentProviderServer.test.ts", "tests/storyStudio/providerCatalogR0.test.ts", "tests/storyStudio/providerEmbeddingAdaptersR0.test.ts", "tests/storyStudio/providerCatalogLifecycleIntegrationR0.test.ts", "tests/storyContinuity/embeddingIndexBindingR0.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyStudio/goldenLoopSourceAuthority.test.ts", "tests/storyStudio/goldenLoopSourceAuthorityServer.test.ts", "tests/storyContinuity/tianyiGroundedAnswerAndObjectContext.test.ts"],
       "legacyProvenance": ["fixed base 7551f1a", "/private/tmp/Tianyan-Golden-Loop-V0-Targeted-Repair-20260806"],
-      "remainingGap": "R3 real calls pass. Golden Loop source text is now server-derived and Receipt-bound; connected status can still hydrate as local-pending after navigation until the status request refreshes"
+      "remainingGap": "R0 defines binding and compatibility gates but intentionally has no vector store, rebuild engine, automatic capability discovery, complete RAG, rerank, ASR or TTS runtime"
     },
     {
       "id": "tianyi-grounding",

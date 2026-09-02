@@ -54,14 +54,13 @@ const MAX_MESSAGE_CHARACTERS = 24_000;
 const MAX_TOTAL_MESSAGE_CHARACTERS = 64_000;
 const MAX_TOOLS = 16;
 const MAX_TOOL_SCHEMA_CHARACTERS = 16_000;
+export const EMBEDDING_PROBE_TEXT = "Tianyan embedding capability probe. No author content.";
 
 export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PROFILES, budgetLedger = null, receiptEnvelopeStore = null, defaultAuthorizationReceiptId = null, maxOutputTokensCap = null }) {
   const adapterMap = new Map(adapters.map((adapter) => [adapter.id, adapter]));
-  const frozenProfiles = profiles.map(validateProfile);
+  const frozenProfiles = profiles.map(validateProfile).filter((profile) => adapterMap.has(profile.providerId));
   let activeProfiles = frozenProfiles;
-  for (const profile of frozenProfiles) {
-    if (!adapterMap.has(profile.providerId)) throw new TypeError(`Unknown provider for profile: ${profile.id}`);
-  }
+  if (!frozenProfiles.length) throw new TypeError("Provider Gateway requires at least one profile bound to an installed adapter.");
 
   return Object.freeze({
     reserveGenerationBatch(input) {
@@ -178,6 +177,16 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       // exhausted; the route still enforces same-origin, credential ownership,
       // response bounds and a hard timeout before this boundary.
       return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
+    },
+    async probeEmbedding(input = {}) {
+      const adapter = adapterMap.get(input.providerId || "siliconflow");
+      if (!adapter || typeof adapter.probeEmbedding !== "function") throw providerGatewayError("unavailable");
+      return adapter.probeEmbedding({
+        modelId: input.modelId,
+        syntheticText: EMBEDDING_PROBE_TEXT,
+        signal: input.signal,
+        timeoutMs: input.timeoutMs
+      });
     },
     selectDiscoveredModel(modelIds, options = {}) {
       const modelId = selectStructuredChatModel(modelIds);

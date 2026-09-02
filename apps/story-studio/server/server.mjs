@@ -74,8 +74,8 @@ import {
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
-import { createSiliconFlowAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
-import { createRadeonCloudAdapter, RADEON_CLOUD_BASE_URL, RADEON_CLOUD_PROVIDER_ID } from "./providerGateway/radeonCloudAdapter.mjs";
+import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
+import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
 import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
 import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
@@ -215,16 +215,11 @@ const providerBudgetLedger = createProviderRequestBudgetLedger({
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
 const providerGateway = createAiProviderGateway({
-  adapters: [
-    createSiliconFlowAdapter({
-      apiKeyProvider: () => readProviderCredential("siliconflow"),
-      baseUrlProvider: () => validatedProviderBaseUrl("siliconflow")
-    }),
-    createRadeonCloudAdapter({
-      apiKeyProvider: () => readProviderCredential(RADEON_CLOUD_PROVIDER_ID),
-      baseUrlProvider: () => validatedProviderBaseUrl(RADEON_CLOUD_PROVIDER_ID)
-    })
-  ],
+  adapters: providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
+    instance,
+    apiKeyProvider: () => readProviderCredential(instance.provider),
+    baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
+  })),
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
@@ -2197,7 +2192,7 @@ async function handleModelServiceRequest(request, response, url) {
   }
   if (request.method === "POST" && route === "profile/save") {
     const body = await readJsonBody(request, 8 * 1024);
-    requireAllowedKeys(body, ["expectedRevision", "provider", "displayName", "baseUrl", "modelId", "enabled", "apiKey"]);
+    requireAllowedKeys(body, ["expectedRevision", "provider", "displayName", "baseUrl", "modelId", "llmModelId", "embeddingModelId", "enabled", "apiKey"]);
     const requestedProvider = body.provider ?? readActiveProviderProfile()?.provider;
     assertProviderBaseUrl(requestedProvider, body.baseUrl ?? providerProfileState.profiles.find((profile) => profile.provider === requestedProvider)?.baseUrl);
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
@@ -2205,7 +2200,7 @@ async function handleModelServiceRequest(request, response, url) {
     providerProfileState = current;
     const active = providerProfileState.profiles.find((profile) => profile.provider === requestedProvider) || readActiveProviderProfile();
     const profileChanged = Boolean(apiKey)
-      || ["displayName", "baseUrl", "modelId", "enabled"].some((key) => body[key] !== undefined && body[key] !== active?.[key]);
+      || ["displayName", "baseUrl", "modelId", "llmModelId", "embeddingModelId", "enabled"].some((key) => body[key] !== undefined && body[key] !== (key === "llmModelId" ? active?.modelId : active?.[key]));
     const targetCredentialBackend = active ? readCredentialBackendForProvider(active.provider) : null;
     const previousCredential = apiKey ? targetCredentialBackend?.read() || "" : "";
     if (body.apiKey !== undefined && apiKey) targetCredentialBackend?.write(apiKey);
@@ -2215,15 +2210,17 @@ async function handleModelServiceRequest(request, response, url) {
         provider: requestedProvider,
         displayName: body.displayName,
         baseUrl: body.baseUrl,
-        modelId: body.modelId,
+        modelId: body.llmModelId ?? body.modelId,
+        embeddingModelId: body.embeddingModelId,
         enabled: body.enabled,
+        invalidateCatalog: Boolean(apiKey) || (body.baseUrl !== undefined && body.baseUrl.replace(/\/$/u, "") !== active?.baseUrl),
         ...(profileChanged ? { connectionStatus: "unknown", lastVerifiedAt: null, lastError: null } : {}),
         historyEntry: {
           id: randomUUID(),
           kind: "save",
           status: "success",
           occurredAt: new Date().toISOString(),
-          modelId: body.modelId ?? active?.modelId ?? null
+          modelId: body.llmModelId ?? body.modelId ?? active?.modelId ?? null
         }
       });
     } catch (error) {
@@ -2257,8 +2254,9 @@ async function handleModelServiceRequest(request, response, url) {
     providerProfileState = providerProfileStore.assertRevision(providerProfileState.revision);
     providerCredential.clear();
     providerGateway.clearDiscoveredModel();
-    providerProfileState = providerProfileStore.markConnection({
+    providerProfileState = providerProfileStore.save({
       expectedRevision: providerProfileState.revision,
+      invalidateCatalog: true,
       connectionStatus: "unknown",
       lastVerifiedAt: null,
       lastError: null,
@@ -2276,13 +2274,14 @@ async function handleModelServiceRequest(request, response, url) {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
     const startedAt = Date.now();
+    const active = readActiveProviderProfile();
+    if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起目录请求。", 412);
+    providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
-      const active = readActiveProviderProfile();
       const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
-      providerProfileState = providerProfileStore.markConnection({
+      providerProfileState = providerProfileStore.completeCatalog({
         expectedRevision: providerProfileState.revision,
-        availableModels: discovery.modelIds,
-        lastModelDiscoveryAt: new Date().toISOString(),
+        entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
         historyEntry: {
           id: randomUUID(),
           kind: "models",
@@ -2295,24 +2294,28 @@ async function handleModelServiceRequest(request, response, url) {
       sendJson(response, 200, {
         data: {
           providerId: active?.provider,
+          providerInstanceId: active?.id,
           models: discovery.modelIds,
           profile: readProviderProfileProjection()
         }
       });
     } catch (error) {
       try {
-        providerProfileState = providerProfileStore.markConnection({
-          expectedRevision: providerProfileState.revision,
-          lastError: safeProviderErrorSummary(error),
-          historyEntry: {
-            id: randomUUID(),
-            kind: "models",
-            status: "failed",
-            occurredAt: new Date().toISOString(),
-            latencyMs: Date.now() - startedAt,
-            error: safeProviderErrorSummary(error)
-          }
-        });
+        const historyEntry = {
+          id: randomUUID(),
+          kind: "models",
+          status: "failed",
+          occurredAt: new Date().toISOString(),
+          latencyMs: Date.now() - startedAt,
+          error: safeProviderErrorSummary(error)
+        };
+        providerProfileState = error?.code === "not-found"
+          ? providerProfileStore.markCatalogUnsupported({ expectedRevision: providerProfileState.revision, historyEntry })
+          : providerProfileStore.failCatalog({
+            expectedRevision: providerProfileState.revision,
+            failure: { category: error?.code || "unavailable", message: safeProviderErrorSummary(error) },
+            historyEntry
+          });
       } catch { /* preserve the original model discovery error */ }
       throw error;
     }
@@ -2323,20 +2326,16 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["modelId"]);
     const active = readActiveProviderProfile();
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起连接测试。", 412);
+    const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
+    if (!requestedModelId) throw productError("请先选择或手工填写默认对话模型；未发起 Provider 请求。", 400);
     const startedAt = Date.now();
+    providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
       const discovery = await providerGateway.discoverModels({ providerId: active.provider, timeoutMs: 15_000 });
-      const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
-      const modelId = requestedModelId
-        ? (discovery.modelIds.includes(requestedModelId) ? requestedModelId : (() => { throw productError("选中的模型 ID 当前不可用，请更新模型后重试。", 409); })())
-        : providerGateway.selectDiscoveredModel(discovery.modelIds, { providerId: active.provider }).modelId;
-      providerProfileState = providerProfileStore.markConnection({
+      const modelId = discovery.modelIds.includes(requestedModelId) ? requestedModelId : (() => { throw productError("选中的模型 ID 当前不可用，请更新模型后重试。", 409); })();
+      providerProfileState = providerProfileStore.completeCatalog({
         expectedRevision: providerProfileState.revision,
-        connectionStatus: "verified",
-        lastVerifiedAt: new Date().toISOString(),
-        lastError: null,
-        availableModels: discovery.modelIds,
-        lastModelDiscoveryAt: new Date().toISOString(),
+        entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
         historyEntry: {
           id: randomUUID(),
           kind: "connection",
@@ -2347,6 +2346,7 @@ async function handleModelServiceRequest(request, response, url) {
           latencyMs: Date.now() - startedAt
         }
       });
+      providerProfileState = providerProfileStore.markConnection({ expectedRevision: providerProfileState.revision, connectionStatus: "verified", lastVerifiedAt: new Date().toISOString(), lastError: null });
       syncProviderGatewayProfile(modelId);
       sendJson(response, 200, {
         data: {
@@ -2360,11 +2360,9 @@ async function handleModelServiceRequest(request, response, url) {
       });
     } catch (error) {
       try {
-        providerProfileState = providerProfileStore.markConnection({
+        providerProfileState = providerProfileStore.failCatalog({
           expectedRevision: providerProfileState.revision,
-          connectionStatus: "failed",
-          lastVerifiedAt: null,
-          lastError: safeProviderErrorSummary(error),
+          failure: { category: error?.code || "unavailable", message: safeProviderErrorSummary(error) },
           historyEntry: {
             id: randomUUID(),
             kind: "connection",
@@ -2377,6 +2375,33 @@ async function handleModelServiceRequest(request, response, url) {
       } catch {
         // A connection error must never hide the original provider failure.
       }
+      throw error;
+    }
+    return;
+  }
+  if (request.method === "POST" && route === "embedding-probe") {
+    const body = await readJsonBody(request, 1 * 1024);
+    requireAllowedKeys(body, ["modelId"]);
+    const active = readActiveProviderProfile();
+    if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起 Embedding 验证。", 412);
+    const modelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.embeddingModelId;
+    if (!modelId) throw productError("请先填写 Embedding 模型 ID。", 400);
+    const startedAt = Date.now();
+    try {
+      const result = await providerGateway.probeEmbedding({ providerId: active.provider, modelId, timeoutMs: 15_000 });
+      providerProfileState = providerProfileStore.recordEmbeddingProbe({
+        expectedRevision: providerProfileState.revision,
+        modelId: result.modelId,
+        modelRevision: result.modelRevision,
+        dimensions: result.dimensions,
+        latencyMs: result.latencyMs,
+        historyEntry: { id: randomUUID(), kind: "embedding", status: "success", occurredAt: new Date().toISOString(), modelId: result.modelId, latencyMs: result.latencyMs }
+      });
+      sendJson(response, 200, { data: { gate: "embedding", providerId: active.provider, providerInstanceId: active.id, modelId: result.modelId, modelRevision: result.modelRevision, dimensions: result.dimensions, latencyMs: result.latencyMs, profile: readProviderProfileProjection() } });
+    } catch (error) {
+      try {
+        providerProfileState = providerProfileStore.recordHistory({ expectedRevision: providerProfileState.revision, historyEntry: { id: randomUUID(), kind: "embedding", status: "failed", occurredAt: new Date().toISOString(), modelId, latencyMs: Date.now() - startedAt, error: safeProviderErrorSummary(error) } });
+      } catch { /* preserve probe error */ }
       throw error;
     }
     return;
@@ -2427,14 +2452,12 @@ async function handleModelServiceRequest(request, response, url) {
     try {
       providerCredential.replace(body.apiKey);
       const active = readActiveProviderProfile();
-      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
-      const preferredProfile = providerGateway.selectDiscoveredModel(discovery.modelIds, { providerId: active?.provider });
       providerProfileState = providerProfileStore.save({
         expectedRevision: providerProfileState.revision,
-        modelId: preferredProfile.modelId,
+        invalidateCatalog: true,
         enabled: true,
-        connectionStatus: "verified",
-        lastVerifiedAt: new Date().toISOString(),
+        connectionStatus: "unknown",
+        lastVerifiedAt: null,
         lastError: null
       });
       sendJson(response, 200, {
@@ -2442,9 +2465,9 @@ async function handleModelServiceRequest(request, response, url) {
           version: "story-studio-provider-session/v1",
           connected: true,
           providerId: active?.provider,
-          modelId: preferredProfile.modelId,
-          profileId: preferredProfile.id,
-          availableModelCount: discovery.modelIds.length,
+          modelId: active?.modelId || "",
+          profileId: active?.id || "",
+          availableModelCount: 0,
           profile: readProviderProfileProjection()
         }
       });
@@ -2456,8 +2479,9 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, []);
     providerCredential.clear();
     providerGateway.clearDiscoveredModel();
-    providerProfileState = providerProfileStore.markConnection({
+    providerProfileState = providerProfileStore.save({
       expectedRevision: providerProfileState.revision,
+      invalidateCatalog: true,
       connectionStatus: "unknown",
       lastVerifiedAt: null,
       lastError: null
@@ -2693,17 +2717,25 @@ async function handleModelServiceRequest(request, response, url) {
   }
   if (request.method === "GET" && route === "status") {
     const metadata = providerGateway.metadata();
-    const configured = metadata.providers.some((provider) => provider.configured);
     const activeProfile = readActiveProviderProfile();
+    const configured = metadata.providers.find((provider) => provider.id === activeProfile?.provider)?.configured === true;
     const selectedModelReady = configured && activeProfile?.enabled === true && Boolean(activeProfile.modelId);
     // Only the explicit local fake used by deterministic acceptance can open the UI gate.
     // `agentFakeProviderStreamAllowed` is false in production, so an unconfigured
     // production Provider can never be represented as ready.
     const tianyiDialogueReady = selectedModelReady || agentFakeProviderStreamAllowed;
-    const persistedModels = activeProfile?.availableModels || [];
-    const models = persistedModels.length
-      ? persistedModels.map((id) => ({ providerId: activeProfile.provider, id, label: id.split("/").at(-1) || id, capabilities: ["chat", "streaming"] }))
-      : metadata.models;
+    const catalogEntries = activeProfile?.catalog.entries || [];
+    const suggestedEntries = activeProfile?.suggestedModels || [];
+    const models = [...catalogEntries, ...suggestedEntries.filter((suggestion) => !catalogEntries.some((entry) => entry.id === suggestion.id))].map((entry) => ({
+      providerId: activeProfile.provider,
+      providerInstanceId: activeProfile.id,
+      id: entry.id,
+      label: entry.label,
+      capabilities: entry.capabilityClaims.filter((claim) => claim.source !== "unknown").map((claim) => claim.capability),
+      capabilityClaims: entry.capabilityClaims,
+      source: entry.source,
+      revision: entry.revision || "unknown"
+    }));
     sendJson(response, 200, {
       data: {
         version: "story-studio-model-service/v1",
@@ -2783,6 +2815,8 @@ function readActiveProviderProfile() {
 }
 
 function readProviderProfileProjection() {
+  const active = readActiveProviderProfile();
+  const preset = active ? providerPreset(active.preset) : null;
   return {
     ...providerProfileStore.publicState(providerProfileState, {
       configured: providerCredential.configured(),
@@ -2792,7 +2826,8 @@ function readProviderProfileProjection() {
       scope: providerRootResolution.scope,
       smokeCompatibleByDefault: providerRootResolution.smokeCompatibleByDefault,
       compatibilityNotice: providerRootResolution.compatibilityNotice
-    }
+    },
+    credentialRequired: preset?.credentialRequired !== false
   };
 }
 
@@ -2841,15 +2876,31 @@ function safeProviderErrorSummary(error) {
 }
 
 function assertProviderBaseUrl(providerId, value) {
-  const label = providerId === RADEON_CLOUD_PROVIDER_ID ? "AMD Radeon Cloud" : "SiliconFlow";
+  const preset = providerPreset(providerId);
+  const label = preset.label;
   if (typeof value !== "string" || !value.trim()) throw productError(`${label} Base URL 不能为空。`, 400);
   let parsed;
   try { parsed = new URL(value.trim()); } catch { throw productError(`${label} Base URL 无效。`, 400); }
+  if (parsed.username || parsed.password || parsed.hash) throw productError("Provider Base URL 不得包含凭据或片段。", 400);
   const normalized = value.trim().replace(/\/$/u, "");
-  const official = providerId === RADEON_CLOUD_PROVIDER_ID ? RADEON_CLOUD_BASE_URL : "https://api.siliconflow.cn/v1";
-  const localFixtureAllowed = (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development") && /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/.*)?$/u.test(normalized);
-  if (parsed.protocol !== "https:" && !localFixtureAllowed) throw productError("生产 Provider 只允许 HTTPS Base URL。", 400);
-  if (normalized !== official && !localFixtureAllowed) throw productError(`本轮只支持 ${label} 官方 Base URL。`, 400);
+  const loopback = /^(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])$/iu.test(parsed.hostname);
+  const localRuntime = ["ollama", "lemonade", "vllm"].includes(providerId);
+  const localFixtureAllowed = (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development") && loopback;
+  if (localRuntime && !loopback) throw productError(`${label} R0 只允许回环地址。`, 400);
+  if (!localRuntime && parsed.protocol !== "https:" && !localFixtureAllowed) throw productError("非本地 Provider 只允许 HTTPS Base URL。", 400);
+  if (providerId === "custom-openai") {
+    if (loopback || isPrivateIpv4(parsed.hostname)) throw productError("Custom OpenAI-Compatible 不得指向本机或私网地址。", 400);
+    return;
+  }
+  if (!localRuntime && normalized !== preset.defaultBaseUrl && !localFixtureAllowed) throw productError(`本预设只支持 ${label} 官方 Base URL；其他地址请使用 Custom OpenAI-Compatible。`, 400);
+}
+
+function isPrivateIpv4(hostname) {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(hostname);
+  if (!match) return false;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((value) => value > 255)) return true;
+  return octets[0] === 10 || octets[0] === 127 || (octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168);
 }
 
 async function createGoldenLoopReceipt(input) {

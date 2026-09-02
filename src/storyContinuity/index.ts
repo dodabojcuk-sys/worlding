@@ -32,3 +32,4 @@ export * from "./memoryGrantRepositories.ts";
 export * from "./interactionArchiveRepository.ts";
 export * from "./archiveRecallRepository.ts";
 export * from "./receiptStoppingRepositories.ts";
+export * from "./embeddingIndexBinding.ts";

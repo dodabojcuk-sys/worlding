@@ -106,10 +106,20 @@ test("Keychain adapter does not pass the credential in argv", () => {
 
 test("default profile is non-secret and versioned", () => {
   const state = defaultProviderProfileState(new Date("2026-08-22T00:00:00.000Z"));
-  assert.equal(state.schemaVersion, 2);
+  assert.equal(state.schemaVersion, 3);
   assert.equal(state.revision, 0);
   assert.equal(state.profiles[0].credentialRef, "siliconflow.default");
-  assert.deepEqual(state.profiles.map((profile) => profile.provider), ["siliconflow", "radeon-cloud"]);
+  assert.deepEqual(state.profiles.map((profile) => profile.provider), [
+    "siliconflow",
+    "radeon-cloud",
+    "openai",
+    "deepseek",
+    "zhipu",
+    "ollama",
+    "lemonade",
+    "vllm",
+    "custom-openai"
+  ]);
   assert.equal(JSON.stringify(state).includes("apiKey"), false);
 });
 

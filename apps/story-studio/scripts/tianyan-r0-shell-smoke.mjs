@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import path from "node:path";
 
@@ -50,6 +51,9 @@ let timelineFixture = null;
 let server;
 let apiServer;
 let browser;
+let ollamaFixture;
+let expectedProviderCatalogFailure = false;
+let expectedProviderFailureConsoleBudget = 0;
 const r062Captures = [];
 
 async function findAvailablePort(requestedPort, excludedPort) {
@@ -67,6 +71,7 @@ async function findAvailablePort(requestedPort, excludedPort) {
 }
 
 try {
+  ollamaFixture = await startProviderCatalogOllamaFixture();
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
@@ -91,9 +96,17 @@ try {
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
   const consoleProblems = [];
-  page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
+  page.on("console", (message) => {
+    if (!["error", "warning"].includes(message.type())) return;
+    const problem = `${message.type()}: ${message.text()}`;
+    if (expectedProviderFailureConsoleBudget > 0 && /Failed to load resource.*503/u.test(problem)) {
+      expectedProviderFailureConsoleBudget -= 1;
+      return;
+    }
+    consoleProblems.push(problem);
+  });
   page.on("pageerror", (error) => consoleProblems.push(error.message));
-  page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
   if (r10RecordingOnly) {
@@ -150,6 +163,7 @@ try {
     await assertResponsiveHeader922(page);
     await page.setViewportSize({ width: 1152, height: 720 });
     await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
+    await assertProviderCatalogSettingsR0(page);
     await assertPermissionProjection(page);
     await assertSingleGlobalSearch(page);
     await assertCharacterDirectoryAndInspector(page);
@@ -185,7 +199,133 @@ try {
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
+  if (ollamaFixture) await new Promise((resolve) => ollamaFixture.server.close(resolve));
   removeTianyanE2eFixture(fixture);
+}
+
+async function assertProviderCatalogSettingsR0(page) {
+  const explicitProviderRequests = [];
+  const observe = (request) => {
+    if (request.method() === "POST" && /\/model-service\/(?:models|test|embedding-probe)$/u.test(request.url())) explicitProviderRequests.push(request.url());
+  };
+  page.on("request", observe);
+  try {
+    await gotoProduct(page, `${baseUrl}/settings/storage`);
+    await page.getByRole("button", { name: "Provider 与模型", exact: true }).click();
+    const provider = page.locator("#settings-agent-provider");
+    await provider.waitFor();
+    const catalog = provider.locator(".agent-provider-catalog");
+    assert.equal(await catalog.getAttribute("data-catalog-state"), "never_fetched");
+    assert.match(await catalog.textContent(), /尚未获取目录/u);
+    assert.doesNotMatch(await catalog.textContent(), /已获取\s+1\s+个/u);
+    await provider.locator('select[name="provider"]').selectOption("radeon-cloud");
+    assert.equal(await catalog.getAttribute("data-catalog-state"), "never_fetched");
+    assert.match(await catalog.textContent(), /预设建议（未计入已获取）/u);
+    assert.equal(await provider.locator('input[name="llmModelId"]').count(), 1);
+    assert.equal(await provider.locator('input[name="embeddingModelId"]').count(), 1);
+    assert.equal(await provider.getByRole("button", { name: "获取模型", exact: true }).isDisabled(), true);
+    assert.equal(await provider.getByRole("button", { name: "验证 Embedding", exact: true }).isDisabled(), true);
+    await provider.locator('input[name="llmModelId"]').focus();
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement instanceof HTMLElement), true);
+    assert.deepEqual(explicitProviderRequests, [], "opening Settings, switching presets and keyboard navigation must make zero explicit Provider calls");
+
+    await provider.locator('select[name="provider"]').selectOption("ollama");
+    await provider.locator('input[name="baseUrl"]').fill(ollamaFixture.baseUrl);
+    await provider.locator('input[name="llmModelId"]').fill("fixture/chat:latest");
+    await provider.locator('input[name="embeddingModelId"]').fill("fixture/embed:latest");
+    await provider.getByRole("button", { name: "保存 Provider 配置", exact: true }).click();
+    await provider.getByText(/未发起外部请求/u).waitFor();
+    assert.equal(ollamaFixture.calls.tags, 0, "saving and selecting a Provider must not discover models");
+
+    const getModels = provider.getByRole("button", { name: "获取模型", exact: true });
+    await getModels.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector(".agent-provider-catalog")?.getAttribute("data-catalog-state") === "ready");
+    assert.match(await catalog.textContent(), /已获取\s+2\s+个模型/u);
+    assert.match(await catalog.textContent(), /ollama\.default/u);
+    assert.equal(ollamaFixture.calls.tags, 1);
+
+    const embeddingProbe = provider.getByRole("button", { name: "验证 Embedding", exact: true });
+    await embeddingProbe.focus();
+    await page.keyboard.press("Enter");
+    await provider.getByText(/Embedding 验证成功.*4 维/u).waitFor();
+    assert.equal(ollamaFixture.calls.embed, 1);
+    assert.equal(ollamaFixture.lastEmbeddingInput, "Tianyan embedding capability probe. No author content.");
+
+    expectedProviderCatalogFailure = true;
+    expectedProviderFailureConsoleBudget = 1;
+    const retry = provider.getByRole("button", { name: "重新获取模型", exact: true });
+    await retry.focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector(".agent-provider-catalog")?.getAttribute("data-catalog-state") === "stale");
+    await page.waitForTimeout(100);
+    expectedProviderCatalogFailure = false;
+    expectedProviderFailureConsoleBudget = 0;
+    assert.match(await catalog.textContent(), /已过期|保留上次成功/u);
+    assert.match(await catalog.textContent(), /当前模型服务暂时不可用/u);
+    assert.equal(ollamaFixture.calls.tags, 2);
+    assert.match(await provider.locator(".agent-provider-index-gate").textContent(), /已有数据集.*必须重建/u);
+
+    await provider.locator('select[name="provider"]').selectOption("radeon-cloud");
+    const cancel = provider.getByRole("button", { name: "取消未保存更改", exact: true });
+    await cancel.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await provider.locator('select[name="provider"]').inputValue(), "ollama");
+    assert.equal(explicitProviderRequests.length, 3, "only the two author-triggered catalog requests and one embedding probe may leave Settings");
+  } finally {
+    expectedProviderCatalogFailure = false;
+    expectedProviderFailureConsoleBudget = 0;
+    page.off("request", observe);
+  }
+  await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
+}
+
+async function startProviderCatalogOllamaFixture() {
+  const calls = { tags: 0, embed: 0 };
+  let lastEmbeddingInput = null;
+  const server = createHttpServer((request, response) => {
+    if (request.url === "/api/tags" && request.method === "GET") {
+      calls.tags += 1;
+      if (calls.tags > 1) {
+        response.writeHead(503, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "fixture unavailable" }));
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ models: [
+        { name: "fixture/chat:latest", digest: "sha256:chat" },
+        { name: "fixture/embed:latest", digest: "sha256:embed" }
+      ] }));
+      return;
+    }
+    if (request.url === "/api/embed" && request.method === "POST") {
+      calls.embed += 1;
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const parsed = JSON.parse(body);
+        lastEmbeddingInput = parsed.input?.[0] ?? null;
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ model: parsed.model, embeddings: [[0.1, 0.2, 0.3, 0.4]] }));
+      });
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Ollama E2E fixture did not expose a port.");
+  return {
+    server,
+    calls,
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    get lastEmbeddingInput() { return lastEmbeddingInput; }
+  };
 }
 
 async function assertPermissionProjection(page) {

@@ -82,6 +82,8 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(configured.data.profile.modelId, "fixture/chat-model");
     assert.equal(JSON.stringify(configured).includes("fixture-secret-value"), false);
     assert.equal(configured.data.profile.connectionStatus, "unknown");
+    assert.equal(configured.data.profile.catalog.status, "never_fetched");
+    assert.equal(fakeProvider.calls.models, 0, "saving credentials must not auto-fetch a Provider catalog");
     const credentialPath = path.join(providerRoot, "credentials", "siliconflow.default.credential");
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
 
@@ -115,8 +117,16 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(models.data.profile.history.at(-1).kind, "models");
     assert.equal(JSON.stringify(models).includes("fixture-secret-value"), false);
 
+    const embedding = await jsonPost(base, "model-service/embedding-probe", { modelId: "fixture/embed-model" }, activeHeaders);
+    assert.equal(embedding.status, 200);
+    assert.equal(embedding.data.modelId, "fixture/embed-model");
+    assert.equal(embedding.data.dimensions, 3);
+    assert.equal("embedding" in embedding.data, false);
+    assert.equal(fakeProvider.calls.embeddings, 1);
+    assert.equal(JSON.stringify(embedding).includes("fixture-secret-value"), false);
+
     const selectedModel = await jsonPost(base, "model-service/profile/save", {
-      expectedRevision: models.data.profile.revision,
+      expectedRevision: embedding.data.profile.revision,
       modelId: "fixture/alternate-model",
       enabled: true
     }, activeHeaders);
@@ -233,8 +243,8 @@ test("Provider Settings can select AMD Radeon Cloud with an isolated credential 
   }
 });
 
-async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string; calls: { models: number; completions: number } }> {
-  const calls = { models: 0, completions: 0 };
+async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string; calls: { models: number; completions: number; embeddings: number } }> {
+  const calls = { models: 0, completions: 0, embeddings: 0 };
   const server = createServer((request, response) => {
     if (request.url === "/v1/models?type=text&sub_type=chat" && request.method === "GET") {
       calls.models += 1;
@@ -250,6 +260,18 @@ async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string
       request.on("end", () => {
         const model = JSON.parse(body).model;
         response.end(JSON.stringify({ model, choices: [{ message: { content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } }));
+      });
+      return;
+    }
+    if (request.url === "/v1/embeddings" && request.method === "POST") {
+      calls.embeddings += 1;
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const parsed = JSON.parse(body);
+        assert.equal(parsed.input, "Tianyan embedding capability probe. No author content.");
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ model: parsed.model, data: [{ embedding: [0.1, 0.2, 0.3] }] }));
       });
       return;
     }

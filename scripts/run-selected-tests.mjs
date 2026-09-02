@@ -13,6 +13,8 @@ const integrationTests = new Set([
   "tests/storyStudio/phase1bEventReferenceAndWorkspaceRegistry.test.ts",
   "tests/storyStudio/storyStudioProviderGateway.test.ts",
   "tests/storyStudio/persistentProviderServer.test.ts",
+  "tests/storyStudio/providerEmbeddingAdaptersR0.test.ts",
+  "tests/storyStudio/providerCatalogLifecycleIntegrationR0.test.ts",
   "tests/storyStudio/storyStudioStorageProvider.test.ts",
   "tests/storyStudio/storyStudioTianyiTransport.test.ts",
   "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts"

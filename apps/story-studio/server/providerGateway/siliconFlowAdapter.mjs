@@ -50,6 +50,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
   const modelDiscovery = options.modelDiscovery || null;
   const traceHeader = typeof options.traceHeader === "string" && options.traceHeader ? options.traceHeader : "x-request-id";
   const enableThinking = options.enableThinking === true;
+  const credentialRequired = options.credentialRequired !== false;
   const telemetry = { callCount: 0, lastLatencyMs: null, lastUsage: null, lastTraceId: null };
   let discoveredModels = Object.freeze(modelMetadata.map((model) => Object.freeze({ ...model, capabilities: Object.freeze([...(model.capabilities || [])]) })));
   if (typeof fetchImpl !== "function") throw new TypeError("SiliconFlow adapter requires fetch.");
@@ -59,11 +60,11 @@ export function createOpenAiCompatibleAdapter(options = {}) {
     label,
     get models() { return discoveredModels; },
     status() {
-      return Object.freeze({ configured: readCredential(apiKeyProvider).length > 0, ...telemetry });
+      return Object.freeze({ configured: !credentialRequired || readCredential(apiKeyProvider).length > 0, ...telemetry });
     },
     async discoverModels(input = {}) {
       const apiKey = readCredential(apiKeyProvider);
-      if (!apiKey) throw providerGatewayError("unconfigured");
+      if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
       if (!modelDiscovery) {
         const ids = discoveredModels.map((model) => model.id);
         if (!ids.length) throw providerGatewayError("invalid-response");
@@ -73,7 +74,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, modelDiscovery.pathname, modelDiscovery.search), {
         method: "GET",
         redirect: "error",
-        headers: { accept: "application/json", authorization: `Bearer ${apiKey}` }
+        headers: providerHeaders(apiKey, { accept: "application/json" })
       }, input);
       if (!response?.ok) {
         await discardResponseBody(response);
@@ -93,9 +94,37 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       telemetry.lastLatencyMs = Date.now() - startedAt;
       return Object.freeze({ providerId, modelIds: Object.freeze(ids) });
     },
+    async probeEmbedding(input = {}) {
+      const apiKey = readCredential(apiKeyProvider);
+      if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
+      const modelId = typeof input.modelId === "string" ? input.modelId.trim() : "";
+      if (!modelId) throw providerGatewayError("invalid-request");
+      const startedAt = Date.now();
+      const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, "embeddings"), {
+        method: "POST",
+        redirect: "error",
+        headers: providerHeaders(apiKey, { accept: "application/json", "content-type": "application/json" }),
+        body: JSON.stringify({ model: modelId, input: input.syntheticText })
+      }, input);
+      if (!response?.ok) {
+        await discardResponseBody(response);
+        throw mapHttpStatus(response?.status);
+      }
+      let payload;
+      try { payload = await response.json(); } catch { throw providerGatewayError("invalid-response"); }
+      const vector = Array.isArray(payload?.data?.[0]?.embedding) ? payload.data[0].embedding : null;
+      validateEmbeddingVector(vector);
+      return Object.freeze({
+        providerId,
+        modelId: typeof payload?.model === "string" && payload.model.trim() ? payload.model.trim() : modelId,
+        modelRevision: "unknown",
+        dimensions: vector.length,
+        latencyMs: Date.now() - startedAt
+      });
+    },
     async openChatCompletion(input) {
       const apiKey = readCredential(apiKeyProvider);
-      if (!apiKey) throw providerGatewayError("unconfigured");
+      if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
       const callerSignal = input?.signal;
       if (callerSignal?.aborted) throw providerGatewayError("cancelled");
       telemetry.callCount += 1;
@@ -103,11 +132,10 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, "chat/completions"), {
         method: "POST",
         redirect: "error",
-        headers: {
+        headers: providerHeaders(apiKey, {
           accept: "application/json",
-          authorization: `Bearer ${apiKey}`,
           "content-type": "application/json"
-        },
+        }),
         body: JSON.stringify({
           model: input.modelId,
           messages: input.messages,
@@ -142,7 +170,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
     },
     async openChatStream(input) {
       const apiKey = readCredential(apiKeyProvider);
-      if (!apiKey) throw providerGatewayError("unconfigured");
+      if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
       telemetry.callCount += 1;
       const startedAt = Date.now();
 
@@ -163,11 +191,10 @@ export function createOpenAiCompatibleAdapter(options = {}) {
         response = await fetchImpl(providerEndpoint(baseUrlProvider, "chat/completions"), {
           method: "POST",
           redirect: "error",
-          headers: {
+          headers: providerHeaders(apiKey, {
             accept: "text/event-stream",
-            authorization: `Bearer ${apiKey}`,
             "content-type": "application/json"
-          },
+          }),
           body: JSON.stringify({
             model: input.modelId,
             messages: input.messages,
@@ -232,6 +259,15 @@ function providerEndpoint(baseUrlProvider, pathname, search = undefined) {
   base.pathname = `${base.pathname.replace(/\/$/u, "")}/${pathname.replace(/^\//u, "")}`;
   base.search = search ? new URLSearchParams(search).toString() : "";
   return base.toString();
+}
+
+function providerHeaders(apiKey, base) {
+  return apiKey ? { ...base, authorization: `Bearer ${apiKey}` } : base;
+}
+
+function validateEmbeddingVector(vector) {
+  if (!Array.isArray(vector) || vector.length < 1 || vector.length > 1_000_000) throw providerGatewayError("invalid-response");
+  if (vector.some((value) => typeof value !== "number" || !Number.isFinite(value))) throw providerGatewayError("invalid-response");
 }
 
 async function* consumeProviderStream(input) {

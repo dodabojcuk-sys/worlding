@@ -9,8 +9,10 @@ import {
   getBootstrap,
   getModelServiceStatus,
   importStorageProject,
+  probeProviderEmbedding,
   revealStorageProject,
   saveProviderProfile,
+  testProviderConnection,
   setAgentPermissionProfile,
   type AgentPermissionProfile,
   type AgentPermissionState,
@@ -100,31 +102,31 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
   };
   const saveProvider = async (input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult> => {
     const saved = await withToken((token) => saveProviderProfile({ ...input, token }));
-    let result: ProviderProfileSaveResult = { discovery: "not-needed", modelCount: saved.profile?.availableModels.length ?? 0 };
-    // A newly supplied credential must populate the provider's actual
-    // catalog, even when the form has a provider-default model preselected.
-    // This keeps model selection provider-owned rather than static UI data.
-    if (saved.credential.configured && (Boolean(input.apiKey) || (saved.profile?.availableModels.length ?? 0) === 0)) {
-      try {
-        const discovery = await withToken((token) => discoverProviderModels(token));
-        result = { discovery: "loaded", modelCount: discovery.models.length };
-      } catch (cause) {
-        result = {
-          discovery: "failed",
-          modelCount: 0,
-          discoveryError: cause instanceof Error ? cause.message : "请稍后重试或手动填写模型 ID。"
-        };
-      }
-    }
+    const result: ProviderProfileSaveResult = { discovery: "not-needed", modelCount: saved.profile?.catalog.entries.filter((entry) => entry.source === "endpoint").length ?? 0 };
     await refreshRuntime(project);
     window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     return result;
   };
   const discoverModels = async () => {
-    const discovery = await withToken((token) => discoverProviderModels(token));
+    try {
+      const discovery = await withToken((token) => discoverProviderModels(token));
+      return discovery.models;
+    } finally {
+      await refreshRuntime(project);
+      window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
+    }
+  };
+  const testConnection = async (modelId?: string) => {
+    const result = await withToken((token) => testProviderConnection(token, modelId));
     await refreshRuntime(project);
     window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
-    return discovery.models;
+    return result;
+  };
+  const probeEmbedding = async (modelId: string) => {
+    const result = await withToken((token) => probeProviderEmbedding(token, modelId));
+    await refreshRuntime(project);
+    window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
+    return result;
   };
   const disableProvider = async (expectedRevision: number) => {
     await withToken((token) => disableProviderProfile({ expectedRevision, token }));
@@ -183,6 +185,8 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
             onPermissionProfile={updatePermission}
             onSaveProviderProfile={saveProvider}
             onDiscoverProviderModels={discoverModels}
+            onTestProviderConnection={testConnection}
+            onProbeEmbedding={probeEmbedding}
             onDisableProviderProfile={disableProvider}
           /></section>}
         </div>
