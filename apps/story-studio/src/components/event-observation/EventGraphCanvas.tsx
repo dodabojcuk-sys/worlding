@@ -893,13 +893,17 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
   // fitting is calculated from the current DOM canvas after its inspector has
   // taken its real width.
   const nodeWidth = 234;
-  const nodeHeight = 144;
+  // Focus cards may grow a few pixels when the host font metrics wrap a status
+  // line (CI Linux fonts are slightly taller than the bundled desktop font).
+  // Fit against the conservative rendered envelope so remote clusters stay
+  // inside the live canvas without shrinking the node typography.
+  const nodeHeight = 164;
   const minX = Math.min(...nodes.map((node) => node.position.x));
   const maxX = Math.max(...nodes.map((node) => node.position.x + nodeWidth));
   const minY = Math.min(...nodes.map((node) => node.position.y));
   const maxY = Math.max(...nodes.map((node) => node.position.y + nodeHeight));
   const horizontalPadding = drawerOpen ? 170 : 52;
-  const verticalPadding = 46;
+  const verticalPadding = 52;
   const zoom = Math.min(1.05, (canvas.width - horizontalPadding * 2) / Math.max(1, maxX - minX), (canvas.height - verticalPadding * 2) / Math.max(1, maxY - minY));
   const x = (canvas.width - (maxX - minX) * zoom) / 2 - minX * zoom;
   const y = (canvas.height - (maxY - minY) * zoom) / 2 - minY * zoom;
