@@ -767,6 +767,11 @@ async function setupCharacterFixture() {
 
 async function setupEventGraphFixture() {
   const base = `${apiUrl}/__local/story-studio`;
+  const branchStoryUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
+    projectId: fixtureProjectId,
+    title: "分支·灯塔余波",
+    summary: "从雾港主干横向展开的隔离分支单元。"
+  });
   const storyUnit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, {
     projectId: fixtureProjectId,
     title: "雾港",
@@ -774,13 +779,14 @@ async function setupEventGraphFixture() {
   });
   const eventTitles = ["旧城停电", "沈砚发现异常信号", "林昭隐瞒真相", "雨夜追踪", "暗号传递", "仓库对峙", "旧仓库封锁", "失踪名单在灯塔守夜人的密室中浮现"];
   for (const title of eventTitles) {
+    const unitId = title === "沈砚发现异常信号" || title === "失踪名单在灯塔守夜人的密室中浮现" ? branchStoryUnit.data.result.id : storyUnit.data.result.id;
     const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, {
-      projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, title,
+      projectId: fixtureProjectId, storyUnitId: unitId, title,
       body: `${title}是隔离事件图验收中的作者确认事实。`
     });
     const planningEventId = candidate.data.result.planning.id;
-    await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
-    await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: storyUnit.data.result.id, planningEventId });
+    await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: unitId, planningEventId });
+    await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: unitId, planningEventId });
   }
   const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const verifiedEvents = await Promise.all(verified.data.eventIds.map((eventId) => getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)));
@@ -788,6 +794,7 @@ async function setupEventGraphFixture() {
     const event = result.data.event;
     const title = String(event.title).replace(/ · 立即揭示$/u, "");
     const inWarehouseSetPoint = title === "仓库对峙" || title === "旧仓库封锁";
+    const inBranchUnit = title === "沈砚发现异常信号" || title === "失踪名单在灯塔守夜人的密室中浮现";
     const updated = await postFixture(`${base}/world-objects/update`, {
       projectId: fixtureProjectId,
       objectId: event.id,
@@ -797,7 +804,7 @@ async function setupEventGraphFixture() {
       writePresentation: false,
       title: event.title,
       status: event.status,
-      tags: [...event.tags.filter((tag) => !/^(?:单元|集点)[：:]/u.test(tag)), "单元：雾港", ...(inWarehouseSetPoint ? ["集点：仓库冲突"] : [])],
+      tags: [...event.tags.filter((tag) => !/^(?:单元|集点)[：:]/u.test(tag)), `单元：${inBranchUnit ? "分支·灯塔余波" : "雾港"}`, ...(inWarehouseSetPoint ? ["集点：仓库冲突"] : [])],
       aliases: event.aliases,
       body: event.body,
       subtype: event.subtype,
@@ -1202,7 +1209,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await capture("A-1440x900-directory-root.png");
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "故事结构" }).click();
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "单元" }).click();
-  const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "单元 01 · 雾港" });
+  const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: /· 雾港/u });
   await unitEntry.click();
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" }).count(), 1, "A Set Point must remain an optional sibling collection.");
@@ -1852,8 +1859,12 @@ async function recordR6Closeout() {
     if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
     await eventViewButton(page, "故事脊柱").click();
     await page.getByLabel("故事脊柱主控结构").waitFor();
+    await page.getByLabel("层级").selectOption("far");
     await page.screenshot({ path: path.join(r6CloseoutDirectory, "01-1440-story-spine.png") });
     await page.waitForTimeout(1_200);
+    await page.getByLabel("层级").selectOption("medium");
+    await page.screenshot({ path: path.join(r6CloseoutDirectory, "01b-1440-story-spine-events.png") });
+    await page.waitForTimeout(900);
     await page.locator(".event-spine-cross-view").first().getByRole("button", { name: "关系图", exact: true }).click();
     await page.getByLabel("事件关系工作区").waitFor();
     await page.screenshot({ path: path.join(r6CloseoutDirectory, "02-1440-cross-view-graph.png") });
@@ -1890,6 +1901,7 @@ async function recordR6Closeout() {
     await closeGlobalTianyiIfOpen(page);
     if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
     await eventViewButton(page, "故事脊柱").click();
+    await page.getByLabel("层级").selectOption("far");
     await page.screenshot({ path: path.join(r6CloseoutDirectory, "07-1152-story-spine-responsive.png") });
     await page.waitForTimeout(1_100);
     await eventViewButton(page, "时间轴").click();

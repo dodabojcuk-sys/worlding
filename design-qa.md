@@ -64,8 +64,8 @@ final result: passed
 
 - Product baseline: remote review head `00b3566d36ee49652a2171cb3216420862a7bbe0`.
 - Final evidence: `/home/beelink/.codex/visualizations/2026/09/02/tianyan-event-line-r6/final/`.
-- Eight-state contact sheet: `/home/beelink/.codex/visualizations/2026/09/02/tianyan-event-line-r6/final/R6-CONTACT-SHEET.png`.
-- Uncut recordings: `R6-1440x900-story-modeling.webm` (44.48s) and `R6-1152x720-responsive.webm` (11.24s).
+- Nine-state contact sheet: `/home/beelink/.codex/visualizations/2026/09/02/tianyan-event-line-r6/final/R6-CONTACT-SHEET.png`.
+- Uncut recordings: `R6-1440x900-story-modeling.webm` (45.76s) and `R6-1152x720-responsive.webm` (11.24s).
 - Verified viewports: 1440×900 and 1152×720 at device scale 1.
 
 ## Contract and interaction checks
@@ -73,7 +73,7 @@ final result: passed
 - Story Spine, Relation Graph and Timeline view switching remain zero-cost reads. A missing temporal cache shows a clearly named base layout; a stale projection remains readable with an update recommendation.
 - Every modeling tool opens the same author confirmation boundary first. It exposes the recommended scope, chapter/event/dependency counts, bounded Provider request and token ranges, price-aware cost handling, output class and all protected write owners.
 - Cancel creates no Run. One confirmation creates one bounded isolated test-provider Run; evidence never claims the fixture is real AI proof.
-- Story Spine shows the main Unit as a control surface with semantic summary, direct Events, optional Collection Point and existing-owner actions. Unsafe split, merge, reorder, Nuwa and Multiverse actions remain visibly disabled rather than simulating writes.
+- Story Spine shows a main Unit and a source-distinct branch Unit as control surfaces, plus direct Events, an optional Collection Point and existing-owner actions. Shared Event identity is not duplicated. Unsafe split, merge, reorder, Nuwa and Multiverse actions remain visibly disabled rather than simulating writes.
 - Timeline keeps the Event Graph foreground, adds synchronized top and left coordinates, preserves unknown/conflict semantics and reserves an inset so rulers do not cover cards. Canvas resize refits the readable range when the 348px Tianyi Dock opens.
 - Smart Relation candidates show direction, type, confidence and source reason, deduplicate against current relations and remain candidate-only. The review tray keeps its header and batch actions visible while only the candidate list scrolls.
 
