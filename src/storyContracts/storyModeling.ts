@@ -17,7 +17,9 @@ export type StoryModelingTool =
   | "suggest-causal-relations"
   | "infer-temporal-position"
   | "check-temporal-conflicts"
-  | "update-changed-scope";
+  | "update-changed-scope"
+  | "run-logic-check"
+  | "analyze-perspective";
 
 export type StoryModelingScope =
   | { kind: "incremental"; changedSourceIds: string[]; dependencySourceIds: string[] }
@@ -26,7 +28,9 @@ export type StoryModelingScope =
 
 export type StoryModelingSource = {
   sourceId: string;
-  sourceKind: "chapter" | "scene" | "unit" | "event";
+  sourceKind: "chapter" | "scene" | "imported-document" | "unit" | "event";
+  sourceOrigin: "original-prose" | "structured-event";
+  label: string;
   revision: string;
   contentDigest: `sha256:${string}`;
   characterCount: number;
@@ -56,6 +60,9 @@ export type StoryModelingPrice = {
 
 export type StoryModelingEstimate = {
   sourceCount: number;
+  originalSourceCount: number;
+  structuredEventCount: number;
+  changedSourceCount: number;
   eventCount: number;
   dependencyCount: number;
   providerRequestRange: { min: number; max: number };
@@ -88,6 +95,7 @@ export type StoryModelingRun = {
   sourceManifestId: string;
   sourceManifestDigest: `sha256:${string}`;
   sourceEventRefs: StoryStudioEventReference[];
+  sourceSnapshot: StoryModelingSource[];
   estimate: StoryModelingEstimate;
   status: "created" | "running" | "ready" | "failed" | "stopped";
   cacheKey: string;
@@ -101,9 +109,39 @@ export type StoryModelingRun = {
 };
 
 export type StoryModelingResult = {
+  tool: StoryModelingTool;
   structureFindings: Array<{ id: string; kind: "core-line" | "unit-boundary" | "structure-break" | "branch-comparison"; title: string; summary: string; confidence: number; sourceRefs: string[] }>;
   temporalPlacements: Array<{ eventId: string; kind: "anchored" | "inferred" | "interval" | "conflict" | "unplaced"; x: number; y: number; label: string; interval: { start: number; end: number } | null; confidence: number | null; sourceRefs: string[] }>;
   relationCandidates: SmartRelationCandidate[];
+  logicFindings: StoryLogicFinding[];
+  perspectiveMatches: PerspectiveMatch[];
+};
+
+export type StoryLogicFinding = {
+  findingId: string;
+  kind: "dangling-relation" | "stale-version" | "duplicate-id" | "temporal-cycle" | "orphan-unit-reference" | "deleted-reference" | "unresolved-relation-type" | "stale-cache" | "causal-gap" | "motivation-break" | "knowledge-boundary" | "item-continuity" | "location-continuity" | "temporal-plausibility" | "setup-payoff" | "storyline-disconnect" | "emotion-pace-arc";
+  source: "local" | "ai";
+  severity: "info" | "warning" | "blocker";
+  confidence: number;
+  affectedEventIds: string[];
+  affectedUnitIds: string[];
+  affectedAgentIds: string[];
+  evidenceRefs: string[];
+  rationale: string;
+  impact: string;
+  authorStatus: "pending" | "ignored" | "resolved";
+};
+
+export type PerspectiveMatch = {
+  matchId: string;
+  perspectiveType: "character" | "location" | "item";
+  perspectiveObjectId: string;
+  eventId: string;
+  relationKind: "formal-participation" | "formal-relation-impact" | "ai-inferred" | "upstream" | "downstream";
+  knowledgeState: "known" | "misunderstood" | "unknown" | "not-applicable";
+  confidence: number;
+  evidenceRefs: string[];
+  rationale: string;
 };
 
 export type SmartRelationCandidate = {
@@ -123,7 +161,8 @@ export type SmartRelationCandidate = {
 export function validateStoryModelingResult(input: { request: StoryModelingRequest; runId: string; result: unknown }): StoryModelingResult {
   if (!input.result || typeof input.result !== "object" || Array.isArray(input.result)) throw new Error("Story modeling result is invalid.");
   const result = input.result as StoryModelingResult;
-  if (!Array.isArray(result.structureFindings) || !Array.isArray(result.temporalPlacements) || !Array.isArray(result.relationCandidates)) throw new Error("Story modeling result lists are invalid.");
+  if (result.tool !== input.request.tool) throw new Error("Story modeling result tool does not match the confirmed request.");
+  if (!Array.isArray(result.structureFindings) || !Array.isArray(result.temporalPlacements) || !Array.isArray(result.relationCandidates) || !Array.isArray(result.logicFindings) || !Array.isArray(result.perspectiveMatches)) throw new Error("Story modeling result lists are invalid.");
   const eventIds = new Set(input.request.eventRefs.map((reference) => reference.eventId));
   const relationCandidates = result.relationCandidates.map((candidate) => normalizeSmartRelationCandidate(candidate, eventIds, input.runId));
   if (new Set(relationCandidates.map((candidate) => candidate.candidateId)).size !== relationCandidates.length) throw new Error("Story modeling Relation candidate is duplicated.");
@@ -135,9 +174,12 @@ export function validateStoryModelingResult(input: { request: StoryModelingReque
     return { eventId: stableId(placement.eventId, "Story modeling temporal Event"), kind, x: finite(placement.x, "Story modeling temporal x"), y: finite(placement.y, "Story modeling temporal y"), label: text(placement.label, 120, "Story modeling temporal label"), interval, confidence: placement.confidence === null ? null : confidence(placement.confidence), sourceRefs: uniqueIds(placement.sourceRefs, "Story modeling temporal evidence") };
   });
   const structureFindings = result.structureFindings.map((finding) => ({ id: stableId(finding.id, "Story modeling finding"), kind: oneOf(finding.kind, ["core-line", "unit-boundary", "structure-break", "branch-comparison"] as const, "Story modeling finding kind"), title: text(finding.title, 120, "Story modeling finding title"), summary: text(finding.summary, 320, "Story modeling finding summary"), confidence: confidence(finding.confidence), sourceRefs: uniqueIds(finding.sourceRefs, "Story modeling finding source") }));
-  const serialized = JSON.stringify({ structureFindings, temporalPlacements, relationCandidates });
+  const logicFindings = result.logicFindings.map((finding) => normalizeLogicFinding(finding, eventIds));
+  const perspectiveMatches = result.perspectiveMatches.map((match) => normalizePerspectiveMatch(match, eventIds));
+  assertToolSpecificResultFamily(result.tool, { structureFindings, temporalPlacements, relationCandidates, logicFindings, perspectiveMatches });
+  const serialized = JSON.stringify({ structureFindings, temporalPlacements, relationCandidates, logicFindings, perspectiveMatches });
   if (/"(?:prompt|messages|providerResponse|authorization|apiKey|toolCalls?)"\s*:/iu.test(serialized)) throw new Error("Story modeling result exposes internal Agent or Provider fields.");
-  return { structureFindings, temporalPlacements, relationCandidates };
+  return { tool: result.tool, structureFindings, temporalPlacements, relationCandidates, logicFindings, perspectiveMatches };
 }
 
 export function createStoryModelingSourceManifest(input: { projectId: string; sources: StoryModelingSource[] }): StoryModelingSourceManifest {
@@ -172,6 +214,9 @@ export function estimateStoryModelingRun(input: { scope: StoryModelingScope; man
   const price = input.price ? normalizePrice(input.price) : null;
   return {
     sourceCount,
+    originalSourceCount: scoped.filter((source) => source.sourceOrigin === "original-prose").length,
+    structuredEventCount: scoped.filter((source) => source.sourceOrigin === "structured-event").length,
+    changedSourceCount: input.scope.kind === "incremental" ? input.scope.changedSourceIds.length : sourceCount,
     eventCount: boundedInteger(input.eventCount, 0, 100_000, "Story modeling Event count"),
     dependencyCount,
     providerRequestRange: { min: providerMin, max: providerMax },
@@ -225,6 +270,7 @@ export function createStoryModelingRun(input: { request: StoryModelingRequest; r
     sourceManifestId: request.manifest.manifestId,
     sourceManifestDigest: request.manifest.digest,
     sourceEventRefs: request.eventRefs,
+    sourceSnapshot: request.manifest.sources,
     estimate: request.estimate,
     status: "created",
     cacheKey: `story-modeling-cache.${request.manifest.digest.slice(7, 31)}.${request.tool}.${request.scope.kind}`,
@@ -243,7 +289,27 @@ function normalizeSource(value: StoryModelingSource): StoryModelingSource {
   const deps = uniqueIds(value.dependencySourceIds ?? [], "Story modeling dependency");
   if (deps.includes(sourceId)) throw new Error("Story modeling source cannot depend on itself.");
   if (!/^sha256:[a-f0-9]{64}$/u.test(value.contentDigest)) throw new Error("Story modeling source digest is invalid.");
-  return { sourceId, sourceKind: oneOf(value.sourceKind, ["chapter", "scene", "unit", "event"] as const, "Story modeling source kind"), revision: stableId(value.revision, "Story modeling source revision"), contentDigest: value.contentDigest, characterCount: boundedInteger(value.characterCount, 0, 10_000_000, "Story modeling character count"), dependencySourceIds: deps.sort() };
+  return { sourceId, sourceKind: oneOf(value.sourceKind, ["chapter", "scene", "imported-document", "unit", "event"] as const, "Story modeling source kind"), sourceOrigin: oneOf(value.sourceOrigin, ["original-prose", "structured-event"] as const, "Story modeling source origin"), label: text(value.label, 180, "Story modeling source label"), revision: stableId(value.revision, "Story modeling source revision"), contentDigest: value.contentDigest, characterCount: boundedInteger(value.characterCount, 0, 10_000_000, "Story modeling character count"), dependencySourceIds: deps.sort() };
+}
+
+function normalizeLogicFinding(finding: StoryLogicFinding, eventIds: ReadonlySet<string>): StoryLogicFinding {
+  const affectedEventIds = uniqueIds(finding.affectedEventIds, "Logic finding Event");
+  if (affectedEventIds.some((eventId) => !eventIds.has(eventId))) throw new Error("Logic finding Event is out of scope.");
+  return { findingId: stableId(finding.findingId, "Logic finding"), kind: oneOf(finding.kind, ["dangling-relation", "stale-version", "duplicate-id", "temporal-cycle", "orphan-unit-reference", "deleted-reference", "unresolved-relation-type", "stale-cache", "causal-gap", "motivation-break", "knowledge-boundary", "item-continuity", "location-continuity", "temporal-plausibility", "setup-payoff", "storyline-disconnect", "emotion-pace-arc"] as const, "Logic finding kind"), source: oneOf(finding.source, ["local", "ai"] as const, "Logic finding source"), severity: oneOf(finding.severity, ["info", "warning", "blocker"] as const, "Logic finding severity"), confidence: confidence(finding.confidence), affectedEventIds, affectedUnitIds: uniqueIds(finding.affectedUnitIds, "Logic finding Unit"), affectedAgentIds: uniqueIds(finding.affectedAgentIds, "Logic finding Agent"), evidenceRefs: uniqueIds(finding.evidenceRefs, "Logic finding evidence"), rationale: text(finding.rationale, 480, "Logic finding rationale"), impact: text(finding.impact, 360, "Logic finding impact"), authorStatus: oneOf(finding.authorStatus, ["pending", "ignored", "resolved"] as const, "Logic finding author status") };
+}
+
+function normalizePerspectiveMatch(match: PerspectiveMatch, eventIds: ReadonlySet<string>): PerspectiveMatch {
+  const eventId = stableId(match.eventId, "Perspective match Event");
+  if (!eventIds.has(eventId)) throw new Error("Perspective match Event is out of scope.");
+  return { matchId: stableId(match.matchId, "Perspective match"), perspectiveType: oneOf(match.perspectiveType, ["character", "location", "item"] as const, "Perspective type"), perspectiveObjectId: stableId(match.perspectiveObjectId, "Perspective object"), eventId, relationKind: oneOf(match.relationKind, ["formal-participation", "formal-relation-impact", "ai-inferred", "upstream", "downstream"] as const, "Perspective relation kind"), knowledgeState: oneOf(match.knowledgeState, ["known", "misunderstood", "unknown", "not-applicable"] as const, "Perspective knowledge state"), confidence: confidence(match.confidence), evidenceRefs: uniqueIds(match.evidenceRefs, "Perspective evidence"), rationale: text(match.rationale, 360, "Perspective rationale") };
+}
+function assertToolSpecificResultFamily(toolName: StoryModelingTool, result: Omit<StoryModelingResult, "tool">): void {
+  const structural = ["analyze-core-story", "suggest-unit-boundaries", "check-structure-breaks", "compare-branch-units"].includes(toolName);
+  const temporal = ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(toolName);
+  const relations = ["smart-relations", "check-broken-links", "suggest-causal-relations"].includes(toolName);
+  const logic = toolName === "run-logic-check" || toolName === "check-structure-breaks";
+  const perspective = toolName === "analyze-perspective";
+  if ((!structural && result.structureFindings.length) || (!temporal && result.temporalPlacements.length) || (!relations && result.relationCandidates.length) || (!logic && result.logicFindings.length) || (!perspective && result.perspectiveMatches.length)) throw new Error("Story modeling result contains output outside the confirmed tool family.");
 }
 function normalizeSmartRelationCandidate(candidate: SmartRelationCandidate, eventIds: ReadonlySet<string>, runId: string): SmartRelationCandidate {
   const sourceEventId = stableId(candidate.sourceEventId, "Story modeling Relation source");
@@ -263,7 +329,7 @@ function inManifest(values: string[], ids: Set<string>): string[] { const result
 function scopeSourceIds(scope: StoryModelingScope): string[] { return scope.kind === "incremental" ? uniqueIds([...scope.changedSourceIds, ...scope.dependencySourceIds], "Story modeling scope") : uniqueIds(scope.sourceIds, "Story modeling scope"); }
 function normalizePrice(value: StoryModelingPrice): StoryModelingPrice { return { currency: "USD", inputPerMillionTokens: finiteNonNegative(value.inputPerMillionTokens, "Input token price"), outputPerMillionTokens: finiteNonNegative(value.outputPerMillionTokens, "Output token price"), source: text(value.source, 160, "Price source") }; }
 function uniqueIds(value: unknown, label: string): string[] { if (!Array.isArray(value)) throw new Error(`${label} list is invalid.`); const result = value.map((item) => stableId(item, label)); if (new Set(result).size !== result.length) throw new Error(`${label} list contains duplicates.`); return result; }
-function tool(value: unknown): StoryModelingTool { return oneOf(value, ["analyze-core-story", "suggest-unit-boundaries", "check-structure-breaks", "compare-branch-units", "smart-relations", "check-broken-links", "suggest-causal-relations", "infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"] as const, "Story modeling tool"); }
+function tool(value: unknown): StoryModelingTool { return oneOf(value, ["analyze-core-story", "suggest-unit-boundaries", "check-structure-breaks", "compare-branch-units", "smart-relations", "check-broken-links", "suggest-causal-relations", "infer-temporal-position", "check-temporal-conflicts", "update-changed-scope", "run-logic-check", "analyze-perspective"] as const, "Story modeling tool"); }
 function stableId(value: unknown, label: string): string { const result = text(value, 200, label); if (!/^[\p{L}\p{N}][\p{L}\p{N}._:-]*$/u.test(result)) throw new Error(`${label} is invalid.`); return result; }
 function text(value: unknown, maximum: number, label: string): string { if (typeof value !== "string") throw new Error(`${label} is invalid.`); const result = value.normalize("NFC").trim(); if (!result || [...result].length > maximum || /[\u0000-\u001F\u007F]/u.test(result)) throw new Error(`${label} is invalid.`); return result; }
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: string): T { if (typeof value !== "string" || !allowed.includes(value as T)) throw new Error(`${label} is invalid.`); return value as T; }

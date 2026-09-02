@@ -19,7 +19,10 @@ test("story modeling plans incremental and full-book scopes without Provider cal
     assert.equal(plan.scope.kind, "incremental");
     const full = modeling.planStoryModeling({ projectId: fixture.projectId, tool: "analyze-core-story", scope: { kind: "full-book", sourceIds: [] }, eventRefs: fixture.refs, structuralChange: true });
     assert.equal(full.scope.kind, "full-book");
-    assert.equal(full.manifest.sources.length, fixture.refs.length);
+    assert.equal(full.manifest.sources.length, fixture.refs.length + 3);
+    assert.equal(full.estimate.originalSourceCount, 3);
+    assert.equal(full.estimate.structuredEventCount, fixture.refs.length);
+    assert.equal(full.modelingBasis, "original-sources");
     assert.equal(full.estimate.cost.status, "unavailable");
   } finally { await fixture.dispose(); }
 });
@@ -36,6 +39,7 @@ test("one author confirmation creates one idempotent Run and test Provider outpu
     const duplicate = modeling.createStoryModelingRun({ request, runId: "story-modeling-run.smart-duplicate" });
     assert.equal(duplicate.runId, run.runId);
     assert.equal(calls, 0);
+    assert.equal(JSON.stringify(run).includes("第一章正文中的秘密线索"), false);
     const ready = await modeling.executeStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
     assert.equal(calls, 1);
     assert.equal(ready.status, "ready");
@@ -52,6 +56,11 @@ async function setup() {
   const projectId = "long-night-modeling";
   const workspace = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
   workspace.createProject({ title: "长夜将明", folderSlug: projectId });
+  const chapter = workspace.createWritingDocument({ projectId, type: "chapter", title: "第一章" });
+  workspace.updateWritingDocument({ projectId, documentId: chapter.id, expectedHash: chapter.revisionToken, status: "drafting", body: "# 第一章\n\n第一章正文中的秘密线索。" });
+  const scene = workspace.createWritingDocument({ projectId, type: "scene", title: "仓库场景", chapterId: chapter.id });
+  workspace.updateWritingDocument({ projectId, documentId: scene.id, expectedHash: scene.revisionToken, status: "drafting", body: "# 仓库场景\n\n暗号在仓库中被传递。" });
+  workspace.importSourceDocument({ projectId, filename: "旧稿.txt", title: "旧稿", content: "导入文档中的原始故事正文。", mode: "reference-only" });
   const events = ["暗号传递", "仓库对峙", "旧仓库封锁", "雾港启航"].map((title) => workspace.createPlanningEvent({ projectId, title, tags: ["Story Unit: 雾港"] }));
   const refs = events.map((event) => ({ version: "story-studio-event-reference/v1" as const, projectId, eventId: event.id, revisionToken: event.revisionToken, state: "planned" as const, requestedUse: "constraint" as const }));
   const before = workspace.getStoryStudioWorldLibraryBootstrap({ projectId }).objects;

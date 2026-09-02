@@ -73,6 +73,7 @@ import {
 } from "../../../src/storyContinuity/index.ts";
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
+import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { createSiliconFlowAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
 import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
@@ -210,13 +211,16 @@ syncProviderGatewayProfile();
 const multiNodePredictionGateway = productPathRealProviderAllowed
   ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
   : null;
+const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
+  ? createStoryModelingTestGateway()
+  : createStoryModelingProviderAdapter({ gateway: providerGateway, maxProviderCalls: 16, maxOutputTokens: 512 });
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,
   stateFilePath,
   agentId: tianyiAgentId,
   localControlToken: controlToken,
   modelGateway: providerGateway,
-  ...(process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1" ? { storyModelingGateway: createStoryModelingTestGateway() } : {}),
+  storyModelingGateway,
   storyModelingPrice: (() => { const price = readConfiguredLivePriceUsd(); return price ? { currency: "USD", inputPerMillionTokens: price.inputUsdPerMillion, outputPerMillionTokens: price.outputUsdPerMillion, source: "configured-provider-model-price" } : null; })(),
   ...(multiNodePredictionGateway ? { multiNodePredictionGateway, groundedAnswerMaxProviderDispatches: 1 } : {}),
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })

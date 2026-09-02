@@ -1,4 +1,6 @@
-import type { StoryModelingRequest, StoryModelingResult } from "../storyContracts/storyModeling.ts";
+import type { StoryModelingRequest, StoryModelingResult, StoryModelingSource } from "../storyContracts/storyModeling.ts";
+
+export type StoryModelingEvidenceSource = StoryModelingSource & { content: string };
 
 export type StoryModelingGatewayResult = {
   provider: { providerId: string; modelId: string; executionKind: "real-provider" | "test-provider" };
@@ -7,7 +9,7 @@ export type StoryModelingGatewayResult = {
 };
 
 export type StoryModelingGateway = {
-  generate(input: { request: StoryModelingRequest; runId: string; signal: AbortSignal }): Promise<StoryModelingGatewayResult>;
+  generate(input: { request: StoryModelingRequest; runId: string; signal: AbortSignal; sources: StoryModelingEvidenceSource[] }): Promise<StoryModelingGatewayResult>;
 };
 
 export function createUnavailableStoryModelingGateway(): StoryModelingGateway {
@@ -47,11 +49,22 @@ export function createStoryModelingTestGateway(): StoryModelingGateway {
         provider: { providerId: "tianyi-test-provider", modelId: "networkless-story-modeling-fixture", executionKind: "test-provider" },
         usage: { providerRequests: Math.min(request.estimate.providerRequestRange.max, Math.max(1, request.scope.kind === "full-book" ? 3 : 1)), inputTokens: Math.min(request.estimate.inputTokenRange.max, Math.max(128, request.estimate.inputTokenRange.min)), outputTokens: Math.min(request.estimate.outputTokenRange.max, 256) },
         result: {
-          structureFindings: [{ id: `modeling-finding.${runId}.core`, kind: "core-line", title: "核心推进线候选", summary: "危机从暗号泄露推进到仓库封锁，并留下港口启航的开放钩子。", confidence: .78, sourceRefs: request.manifest.sources.slice(0, 4).map((source) => source.sourceId) }],
-          temporalPlacements,
-          relationCandidates
+          tool: request.tool,
+          structureFindings: structureFindingsForTool(request.tool, runId, request.manifest.sources.slice(0, 4).map((source) => source.sourceId)),
+          temporalPlacements: ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(request.tool) ? temporalPlacements : [],
+          relationCandidates: ["smart-relations", "check-broken-links", "suggest-causal-relations"].includes(request.tool) ? relationCandidates : [],
+          logicFindings: request.tool === "run-logic-check" || request.tool === "check-structure-breaks" ? [{ findingId: `logic-finding.${runId}.causal`, kind: "causal-gap", source: "ai", severity: "warning", confidence: .74, affectedEventIds: ids.slice(0, 2), affectedUnitIds: [], affectedAgentIds: [], evidenceRefs: ids.slice(0, 2).map((id) => `event:${id}`), rationale: "两个相邻事件缺少作者已确认的因果过程。", impact: "读者可能无法理解行动为何在此刻发生。", authorStatus: "pending" }] : [],
+          perspectiveMatches: request.tool === "analyze-perspective" && ids[0] ? [{ matchId: `perspective-match.${runId}.1`, perspectiveType: "character", perspectiveObjectId: "character.fixture", eventId: ids[0], relationKind: "ai-inferred", knowledgeState: "unknown", confidence: .68, evidenceRefs: [`event:${ids[0]}`], rationale: "测试 Provider 只返回可审阅的视角匹配。" }] : []
         }
       };
     }
   };
+}
+
+function structureFindingsForTool(tool: StoryModelingRequest["tool"], runId: string, sourceRefs: string[]): StoryModelingResult["structureFindings"] {
+  if (tool === "analyze-core-story") return [{ id: `modeling-finding.${runId}.core`, kind: "core-line", title: "核心推进线候选", summary: "危机从暗号泄露推进到仓库封锁，并留下港口启航的开放钩子。", confidence: .78, sourceRefs }];
+  if (tool === "suggest-unit-boundaries") return [{ id: `modeling-finding.${runId}.unit`, kind: "unit-boundary", title: "单元边界候选", summary: "在仓库封锁后形成可审阅的单元分界，不会直接改动 Unit。", confidence: .73, sourceRefs }];
+  if (tool === "check-structure-breaks") return [{ id: `modeling-finding.${runId}.break`, kind: "structure-break", title: "结构断点候选", summary: "开放钩子与后续行动之间缺少已确认过渡。", confidence: .71, sourceRefs }];
+  if (tool === "compare-branch-units") return [{ id: `modeling-finding.${runId}.branch`, kind: "branch-comparison", title: "分支单元对照", summary: "分支与主干保持独立来源，候选差异等待作者审阅。", confidence: .76, sourceRefs }];
+  return [];
 }

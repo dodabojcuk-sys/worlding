@@ -62,9 +62,9 @@ test("smart Relation output is source-bound, deduplicated and reviewed without f
   const scope = { kind: "selection" as const, sourceIds: ["chapter.1"], eventRefs, unitIds: [] };
   const request = normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.relations", tool: "smart-relations", trigger: "author-requested", scope, manifest, eventRefs, estimate: estimateStoryModelingRun({ manifest, scope, eventCount: 3 }), authorConfirmedAt: "2026-09-02T01:00:00.000Z" });
   const candidate = relation("relation-candidate.1", "event.a", "event.b");
-  const result = validateStoryModelingResult({ request, runId: "story-modeling-run.relations", result: { structureFindings: [], temporalPlacements: [], relationCandidates: [candidate] } });
+  const result = validateStoryModelingResult({ request, runId: "story-modeling-run.relations", result: modelingResult("smart-relations", { relationCandidates: [candidate] }) });
   assert.equal(result.relationCandidates.length, 1);
-  assert.throws(() => validateStoryModelingResult({ request, runId: "story-modeling-run.relations", result: { structureFindings: [], temporalPlacements: [], relationCandidates: [{ ...candidate, targetEventId: "event.outside" }] } }), /endpoints/u);
+  assert.throws(() => validateStoryModelingResult({ request, runId: "story-modeling-run.relations", result: modelingResult("smart-relations", { relationCandidates: [{ ...candidate, targetEventId: "event.outside" }] }) }), /endpoints/u);
   assert.deepEqual(dedupeSmartRelationCandidates({ candidates: [candidate, { ...candidate, candidateId: "relation-candidate.2" }], existing: [] }).map((item) => item.candidateId), ["relation-candidate.1"]);
   assert.equal(dedupeSmartRelationCandidates({ candidates: [candidate], existing: [{ sourceEventId: "event.a", targetEventId: "event.b", direction: "forward" }] }).length, 0);
   const reviewed = reviewSmartRelationCandidates({ candidates: [candidate], candidateIds: [candidate.candidateId], decision: "accepted", suggestedTypeId: null, suggestedTypeLabel: "类型待确认" });
@@ -72,9 +72,17 @@ test("smart Relation output is source-bound, deduplicated and reviewed without f
   assert.equal(reviewed[0]?.suggestedTypeId, null);
 });
 
+test("story modeling rejects result families outside the exact confirmed tool", () => {
+  const scope = { kind: "full-book" as const, sourceIds: manifest.sources.map((source) => source.sourceId) };
+  const request = normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.family-gate", tool: "smart-relations", trigger: "author-requested", scope, manifest, eventRefs: [], estimate: estimateStoryModelingRun({ manifest, scope, eventCount: 0, maxOutputTokensPerRequest: 512 }), authorConfirmedAt: "2026-09-02T09:00:00.000Z" });
+  assert.throws(() => validateStoryModelingResult({ request, runId: "story-modeling-run.family-gate", result: { tool: "smart-relations", structureFindings: [{ id: "finding.outside-family", kind: "core-line", title: "越界结果", summary: "不应出现在智能连线工具的返回中。", confidence: .8, sourceRefs: [manifest.sources[0]!.sourceId] }], temporalPlacements: [], relationCandidates: [], logicFindings: [], perspectiveMatches: [] } }), /outside the confirmed tool family/u);
+});
+
 function source(sourceId: string, characterCount: number, dependencySourceIds: string[]) {
-  return { sourceId, sourceKind: "chapter" as const, revision: `${sourceId}.revision.1`, contentDigest: `sha256:${"a".repeat(64)}` as const, characterCount, dependencySourceIds };
+  return { sourceId, sourceKind: "chapter" as const, sourceOrigin: "original-prose" as const, label: sourceId, revision: `${sourceId}.revision.1`, contentDigest: `sha256:${"a".repeat(64)}` as const, characterCount, dependencySourceIds };
 }
+
+function modelingResult(tool: "smart-relations", overrides: Record<string, unknown> = {}) { return { tool, structureFindings: [], temporalPlacements: [], relationCandidates: [], logicFindings: [], perspectiveMatches: [], ...overrides }; }
 
 function relation(candidateId: string, sourceEventId: string, targetEventId: string): SmartRelationCandidate {
   return { candidateId, sourceEventId, targetEventId, suggestedTypeId: "causes", suggestedTypeLabel: "促使", direction: "forward", confidence: .82, rationale: "后续行动直接回应前一事件。", evidenceRefs: [`event:${sourceEventId}`, `event:${targetEventId}`], reviewState: "candidate", sourceRunId: "story-modeling-run.relations" };
