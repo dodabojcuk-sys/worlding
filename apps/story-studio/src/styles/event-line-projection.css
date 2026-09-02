@@ -408,6 +408,9 @@
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr) auto; gap: .5rem; padding: .5rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); font-size: .8125rem; }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li span, :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article > p { color: var(--color-text-muted); }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li em { color: var(--color-accent); font-style: normal; font-weight: 700; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article.is-divergent { border-inline-start: 3px solid var(--color-warning); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li[data-visibility="blind-spot"] { border: 1px dashed var(--color-border-strong); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-prose-note { margin: 1rem 0 0; padding: .75rem 1rem; color: var(--color-text-muted); background: var(--color-surface-muted); border-radius: var(--radius-sm); font-size: .8125rem; }
 :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-empty { display: grid; place-items: center; gap: .6rem; min-height: 16rem; color: var(--color-text-muted); text-align: center; }
 
 .story-logic-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 1rem; background: color-mix(in srgb, var(--color-structure-background) 45%, transparent); }

@@ -68,7 +68,7 @@ function resolveMatch(event: PerspectiveEvent, object: PerspectiveObjectRef, eve
   const direct = listPerspectiveObjects([event]).some((candidate) => perspectiveEvidenceKey(candidate) === perspectiveEvidenceKey(object));
   const explicitKnowledge = knowledgeState(event.tags, object);
   const witnessed = taggedValues(event.tags, ["目击", "Witness"]).some((value) => sameLabel(value, object.label));
-  if (direct) {
+  if (direct || witnessed) {
     const visibility: PerspectiveVisibility = explicitKnowledge === "misunderstood" ? "misunderstood" : explicitKnowledge === "unknown" ? "unknown" : witnessed ? "witnessed" : "experienced";
     return { object, relationKind: "formal-participation", knowledgeState: explicitKnowledge === "not-applicable" ? "known" : explicitKnowledge, visibility, confidence: 1, evidenceRefs: [`event:${event.id}`, ownerEvidence] };
   }

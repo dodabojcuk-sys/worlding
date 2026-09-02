@@ -53,7 +53,7 @@ import type { TemporalProjectionRun } from "../../../../src/storyContracts/tempo
 import type { StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
 import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import { runLocalStoryLogicChecks } from "../../../../src/storyContracts/storyLogicChecks.ts";
-import { buildPerspectiveIntersection, listPerspectiveObjects, type PerspectiveObjectRef, type PerspectiveProjectionMatch } from "../../../../src/storyContracts/eventPerspectiveProjection.ts";
+import { buildPerspectiveComparison, buildSinglePerspectiveProjection, listPerspectiveObjects, perspectiveModeForSelection, type PerspectiveObjectRef, type PerspectiveProjectionMatch, type PerspectiveVisibility } from "../../../../src/storyContracts/eventPerspectiveProjection.ts";
 
 export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create";
 export type EventDraftInput = {
@@ -618,7 +618,7 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
       { id: "check-temporal-conflicts", label: "检查时间冲突" },
       { id: "update-changed-scope", label: "更新变化范围" }
     ],
-    perspective: [{ id: "analyze-perspective", label: "深度分析视角交集" }]
+    perspective: [{ id: "analyze-perspective", label: "深度分析当前视角" }]
   };
   return <aside className={`story-modeling-toolbar ${props.expanded ? "is-expanded" : "is-collapsed"}`} aria-label="故事建模 AI 工具" data-testid="story-modeling-toolbar">
     <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>AI 工具</span><b>{props.expanded ? "关闭" : "打开"}</b></button>
@@ -632,12 +632,20 @@ function PerspectiveLens(props: { events: readonly EventLineEventSummary[]; obje
   const evidenceObjects = useMemo(() => listPerspectiveObjects(props.events), [props.events]);
   const objects = props.objects;
   const [selected, setSelected] = useState<PerspectiveObjectRef[]>([]);
-  const projection = useMemo(() => buildPerspectiveIntersection({ events: props.events, relations: props.relations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState })), selected, aiMatches: props.aiMatches }), [props.aiMatches, props.events, props.relations, selected]);
+  const mode = perspectiveModeForSelection(selected);
+  const projection = useMemo(() => {
+    const relations = props.relations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState }));
+    return mode === "single"
+      ? buildSinglePerspectiveProjection({ events: props.events, relations, selected: selected[0]!, aiMatches: props.aiMatches })
+      : mode === "compare"
+        ? buildPerspectiveComparison({ events: props.events, relations, selected, aiMatches: props.aiMatches })
+        : [];
+  }, [mode, props.aiMatches, props.events, props.relations, selected]);
   const toggle = (object: PerspectiveObjectRef) => setSelected((current) => current.some((item) => item.id === object.id) ? current.filter((item) => item.id !== object.id) : current.length < 5 ? [...current, object] : current);
   return <section className="event-perspective-workspace" aria-label="事件视角轴" data-provider-calls-on-open="0">
-    <span className="sr-only">选择 2–5 个人物、地点或物品</span>
-    <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角交集</strong><span>选择 2–5 个正式人物、地点或物品</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式 Owner 中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}；Event 标签仅作证据。</small> : null}</fieldset>)}{evidenceObjects.length ? <small className="event-perspective-evidence-note">Event 中识别到 {evidenceObjects.length} 个证据标记，未自动创建正式对象。</small> : null}</aside>
-    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用</small><h2>{selected.length < 2 ? "请选择至少两个视角对象" : `${selected.map((item) => item.label).join(" × ")} 的故事交集`}</h2></div><button type="button" disabled={selected.length < 2} onClick={() => props.onOpenAi(selected)}><Sparkles />深度分析</button></header>{selected.length >= 2 && !projection.length ? <div className="event-perspective-empty"><CircleDot /><strong>当前没有共同事件</strong><p>基础投影只使用正式 Owner 对象、事件证据与已确认关系；AI 候选不会被伪装成正式事实。</p></div> : <div className="event-perspective-results">{projection.map((item) => <article key={item.eventId}><small>共同事件</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id}><strong>{match.object.label}</strong><span>{perspectiveRelationLabel(match.relationKind)} · {knowledgeLabel(match.knowledgeState)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>证据：{[...new Set(item.matches.flatMap((match) => match.evidenceRefs))].join(" · ")}</p></article>)}</div>}</div>
+    <span className="sr-only">选择 1–5 个人物、地点或物品；切换不会调用 AI</span>
+    <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角观察</strong><span>1 个对象单独查看，2–5 个对象并排比较</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式 Owner 中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}；Event 标签仅作证据。</small> : null}</fieldset>)}{evidenceObjects.length ? <small className="event-perspective-evidence-note">Event 中识别到 {evidenceObjects.length} 个证据标记，未自动创建正式对象。</small> : null}</aside>
+    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用 · {mode === "single" ? "单对象" : mode === "compare" ? "对象比较" : "等待选择"}</small><h2>{mode === "single" ? `从 ${selected[0]!.label} 看故事` : mode === "compare" ? `${selected.map((item) => item.label).join(" × ")} 的知情比较` : "选择一个视角对象即可查看"}</h2></div><button type="button" disabled={!mode} onClick={() => props.onOpenAi(selected)}><Sparkles />深度分析</button></header>{!mode ? <div className="event-perspective-empty"><CircleDot /><strong>选择一个正式对象</strong><p>基础投影会立即显示，不会产生 Provider 调用。</p></div> : <><div className="event-perspective-results">{projection.map((item) => <article key={item.eventId} className={`is-${item.shared ? "shared" : "divergent"}`}><small>{mode === "single" ? perspectiveVisibilityLabel(item.matches[0]!.visibility) : item.shared ? "共同知情" : "知情差异"}</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id} data-visibility={match.visibility}><strong>{match.object.label}</strong><span>{perspectiveVisibilityLabel(match.visibility)} · {perspectiveRelationLabel(match.relationKind)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>{evidenceSummary(item.matches)}</p></article>)}</div><p className="event-perspective-prose-note">第一人称改写属于“多元”的派生副本；此处只呈现可追溯的知情视角。</p></>}</div>
   </section>;
 }
 
@@ -647,7 +655,8 @@ function StoryLogicPanel(props: { findings: readonly StoryLogicFinding[]; aiFind
 }
 
 function perspectiveRelationLabel(kind: PerspectiveProjectionMatch["relationKind"]): string { return kind === "formal-participation" ? "正式参与" : kind === "formal-relation-impact" ? "正式关系影响" : kind === "upstream" ? "上游影响" : kind === "downstream" ? "下游影响" : kind === "none" ? "角色未知" : "AI 推断"; }
-function knowledgeLabel(kind: PerspectiveMatch["knowledgeState"]): string { return kind === "known" ? "已知" : kind === "misunderstood" ? "误解" : kind === "unknown" ? "未知" : "不适用"; }
+function perspectiveVisibilityLabel(kind: PerspectiveVisibility): string { return ({ experienced: "亲历", witnessed: "目击", informed: "正式关系告知", known: "已知", misunderstood: "误解", unknown: "未知", "blind-spot": "角色未知 · 作者可见盲区" })[kind]; }
+function evidenceSummary(matches: readonly PerspectiveProjectionMatch[]): string { const eventCount = new Set(matches.flatMap((match) => match.evidenceRefs).filter((ref) => ref.startsWith("event:"))).size; const ownerCount = new Set(matches.map((match) => `${match.object.ownerId ?? match.object.id}@${match.object.version ?? "unknown"}`)).size; return `证据：${eventCount} 个事件来源 · ${ownerCount} 个 Owner 版本`; }
 function logicKindLabel(kind: StoryLogicFinding["kind"]): string { return ({ "dangling-relation": "悬空关系", "stale-version": "版本已变化", "duplicate-id": "身份重复", "temporal-cycle": "时间循环", "orphan-unit-reference": "单元引用缺失", "deleted-reference": "引用对象已删除", "unresolved-relation-type": "关系类型待确认", "stale-cache": "缓存已过期", "causal-gap": "因果缺口", "motivation-break": "动机断裂", "knowledge-boundary": "知情边界", "item-continuity": "物品连续性", "location-continuity": "地点连续性", "temporal-plausibility": "时间合理性", "setup-payoff": "伏笔回收", "storyline-disconnect": "线索脱节", "emotion-pace-arc": "情绪节奏弧" })[kind]; }
 
 function UnitCreateBar(props: { busy: boolean; onCancel(): void; onCreate(title: string): Promise<void> }) {
@@ -710,7 +719,7 @@ function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: 
 }
 
 function modelingToolLabel(tool: StoryModelingTool): string {
-  return ({ "analyze-core-story": "分析核心故事线", "suggest-unit-boundaries": "建议单元边界", "check-structure-breaks": "检查结构断点", "compare-branch-units": "比较分支单元", "smart-relations": "智能连线", "check-broken-links": "检查断链", "suggest-causal-relations": "补充因果候选", "infer-temporal-position": "推断时间位置", "check-temporal-conflicts": "检查时间冲突", "update-changed-scope": "更新变化范围", "run-logic-check": "运行剧情逻辑检查", "analyze-perspective": "深度分析视角交集" })[tool];
+  return ({ "analyze-core-story": "分析核心故事线", "suggest-unit-boundaries": "建议单元边界", "check-structure-breaks": "检查结构断点", "compare-branch-units": "比较分支单元", "smart-relations": "智能连线", "check-broken-links": "检查断链", "suggest-causal-relations": "补充因果候选", "infer-temporal-position": "推断时间位置", "check-temporal-conflicts": "检查时间冲突", "update-changed-scope": "更新变化范围", "run-logic-check": "运行剧情逻辑检查", "analyze-perspective": "深度分析当前视角" })[tool];
 }
 
 function modelingRunToTemporalProjection(run: StoryModelingRunProjection, refs: StoryStudioEventReference[]): TemporalProjectionRun {

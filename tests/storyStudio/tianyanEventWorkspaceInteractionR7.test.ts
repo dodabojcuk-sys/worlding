@@ -26,14 +26,16 @@ test("R7 provides mouse, keyboard and context menu canvas grammar", () => {
   assert.match(styles, /event-graph-context-menu/u);
 });
 
-test("R7 exposes local logic checks and a first perspective intersection", () => {
+test("R7 exposes local logic checks and the current perspective lens", () => {
   assert.match(workbench, /本地逻辑检测/u);
   assert.match(workbench, /确定性检查 · 0 tokens/u);
   assert.match(workbench, /AI 语义逻辑/u);
-  assert.match(workbench, /选择 2–5 个人物、地点或物品/u);
+  assert.match(workbench, /选择 1–5 个人物、地点或物品/u);
   assert.match(workbench, /data-provider-calls-on-open="0"/u);
   assert.match(workbench, /正式参与/u);
-  assert.match(workbench, /深度分析视角交集/u);
+  assert.match(workbench, /深度分析当前视角/u);
+  assert.match(workbench, /mode === "single"/u);
+  assert.match(workbench, /切换零调用/u);
 });
 
 test("R7 uses one collapsed AI tools entry by default", () => {

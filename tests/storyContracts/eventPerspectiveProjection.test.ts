@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildPerspectiveComparison, buildSinglePerspectiveProjection, listPerspectiveObjects, perspectiveModeForSelection } from "../../src/storyContracts/eventPerspectiveProjection.ts";
 
-test("perspective intersection uses formal metadata and relations without requiring Provider output", () => {
+test("perspective comparison uses formal metadata and relations without requiring Provider output", () => {
   const events = [
     { id: "event.a", title: "暗号传递", tags: ["人物：林昭", "地点：雾港", "知情：林昭=已知"] },
     { id: "event.b", title: "仓库对峙", tags: ["人物：林昭", "地点：仓库"] },
@@ -36,4 +36,14 @@ test("selection cardinality switches deterministically between single and compar
   assert.equal(perspectiveModeForSelection(one), "single");
   assert.equal(perspectiveModeForSelection([...one, { id: "location.harbor", type: "location", label: "雾港" }]), "compare");
   assert.equal(perspectiveModeForSelection([]), null);
+});
+
+test("single perspective distinguishes witnessed evidence from direct participation", () => {
+  const projection = buildSinglePerspectiveProjection({
+    events: [{ id: "event.witnessed", title: "隔岸目击", tags: ["目击：林昭"] }],
+    relations: [],
+    selected: { id: "character.lin", type: "character", label: "林昭", ownerId: "character-owner", version: "r2", formal: true }
+  });
+  assert.equal(projection[0]?.matches[0]?.visibility, "witnessed");
+  assert.equal(projection[0]?.matches[0]?.relationKind, "formal-participation");
 });
