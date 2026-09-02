@@ -1313,6 +1313,7 @@ function normalizeTemporalMetadata(value) {
     version: "story-relation-temporal/v1",
     validFrom,
     validTo,
+    ...(value?.orderConstraint === "source-before-target" || value?.orderConstraint === "source-after-target" ? { orderConstraint: value.orderConstraint } : {}),
     confidence,
     sourceAnchors: [...new Set(sourceAnchors.map((item) => requireText(item, "Relation temporal source anchor", 240)))]
   };

@@ -15,6 +15,7 @@ export type RelationTemporalMetadataR0 = {
   version: "story-relation-temporal/v1";
   validFrom: string | null;
   validTo: string | null;
+  orderConstraint?: "source-before-target" | "source-after-target";
   confidence: "high" | "medium" | "low" | "unknown";
   sourceAnchors: string[];
 };

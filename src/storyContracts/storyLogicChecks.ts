@@ -1,7 +1,7 @@
 import type { StoryLogicFinding } from "./storyModeling.ts";
 
 export type LocalLogicEvent = { id: string; revisionToken: string; status: string; tags: readonly string[] };
-export type LocalLogicRelation = { relationId: string; sourceEventId: string; targetEventId: string; reviewState: string; relationTypeId?: string | null; relationTypeResolution?: string | null };
+export type LocalLogicRelation = { relationId: string; sourceEventId: string; targetEventId: string; reviewState: string; relationTypeId?: string | null; relationTypeResolution?: string | null; temporalOrder?: "source-before-target" | "source-after-target" | null };
 
 /** Deterministic, network-free integrity checks for the current Event projection. */
 export function runLocalStoryLogicChecks(input: {
@@ -25,7 +25,9 @@ export function runLocalStoryLogicChecks(input: {
     const unit = taggedValue(event.tags, ["Story Unit", "Unit", "故事单元", "单元"]);
     if (unit && input.unitIds?.length && !input.unitIds.includes(unit)) findings.push(finding("orphan-unit-reference", "warning", [event.id], [unit], [`event:${event.id}`], "事件引用了当前目录中不存在的单元。", "故事结构投影可能遗漏该事件。"));
   }
-  const confirmed = input.relations.filter((relation) => relation.reviewState === "confirmed" && eventIds.has(relation.sourceEventId) && eventIds.has(relation.targetEventId));
+  const confirmed = input.relations
+    .filter((relation) => relation.reviewState === "confirmed" && relation.temporalOrder && eventIds.has(relation.sourceEventId) && eventIds.has(relation.targetEventId))
+    .map((relation) => relation.temporalOrder === "source-after-target" ? { ...relation, sourceEventId: relation.targetEventId, targetEventId: relation.sourceEventId } : relation);
   for (const cycle of directedCycles(confirmed)) findings.push(finding("temporal-cycle", "blocker", cycle, [], cycle.map((id) => `event:${id}`), "严格先后关系形成循环。", "这些事件不能同时满足当前时间顺序。"));
   return dedupeFindings(findings);
 }

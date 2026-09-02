@@ -10,8 +10,8 @@ test("local story checks are deterministic, network-free and detect structural i
       { id: "event.b", revisionToken: "r1", status: "committed", tags: [] }
     ],
     relations: [
-      { relationId: "relation.1", sourceEventId: "event.a", targetEventId: "event.b", reviewState: "confirmed", relationTypeId: "before" },
-      { relationId: "relation.2", sourceEventId: "event.b", targetEventId: "event.a", reviewState: "confirmed", relationTypeId: "before" },
+      { relationId: "relation.1", sourceEventId: "event.a", targetEventId: "event.b", reviewState: "confirmed", relationTypeId: "before", temporalOrder: "source-before-target" },
+      { relationId: "relation.2", sourceEventId: "event.b", targetEventId: "event.a", reviewState: "confirmed", relationTypeId: "before", temporalOrder: "source-before-target" },
       { relationId: "relation.3", sourceEventId: "event.a", targetEventId: "event.missing", reviewState: "candidate", relationTypeId: null, relationTypeResolution: "unresolved" }
     ],
     unitIds: ["仓库"],
@@ -19,4 +19,18 @@ test("local story checks are deterministic, network-free and detect structural i
   });
   assert.deepEqual([...new Set(findings.map((finding) => finding.kind))].sort(), ["dangling-relation", "orphan-unit-reference", "stale-version", "temporal-cycle", "unresolved-relation-type"].sort());
   assert.equal(findings.every((finding) => finding.source === "local" && finding.confidence === 1), true);
+});
+
+test("non-temporal directed cycles never produce temporal-cycle findings", () => {
+  const findings = runLocalStoryLogicChecks({
+    events: [
+      { id: "event.a", revisionToken: "r1", status: "committed", tags: [] },
+      { id: "event.b", revisionToken: "r1", status: "committed", tags: [] }
+    ],
+    relations: [
+      { relationId: "relation.cause.1", sourceEventId: "event.a", targetEventId: "event.b", reviewState: "confirmed", relationTypeId: "causes" },
+      { relationId: "relation.echo.1", sourceEventId: "event.b", targetEventId: "event.a", reviewState: "confirmed", relationTypeId: "echoes" }
+    ]
+  });
+  assert.equal(findings.some((finding) => finding.kind === "temporal-cycle"), false);
 });
