@@ -153,6 +153,7 @@
   backdrop-filter: blur(16px);
 }
 .shell-workspace-event-line .story-modeling-toolbar.is-collapsed { grid-template-columns: auto; inline-size: fit-content; }
+.shell-workspace-event-line .event-line-shell:has(.story-modeling-toolbar.is-expanded) .event-graph-flow .react-flow__controls { bottom: 5.25rem; }
 .shell-workspace-event-line .story-modeling-toolbar button { min-block-size: 2.25rem; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding-inline: .7rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: .875rem; }
 .shell-workspace-event-line .story-modeling-toolbar button:hover { border-color: var(--color-accent); }
 .shell-workspace-event-line .story-modeling-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
