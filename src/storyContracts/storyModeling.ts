@@ -82,6 +82,8 @@ export type StoryModelingPerspectiveRef = {
   label: string;
 };
 
+export type PerspectiveMode = "single" | "compare";
+
 export type StoryModelingRequest = {
   projectId: string;
   operationId: string;
@@ -351,7 +353,7 @@ function normalizePerspectiveRefs(value: unknown, selectedTool: StoryModelingToo
   });
   if (new Set(refs.map((ref) => `${ref.ownerId}\u0000${ref.objectId}`)).size !== refs.length) throw new Error("Story modeling perspective reference is duplicated.");
   if (refs.some((ref) => ref.ownerId !== projectId && !ref.ownerId.startsWith(`${projectId}.`))) throw new Error("Story modeling perspective reference belongs to another project.");
-  if (selectedTool === "analyze-perspective" && (refs.length < 2 || refs.length > 5)) throw new Error("Perspective analysis requires 2–5 selected objects.");
+  if (selectedTool === "analyze-perspective" && (refs.length < 1 || refs.length > 5)) throw new Error("Perspective analysis requires 1–5 selected objects.");
   if (selectedTool !== "analyze-perspective" && refs.length) throw new Error("Perspective references are only allowed for perspective analysis.");
   return refs;
 }

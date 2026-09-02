@@ -20,9 +20,9 @@ test("EVENT_GRAPH_AI_EDGE_CONTRACT requires connected CandidateSubgraphs and aut
   assert.match(productCore, /不得把叙事相邻静默猜成因果/u);
 });
 
-test("TIMELINE_CONTRACT keeps one Event Graph foreground over a semantic screen projection", () => {
-  assert.match(productCore, /前景继续使用同一批 Event、正式 Relation 和 Relation candidate/u);
-  assert.match(productCore, /时间只作为关系画布背后的“屏风式背景投影”/u);
+test("TIMELINE_CONTRACT keeps Event identity while allowing an independent temporal composition", () => {
+  assert.match(productCore, /独立时间编排组件/u);
+  assert.match(productCore, /不要求复用关系图节点外观/u);
   assert.match(productCore, /正式时间未确认的 Event 不得默认堆入最后一个“时间未定”栏/u);
-  assert.match(productCore, /关系线可以跨越所有屏风/u);
+  assert.match(productCore, /未知时间进入未定位托盘/u);
 });

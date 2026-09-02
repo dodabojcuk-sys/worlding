@@ -44,7 +44,7 @@ test("Event-only evidence never recommends or accepts full-book modeling", () =>
   assert.throws(() => normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.event-only", tool: "analyze-core-story", trigger: "author-requested", scope, manifest: eventManifest, eventRefs: [], selectedPerspectiveRefs: [], estimate: estimateStoryModelingRun({ manifest: eventManifest, scope, eventCount: 0 }), authorConfirmedAt: "2026-09-02T01:00:00.000Z" }), /requires original prose/u);
 });
 
-test("perspective request preserves the author's exact 2–5 versioned Owner references", () => {
+test("perspective request preserves the author's exact 1–5 versioned Owner references", () => {
   const eventRef = { version: "story-studio-event-reference/v1" as const, projectId: "long-night", eventId: "event.a", revisionToken: "b".repeat(64), state: "planned" as const, requestedUse: "constraint" as const };
   const eventManifest = createStoryModelingSourceManifest({ projectId: "long-night", sources: [{ ...source("event-source.event.a", 480, []), sourceKind: "event", sourceOrigin: "structured-event" }] });
   const scope = { kind: "selection" as const, sourceIds: ["event-source.event.a"], eventRefs: [eventRef], unitIds: [] };
@@ -55,7 +55,8 @@ test("perspective request preserves the author's exact 2–5 versioned Owner ref
   ];
   const normalized = normalizeStoryModelingRequest({ projectId: "long-night", operationId: "story-modeling-operation.perspective", tool: "analyze-perspective", trigger: "author-requested", scope, manifest: eventManifest, eventRefs: [eventRef], selectedPerspectiveRefs: refs, estimate: estimateStoryModelingRun({ manifest: eventManifest, scope, eventCount: 1 }), authorConfirmedAt: "2026-09-02T01:00:00.000Z" });
   assert.deepEqual(normalized.selectedPerspectiveRefs, refs);
-  assert.throws(() => normalizeStoryModelingRequest({ ...normalized, selectedPerspectiveRefs: refs.slice(0, 1) }), /requires 2–5/u);
+  assert.deepEqual(normalizeStoryModelingRequest({ ...normalized, selectedPerspectiveRefs: refs.slice(0, 1) }).selectedPerspectiveRefs, refs.slice(0, 1));
+  assert.throws(() => normalizeStoryModelingRequest({ ...normalized, selectedPerspectiveRefs: [] }), /requires 1–5/u);
 });
 
 test("token and request estimates are bounded and missing price never becomes zero cost", () => {

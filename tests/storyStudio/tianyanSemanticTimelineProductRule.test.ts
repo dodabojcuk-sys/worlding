@@ -4,10 +4,10 @@ import test from "node:test";
 
 const core = readFileSync("TIANYAN_PRODUCT_CORE.md", "utf8");
 
-test("product core freezes the semantic timeline as the Event Graph foreground over screen-style time projection", () => {
-  assert.match(core, /Event Graph 的语义时间投影/u);
-  assert.match(core, /屏风式背景投影/u);
-  assert.match(core, /连续坐标区间/u);
+test("product core freezes timeline as an independent projection of shared Event identity", () => {
+  assert.match(core, /独立时间编排组件/u);
+  assert.match(core, /引用同一批 Event ID/u);
+  assert.match(core, /连续 X 轴/u);
   assert.match(core, /正式时间未确认 · AI 推断位置/u);
   assert.match(core, /graphRevisionHash/u);
   assert.match(core, /Provider 调用与新建 Agent Run 都必须为零/u);
