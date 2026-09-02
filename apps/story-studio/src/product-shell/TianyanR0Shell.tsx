@@ -50,7 +50,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [autoCollapseRail, setAutoCollapseRail] = useState(() => window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY).matches);
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);
   const [commandOpen, setCommandOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const isSettingsRoute = () => window.location.pathname === "/settings" || window.location.pathname.startsWith("/settings/");
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsRoute);
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchRequest, setSearchRequest] = useState<GlobalSearchOpenRequest | null>(null);
   const [tianyiContextRequest, setTianyiContextRequest] = useState<TianyiSidebarContextRequest | null>(null);
@@ -63,7 +64,12 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
 
   useEffect(() => {
-    const handlePopState = () => { setActiveId(resolveStoryStudioShellLocation(window.location.pathname)); setLocationRevision((value) => value + 1); };
+    const handlePopState = () => {
+      setActiveId(resolveStoryStudioShellLocation(window.location.pathname));
+      setSettingsOpen(isSettingsRoute());
+      setAccountOpen(false);
+      setLocationRevision((value) => value + 1);
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
@@ -166,6 +172,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
   const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
   const openSettings = () => {
+    if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
     setSettingsOpen(true);
     setAccountOpen(false);
     setDirectoryOpen(false);

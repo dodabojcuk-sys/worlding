@@ -4,13 +4,13 @@ import test from "node:test";
 
 const source = (file: string) => readFileSync(file, "utf8");
 
-test("settings changes the Shell workspace while keeping a direct utility-route fallback", () => {
+test("settings always uses the Shell workspace, including direct settings URLs", () => {
   const app = source("apps/story-studio/src/App.tsx");
   const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
   const agent = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
   const settingsStyles = source("apps/story-studio/src/styles/settings.css");
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
-  assert.match(app, /pathname\.startsWith\("\/settings\/"\)/);
+  assert.doesNotMatch(app, /SettingsStorageRoute|utilityRoute|pathname\.startsWith\("\/settings\/"\)/);
   assert.match(route, /data-settings-route=\{presentation\}/);
   assert.doesNotMatch(route, /settings-utility-nav/);
   assert.match(route, /settings-workspace-nav/);
@@ -21,8 +21,9 @@ test("settings changes the Shell workspace while keeping a direct utility-route 
   assert.match(route, /Pi Agent 运行时/);
   assert.match(route, /settings-agent-permissions/);
   assert.match(route, /scrollIntoView\(\{ block: "start" \}\)/);
-  assert.match(route, /presentation === "utility" && <header className="settings-utility-heading">/);
-  assert.match(route, /当前作品：/);
+  assert.match(shell, /const isSettingsRoute = \(\) => window\.location\.pathname === "\/settings"/);
+  assert.match(shell, /const \[settingsOpen, setSettingsOpen\] = useState\(isSettingsRoute\)/);
+  assert.match(shell, /window\.history\.pushState\(\{\}, "", "\/settings"\)/);
   assert.match(route, /SettingsStorageSection/);
   assert.match(route, /SettingsTransferSection/);
   assert.match(route, /AgentSettingsSection/);
