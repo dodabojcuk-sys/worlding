@@ -2029,9 +2029,15 @@ async function recordR9Evidence() {
     await switchEventView(page, "时间轴");
     const timeline = page.getByLabel("独立时间线工作区");
     await timeline.waitFor();
-    await timeline.getByRole("button", { name: "时间总览", exact: true }).click();
     await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
+    await timeline.getByRole("button", { name: "时间总览", exact: true }).click();
+    await pause(page, 350);
+    const visibleTimelineCards = await page.locator(".temporal-event-card").evaluateAll((nodes) => nodes.filter((node) => {
+      const box = node.getBoundingClientRect();
+      return box.right > 132 && box.left < window.innerWidth - 348 && box.bottom > 250 && box.top < window.innerHeight;
+    }).length);
+    assert.ok(visibleTimelineCards >= 1, "R9 1152 timeline must keep readable Event cards visible beside Tianyi.");
     const minimumNodeWidth = Math.min(...await page.locator(".temporal-event-card").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width)));
     assert.ok(minimumNodeWidth >= 170, `R9 1152 timeline cards remain readable: ${minimumNodeWidth}`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R9 1152 workspace may not create page-level overflow.");

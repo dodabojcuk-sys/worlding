@@ -36,6 +36,17 @@ export function TemporalCanvas(props: {
     if (!flow || !props.selectedEventId) return;
     void flow.fitView({ nodes: [{ id: props.selectedEventId }], duration: 280, padding: .42, minZoom: .82, maxZoom: 1.22 });
   }, [flow, props.selectedEventId]);
+  const focusOverview = useCallback(() => {
+    if (!flow) return;
+    const authored = projection.nodes.filter((node) => node.data.state !== "unplaced" && node.data.state !== "conflict");
+    const visible = authored.length ? authored : projection.nodes;
+    if (!visible.length) return;
+    const minimumX = Math.min(...visible.map((node) => node.position.x));
+    const minimumY = Math.min(...visible.map((node) => node.position.y));
+    // A long book remains readable and pannable: overview starts at the
+    // authored beginning instead of shrinking every card into the viewport.
+    void flow.setViewport({ x: 120 - minimumX * .86, y: 80 - minimumY * .86, zoom: .86 }, { duration: 280 });
+  }, [flow, projection.nodes]);
   const selectedScreenPosition = selectedNode ? {
     x: selectedNode.position.x * viewport.zoom + viewport.x + 250 * viewport.zoom,
     y: selectedNode.position.y * viewport.zoom + viewport.y + 72 * viewport.zoom
@@ -49,7 +60,7 @@ export function TemporalCanvas(props: {
       <div>
         <button type="button" onClick={() => props.onReturnGraph()}><Network />返回关系图</button>
         <button type="button" disabled={!props.selectedEventId} onClick={focusCurrent}><LocateFixed />定位所选</button>
-        <button type="button" onClick={() => void flow?.fitView({ duration: 280, padding: .18, minZoom: .82, maxZoom: 1 })}><Focus />时间总览</button>
+        <button type="button" onClick={focusOverview}><Focus />时间总览</button>
       </div>
     </header>
     <div className={`temporal-canvas-status is-${props.temporalState}`} role="status"><Clock3 /><div><strong>{stateLabel}</strong><span>{props.temporalMessage ?? "切换、缩放、平移和刷新均不会启动分析或产生费用。"}</span></div></div>
