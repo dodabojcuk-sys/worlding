@@ -101,7 +101,10 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
   const saveProvider = async (input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult> => {
     const saved = await withToken((token) => saveProviderProfile({ ...input, token }));
     let result: ProviderProfileSaveResult = { discovery: "not-needed", modelCount: saved.profile?.availableModels.length ?? 0 };
-    if (!input.modelId && saved.credential.configured) {
+    // A newly supplied credential must populate the provider's actual
+    // catalog, even when the form has a provider-default model preselected.
+    // This keeps model selection provider-owned rather than static UI data.
+    if (saved.credential.configured && (Boolean(input.apiKey) || (saved.profile?.availableModels.length ?? 0) === 0)) {
       try {
         const discovery = await withToken((token) => discoverProviderModels(token));
         result = { discovery: "loaded", modelCount: discovery.models.length };

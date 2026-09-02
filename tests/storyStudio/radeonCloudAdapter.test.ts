@@ -14,11 +14,20 @@ test("AMD Radeon Cloud adapter uses the documented OpenAI-compatible chat endpoi
   let observedUrl = "";
   let observedHeaders: Headers | null = null;
   let observedBody: Record<string, unknown> | null = null;
+  let modelDiscoveryCalls = 0;
   const adapter = createRadeonCloudAdapter({
     apiKeyProvider: () => TEST_CREDENTIAL,
     fetchImpl: async (url: URL | RequestInfo, init?: RequestInit) => {
       observedUrl = String(url);
       observedHeaders = new Headers(init?.headers);
+      if (observedUrl === `${RADEON_CLOUD_BASE_URL}/models`) {
+        modelDiscoveryCalls += 1;
+        return new Response(JSON.stringify({ data: [
+          { id: RADEON_CLOUD_DEFAULT_MODEL_ID },
+          { id: "Qwen3.8-Flash-Next" },
+          { id: "Qwen3.8-Flash-Next" }
+        ] }), { status: 200, headers: { "content-type": "application/json" } });
+      }
       observedBody = JSON.parse(String(init?.body || "{}"));
       return new Response(JSON.stringify({
         model: RADEON_CLOUD_DEFAULT_MODEL_ID,
@@ -30,8 +39,10 @@ test("AMD Radeon Cloud adapter uses the documented OpenAI-compatible chat endpoi
 
   assert.deepEqual(await adapter.discoverModels(), {
     providerId: RADEON_CLOUD_PROVIDER_ID,
-    modelIds: [RADEON_CLOUD_DEFAULT_MODEL_ID]
+    modelIds: [RADEON_CLOUD_DEFAULT_MODEL_ID, "Qwen3.8-Flash-Next"]
   });
+  assert.equal(modelDiscoveryCalls, 1);
+  assert.equal(observedHeaders?.get("authorization"), `Bearer ${TEST_CREDENTIAL}`);
   const result = await adapter.openChatCompletion({
     modelId: RADEON_CLOUD_DEFAULT_MODEL_ID,
     messages: [{ role: "user", content: "Hello" }],

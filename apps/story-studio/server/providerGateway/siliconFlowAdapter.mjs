@@ -82,7 +82,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       let payload;
       try { payload = await response.json(); } catch { throw providerGatewayError("invalid-response"); }
       const ids = Array.isArray(payload?.data)
-        ? payload.data.map((model) => typeof model?.id === "string" ? model.id : "").filter(Boolean).slice(0, 500)
+        ? [...new Set(payload.data.map((model) => typeof model?.id === "string" ? model.id.trim() : "").filter(Boolean))].slice(0, 500)
         : [];
       if (!ids.length) throw providerGatewayError("invalid-response");
       discoveredModels = Object.freeze(ids.map((id) => Object.freeze({

@@ -21,10 +21,9 @@ export function createRadeonCloudAdapter(options = {}) {
     modelMetadata: RADEON_CLOUD_MODEL_METADATA,
     defaultBaseUrl: RADEON_CLOUD_BASE_URL,
     apiKeyEnvironmentName: "RADEON_CLOUD_API_KEY",
-    // The supplied public contract names the chat endpoint, not a models
-    // endpoint. Keep catalog discovery deterministic rather than probing an
-    // undocumented route; a connection test still uses chat/completions.
-    modelDiscovery: null,
+    // Radeon Cloud exposes the standard OpenAI-compatible catalog endpoint.
+    // Keep discovery server-side: the browser never receives the credential.
+    modelDiscovery: { pathname: "models" },
     traceHeader: "x-request-id",
     enableThinking: false
   });

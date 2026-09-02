@@ -218,7 +218,8 @@ test("Provider Settings can select AMD Radeon Cloud with an isolated credential 
     const models = await jsonPost(base, "model-service/models", {}, headers);
     assert.equal(models.status, 200);
     assert.equal(models.data.providerId, "radeon-cloud");
-    assert.deepEqual(models.data.models, ["DeepSeek-V4-Flash-Vision-Exp"]);
+    assert.deepEqual(models.data.models, ["DeepSeek-V4-Flash-Vision-Exp", "Qwen3.8-Flash-Next"]);
+    assert.equal(fakeProvider.calls.models, 1);
 
     const inference = await jsonPost(base, "model-service/minimal-inference", {}, headers);
     assert.equal(inference.status, 200);
@@ -261,10 +262,17 @@ async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string
   return { server, baseUrl: `http://127.0.0.1:${address.port}/v1`, calls };
 }
 
-async function startFakeRadeonCloud(): Promise<{ server: Server; baseUrl: string; calls: { completions: number }; authorization: string | null }> {
-  const calls = { completions: 0 };
+async function startFakeRadeonCloud(): Promise<{ server: Server; baseUrl: string; calls: { models: number; completions: number }; authorization: string | null }> {
+  const calls = { models: 0, completions: 0 };
   let authorization: string | null = null;
   const server = createServer((request, response) => {
+    if (request.url === "/api/v1/models" && request.method === "GET") {
+      calls.models += 1;
+      authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : null;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "DeepSeek-V4-Flash-Vision-Exp" }, { id: "Qwen3.8-Flash-Next" }] }));
+      return;
+    }
     if (request.url === "/api/v1/chat/completions" && request.method === "POST") {
       calls.completions += 1;
       authorization = typeof request.headers.authorization === "string" ? request.headers.authorization : null;

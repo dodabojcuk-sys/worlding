@@ -28,6 +28,8 @@ test("Provider settings submit only a one-time credential to the server owner an
   assert.match(route, /saveProviderProfile/);
   assert.match(route, /discoverProviderModels/);
   assert.ok(route.indexOf("saveProviderProfile({ ...input, token })") < route.indexOf("discoverProviderModels(token)"), "Credentials must be saved before model discovery");
+  assert.match(route, /Boolean\(input\.apiKey\)/);
+  assert.match(route, /provider-default model preselected/);
   assert.match(route, /disableProviderProfile/);
 });
 
