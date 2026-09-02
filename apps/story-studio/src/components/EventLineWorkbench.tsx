@@ -292,6 +292,20 @@ export function EventLineWorkbench(props: {
     const ids = new Set(eventIds);
     return modelingEventRefs.filter((reference) => ids.has(reference.eventId));
   }, [modelingEventRefs]);
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const run = (event as CustomEvent<StoryModelingRunProjection>).detail;
+      if (!run || run.projectId !== props.projectId) return;
+      setModelingRun(run);
+      if (run.status === "created" || run.status === "running") {
+        setModelingTool(null);
+        setModelingPlanState("idle");
+        setAiToolbarExpanded(true);
+      }
+    };
+    window.addEventListener("story-studio-modeling-run-progress", receive);
+    return () => window.removeEventListener("story-studio-modeling-run-progress", receive);
+  }, [props.projectId]);
 
   const scopeFor = useCallback((kind: StoryModelingScope["kind"], refs: readonly StoryStudioEventReference[] = activeModelingEventRefs.length ? activeModelingEventRefs : modelingEventRefs): StoryModelingScope => {
     const sourceIds = refs.map((reference) => `event-source.${reference.eventId}`);
@@ -571,7 +585,7 @@ export function EventLineWorkbench(props: {
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
-      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => { setLogicSelectionIds([]); setLogicPanelOpen(true); }} localFindingCount={reviewedLogicFindings.length} run={modelingRun} history={props.modelingRuns ?? []} onStop={props.onStopStoryModeling ? async () => { if (!modelingRun || modelingRun.status !== "running") return; const stopped = await props.onStopStoryModeling!(modelingRun.runId); setModelingRun(stopped); setModelingPlanState("idle"); } : undefined} />
+      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => { setLogicSelectionIds([]); setLogicPanelOpen(true); }} localFindingCount={reviewedLogicFindings.length} run={modelingRun} history={props.modelingRuns ?? []} onStop={props.onStopStoryModeling ? async () => { if (!modelingRun || !["created", "running"].includes(modelingRun.status)) return; const stopped = await props.onStopStoryModeling!(modelingRun.runId); setModelingRun(stopped); setModelingPlanState("idle"); } : undefined} />
       {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
     {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
@@ -602,7 +616,7 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
   return <aside className={`story-modeling-toolbar ${props.expanded ? "is-expanded" : "is-collapsed"}`} aria-label="故事建模 AI 工具" data-testid="story-modeling-toolbar">
     <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>AI 工具</span><b>{props.expanded ? "关闭" : "打开"}</b></button>
     {props.expanded ? <div className="story-modeling-toolbar-actions"><button type="button" onClick={props.onOpenLocalLogic}><ShieldCheck />本地逻辑检测{props.localFindingCount ? ` · ${props.localFindingCount}` : ""}</button>{tools[props.view].map((tool) => <button key={tool.id} type="button" disabled={props.disabled} onClick={() => props.onTool(tool.id)}><Sparkles />{tool.label}</button>)}</div> : null}
-    {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : props.run.status === "running" ? "正在分批建模" : props.run.status === "stopped" ? "本次建模已停止" : "本次建模未完成"}</strong><span>{props.run.progress.completedBatches}/{props.run.progress.totalBatches} 批 · {props.run.progress.stage} · {props.run.progress.inputTokens + props.run.progress.outputTokens} tokens</span>{props.run.status === "running" && props.onStop ? <button type="button" onClick={() => void props.onStop?.()}>停止本次建模</button> : null}<span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
+    {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : props.run.status === "running" || props.run.status === "created" ? "正在分批建模" : props.run.status === "stopped" ? "本次建模已停止" : "本次建模未完成"}</strong><span>{props.run.progress.completedBatches}/{props.run.progress.totalBatches} 批 · {props.run.progress.stage} · {props.run.progress.inputTokens + props.run.progress.outputTokens} tokens</span>{(props.run.status === "running" || props.run.status === "created") && props.onStop ? <button type="button" onClick={() => void props.onStop?.()}>停止本次建模</button> : null}<span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
     {props.expanded && props.history.length ? <details className="story-modeling-history"><summary>历史结果 · {props.history.length}</summary>{props.history.slice(0, 8).map((run) => <p key={run.runId}><strong>{modelingToolLabel(run.tool)}</strong><span>{run.status === "ready" ? "已完成" : run.status === "stopped" ? "已停止" : run.status === "failed" ? "失败" : "进行中"} · {run.progress.completedBatches}/{run.progress.totalBatches} 批</span></p>)}</details> : null}
   </aside>;
 }

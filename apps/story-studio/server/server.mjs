@@ -212,7 +212,7 @@ const multiNodePredictionGateway = productPathRealProviderAllowed
   ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
   : null;
 const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
-  ? createStoryModelingTestGateway()
+  ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
   : createStoryModelingProviderAdapter({ gateway: providerGateway, maxProviderCalls: 16, maxOutputTokens: 512 });
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,

@@ -68,7 +68,11 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     return props.runtime.withConnection(async (token) => {
       const suffix = crypto.randomUUID();
       const run = await createStoryModelingRunTransport({ request, runId: `story-modeling-run.${suffix}`, token });
-      return run.status === "ready" ? run : executeStoryModelingRunTransport({ projectId: state.projectId!, runId: run.runId, token });
+      window.dispatchEvent(new CustomEvent("story-studio-modeling-run-progress", { detail: run }));
+      if (run.status === "ready") return run;
+      const completed = await executeStoryModelingRunTransport({ projectId: state.projectId!, runId: run.runId, token });
+      window.dispatchEvent(new CustomEvent("story-studio-modeling-run-progress", { detail: completed }));
+      return completed;
     });
   }, [props.runtime.withConnection, state.projectId]);
   if (!state.projectId) {

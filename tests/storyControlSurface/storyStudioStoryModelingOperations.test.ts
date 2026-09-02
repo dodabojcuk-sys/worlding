@@ -76,7 +76,7 @@ test("stopping a running StoryModeling Run prevents every subsequent batch", asy
     await firstBatchPersisted;
     const stopped = modeling.stopStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
     assert.equal(stopped.status, "stopped");
-    await assert.rejects(execution, /stopped/u);
+    assert.equal((await execution).status, "stopped");
     assert.equal(batchCalls, 1);
     const restored = modeling.readStoryModelingRun({ projectId: fixture.projectId, runId: run.runId });
     assert.equal(restored?.status, "stopped");

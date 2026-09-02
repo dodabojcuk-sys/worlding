@@ -163,6 +163,14 @@ export function createNormalEventCreationPort({ operations, authorControl }) {
     const resolved = review.status === "selected" ? review : authorControl.chooseImpactRoute({ projectId, reviewId: review.id, optionId: choice.id, action: "adopt" });
     const changeSet = authorControl.createAuthorChangeSet({ projectId, reviewId: resolved.id });
     const applied = authorControl.applyAuthorChangeSet({ projectId, changeSetId: changeSet.id });
+    const confirmedEvents = confirmedFor(projectId, scope.planning);
+    if (scope.storyUnit && confirmedEvents.length) {
+      const linkedEntityIds = [...new Set([...scope.storyUnit.linkedEntityIds, ...confirmedEvents.map((event) => event.id)])];
+      if (linkedEntityIds.length !== scope.storyUnit.linkedEntityIds.length) {
+        const updatedUnit = operations.updateStoryUnit({ projectId, unitId: scope.storyUnit.id, expectedVersion: scope.storyUnit.version, linkedEntityIds });
+        if (updatedUnit.conflict) throw new Error("故事单元刚刚被更新；正式事件已创建，但单元归属需要作者刷新后复核。");
+      }
+    }
     const candidate = candidateFor(projectId, scope.planning);
     if (candidate?.status !== "accepted") {
       const route = candidate?.candidates[0];

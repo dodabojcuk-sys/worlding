@@ -24,7 +24,8 @@ export function createUnavailableStoryModelingGateway(): StoryModelingGateway {
 }
 
 /** Networkless, explicitly labelled test Provider used only by isolated test/evidence runtimes. */
-export function createStoryModelingTestGateway(): StoryModelingGateway {
+export function createStoryModelingTestGateway(options: { batchDelayMs?: number } = {}): StoryModelingGateway {
+  const batchDelayMs = Number.isSafeInteger(options.batchDelayMs) ? Math.max(0, Math.min(1_500, options.batchDelayMs!)) : 0;
   return {
     async generate({ request, runId, signal, onBatch }) {
       if (signal.aborted) throw new Error("Story modeling test Provider was stopped.");
@@ -60,6 +61,8 @@ export function createStoryModelingTestGateway(): StoryModelingGateway {
         logicFindings: request.tool === "run-logic-check" || request.tool === "check-structure-breaks" ? [{ findingId: `logic-finding.${runId}.causal`, kind: "causal-gap", source: "ai", severity: "warning", confidence: .74, affectedEventIds: ids.slice(0, 2), affectedUnitIds: [], affectedAgentIds: [], evidenceRefs: ids.slice(0, 2).map((id) => `event:${id}`), rationale: "两个相邻事件缺少作者已确认的因果过程。", impact: "读者可能无法理解行动为何在此刻发生。", authorStatus: "pending" }] : [],
         perspectiveMatches: request.tool === "analyze-perspective" && ids[0] ? request.selectedPerspectiveRefs.map((ref, index) => ({ matchId: `perspective-match.${runId}.${index + 1}`, perspectiveType: ref.objectType, perspectiveObjectId: ref.objectId, eventId: ids[index % ids.length]!, relationKind: "ai-inferred", knowledgeState: index % 2 ? "misunderstood" : "unknown", confidence: .68, evidenceRefs: [`event:${ids[index % ids.length]}`], rationale: "测试 Provider 只返回可审阅的视角匹配。" })) : []
       };
+      if (batchDelayMs) await new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, batchDelayMs); signal.addEventListener("abort", () => { clearTimeout(timer); reject(new Error("Story modeling test Provider was stopped.")); }, { once: true }); });
+      if (signal.aborted) throw new Error("Story modeling test Provider was stopped.");
       await onBatch?.({ batchIndex: 0, inputTokens: Math.min(request.estimate.inputTokenRange.max, Math.max(128, request.estimate.inputTokenRange.min)), outputTokens: Math.min(request.estimate.outputTokenRange.max, 256), result });
       return {
         provider: { providerId: "tianyi-test-provider", modelId: "networkless-story-modeling-fixture", executionKind: "test-provider" },

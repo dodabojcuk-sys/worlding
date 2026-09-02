@@ -96,7 +96,8 @@ export function createStoryStudioStoryModelingOperations(options: {
         return structuredClone(replace({ ...latest, status: "ready", provider: output.provider, actual: { providerRequests: output.usage.providerRequests, inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens, totalTokens, cost: actualCost === null ? null : { currency: "USD", value: actualCost } }, result, progress: { ...latest.progress, completedBatches: latest.progress.totalBatches, currentBatch: null, stage: "complete", inputTokens: output.usage.inputTokens, outputTokens: output.usage.outputTokens }, budgetReservation: { ...latest.budgetReservation, status: "consumed" }, completedAt: now(), failureReason: null }));
       } catch (cause) {
         const latest = requireRun(run.projectId, run.runId);
-        replace({ ...latest, status: controller.signal.aborted ? "stopped" : "failed", progress: { ...latest.progress, currentBatch: null, stage: controller.signal.aborted ? "stopped" : "failed" }, completedAt: now(), failureReason: cause instanceof Error ? cause.message.slice(0, 240) : "Story modeling failed." });
+        const terminal = replace({ ...latest, status: controller.signal.aborted ? "stopped" : "failed", progress: { ...latest.progress, currentBatch: null, stage: controller.signal.aborted ? "stopped" : "failed" }, completedAt: now(), failureReason: cause instanceof Error ? cause.message.slice(0, 240) : "Story modeling failed." });
+        if (controller.signal.aborted) return structuredClone(terminal);
         throw cause;
       } finally { active.delete(key); }
     },

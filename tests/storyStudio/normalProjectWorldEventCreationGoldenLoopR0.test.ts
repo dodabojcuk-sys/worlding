@@ -32,6 +32,8 @@ test("ordinary project reaches one author-confirmed Event and a recoverable root
     assert.equal(value.workspace.listWorldObjects({ projectId: value.projectId, type: "event" }).filter((item) => item.status === "committed").length, 1);
     assert.equal(value.normal.state(value.projectId).candidate?.status, "accepted");
     assert.deepEqual(value.projection.listVerifiedCanonEvents({ projectId: value.projectId }).status, "ready");
+    const linkedUnit = value.workspace.listStoryUnits({ projectId: value.projectId }).find((unit) => unit.id === storyUnit.id);
+    assert.deepEqual(linkedUnit?.linkedEntityIds, [firstConfirmation.state.confirmedEvents[0].id], "The formal Unit owner must link the confirmed Event identity instead of relying on an Event tag.");
 
     value.creation.createRoot(value.projectId);
     const artifact = await value.creation.createArtifact(value.projectId, {

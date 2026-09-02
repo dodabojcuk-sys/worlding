@@ -384,29 +384,30 @@
   padding: 0 !important;
 }
 
-.shell-workspace-event-line .event-perspective-workspace { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: 15rem minmax(0, 1fr); overflow: hidden; background: var(--color-workspace-background); }
-.shell-workspace-event-line .event-perspective-picker { min-height: 0; overflow: auto; padding: 1rem; background: var(--color-surface); border-inline-end: 1px solid var(--color-border); }
-.shell-workspace-event-line .event-perspective-picker > header { display: flex; align-items: center; gap: .65rem; margin-block-end: 1rem; }
-.shell-workspace-event-line .event-perspective-picker > header svg { color: var(--color-accent); }
-.shell-workspace-event-line .event-perspective-picker > header div { display: grid; gap: .15rem; }
-.shell-workspace-event-line .event-perspective-picker > header span, .shell-workspace-event-line .event-perspective-picker small { color: var(--color-text-muted); font-size: .75rem; }
-.shell-workspace-event-line .event-perspective-picker fieldset { display: grid; gap: .35rem; margin: 0 0 .9rem; padding: .7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-.shell-workspace-event-line .event-perspective-picker legend { padding-inline: .3rem; font-size: .8125rem; font-weight: 700; }
-.shell-workspace-event-line .event-perspective-picker label { display: flex; align-items: center; gap: .45rem; min-height: 1.9rem; font-size: .875rem; }
-.shell-workspace-event-line .event-perspective-canvas { min-width: 0; overflow: auto; padding: clamp(1rem, 2vw, 2rem); }
-.shell-workspace-event-line .event-perspective-canvas > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-block-end: 1.25rem; }
-.shell-workspace-event-line .event-perspective-canvas h2 { margin: .2rem 0 0; font: 600 1.3rem/1.25 var(--font-display); }
-.shell-workspace-event-line .event-perspective-canvas > header small { color: var(--color-accent); }
-.shell-workspace-event-line .event-perspective-canvas button { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.35rem; padding-inline: .75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
-.shell-workspace-event-line .event-perspective-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
-.shell-workspace-event-line .event-perspective-results article { padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
-.shell-workspace-event-line .event-perspective-results article > small { color: var(--color-accent); }
-.shell-workspace-event-line .event-perspective-results h3 { margin: .25rem 0 .75rem; }
-.shell-workspace-event-line .event-perspective-results ul { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
-.shell-workspace-event-line .event-perspective-results li { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr) auto; gap: .5rem; padding: .5rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); font-size: .8125rem; }
-.shell-workspace-event-line .event-perspective-results li span, .shell-workspace-event-line .event-perspective-results article > p { color: var(--color-text-muted); }
-.shell-workspace-event-line .event-perspective-results li em { color: var(--color-accent); font-style: normal; font-weight: 700; }
-.shell-workspace-event-line .event-perspective-empty { display: grid; place-items: center; gap: .6rem; min-height: 16rem; color: var(--color-text-muted); text-align: center; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-workspace { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: 15rem minmax(0, 1fr); overflow: hidden; background: var(--color-workspace-background); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-workspace > .sr-only { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker { min-height: 0; overflow: auto; padding: 1rem; background: var(--color-surface); border-inline-end: 1px solid var(--color-border); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker > header { display: flex; align-items: center; gap: .65rem; margin-block-end: 1rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker > header svg { color: var(--color-accent); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker > header div { display: grid; gap: .15rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker > header span, :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker small { color: var(--color-text-muted); font-size: .75rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker fieldset { display: grid; gap: .35rem; margin: 0 0 .9rem; padding: .7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker legend { padding-inline: .3rem; font-size: .8125rem; font-weight: 700; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-picker label { display: flex; align-items: center; gap: .45rem; min-height: 1.9rem; font-size: .875rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas { min-width: 0; overflow: auto; padding: clamp(1rem, 2vw, 2rem); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas > header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-block-end: 1.25rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas h2 { margin: .2rem 0 0; font: 600 1.3rem/1.25 var(--font-display); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas > header small { color: var(--color-accent); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-canvas button { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.35rem; padding-inline: .75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article { padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article > small { color: var(--color-accent); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results h3 { margin: .25rem 0 .75rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results ul { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li { display: grid; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr) auto; gap: .5rem; padding: .5rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); font-size: .8125rem; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li span, :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results article > p { color: var(--color-text-muted); }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results li em { color: var(--color-accent); font-style: normal; font-weight: 700; }
+:is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-empty { display: grid; place-items: center; gap: .6rem; min-height: 16rem; color: var(--color-text-muted); text-align: center; }
 
 .story-logic-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 1rem; background: color-mix(in srgb, var(--color-structure-background) 45%, transparent); }
 .story-logic-panel { width: min(48rem, 100%); max-height: calc(100vh - 2rem); display: grid; gap: 1rem; overflow: auto; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); }
@@ -426,8 +427,8 @@
 .story-logic-clear { display: flex; align-items: center; gap: .5rem; color: var(--color-accent); }
 
 @media (max-width: 72rem) {
-  .shell-workspace-event-line .event-perspective-workspace { grid-template-columns: 11.5rem minmax(0, 1fr); }
-  .shell-workspace-event-line .event-perspective-results { grid-template-columns: minmax(0, 1fr); }
+  :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-workspace { grid-template-columns: 11.5rem minmax(0, 1fr); }
+  :is(.shell-workspace-event-line, .event-line-workbench) .event-perspective-results { grid-template-columns: minmax(0, 1fr); }
   .shell-workspace-event-line .event-line-view-navigation { flex-wrap: nowrap; overflow-x: auto; }
 }
 
