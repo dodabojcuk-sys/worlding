@@ -60,6 +60,17 @@ export function createEventLineFixture(projectId: string): EventLineFixture {
     relativeId: "story-units/fixture.tide-letter.md",
     title: "潮痕来信",
     summary: "一组围绕雾港来信、灯塔与旧账册展开的隔离事件演示。",
+    kind: "main",
+    parentUnitId: null,
+    branchPointEventId: null,
+    mergeTargetUnitId: null,
+    order: 0,
+    sourceVersionRef: "fixture-work-version-v1",
+    status: "active",
+    objective: "查明雾港来信与灯塔的关系。",
+    coreConflict: "守夜记录与旧账册互相矛盾。",
+    turningPoint: "作者尚未设置",
+    openHook: "寄信人身份仍未确认。",
     lifecycle: "active",
     sourceRefs,
     items: events.map((event, index) => ({
@@ -131,7 +142,7 @@ export function createNuwaConfirmedEventLineFixture(projectId: string, eventId: 
     projectTitle: "潮痕来信 · 隔离演示",
     events: [event], details: { [eventId]: detail },
     listState: { status: "ready", eventIds: [eventId], invalidRecordCount: 0 },
-    storyUnits: [{ id: "fixture.story-unit.tide-letter.nuwa-confirmed", relativeId: "story-units/fixture.tide-letter.nuwa-confirmed.md", title: "潮痕来信", summary: "沈砚与阿芜在进入灯塔前先核对旧名守夜记录；寄信人与精确时间仍未知。", lifecycle: "active", sourceRefs: [sourceRef], items: [{ id: "fixture.story-unit.item.nuwa-confirmed", kind: "event", authority: "canon", content: { title: event.title }, sourceRefs: [sourceRef], subjectRef: eventId, createdBy: "author" }], linkedEntityIds: [eventId], unresolvedQuestionIds: ["fixture.question.nuwa-confirmed.1", "fixture.question.nuwa-confirmed.2"], generationConstraints: {}, version: "fixture-story-unit-v1", createdAt: capturedAt, updatedAt: capturedAt, source: "markdown" }],
+    storyUnits: [{ id: "fixture.story-unit.tide-letter.nuwa-confirmed", relativeId: "story-units/fixture.tide-letter.nuwa-confirmed.md", title: "潮痕来信", summary: "沈砚与阿芜在进入灯塔前先核对旧名守夜记录；寄信人与精确时间仍未知。", kind: "main", parentUnitId: null, branchPointEventId: null, mergeTargetUnitId: null, order: 0, sourceVersionRef: "fixture-work-version-v1", status: "active", objective: "核对旧名守夜记录。", coreConflict: "人物记忆与记录存在分歧。", turningPoint: "未设置", openHook: "寄信人身份未知。", lifecycle: "active", sourceRefs: [sourceRef], items: [{ id: "fixture.story-unit.item.nuwa-confirmed", kind: "event", authority: "canon", content: { title: event.title }, sourceRefs: [sourceRef], subjectRef: eventId, createdBy: "author" }], linkedEntityIds: [eventId], unresolvedQuestionIds: ["fixture.question.nuwa-confirmed.1", "fixture.question.nuwa-confirmed.2"], generationConstraints: {}, version: "fixture-story-unit-v1", createdAt: capturedAt, updatedAt: capturedAt, source: "markdown" }],
   };
 }
 

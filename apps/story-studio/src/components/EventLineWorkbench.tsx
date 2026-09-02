@@ -50,8 +50,8 @@ import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../s
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
 import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
-import type { StoryModelingPlanProjection, StoryModelingRunProjection } from "../lib/localTransport";
-import type { PerspectiveMatch, StoryLogicFinding, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
+import type { StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
+import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import { runLocalStoryLogicChecks } from "../../../../src/storyContracts/storyLogicChecks.ts";
 import { buildPerspectiveIntersection, listPerspectiveObjects, type PerspectiveObjectRef } from "../../../../src/storyContracts/eventPerspectiveProjection.ts";
 
@@ -82,6 +82,10 @@ export function EventLineWorkbench(props: {
   projectId: string;
   projectTitle: string;
   events: EventLineEventSummary[];
+  storyUnits?: StoryUnit[];
+  perspectiveObjects?: readonly PerspectiveObjectRef[];
+  modelingRuns?: readonly StoryModelingRunProjection[];
+  logicReviews?: readonly StoryLogicReviewProjection[];
   relations?: RelationReadProjectionR0[];
   listState: VerifiedCanonEventListRead | { status: "loading" };
   onReadEvent(eventId: string): Promise<VerifiedCanonEventDetailRead>;
@@ -97,9 +101,10 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
+  onTrashDraftEvent?(eventId: string): Promise<void>;
   onCreateUnit?(title: string): Promise<void>;
-  onRenameUnit?(currentTitle: string, nextTitle: string): Promise<void>;
-  onArchiveUnit?(title: string): Promise<void>;
+  onRenameUnit?(unitId: string, nextTitle: string): Promise<void>;
+  onArchiveUnit?(unitId: string): Promise<void>;
   onCreateGraphRelation?(input: { sourceEventId: string; targetEventId: string; relationTypeId?: string | null; sourceRef?: string }): Promise<void>;
   relationTypes?: readonly RelationTypeDefinitionR0[];
   onConfirmGraphRelation?(relation: RelationReadProjectionR0): Promise<void>;
@@ -110,6 +115,8 @@ export function EventLineWorkbench(props: {
   onReadTemporalProjectionCache?(eventRefs: StoryStudioEventReference[]): Promise<{ status: "current" | "stale" | "missing"; run: TemporalProjectionRun | null; changedEventCount: number }>;
   onPlanStoryModeling?(input: { projectId: string; tool: StoryModelingTool; scope: StoryModelingScope; eventRefs: StoryStudioEventReference[]; previousManifestDigest?: string | null; structuralChange?: boolean }): Promise<StoryModelingPlanProjection>;
   onExecuteStoryModeling?(request: StoryModelingRequest): Promise<StoryModelingRunProjection>;
+  onStopStoryModeling?(runId: string): Promise<StoryModelingRunProjection>;
+  onReviewLogicFinding?(finding: Pick<StoryLogicFinding, "findingId" | "source" | "evidenceRefs"> & { authorStatus: "ignored" | "resolved" }): Promise<StoryLogicReviewProjection>;
 }) {
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(null);
@@ -129,6 +136,9 @@ export function EventLineWorkbench(props: {
   const [modelingRun, setModelingRun] = useState<StoryModelingRunProjection | null>(null);
   const [aiToolbarExpanded, setAiToolbarExpanded] = useState(false);
   const [logicPanelOpen, setLogicPanelOpen] = useState(false);
+  const [logicSelectionIds, setLogicSelectionIds] = useState<string[]>([]);
+  const [activeModelingEventRefs, setActiveModelingEventRefs] = useState<StoryStudioEventReference[]>([]);
+  const [activePerspectiveRefs, setActivePerspectiveRefs] = useState<StoryModelingPerspectiveRef[]>([]);
   const [spineZoom, setSpineZoom] = useState<"far" | "medium" | "near">("medium");
   const [unitCreateOpen, setUnitCreateOpen] = useState(false);
   const [unitActionMessage, setUnitActionMessage] = useState<string | null>(null);
@@ -242,7 +252,8 @@ export function EventLineWorkbench(props: {
   const locationLabels = useMemo(() => unique(props.events.flatMap((event) => metadataById[event.id]?.locationLabels ?? [])), [eventIds, metadataById, props.events]);
   const pendingCandidateCount = candidates.filter((candidate) => candidateStatus(candidate.id, props.rejectedCandidateIds, props.acceptedCandidateIds) === "awaiting").length;
   const visibleEvents = props.events.filter((event) => eventMatchesFilter(event, filter, props.currentUnitLabel, metadataById[event.id], props.goldenLoop));
-  const groupedEvents = groupEventsByUnit(visibleEvents, metadataById);
+  const groupedEvents = groupEventsByUnit(visibleEvents, metadataById, props.storyUnits ?? []);
+  const storyUnitByTitle = useMemo(() => new Map((props.storyUnits ?? []).map((unit) => [unit.title, unit])), [props.storyUnits]);
   const selectedEvent = props.events.find((event) => event.id === selectedEventId) ?? null;
   const selectedDetail = selectedEventId ? detailsById[selectedEventId] ?? null : null;
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
@@ -251,33 +262,60 @@ export function EventLineWorkbench(props: {
     : null;
   const relations = confirmedEventRelationProjection(selectedDetail);
   const formalRelations = props.relations ?? [];
-  const localLogicFindings = useMemo(() => runLocalStoryLogicChecks({
-    events: props.events.map((event) => ({ id: event.id, revisionToken: event.revisionToken, status: event.status, tags: event.tags })),
-    relations: formalRelations.map((relation) => ({ relationId: relation.relationId, sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState, relationTypeId: relation.relationTypeId, relationTypeResolution: relation.relationTypeResolution })),
+  const localLogicFindings = useMemo(() => {
+    const scopedIds = new Set(logicSelectionIds);
+    const scopedEvents = logicSelectionIds.length ? props.events.filter((event) => scopedIds.has(event.id)) : props.events;
+    const scopedRelations = logicSelectionIds.length ? formalRelations.filter((relation) => scopedIds.has(relation.sourceObjectId) && scopedIds.has(relation.targetObjectId)) : formalRelations;
+    return runLocalStoryLogicChecks({
+    events: scopedEvents.map((event) => ({ id: event.id, revisionToken: event.revisionToken, status: event.status, tags: event.tags })),
+    relations: scopedRelations.map((relation) => ({ relationId: relation.relationId, sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState, relationTypeId: relation.relationTypeId, relationTypeResolution: relation.relationTypeResolution, temporalOrder: relation.temporal?.orderConstraint ?? null })),
     unitIds: unitLabels
-  }), [eventIds, formalRelations, props.events, unitLabels]);
+  });
+  }, [eventIds, formalRelations, logicSelectionIds, props.events, unitLabels]);
+  const reviewedLogicFindings = useMemo(() => {
+    const reviews = new Map((props.logicReviews ?? []).map((review) => [review.findingId, review.authorStatus]));
+    return localLogicFindings.map((finding) => ({ ...finding, authorStatus: reviews.get(finding.findingId) ?? finding.authorStatus }));
+  }, [localLogicFindings, props.logicReviews]);
   const creationOpen = dockState.open && dockState.activeLens === "create";
   const modelingEventRefs = useMemo(() => props.events.flatMap((event) => event.status === "draft" || event.status === "planned" || event.status === "committed" ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : []), [eventIds, props.events, props.projectId]);
+  useEffect(() => {
+    const latest = props.modelingRuns?.[0] ?? null;
+    if (!latest || modelingPlanState === "running") return;
+    setModelingRun(latest);
+    if (["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(latest.tool) && latest.result) {
+      setTemporalRun(modelingRunToTemporalProjection(latest, modelingEventRefs));
+      setTemporalState(latest.status === "ready" ? "ready" : "stale");
+      setTemporalMessage(latest.status === "ready" ? "已恢复上次只读时间建模结果。" : "已恢复历史时间结果，当前来源需要重新核对。");
+    }
+  }, [modelingPlanState, modelingEventRefs, props.modelingRuns]);
+  const modelingRefsForIds = useCallback((eventIds: readonly string[]) => {
+    const ids = new Set(eventIds);
+    return modelingEventRefs.filter((reference) => ids.has(reference.eventId));
+  }, [modelingEventRefs]);
 
-  const scopeFor = useCallback((kind: StoryModelingScope["kind"]): StoryModelingScope => {
-    const sourceIds = modelingEventRefs.map((reference) => `event-source.${reference.eventId}`);
+  const scopeFor = useCallback((kind: StoryModelingScope["kind"], refs: readonly StoryStudioEventReference[] = activeModelingEventRefs.length ? activeModelingEventRefs : modelingEventRefs): StoryModelingScope => {
+    const sourceIds = refs.map((reference) => `event-source.${reference.eventId}`);
     if (kind === "full-book") return { kind, sourceIds };
     if (kind === "selection") {
-      const selectedRefs = selectedEventRef ? [selectedEventRef] : modelingEventRefs;
+      const selectedRefs = refs.length ? [...refs] : selectedEventRef ? [selectedEventRef] : modelingEventRefs;
       return { kind, sourceIds: selectedRefs.map((reference) => `event-source.${reference.eventId}`), eventRefs: selectedRefs, unitIds: selectedEvent && metadataById[selectedEvent.id]?.unitLabel ? [metadataById[selectedEvent.id]!.unitLabel!] : [] };
     }
     const changed = selectedEventRef ? [`event-source.${selectedEventRef.eventId}`] : sourceIds.slice(-1);
     const dependency = selectedEventRef ? sourceIds.filter((id) => !changed.includes(id)).slice(-2) : sourceIds.slice(-3, -1);
     return { kind, changedSourceIds: changed, dependencySourceIds: dependency };
-  }, [metadataById, modelingEventRefs, selectedEvent, selectedEventRef]);
+  }, [activeModelingEventRefs, metadataById, modelingEventRefs, selectedEvent, selectedEventRef]);
 
-  const openModelingTool = useCallback(async (tool: StoryModelingTool) => {
-    if (!props.onPlanStoryModeling || !modelingEventRefs.length) return;
+  const openModelingTool = useCallback(async (tool: StoryModelingTool, options?: { eventRefs?: StoryStudioEventReference[]; perspectiveRefs?: StoryModelingPerspectiveRef[] }) => {
+    const refs = options?.eventRefs?.length ? options.eventRefs : modelingEventRefs;
+    if (!props.onPlanStoryModeling || !refs.length) return;
+    setActiveModelingEventRefs(refs);
+    setActivePerspectiveRefs(options?.perspectiveRefs ?? []);
     setModelingTool(tool);
-    setModelingScopeKind("incremental");
+    const initialKind: StoryModelingScope["kind"] = options?.eventRefs?.length ? "selection" : "incremental";
+    setModelingScopeKind(initialKind);
     setModelingPlanState("loading");
     try {
-      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool, scope: scopeFor("incremental"), eventRefs: modelingEventRefs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null });
+      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool, scope: scopeFor(initialKind, refs), eventRefs: refs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null });
       setModelingPlan(plan);
       setModelingPlanState("ready");
     } catch {
@@ -291,23 +329,25 @@ export function EventLineWorkbench(props: {
     setModelingScopeKind(kind);
     setModelingPlanState("loading");
     try {
-      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool: modelingTool, scope: scopeFor(kind), eventRefs: modelingEventRefs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null, structuralChange: kind === "full-book" });
+      const refs = activeModelingEventRefs.length ? activeModelingEventRefs : modelingEventRefs;
+      const plan = await props.onPlanStoryModeling({ projectId: props.projectId, tool: modelingTool, scope: scopeFor(kind, refs), eventRefs: refs, previousManifestDigest: modelingRun?.sourceManifestDigest ?? null, structuralChange: kind === "full-book" });
       setModelingPlan(plan);
       setModelingPlanState("ready");
     } catch { setModelingPlanState("failed"); }
-  }, [modelingEventRefs, modelingRun?.sourceManifestDigest, modelingTool, props.onPlanStoryModeling, props.projectId, scopeFor]);
+  }, [activeModelingEventRefs, modelingEventRefs, modelingRun?.sourceManifestDigest, modelingTool, props.onPlanStoryModeling, props.projectId, scopeFor]);
 
   const confirmModeling = useCallback(async () => {
     if (!modelingTool || !modelingPlan || !props.onExecuteStoryModeling || modelingPlanState !== "ready") return;
     setModelingPlanState("running");
     try {
-      const request: StoryModelingRequest = { projectId: props.projectId, operationId: `story-modeling-operation.${crypto.randomUUID()}`, tool: modelingTool, trigger: "author-requested", scope: modelingPlan.scope, manifest: modelingPlan.manifest, eventRefs: modelingEventRefs, estimate: modelingPlan.estimate, authorConfirmedAt: new Date().toISOString() };
+      const refs = activeModelingEventRefs.length ? activeModelingEventRefs : modelingEventRefs;
+      const request: StoryModelingRequest = { projectId: props.projectId, operationId: `story-modeling-operation.${crypto.randomUUID()}`, tool: modelingTool, trigger: "author-requested", scope: modelingPlan.scope, manifest: modelingPlan.manifest, eventRefs: refs, selectedPerspectiveRefs: activePerspectiveRefs, estimate: modelingPlan.estimate, authorConfirmedAt: new Date().toISOString() };
       const run = await props.onExecuteStoryModeling(request);
       setModelingRun(run);
       (window as Window & { __storyStudioStoryModelingRun?: StoryModelingRunProjection }).__storyStudioStoryModelingRun = run;
       window.dispatchEvent(new CustomEvent("story-studio-story-modeling-run", { detail: run }));
       if (run.tool === "infer-temporal-position" && run.result) {
-        const temporal = modelingRunToTemporalProjection(run, modelingEventRefs);
+        const temporal = modelingRunToTemporalProjection(run, refs);
         setTemporalRun(temporal);
         setTemporalState("ready");
         setTemporalMessage(run.provider?.executionKind === "test-provider" ? "测试 Provider 已生成只读时间候选；未写入正式时间。" : "故事建模已生成只读时间候选；未写入正式时间。");
@@ -315,7 +355,7 @@ export function EventLineWorkbench(props: {
       setModelingPlanState("idle");
       setModelingTool(null);
     } catch { setModelingPlanState("failed"); }
-  }, [modelingEventRefs, modelingPlan, modelingPlanState, modelingTool, props.onExecuteStoryModeling, props.projectId]);
+  }, [activeModelingEventRefs, activePerspectiveRefs, modelingEventRefs, modelingPlan, modelingPlanState, modelingTool, props.onExecuteStoryModeling, props.projectId]);
 
   const requestDockState = useCallback((next: PageContextDockState<EventLinePageDockLens>, anchorEventId = selectedEventId) => {
     if (next.open) window.dispatchEvent(new Event("story-studio-close-mobile-context"));
@@ -368,6 +408,17 @@ export function EventLineWorkbench(props: {
   };
   const openGraphEvent = (eventId: string) => {
     setSelectedEventId(eventId);
+  };
+  const openTianyiForEvents = (eventIds: readonly string[], intent: "explain" | "predict") => {
+    const references = eventIds.flatMap((eventId) => {
+      const event = props.events.find((item) => item.id === eventId);
+      return event && (event.status === "draft" || event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
+    });
+    const units = unique(eventIds.flatMap((eventId) => metadataById[eventId]?.unitLabel ?? []));
+    const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";
+    const labels = references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId);
+    const initialDraft = intent === "explain" ? `请解释这些事件在当前故事中的联系：${labels.join("、")}` : undefined;
+    props.onOpenTianyi(references.length ? references : undefined, initialDraft, labels, unitSummary);
   };
   const beginEventCreate = () => {
     if (!props.onSaveEvent) return;
@@ -509,34 +560,26 @@ export function EventLineWorkbench(props: {
         </header>
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={props.events.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={() => setLogicPanelOpen(true)} onOpenTianyi={(eventIds) => {
-          const references = (eventIds ?? []).flatMap((eventId) => {
-            const event = props.events.find((item) => item.id === eventId);
-            return event && (event.status === "draft" || event.status === "planned" || event.status === "committed") ? [createStoryStudioEventReference({ projectId: props.projectId, event, requestedUse: "constraint" })] : [];
-          });
-          const units = unique((eventIds ?? []).flatMap((eventId) => metadataById[eventId]?.unitLabel ?? []));
-          const unitSummary = units.length === 1 ? `单元 · ${units[0]}` : units.length > 1 ? `${units.length} 个单元` : "当前事件范围";
-          props.onOpenTianyi(references.length ? references : undefined, undefined, references.map((reference) => props.events.find((event) => event.id === reference.eventId)?.title ?? reference.eventId), unitSummary);
-        }} /> : null}
-        {projectionMode === "perspective" ? <PerspectiveLens events={props.events} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={() => void openModelingTool("analyze-perspective")} /> : null}
+        {projectionMode === "graph" || projectionMode === "timeline" ? <EventGraphCanvas mode={projectionMode === "timeline" ? "temporal" : "graph"} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} projectId={props.projectId} events={props.events} relations={formalRelations} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={props.onCreateGraphRelation} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
+        {projectionMode === "perspective" ? <PerspectiveLens events={props.events} objects={props.perspectiveObjects ?? []} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={(selected) => void openModelingTool("analyze-perspective", { perspectiveRefs: selected.map((object) => ({ objectId: object.id, objectType: object.type, ownerId: object.ownerId ?? props.projectId, version: object.version ?? "unknown", scope: object.scope ?? "project", label: object.label })) })} /> : null}
         {projectionMode === "spine" && props.events.length > 0 && visibleEvents.length === 0 ? <section className="event-line-empty-filter" data-testid="event-line-filter-empty"><ListFilter /><strong>当前筛选没有匹配的事件</strong><p>筛选只改变本机观察范围；返回“全部脊柱”即可恢复。</p><button type="button" onClick={() => setFilter({ kind: "all" })}>查看全部脊柱</button></section> : null}
         {projectionMode === "spine" && props.events.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>从第一个事件开始</strong><p>先记录作者已知的情节，之后再补充时间、地点、人物和关系。</p>{props.onSaveEvent ? <button type="button" className="primary-action" onClick={beginEventCreate}><FileText />创建第一个事件</button> : null}</section> : null}
         {projectionMode === "spine" && unitCreateOpen ? <UnitCreateBar busy={false} onCancel={() => setUnitCreateOpen(false)} onCreate={async (title) => { if (!props.onCreateUnit) return; try { await props.onCreateUnit(title); setUnitActionMessage(`已创建单元“${title}”。`); setUnitCreateOpen(false); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "新建单元失败。"); } }} /> : null}
         {projectionMode === "spine" && unitActionMessage ? <p className="unit-action-message" role="status">{unitActionMessage}<button type="button" aria-label="关闭单元操作提示" onClick={() => setUnitActionMessage(null)}><X /></button></p> : null}
         {projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine story-spine-map is-${spineZoom}`} data-testid="confirmed-story-spine" aria-label="故事脊柱主控结构" data-spine-zoom={spineZoom}>
-          {groupedEvents.map((group, unitIndex) => <StorySpineUnit key={group.label} group={group} unitIndex={unitIndex} current={group.label === props.currentUnitLabel} zoom={spineZoom} events={props.events} detailsById={detailsById} metadataById={metadataById} selectedEventId={selectedEventId} goldenLoop={props.goldenLoop} rejectedCandidateIds={props.rejectedCandidateIds} acceptedCandidateIds={props.acceptedCandidateIds} onOpenEvent={openEvent} onOpenGraph={(eventId) => openEventInView(eventId, "graph")} onOpenTimeline={(eventId) => openEventInView(eventId, "timeline")} onOpenUnitGraph={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "graph"); }} onOpenUnitTimeline={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "timeline"); }} onRename={async (nextTitle) => { if (!props.onRenameUnit) return; try { await props.onRenameUnit(group.label, nextTitle); setUnitActionMessage(`单元已重命名为“${nextTitle}”。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "重命名单元失败。"); } }} onArchive={async () => { if (!props.onArchiveUnit) return; try { await props.onArchiveUnit(group.label); setUnitActionMessage(`单元“${group.label}”已归档；事件仍由原 owner 保留。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "归档单元失败。"); } }} />)}
+          {groupedEvents.map((group, unitIndex) => { const unit = storyUnitByTitle.get(group.label) ?? null; return <StorySpineUnit key={group.label} group={group} unit={unit} unitIndex={unitIndex} current={group.label === props.currentUnitLabel} zoom={spineZoom} events={props.events} detailsById={detailsById} metadataById={metadataById} selectedEventId={selectedEventId} goldenLoop={props.goldenLoop} rejectedCandidateIds={props.rejectedCandidateIds} acceptedCandidateIds={props.acceptedCandidateIds} onOpenEvent={openEvent} onOpenGraph={(eventId) => openEventInView(eventId, "graph")} onOpenTimeline={(eventId) => openEventInView(eventId, "timeline")} onOpenUnitGraph={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "graph"); }} onOpenUnitTimeline={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "timeline"); }} onRename={async (nextTitle) => { if (!props.onRenameUnit || !unit) return; try { await props.onRenameUnit(unit.id, nextTitle); setUnitActionMessage(`单元已重命名为“${nextTitle}”。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "重命名单元失败。"); } }} onArchive={async () => { if (!props.onArchiveUnit || !unit) return; try { await props.onArchiveUnit(unit.id); setUnitActionMessage(`单元“${group.label}”已归档；事件仍由原 owner 保留。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "归档单元失败。"); } }} />; })}
         </div> : null}
         {projectionMode === "spine" ? <CandidateBranchRegion candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} onOpen={openCandidate} /> : null}
       </main>
-      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => setLogicPanelOpen(true)} localFindingCount={localLogicFindings.length} run={modelingRun} />
+      <StoryModelingToolbar view={projectionMode} expanded={aiToolbarExpanded} onExpanded={setAiToolbarExpanded} disabled={!modelingEventRefs.length || !props.onPlanStoryModeling} onTool={(tool) => void openModelingTool(tool)} onOpenLocalLogic={() => { setLogicSelectionIds([]); setLogicPanelOpen(true); }} localFindingCount={reviewedLogicFindings.length} run={modelingRun} history={props.modelingRuns ?? []} onStop={props.onStopStoryModeling ? async () => { if (!modelingRun || modelingRun.status !== "running") return; const stopped = await props.onStopStoryModeling!(modelingRun.runId); setModelingRun(stopped); setModelingPlanState("idle"); } : undefined} />
       {projectionMode !== "graph" ? <PageContextDock pageId="event-line" label="事件线页面" state={dockState} lenses={dockLenses} onState={requestDockState} /> : null}
     </div>
     {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
-    {logicPanelOpen ? <StoryLogicPanel findings={localLogicFindings} aiFindings={modelingRun?.tool === "run-logic-check" ? modelingRun.result?.logicFindings ?? [] : []} onClose={() => setLogicPanelOpen(false)} onRunAi={() => { setLogicPanelOpen(false); void openModelingTool("run-logic-check"); }} onLocate={(eventId) => { setLogicPanelOpen(false); openEventInView(eventId, "graph"); }} /> : null}
+    {logicPanelOpen ? <StoryLogicPanel findings={reviewedLogicFindings} aiFindings={(modelingRun?.tool === "run-logic-check" ? modelingRun.result?.logicFindings ?? [] : []).map((finding) => ({ ...finding, authorStatus: props.logicReviews?.find((review) => review.findingId === finding.findingId)?.authorStatus ?? finding.authorStatus }))} onReview={props.onReviewLogicFinding} onClose={() => setLogicPanelOpen(false)} onRunAi={() => { setLogicPanelOpen(false); void openModelingTool("run-logic-check", { eventRefs: modelingRefsForIds(logicSelectionIds) }); }} onLocate={(eventId) => { setLogicPanelOpen(false); openEventInView(eventId, "graph"); }} /> : null}
   </section>;
 }
 
-function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; localFindingCount: number; run: StoryModelingRunProjection | null; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void; onOpenLocalLogic(): void }) {
+function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; localFindingCount: number; run: StoryModelingRunProjection | null; history: readonly StoryModelingRunProjection[]; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void; onOpenLocalLogic(): void; onStop?(): Promise<void> }) {
   const tools: Record<EventWorkspaceView, Array<{ id: StoryModelingTool; label: string }>> = {
     spine: [
       { id: "analyze-core-story", label: "分析核心故事线" },
@@ -559,26 +602,27 @@ function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boole
   return <aside className={`story-modeling-toolbar ${props.expanded ? "is-expanded" : "is-collapsed"}`} aria-label="故事建模 AI 工具" data-testid="story-modeling-toolbar">
     <button type="button" className="story-modeling-toolbar-toggle" aria-expanded={props.expanded} onClick={() => props.onExpanded(!props.expanded)}><Sparkles /><span>AI 工具</span><b>{props.expanded ? "关闭" : "打开"}</b></button>
     {props.expanded ? <div className="story-modeling-toolbar-actions"><button type="button" onClick={props.onOpenLocalLogic}><ShieldCheck />本地逻辑检测{props.localFindingCount ? ` · ${props.localFindingCount}` : ""}</button>{tools[props.view].map((tool) => <button key={tool.id} type="button" disabled={props.disabled} onClick={() => props.onTool(tool.id)}><Sparkles />{tool.label}</button>)}</div> : null}
-    {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : "本次建模未完成"}</strong><span>{props.run.provider?.executionKind === "test-provider" ? "测试 Provider" : "Provider"} · {props.run.actual?.providerRequests ?? 0} 次请求 · {props.run.actual?.totalTokens ?? 0} tokens</span><span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
+    {props.expanded && props.run ? <div className="story-modeling-last-run"><strong>{props.run.status === "ready" ? "本次建模已完成" : props.run.status === "running" ? "正在分批建模" : props.run.status === "stopped" ? "本次建模已停止" : "本次建模未完成"}</strong><span>{props.run.progress.completedBatches}/{props.run.progress.totalBatches} 批 · {props.run.progress.stage} · {props.run.progress.inputTokens + props.run.progress.outputTokens} tokens</span>{props.run.status === "running" && props.onStop ? <button type="button" onClick={() => void props.onStop?.()}>停止本次建模</button> : null}<span>候选/投影仍未写入正式 Event、Relation、Canon 或 WorldState</span></div> : null}
+    {props.expanded && props.history.length ? <details className="story-modeling-history"><summary>历史结果 · {props.history.length}</summary>{props.history.slice(0, 8).map((run) => <p key={run.runId}><strong>{modelingToolLabel(run.tool)}</strong><span>{run.status === "ready" ? "已完成" : run.status === "stopped" ? "已停止" : run.status === "failed" ? "失败" : "进行中"} · {run.progress.completedBatches}/{run.progress.totalBatches} 批</span></p>)}</details> : null}
   </aside>;
 }
 
-function PerspectiveLens(props: { events: readonly EventLineEventSummary[]; relations: readonly RelationReadProjectionR0[]; aiMatches: readonly PerspectiveMatch[]; onOpenAi(): void }) {
-  const objects = useMemo(() => listPerspectiveObjects(props.events), [props.events]);
+function PerspectiveLens(props: { events: readonly EventLineEventSummary[]; objects: readonly PerspectiveObjectRef[]; relations: readonly RelationReadProjectionR0[]; aiMatches: readonly PerspectiveMatch[]; onOpenAi(selected: readonly PerspectiveObjectRef[]): void }) {
+  const evidenceObjects = useMemo(() => listPerspectiveObjects(props.events), [props.events]);
+  const objects = props.objects;
   const [selected, setSelected] = useState<PerspectiveObjectRef[]>([]);
   const projection = useMemo(() => buildPerspectiveIntersection({ events: props.events, relations: props.relations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, reviewState: relation.reviewState })), selected, aiMatches: props.aiMatches }), [props.aiMatches, props.events, props.relations, selected]);
   const toggle = (object: PerspectiveObjectRef) => setSelected((current) => current.some((item) => item.id === object.id) ? current.filter((item) => item.id !== object.id) : current.length < 5 ? [...current, object] : current);
   return <section className="event-perspective-workspace" aria-label="事件视角轴" data-provider-calls-on-open="0">
-    <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角交集</strong><span>选择 2–5 个人物、地点或物品</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式元数据中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}标记</small> : null}</fieldset>)}</aside>
-    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用</small><h2>{selected.length < 2 ? "请选择至少两个视角对象" : `${selected.map((item) => item.label).join(" × ")} 的故事交集`}</h2></div><button type="button" disabled={selected.length < 2} onClick={props.onOpenAi}><Sparkles />深度分析</button></header>{selected.length >= 2 && !projection.length ? <div className="event-perspective-empty"><CircleDot /><strong>当前没有共同事件</strong><p>基础投影只使用正式事件元数据与已确认关系；AI 候选不会被伪装成正式事实。</p></div> : <div className="event-perspective-results">{projection.map((item) => <article key={item.eventId}><small>共同事件</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id}><strong>{match.object.label}</strong><span>{perspectiveRelationLabel(match.relationKind)} · {knowledgeLabel(match.knowledgeState)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>证据：{[...new Set(item.matches.flatMap((match) => match.evidenceRefs))].join(" · ")}</p></article>)}</div>}</div>
+    <span className="sr-only">选择 2–5 个人物、地点或物品</span>
+    <aside className="event-perspective-picker"><header><UsersRound /><div><strong>视角交集</strong><span>选择 2–5 个正式人物、地点或物品</span></div></header>{(["character", "location", "item"] as const).map((type) => <fieldset key={type}><legend>{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}</legend>{objects.filter((object) => object.type === type).map((object) => <label key={object.id}><input type="checkbox" checked={selected.some((item) => item.id === object.id)} disabled={!selected.some((item) => item.id === object.id) && selected.length >= 5} onChange={() => toggle(object)} />{object.label}</label>)}{objects.every((object) => object.type !== type) ? <small>当前正式 Owner 中暂无{type === "character" ? "人物" : type === "location" ? "地点" : "物品"}；Event 标签仅作证据。</small> : null}</fieldset>)}{evidenceObjects.length ? <small className="event-perspective-evidence-note">Event 中识别到 {evidenceObjects.length} 个证据标记，未自动创建正式对象。</small> : null}</aside>
+    <div className="event-perspective-canvas"><header><div><small>只读投影 · 切换零调用</small><h2>{selected.length < 2 ? "请选择至少两个视角对象" : `${selected.map((item) => item.label).join(" × ")} 的故事交集`}</h2></div><button type="button" disabled={selected.length < 2} onClick={() => props.onOpenAi(selected)}><Sparkles />深度分析</button></header>{selected.length >= 2 && !projection.length ? <div className="event-perspective-empty"><CircleDot /><strong>当前没有共同事件</strong><p>基础投影只使用正式 Owner 对象、事件证据与已确认关系；AI 候选不会被伪装成正式事实。</p></div> : <div className="event-perspective-results">{projection.map((item) => <article key={item.eventId}><small>共同事件</small><h3>{item.title}</h3><ul>{item.matches.map((match) => <li key={match.object.id}><strong>{match.object.label}</strong><span>{perspectiveRelationLabel(match.relationKind)} · {knowledgeLabel(match.knowledgeState)}</span><em>{Math.round(match.confidence * 100)}%</em></li>)}</ul><p>证据：{[...new Set(item.matches.flatMap((match) => match.evidenceRefs))].join(" · ")}</p></article>)}</div>}</div>
   </section>;
 }
 
-function StoryLogicPanel(props: { findings: readonly StoryLogicFinding[]; aiFindings: readonly StoryLogicFinding[]; onClose(): void; onRunAi(): void; onLocate(eventId: string): void }) {
-  const [statuses, setStatuses] = useState<Record<string, StoryLogicFinding["authorStatus"]>>({});
-  const all = [...props.findings, ...props.aiFindings].map((finding) => ({ ...finding, authorStatus: statuses[finding.findingId] ?? finding.authorStatus }));
-  const setStatus = (findingId: string, authorStatus: StoryLogicFinding["authorStatus"]) => setStatuses((current) => ({ ...current, [findingId]: authorStatus }));
-  return <div className="story-logic-backdrop" role="presentation"><section className="story-logic-panel" role="dialog" aria-modal="true" aria-labelledby="story-logic-title"><header><div><small>剧情逻辑检测</small><h2 id="story-logic-title">本地完整性与 AI 语义检查</h2></div><button type="button" aria-label="关闭逻辑检测" onClick={props.onClose}><X /></button></header><div className="story-logic-levels"><article><ShieldCheck /><strong>本地完整性</strong><span>确定性检查 · 0 tokens · 自动可用</span></article><article><Sparkles /><strong>AI 语义逻辑</strong><span>仅在作者确认范围与费用后运行</span></article></div>{all.length ? <div className="story-logic-findings">{all.map((finding) => <article key={finding.findingId} className={`is-${finding.severity} is-${finding.authorStatus}`}><header><strong>{logicKindLabel(finding.kind)}</strong><span>{finding.source === "local" ? "本地确定性" : `AI 候选 · ${Math.round(finding.confidence * 100)}%`} · {finding.authorStatus === "pending" ? "待处理" : finding.authorStatus === "ignored" ? "已忽略" : "已处理"}</span></header><p>{finding.rationale}</p><small>{finding.impact}</small><footer>{finding.affectedEventIds[0] ? <button type="button" onClick={() => props.onLocate(finding.affectedEventIds[0]!)}><LocateFixed />定位事件</button> : null}<button type="button" disabled title="修复建议只生成候选；当前 owner 合同尚未开放自动修复">生成修复候选</button><button type="button" aria-pressed={finding.authorStatus === "ignored"} onClick={() => setStatus(finding.findingId, "ignored")}>忽略</button><button type="button" aria-pressed={finding.authorStatus === "resolved"} onClick={() => setStatus(finding.findingId, "resolved")}>标记已处理</button></footer></article>)}</div> : <p className="story-logic-clear"><CheckCircle2 />当前本地完整性检查未发现问题。</p>}<footer><button type="button" onClick={props.onClose}>关闭</button><button type="button" className="primary-action" onClick={props.onRunAi}><Sparkles />配置 AI 语义检查</button></footer></section></div>;
+function StoryLogicPanel(props: { findings: readonly StoryLogicFinding[]; aiFindings: readonly StoryLogicFinding[]; onReview?(finding: Pick<StoryLogicFinding, "findingId" | "source" | "evidenceRefs"> & { authorStatus: "ignored" | "resolved" }): Promise<unknown>; onClose(): void; onRunAi(): void; onLocate(eventId: string): void }) {
+  const all = [...props.findings, ...props.aiFindings];
+  return <div className="story-logic-backdrop" role="presentation"><section className="story-logic-panel" role="dialog" aria-modal="true" aria-labelledby="story-logic-title"><header><div><small>剧情逻辑检测</small><h2 id="story-logic-title">本地完整性与 AI 语义检查</h2></div><button type="button" aria-label="关闭逻辑检测" onClick={props.onClose}><X /></button></header><div className="story-logic-levels"><article><ShieldCheck /><strong>本地完整性</strong><span>确定性检查 · 0 tokens · 自动可用</span></article><article><Sparkles /><strong>AI 语义逻辑</strong><span>仅在作者确认范围与费用后运行</span></article></div>{all.length ? <div className="story-logic-findings">{all.map((finding) => <article key={finding.findingId} className={`is-${finding.severity} is-${finding.authorStatus}`}><header><strong>{logicKindLabel(finding.kind)}</strong><span>{finding.source === "local" ? "本地确定性" : `AI 候选 · ${Math.round(finding.confidence * 100)}%`} · {finding.authorStatus === "pending" ? "待处理" : finding.authorStatus === "ignored" ? "已忽略" : "已处理"}</span></header><p>{finding.rationale}</p><small>{finding.impact}</small><footer>{finding.affectedEventIds[0] ? <button type="button" onClick={() => props.onLocate(finding.affectedEventIds[0]!)}><LocateFixed />定位事件</button> : null}<button type="button" disabled title="修复建议只生成候选；当前 owner 合同尚未开放自动修复">生成修复候选</button><button type="button" disabled={!props.onReview} aria-pressed={finding.authorStatus === "ignored"} onClick={() => void props.onReview?.({ findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: "ignored" })}>忽略</button><button type="button" disabled={!props.onReview} aria-pressed={finding.authorStatus === "resolved"} onClick={() => void props.onReview?.({ findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: "resolved" })}>标记已处理</button></footer></article>)}</div> : <p className="story-logic-clear"><CheckCircle2 />当前本地完整性检查未发现问题。</p>}<footer><button type="button" onClick={props.onClose}>关闭</button><button type="button" className="primary-action" onClick={props.onRunAi}><Sparkles />配置 AI 语义检查</button></footer></section></div>;
 }
 
 function perspectiveRelationLabel(kind: PerspectiveMatch["relationKind"]): string { return kind === "formal-participation" ? "正式参与" : kind === "formal-relation-impact" ? "正式关系影响" : kind === "upstream" ? "上游影响" : kind === "downstream" ? "下游影响" : "AI 推断"; }
@@ -591,7 +635,7 @@ function UnitCreateBar(props: { busy: boolean; onCancel(): void; onCreate(title:
 }
 
 function StorySpineUnit(props: {
-  group: ReturnType<typeof groupEventsByUnit>[number]; unitIndex: number; current: boolean; zoom: "far" | "medium" | "near";
+  group: ReturnType<typeof groupEventsByUnit>[number]; unit: StoryUnit | null; unitIndex: number; current: boolean; zoom: "far" | "medium" | "near";
   events: readonly EventLineEventSummary[]; detailsById: Record<string, EventLineEventDetail>; metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>; selectedEventId: string | null;
   goldenLoop: GoldenLoopResult | null; rejectedCandidateIds: readonly string[]; acceptedCandidateIds: readonly string[];
   onOpenEvent(id: string): void; onOpenGraph(id: string): void; onOpenTimeline(id: string): void; onOpenUnitGraph(): void; onOpenUnitTimeline(): void; onRename(title: string): Promise<void>; onArchive(): Promise<void>;
@@ -606,14 +650,14 @@ function StorySpineUnit(props: {
   const confirmed = allEvents.filter((event) => eventLineSemanticNode(event).status === "confirmed").length;
   const candidate = allEvents.length - confirmed;
   const conflicts = tags.filter((tag) => /冲突|conflict/iu.test(tag)).length;
-  const branch = /分支|支线|派生/iu.test(props.group.label);
-  return <section className={`story-spine-unit ${branch ? "is-branch-unit" : "is-main-unit"}`} data-current-unit={props.current ? "true" : "false"} data-unit-id={`story-unit.${props.unitIndex + 1}`}>
+  const branch = props.unit?.kind === "branch";
+  return <section className={`story-spine-unit ${branch ? "is-branch-unit" : "is-main-unit"}`} data-current-unit={props.current ? "true" : "false"} data-unit-id={props.unit?.id ?? `unresolved-story-unit.${props.unitIndex + 1}`}>
     <div className="story-spine-trunk-marker"><span>{String(props.unitIndex + 1).padStart(2, "0")}</span></div>
     <article className="story-spine-unit-card">
-      <header><div><small>{branch ? "分支单元" : props.current ? "主干单元 · 当前范围" : "主干单元"}</small>{editing ? <form onSubmit={(event) => { event.preventDefault(); const next = title.trim(); if (next) void props.onRename(next).then(() => setEditing(false)); }}><input aria-label={`重命名单元 ${props.group.label}`} value={title} onChange={(event) => setTitle(event.target.value)} /><button type="submit">保存</button><button type="button" onClick={() => setEditing(false)}>取消</button></form> : <h2>{props.group.label}</h2>}<p>{summary}</p></div><span className="story-spine-sync-state"><CheckCircle2 />与正式事件同步</span></header>
-      <dl className="story-spine-unit-semantics"><div><dt>单元目标</dt><dd>{unitTag(tags, "目标") ?? "推进当前故事目标"}</dd></div><div><dt>核心冲突</dt><dd>{unitTag(tags, "冲突") ?? "待作者补充"}</dd></div><div><dt>关键转折</dt><dd>{unitTag(tags, "转折") ?? allEvents[Math.max(0, Math.floor(allEvents.length / 2))]?.title ?? "待定位"}</dd></div><div><dt>结果 / 开放钩子</dt><dd>{unitTag(tags, "钩子") ?? allEvents.at(-1)?.title ?? "待作者补充"}</dd></div></dl>
-      <div className="story-spine-unit-stats"><span>已确认 <b>{confirmed}</b></span><span>候选 <b>{candidate}</b></span><span>冲突 <b>{conflicts}</b></span><span>来源：{branch ? "派生故事范围" : "主故事"}</span></div>
-      <nav className="story-spine-unit-actions" aria-label={`${props.group.label} 单元操作`}><button type="button" onClick={props.onOpenUnitGraph}><Network />在关系图中查看</button><button type="button" onClick={props.onOpenUnitTimeline}><Clock3 />在时间轴中查看</button><button type="button" onClick={() => setEditing(true)}>重命名</button><button type="button" onClick={() => void props.onArchive()}>归档</button><button type="button" disabled title="当前 Unit owner 尚无批量拆分事务合同">在选定事件处拆分</button><button type="button" disabled title="当前 Unit owner 尚无相邻单元合并事务合同">合并相邻单元</button><button type="button" disabled title="执行前影响预览合同尚未建立">调整叙事顺序</button><button type="button" disabled title="Nuwa 范围移交 owner 合同尚未建立">移交女娲推演</button><button type="button" disabled title="Multiverse 来源 owner 合同尚未建立">创建多元派生来源</button></nav>
+      <header><div><small>{branch ? "分支单元" : props.current ? "主干单元 · 当前范围" : "主干单元"}</small>{editing ? <form onSubmit={(event) => { event.preventDefault(); const next = title.trim(); if (next) void props.onRename(next).then(() => setEditing(false)); }}><input aria-label={`重命名单元 ${props.group.label}`} value={title} onChange={(event) => setTitle(event.target.value)} /><button type="submit">保存</button><button type="button" onClick={() => setEditing(false)}>取消</button></form> : <h2>{props.group.label}</h2>}<p>{props.unit?.summary || summary}</p></div><span className="story-spine-sync-state"><CheckCircle2 />{props.unit ? storyUnitStatusLabel(props.unit.status) : "尚未绑定 Unit Owner"}</span></header>
+      <dl className="story-spine-unit-semantics"><div><dt>单元目标</dt><dd>{props.unit?.objective || "未设置"}</dd></div><div><dt>核心冲突</dt><dd>{props.unit?.coreConflict || "未设置"}</dd></div><div><dt>关键转折</dt><dd>{props.unit?.turningPoint || "未设置"}</dd></div><div><dt>结果 / 开放钩子</dt><dd>{props.unit?.openHook || "未设置"}</dd></div></dl>
+      <div className="story-spine-unit-stats"><span>已确认 <b>{confirmed}</b></span><span>候选 <b>{candidate}</b></span><span>冲突 <b>{conflicts}</b></span><span>来源：{branch ? `分支于 ${props.unit?.parentUnitId ?? "未设置"}` : "主故事"}</span>{props.unit?.mergeTargetUnitId ? <span>合流至：{props.unit.mergeTargetUnitId}</span> : null}</div>
+      <nav className="story-spine-unit-actions" aria-label={`${props.group.label} 单元操作`}><button type="button" onClick={props.onOpenUnitGraph}><Network />在关系图中查看</button><button type="button" onClick={props.onOpenUnitTimeline}><Clock3 />在时间轴中查看</button><button type="button" onClick={() => setEditing(true)}>重命名</button><button type="button" onClick={() => void props.onArchive()}>归档</button></nav>
       {props.zoom !== "far" ? <div className="story-spine-events">
         {visibleDirect.length ? <section className="event-line-direct-nodes"><header><div><small>直接属于单元</small><h3>关键事件</h3></div><strong>{props.group.direct.length} 个节点</strong></header><ol>{visibleDirect.map((event) => <EventSpineNode key={event.id} event={event} detail={props.detailsById[event.id] ?? null} metadata={props.metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === props.selectedEventId} current={event.id === props.selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => props.onOpenEvent(event.id)} onOpenGraph={() => props.onOpenGraph(event.id)} onOpenTimeline={() => props.onOpenTimeline(event.id)} />)}</ol></section> : null}
         {visibleSetPoints.map((setPoint) => <section className="event-line-set-point" key={setPoint.label}><header><span><CircleDot /></span><div><small>可选集点</small><h3>{setPoint.label}</h3></div><strong>{setPoint.events.length} 个节点</strong></header><ol>{setPoint.events.map((event) => <EventSpineNode key={event.id} event={event} detail={props.detailsById[event.id] ?? null} metadata={props.metadataById[event.id]} sequence={props.events.findIndex((item) => item.id === event.id) + 1} selected={event.id === props.selectedEventId} current={event.id === props.selectedEventId} candidateMarker={eventCandidateMarker(event, props.goldenLoop, props.rejectedCandidateIds, props.acceptedCandidateIds)} onOpen={() => props.onOpenEvent(event.id)} onOpenGraph={() => props.onOpenGraph(event.id)} onOpenTimeline={() => props.onOpenTimeline(event.id)} />)}</ol></section>)}
@@ -622,7 +666,7 @@ function StorySpineUnit(props: {
   </section>;
 }
 
-function unitTag(tags: readonly string[], label: string): string | null { return tags.map((tag) => new RegExp(`^(?:Unit )?${label}[：:]\\s*(.+)$`, "iu").exec(tag)?.[1]?.trim()).find(Boolean) ?? null; }
+function storyUnitStatusLabel(status: StoryUnit["status"]): string { return ({ draft: "草稿单元", active: "与正式事件同步", candidate: "候选结构", conflict: "结构冲突", archived: "已归档" })[status]; }
 
 function StoryModelingConfirmation(props: { tool: StoryModelingTool; scopeKind: StoryModelingScope["kind"]; plan: StoryModelingPlanProjection | null; state: "idle" | "loading" | "ready" | "running" | "failed"; onScope(kind: StoryModelingScope["kind"]): void; onCancel(): void; onConfirm(): void }) {
   const estimate = props.plan?.estimate;
@@ -854,10 +898,14 @@ function eventMatchesFilter(event: EventLineEventSummary, filter: EventLineFilte
   return eventCandidateMarker(event, result, [], []) !== null;
 }
 
-function groupEventsByUnit(events: readonly EventLineEventSummary[], metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>): Array<{ label: string; direct: EventLineEventSummary[]; setPoints: Array<{ label: string; events: EventLineEventSummary[] }> }> {
+function groupEventsByUnit(events: readonly EventLineEventSummary[], metadataById: Record<string, ReturnType<typeof eventLineEventMetadata>>, units: readonly StoryUnit[]): Array<{ label: string; direct: EventLineEventSummary[]; setPoints: Array<{ label: string; events: EventLineEventSummary[] }> }> {
   const groups = new Map<string, { direct: EventLineEventSummary[]; setPoints: Map<string, EventLineEventSummary[]> }>();
+  const formalUnitByEvent = new Map<string, StoryUnit>();
+  for (const unit of [...units].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))) for (const eventId of unit.linkedEntityIds) {
+    if (!formalUnitByEvent.has(eventId)) formalUnitByEvent.set(eventId, unit);
+  }
   for (const event of events) {
-    const label = metadataById[event.id]?.unitLabel ?? "未归入故事范围";
+    const label = formalUnitByEvent.get(event.id)?.title ?? metadataById[event.id]?.unitLabel ?? "未归入故事范围";
     const setPoint = metadataById[event.id]?.setPointLabel ?? null;
     const group = groups.get(label) ?? { direct: [], setPoints: new Map<string, EventLineEventSummary[]>() };
     if (setPoint) group.setPoints.set(setPoint, [...(group.setPoints.get(setPoint) ?? []), event]);

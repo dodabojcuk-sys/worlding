@@ -15,6 +15,7 @@ import type { PredictionRun } from "../../../../../src/storyContracts/multiNodeP
 import type { SmartRelationCandidate, StoryModelingRun } from "../../../../../src/storyContracts/storyModeling.ts";
 import { dedupeSmartRelationCandidates, reviewSmartRelationCandidates } from "../../../../../src/storyContracts/storyModelingReview.ts";
 import type { TemporalPlacement, TemporalProjectionRun, TemporalSegment } from "../../../../../src/storyContracts/temporalProjection.ts";
+import { temporalTrackProjection } from "../../../../../src/storyContracts/temporalCoordinateTracks.ts";
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
@@ -57,10 +58,12 @@ export function EventGraphCanvas(props: {
   onOpenStorySpine?(): void;
   onOpenTimeline?(): void;
   onCreateEvent?(): void;
+  onTrashDraftEvent?(eventId: string): Promise<void>;
   createOpen?: boolean;
   createInspector?: ReactNode;
   onCloseCreate?(): void;
   onOpenTianyi?(eventIds?: string[]): void;
+  onExplainWithTianyi?(eventIds?: string[]): void;
   onOpenLogicCheck?(eventIds: string[]): void;
   mode?: "graph" | "temporal";
   temporalRun?: TemporalProjectionRun | null;
@@ -105,6 +108,9 @@ export function EventGraphCanvas(props: {
   const restoreRailViewport = useRef(false);
   const temporalAutoFitKey = useRef<string | null>(null);
   const relationSelectionActive = useRef(false);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const contextMenuTriggerRef = useRef<HTMLElement | null>(null);
+  const contextMenuWasOpen = useRef(false);
   const layout = useMemo(() => readLayout(props.projectId), [props.projectId, layoutRevision]);
   const densityFixture = useMemo(() => isDensityFixture() ? syntheticDensityFixture() : null, []);
   const graphEvents = densityFixture?.events ?? props.events;
@@ -137,7 +143,7 @@ export function EventGraphCanvas(props: {
       setStoryModelingRun(run);
       const candidates = dedupeSmartRelationCandidates({ candidates: run.result?.relationCandidates ?? [], existing: graphRelations.map((relation) => ({ sourceEventId: relation.sourceObjectId, targetEventId: relation.targetObjectId, direction: relation.direction === "none" || relation.direction === "both" ? "undirected" as const : relation.direction === "reverse" ? "reverse" as const : "forward" as const })) });
       setSmartRelationReviews(candidates);
-      setSmartRelationSelection(candidates.map((candidate) => candidate.candidateId));
+      setSmartRelationSelection([]);
     };
     const receive = (event: Event) => apply((event as CustomEvent<StoryModelingRun>).detail);
     apply((window as Window & { __storyStudioStoryModelingRun?: StoryModelingRun }).__storyStudioStoryModelingRun);
@@ -224,6 +230,17 @@ export function EventGraphCanvas(props: {
     const up = (event: KeyboardEvent) => { if (event.code === "Space") setSpacePanning(false); };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [contextMenu]);
+  useEffect(() => {
+    if (contextMenu) {
+      contextMenuWasOpen.current = true;
+      const frame = window.requestAnimationFrame(() => contextMenuRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus());
+      return () => window.cancelAnimationFrame(frame);
+    }
+    if (contextMenuWasOpen.current) {
+      contextMenuWasOpen.current = false;
+      contextMenuTriggerRef.current?.focus();
+    }
   }, [contextMenu]);
 
   useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
@@ -364,14 +381,18 @@ export function EventGraphCanvas(props: {
   const reviewSmartRelations = (decision: "accepted" | "rejected") => setSmartRelationReviews((current) => reviewSmartRelationCandidates({ candidates: current, candidateIds: smartRelationSelection, decision }));
   const acceptSmartRelations = async () => {
     if (!props.onCreateRelation || !smartRelationSelection.length) return;
+    const selected = smartRelationReviews.filter((item) => smartRelationSelection.includes(item.candidateId));
+    if (selected.some((candidate) => !candidate.suggestedTypeId)) { setNotice("所选候选中存在“类型待确认”；本批次 0 条进入关系审查区。"); return; }
     setBusy("smart-relations");
+    let succeeded = 0;
     try {
-      for (const candidate of smartRelationReviews.filter((item) => smartRelationSelection.includes(item.candidateId))) {
+      for (const candidate of selected) {
         await props.onCreateRelation({ sourceEventId: candidate.sourceEventId, targetEventId: candidate.targetEventId, relationTypeId: candidate.suggestedTypeId, sourceRef: `story-modeling:${storyModelingRun?.runId ?? candidate.sourceRunId}:${candidate.candidateId}` });
+        succeeded += 1;
       }
       reviewSmartRelations("accepted");
-      setNotice("所选连线已进入待确认关系；正式 Relation 仍为 0 次自动写入。");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "候选关系未能进入待确认。"); }
+      setNotice(`批次结果：${succeeded} 条已进入待确认，0 条失败；正式 Relation 仍为 0 次自动写入。`);
+    } catch (error) { setNotice(`批次结果：${succeeded} 条已进入待确认，${selected.length - succeeded} 条未写入。${error instanceof Error ? error.message : "请根据逐项回执重试。"}`); }
     finally { setBusy(null); }
   };
 
@@ -428,6 +449,7 @@ export function EventGraphCanvas(props: {
       }} onKeyDown={(event) => {
         if (!(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
         event.preventDefault();
+        contextMenuTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : event.currentTarget;
         const activeId = workspaceSelectionIds.at(-1) ?? props.selectedEventId;
         const host = event.currentTarget.getBoundingClientRect();
         setContextMenu({ x: Math.round(host.width / 2), y: Math.round(host.height / 2), nodeId: activeId ?? null });
@@ -448,8 +470,8 @@ export function EventGraphCanvas(props: {
           }}
           onNodeDoubleClick={(_, node) => { if (!node.id.startsWith("projection.remote")) focus(node.id); }}
           onEdgeClick={(_, edge) => { relationSelectionActive.current = true; setSelection({ kind: edge.data?.smartRelation ? "smart-relation" : "relation", id: edge.id }); openInspector("RELATION_REVIEW"); }}
-          onNodeContextMenu={(event, node) => { event.preventDefault(); if (!workspaceSelectionIds.includes(node.id) && !node.data.candidate) setWorkspaceSelectionIds([node.id]); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: node.id }); }}
-          onPaneContextMenu={(event) => { event.preventDefault(); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: null }); }}
+          onNodeContextMenu={(event, node) => { event.preventDefault(); contextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".react-flow__node") : null; if (!workspaceSelectionIds.includes(node.id) && !node.data.candidate) setWorkspaceSelectionIds([node.id]); const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: node.id }); }}
+          onPaneContextMenu={(event) => { event.preventDefault(); contextMenuTriggerRef.current = event.target instanceof HTMLElement ? event.target : null; const host = document.querySelector<HTMLElement>(".event-graph-flow")?.getBoundingClientRect(); setContextMenu({ x: Math.max(8, event.clientX - (host?.left ?? 0)), y: Math.max(8, event.clientY - (host?.top ?? 0)), nodeId: null }); }}
           onPaneClick={() => {
             setContextMenu(null); setSelection(null); setWorkspaceSelectionIds([]); closeInspector(); props.onClearSelection();
           }}
@@ -473,8 +495,8 @@ export function EventGraphCanvas(props: {
         </ReactFlow>
         {mode === "temporal" ? <TemporalCoordinateOverlay run={props.temporalRun ?? null} events={graphEvents} nodes={nodes} selectedEventId={currentEvent?.id ?? null} viewport={temporalViewport} zoomLevel={semanticZoom} /> : null}
         <GraphLegend temporal={mode === "temporal"} hasTemporalProjection={Boolean(props.temporalRun)} />
-        {contextMenu ? <div className="event-graph-context-menu" role="menu" aria-label={contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }}>
-          {contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button><button type="button" role="menuitem" disabled title={contextEvent.status === "committed" ? "正式 Event 不允许硬删除" : "回收站 owner 尚未开放此入口"}>{contextEvent.status === "committed" ? "正式事件不可删除" : "移入回收站"}</button></> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
+        {contextMenu ? <div ref={contextMenuRef} className="event-graph-context-menu" role="menu" aria-label={contextNode?.data.candidate ? "候选事件菜单" : contextEvent?.status === "draft" ? "草稿事件菜单" : "正式事件菜单"} style={{ left: contextMenu.x, top: contextMenu.y }} onKeyDown={(event) => { if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return; event.preventDefault(); const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement); items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }}>
+          {contextEvent ? <><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); setContextMenu(null); }}>打开</button><button type="button" role="menuitem" onClick={() => { selectNode(contextEvent.id); openInspector("EVENT_DETAILS"); setContextMenu(null); }}>检查详情</button><button type="button" role="menuitem" onClick={() => { props.onExplainWithTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>交给 Agent 解释</button><button type="button" role="menuitem" onClick={() => { props.onOpenTianyi?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>围绕所选节点推演</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents.length ? selectedWorkspaceEvents : [contextEvent.id]); setContextMenu(null); }}>剧情逻辑检测</button><button type="button" role="menuitem" onClick={() => { focus(contextEvent.id); setContextMenu(null); }}>在当前视图聚焦</button>{contextEvent.status === "draft" ? <button type="button" role="menuitem" disabled={!props.onTrashDraftEvent} onClick={() => { void props.onTrashDraftEvent?.(contextEvent.id).then(() => setNotice("草稿已进入回收站。"), (error: unknown) => setNotice(error instanceof Error ? error.message : "草稿未能进入回收站。")); setContextMenu(null); }}>移入回收站</button> : <button type="button" role="menuitem" disabled title="正式 Event 只提供归档、作废与影响预览，不允许硬删除">正式事件不可删除</button>}</> : contextNode?.data.candidate ? <><button type="button" role="menuitem" onClick={() => { chooseCandidatePath(contextNode.id); setContextMenu(null); }}>聚焦候选路径</button><button type="button" role="menuitem" disabled title="候选丢弃必须由当前 Prediction owner 处理">丢弃候选</button></> : <><button type="button" role="menuitem" onClick={() => { props.onCreateEvent?.(); setContextMenu(null); }}>在此创建事件草稿</button><button type="button" role="menuitem" onClick={() => { props.onOpenLogicCheck?.(selectedWorkspaceEvents); setContextMenu(null); }}>检查当前画布逻辑</button><button type="button" role="menuitem" disabled title="按住左键拖动即可框选；按住 Space 或中键拖动画布">框选与平移提示</button></>}
         </div> : null}
         {mode === "graph" && smartRelationReviews.length ? <SmartRelationReviewTray candidates={smartRelationReviews} selectedIds={smartRelationSelection} relationTypes={props.relationTypes} busy={busy === "smart-relations"} onSelection={setSmartRelationSelection} onChangeType={(candidateId, relationTypeId) => setSmartRelationReviews((current) => current.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, suggestedTypeId: relationTypeId || null, suggestedTypeLabel: props.relationTypes.find((type) => type.relationTypeId === relationTypeId)?.label ?? "类型待确认" } : candidate))} onAccept={() => void acceptSmartRelations()} onReject={() => reviewSmartRelations("rejected")} /> : null}
       </div>
@@ -524,8 +546,7 @@ function TemporalCoordinateOverlay(props: {
     const relative = positions.length ? Math.min(...positions) : index * 260;
     return { id: segment.id, label: segment.label, kind: segment.kind, x: (70 + relative * 1.12) * props.viewport.zoom + props.viewport.x };
   });
-  const laneLabels = props.zoomLevel === "far" ? ["主序"] : props.zoomLevel === "medium" ? ["主序", "并行事件", "余波"] : ["主序", "第 1 夜", "并行事件", "余波"];
-  const laneHeight = props.zoomLevel === "near" ? 292 : props.zoomLevel === "far" ? 132 : 190;
+  const tracks = temporalTrackProjection(props.zoomLevel);
   const selectedNode = props.selectedEventId ? props.nodes.find((node) => node.id === props.selectedEventId) : null;
   const selectedTitle = props.selectedEventId ? props.events.find((event) => event.id === props.selectedEventId)?.title : null;
   const selectedX = selectedNode ? (selectedNode.position.x + 102) * props.viewport.zoom + props.viewport.x : null;
@@ -539,7 +560,7 @@ function TemporalCoordinateOverlay(props: {
     </div>
     <div className="temporal-left-scale" aria-label="阶段内相对顺序">
       <strong>相对顺序</strong>
-      {laneLabels.map((label, index) => <span key={label} style={{ transform: `translateY(${Math.round((150 + index * laneHeight) * props.viewport.zoom + props.viewport.y)}px)` }}><i />{label}</span>)}
+      {tracks.map((track) => <span key={track.id} data-track-id={track.id} data-detail={track.detail} style={{ transform: `translateY(${Math.round(track.coordinateY * props.viewport.zoom + props.viewport.y)}px)` }}><i />{track.label}</span>)}
     </div>
     {selectedX !== null && selectedY !== null ? <div className="temporal-crosshair" aria-label={`已定位事件：${selectedTitle ?? "当前事件"}`} style={{ "--crosshair-x": `${Math.round(selectedX)}px`, "--crosshair-y": `${Math.round(selectedY)}px` } as CSSProperties}><span>{selectedTitle}</span></div> : null}
     {unresolvedCount ? <aside className="temporal-unplaced-tray" aria-label="未定位事件"><strong>未定位</strong><span>{unresolvedCount} 个事件保留在托盘，未被塞到时间末尾。</span></aside> : null}
@@ -599,7 +620,7 @@ function SmartRelationReviewTray(props: {
       <span><strong>{candidate.suggestedTypeLabel}</strong><small>{Math.round(candidate.confidence * 100)}% · {candidate.rationale}</small></span>
       <select aria-label={`修改候选关系类型：${candidate.candidateId}`} value={candidate.suggestedTypeId ?? ""} disabled={candidate.reviewState !== "candidate" || props.busy} onChange={(event) => props.onChangeType(candidate.candidateId, event.target.value)}><option value="">类型待确认</option>{props.relationTypes.filter((type) => type.lifecycle === "active").map((type) => <option key={type.relationTypeId} value={type.relationTypeId}>{type.label}</option>)}</select>
     </label>)}</div>
-    <footer><button type="button" className="primary-action" disabled={!props.selectedIds.length || props.busy} onClick={props.onAccept}><Check />接受为待确认</button><button type="button" disabled={!props.selectedIds.length || props.busy} onClick={props.onReject}><X />批量拒绝</button></footer>
+    <footer><button type="button" className="primary-action" disabled={!props.selectedIds.length || props.busy || props.candidates.some((candidate) => props.selectedIds.includes(candidate.candidateId) && !candidate.suggestedTypeId)} title={props.candidates.some((candidate) => props.selectedIds.includes(candidate.candidateId) && !candidate.suggestedTypeId) ? "请先确认每条候选的关系类型" : undefined} onClick={props.onAccept}><Check />接受为待确认</button><button type="button" disabled={!props.selectedIds.length || props.busy} onClick={props.onReject}><X />批量拒绝</button></footer>
   </aside>;
 }
 

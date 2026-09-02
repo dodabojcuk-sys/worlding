@@ -660,7 +660,9 @@ export type NarrativeAuthority = "canon" | "author-intent" | "candidate" | "infe
 export type OutputArtifactType = "novel" | "screenplay" | "storyboard" | "comic" | "motion-comic" | "interactive-drama";
 export type StoryUnitSourceRef = { sourceKind: StoryUnitSourceKind; ownerId: string; entityId: string; entityVersion?: string; capturedAt: string; staleState?: "fresh" | "stale" | "missing" };
 export type StoryUnitItem = { id: string; kind: string; authority: NarrativeAuthority; possibilityStatus?: "proposed" | "compared" | "selected-for-output" | "rejected" | "paused" | "abandoned"; content: Record<string, unknown>; sourceRefs: StoryUnitSourceRef[]; evidenceRefs?: string[]; subjectRef?: string; createdBy: "author" | "system" | "ai" };
-export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
+export type StoryUnitKind = "main" | "branch";
+export type StoryUnitStatus = "draft" | "active" | "candidate" | "conflict" | "archived";
+export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; kind: StoryUnitKind; parentUnitId: string | null; branchPointEventId: string | null; mergeTargetUnitId: string | null; order: number; sourceVersionRef: string | null; status: StoryUnitStatus; objective: string; coreConflict: string; turningPoint: string; openHook: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
 export type OutputSourceUnitRef = { unitId: string; unitVersion: string; role: "primary" | "supporting"; includedItemIds: string[] };
 export type CreationSourceReconciliationReceipt = { schemaVersion: "tianyan-creation-source-reconciliation-receipt/r0"; artifactId: string; originalArtifactRevisionId: string; newArtifactRevisionId: string; sourceWorkVersionId: string; fromRevision: number; fromManifestDigest: string; toRevision: number; toManifestDigest: string; semanticDiffDigest: `sha256:${string}`; bodyDigestBefore: `sha256:${string}`; bodyDigestAfter: `sha256:${string}`; confirmedDifferenceIds: string[]; unresolvedDifferenceIds: string[]; idempotencyKey: string; executionStage: "artifact_revision_appended"; expectedWorkVersionReceiptId: string; blockedReason: null; createdAt: string };
 export type WorkVersionOutputArtifactSource = { schemaVersion: "tianyan-work-version-output-artifact-source/r0"; sourceKind: "work-version"; projectId: string; workVersionId: string; workVersionKind: "root"; pinnedRevision: number; manifestId: string; manifestDigest: string; selectedStoryUnitRefs: Array<{ unitId: string; unitVersion: string }>; selectedEventRefs: Array<{ eventId: string; eventRevision: string }>; sourceAnchorRefs: string[]; neutralStoryPackageId: string; neutralStoryPackageDigest: `sha256:${string}`; sourceOwnerReceiptRefs: string[]; creationOperationReceipt: { operationId: string; idempotencyKey: string; payloadDigest: `sha256:${string}` }; sourceReconciliationReceipt?: CreationSourceReconciliationReceipt; createdAt: string };
@@ -1754,6 +1756,17 @@ export async function createStoryUnit(input: {
   projectId: string;
   title: string;
   summary?: string;
+  kind?: StoryUnitKind;
+  parentUnitId?: string | null;
+  branchPointEventId?: string | null;
+  mergeTargetUnitId?: string | null;
+  order?: number;
+  sourceVersionRef?: string | null;
+  status?: StoryUnitStatus;
+  objective?: string;
+  coreConflict?: string;
+  turningPoint?: string;
+  openHook?: string;
   sourceRefs?: StoryUnitSourceRef[];
   items?: StoryUnitItem[];
   linkedEntityIds?: string[];
@@ -1771,6 +1784,17 @@ export async function updateStoryUnit(input: {
   expectedVersion: string;
   title?: string;
   summary?: string;
+  kind?: StoryUnitKind;
+  parentUnitId?: string | null;
+  branchPointEventId?: string | null;
+  mergeTargetUnitId?: string | null;
+  order?: number;
+  sourceVersionRef?: string | null;
+  status?: StoryUnitStatus;
+  objective?: string;
+  coreConflict?: string;
+  turningPoint?: string;
+  openHook?: string;
   lifecycle?: StoryUnit["lifecycle"];
   sourceRefs?: StoryUnitSourceRef[];
   items?: StoryUnitItem[];
@@ -2562,6 +2586,7 @@ export async function listTemporalProjectionRuns(projectId: string, token: strin
 export async function stopTemporalProjectionRun(input: { projectId: string; runId: string; token: string }): Promise<TemporalProjectionRunProjection> { const { token, ...body } = input; return tianyiRequest("temporal-projection/stop", token, body); }
 export async function retryTemporalProjectionRun(input: { projectId: string; runId: string; token: string }): Promise<TemporalProjectionRunProjection> { const { token, ...body } = input; return tianyiRequest("temporal-projection/retry", token, body); }
 export type StoryModelingRunProjection = import("../../../../src/storyContracts/storyModeling.ts").StoryModelingRun;
+export type StoryLogicReviewProjection = import("../../../../src/storyContracts/storyModeling.ts").StoryLogicReviewRecord;
 export type StoryModelingPlanProjection = { manifest: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingSourceManifest; scope: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingScope; modelingBasis: "original-sources" | "event-only"; recommendation: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingRecommendation; estimate: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingEstimate };
 export async function planStoryModeling(input: { projectId: string; tool: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingTool; scope: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingScope; eventRefs: import("../../../../src/storyContracts/storyStudioEventReference.ts").StoryStudioEventReference[]; previousManifestDigest?: string | null; structuralChange?: boolean; token: string }): Promise<StoryModelingPlanProjection> { const { token, ...body } = input; return tianyiRequest("story-modeling/plan", token, body); }
 export async function createStoryModelingRunTransport(input: { request: import("../../../../src/storyContracts/storyModeling.ts").StoryModelingRequest; runId: string; token: string }): Promise<StoryModelingRunProjection> { const { token, ...body } = input; return tianyiRequest("story-modeling/create", token, body); }
@@ -2569,6 +2594,8 @@ export async function executeStoryModelingRunTransport(input: { projectId: strin
 export async function getStoryModelingRun(input: { projectId: string; runId: string; token: string }): Promise<StoryModelingRunProjection | null> { const { token, ...body } = input; return tianyiRequest("story-modeling/read", token, body); }
 export async function listStoryModelingRuns(projectId: string, token: string): Promise<StoryModelingRunProjection[]> { return tianyiRequest("story-modeling/list", token, { projectId }); }
 export async function stopStoryModelingRunTransport(input: { projectId: string; runId: string; token: string }): Promise<StoryModelingRunProjection> { const { token, ...body } = input; return tianyiRequest("story-modeling/stop", token, body); }
+export async function listStoryLogicReviews(projectId: string, token: string): Promise<StoryLogicReviewProjection[]> { return tianyiRequest("story-modeling/logic-reviews/list", token, { projectId }); }
+export async function reviewStoryLogicFinding(input: { projectId: string; findingId: string; source: "local" | "ai"; evidenceRefs: string[]; authorStatus: "ignored" | "resolved"; token: string }): Promise<StoryLogicReviewProjection> { const { token, ...body } = input; return tianyiRequest("story-modeling/logic-reviews/review", token, body); }
 export async function getMultiNodePredictionReview(projectId: string, reviewId: string): Promise<MultiNodePredictionReviewProjection | null> { return request(`${basePath}/author-control/prediction-review?projectId=${encodeURIComponent(projectId)}&reviewId=${encodeURIComponent(reviewId)}`); }
 export async function listMultiNodePredictionReviews(projectId: string, runId: string): Promise<MultiNodePredictionReviewProjection[]> { return request(`${basePath}/author-control/prediction-review?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`); }
 export async function createMultiNodePredictionReview(input: { projectId: string; runId: string; pathId: string; selectedCandidateNodeIds: string[]; decidedAt: string; token: string }): Promise<MultiNodePredictionReviewProjection> { const { token, ...body } = input; return request(`${basePath}/author-control/prediction-review/create`, { method: "POST", token, body }); }

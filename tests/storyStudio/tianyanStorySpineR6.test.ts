@@ -22,8 +22,8 @@ test("unit and event controls route to existing owners and preserve cross-view i
   assert.match(projection, /archiveStoryUnit/u);
   assert.match(workbench, /openEventInView\(eventId, "graph"\)/u);
   assert.match(workbench, /openEventInView\(eventId, "timeline"\)/u);
-  assert.match(workbench, /当前 Unit owner 尚无批量拆分事务合同/u);
-  assert.match(workbench, /Nuwa 范围移交 owner 合同尚未建立/u);
+  assert.doesNotMatch(workbench, /当前 Unit owner 尚无批量拆分事务合同/u);
+  assert.doesNotMatch(workbench, /Nuwa 范围移交 owner 合同尚未建立/u);
 });
 
 test("bottom AI tools occupy their own layout row instead of covering the story canvas", () => {

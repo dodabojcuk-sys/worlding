@@ -148,6 +148,16 @@ export type StoryLogicFinding = {
   authorStatus: "pending" | "ignored" | "resolved";
 };
 
+export type StoryLogicReviewRecord = {
+  version: "story-modeling-logic-review/v1";
+  projectId: string;
+  findingId: string;
+  source: StoryLogicFinding["source"];
+  evidenceDigest: `sha256:${string}`;
+  authorStatus: Exclude<StoryLogicFinding["authorStatus"], "pending">;
+  updatedAt: string;
+};
+
 export type PerspectiveMatch = {
   matchId: string;
   perspectiveType: "character" | "location" | "item";

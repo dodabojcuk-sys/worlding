@@ -1516,7 +1516,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/story-units/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "title", "summary", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
+    requireAllowedKeys(body, ["projectId", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
     recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createStoryUnit(body)) });
     return;
@@ -1524,7 +1524,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/story-units/update") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "unitId", "expectedVersion", "title", "summary", "lifecycle", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
+    requireAllowedKeys(body, ["projectId", "unitId", "expectedVersion", "title", "summary", "kind", "parentUnitId", "branchPointEventId", "mergeTargetUnitId", "order", "sourceVersionRef", "status", "objective", "coreConflict", "turningPoint", "openHook", "lifecycle", "sourceRefs", "items", "linkedEntityIds", "unresolvedQuestionIds", "generationConstraints"]);
     recordAuthorInitiatedAction(body.projectId, "draft-write", "story-range", [body.unitId]);
     sendJson(response, 200, { data: runProductOperation(() => operations.updateStoryUnit(body)) });
     return;
@@ -3283,6 +3283,8 @@ async function handleTianyiRequest(request, response, url) {
     "story-modeling/read": [["projectId", "runId"], () => tianyi.readStoryModelingRun(body)],
     "story-modeling/list": [["projectId"], () => tianyi.listStoryModelingRuns(body)],
     "story-modeling/stop": [["projectId", "runId"], () => tianyi.stopStoryModelingRun(body)],
+    "story-modeling/logic-reviews/list": [["projectId"], () => tianyi.listStoryLogicReviews(body)],
+    "story-modeling/logic-reviews/review": [["projectId", "findingId", "source", "evidenceRefs", "authorStatus"], () => tianyi.reviewStoryLogicFinding(body)],
     "project-resume": [["projectId", "agentId"], () => tianyi.getTianyiProjectResume(body)],
     "context-projection": [["projectId", "contextRequest"], () => tianyi.getTianyiContextProjection(body)],
     "session/open": [["projectId", "operationId", "retentionMode"], () => tianyi.openTianyiSession(body)],

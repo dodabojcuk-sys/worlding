@@ -14,14 +14,18 @@ import {
   type StoryModelingRequest,
   type StoryModelingRun,
   type StoryModelingScope,
-  type StoryModelingTool
+  type StoryModelingTool,
+  type StoryLogicFinding,
+  type StoryLogicReviewRecord
 } from "../storyContracts/storyModeling.ts";
 import { assertStoryStudioEventReferenceEligibility, type StoryStudioEventReference } from "../storyContracts/storyStudioEventReference.ts";
 import { publishFileNoReplace, readExistingUtf8, replaceFileAtomically } from "./atomicNoReplaceFile.ts";
 import { createStoryStudioWorkspaceOperations } from "./storyStudioWorkspaceOperations.ts";
 
 const STORE_VERSION = "story-studio-story-modeling-run/v1" as const;
+const LOGIC_REVIEW_STORE_VERSION = "story-studio-logic-review-store/v1" as const;
 type StoredRun = StoryModelingRun & { storeVersion: typeof STORE_VERSION };
+type LogicReviewStore = { version: typeof LOGIC_REVIEW_STORE_VERSION; projectId: string; records: StoryLogicReviewRecord[] };
 
 export function createStoryStudioStoryModelingOperations(options: {
   rootPath: string;
@@ -37,6 +41,7 @@ export function createStoryStudioStoryModelingOperations(options: {
   const active = new Map<string, AbortController>();
   const projectPath = (projectId: string) => workspace.resolveProjectWorkspacePath({ projectId });
   const runFile = (projectId: string, runId: string) => path.join(projectPath(projectId), ".world-os", "tianyi", "story-modeling", `${safeRunId(runId)}.json`);
+  const logicReviewFile = (projectId: string) => path.join(projectPath(projectId), ".world-os", "tianyi", "story-modeling", "reviews", "logic.json");
 
   return {
     planStoryModeling(input: { projectId: string; tool: StoryModelingTool; scope: StoryModelingScope; eventRefs: StoryStudioEventReference[]; previousManifestDigest?: string | null; structuralChange?: boolean }) {
@@ -97,7 +102,19 @@ export function createStoryStudioStoryModelingOperations(options: {
     },
     readStoryModelingRun(input: { projectId: string; runId: string }) { return readStored(input.projectId, input.runId); },
     listStoryModelingRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(run)); },
-    stopStoryModelingRun(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); active.get(`${run.projectId}\u0000${run.runId}`)?.abort(); return structuredClone(replace({ ...run, status: "stopped", progress: { ...run.progress, currentBatch: null, stage: "stopped" }, budgetReservation: { ...run.budgetReservation, status: "released" }, completedAt: now(), failureReason: "作者已停止本次故事建模。" })); }
+    stopStoryModelingRun(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); active.get(`${run.projectId}\u0000${run.runId}`)?.abort(); return structuredClone(replace({ ...run, status: "stopped", progress: { ...run.progress, currentBatch: null, stage: "stopped" }, budgetReservation: { ...run.budgetReservation, status: "released" }, completedAt: now(), failureReason: "作者已停止本次故事建模。" })); },
+    listStoryLogicReviews(input: { projectId: string }) { return structuredClone(readLogicReviews(input.projectId).records); },
+    reviewStoryLogicFinding(input: { projectId: string; findingId: string; source: StoryLogicFinding["source"]; evidenceRefs: string[]; authorStatus: "ignored" | "resolved" }) {
+      const findingId = safeFindingId(input.findingId);
+      if (input.source !== "local" && input.source !== "ai") throw new Error("Story logic review source is invalid.");
+      if (input.authorStatus !== "ignored" && input.authorStatus !== "resolved") throw new Error("Story logic review status is invalid.");
+      if (!Array.isArray(input.evidenceRefs) || input.evidenceRefs.length > 256 || input.evidenceRefs.some((ref) => typeof ref !== "string" || !ref.trim() || ref.length > 240)) throw new Error("Story logic review evidence is invalid.");
+      const store = readLogicReviews(input.projectId);
+      const record: StoryLogicReviewRecord = { version: "story-modeling-logic-review/v1", projectId: input.projectId, findingId, source: input.source, evidenceDigest: digest(JSON.stringify([...new Set(input.evidenceRefs)].sort())), authorStatus: input.authorStatus, updatedAt: now() };
+      const next = { ...store, records: [...store.records.filter((item) => item.findingId !== findingId), record].sort((left, right) => left.findingId.localeCompare(right.findingId)) };
+      replaceFileAtomically({ rootPath: projectPath(input.projectId), targetPath: logicReviewFile(input.projectId), content: `${JSON.stringify(next, null, 2)}\n` });
+      return structuredClone(record);
+    }
   };
 
   function snapshotRequest(projectId: string, refs: StoryStudioEventReference[]): { events: Array<{ reference: StoryStudioEventReference; event: ReturnType<typeof workspace.readWorldObject> }>; sources: StoryModelingEvidenceSource[] } {
@@ -124,6 +141,13 @@ export function createStoryStudioStoryModelingOperations(options: {
   function replace(run: StoredRun): StoredRun { replaceFileAtomically({ rootPath: projectPath(run.projectId), targetPath: runFile(run.projectId, run.runId), content: `${JSON.stringify(run, null, 2)}\n` }); return run; }
   function requireRun(projectId: string, runId: string): StoredRun { const run = readStored(projectId, runId); if (!run) throw new Error("Story modeling Run does not exist."); return run; }
   function list(projectId: string): StoredRun[] { const dir = path.dirname(runFile(projectId, "story-modeling-run.placeholder")); if (!existsSync(dir)) return []; return readdirSync(dir).filter((entry) => entry.endsWith(".json")).flatMap((entry) => { const run = readStored(projectId, entry.slice(0, -5)); return run ? [run] : []; }).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
+  function readLogicReviews(projectId: string): LogicReviewStore {
+    const source = readExistingUtf8(projectPath(projectId), logicReviewFile(projectId));
+    if (!source) return { version: LOGIC_REVIEW_STORE_VERSION, projectId, records: [] };
+    const parsed = JSON.parse(source) as LogicReviewStore;
+    if (parsed.version !== LOGIC_REVIEW_STORE_VERSION || parsed.projectId !== projectId || !Array.isArray(parsed.records)) throw new Error("Story logic review artifact scope is invalid.");
+    return parsed;
+  }
 }
 
 function resolveScope(scope: StoryModelingScope, sources: Array<{ sourceId: string; dependencySourceIds: string[] }>, eventRefs: StoryStudioEventReference[], changed: string[]): StoryModelingScope {
@@ -139,6 +163,7 @@ function resolveScope(scope: StoryModelingScope, sources: Array<{ sourceId: stri
 function changedSources(current: Array<{ sourceId: string; revision: string; contentDigest: string }>, previous: Array<{ sourceId: string; revision: string; contentDigest: string }>): string[] { const prior = new Map(previous.map((source) => [source.sourceId, source])); return current.filter((source) => { const before = prior.get(source.sourceId); return !before || before.revision !== source.revision || before.contentDigest !== source.contentDigest; }).map((source) => source.sourceId); }
 function digest(value: string): `sha256:${string}` { return `sha256:${createHash("sha256").update(value).digest("hex")}`; }
 function safeRunId(value: string): string { if (!/^story-modeling-run\.[\p{L}\p{N}._:-]+$/u.test(value)) throw new Error("Story modeling Run identifier is invalid."); return value; }
+function safeFindingId(value: string): string { if (!/^[\p{L}\p{N}._:-]{1,180}$/u.test(value)) throw new Error("Story logic finding identifier is invalid."); return value; }
 function roundUsd(value: number): number { return Math.round(value * 1_000_000) / 1_000_000; }
 
 export type StoryStudioStoryModelingOperations = ReturnType<typeof createStoryStudioStoryModelingOperations>;

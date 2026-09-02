@@ -101,6 +101,21 @@ test("results from multiple StoryModeling tools survive an operations restart", 
   } finally { await fixture.dispose(); }
 });
 
+test("logic finding author review is persisted by StoryModeling storage across restart", async () => {
+  const fixture = await setup();
+  try {
+    const first = createStoryStudioStoryModelingOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, gateway: createStoryModelingTestGateway(), now: () => "2026-09-02T03:00:00.000Z" });
+    const record = first.reviewStoryLogicFinding({ projectId: fixture.projectId, findingId: "logic-finding.temporal-1", source: "local", evidenceRefs: [`event:${fixture.refs[0]!.eventId}`, `event:${fixture.refs[1]!.eventId}`], authorStatus: "ignored" });
+    assert.equal(record.authorStatus, "ignored");
+    assert.match(record.evidenceDigest, /^sha256:[a-f0-9]{64}$/u);
+    const restarted = createStoryStudioStoryModelingOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, gateway: createStoryModelingTestGateway() });
+    assert.deepEqual(restarted.listStoryLogicReviews({ projectId: fixture.projectId }), [record]);
+    const updated = restarted.reviewStoryLogicFinding({ projectId: fixture.projectId, findingId: record.findingId, source: "local", evidenceRefs: [`event:${fixture.refs[0]!.eventId}`, `event:${fixture.refs[1]!.eventId}`], authorStatus: "resolved" });
+    assert.equal(updated.authorStatus, "resolved");
+    assert.equal(restarted.listStoryLogicReviews({ projectId: fixture.projectId }).length, 1);
+  } finally { await fixture.dispose(); }
+});
+
 async function setup() {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyan-story-modeling-"));
   const stateFilePath = path.join(rootPath, "state.json");

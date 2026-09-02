@@ -823,6 +823,22 @@ async function setupEventGraphFixture() {
   }));
   const eventByTitle = new Map(structuredEvents.map((event) => [String(event.title).replace(/ · 立即揭示$/u, ""), event.id]));
   assert.equal(eventTitles.every((title) => eventByTitle.has(title)), true, "The fixture must resolve each confirmed Event through the Canon read owner before relation setup.");
+  const unitList = await getFixture(`${base}/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const currentBranch = unitList.data.find((unit) => unit.id === branchStoryUnit.data.result.id);
+  const currentMain = unitList.data.find((unit) => unit.id === storyUnit.data.result.id);
+  assert.ok(currentBranch && currentMain, "The formal Unit owner must retain both fixture units.");
+  await postFixture(`${base}/story-units/update`, {
+    projectId: fixtureProjectId,
+    unitId: currentBranch.id,
+    expectedVersion: currentBranch.version,
+    kind: "branch",
+    parentUnitId: currentMain.id,
+    branchPointEventId: eventByTitle.get("旧城停电"),
+    mergeTargetUnitId: currentMain.id,
+    order: 1,
+    sourceVersionRef: "fixture:r8:event-graph",
+    status: "active"
+  });
   const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const relationType = await postFixture(`${base}/relations/types/create`, {
     projectId: fixtureProjectId, label: "促使", description: "隔离关系图验收用的正式推进关系。",
