@@ -977,6 +977,17 @@ async function assertEventGraphWorkspace(page) {
   assert.ok(closedGeometry.nodeTitleFont >= 13, `Node title font=${closedGeometry.nodeTitleFont}`);
   assert.equal(closedGeometry.giantTitleVisible, false, "Graph mode must not retain the prose title area.");
   assert.equal(closedGeometry.pageToolsVisible, false, "Page tools may not create a second permanent right rail in graph mode.");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(180);
+  const intermediateGeometry = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > window.innerWidth,
+    flowWidth: document.querySelector(".event-graph-flow")?.getBoundingClientRect().width ?? 0,
+    nodeWidth: document.querySelector(".event-graph-node:not(.is-remote)")?.getBoundingClientRect().width ?? 0
+  }));
+  assert.equal(intermediateGeometry.overflow, false, `1280 workspace must not overflow=${JSON.stringify(intermediateGeometry)}`);
+  assert.ok(intermediateGeometry.flowWidth >= 800 && intermediateGeometry.nodeWidth >= 170, `1280 canvas and Event nodes remain readable=${JSON.stringify(intermediateGeometry)}`);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(180);
   const before = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const formalBefore = before.data.relations.filter((relation) => relation.reviewState === "confirmed").length;
   assert.equal(before.data.relations.filter((relation) => relation.reviewState === "candidate").length, 1, "The fixture starts with exactly one unconfirmed relation candidate.");
