@@ -220,7 +220,7 @@ function parseStoryLineKind(value: string | null): EventStoryLineKind {
   if (/(?:location|地点)/u.test(value)) return "location";
   if (/(?:item|物品)/u.test(value)) return "item";
   if (/(?:foreshadow|伏笔)/u.test(value)) return "foreshadow";
-  return lower === "main" ? "main" : "custom";
+  return lower === "main" || /主线/u.test(value) ? "main" : "custom";
 }
 
 function edgeLabel(kind: EventSemanticEdgeKind): string {

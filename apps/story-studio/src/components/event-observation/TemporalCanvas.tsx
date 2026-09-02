@@ -29,7 +29,7 @@ export function TemporalCanvas(props: {
 }) {
   const [flow, setFlow] = useState<ReactFlowInstance<Node<TemporalNodeData>, Edge> | null>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
-  const detail = viewport.zoom < .72 ? "compact" : viewport.zoom > 1.18 ? "expanded" : "standard";
+  const detail = viewport.zoom < .9 ? "compact" : viewport.zoom > 1.18 ? "expanded" : "standard";
   const projection = useMemo(() => buildTemporalCanvasProjection(props.events, props.relations, props.temporalRun, detail, props.selectedEventId), [detail, props.events, props.relations, props.selectedEventId, props.temporalRun]);
   const selectedNode = projection.nodes.find((node) => node.id === props.selectedEventId) ?? null;
   const focusCurrent = useCallback(() => {
@@ -64,7 +64,7 @@ export function TemporalCanvas(props: {
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        minZoom={.58}
+        minZoom={.82}
         maxZoom={1.6}
         defaultViewport={{ x: 72, y: 26, zoom: .88 }}
         proOptions={{ hideAttribution: true }}
@@ -147,7 +147,7 @@ function TemporalCoordinateOverlay(props: { nodes: readonly Node<TemporalNodeDat
   const ruler = resolved.filter((_, index) => props.detail !== "compact" || index % 2 === 0).slice(0, 14);
   return <div className="temporal-coordinate-overlay" aria-label="二维时间坐标" data-zoom-density={props.detail}>
     <div className="temporal-top-ruler" aria-label="时间标尺"><strong>故事时间 →</strong>{ruler.map((node) => <span key={node.id} style={{ left: `${node.position.x * props.viewport.zoom + props.viewport.x}px` }}><i />{node.data.timeLabel}</span>)}</div>
-    <div className="temporal-left-scale" aria-label="稳定故事轨道"><strong>稳定轨道</strong>{TEMPORAL_COORDINATE_TRACKS.map((track) => <span key={track.id} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
+    <div className="temporal-left-scale" aria-label="稳定故事轨道"><strong>稳定轨道</strong>{TEMPORAL_COORDINATE_TRACKS.map((track) => <span key={track.id} data-track-id={track.id} style={{ top: `${track.coordinateY * props.viewport.zoom + props.viewport.y + 48}px` }}><i />{track.label}</span>)}</div>
     {props.selected && props.selectedScreenPosition ? <div className="temporal-crosshair" style={{ "--crosshair-x": `${props.selectedScreenPosition.x}px`, "--crosshair-y": `${props.selectedScreenPosition.y}px` } as CSSProperties}><span>{props.selected.data.title}</span></div> : null}
     {props.unresolvedCount ? <aside className="temporal-unplaced-tray" aria-label="未定位事件"><Clock3 /><strong>未定位托盘 · {props.unresolvedCount}</strong><span>未知时间保持未定位，不会被塞到时间末尾。</span></aside> : null}
     {props.conflictCount ? <aside className="temporal-conflict-zone" aria-label="时间冲突区"><AlertTriangle /><strong>冲突区域 · {props.conflictCount}</strong><span>冲突事件与正式时间、推断区间严格分离。</span></aside> : null}

@@ -733,8 +733,8 @@
 .shell-workspace-event-line .temporal-commandbar button svg { inline-size: .9rem; }
 .shell-workspace-event-line .temporal-flow { position: relative; min-block-size: 0; overflow: hidden; background: color-mix(in srgb, var(--color-workspace-background) 98%, var(--color-accent-soft)); }
 .shell-workspace-event-line .temporal-flow > .react-flow { position: absolute; inset: 0; }
-.shell-workspace-event-line .temporal-event-node { inline-size: 13.25rem; }
-.shell-workspace-event-line .temporal-event-card { display: grid; gap: .28rem; inline-size: 13.25rem; min-block-size: 6.25rem; padding: .65rem .72rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-inline-start: .28rem solid var(--color-accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+.shell-workspace-event-line .temporal-event-node { inline-size: 14rem; }
+.shell-workspace-event-line .temporal-event-card { display: grid; gap: .28rem; inline-size: 14rem; min-block-size: 6.25rem; padding: .65rem .72rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-inline-start: .28rem solid var(--color-accent); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
 .shell-workspace-event-line .temporal-event-card > header { display: flex; align-items: center; gap: .28rem; color: var(--color-accent); font-size: .75rem; font-weight: 700; }
 .shell-workspace-event-line .temporal-event-card > header svg { inline-size: .82rem; }
 .shell-workspace-event-line .temporal-event-card > strong { overflow: hidden; font-size: .875rem; text-overflow: ellipsis; white-space: nowrap; }

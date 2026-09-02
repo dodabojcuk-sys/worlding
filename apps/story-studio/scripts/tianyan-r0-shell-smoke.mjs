@@ -35,6 +35,7 @@ const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || nul
 const r6CloseoutDirectory = process.env.TIANYAN_R6_CLOSEOUT_DIR || null;
 const r7CloseoutDirectory = process.env.TIANYAN_R7_CLOSEOUT_DIR || null;
 const r8CloseoutDirectory = process.env.TIANYAN_R8_CLOSEOUT_DIR || null;
+const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
@@ -42,6 +43,7 @@ const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeli
 const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
 const r7RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r7-interaction-recording";
 const r8RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r8-foundation-recording";
+const r9RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r9-evidence-recording";
 let timelineFixture = null;
 let server;
 let apiServer;
@@ -66,7 +68,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly ? "900" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -92,7 +94,12 @@ try {
   page.on("response", (response) => response.status() >= 400 && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (r8RecordingOnly) {
+  if (r9RecordingOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await setupTimelineFixture();
+    await recordR9Evidence();
+  } else if (r8RecordingOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await setupTimelineFixture();
@@ -1902,6 +1909,150 @@ async function recordTemporalProjectionOperation() {
   const recordingPath = video ? await video.path() : null;
   if (!recordingPath) throw new Error("Semantic timeline recording was not written.");
   writeFileSync(path.join(temporalProjectionRecordingDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
+}
+
+async function recordR9Evidence() {
+  if (!r9EvidenceDirectory) throw new Error("TIANYAN_R9_EVIDENCE_DIR is required for R9 evidence recording.");
+  mkdirSync(r9EvidenceDirectory, { recursive: true });
+  const record = async (viewport, name, operation) => {
+    const context = await browser.newContext({ viewport, recordVideo: { dir: r9EvidenceDirectory, size: viewport } });
+    const page = await context.newPage();
+    const video = page.video();
+    const consoleProblems = [];
+    page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
+    page.on("pageerror", (error) => consoleProblems.push(error.message));
+    await operation(page);
+    assert.deepEqual(consoleProblems, [], `${name} recording may not contain browser warnings or errors.`);
+    await context.close();
+    const source = video ? await video.path() : null;
+    if (!source) throw new Error(`${name} recording was not written.`);
+    copyFileSync(source, path.join(r9EvidenceDirectory, `${name}.webm`));
+  };
+  const pause = (page, duration = 750) => page.waitForTimeout(duration);
+  const shot = (page, name) => page.screenshot({ path: path.join(r9EvidenceDirectory, name), fullPage: false });
+
+  await record({ width: 1440, height: 900 }, "TIANYAN_R9_1440x900_FULL_FLOW", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+
+    await switchEventView(page, "视角");
+    const perspective = page.getByLabel("事件视角轴");
+    const choices = perspective.locator('.event-perspective-picker input[type="checkbox"]');
+    assert.ok(await choices.count() >= 2, "R9 evidence requires two formal perspective Owner objects.");
+    await choices.nth(0).click();
+    await page.waitForFunction(() => /从 .+ 看故事/u.test(document.querySelector(".event-perspective-canvas h2")?.textContent ?? ""));
+    assert.equal(await perspective.getAttribute("data-provider-calls-on-open"), "0");
+    await shot(page, "01-1440-single-owner-perspective.png");
+    await pause(page);
+    await choices.nth(1).click();
+    await page.waitForFunction(() => /知情比较/u.test(document.querySelector(".event-perspective-canvas h2")?.textContent ?? ""));
+    await shot(page, "02-1440-multi-owner-comparison.png");
+    await pause(page);
+
+    await switchEventView(page, "事件线");
+    const narrative = page.getByLabel("水平事件编排工作区");
+    await narrative.waitFor();
+    const eventNodes = narrative.locator(".event-graph-node:not(.is-remote)");
+    await eventNodes.filter({ hasText: "林昭隐瞒真相" }).click({ force: true });
+    await page.keyboard.down("Shift");
+    await eventNodes.filter({ hasText: "雨夜追踪" }).click({ force: true });
+    await page.keyboard.up("Shift");
+    const selectionBar = page.getByTestId("event-graph-selection-bar");
+    await selectionBar.waitFor();
+    await selectionBar.getByRole("button", { name: "创建集点", exact: true }).click();
+    await selectionBar.getByPlaceholder("集点名称").fill("线索交汇");
+    await selectionBar.getByRole("button", { name: "保存集点", exact: true }).click();
+    await page.getByText("集点已保存；Event 身份与正式 Relation 端点未改变。", { exact: true }).waitFor();
+    const setPoint = narrative.locator(".event-graph-collection-point").filter({ hasText: "线索交汇" });
+    await setPoint.waitFor();
+    const setPointBox = await setPoint.boundingBox();
+    if (setPointBox) {
+      await page.mouse.move(setPointBox.x + setPointBox.width / 2, setPointBox.y + 16);
+      await page.mouse.down();
+      await page.mouse.move(setPointBox.x + setPointBox.width / 2 + 72, setPointBox.y + 46, { steps: 8 });
+      await page.mouse.up();
+    }
+    await setPoint.getByRole("button").click({ force: true });
+    await narrative.locator(".event-graph-collection-point.is-collapsed").filter({ hasText: "线索交汇" }).waitFor();
+    await shot(page, "03-1440-set-point-created-moved-collapsed.png");
+    await pause(page);
+
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventView=line&eventGraphFixture=density50`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+    await page.getByLabel("水平事件编排工作区").waitFor();
+    assert.equal(await page.locator('[data-event-graph-density="synthetic-50"]').count(), 1);
+    assert.ok(await page.locator(".event-narrative-track-label").count() >= 4, "Density evidence must expose a main track and three branch tracks.");
+    await pause(page, 500);
+    await shot(page, "04-1440-horizontal-three-branch-two-merge-layout.png");
+    const densityFlow = page.locator(".event-graph-flow");
+    const densityBox = await densityFlow.boundingBox();
+    assert.ok(densityBox, "Density evidence canvas must support horizontal inspection.");
+    for (let step = 0; step < 3; step += 1) {
+      await page.mouse.move(densityBox.x + densityBox.width * .78, densityBox.y + densityBox.height * .5);
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(densityBox.x + densityBox.width * .24, densityBox.y + densityBox.height * .5, { steps: 12 });
+      await page.mouse.up({ button: "middle" });
+      await pause(page, 650);
+    }
+
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventView=timeline`);
+    await page.getByLabel("独立时间线工作区").waitFor();
+    await openStoryModelingTools(page);
+    await page.getByRole("button", { name: "推断时间位置", exact: true }).click();
+    const confirmation = page.getByTestId("story-modeling-confirmation");
+    await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
+    await page.getByLabel("独立时间线工作区").getByRole("button", { name: "时间总览", exact: true }).click();
+    assert.equal(await page.getByLabel("稳定故事轨道").locator("[data-track-id]").count(), 3);
+    await shot(page, "05-1440-ai-temporal-composition-branch-tracks.png");
+    await pause(page, 1_100);
+  });
+
+  await record({ width: 1152, height: 720 }, "TIANYAN_R9_1152x720_RESPONSIVE", async (page) => {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventView=line`);
+    await closeGlobalTianyiIfOpen(page);
+    if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+    const flow = page.locator(".event-graph-flow");
+    const viewportBefore = await flow.locator(".react-flow__viewport").getAttribute("style");
+    const box = await flow.boundingBox();
+    assert.ok(box, "R9 1152 narrative canvas must be interactive.");
+    await page.mouse.move(box.x + box.width * .62, box.y + box.height * .56);
+    await page.mouse.down({ button: "middle" });
+    await page.mouse.move(box.x + box.width * .42, box.y + box.height * .56, { steps: 10 });
+    await page.mouse.up({ button: "middle" });
+    assert.notEqual(await flow.locator(".react-flow__viewport").getAttribute("style"), viewportBefore, "R9 1152 Event line must pan instead of shrinking indefinitely.");
+    await shot(page, "08-1152-set-point-event-line-pan.png");
+    await pause(page);
+
+    await switchEventView(page, "时间轴");
+    const timeline = page.getByLabel("独立时间线工作区");
+    await timeline.waitFor();
+    await timeline.getByRole("button", { name: "时间总览", exact: true }).click();
+    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
+    const minimumNodeWidth = Math.min(...await page.locator(".temporal-event-card").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width)));
+    assert.ok(minimumNodeWidth >= 170, `R9 1152 timeline cards remain readable: ${minimumNodeWidth}`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R9 1152 workspace may not create page-level overflow.");
+    await shot(page, "07-1152-timeline-tianyi-348.png");
+    await pause(page, 1_100);
+  });
+
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const consoleProblems = [];
+  page.on("console", (message) => ["error", "warning"].includes(message.type()) && consoleProblems.push(`${message.type()}: ${message.text()}`));
+  page.on("pageerror", (error) => consoleProblems.push(error.message));
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventView=spine`);
+  await closeGlobalTianyiIfOpen(page);
+  if (await page.getByRole("button", { name: "关闭工程目录", exact: true }).count()) await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+  await page.getByLabel("故事脊柱主控结构").waitFor();
+  await page.getByLabel("层级").selectOption("far");
+  assert.ok(await page.locator(".story-spine-unit.is-branch-unit").count() >= 1);
+  await page.screenshot({ path: path.join(r9EvidenceDirectory, "06-1280-story-spine-branch-topology.png"), fullPage: false });
+  assert.deepEqual(consoleProblems, [], "R9 1280 story spine may not contain browser warnings or errors.");
+  await context.close();
 }
 
 async function recordR8Foundation() {

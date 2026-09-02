@@ -325,6 +325,7 @@ export function EventGraphCanvas(props: {
           }
           else if (["overview", "focus", "review"].includes(predictionViewState)) fitPredictionProjection(flow, graph.nodes);
           else if (view === "focus") void fitFocusProjection(flow, graph.nodes, railOpen);
+          else if (canvasKind === "narrative") fitNarrativeProjection(flow, graph.nodes);
           else void flow.fitView({ padding: railOpen ? 0.24 : 0.08, duration: 0, maxZoom: 1.05 });
         }
       }, 180);
@@ -534,10 +535,10 @@ export function EventGraphCanvas(props: {
           }}
           onInit={setFlow}
           fitView={mode !== "temporal"}
-          minZoom={mode === "temporal" ? 0.58 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : canvasKind === "narrative" ? 0.68 : 0.25}
+          minZoom={mode === "temporal" ? 0.58 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : canvasKind === "narrative" ? 0.86 : 0.25}
           maxZoom={1.8}
           onMove={(_, viewport) => {
-            setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
+            setSemanticZoom(viewport.zoom < (canvasKind === "narrative" ? .92 : .72) ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
             if (mode === "temporal") setTemporalViewport(viewport);
           }}
           nodesDraggable={mode === "graph"}
@@ -1026,6 +1027,24 @@ function fitPredictionProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, 
     : (canvas.width - contentWidth * zoom) / 2 - minX * zoom;
   const y = (canvas.height - contentHeight * zoom) / 2 - minY * zoom;
   void flow.setViewport({ x, y, zoom }, { duration: 0 });
+}
+function fitNarrativeProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[]) {
+  const canvas = document.querySelector<HTMLElement>('[data-canvas-kind="narrative"] .event-graph-flow')?.getBoundingClientRect();
+  const content = nodes.filter((node) => node.type === "event" || node.type === "narrativeTrack");
+  if (!canvas || !content.length) return;
+  const dimensions = (node: Node<NodeData>) => node.type === "narrativeTrack" ? { width: 148, height: 30 } : { width: 234, height: 164 };
+  const minX = Math.min(...content.map((node) => node.position.x));
+  const minY = Math.min(...content.map((node) => node.position.y));
+  const maxY = Math.max(...content.map((node) => node.position.y + dimensions(node).height));
+  const zoom = .9;
+  const padding = 28;
+  const contentHeight = (maxY - minY) * zoom;
+  const y = contentHeight <= canvas.height - padding * 2
+    ? (canvas.height - contentHeight) / 2 - minY * zoom
+    : padding - minY * zoom;
+  // Wide narrative paths start at the authored beginning and remain pannable;
+  // they are never centered as one tiny, unreadable wall of cards.
+  void flow.setViewport({ x: padding - minX * zoom, y, zoom }, { duration: 0 });
 }
 function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes: readonly Node<NodeData>[], selectedEventId: string | null) {
   const canvas = document.querySelector<HTMLElement>(".event-graph-workspace.is-temporal .event-graph-flow")?.getBoundingClientRect();

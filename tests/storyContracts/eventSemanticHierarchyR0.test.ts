@@ -12,6 +12,7 @@ test("Event semantic hierarchy reuses event ids and keeps adjacency separate fro
   assert.equal(hierarchy.setPoints.length, 2);
   assert.equal(hierarchy.nodes[1]?.id, "event.b");
   assert.equal(hierarchy.nodes[1]?.status, "confirmed");
+  assert.equal(hierarchy.nodes[0]?.storyLine.kind, "main", "Chinese 主线 is the formal main track, not a custom branch.");
   assert.equal(hierarchy.nodes[1]?.time.kind, "unknown");
   assert.ok(hierarchy.edges.some((edge) => edge.kind === "causal" && edge.source === "event.a" && edge.target === "event.b"));
   assert.ok(hierarchy.edges.some((edge) => edge.kind === "adjacent" && edge.label.includes("非因果")));

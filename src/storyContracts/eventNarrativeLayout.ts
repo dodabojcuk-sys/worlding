@@ -36,7 +36,9 @@ export function buildEventNarrativeLayout(input: { events: readonly NarrativeLay
       : orderIndex.get(id) ?? 0);
   }
   const trackKeys = ["main", ...new Set(events.filter((event) => event.trackKind === "branch" || event.trackId).map((event) => event.trackId || "branch"))];
-  const tracks = trackKeys.map((id, index) => ({ id, kind: (id === "main" ? "main" : "branch") as "main" | "branch", y: 160 + index * 230, eventIds: [] as string[] }));
+  // Keep four authored tracks readable at 1440px without fitting the whole
+  // narrative into an illegible miniature. Wider stories remain pannable.
+  const tracks = trackKeys.map((id, index) => ({ id, kind: (id === "main" ? "main" : "branch") as "main" | "branch", y: 160 + index * 190, eventIds: [] as string[] }));
   const trackById = new Map(tracks.map((track) => [track.id, track]));
   const positions: Record<string, { x: number; y: number }> = {};
   for (const event of events) {

@@ -21,6 +21,7 @@ test("event narrative layout advances left to right across stable main and branc
   assert.ok(projection.positions["event.branch"]!.y > projection.positions["event.a"]!.y);
   assert.ok(projection.positions["event.merge"]!.x > projection.positions["event.branch"]!.x);
   assert.equal(projection.tracks.length, 2);
+  assert.ok(projection.tracks[1]!.y - projection.tracks[0]!.y >= 190, "parallel narrative tracks remain visually distinct");
 });
 
 test("pinned Event positions survive source-compatible recomposition and revisions follow source versions", () => {
@@ -50,5 +51,5 @@ test("density fixture represents branches, merges, groups and blocked candidates
   assert.match(graph, /\[\[4, 5\], \[12, 13, 14\], \[24, 25\], \[35, 36, 37\]\]/u);
   assert.match(graph, /makeRelation\(18, 28, true\)/u);
   assert.match(graph, /时间冲突：需要作者处理/u);
-  assert.match(graph, /canvasKind === "narrative" \? 0\.68/u);
+  assert.match(graph, /canvasKind === "narrative" \? 0\.86/u);
 });
