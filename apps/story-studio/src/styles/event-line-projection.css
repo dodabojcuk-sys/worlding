@@ -728,6 +728,7 @@
 .shell-workspace-event-line .temporal-screen span { color: var(--color-accent); font-size: .75rem; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__edge.temporal-cross-screen-edge .react-flow__edge-path { stroke-width: 2.25; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .react-flow__node-event { min-inline-size: 12.75rem; }
+.shell-workspace-event-line .event-graph-workspace.is-temporal .event-graph-node { inline-size: 16.5rem; }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-inferred .graph-node-shell { border-style: dashed; border-color: color-mix(in srgb, var(--color-accent) 60%, var(--color-border)); }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-ambiguous .graph-node-shell { border-style: dashed; box-shadow: 0 0 0 .28rem color-mix(in srgb, var(--color-accent-soft) 58%, transparent); }
 .shell-workspace-event-line .event-graph-workspace.is-temporal .is-temporal-conflict .graph-node-shell { border-color: var(--color-danger); box-shadow: 0 0 0 .22rem color-mix(in srgb, var(--color-danger) 13%, transparent); }

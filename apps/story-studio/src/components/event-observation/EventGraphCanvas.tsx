@@ -121,6 +121,7 @@ export function EventGraphCanvas(props: {
   const graph = useMemo(() => deriveGraph(graphEvents, graphRelations, view, focusId, depth, layout.positions, selection, new Set(workspaceSelectionIds), new Set(predictionSelectionIds), predictionRun, predictionPathId, predictionViewState, new Set(predictionSelectedNodeIds), collapsePredictionSources, expandPredictionSources, mode, props.temporalRun ?? null, semanticZoom), [collapsePredictionSources, depth, expandPredictionSources, focusId, graphEvents, graphRelations, layout.positions, mode, predictionPathId, predictionRun, predictionSelectedNodeIds, predictionSelectionIds, predictionViewState, props.temporalRun, selection, semanticZoom, view, workspaceSelectionIds]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(graph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(graph.edges);
+  const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
   const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
     workspaceDockCoordinator.openPageInspector("event-line", mode);
   }, []);
@@ -243,7 +244,11 @@ export function EventGraphCanvas(props: {
     }
   }, [contextMenu]);
 
-  useEffect(() => { setNodes(graph.nodes); setEdges(graph.edges); }, [graph.edges, graph.nodes, setEdges, setNodes]);
+  useEffect(() => {
+    temporalNodesRef.current = graph.nodes;
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+  }, [graph.edges, graph.nodes, setEdges, setNodes]);
   useEffect(() => {
     const smartEdges: Edge[] = smartRelationReviews.filter((candidate) => candidate.reviewState === "candidate").map((candidate) => ({
       id: candidate.candidateId,
@@ -309,11 +314,11 @@ export function EventGraphCanvas(props: {
     let timer = 0;
     const observer = new ResizeObserver(() => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => fitTemporalProjection(flow, graph.nodes, props.selectedEventId), 140);
+      timer = window.setTimeout(() => fitTemporalProjection(flow, temporalNodesRef.current, props.selectedEventId), 140);
     });
     observer.observe(canvas);
     return () => { observer.disconnect(); window.clearTimeout(timer); };
-  }, [flow, graph.nodes, mode, props.selectedEventId]);
+  }, [flow, mode, props.selectedEventId]);
 
   const persistLayout = useCallback(() => {
     const positions = Object.fromEntries(nodes.filter((node) => !node.id.startsWith("projection.remote")).map((node) => [node.id, { x: Math.round(node.position.x), y: Math.round(node.position.y) }]));
@@ -416,14 +421,20 @@ export function EventGraphCanvas(props: {
           if (!currentEvent) return;
           if (mode === "temporal") {
             selectNode(currentEvent.id);
+            setSemanticZoom("medium");
             const currentNode = nodes.find((node) => node.id === currentEvent.id);
-            if (currentNode) void flow?.setCenter(currentNode.position.x + 102, currentNode.position.y + 70, { zoom: 1, duration: 220 });
+            if (currentNode) void flow?.setCenter(currentNode.position.x + 147, currentNode.position.y + 70, { zoom: 1, duration: 0 });
           } else focus(currentEvent.id);
         }}><Focus /><span>聚焦当前</span></button>
         {view === "focus" ? <button type="button" aria-label="展开一层" title="展开一层" onClick={() => setDepth((value) => Math.min(value + 1, 3))}><Layers3 /><span>展开一层</span></button> : null}
         {mode === "graph" ? <button type="button" aria-label="自动布局" title="自动布局" onClick={() => { writeLayout(props.projectId, {}); setLayoutRevision((value) => value + 1); setNotice("已恢复自动布局；本机手动位置已清除。"); }}><RefreshCw /><span>自动布局</span></button> : null}
         <button type="button" aria-label="筛选" title="筛选" aria-expanded={filterOpen} onClick={() => setFilterOpen((value) => !value)}><Filter /><span>筛选</span></button>
-        <button type="button" aria-label={mode === "temporal" ? "时间总览" : "适应视图"} onClick={() => mode === "temporal" && flow ? fitTemporalProjection(flow, nodes, null) : void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 })}><Maximize2 /><span>{mode === "temporal" ? "时间总览" : "适应视图"}</span></button>
+        <button type="button" aria-label={mode === "temporal" ? "时间总览" : "适应视图"} onClick={() => {
+          if (mode === "temporal" && flow) {
+            setSemanticZoom("medium");
+            fitTemporalProjection(flow, nodes, null);
+          } else void flow?.fitView({ padding: 0.16, duration: 160, maxZoom: 1.05 });
+        }}><Maximize2 /><span>{mode === "temporal" ? "时间总览" : "适应视图"}</span></button>
         <button type="button" aria-label={miniMapOpen ? "隐藏小地图" : "显示小地图"} aria-pressed={miniMapOpen} onClick={() => setMiniMapOpen((open) => !open)}><MapPin /><span>小地图</span></button>
         {mode === "graph" ? <><button type="button" aria-label="将当前事件加入推演范围" disabled={!currentEvent || predictionSelectionIds.length >= 4 || predictionSelectionIds.includes(currentEvent?.id ?? "")} onClick={addCurrentToPrediction}><Plus /><span>加入推演范围</span></button>
         <button type="button" aria-label="推演所选节点" disabled={!predictionSelectionIds.length} onClick={() => props.onOpenTianyi?.(predictionSelectionIds)}><Sparkles /><span>推演 {predictionSelectionIds.length}</span></button></> : null}
@@ -477,7 +488,7 @@ export function EventGraphCanvas(props: {
           }}
           onInit={setFlow}
           fitView={mode !== "temporal"}
-          minZoom={mode === "temporal" ? 0.84 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25}
+          minZoom={mode === "temporal" ? 0.58 : ["overview", "focus", "review"].includes(predictionViewState) ? 0.94 : 0.25}
           maxZoom={1.8}
           onMove={(_, viewport) => {
             setSemanticZoom(viewport.zoom < .72 ? "far" : viewport.zoom > 1.12 ? "near" : "medium");
@@ -956,11 +967,11 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
   const availableHeight = Math.max(1, canvas.height - topInset - bottomInset);
   const selected = selectedEventId ? events.find((node) => node.id === selectedEventId) : null;
   if (selected) {
-    void flow.setViewport({ x: leftInset + availableWidth / 2 - (selected.position.x + 102), y: topInset + availableHeight / 2 - (selected.position.y + 70), zoom: 1 }, { duration: 240 });
+    void flow.setViewport({ x: leftInset + availableWidth / 2 - (selected.position.x + 147), y: topInset + availableHeight / 2 - (selected.position.y + 70), zoom: 1 }, { duration: 0 });
     return;
   }
   const minX = Math.min(...events.map((node) => node.position.x));
-  const maxX = Math.max(...events.map((node) => node.position.x + 204));
+  const maxX = Math.max(...events.map((node) => node.position.x + 294));
   const minY = Math.min(...events.map((node) => node.position.y));
   const maxY = Math.max(...events.map((node) => node.position.y + 144));
   const contentWidth = maxX - minX;
@@ -972,7 +983,7 @@ function fitTemporalProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, no
   const y = contentHeight * zoom > availableHeight
     ? topInset - minY * zoom
     : topInset + (availableHeight - contentHeight * zoom) / 2 - minY * zoom;
-  void flow.setViewport({ x, y, zoom }, { duration: 240 });
+  void flow.setViewport({ x, y, zoom }, { duration: 0 });
 }
 function isDensityFixture() {
   return import.meta.env.DEV && new URLSearchParams(window.location.search).get("eventGraphFixture") === "density50";

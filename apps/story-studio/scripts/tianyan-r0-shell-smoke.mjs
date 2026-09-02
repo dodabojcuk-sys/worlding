@@ -1210,12 +1210,18 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await page.waitForTimeout(120);
   assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), viewportBeforePan, "Timeline canvas must pan.");
   const zoomBefore = await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style");
+  const zoomDensityBefore = await page.locator(".temporal-coordinate-overlay").getAttribute("data-zoom-density");
+  const zoomInDisabledBefore = await page.locator(".event-graph-flow .react-flow__controls-zoomin").isDisabled();
   for (let step = 0; step < 12 && await page.locator('.temporal-coordinate-overlay[data-zoom-density="near"]').count() === 0; step += 1) {
     await page.locator(".event-graph-flow .react-flow__controls-zoomin").click();
     await page.waitForTimeout(80);
   }
   await page.waitForTimeout(120);
-  assert.notEqual(await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"), zoomBefore, "Timeline canvas must zoom.");
+  assert.notEqual(
+    await page.locator(".event-graph-flow .react-flow__viewport").getAttribute("style"),
+    zoomBefore,
+    `Timeline canvas must zoom (density=${zoomDensityBefore}, zoomInDisabled=${zoomInDisabledBefore}).`
+  );
   assert.equal(await page.locator('.temporal-coordinate-overlay[data-zoom-density="near"]').count(), 1, "Near semantic zoom increases the synchronized coordinate density.");
   if (output) await page.screenshot({ path: path.join(output, "D-1440x900-near-zoom-evidence.png"), fullPage: true });
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
