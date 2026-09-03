@@ -1,0 +1,37 @@
+{
+  "command": "npm run test:e2e (isolated Vite plus api-only Story Studio)",
+  "developmentUi": {
+    "entry": "http://127.0.0.1:46043/event-line",
+    "status": 200,
+    "sourceMarkers": [
+      "/@vite/client",
+      "/src/main.tsx"
+    ]
+  },
+  "directApiUiRequest": {
+    "entry": "http://127.0.0.1:37937/event-line",
+    "status": 404,
+    "body": "<!doctype html><title>Story Studio API</title><main><h1>本地 API</h1><p>这是本地 API 服务；开发界面位于 http://127.0.0.1:4191。</p><p>RUNTIME_MODE=api-only</p></main>"
+  },
+  "proxiedApi": {
+    "entry": "http://127.0.0.1:46043/__local/story-studio/bootstrap",
+    "status": 200
+  },
+  "health": {
+    "entry": "http://127.0.0.1:37937/__local/story-studio/health",
+    "status": 200,
+    "body": {
+      "data": {
+        "status": "healthy",
+        "runtimeMode": "api-only"
+      }
+    }
+  },
+  "unknownApi": {
+    "status": 404,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "error": "本地项目操作不存在。"
+    }
+  }
+}
