@@ -5,9 +5,11 @@ import {
   buildEventParticipationProjection,
   eventObservationCombinationSupport,
   eventObservationLegacyView,
+  eventTaskSearchParams,
   eventObservationStateFromLegacyView,
   normalizeEventObservationState,
   parseEventObservationState,
+  resolveEventTaskPreset,
   serializeEventObservationState
 } from "../../src/storyContracts/eventObservation.ts";
 
@@ -17,6 +19,15 @@ const objects = [
   { id: "item.cube", type: "item" as const, label: "雾灯匣", ownerId: "project.long-night", version: "r4", formal: true },
   { id: "character.tag-only", type: "character" as const, label: "标签对象", formal: false }
 ];
+
+test("event-line deep links converge on one task preset without inventing another route", () => {
+  assert.deepEqual(resolveEventTaskPreset(""), { task: "story", migratedLegacyState: false, unrecognizedLegacyState: false });
+  assert.deepEqual(resolveEventTaskPreset("?eventView=timeline"), { task: "time", migratedLegacyState: true, unrecognizedLegacyState: false });
+  assert.deepEqual(resolveEventTaskPreset("?eventLens=participation"), { task: "story", migratedLegacyState: true, unrecognizedLegacyState: false });
+  assert.deepEqual(resolveEventTaskPreset("?eventTask=relationship"), { task: "relationship", migratedLegacyState: false, unrecognizedLegacyState: false });
+  assert.deepEqual(resolveEventTaskPreset("?eventView=lost-mode"), { task: "story", migratedLegacyState: true, unrecognizedLegacyState: true });
+  assert.equal(eventTaskSearchParams("?eventView=timeline&eventLens=participation&keep=yes", "audit").toString(), "keep=yes&eventTask=audit");
+});
 
 test("observation state migrates legacy peer views into coordinate and lens axes", () => {
   const perspective = eventObservationStateFromLegacyView("perspective", objects);

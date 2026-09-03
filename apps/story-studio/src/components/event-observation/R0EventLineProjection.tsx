@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { archiveStoryUnit, confirmRelationCandidate, createRelationCandidate, createStoryCollectionPoint, createStoryModelingRunTransport, createStoryUnit, createWorldObject, dissolveStoryCollectionPoint, executeStoryModelingRunTransport, getBootstrap, getCreationSourcePortState, getObjectCatalog, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, listRelations, listRelationTypes, listStoryLogicReviews, listStoryModelingRuns, listStoryUnits, listTemporalProjectionRuns, planStoryModeling, rejectRelationCandidate, reviewStoryLogicFinding, stopStoryModelingRunTransport, updateObjectCatalog, updateRelationCandidate, updateStoryCollectionPoint, updateStoryUnit, type RelationRecord, type RelationTypeDefinition, type StoryCollectionPoint, type StoryLogicReviewProjection, type StoryModelingPlanProjection, type StoryModelingRunProjection, type StoryUnit, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
+import { archiveStoryUnit, confirmRelationCandidate, createNarrativeArrangement, createRelationCandidate, createStoryCollectionPoint, createStoryModelingRunTransport, createStoryUnit, createWorldObject, dissolveStoryCollectionPoint, executeStoryModelingRunTransport, getBootstrap, getCreationSourcePortState, getNarrativeArrangement, getObjectCatalog, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, insertNarrativePlacement, listRelations, listRelationTypes, listStoryLogicReviews, listStoryModelingRuns, listStoryUnits, listTemporalProjectionRuns, moveNarrativePlacement, planStoryModeling, rejectRelationCandidate, removeNarrativePlacement, reviewStoryLogicFinding, stopStoryModelingRunTransport, updateObjectCatalog, updateRelationCandidate, updateStoryCollectionPoint, updateStoryUnit, type NarrativeArrangementRead, type NarrativeArrangementWriteResult, type NarrativePlacementRole, type NarrativePositionIntent, type RelationRecord, type RelationTypeDefinition, type StoryCollectionPoint, type StoryLogicReviewProjection, type StoryModelingPlanProjection, type StoryModelingRunProjection, type StoryUnit, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
 import { eventWorkspaceProjectionSummaries, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -11,18 +11,18 @@ import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eve
 /** Adapter for the established Event projection and Workspace write command. */
 export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void; selectedEventId?: string | null }) {
   const { t } = useI18n();
-  const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; storyUnits: StoryUnit[]; perspectiveObjects: PerspectiveObjectRef[]; modelingRuns: StoryModelingRunProjection[]; logicReviews: StoryLogicReviewProjection[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[] }>({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
+  const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; storyUnits: StoryUnit[]; perspectiveObjects: PerspectiveObjectRef[]; modelingRuns: StoryModelingRunProjection[]; logicReviews: StoryLogicReviewProjection[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[]; narrative: NarrativeArrangementRead | null }>({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null });
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const load = useCallback(async () => {
     setLoadState("loading");
     try {
       const project = props.runtime.project ?? (await getBootstrap()).activeProject;
       if (!project) {
-        setState({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [] });
+        setState({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null });
         setLoadState("empty");
         return;
       }
-      const [library, list, units, relationList, relationTypes, modelingRuns, logicReviews] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id), props.runtime.withConnection((token) => listStoryModelingRuns(project.id, token)), props.runtime.withConnection((token) => listStoryLogicReviews(project.id, token))]);
+      const [library, list, units, relationList, relationTypes, modelingRuns, logicReviews, creationSource] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id), props.runtime.withConnection((token) => listStoryModelingRuns(project.id, token)), props.runtime.withConnection((token) => listStoryLogicReviews(project.id, token)), getCreationSourcePortState({ projectId: project.id })]);
       // The workspace owner exposes both author drafts and verified Canon events.
       // Only Author Control may give an event the confirmed identity; the graph is
       // still a projection of these same stable Event objects.
@@ -30,7 +30,9 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
         ? eventWorkspaceProjectionSummaries(library.objects, list.eventIds)
         : [];
       const perspectiveObjects: PerspectiveObjectRef[] = library.objects.flatMap((object) => object.type === "character" || object.type === "location" || object.type === "item" ? [{ id: object.id, type: object.type, label: object.title, ownerId: project.id, version: object.revisionToken, scope: "project" as const, formal: true }] : []);
-      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns, logicReviews, list, unit: units[0]?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types });
+      const narrativeRoot = units.filter((unit) => unit.kind === "main" && unit.status !== "archived").sort((left, right) => left.order - right.order)[0] ?? null;
+      const narrative = creationSource.root && narrativeRoot ? await getNarrativeArrangement(project.id, creationSource.root.id, narrativeRoot.id) : null;
+      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns, logicReviews, list, unit: narrativeRoot?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types, narrative });
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
@@ -119,7 +121,41 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     await props.runtime.withConnection((token) => updateObjectCatalog({ projectId: state.projectId!, workVersionId: source.root!.id, expectedRevision: catalog.revision, operation: "trash", objectType: "event", objectIds: [event.id], trashedFrom: "active", token }));
     await load();
   };
-  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} storyUnits={state.storyUnits} perspectiveObjects={state.perspectiveObjects} modelingRuns={state.modelingRuns} logicReviews={state.logicReviews} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onStopStoryModeling={(runId) => props.runtime.withConnection((token) => stopStoryModelingRunTransport({ projectId: state.projectId!, runId, token })).then(async (run) => { await load(); return run; })} onReviewLogicFinding={(finding) => props.runtime.withConnection((token) => reviewStoryLogicFinding({ projectId: state.projectId!, findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: finding.authorStatus, token })).then(async (record) => { await load(); return record; })} onSaveEvent={saveDraftEvent} onTrashDraftEvent={trashDraftEvent} onCreateUnit={createUnit} onRenameUnit={renameUnit} onArchiveUnit={archiveUnitById} onCreateCollectionPoint={createCollectionPoint} onUpdateCollectionPoint={updateCollectionPoint} onDissolveCollectionPoint={dissolveCollectionPoint} onCreateGraphRelation={({ sourceEventId, targetEventId, relationTypeId, sourceRef }) => {
+  const insertPlacement = async (input: { eventId: string; storyUnitId: string; role: NarrativePlacementRole; position: NarrativePositionIntent }): Promise<NarrativeArrangementWriteResult> => {
+    if (!state.narrative) throw new Error("The active Project has no root WorkVersion or main Story Unit; no narrative order was written.");
+    const { workVersionId, narrativePathId } = state.narrative.projection;
+    const owner = state.storyUnits.find((unit) => unit.id === narrativePathId);
+    if (!owner) throw new Error("The NarrativeArrangement owner Story Unit is unavailable; no narrative order was written.");
+    let arrangement = state.narrative.arrangement;
+    let ownerVersion = state.narrative.ownerVersion;
+    if (!arrangement) {
+      const operationId = `narrative-arrangement-create.${crypto.randomUUID()}`;
+      const created = await props.runtime.withConnection((token) => createNarrativeArrangement({ projectId: state.projectId!, workVersionId, narrativePathId, ownerStoryUnitId: owner.id, expectedOwnerVersion: owner.version, expectedRevision: 0, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), token }));
+      if (created.conflict || !created.arrangement) { await load(); return created; }
+      arrangement = created.arrangement;
+      ownerVersion = created.ownerVersion;
+    }
+    if (!ownerVersion) throw new Error("The NarrativeArrangement owner version is unavailable; no narrative order was written.");
+    const operationId = `narrative-placement-insert.${crypto.randomUUID()}`;
+    const result = await props.runtime.withConnection((token) => insertNarrativePlacement({ projectId: state.projectId!, workVersionId, narrativePathId, expectedOwnerVersion: ownerVersion!, expectedRevision: arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), ...input, token }));
+    await load();
+    return result;
+  };
+  const movePlacement = async (input: { placementId: string; storyUnitId: string; position: NarrativePositionIntent }): Promise<NarrativeArrangementWriteResult> => {
+    if (!state.narrative?.arrangement || !state.narrative.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was moved.");
+    const operationId = `narrative-placement-move.${crypto.randomUUID()}`;
+    const result = await props.runtime.withConnection((token) => moveNarrativePlacement({ projectId: state.projectId!, workVersionId: state.narrative!.projection.workVersionId, narrativePathId: state.narrative!.projection.narrativePathId, expectedOwnerVersion: state.narrative!.ownerVersion!, expectedRevision: state.narrative!.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), ...input, token }));
+    await load();
+    return result;
+  };
+  const removePlacement = async (placementId: string): Promise<NarrativeArrangementWriteResult> => {
+    if (!state.narrative?.arrangement || !state.narrative.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was removed.");
+    const operationId = `narrative-placement-remove.${crypto.randomUUID()}`;
+    const result = await props.runtime.withConnection((token) => removeNarrativePlacement({ projectId: state.projectId!, workVersionId: state.narrative!.projection.workVersionId, narrativePathId: state.narrative!.projection.narrativePathId, expectedOwnerVersion: state.narrative!.ownerVersion!, expectedRevision: state.narrative!.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), placementId, token }));
+    await load();
+    return result;
+  };
+  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} storyUnits={state.storyUnits} narrativeArrangement={state.narrative} perspectiveObjects={state.perspectiveObjects} modelingRuns={state.modelingRuns} logicReviews={state.logicReviews} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onStopStoryModeling={(runId) => props.runtime.withConnection((token) => stopStoryModelingRunTransport({ projectId: state.projectId!, runId, token })).then(async (run) => { await load(); return run; })} onReviewLogicFinding={(finding) => props.runtime.withConnection((token) => reviewStoryLogicFinding({ projectId: state.projectId!, findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: finding.authorStatus, token })).then(async (record) => { await load(); return record; })} onInsertNarrativePlacement={state.narrative ? insertPlacement : undefined} onMoveNarrativePlacement={state.narrative ? movePlacement : undefined} onRemoveNarrativePlacement={state.narrative ? removePlacement : undefined} onSaveEvent={saveDraftEvent} onTrashDraftEvent={trashDraftEvent} onCreateUnit={createUnit} onRenameUnit={renameUnit} onArchiveUnit={archiveUnitById} onCreateCollectionPoint={createCollectionPoint} onUpdateCollectionPoint={updateCollectionPoint} onDissolveCollectionPoint={dissolveCollectionPoint} onCreateGraphRelation={({ sourceEventId, targetEventId, relationTypeId, sourceRef }) => {
     const type = state.relationTypes.find((candidate) => candidate.relationTypeId === relationTypeId) ?? state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
     return props.runtime.withConnection((token) => createRelationCandidate({ projectId: state.projectId!, sourceObjectId: sourceEventId, targetObjectId: targetEventId, relationTypeId: type.relationTypeId, relationLabelSnapshot: type.label, direction: "forward", sourceRef: sourceRef ?? "event-graph-author-link", operationId: `event-graph-link-${crypto.randomUUID()}`, token })).then(() => { window.dispatchEvent(new Event("story-studio-pending-review-changed")); load(); });

@@ -11,6 +11,12 @@ export type EventObservationLayer = "causal" | "temporal-constraints" | "candida
 export type EventObservationScale = "story" | "unit" | "event";
 /** Visual encoding only. It must never create a second participation projection. */
 export type ParticipationRenderMode = "trajectory" | "matrix";
+export type EventTaskPreset = "story" | "time" | "audit" | "perspective" | "relationship";
+export type EventTaskPresetResolution = {
+  task: EventTaskPreset;
+  migratedLegacyState: boolean;
+  unrecognizedLegacyState: boolean;
+};
 
 export type EventObservationState = {
   version: typeof EVENT_OBSERVATION_STATE_VERSION;
@@ -33,6 +39,58 @@ export const DEFAULT_EVENT_OBSERVATION_STATE: EventObservationState = {
   scale: "unit",
   renderMode: "trajectory"
 };
+
+const EVENT_TASK_PRESETS = new Set<EventTaskPreset>(["story", "time", "audit", "perspective", "relationship"]);
+
+/**
+ * Maps old Event Line URLs into the single task-language workspace. The
+ * result is presentation state only: it never selects or writes a narrative
+ * order and a bare /event-line always resolves to Story Progression.
+ */
+export function resolveEventTaskPreset(search: string | URLSearchParams | null | undefined): EventTaskPresetResolution {
+  const params = search instanceof URLSearchParams
+    ? search
+    : new URLSearchParams(typeof search === "string" ? search.replace(/^\?/u, "") : "");
+  const requestedTask = params.get("eventTask");
+  if (requestedTask && EVENT_TASK_PRESETS.has(requestedTask as EventTaskPreset)) {
+    return { task: requestedTask as EventTaskPreset, migratedLegacyState: false, unrecognizedLegacyState: false };
+  }
+
+  const legacyView = params.get("eventView");
+  const legacyLayout = params.get("eventLayout");
+  const legacyLens = params.get("eventLens");
+  const legacyRender = params.get("eventRender");
+  const hasLegacyState = [legacyView, legacyLayout, legacyLens, legacyRender].some((value) => value !== null);
+  if (!hasLegacyState) return { task: "story", migratedLegacyState: false, unrecognizedLegacyState: false };
+
+  if (legacyView === "timeline" || legacyLayout === "world-time") {
+    return { task: "time", migratedLegacyState: true, unrecognizedLegacyState: false };
+  }
+  if (legacyView === "perspective" || legacyLens === "character-perspective") {
+    return { task: "perspective", migratedLegacyState: true, unrecognizedLegacyState: false };
+  }
+  if (legacyLens === "relationship-evolution") {
+    return { task: "relationship", migratedLegacyState: true, unrecognizedLegacyState: false };
+  }
+  if (legacyRender === "matrix" || (legacyLens === "participation" && legacyView === "matrix")) {
+    return { task: "audit", migratedLegacyState: true, unrecognizedLegacyState: false };
+  }
+  if (
+    legacyView === "spine" || legacyView === "line" || legacyView === "graph" || legacyView === "participation"
+    || legacyLayout === "structure" || legacyLayout === "narrative" || legacyLayout === "relation-network"
+    || legacyLens === "none" || legacyLens === "participation" || legacyRender === "trajectory"
+  ) {
+    return { task: "story", migratedLegacyState: true, unrecognizedLegacyState: false };
+  }
+  return { task: "story", migratedLegacyState: true, unrecognizedLegacyState: true };
+}
+
+export function eventTaskSearchParams(current: string | URLSearchParams, task: EventTaskPreset): URLSearchParams {
+  const params = current instanceof URLSearchParams ? new URLSearchParams(current) : new URLSearchParams(current.replace(/^\?/u, ""));
+  for (const key of ["eventView", "eventLayout", "eventLens", "eventRender", "eventScale", "eventLayers"]) params.delete(key);
+  params.set("eventTask", task);
+  return params;
+}
 
 export type EventObservationCombinationSupport = { supported: true } | { supported: false; reason: string };
 
