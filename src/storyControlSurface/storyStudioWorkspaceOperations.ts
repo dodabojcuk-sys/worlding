@@ -3456,7 +3456,7 @@ type HostedNarrativeArrangement = {
 function readNarrativeArrangementProjection(projectPath: string, input: { projectId: string; workVersionId: string; narrativePathId: string }): StoryStudioNarrativeArrangementRead {
   requireText(input.projectId, "Narrative arrangement Project selector", 180);
   const projectId = requireText(openStoryWorkspace(projectPath).project.id, "Narrative arrangement Project", 180);
-  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId);
+  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId, { allowArchived: true });
   const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
   const storyUnits = narrativePathStoryUnits(projectPath, narrativePathId);
   const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersion.identity.workVersionId, narrativePathId);
@@ -3597,12 +3597,12 @@ function narrativePathStoryUnits(projectPath: string, narrativePathId: string): 
   return units.filter((unit) => unit.kind === "main" && unit.lifecycle !== "archived");
 }
 
-function readNarrativeWorkVersion(projectPath: string, workVersionId: string) {
+function readNarrativeWorkVersion(projectPath: string, workVersionId: string, options: { allowArchived?: boolean } = {}) {
   const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
   const normalizedId = requireText(workVersionId, "Narrative arrangement WorkVersion", 180);
   authority.verifyVersionIntegrity(normalizedId);
   const version = authority.getVersion(normalizedId);
-  if (version.identity.status !== "active") throw new Error("Archived WorkVersion cannot receive narrative arrangement changes.");
+  if (!options.allowArchived && version.identity.status !== "active") throw new Error("Archived WorkVersion cannot receive narrative arrangement changes.");
   return version;
 }
 

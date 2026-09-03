@@ -17,7 +17,9 @@ const integrationTests = new Set([
   "tests/storyStudio/providerCatalogLifecycleIntegrationR0.test.ts",
   "tests/storyStudio/storyStudioStorageProvider.test.ts",
   "tests/storyStudio/storyStudioTianyiTransport.test.ts",
-  "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts"
+  "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts",
+  "tests/storyStudio/narrativeArrangementAuthorityR0.test.ts",
+  "tests/storyStudio/narrativeArrangementTransportR0.test.ts"
 ]);
 
 const trackedTests = execFileSync("git", ["ls-files", "tests/**/*.test.ts"], { encoding: "utf8" })
