@@ -2200,7 +2200,6 @@ export function createStoryStudioWorkspaceOperations(input: {
       position: NarrativePositionIntent;
     }): StoryStudioNarrativeArrangementWriteResult {
       const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
-      assertWorkspaceEventExists(projectPath, arrangementInput.eventId);
       return mutateNarrativeArrangementRecord(projectPath, arrangementInput, {
         action: "insert",
         eventId: arrangementInput.eventId,
@@ -3456,13 +3455,15 @@ type HostedNarrativeArrangement = {
 function readNarrativeArrangementProjection(projectPath: string, input: { projectId: string; workVersionId: string; narrativePathId: string }): StoryStudioNarrativeArrangementRead {
   requireText(input.projectId, "Narrative arrangement Project selector", 180);
   const projectId = requireText(openStoryWorkspace(projectPath).project.id, "Narrative arrangement Project", 180);
-  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId, { allowArchived: true });
+  const workVersionId = requireText(input.workVersionId, "Narrative arrangement WorkVersion", 180);
   const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
   const storyUnits = narrativePathStoryUnits(projectPath, narrativePathId);
-  const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersion.identity.workVersionId, narrativePathId);
+  const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersionId, narrativePathId);
+  const workVersion = readNarrativeWorkVersionIfPresent(projectPath, workVersionId);
+  if (hosted && !workVersion) throw new Error("Formal NarrativeArrangement references a missing WorkVersion authority identity.");
   const projection = projectNarrativeArrangement({
     projectId,
-    workVersionId: workVersion.identity.workVersionId,
+    workVersionId,
     narrativePathId,
     eventIds: getWorkspaceTree(projectPath).groups.events.map((event) => event.id),
     storyUnits: storyUnits.map((unit) => ({ storyUnitId: unit.id, order: unit.order })),
@@ -3555,6 +3556,7 @@ function mutateNarrativeArrangementRecord(
   if (!result.conflict && result.replayed) {
     return clone({ conflict: false, replayed: true, code: null, ownerVersion: hosted.note.contentHash, arrangement: result.arrangement, receipt: result.receipt });
   }
+  if (payload.action === "insert") assertWorkspaceEventExists(projectPath, payload.eventId);
   if (hosted.note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
     return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.note.contentHash, arrangement: hosted.arrangement, receipt: null });
   }
@@ -3604,6 +3606,14 @@ function readNarrativeWorkVersion(projectPath: string, workVersionId: string, op
   const version = authority.getVersion(normalizedId);
   if (!options.allowArchived && version.identity.status !== "active") throw new Error("Archived WorkVersion cannot receive narrative arrangement changes.");
   return version;
+}
+
+function readNarrativeWorkVersionIfPresent(projectPath: string, workVersionId: string) {
+  const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+  const normalizedId = requireText(workVersionId, "Narrative arrangement WorkVersion", 180);
+  if (!authority.listVersions().some((version) => version.identity.workVersionId === normalizedId)) return null;
+  authority.verifyVersionIntegrity(normalizedId);
+  return authority.getVersion(normalizedId);
 }
 
 function assertWorkspaceEventExists(projectPath: string, eventId: string): void {

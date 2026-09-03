@@ -149,6 +149,26 @@ test("Story Unit owner persists formal order, optimistic conflicts, receipts, ro
   }
 });
 
+test("an unversioned legacy project still reads every Event as unplaced without creating WorkVersion or arrangement data", () => {
+  const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), "tianyan-narrative-legacy-unversioned-"));
+  const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, "state.json") });
+  try {
+    const project = operations.createProject({ title: "未版本化旧项目", folderSlug: "legacy-unversioned-narrative" });
+    const event = operations.createWorldObject({ projectId: project.id, type: "event", title: "旧事件", status: "planned" });
+    const unit = operations.createStoryUnit({ projectId: project.id, title: "旧故事单元", linkedEntityIds: [event.id] });
+    const projectPath = operations.resolveProjectWorkspacePath({ projectId: project.id });
+    const before = readFileSync(path.join(projectPath, unit.relativeId), "utf8");
+    const read = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: "legacy-unversioned-work", narrativePathId: unit.id });
+    assert.equal(read.arrangement, null);
+    assert.deepEqual(read.projection.placed, []);
+    assert.equal(read.projection.unplaced[event.id]?.narrativeIndex, null);
+    assert.equal(readFileSync(path.join(projectPath, unit.relativeId), "utf8"), before);
+    assert.deepEqual(createStoryStudioWorkVersionAuthority({ projectRoot: projectPath }).listVersions(), []);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("existing Story Unit branch identities isolate arrangements and reject implicit merge", () => {
   const value = fixture();
   try {
@@ -167,6 +187,13 @@ test("existing Story Unit branch identities isolate arrangements and reject impl
     assert.equal(readA.projection.placed[0]?.role, "recap");
     assert.equal(readB.projection.placed[0]?.role, "reinterpretation");
     const branchBRevision = readB.arrangement!.currentRevision;
+    const secondA = value.operations.insertNarrativePlacement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchA.id, expectedOwnerVersion: readA.ownerVersion!, expectedRevision: readA.arrangement!.currentRevision, operationId: "branch.a.insert-again", authorActionId: "author.branch.a.insert-again", sourceKind: "author-action", sourceRef: "author-action:branch-a-again", createdAt: "2026-09-03T01:01:02.000Z", eventId: value.eventRepeat.id, storyUnitId: value.branchA.id, role: "reveal", position: { kind: "end" } });
+    assert.equal(secondA.conflict, false);
+    readA = value.operations.readNarrativeArrangement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchA.id });
+    const movedA = value.operations.moveNarrativePlacement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchA.id, expectedOwnerVersion: readA.ownerVersion!, expectedRevision: readA.arrangement!.currentRevision, operationId: "branch.a.move", authorActionId: "author.branch.a.move", sourceKind: "author-action", sourceRef: "author-action:branch-a-move", createdAt: "2026-09-03T01:01:03.000Z", placementId: readA.projection.placed[0]!.placementId, storyUnitId: value.branchA.id, position: { kind: "after", anchorPlacementId: readA.projection.placed[1]!.placementId } });
+    assert.equal(movedA.conflict, false);
+    assert.equal(value.operations.readNarrativeArrangement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchB.id }).arrangement?.currentRevision, branchBRevision);
+    readA = value.operations.readNarrativeArrangement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchA.id });
     const implicitMerge = value.operations.moveNarrativePlacement({ projectId: PROJECT_ID, workVersionId: value.workVersionId, narrativePathId: value.branchA.id, expectedOwnerVersion: readA.ownerVersion!, expectedRevision: readA.arrangement!.currentRevision, operationId: "branch.a.implicit-merge", authorActionId: "author.branch.a.implicit-merge", sourceKind: "author-action", sourceRef: "author-action:branch-a-merge", createdAt: "2026-09-03T01:01:02.000Z", placementId: readA.projection.placed[0]!.placementId, storyUnitId: value.branchB.id, position: { kind: "end" } });
     assert.equal(implicitMerge.conflict, true);
     assert.equal(implicitMerge.code, "branch-mismatch");

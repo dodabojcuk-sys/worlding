@@ -7,8 +7,10 @@ import {
   applyNarrativeArrangementMutation,
   createNarrativeArrangement,
   currentPlacements,
+  parseNarrativeArrangementStore,
   projectNarrativeArrangement,
   rebalancePlacementOrder,
+  serializeNarrativeArrangementStore,
   type NarrativeArrangement,
   type NarrativeArrangementMutation
 } from "../../src/storyContracts/narrativeArrangement.ts";
@@ -55,7 +57,13 @@ test("author intent inserts before/after, moves within and across Story Units, a
   arrangement = after.arrangement;
   assert.deepEqual(currentPlacements(arrangement).sort((a, b) => a.orderKey - b.orderKey).map((placement) => placement.eventId), ["event.a", "event.z", "event.m"]);
 
-  const moved = mutate(arrangement, { action: "move", operationId: "move.z.cross-unit", authorActionId: "author.move.z", createdAt: time(4), placementId: firstPlacementId, storyUnitId: "story-unit.next", position: { kind: "start" } });
+  const mPlacementId = currentPlacements(arrangement).find((placement) => placement.eventId === "event.m")!.placementId;
+  const movedWithin = mutate(arrangement, { action: "move", operationId: "move.m.within-unit", authorActionId: "author.move.m", createdAt: time(4), placementId: mPlacementId, storyUnitId: "story-unit.main", position: { kind: "start" } });
+  assert.equal(movedWithin.conflict, false);
+  arrangement = movedWithin.arrangement;
+  assert.deepEqual(currentPlacements(arrangement).sort((a, b) => a.orderKey - b.orderKey).map((placement) => placement.eventId), ["event.m", "event.a", "event.z"]);
+
+  const moved = mutate(arrangement, { action: "move", operationId: "move.z.cross-unit", authorActionId: "author.move.z", createdAt: time(5), placementId: firstPlacementId, storyUnitId: "story-unit.next", position: { kind: "start" } });
   assert.equal(moved.conflict, false);
   arrangement = moved.arrangement;
   assert.equal(currentPlacements(arrangement).find((placement) => placement.placementId === firstPlacementId)?.storyUnitId, "story-unit.next");
@@ -147,6 +155,8 @@ test("read projection exposes duplicate formal keys and dangling references with
   assert.deepEqual(orderProjection.placed, []);
   assert.equal(orderProjection.conflicts.length, 2);
   assert.ok(orderProjection.conflicts.every((entry) => entry.state === "order-conflict"));
+  const rejectedWrite = applyNarrativeArrangementMutation(conflicted, { action: "remove", operationId: "remove.conflicted", authorActionId: "author.conflicted", sourceKind: "author-action", sourceRef: "author://conflicted", expectedRevision: conflicted.currentRevision, createdAt: time(4), placementId: conflictedHead.placements[0]!.placementId }, new Set(["story-unit.main"]));
+  assert.equal(rejectedWrite.conflict && rejectedWrite.code, "order-conflict");
   const danglingProjection = projectNarrativeArrangement({ projectId: arrangement.projectId, workVersionId: arrangement.workVersionId, narrativePathId: arrangement.narrativePathId, eventIds: ["event.one"], storyUnits: [{ storyUnitId: "story-unit.main", order: 0 }], arrangement });
   assert.equal(danglingProjection.conflicts[0]?.state, "dangling-reference");
   assert.equal(danglingProjection.conflicts[0]?.eventId, "event.two");
@@ -178,4 +188,24 @@ test("rebalancing changes only internal keys and leaves visible order intact", (
   const rebalanced = rebalancePlacementOrder(placements);
   assert.deepEqual(rebalanced.map((placement) => placement.eventId), ["event.z", "event.a"]);
   assert.deepEqual(rebalanced.map((placement) => placement.orderKey), [1_024, 2_048]);
+});
+
+test("current schema round-trip and later Writer mutations preserve explicit extension fields", () => {
+  const created = createNarrativeArrangement({
+    projectId: "project.story",
+    workVersionId: "work-version.root.story",
+    sourceLineageId: "work-version.root.story",
+    narrativePathId: "story-unit.main",
+    ownerStoryUnitId: "story-unit.main",
+    operationId: "arrangement.extensions.create",
+    authorActionId: "author.extensions.create",
+    createdAt: time(0),
+    extensions: { futureArrangementField: { enabled: true } }
+  });
+  const serialized = serializeNarrativeArrangementStore({ schemaVersion: "tianyan-story-unit-narrative-arrangements/r0", ownerStoryUnitId: "story-unit.main", arrangements: [created.arrangement], extensions: { futureStoreField: ["kept"] } });
+  const parsed = parseNarrativeArrangementStore(serialized, "story-unit.main");
+  const mutated = mutate(parsed.arrangements[0]!, { action: "insert", operationId: "insert.extensions", authorActionId: "author.extensions.insert", createdAt: time(1), eventId: "event.extension", storyUnitId: "story-unit.main", role: "primary", position: { kind: "end" } });
+  assert.equal(mutated.conflict, false);
+  assert.deepEqual(mutated.arrangement.extensions, { futureArrangementField: { enabled: true } });
+  assert.deepEqual(parsed.extensions, { futureStoreField: ["kept"] });
 });
