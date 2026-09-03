@@ -196,6 +196,20 @@
       "remainingGap": "R0 defines binding and compatibility gates but intentionally has no vector store, rebuild engine, automatic capability discovery, complete RAG, rerank, ASR or TTS runtime"
     },
     {
+      "id": "story-studio-runtime-mode-r0",
+      "status": "LOCAL_REVIEW",
+      "maturity": "explicit-api-only-and-combined-static-single-entry-r0",
+      "entrypoints": ["scripts/start-story-studio-dev.mjs", "apps/story-studio/server/server.mjs"],
+      "sourceFiles": ["apps/story-studio/server/runtimeMode.mjs", "apps/story-studio/server/server.mjs", "scripts/start-story-studio-dev.mjs", "scripts/tianyan-runtime-mode-smoke.mjs", "docs/architecture/TIANYAN_RUNTIME_MODE_AND_SINGLE_ENTRY_R0.md"],
+      "domainOwners": [],
+      "stateOwners": [],
+      "persistenceOwner": "none; runtime mode is explicit process configuration and does not own project, Event, Canon, WorldState, Relation, Provider profile, or browser view state",
+      "providerDependency": "none; development and production runtime routing are verified with local fixtures, and Provider requests remain controlled by the existing Gateway",
+      "tests": ["tests/storyStudio/storyStudioRuntimeMode.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "scripts/tianyan-runtime-mode-smoke.mjs"],
+      "legacyProvenance": ["85c65d30fe9aefba8465e0c5d64b61b5d41c3ae4"],
+      "remainingGap": "Founder review of the unified Runtime, Provider and R11.1 baseline remains required; development UI stays on Vite 4191 and production combined-static stays on 4192"
+    },
+    {
       "id": "tianyi-grounding",
       "status": "PARTIAL",
       "maturity": "production-route-real-provider-verified",
@@ -296,16 +310,16 @@
     {
       "id": "event-line",
       "status": "PRODUCTION_CONNECTED",
-      "maturity": "candidate-and-verified-canon-separated",
+      "maturity": "r11-compositional-observation-with-owner-backed-participation",
       "entrypoints": ["apps/story-studio/src/components/EventLineWorkbench.tsx"],
-      "sourceFiles": ["apps/story-studio/src/App.tsx", "apps/story-studio/src/components/eventLineCommittedEvents.ts", "src/storyContracts/storyStudioEventReference.ts"],
+      "sourceFiles": ["apps/story-studio/src/App.tsx", "apps/story-studio/src/components/eventLineCommittedEvents.ts", "apps/story-studio/src/components/event-observation/EventObservationControls.tsx", "apps/story-studio/src/components/event-observation/ParticipationObservation.tsx", "src/storyContracts/storyStudioEventReference.ts", "src/storyContracts/eventObservation.ts", "src/storyContracts/eventPerspectiveProjection.ts"],
       "domainOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
       "stateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
-      "persistenceOwner": "sole WorldState/Event owner; Candidate Review remains separate",
-      "providerDependency": "candidate generation only",
-      "tests": ["tests/storyStudio/tianyanEventWorkDockAuthorCopyR0.test.ts", "tests/storyStudio/goldenLoopSourceAuthority.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
+      "persistenceOwner": "sole WorldState/Event owner; Candidate Review remains separate; R11 layout, lens, layers, focus ids, and semantic scale are project-scoped browser view state only",
+      "providerDependency": "candidate generation only; R11 layout, lens, focus, scale, save, filter, zoom, and refresh perform zero Provider calls",
+      "tests": ["tests/storyContracts/eventObservation.test.ts", "tests/storyContracts/eventPerspectiveProjection.test.ts", "tests/storyStudio/tianyanR11EventObservationIntegration.test.ts", "tests/storyStudio/tianyanEventWorkDockAuthorCopyR0.test.ts", "tests/storyStudio/goldenLoopSourceAuthority.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
       "legacyProvenance": ["122924e04595aeafbc5c96895d2ac85fc34b1535 compact entry adapted"],
-      "remainingGap": "Confirmed facts remain the primary Event Line read model. Its Nuwa handoff now requires an explicit selected confirmed-event reference; Provider status hydration remains briefly stale after some navigation paths"
+      "remainingGap": "Relationship evolution still lacks a versioned relation-state sequence; Founder independent experience review remains required. Confirmed facts remain the primary Event Line read model and R11 observation state cannot write Event, Canon, WorldState, Relation, or Story Unit facts"
     },
     {
       "id": "author-review-canon-writer",
