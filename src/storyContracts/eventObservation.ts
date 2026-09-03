@@ -201,6 +201,88 @@ export type ParticipationProjection = {
   columns: ParticipationColumn[];
 };
 
+export type FocusTrajectoryRenderState = ParticipationState | "weak";
+export type FocusTrajectoryAnchor = {
+  anchorId: string;
+  event: ParticipationEvent;
+};
+export type FocusTrajectoryPoint = {
+  pointId: string;
+  anchorId: string;
+  eventId: string;
+  objectId: string;
+  objectLabel: string;
+  objectType: PerspectiveObjectRef["type"];
+  anchorIndex: number;
+  state: FocusTrajectoryRenderState;
+  conflict: boolean;
+  evidenceRefs: string[];
+};
+export type FocusTrajectorySegment = {
+  segmentId: string;
+  objectId: string;
+  sourcePointId: string;
+  targetPointId: string;
+  weak: boolean;
+};
+export type FocusTrajectoryOverlay = {
+  objects: PerspectiveObjectRef[];
+  points: FocusTrajectoryPoint[];
+  segments: FocusTrajectorySegment[];
+};
+
+/**
+ * Shared, read-only trajectory geometry input for both graphical coordinates.
+ * The caller owns x/y placement; this projection only decides which evidence
+ * points and adjacent segments are allowed to exist. Unknown always breaks a
+ * segment, while explicit absence remains visible but never becomes a bridge.
+ */
+export function buildFocusTrajectoryOverlay(input: {
+  anchors: readonly FocusTrajectoryAnchor[];
+  objects: readonly PerspectiveObjectRef[];
+  focusObjectIds: readonly string[];
+}): FocusTrajectoryOverlay {
+  const formalById = new Map(input.objects.filter((object) => object.formal === true).map((object) => [object.id, object]));
+  const objects = unique(input.focusObjectIds).flatMap((id) => formalById.get(id) ?? []).slice(0, 3);
+  const points: FocusTrajectoryPoint[] = [];
+  const segments: FocusTrajectorySegment[] = [];
+  for (const object of objects) {
+    let previous: FocusTrajectoryPoint | null = null;
+    for (const [anchorIndex, anchor] of input.anchors.entries()) {
+      const cell = participationCell(anchor.event, object);
+      const state: FocusTrajectoryRenderState = cell.state === "unknown" && hasWeakParticipationEvidence(anchor.event, object) ? "weak" : cell.state;
+      if (state === "unknown") {
+        previous = null;
+        continue;
+      }
+      const point: FocusTrajectoryPoint = {
+        pointId: `focus:${object.id}:${anchor.anchorId}`,
+        anchorId: anchor.anchorId,
+        eventId: anchor.event.id,
+        objectId: object.id,
+        objectLabel: object.label,
+        objectType: object.type,
+        anchorIndex,
+        state,
+        conflict: cell.conflict,
+        evidenceRefs: state === "weak" ? [`event:${anchor.event.id}`, `owner:${object.ownerId ?? object.id}@${object.version ?? "unknown"}`] : cell.evidenceRefs
+      };
+      points.push(point);
+      if (previous && previous.anchorIndex + 1 === point.anchorIndex && isTrajectoryBridge(previous.state) && isTrajectoryBridge(point.state)) {
+        segments.push({
+          segmentId: `focus-segment:${object.id}:${previous.anchorId}:${point.anchorId}`,
+          objectId: object.id,
+          sourcePointId: previous.pointId,
+          targetPointId: point.pointId,
+          weak: previous.state === "weak" || point.state === "weak"
+        });
+      }
+      previous = isTrajectoryBridge(point.state) ? point : null;
+    }
+  }
+  return { objects, points, segments };
+}
+
 /** Pure read projection. It cannot turn visual absence or missing tags into a story fact. */
 export function buildEventParticipationProjection(input: {
   events: readonly ParticipationEvent[];
@@ -247,11 +329,19 @@ function participationCell(event: ParticipationEvent, object: PerspectiveObjectR
   };
 }
 
+function hasWeakParticipationEvidence(event: ParticipationEvent, object: PerspectiveObjectRef): boolean {
+  if (object.type !== "character") return false;
+  return taggedValues(event.tags, ["听闻", "推测", "Heard", "Inferred"]).some((value) => sameLabel(value, object.label));
+}
+
+function isTrajectoryBridge(state: FocusTrajectoryRenderState): boolean {
+  return state === "direct" || state === "witnessed" || state === "weak";
+}
+
 function strictTemporalOrder(time: EventNarrativeTime): number | null {
   if (time.kind !== "exact" && time.kind !== "range") return null;
-  // The shared semantic parser conservatively classifies ISO dates containing
-  // hyphens as ranges. The untouched author label is therefore the safest
-  // value for recognizing a strict calendar date in this read projection.
+  // Use the untouched author label so a strict calendar value remains the
+  // only input that can enter the deterministic ordering coordinate.
   const value = time.label;
   const match = /^(\d{4})[-/.年](\d{1,2})(?:[-/.月](\d{1,2})日?)?$/u.exec(value.trim());
   if (!match) return null;

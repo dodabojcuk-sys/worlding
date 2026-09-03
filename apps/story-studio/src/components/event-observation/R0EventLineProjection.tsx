@@ -11,14 +11,14 @@ import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eve
 /** Adapter for the established Event projection and Workspace write command. */
 export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void; selectedEventId?: string | null }) {
   const { t } = useI18n();
-  const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; storyUnits: StoryUnit[]; perspectiveObjects: PerspectiveObjectRef[]; modelingRuns: StoryModelingRunProjection[]; logicReviews: StoryLogicReviewProjection[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[]; narrative: NarrativeArrangementRead | null }>({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null });
+  const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; storyUnits: StoryUnit[]; perspectiveObjects: PerspectiveObjectRef[]; modelingRuns: StoryModelingRunProjection[]; logicReviews: StoryLogicReviewProjection[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[]; narrative: NarrativeArrangementRead | null; narratives: NarrativeArrangementRead[] }>({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null, narratives: [] });
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const load = useCallback(async () => {
     setLoadState("loading");
     try {
       const project = props.runtime.project ?? (await getBootstrap()).activeProject;
       if (!project) {
-        setState({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null });
+        setState({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null, narratives: [] });
         setLoadState("empty");
         return;
       }
@@ -31,8 +31,14 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
         : [];
       const perspectiveObjects: PerspectiveObjectRef[] = library.objects.flatMap((object) => object.type === "character" || object.type === "location" || object.type === "item" ? [{ id: object.id, type: object.type, label: object.title, ownerId: project.id, version: object.revisionToken, scope: "project" as const, formal: true }] : []);
       const narrativeRoot = units.filter((unit) => unit.kind === "main" && unit.status !== "archived").sort((left, right) => left.order - right.order)[0] ?? null;
-      const narrative = creationSource.root && narrativeRoot ? await getNarrativeArrangement(project.id, creationSource.root.id, narrativeRoot.id) : null;
-      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns, logicReviews, list, unit: narrativeRoot?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types, narrative });
+      const narrativeRoots = narrativeRoot
+        ? [narrativeRoot, ...units.filter((unit) => unit.kind === "branch" && unit.status !== "archived").sort((left, right) => left.order - right.order)]
+        : [];
+      const narratives = creationSource.root
+        ? await Promise.all(narrativeRoots.map((unit) => getNarrativeArrangement(project.id, creationSource.root!.id, unit.id)))
+        : [];
+      const narrative = narrativeRoot ? narratives.find((read) => read.projection.narrativePathId === narrativeRoot.id) ?? null : null;
+      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns, logicReviews, list, unit: narrativeRoot?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types, narrative, narratives });
       setLoadState("ready");
     } catch (error) {
       setLoadState("error");
@@ -122,12 +128,16 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     await load();
   };
   const insertPlacement = async (input: { eventId: string; storyUnitId: string; role: NarrativePlacementRole; position: NarrativePositionIntent }): Promise<NarrativeArrangementWriteResult> => {
-    if (!state.narrative) throw new Error("The active Project has no root WorkVersion or main Story Unit; no narrative order was written.");
-    const { workVersionId, narrativePathId } = state.narrative.projection;
+    const targetUnit = state.storyUnits.find((unit) => unit.id === input.storyUnitId);
+    const targetRead = targetUnit?.kind === "branch"
+      ? state.narratives.find((read) => read.projection.narrativePathId === targetUnit.id)
+      : state.narrative;
+    if (!targetRead) throw new Error("The active Project has no matching NarrativeArrangement path; no narrative order was written.");
+    const { workVersionId, narrativePathId } = targetRead.projection;
     const owner = state.storyUnits.find((unit) => unit.id === narrativePathId);
     if (!owner) throw new Error("The NarrativeArrangement owner Story Unit is unavailable; no narrative order was written.");
-    let arrangement = state.narrative.arrangement;
-    let ownerVersion = state.narrative.ownerVersion;
+    let arrangement = targetRead.arrangement;
+    let ownerVersion = targetRead.ownerVersion;
     if (!arrangement) {
       const operationId = `narrative-arrangement-create.${crypto.randomUUID()}`;
       const created = await props.runtime.withConnection((token) => createNarrativeArrangement({ projectId: state.projectId!, workVersionId, narrativePathId, ownerStoryUnitId: owner.id, expectedOwnerVersion: owner.version, expectedRevision: 0, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), token }));
@@ -142,20 +152,25 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     return result;
   };
   const movePlacement = async (input: { placementId: string; storyUnitId: string; position: NarrativePositionIntent }): Promise<NarrativeArrangementWriteResult> => {
-    if (!state.narrative?.arrangement || !state.narrative.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was moved.");
+    const sourceRead = state.narratives.find((read) => read.projection.placed.some((placement) => placement.placementId === input.placementId));
+    const targetUnit = state.storyUnits.find((unit) => unit.id === input.storyUnitId);
+    const targetPathId = targetUnit?.kind === "branch" ? targetUnit.id : state.narrative?.projection.narrativePathId;
+    if (!sourceRead?.arrangement || !sourceRead.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was moved.");
+    if (sourceRead.projection.narrativePathId !== targetPathId) throw new Error("Cross-path Placement moves require an explicit remove and insert.");
     const operationId = `narrative-placement-move.${crypto.randomUUID()}`;
-    const result = await props.runtime.withConnection((token) => moveNarrativePlacement({ projectId: state.projectId!, workVersionId: state.narrative!.projection.workVersionId, narrativePathId: state.narrative!.projection.narrativePathId, expectedOwnerVersion: state.narrative!.ownerVersion!, expectedRevision: state.narrative!.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), ...input, token }));
+    const result = await props.runtime.withConnection((token) => moveNarrativePlacement({ projectId: state.projectId!, workVersionId: sourceRead.projection.workVersionId, narrativePathId: sourceRead.projection.narrativePathId, expectedOwnerVersion: sourceRead.ownerVersion!, expectedRevision: sourceRead.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), ...input, token }));
     await load();
     return result;
   };
   const removePlacement = async (placementId: string): Promise<NarrativeArrangementWriteResult> => {
-    if (!state.narrative?.arrangement || !state.narrative.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was removed.");
+    const sourceRead = state.narratives.find((read) => read.projection.placed.some((placement) => placement.placementId === placementId));
+    if (!sourceRead?.arrangement || !sourceRead.ownerVersion) throw new Error("The NarrativeArrangement is unavailable; no Placement was removed.");
     const operationId = `narrative-placement-remove.${crypto.randomUUID()}`;
-    const result = await props.runtime.withConnection((token) => removeNarrativePlacement({ projectId: state.projectId!, workVersionId: state.narrative!.projection.workVersionId, narrativePathId: state.narrative!.projection.narrativePathId, expectedOwnerVersion: state.narrative!.ownerVersion!, expectedRevision: state.narrative!.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), placementId, token }));
+    const result = await props.runtime.withConnection((token) => removeNarrativePlacement({ projectId: state.projectId!, workVersionId: sourceRead.projection.workVersionId, narrativePathId: sourceRead.projection.narrativePathId, expectedOwnerVersion: sourceRead.ownerVersion!, expectedRevision: sourceRead.arrangement!.currentRevision, operationId, authorActionId: operationId, createdAt: new Date().toISOString(), placementId, token }));
     await load();
     return result;
   };
-  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} storyUnits={state.storyUnits} narrativeArrangement={state.narrative} perspectiveObjects={state.perspectiveObjects} modelingRuns={state.modelingRuns} logicReviews={state.logicReviews} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onStopStoryModeling={(runId) => props.runtime.withConnection((token) => stopStoryModelingRunTransport({ projectId: state.projectId!, runId, token })).then(async (run) => { await load(); return run; })} onReviewLogicFinding={(finding) => props.runtime.withConnection((token) => reviewStoryLogicFinding({ projectId: state.projectId!, findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: finding.authorStatus, token })).then(async (record) => { await load(); return record; })} onInsertNarrativePlacement={state.narrative ? insertPlacement : undefined} onMoveNarrativePlacement={state.narrative ? movePlacement : undefined} onRemoveNarrativePlacement={state.narrative ? removePlacement : undefined} onSaveEvent={saveDraftEvent} onTrashDraftEvent={trashDraftEvent} onCreateUnit={createUnit} onRenameUnit={renameUnit} onArchiveUnit={archiveUnitById} onCreateCollectionPoint={createCollectionPoint} onUpdateCollectionPoint={updateCollectionPoint} onDissolveCollectionPoint={dissolveCollectionPoint} onCreateGraphRelation={({ sourceEventId, targetEventId, relationTypeId, sourceRef }) => {
+  return <EventLineWorkbench embedded projectId={state.projectId} projectTitle={state.title} events={state.events} storyUnits={state.storyUnits} narrativeArrangement={state.narrative} narrativeArrangements={state.narratives} perspectiveObjects={state.perspectiveObjects} modelingRuns={state.modelingRuns} logicReviews={state.logicReviews} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onStopStoryModeling={(runId) => props.runtime.withConnection((token) => stopStoryModelingRunTransport({ projectId: state.projectId!, runId, token })).then(async (run) => { await load(); return run; })} onReviewLogicFinding={(finding) => props.runtime.withConnection((token) => reviewStoryLogicFinding({ projectId: state.projectId!, findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: finding.authorStatus, token })).then(async (record) => { await load(); return record; })} onInsertNarrativePlacement={state.narratives.length ? insertPlacement : undefined} onMoveNarrativePlacement={state.narratives.length ? movePlacement : undefined} onRemoveNarrativePlacement={state.narratives.length ? removePlacement : undefined} onSaveEvent={saveDraftEvent} onTrashDraftEvent={trashDraftEvent} onCreateUnit={createUnit} onRenameUnit={renameUnit} onArchiveUnit={archiveUnitById} onCreateCollectionPoint={createCollectionPoint} onUpdateCollectionPoint={updateCollectionPoint} onDissolveCollectionPoint={dissolveCollectionPoint} onCreateGraphRelation={({ sourceEventId, targetEventId, relationTypeId, sourceRef }) => {
     const type = state.relationTypes.find((candidate) => candidate.relationTypeId === relationTypeId) ?? state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
     return props.runtime.withConnection((token) => createRelationCandidate({ projectId: state.projectId!, sourceObjectId: sourceEventId, targetObjectId: targetEventId, relationTypeId: type.relationTypeId, relationLabelSnapshot: type.label, direction: "forward", sourceRef: sourceRef ?? "event-graph-author-link", operationId: `event-graph-link-${crypto.randomUUID()}`, token })).then(() => { window.dispatchEvent(new Event("story-studio-pending-review-changed")); load(); });

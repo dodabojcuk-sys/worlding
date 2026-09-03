@@ -5,8 +5,8 @@ import {
 } from "@xyflow/react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronLeft, CircleDot, Clock3, Expand, Eye,
-  FileText, Filter, Focus, GitBranch, Layers3, Link2, MapPin, Maximize2, Network,
-  PanelLeftClose, PanelRightClose, Plus, RefreshCw, ShieldCheck, Sparkles, Tag, UsersRound, X
+  FileText, Filter, Focus, GitBranch, GripHorizontal, Layers3, Link2, MapPin, Maximize2, Network,
+  Minus, PanelLeftClose, PanelRightClose, Plus, RefreshCw, ShieldCheck, Sparkles, Tag, UsersRound, X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
@@ -17,6 +17,8 @@ import type { SmartRelationCandidate, StoryModelingRun } from "../../../../../sr
 import { dedupeSmartRelationCandidates, reviewSmartRelationCandidates } from "../../../../../src/storyContracts/storyModelingReview.ts";
 import type { TemporalPlacement, TemporalProjectionRun, TemporalSegment } from "../../../../../src/storyContracts/temporalProjection.ts";
 import { temporalTrackProjection } from "../../../../../src/storyContracts/temporalCoordinateTracks.ts";
+import { buildFocusTrajectoryOverlay, type FocusTrajectoryRenderState } from "../../../../../src/storyContracts/eventObservation.ts";
+import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eventPerspectiveProjection.ts";
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
@@ -24,7 +26,7 @@ import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
 import { CollectionPointNode, type CollectionPointNodeData } from "../graph-nodes/CollectionPointNode";
 import { FormalEventNode } from "../graph-nodes/FormalEventNode";
 import { AgentExecutionGraph } from "../tianyi/execution/AgentExecutionGraph";
-import type { StoryCollectionPoint, StoryUnit } from "../../lib/localTransport";
+import type { NarrativeArrangementRead, NarrativePlacementRole, StoryCollectionPoint, StoryUnit } from "../../lib/localTransport";
 
 type Selection =
   | { kind: "node"; id: string }
@@ -57,7 +59,7 @@ function CollectionPointGraphNode(props: NodeProps<Node<NodeData>>) {
 
 function NarrativeTrackNode(props: NodeProps<Node<NodeData>>) { return <span className="event-narrative-track-label"><GitBranch aria-hidden="true" />{props.data.trackLabel}</span>; }
 
-export function EventGraphCanvas(props: {
+export type EventGraphCanvasProps = {
   projectId: string;
   events: readonly EventLineEventSummary[];
   relations: readonly RelationReadProjectionR0[];
@@ -90,7 +92,21 @@ export function EventGraphCanvas(props: {
   temporalState?: "idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable";
   temporalMessage?: string | null;
   onReturnGraph?(): void;
-}) {
+  narrativeSurface?: {
+    narratives: readonly NarrativeArrangementRead[];
+    focusObjects: readonly PerspectiveObjectRef[];
+    currentUnitLabel: string | null;
+    detailsOpen: boolean;
+    onArrange(selection: { eventId: string; placementId: string | null }): void;
+    onOpenStaging(): void;
+  };
+};
+
+export function EventGraphCanvas(props: EventGraphCanvasProps) {
+  return props.narrativeSurface ? <NarrativeArrangementGraphCanvas {...props} surface={props.narrativeSurface} /> : <LegacyEventGraphCanvas {...props} />;
+}
+
+function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const mode = props.mode ?? "graph";
   const canvasKind = props.canvasKind ?? "relation";
   const [view, setView] = useState<"global" | "focus">("global");
@@ -639,6 +655,314 @@ export function EventGraphCanvas(props: {
     </div>
     {collectionPointRename ? <CollectionPointRenameDialog title={collectionPointRename.title} busy={busy === "collection-point-rename"} onCancel={() => { setCollectionPointRename(null); window.requestAnimationFrame(() => contextMenuTriggerRef.current?.focus()); }} onConfirm={renameCollectionPoint} /> : null}
   </section>;
+}
+
+type FormalNarrativePlacementData = {
+  kind: "placement";
+  eventId: string;
+  placementId: string;
+  title: string;
+  summary: string;
+  time: string;
+  unitLabel: string;
+  role: NarrativePlacementRole;
+  status: "confirmed" | "draft" | "conflict";
+  displayIndex: number;
+  selected: boolean;
+  detail: "far" | "medium" | "near";
+  branching: boolean;
+  onOpen(): void;
+  onArrange(): void;
+};
+type FormalNarrativeTopologyData = {
+  kind: "topology";
+  topology: "unit" | "branch" | "merge" | "collapsed" | "unresolved";
+  label: string;
+  detail: string;
+  onToggle?: () => void;
+};
+type FormalNarrativeFocusData = {
+  kind: "focus";
+  state: FocusTrajectoryRenderState;
+  label: string;
+  objectType: PerspectiveObjectRef["type"];
+  conflict: boolean;
+};
+type FormalNarrativeNodeData = FormalNarrativePlacementData | FormalNarrativeTopologyData | FormalNarrativeFocusData;
+type FormalNarrativePlacement = {
+  placementId: string;
+  eventId: string;
+  storyUnitId: string;
+  narrativePathId: string;
+  narrativeIndex: number;
+  role: NarrativePlacementRole;
+  event: EventLineEventSummary;
+};
+
+const formalNarrativeNodeTypes = {
+  narrativePlacement: FormalNarrativePlacementNode,
+  narrativeTopology: FormalNarrativeTopologyNode,
+  narrativeFocus: FormalNarrativeFocusNode
+};
+
+function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surface: NonNullable<EventGraphCanvasProps["narrativeSurface"]> }) {
+  const [flow, setFlow] = useState<ReactFlowInstance<Node<FormalNarrativeNodeData>, Edge> | null>(null);
+  const [detail, setDetail] = useState<"far" | "medium" | "near">("far");
+  const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
+  const [collapsedUnitIds, setCollapsedUnitIds] = useState<Set<string>>(() => new Set());
+  const eventById = useMemo(() => new Map(props.events.map((event) => [event.id, event])), [props.events]);
+  const unitById = useMemo(() => new Map((props.storyUnits ?? []).map((unit) => [unit.id, unit])), [props.storyUnits]);
+  const placements = useMemo<FormalNarrativePlacement[]>(() => props.surface.narratives.flatMap((read) => read.projection.placed.flatMap((placement) => {
+    const event = eventById.get(placement.eventId);
+    return event ? [{ ...placement, event, narrativePathId: read.projection.narrativePathId }] : [];
+  })), [eventById, props.surface.narratives]);
+  const branchUnits = useMemo(() => (props.storyUnits ?? []).filter((unit) => unit.kind === "branch" && unit.status !== "archived").sort((left, right) => left.order - right.order), [props.storyUnits]);
+  const projection = useMemo(() => buildFormalNarrativeGraph({
+    placements,
+    units: props.storyUnits ?? [],
+    focusObjects: props.surface.focusObjects,
+    selectedEventId: props.selectedEventId,
+    detail,
+    collapsedUnitIds,
+    onSelectEvent: props.onSelectEvent,
+    onArrange: props.surface.onArrange,
+    onToggleBranch: (unitId) => setCollapsedUnitIds((current) => {
+      const next = new Set(current);
+      if (next.has(unitId)) next.delete(unitId); else next.add(unitId);
+      return next;
+    })
+  }), [collapsedUnitIds, detail, placements, props.selectedEventId, props.storyUnits, props.surface.focusObjects, props.surface.onArrange, props.onSelectEvent]);
+  const focusEvent = useCallback((eventId: string | null, duration = 260) => {
+    if (!flow || !eventId) return;
+    const target = projection.nodes.find((node) => node.data.kind === "placement" && node.data.eventId === eventId);
+    if (!target) return;
+    void flow.setCenter(target.position.x + 118, target.position.y + 72, { zoom: Math.max(.88, flow.getZoom()), duration });
+  }, [flow, projection.nodes]);
+  useEffect(() => {
+    if (!props.surface.detailsOpen || !props.selectedEventId) return;
+    const timer = window.setTimeout(() => focusEvent(props.selectedEventId, 220), 90);
+    return () => window.clearTimeout(timer);
+  }, [focusEvent, props.selectedEventId, props.surface.detailsOpen]);
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const eventId = (event as CustomEvent<{ eventId?: string }>).detail?.eventId ?? props.selectedEventId;
+      focusEvent(eventId ?? null);
+    };
+    window.addEventListener("story-studio-event-line-focus-current", receive);
+    return () => window.removeEventListener("story-studio-event-line-focus-current", receive);
+  }, [focusEvent, props.selectedEventId]);
+  const toggleAllBranches = () => setCollapsedUnitIds((current) => current.size === branchUnits.length ? new Set() : new Set(branchUnits.map((unit) => unit.id)));
+
+  return <section className="formal-narrative-workspace" data-testid="formal-narrative-event-graph" data-event-line-renderer="EventGraphCanvas" data-narrative-order-owner="NarrativeArrangementProjection" data-placement-count={placements.length} data-focus-track-count={props.surface.focusObjects.length}>
+    <header className="formal-narrative-toolbar">
+      <div><small>叙事坐标 · 左向右推进</small><strong>{props.surface.currentUnitLabel ?? "全书事件线"}</strong><span>{placements.length} 个正式 Placement · {branchUnits.length} 条支线</span></div>
+      <nav aria-label="事件线画布控制">
+        {branchUnits.length ? <button type="button" aria-pressed={collapsedUnitIds.size === branchUnits.length} onClick={toggleAllBranches}><GitBranch />{collapsedUnitIds.size === branchUnits.length ? "展开支线" : "折叠支线"}</button> : null}
+        <button type="button" disabled={!props.selectedEventId} onClick={() => focusEvent(props.selectedEventId)}><Focus />定位所选</button>
+        <button type="button" onClick={() => void flow?.fitView({ padding: .12, duration: 280, maxZoom: 1.05 })}><Maximize2 />全书位置</button>
+        <button type="button" aria-pressed={miniMapOpen} onClick={() => setMiniMapOpen((open) => !open)}><MapPin />缩略导航</button>
+      </nav>
+    </header>
+    <div className="formal-narrative-flow" tabIndex={0} aria-label="NarrativeArrangement 图形事件线，可缩放和平移">
+      <ReactFlow<Node<FormalNarrativeNodeData>, Edge>
+        nodes={projection.nodes}
+        edges={projection.edges}
+        nodeTypes={formalNarrativeNodeTypes}
+        onInit={(instance) => {
+          setFlow(instance);
+          void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
+        }}
+        onMove={(_, viewport) => setDetail(viewport.zoom < .68 ? "far" : viewport.zoom > 1.12 ? "near" : "medium")}
+        onNodeClick={(_, node) => { if (node.data.kind === "placement") node.data.onOpen(); else if (node.data.kind === "topology") node.data.onToggle?.(); }}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable
+        panOnDrag
+        minZoom={.24}
+        maxZoom={1.55}
+        defaultViewport={{ x: 28, y: 18, zoom: .86 }}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background gap={22} size={1} color="rgba(20, 96, 92, .11)" />
+        <Controls showInteractive={false} position="bottom-left" />
+        {miniMapOpen ? <MiniMap pannable zoomable aria-label="NarrativeArrangement 缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
+      </ReactFlow>
+      {!placements.length ? <div className="formal-narrative-empty" role="status"><GripHorizontal /><small>NarrativeArrangement 尚未建立</small><strong>尚未建立叙事编排</strong><p>{props.events.length} 个 Event 与 {(props.storyUnits ?? []).filter((unit) => unit.status !== "archived").length} 个 Story Unit 仍可核对；系统不会替作者猜顺序。</p><button type="button" className="primary-action" onClick={props.surface.onOpenStaging}>安排第一个事件</button></div> : null}
+      {projection.unresolvedBranchCount ? <p className="formal-narrative-warning"><AlertTriangle />{projection.unresolvedBranchCount} 个分叉或合流端点缺少可定位的正式 Placement，未绘制虚假连线。</p> : null}
+    </div>
+    <footer className="formal-narrative-legend"><span><i className="main" />叙事推进（非因果）</span><span><i className="branch" />分叉</span><span><i className="merge" />合流</span><span><i className="gap" />unknown 保持断开</span><strong>节点位置只读自 NarrativeArrangement；拖动画布不会写入。</strong></footer>
+  </section>;
+}
+
+function buildFormalNarrativeGraph(input: {
+  placements: readonly FormalNarrativePlacement[];
+  units: readonly StoryUnit[];
+  focusObjects: readonly PerspectiveObjectRef[];
+  selectedEventId: string | null;
+  detail: FormalNarrativePlacementData["detail"];
+  collapsedUnitIds: ReadonlySet<string>;
+  onSelectEvent(eventId: string): void;
+  onArrange(selection: { eventId: string; placementId: string | null }): void;
+  onToggleBranch(unitId: string): void;
+}): { nodes: Node<FormalNarrativeNodeData>[]; edges: Edge[]; unresolvedBranchCount: number } {
+  const unitById = new Map(input.units.map((unit) => [unit.id, unit]));
+  const mainPlacements = input.placements.filter((placement) => unitById.get(placement.storyUnitId)?.kind !== "branch");
+  const branchUnits = input.units.filter((unit) => unit.kind === "branch" && unit.status !== "archived").sort((left, right) => left.order - right.order);
+  const branchPlacements = new Map(branchUnits.map((unit) => [unit.id, input.placements.filter((placement) => placement.storyUnitId === unit.id)]));
+  const anchorIndex = new Map(branchUnits.map((unit) => [unit.id, mainPlacements.findIndex((placement) => placement.eventId === unit.branchPointEventId)]));
+  const extraSlotsAt = new Map<number, number>();
+  for (const unit of branchUnits) {
+    const index = anchorIndex.get(unit.id) ?? -1;
+    if (index < 0) continue;
+    extraSlotsAt.set(index, Math.max(extraSlotsAt.get(index) ?? 0, (branchPlacements.get(unit.id)?.length ?? 0) + 1));
+  }
+  const xStep = 250;
+  const startX = 170;
+  const mainY = 165;
+  const mainX = mainPlacements.map((_, index) => startX + (index + [...extraSlotsAt.entries()].filter(([anchor]) => anchor < index).reduce((sum, [, slots]) => sum + slots, 0)) * xStep);
+  const placementPosition = new Map<string, { x: number; y: number }>();
+  const nodes: Node<FormalNarrativeNodeData>[] = [];
+  const edges: Edge[] = [];
+  const makePlacementNode = (placement: FormalNarrativePlacement, position: { x: number; y: number }, displayIndex: number, branching: boolean): Node<FormalNarrativeNodeData> => {
+    placementPosition.set(placement.placementId, position);
+    const unit = unitById.get(placement.storyUnitId);
+    const semantic = eventLineSemanticNode(placement.event);
+    const status = /(?:冲突|conflict)/iu.test(placement.event.tags.join(" ")) ? "conflict" : placement.event.status === "draft" ? "draft" : "confirmed";
+    return {
+      id: placement.placementId,
+      type: "narrativePlacement",
+      position,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      className: `formal-narrative-placement-node is-${status} is-${input.detail}`,
+      data: {
+        kind: "placement",
+        eventId: placement.eventId,
+        placementId: placement.placementId,
+        title: placement.event.title,
+        summary: placementSummary(placement.event),
+        time: semantic.time.label,
+        unitLabel: unit?.title ?? "Story Unit 待恢复",
+        role: placement.role,
+        status,
+        displayIndex,
+        selected: input.selectedEventId === placement.eventId,
+        detail: input.detail,
+        branching,
+        onOpen: () => input.onSelectEvent(placement.eventId),
+        onArrange: () => input.onArrange({ eventId: placement.eventId, placementId: placement.placementId })
+      }
+    };
+  };
+  for (const [index, placement] of mainPlacements.entries()) {
+    const branching = branchUnits.some((unit) => unit.branchPointEventId === placement.eventId);
+    nodes.push(makePlacementNode(placement, { x: mainX[index]!, y: mainY }, index + 1, branching));
+    if (index > 0) edges.push({ id: `narrative-main:${mainPlacements[index - 1]!.placementId}:${placement.placementId}`, source: mainPlacements[index - 1]!.placementId, target: placement.placementId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-main", label: input.detail === "near" ? "叙事推进" : undefined });
+  }
+  for (const unit of input.units.filter((candidate) => candidate.kind === "main" && candidate.status !== "archived").sort((left, right) => left.order - right.order)) {
+    const first = mainPlacements.findIndex((placement) => placement.storyUnitId === unit.id);
+    if (first < 0) continue;
+    nodes.push({ id: `unit:${unit.id}`, type: "narrativeTopology", position: { x: mainX[first]! - 10, y: 42 }, selectable: false, draggable: false, data: { kind: "topology", topology: "unit", label: unit.title, detail: `主线单元 · ${mainPlacements.filter((placement) => placement.storyUnitId === unit.id).length} 个 Placement` } });
+  }
+  let unresolvedBranchCount = 0;
+  for (const [branchIndex, unit] of branchUnits.entries()) {
+    const items = branchPlacements.get(unit.id) ?? [];
+    const anchor = anchorIndex.get(unit.id) ?? -1;
+    const branchY = mainY + 265 + branchIndex * 245;
+    const anchorX = anchor >= 0 ? mainX[anchor]! : (mainX.at(-1) ?? startX) + xStep;
+    if (anchor < 0) unresolvedBranchCount += 1;
+    const collapsed = input.collapsedUnitIds.has(unit.id);
+    const unitNodeId = `branch-unit:${unit.id}`;
+    nodes.push({ id: unitNodeId, type: "narrativeTopology", position: { x: anchorX + 58, y: branchY - 84 }, data: { kind: "topology", topology: anchor < 0 ? "unresolved" : "branch", label: unit.title, detail: `${items.length} 个 Placement · ${collapsed ? "已折叠" : "已展开"}`, onToggle: () => input.onToggleBranch(unit.id) } });
+    const mergeTargetIndex = unit.mergeTargetUnitId
+      ? mainPlacements.findIndex((placement, index) => index > anchor && placement.storyUnitId === unit.mergeTargetUnitId)
+      : -1;
+    const mergeTarget = mergeTargetIndex >= 0 ? mainPlacements[mergeTargetIndex]! : null;
+    const mergeNodeId = `merge:${unit.id}`;
+    const mergeX = mergeTarget ? mainX[mergeTargetIndex]! - 110 : anchorX + Math.max(1.7, items.length + .65) * xStep;
+    if (unit.mergeTargetUnitId && mergeTarget) {
+      nodes.push({ id: mergeNodeId, type: "narrativeTopology", position: { x: mergeX, y: mainY + 34 }, data: { kind: "topology", topology: "merge", label: `合流至 ${unitById.get(unit.mergeTargetUnitId)?.title ?? "目标单元"}`, detail: "Story Unit 声明的合流" } });
+    } else if (unit.mergeTargetUnitId) {
+      unresolvedBranchCount += 1;
+    }
+    if (collapsed) {
+      const capsuleId = `branch-capsule:${unit.id}`;
+      nodes.push({ id: capsuleId, type: "narrativeTopology", position: { x: anchorX + xStep, y: branchY }, data: { kind: "topology", topology: "collapsed", label: unit.title, detail: `${items.length} 个 Placement · 点击局部展开`, onToggle: () => input.onToggleBranch(unit.id) } });
+      if (anchor >= 0) edges.push({ id: `branch-enter:${unit.id}`, source: mainPlacements[anchor]!.placementId, target: capsuleId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-branch" });
+      if (mergeTarget) {
+        edges.push({ id: `branch-merge:${unit.id}`, source: capsuleId, target: mergeNodeId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-merge" });
+        edges.push({ id: `merge-return:${unit.id}`, source: mergeNodeId, target: mergeTarget.placementId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-merge" });
+      }
+      continue;
+    }
+    for (const [index, placement] of items.entries()) {
+      nodes.push(makePlacementNode(placement, { x: anchorX + (index + 1) * xStep, y: branchY }, index + 1, false));
+      if (index > 0) edges.push({ id: `branch:${unit.id}:${items[index - 1]!.placementId}:${placement.placementId}`, source: items[index - 1]!.placementId, target: placement.placementId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-branch" });
+    }
+    if (anchor >= 0 && items.length) edges.push({ id: `branch-enter:${unit.id}`, source: mainPlacements[anchor]!.placementId, target: items[0]!.placementId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-branch", label: input.detail !== "far" ? "分叉" : undefined });
+    if (items.length && mergeTarget) {
+      edges.push({ id: `branch-merge:${unit.id}`, source: items.at(-1)!.placementId, target: mergeNodeId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-merge", label: input.detail !== "far" ? "合流" : undefined });
+      edges.push({ id: `merge-return:${unit.id}`, source: mergeNodeId, target: mergeTarget.placementId, type: "smoothstep", markerEnd: { type: MarkerType.ArrowClosed }, className: "formal-narrative-edge is-merge" });
+    }
+  }
+  const visiblePathGroups = new Map<string, FormalNarrativePlacement[]>();
+  for (const placement of input.placements) {
+    if (input.collapsedUnitIds.has(placement.storyUnitId) || !placementPosition.has(placement.placementId)) continue;
+    const list = visiblePathGroups.get(placement.storyUnitId) ?? [];
+    list.push(placement);
+    visiblePathGroups.set(placement.storyUnitId, list);
+  }
+  const focusY = mainY + Math.max(1, branchUnits.length) * 265 + 245;
+  for (const [objectIndex, object] of input.focusObjects.slice(0, 3).entries()) {
+    const laneY = focusY + objectIndex * 96;
+    nodes.push({ id: `focus-label:${object.id}`, type: "narrativeTopology", position: { x: 18, y: laneY - 8 }, selectable: false, draggable: false, data: { kind: "topology", topology: "unit", label: object.label, detail: object.type === "character" ? "人物轨迹" : object.type === "location" ? "地点出现" : "物品流转" } });
+    for (const pathPlacements of visiblePathGroups.values()) {
+      const overlay = buildFocusTrajectoryOverlay({ anchors: pathPlacements.map((placement) => ({ anchorId: placement.placementId, event: placement.event })), objects: input.focusObjects, focusObjectIds: [object.id] });
+      for (const point of overlay.points) {
+        const position = placementPosition.get(point.anchorId);
+        if (!position) continue;
+        nodes.push({ id: point.pointId, type: "narrativeFocus", position: { x: position.x + 92, y: laneY }, draggable: false, selectable: false, data: { kind: "focus", state: point.state, label: `${point.objectLabel} · ${trajectoryStateLabel(point.state)}`, objectType: point.objectType, conflict: point.conflict } });
+      }
+      for (const segment of overlay.segments) edges.push({ id: segment.segmentId, source: segment.sourcePointId, target: segment.targetPointId, type: "straight", className: `formal-focus-edge ${segment.weak ? "is-weak" : ""}`, animated: false });
+    }
+  }
+  return { nodes, edges, unresolvedBranchCount };
+}
+
+function FormalNarrativePlacementNode(props: NodeProps<Node<FormalNarrativeNodeData>>) {
+  if (props.data.kind !== "placement") return null;
+  const data = props.data;
+  return <article className={`formal-narrative-card is-${data.status} is-${data.detail} ${data.selected ? "is-selected" : ""}`} data-placement-id={data.placementId} data-confirmed-event-id={data.eventId}>
+    <Handle type="target" position={Position.Left} isConnectable={false} className="formal-narrative-port" />
+    <Handle type="source" position={Position.Right} isConnectable={false} className="formal-narrative-port" />
+    {data.branching ? <Handle type="source" position={Position.Bottom} isConnectable={false} className="formal-narrative-port is-branch" /> : null}
+    <button type="button" className="formal-narrative-card-main" onClick={(event) => { event.stopPropagation(); data.onOpen(); }} aria-label={`打开 Event：${data.title}`}><span>{data.status === "conflict" ? "冲突" : data.status === "draft" ? "作者草稿" : "正式 Event"}</span><b>{String(data.displayIndex).padStart(2, "0")}</b><strong>{data.title}</strong>{data.detail !== "far" ? <small>{data.unitLabel} · {placementRoleLabel(data.role)}</small> : null}{data.detail === "near" ? <><p>{data.summary}</p><time>{data.time}</time></> : null}</button>
+    {data.detail === "near" ? <button type="button" className="formal-narrative-arrange" onClick={(event) => { event.stopPropagation(); data.onArrange(); }}><GripHorizontal />编排位置</button> : null}
+  </article>;
+}
+
+function FormalNarrativeTopologyNode(props: NodeProps<Node<FormalNarrativeNodeData>>) {
+  if (props.data.kind !== "topology") return null;
+  const data = props.data;
+  const handles = data.topology === "merge" || data.topology === "collapsed" ? <><Handle type="target" position={Position.Left} isConnectable={false} className="formal-topology-port" /><Handle type="source" position={Position.Right} isConnectable={false} className="formal-topology-port" /></> : null;
+  const content = <>{handles}<span>{data.topology === "branch" || data.topology === "collapsed" ? <GitBranch /> : data.topology === "merge" ? <ArrowRight /> : data.topology === "unresolved" ? <AlertTriangle /> : <Layers3 />}</span><div><strong>{data.label}</strong><small>{data.detail}</small></div></>;
+  return data.onToggle ? <button type="button" className={`formal-topology-node is-${data.topology}`} onClick={(event) => { event.stopPropagation(); data.onToggle?.(); }}>{content}</button> : <div className={`formal-topology-node is-${data.topology}`}>{content}</div>;
+}
+
+function FormalNarrativeFocusNode(props: NodeProps<Node<FormalNarrativeNodeData>>) {
+  if (props.data.kind !== "focus") return null;
+  const data = props.data;
+  return <span className={`formal-focus-point is-${data.state} ${data.conflict ? "has-conflict" : ""}`} aria-label={data.label}><Handle type="target" position={Position.Left} isConnectable={false} className="formal-focus-port" />{data.state === "direct" ? <Check /> : data.state === "witnessed" ? <Eye /> : data.state === "explicit-absence" ? <Minus /> : <GripHorizontal />}<Handle type="source" position={Position.Right} isConnectable={false} className="formal-focus-port" /></span>;
+}
+
+function placementSummary(event: EventLineEventSummary): string {
+  return event.tags.find((tag) => /^(?:摘要|Summary)[：:]/iu.test(tag))?.replace(/^[^：:]+[：:]\s*/u, "") ?? "打开 Event 查看来源、事实与影响。";
+}
+function placementRoleLabel(role: NarrativePlacementRole): string {
+  return ({ primary: "主要呈现", flashback: "倒叙", recap: "回看", reveal: "再次揭示", reinterpretation: "重新解释" } as const)[role];
+}
+function trajectoryStateLabel(state: FocusTrajectoryRenderState): string {
+  return state === "direct" ? "参与" : state === "witnessed" ? "见证" : state === "explicit-absence" ? "明确缺席" : state === "weak" ? "听闻/推测" : "unknown";
 }
 
 function CollectionPointRenameDialog(props: { title: string; busy: boolean; onCancel(): void; onConfirm(title: string): Promise<void> }) {

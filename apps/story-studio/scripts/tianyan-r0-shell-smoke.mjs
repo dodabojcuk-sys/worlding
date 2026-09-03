@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
@@ -11,6 +12,8 @@ import { createTianyanE2eFixture, removeTianyanE2eFixture } from "../../../scrip
 import { assertCanonicalRuntime } from "../../../scripts/canonical-runtime.mjs";
 import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthority } from "../../../src/storyWorkspace/workVersionAuthority.ts";
 import { resolveWorkVersionOwnerSnapshotRefs } from "../../../src/storyWorkspace/workVersionSnapshotResolver.ts";
+import { projectNarrativeArrangement } from "../../../src/storyContracts/narrativeArrangement.ts";
+import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
 
 assertCanonicalRuntime();
 const require = createRequire(import.meta.url);
@@ -994,28 +997,28 @@ async function setupObservationFixture() {
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", tags: ["港区"] });
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "雾灯匣", status: "active", tags: ["关键物品"] });
   const definitions = [
-    { key: "revealed-consequence", title: "先揭示的港口后果", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03", "人物：林昭", "地点：雾港", "物品：雾灯匣"] },
-    { key: "revealed-cause", title: "后揭示的码头起因", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01", "目击：林昭", "地点：雾港"] },
-    { key: "explicit-absence", title: "密室中的明确缺席", tags: ["作者草稿", "单元：雾港追踪", "时间：之后三天", "缺席：林昭", "物品：雾灯匣"] },
+    { key: "revealed-consequence", title: "先揭示的港口后果", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03 18:00", "人物：林昭", "地点：雾港", "物品：雾灯匣"] },
+    { key: "revealed-cause", title: "后揭示的码头起因", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 05:30", "目击：林昭", "地点：雾港"] },
+    { key: "explicit-absence", title: "密室中的明确缺席", tags: ["作者草稿", "单元：雾港追踪", "时间：之后3天", "相对锚点：潮汐信号第一次中断", "缺席：林昭", "物品：雾灯匣"] },
     { key: "unknown", title: "时间未定的匿名来客", tags: ["作者草稿", "单元：雾港追踪"] },
-    { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01", "人物：程野", "地点：雾港"] },
-    { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "人物：顾澜", "物品：雾灯匣"] },
-    { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "目击：苏弦", "地点：雾港"] },
-    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "人物：阿芜", "物品：雾灯匣"] },
-    { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03", "人物：陆衍", "地点：雾港"] },
+    { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "人物：程野", "地点：雾港"] },
+    { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02 00:00 – 2026-09-03 00:00", "人物：顾澜", "物品：雾灯匣"] },
+    { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "目击：苏弦", "地点：雾港"] },
+    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "时间：约 2026-09-02 12:00", "人物：阿芜", "物品：雾灯匣"] },
+    { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03 18:00", "人物：陆衍", "地点：雾港", "时间冲突：港务钟与灯塔记录相差两小时"] },
     { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-03", "人物：林昭", "地点：雾港"] },
-    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "时间：回忆", "听闻：林昭", "地点：雾港"] },
+    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
     { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
     { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-04", "推测：苏弦"] },
     { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
     { key: "confrontation", title: "六人在旧码头对峙", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：林昭,阿芜,陆衍,顾澜,程野,苏弦", "地点：雾港"] },
     { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：顾澜", "物品：雾灯匣"] },
     { key: "aftermath", title: "港务记录恢复公开", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-06", "人物：陆衍", "地点：雾港"] },
-    { key: "hook", title: "外海传来新的灯语", tags: ["作者草稿", "单元：雾港追踪", "时间：未来", "目击：阿芜", "地点：雾港"] }
+    { key: "hook", title: "外海传来新的灯语", tags: ["作者草稿", "单元：雾港追踪", "时间：未知", "目击：阿芜", "地点：雾港"] }
   ];
   const created = [];
   for (const definition of definitions) {
-    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: definition.title, status: "draft", tags: definition.tags, body: `${definition.title}只用于 R11 隔离观察工作台验收。` });
+    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: definition.title, status: "draft", tags: definition.tags, body: `${definition.title}只用于 R12-C 隔离事件线验收。` });
     created.push({ ...definition, id: result.data.id });
   }
   observationFixture = Object.fromEntries(created.map((event) => [event.key, event]));
@@ -1062,8 +1065,96 @@ async function setupNarrativeFixture() {
   narrativeFixture = { unit: unit.data, branch: branch.data, workVersionId: root.identity.workVersionId };
 }
 
+async function seedR12NarrativeArrangements() {
+  assert.ok(narrativeFixture, "R12 narrative fixture must exist before seeding arrangements.");
+  const paths = [
+    {
+      unit: narrativeFixture.unit,
+      placements: [
+        ["revealed-consequence", "reveal"],
+        ["signal", "primary"],
+        ["unknown", "primary"],
+        ["ledger", "primary"],
+        ["witness", "primary"],
+        ["warning", "primary"],
+        ["blackout", "primary"],
+        ["branch", "primary"],
+        ["confrontation", "primary"],
+        ["revealed-cause", "flashback"],
+        ["reveal", "reinterpretation"],
+        ["aftermath", "primary"],
+        ["explicit-absence", "primary"]
+      ]
+    },
+    {
+      unit: narrativeFixture.branch,
+      placements: [
+        ["branch", "reinterpretation"],
+        ["echo", "recap"],
+        ["map", "primary"],
+        ["false-lead", "primary"],
+        ["return", "primary"]
+      ]
+    }
+  ];
+  const seeded = {};
+  for (const [pathIndex, pathFixture] of paths.entries()) {
+    let result = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/create`, {
+      projectId: fixtureProjectId,
+      workVersionId: narrativeFixture.workVersionId,
+      narrativePathId: pathFixture.unit.id,
+      ownerStoryUnitId: pathFixture.unit.id,
+      expectedOwnerVersion: pathFixture.unit.version,
+      expectedRevision: 0,
+      operationId: `r12c-e2e-create-${pathIndex}-${fixture.fixtureId}`,
+      authorActionId: `author.r12c-create-${pathIndex}-${fixture.fixtureId}`,
+      createdAt: `2026-09-03T08:0${pathIndex}:00.000Z`
+    });
+    assert.equal(result.data.conflict, false, `Narrative path ${pathFixture.unit.title} should be created.`);
+    for (const [placementIndex, [eventKey, role]] of pathFixture.placements.entries()) {
+      result = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
+        projectId: fixtureProjectId,
+        workVersionId: narrativeFixture.workVersionId,
+        narrativePathId: pathFixture.unit.id,
+        expectedOwnerVersion: result.data.ownerVersion,
+        expectedRevision: result.data.arrangement.currentRevision,
+        operationId: `r12c-e2e-insert-${pathIndex}-${placementIndex}-${fixture.fixtureId}`,
+        authorActionId: `author.r12c-insert-${pathIndex}-${placementIndex}-${fixture.fixtureId}`,
+        createdAt: `2026-09-03T08:${String(pathIndex * 20 + placementIndex + 2).padStart(2, "0")}:00.000Z`,
+        eventId: observationFixture[eventKey].id,
+        storyUnitId: pathFixture.unit.id,
+        role,
+        position: { kind: "end" }
+      });
+      assert.equal(result.data.conflict, false, `Fixture Placement ${eventKey} should be inserted.`);
+    }
+    seeded[pathFixture.unit.id] = result.data;
+  }
+  return seeded;
+}
+
+function assertR12ProjectionConflictFixture(seeded) {
+  const main = seeded[narrativeFixture.unit.id].arrangement;
+  const head = main.revisions.find((revision) => revision.revision === main.currentRevision);
+  assert.ok(head && head.placements.length >= 2, "The R12 projection-conflict fixture requires two main Placements.");
+  const duplicatedOrder = head.placements.map((placement, index) => index === 1 ? { ...placement, orderKey: head.placements[0].orderKey } : placement);
+  const { revisionDigest: _revisionDigest, ...headBody } = { ...head, placements: duplicatedOrder };
+  const conflictedHead = { ...headBody, revisionDigest: createHash("sha256").update(stableJson(headBody), "utf8").digest("hex") };
+  const conflicted = { ...main, currentVersion: conflictedHead.revisionDigest, revisions: main.revisions.map((revision) => revision.revision === head.revision ? conflictedHead : revision) };
+  const eventIds = Object.values(observationFixture).map((event) => event.id);
+  const storyUnits = [narrativeFixture.unit, narrativeFixture.branch].map((unit) => ({ storyUnitId: unit.id, order: unit.order }));
+  const orderProjection = projectNarrativeArrangement({ projectId: main.projectId, workVersionId: main.workVersionId, narrativePathId: main.narrativePathId, eventIds, storyUnits, arrangement: conflicted });
+  assert.ok(orderProjection.conflicts.some((entry) => entry.state === "order-conflict"), "The same 18-Event fixture covers an explicit order-conflict projection.");
+  const danglingEventId = head.placements.at(-1).eventId;
+  const danglingProjection = projectNarrativeArrangement({ projectId: main.projectId, workVersionId: main.workVersionId, narrativePathId: main.narrativePathId, eventIds: eventIds.filter((eventId) => eventId !== danglingEventId), storyUnits, arrangement: main });
+  assert.ok(danglingProjection.conflicts.some((entry) => entry.state === "dangling-reference" && entry.eventId === danglingEventId), "The same 18-Event fixture covers an explicit dangling-reference projection.");
+}
+
 async function assertR12EventLineWorkspace(page, consoleProblems) {
   assert.ok(observationFixture, "R12 event-line fixture must exist.");
+  assert.ok(narrativeFixture, "R12 narrative fixture must exist.");
+  assert.equal(narrativeFixture.branch.branchPointEventId, observationFixture.branch.id, "The branch fixture keeps its formal fork Event.");
+  assert.equal(narrativeFixture.branch.mergeTargetUnitId, narrativeFixture.unit.id, "The branch fixture keeps its formal merge target.");
   if (r12EventLineEvidenceDirectory) mkdirSync(r12EventLineEvidenceDirectory, { recursive: true });
   const capture = async (name) => { if (r12EventLineEvidenceDirectory) await page.screenshot({ path: path.join(r12EventLineEvidenceDirectory, name), fullPage: false }); };
   const providerRequests = [];
@@ -1077,145 +1168,207 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-event-task"), "story");
   assert.equal(await workspace.getAttribute("data-arrangement-state"), "legacy-unplaced");
-  assert.equal(await workspace.locator(".narrative-event-card").count(), 0, "Legacy Events cannot receive an inferred narrative order.");
-  assert.ok(await workspace.locator(".unplaced-event-tray article").count() >= 4, "Legacy Events remain visibly unplaced.");
-  assert.equal(await page.getByRole("button", { name: "角色视角 · 未开放", exact: true }).isDisabled(), true);
-  assert.equal(await page.getByRole("button", { name: "关系变化 · 未开放", exact: true }).isDisabled(), true);
-  await capture("00-1440-legacy-unplaced.png");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  await graph.waitFor();
+  assert.equal(await graph.getAttribute("data-event-line-renderer"), "EventGraphCanvas");
+  assert.equal(await graph.getAttribute("data-narrative-order-owner"), "NarrativeArrangementProjection");
+  assert.equal(await graph.getAttribute("data-placement-count"), "0");
+  assert.equal(await workspace.locator(".narrative-event-card").count(), 0, "The retired flat-card renderer is not active.");
+  await graph.getByRole("button", { name: "安排第一个事件", exact: true }).click();
+  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), 18, "Unplaced Events stay in the explicit staging drawer, not on the graph.");
+  await capture("00-1440-no-arrangement.png");
+  await workspace.getByRole("button", { name: "收起", exact: true }).click();
 
-  const arrangeNext = async (position = "end", anchorTitle = null, eventTitle = null) => {
-    const tray = workspace.locator(".unplaced-event-tray article");
-    const target = eventTitle ? tray.filter({ hasText: eventTitle }) : tray.first();
-    await target.getByRole("button", { name: "安排位置", exact: true }).click();
-    const inspector = page.locator(".narrative-arrangement-inspector");
-    await inspector.waitFor();
-    await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption(position);
-    if (anchorTitle) await inspector.getByText("锚点 Placement").locator("..").getByRole("combobox").selectOption({ label: anchorTitle });
-    await inspector.getByRole("button", { name: "确认插入 Placement", exact: true }).click();
-    await inspector.getByText(/编排已保存/u).waitFor();
-  };
-  const authoredSequence = ["revealed-cause", "revealed-consequence", "explicit-absence", "unknown"].map((key) => observationFixture[key].title);
-  for (const eventTitle of authoredSequence) await arrangeNext("end", null, eventTitle);
-  await page.waitForFunction(() => document.querySelectorAll(".narrative-event-card").length >= 4);
-  assert.equal(await workspace.getAttribute("data-arrangement-state"), "placed");
-  const remainingUnplacedCount = Object.keys(observationFixture).length - 4;
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount);
-  const storyTitles = await workspace.locator(".narrative-event-card h3").allTextContents();
-  assert.deepEqual(storyTitles.slice(0, 4), authoredSequence, "Explicit end insertions preserve the exact author-selected sequence rather than the tray order.");
-  await page.locator(".page-context-dock-panel > header button").click();
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporalWithoutArrangement = page.getByTestId("formal-temporal-canvas");
+  await temporalWithoutArrangement.waitFor();
+  assert.equal(await temporalWithoutArrangement.locator(".temporal-event-card").count(), 18, "World time remains visible without a NarrativeArrangement.");
+  assert.equal(await temporalWithoutArrangement.getAttribute("data-temporal-projection"), "independent");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+
+  const seededArrangements = await seedR12NarrativeArrangements();
+  assertR12ProjectionConflictFixture(seededArrangements);
   await reloadProduct(page);
   await workspace.waitFor();
-  await capture("01-1440-default-story.png");
+  assert.equal(await workspace.getAttribute("data-event-task"), "story");
+  assert.equal(await workspace.getAttribute("data-arrangement-state"), "placed");
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "Thirteen main and five branch Placements render from two formal arrangements.");
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), 18);
+  assert.ok(await graph.locator(".formal-narrative-edge.is-main").count() >= 12, "The main Event spine is actual graph geometry.");
+  assert.ok(await graph.locator(".formal-narrative-edge.is-branch").count() >= 2, "The branch is actual graph geometry.");
+  assert.ok(await graph.locator(".formal-narrative-edge.is-merge").count() >= 2, "The merge is actual graph geometry.");
+  const repeatedBranchEvent = graph.locator(`[data-confirmed-event-id="${observationFixture.branch.id}"]`);
+  assert.equal(await repeatedBranchEvent.count(), 2, "One Event may have distinct main and branch Placement nodes.");
+  assert.equal(new Set(await repeatedBranchEvent.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-placement-id")))).size, 2);
+  await capture("01-1440-event-line.png");
+
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("02-1440-branch-merge.png");
+  const expandedPlacementCount = await graph.locator(".formal-narrative-placement-node").count();
+  await graph.getByRole("button", { name: "折叠支线", exact: true }).click();
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), expandedPlacementCount - 5, "Collapsing a branch hides only its local Placement nodes.");
+  assert.equal(await graph.locator(".formal-topology-node.is-collapsed").count(), 1);
+  await graph.getByRole("button", { name: "展开支线", exact: true }).click();
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), expandedPlacementCount);
 
   await workspace.getByRole("button", { name: /焦点：/u }).click();
   for (const label of ["林昭", "雾港", "雾灯匣"]) await page.getByRole("checkbox", { name: new RegExp(label, "u") }).check();
   await page.getByRole("button", { name: "完成", exact: true }).click();
-  assert.equal(await workspace.locator(".narrative-track-label:not(.is-spine)").count(), 3, "R12 renders at most three focus tracks under the shared Event columns.");
-  assert.ok(await workspace.locator(".narrative-trajectory-cell.is-explicit-absence").count() >= 1);
-  assert.ok(await workspace.locator(".narrative-trajectory-cell.is-unknown").count() >= 1);
-  await capture("02-1440-three-focus-tracks.png");
-
-  await page.setViewportSize({ width: 1152, height: 720 });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R12 1152px viewport has no page-level overflow.");
-  await capture("02a-1152-three-focus-tracks.png");
+  assert.equal(await graph.getAttribute("data-focus-track-count"), "3");
+  assert.ok(await graph.locator(".formal-focus-point").count() >= 3, "Selected people, locations, and items overlay the same Event graph.");
+  assert.ok(await graph.locator(".formal-focus-point.is-explicit-absence").count() >= 1, "Explicit absence has its own shape.");
+  assert.ok(await graph.locator(".formal-focus-edge.is-weak").count() >= 1, "Sourced hearsay or inference uses a weak dashed connection.");
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("03-1440-three-focus.png");
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await workspace.locator(".narrative-event-card-main").first().click();
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
   await page.locator(".page-context-dock-panel").waitFor();
+  await page.waitForTimeout(220);
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "Opening details at 1280px collapses the project directory first.");
+  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 360, "The graph retains usable context beside the 1280px details Dock.");
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  await capture("03-1280-event-detail.png");
+  await capture("07-1280-detail.png");
   await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
   await closeGlobalTianyiIfOpen(page);
 
-  await workspace.getByRole("button", { name: "证据审计", exact: true }).click();
-  await page.getByTestId("evidence-audit-board").waitFor();
-  assert.ok(await page.locator(".evidence-audit-board td.is-unknown").count() >= 1, "Audit makes unknown explicit.");
-  await page.locator(".evidence-audit-board thead th button").first().click();
-  await page.locator(".page-context-dock-panel").waitFor();
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await capture("04-1440-evidence-audit.png");
-  await workspace.getByRole("button", { name: "时间核对", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('[data-testid="story-progression-workspace"]')?.getAttribute("data-event-task") === "time");
-  const timeTitles = await workspace.locator(".narrative-event-card h3").allTextContents();
-  assert.deepEqual(timeTitles.slice(0, 2), ["后揭示的码头起因", "先揭示的港口后果"], "World time changes coordinates without changing Placement identity.");
-  await page.locator(".event-line-spine-main").evaluate((element) => { element.scrollTop = 0; });
-  await capture("05-1440-world-time.png");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.waitForTimeout(180);
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "The 1152px event workspace defaults to a collapsed directory.");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "The 1152px viewport has no page-level overflow.");
+  await capture("08-1152.png");
 
-  await workspace.getByRole("button", { name: "故事推进", exact: true }).click();
-  await workspace.locator(".narrative-arrange-button").first().click();
+  await page.setViewportSize({ width: 743, height: 529 });
+  await graph.getByRole("button", { name: "定位所选", exact: true }).click();
+  await page.waitForTimeout(280);
+  await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  await page.waitForTimeout(180);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "The 200% equivalent viewport has no page-level overflow.");
+  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 280, "The graph remains mounted behind the overlay details drawer.");
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2);
+  await capture("09-743x529.png");
+  await page.locator(".page-context-dock-panel > header button").click();
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Closing the mobile drawer preserves current Event identity.");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.equal(await temporal.getAttribute("data-time-line-renderer"), "TemporalCanvas");
+  assert.equal(await temporal.locator(".temporal-event-card").count(), 18, "World time keeps one node per Event even when an Event has multiple Placements.");
+  assert.ok(await temporal.locator(".temporal-event-card.is-range").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-relative").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-fuzzy").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-concurrent").count() >= 2);
+  assert.ok(await temporal.locator(".temporal-event-card.is-unplaced").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-conflict").count() >= 1);
+  assert.equal(await temporal.locator(`[data-event-id="${observationFixture.branch.id}"]`).count(), 1);
+  await temporal.locator(`[data-event-id="${observationFixture.branch.id}"] em`).getByText("2 个 NarrativePlacement", { exact: true }).waitFor();
+  assert.ok(await temporal.locator(".temporal-focus-point").count() >= 3, "Focus trajectories follow the independent time coordinates.");
+  const temporalXs = await temporal.locator(".temporal-event-node:not(.is-unplaced):not(.is-conflict)").evaluateAll((nodes) => nodes.map((node) => {
+    const match = node.style.transform.match(/translate\(([-\d.]+)px,\s*[-\d.]+px\)/u);
+    return match ? Number(match[1]) : null;
+  }).filter((value) => value !== null));
+  const uniqueXs = [...new Set(temporalXs)].sort((left, right) => left - right);
+  const temporalGaps = uniqueXs.slice(1).map((value, index) => Math.round((value - uniqueXs[index]) * 10) / 10);
+  assert.ok(new Set(temporalGaps).size > 1, "Continuous world-time distance is not an equal-card reorder.");
+  await capture("04-1440-time-line.png");
+  await temporal.getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("05-1440-time-states.png");
+
+  const mainQuery = `projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(narrativeFixture.workVersionId)}&narrativePathId=${encodeURIComponent(narrativeFixture.unit.id)}`;
+  const beforeReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  await workspace.getByRole("button", { name: "证据审计", exact: true }).click();
+  const audit = page.getByTestId("evidence-audit-board");
+  await audit.waitFor();
+  assert.ok(await audit.locator("td.is-unknown").count() >= 1, "Evidence audit keeps unknown explicit.");
+  assert.ok(await audit.locator("td.is-explicit-absence").count() >= 1, "Evidence audit distinguishes explicit absence.");
+  await capture("06-1440-audit.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  const afterReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  assert.equal(afterReadOnly.data.arrangement.currentRevision, beforeReadOnly.data.arrangement.currentRevision, "Task switches are read-only projections.");
+
+  await workspace.getByRole("button", { name: "打开待编排", exact: true }).click();
+  const hookTray = workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title });
+  assert.equal(await hookTray.count(), 1);
+  await capture("10-1440-staging-before.png");
+  await hookTray.getByRole("button", { name: "安排位置", exact: true }).click();
   let inspector = page.locator(".narrative-arrangement-inspector");
-  await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption("after");
-  await inspector.getByText("锚点 Placement").locator("..").getByRole("combobox").selectOption({ label: storyTitles[1] });
+  await inspector.waitFor();
+  await inspector.getByRole("button", { name: "确认插入 Placement", exact: true }).click();
+  await inspector.getByText(/编排已保存/u).waitFor();
+  await page.locator(".page-context-dock-panel > header button").click();
+  await graph.getByRole("button", { name: "定位所选", exact: true }).click();
+  await graph.locator(".react-flow__controls-zoomin").click();
+  await graph.locator(".react-flow__controls-zoomin").click();
+  const hookNode = graph.locator(`[data-confirmed-event-id="${observationFixture.hook.id}"]`);
+  await hookNode.locator(".formal-narrative-arrange").waitFor();
+  await capture("11-1440-staging-after-insert.png");
+  await hookNode.locator(".formal-narrative-arrange").click();
+  inspector = page.locator(".narrative-arrangement-inspector");
+  await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption("start");
   await inspector.getByRole("button", { name: "确认移动 Placement", exact: true }).click();
   await inspector.getByText(/编排已保存/u).waitFor();
-  assert.deepEqual((await workspace.locator(".narrative-event-card h3").allTextContents()).slice(0, 2), [storyTitles[1], storyTitles[0]]);
-  await workspace.locator(".narrative-arrange-button").last().click();
-  inspector = page.locator(".narrative-arrangement-inspector");
+  const moved = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  assert.equal(moved.data.projection.placed[0].eventId, observationFixture.hook.id, "The formal move Writer applies the author-selected position.");
   await inspector.getByRole("button", { name: "从当前编排移除", exact: true }).click();
   await inspector.getByRole("button", { name: "再次确认移除", exact: true }).click();
   await inspector.getByText(/Placement 已移除/u).waitFor();
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount + 1, "Removal keeps the Event in the explicit unplaced set.");
-  await arrangeNext();
-  assert.equal(await workspace.locator(".narrative-event-card").count(), 4, "An explicit insert can restore the removed Event without deleting or duplicating it.");
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount);
+  assert.equal(await workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title }).count(), 1, "Removing a Placement returns the Event to staging without deleting it.");
 
-  const sourceState = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const units = await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const rootUnit = units.data.filter((unit) => unit.kind === "main" && unit.status !== "archived").sort((left, right) => left.order - right.order)[0];
-  const query = `projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(sourceState.data.root.id)}&narrativePathId=${encodeURIComponent(rootUnit.id)}`;
-  const beforeRepeatedPlacement = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
+  const beforeRepeatedPlacement = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
   const repeated = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
     projectId: fixtureProjectId,
-    workVersionId: sourceState.data.root.id,
-    narrativePathId: rootUnit.id,
+    workVersionId: narrativeFixture.workVersionId,
+    narrativePathId: narrativeFixture.unit.id,
     expectedOwnerVersion: beforeRepeatedPlacement.data.ownerVersion,
     expectedRevision: beforeRepeatedPlacement.data.arrangement.currentRevision,
-    operationId: `r12-e2e-repeat-${fixture.fixtureId}`,
-    authorActionId: `author.r12-repeat-${fixture.fixtureId}`,
-    createdAt: new Date().toISOString(),
+    operationId: `r12c-e2e-repeat-${fixture.fixtureId}`,
+    authorActionId: `author.r12c-repeat-${fixture.fixtureId}`,
+    createdAt: "2026-09-03T09:00:00.000Z",
     eventId: observationFixture["revealed-consequence"].id,
-    storyUnitId: rootUnit.id,
+    storyUnitId: narrativeFixture.unit.id,
     role: "reinterpretation",
     position: { kind: "end" }
   });
   assert.equal(repeated.data.conflict, false, "The formal Writer permits one Event to have more than one Placement identity.");
   const stale = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
     projectId: fixtureProjectId,
-    workVersionId: sourceState.data.root.id,
-    narrativePathId: rootUnit.id,
+    workVersionId: narrativeFixture.workVersionId,
+    narrativePathId: narrativeFixture.unit.id,
     expectedOwnerVersion: repeated.data.ownerVersion,
     expectedRevision: beforeRepeatedPlacement.data.arrangement.currentRevision,
-    operationId: `r12-e2e-stale-${fixture.fixtureId}`,
-    authorActionId: `author.r12-stale-${fixture.fixtureId}`,
-    createdAt: new Date().toISOString(),
+    operationId: `r12c-e2e-stale-${fixture.fixtureId}`,
+    authorActionId: `author.r12c-stale-${fixture.fixtureId}`,
+    createdAt: "2026-09-03T09:01:00.000Z",
     eventId: observationFixture.signal.id,
-    storyUnitId: rootUnit.id,
+    storyUnitId: narrativeFixture.unit.id,
     role: "primary",
     position: { kind: "end" }
   });
-  assert.equal(stale.data.conflict && stale.data.code, "stale-arrangement-revision", "A stale expectedRevision must fail without silently overwriting author order.");
-  await reloadProduct(page);
-  const repeatedCards = workspace.locator(`[data-confirmed-event-id="${observationFixture["revealed-consequence"].id}"]`);
-  assert.equal(await repeatedCards.count(), 2, "The same Event renders twice through distinct formal Placement identities.");
-  assert.equal(new Set(await repeatedCards.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-placement-id")))).size, 2);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.locator(".event-line-spine-main").evaluate((element) => { element.scrollTop = 0; });
-  await capture("07-1440-refresh-preserved-order.png");
-  const beforeReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
-  await reloadProduct(page);
-  const afterReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
-  assert.equal(afterReadOnly.data.arrangement.currentRevision, beforeReadOnly.data.arrangement.currentRevision, "View changes and reloads do not write narrative order.");
+  assert.equal(stale.data.conflict && stale.data.code, "stale-arrangement-revision", "A stale expectedRevision fails without silently overwriting author order.");
 
-  await page.setViewportSize({ width: 743, height: 529 });
-  const closeDirectory = page.locator(".project-directory-close");
-  if (await closeDirectory.isVisible()) await closeDirectory.click();
-  await workspace.locator(".narrative-event-card-main").first().click();
-  await page.locator(".page-context-dock-panel").waitFor();
-  await page.waitForTimeout(160);
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R12 200% equivalent viewport has no page-level overflow.");
-  await capture("06-743x529-200pct-equivalent.png");
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-event-task"), "time", "Refresh preserves the selected formal task preset.");
+  assert.equal(await page.getByTestId("formal-temporal-canvas").count(), 1);
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  const refreshedRepeated = graph.locator(`[data-confirmed-event-id="${observationFixture["revealed-consequence"].id}"]`);
+  assert.equal(await refreshedRepeated.count(), 2);
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("12-1440-refresh-preserved.png");
+
   assert.deepEqual(providerRequests, [], "Task switches, focus and detail remain zero-Provider read projections.");
   assert.deepEqual(consoleProblems, [], "R12 event-line interactions must not add browser console errors.");
 }
@@ -1476,10 +1629,12 @@ function eventViewButton(page, name) {
 
 async function switchEventView(page, name) {
   if (await page.locator(".event-observation-controls").filter({ visible: true }).count() === 0) {
-    const advanced = page.getByRole("button", { name: "高级观察设置", exact: true }).filter({ visible: true }).first();
-    if (await advanced.count()) {
-      await advanced.click();
-      await page.getByRole("button", { name: "故事结构", exact: true }).click();
+    const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
+    if (await more.count()) {
+      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+      const entry = name === "故事脊柱" ? "故事结构" : "关系网络";
+      await page.getByRole("button", { name: entry, exact: true }).filter({ visible: true }).first().click();
+      if (name === "故事脊柱" || name === "关系图") return;
     }
   }
   await eventViewButton(page, name).click();
