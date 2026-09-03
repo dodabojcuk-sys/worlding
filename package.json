@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "node scripts/run-with-canonical-runtime.mjs scripts/start-story-studio-dev.mjs",
     "build": "node scripts/run-with-canonical-runtime.mjs node_modules/vite/bin/vite.js build --config apps/story-studio/vite.config.ts",
-    "serve": "node scripts/run-with-canonical-runtime.mjs --experimental-strip-types apps/story-studio/server/server.mjs",
+    "serve": "TIANYAN_STORY_STUDIO_RUNTIME_MODE=combined-static node scripts/run-with-canonical-runtime.mjs --experimental-strip-types apps/story-studio/server/server.mjs",
     "typecheck": "node scripts/run-with-canonical-runtime.mjs node_modules/typescript/bin/tsc -p apps/story-studio/tsconfig.json --noEmit",
     "lint": "node scripts/run-with-canonical-runtime.mjs --experimental-strip-types scripts/run-selected-tests.mjs lint",
     "test": "node scripts/run-with-canonical-runtime.mjs scripts/run-verify.mjs test:unit test:integration",

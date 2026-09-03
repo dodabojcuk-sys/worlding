@@ -110,9 +110,14 @@ import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
+import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = path.join(appRoot, "dist");
+const runtimeMode = resolveStoryStudioRuntimeMode();
+if (runtimeMode.staticSiteEnabled && (!existsSync(path.join(distRoot, "index.html")) || !statSync(path.join(distRoot, "index.html")).isFile())) {
+  throw new Error("combined-static requires apps/story-studio/dist/index.html; run npm run build before npm run serve.");
+}
 const rootPath = path.resolve(process.env.WORLD_OS_STORY_STUDIO_ROOT || path.join(os.homedir(), "WorldOS"));
 const stateFilePath = path.resolve(
   process.env.WORLD_OS_STORY_STUDIO_STATE_FILE || path.join(rootPath, ".story-studio", "state.json")
@@ -511,7 +516,8 @@ const server = createServer(async (request, response) => {
       await handleProductRequest(request, response, url);
       return;
     }
-    serveStatic(response, url.pathname);
+    if (runtimeMode.staticSiteEnabled) serveStatic(response, url.pathname);
+    else sendApiOnlyDiagnostic(request, response, url.pathname);
   } catch (error) {
     sendJson(response, Number(error?.statusCode || 500), { error: sanitizeError(error) });
   }
@@ -520,7 +526,14 @@ const server = createServer(async (request, response) => {
 server.listen(port, "127.0.0.1", () => {
   const address = server.address();
   const listeningPort = address && typeof address !== "string" ? address.port : port;
-  console.log(`Story Studio listening on http://127.0.0.1:${listeningPort}`);
+  const entry = `http://127.0.0.1:${listeningPort}`;
+  if (runtimeMode.staticSiteEnabled) {
+    console.log(`APP_UI_AND_API=${entry}`);
+    console.log("RUNTIME_MODE=combined-static");
+  } else {
+    console.log(`LOCAL_API=${entry}/__local/story-studio`);
+    console.log("RUNTIME_MODE=api-only");
+  }
 });
 
 /** Browser writes are author-confirmed. The broker still records the exact
@@ -534,6 +547,10 @@ function recordAuthorInitiatedAction(projectId, action, targetType, targets, act
 
 async function handleProductRequest(request, response, url) {
   const pathname = url.pathname;
+  if (request.method === "GET" && pathname === "/__local/story-studio/health") {
+    sendJson(response, 200, { data: { status: "healthy", runtimeMode: runtimeMode.mode } });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/storage/session") {
     requireSameOrigin(request);
     sendJson(response, 200, {
@@ -3674,6 +3691,20 @@ function serveStatic(response, pathname) {
     "content-security-policy": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
   });
   createReadStream(target).pipe(response);
+}
+
+function sendApiOnlyDiagnostic(request, response, pathname) {
+  const detail = { error: "这是本地 API 服务；开发界面位于 http://127.0.0.1:4191。", runtimeMode: runtimeMode.mode, path: pathname };
+  if (String(request.headers.accept || "").includes("text/html")) {
+    response.writeHead(404, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      "content-security-policy": "default-src 'none'"
+    });
+    response.end(`<!doctype html><title>Story Studio API</title><main><h1>本地 API</h1><p>${detail.error}</p><p>RUNTIME_MODE=api-only</p></main>`);
+    return;
+  }
+  sendJson(response, 404, detail);
 }
 
 function sendJson(response, status, payload, headers = {}) {

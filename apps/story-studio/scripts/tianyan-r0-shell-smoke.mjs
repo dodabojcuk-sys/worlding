@@ -39,6 +39,7 @@ const r8CloseoutDirectory = process.env.TIANYAN_R8_CLOSEOUT_DIR || null;
 const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const r10EvidenceDirectory = process.env.TIANYAN_R10_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
+const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
@@ -75,7 +76,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -93,6 +94,7 @@ try {
   server.stdout?.resume();
   server.stderr?.resume();
   await waitForServer();
+  await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
   const consoleProblems = [];
@@ -910,6 +912,42 @@ async function waitForApiServer() {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Tianyan R0 shell smoke API did not become ready");
+}
+
+async function assertDevelopmentRuntimeMode() {
+  const vitePage = await fetch(`${baseUrl}/event-line`);
+  assert.equal(vitePage.status, 200, "Development UI must be served by Vite.");
+  const viteHtml = await vitePage.text();
+  assert.match(viteHtml, /\/@vite\/client/);
+  assert.match(viteHtml, /\/src\/main\.tsx/);
+
+  const proxiedBootstrap = await fetch(`${baseUrl}/__local/story-studio/bootstrap`);
+  assert.equal(proxiedBootstrap.status, 200, "Vite must proxy the local API.");
+
+  const apiUiRequest = await fetch(`${apiUrl}/event-line`, { headers: { accept: "text/html" } });
+  assert.equal(apiUiRequest.status, 404, "api-only mode must reject direct SPA routes.");
+  const apiUiHtml = await apiUiRequest.text();
+  assert.match(apiUiHtml, /RUNTIME_MODE=api-only/);
+  assert.doesNotMatch(apiUiHtml, /\/src\/main\.tsx|\/assets\/index-/);
+
+  const health = await fetch(`${apiUrl}/__local/story-studio/health`);
+  assert.equal(health.status, 200, "api-only mode keeps the local health endpoint available.");
+  assert.deepEqual(await health.json(), { data: { status: "healthy", runtimeMode: "api-only" } });
+
+  const missingApi = await fetch(`${apiUrl}/__local/story-studio/runtime-mode-missing`);
+  assert.equal(missingApi.status, 404);
+  assert.match(String(missingApi.headers.get("content-type")), /application\/json/);
+  const missingApiBody = await missingApi.text();
+  assert.doesNotMatch(missingApiBody, /<!doctype html>/i);
+
+  if (runtimeModeEvidencePath) writeFileSync(runtimeModeEvidencePath, JSON.stringify({
+    command: "npm run test:e2e (isolated Vite plus api-only Story Studio)",
+    developmentUi: { entry: `${baseUrl}/event-line`, status: vitePage.status, sourceMarkers: ["/@vite/client", "/src/main.tsx"] },
+    directApiUiRequest: { entry: `${apiUrl}/event-line`, status: apiUiRequest.status, body: apiUiHtml },
+    proxiedApi: { entry: `${baseUrl}/__local/story-studio/bootstrap`, status: proxiedBootstrap.status },
+    health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: { data: { status: "healthy", runtimeMode: "api-only" } } },
+    unknownApi: { status: missingApi.status, contentType: missingApi.headers.get("content-type"), body: JSON.parse(missingApiBody) }
+  }, null, 2));
 }
 
 async function setupCharacterFixture() {

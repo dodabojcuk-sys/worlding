@@ -1,0 +1,25 @@
+{
+  "runtimeMode": "combined-static",
+  "entry": "http://127.0.0.1:45591",
+  "nestedRouteStatus": 200,
+  "assetPath": "/assets/index-XwoYQcu8.js",
+  "assetStatus": 200,
+  "health": {
+    "status": 200,
+    "body": {
+      "data": {
+        "status": "healthy",
+        "runtimeMode": "combined-static"
+      }
+    }
+  },
+  "unknownApi": {
+    "status": 404,
+    "contentType": "application/json; charset=utf-8",
+    "body": {
+      "error": "本地项目操作不存在。"
+    }
+  },
+  "viteStarted": false,
+  "source": "apps/story-studio/dist"
+}
