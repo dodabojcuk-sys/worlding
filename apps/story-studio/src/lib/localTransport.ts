@@ -687,6 +687,16 @@ export type StoryCollectionPointReceipt = { operationId: string; action: "create
 export type StoryUnitKind = "main" | "branch";
 export type StoryUnitStatus = "draft" | "active" | "candidate" | "conflict" | "archived";
 export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; kind: StoryUnitKind; parentUnitId: string | null; branchPointEventId: string | null; mergeTargetUnitId: string | null; order: number; sourceVersionRef: string | null; status: StoryUnitStatus; objective: string; coreConflict: string; turningPoint: string; openHook: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; collectionPoints: StoryCollectionPoint[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
+export type NarrativePlacementRole = "primary" | "flashback" | "recap" | "reveal" | "reinterpretation";
+export type NarrativePositionIntent = { kind: "start" | "end" } | { kind: "before" | "after"; anchorPlacementId: string };
+export type NarrativePlacementSourceRef = { sourceKind: "author-action" | "author-control"; authorActionId: string; sourceRef: string; capturedAt: string };
+export type NarrativePlacement = { schemaVersion: "tianyan-narrative-placement/r0"; placementId: string; eventId: string; arrangementId: string; storyUnitId: string; workVersionId: string; sourceLineageId: string; narrativePathId: string; orderKey: number; role: NarrativePlacementRole; source: NarrativePlacementSourceRef; createdRevision: number; updatedRevision: number };
+export type NarrativeArrangementRevision = { schemaVersion: "tianyan-narrative-arrangement-revision/r0"; revision: number; previousRevision: number | null; operationId: string; authorActionId: string; createdAt: string; placements: NarrativePlacement[]; revisionDigest: string };
+export type NarrativeArrangementReceipt = { schemaVersion: "tianyan-narrative-arrangement-receipt/r0"; receiptId: string; arrangementId: string; action: "create" | "insert" | "move" | "remove" | "rollback"; operationId: string; authorActionId: string; payloadDigest: string; expectedRevision: number; beforeRevision: number; afterRevision: number; beforePlacementIds: string[]; afterPlacementIds: string[]; rollbackOfRevision: number | null; createdAt: string; receiptDigest: string };
+export type NarrativeArrangement = { schemaVersion: "tianyan-narrative-arrangement/r0"; arrangementId: string; projectId: string; workVersionId: string; sourceLineageId: string; narrativePathId: string; ownerStoryUnitId: string; currentRevision: number; currentVersion: string; revisions: NarrativeArrangementRevision[]; receipts: NarrativeArrangementReceipt[]; extensions: Record<string, unknown> };
+export type NarrativeArrangementProjection = { schemaVersion: "tianyan-narrative-arrangement-projection/r0"; projectId: string; workVersionId: string; sourceLineageId: string | null; narrativePathId: string; arrangementId: string | null; arrangementRevision: number | null; arrangementVersion: string | null; placed: Array<{ state: "placed"; narrativeIndex: number; placementId: string; eventId: string; storyUnitId: string; orderKey: number; role: NarrativePlacementRole; source: NarrativePlacementSourceRef; placementRevision: number }>; unplaced: Record<string, { state: "unplaced"; eventId: string; narrativeIndex: null }>; conflicts: Array<{ state: "order-conflict" | "dangling-reference"; placementId: string; eventId: string; storyUnitId: string; reason: string }> };
+export type NarrativeArrangementRead = { ownerVersion: string | null; arrangement: NarrativeArrangement | null; projection: NarrativeArrangementProjection };
+export type NarrativeArrangementWriteResult = { conflict: boolean; replayed: boolean; code: "stale-arrangement-revision" | "idempotency-key-reused" | "placement-not-found" | "anchor-not-found" | "anchor-unit-mismatch" | "order-conflict" | "branch-mismatch" | "rollback-revision-not-found" | "stale-owner-version" | "arrangement-already-exists" | null; ownerVersion: string; arrangement: NarrativeArrangement | null; receipt: NarrativeArrangementReceipt | null };
 export type OutputSourceUnitRef = { unitId: string; unitVersion: string; role: "primary" | "supporting"; includedItemIds: string[] };
 export type CreationSourceReconciliationReceipt = { schemaVersion: "tianyan-creation-source-reconciliation-receipt/r0"; artifactId: string; originalArtifactRevisionId: string; newArtifactRevisionId: string; sourceWorkVersionId: string; fromRevision: number; fromManifestDigest: string; toRevision: number; toManifestDigest: string; semanticDiffDigest: `sha256:${string}`; bodyDigestBefore: `sha256:${string}`; bodyDigestAfter: `sha256:${string}`; confirmedDifferenceIds: string[]; unresolvedDifferenceIds: string[]; idempotencyKey: string; executionStage: "artifact_revision_appended"; expectedWorkVersionReceiptId: string; blockedReason: null; createdAt: string };
 export type WorkVersionOutputArtifactSource = { schemaVersion: "tianyan-work-version-output-artifact-source/r0"; sourceKind: "work-version"; projectId: string; workVersionId: string; workVersionKind: "root"; pinnedRevision: number; manifestId: string; manifestDigest: string; selectedStoryUnitRefs: Array<{ unitId: string; unitVersion: string }>; selectedEventRefs: Array<{ eventId: string; eventRevision: string }>; sourceAnchorRefs: string[]; neutralStoryPackageId: string; neutralStoryPackageDigest: `sha256:${string}`; sourceOwnerReceiptRefs: string[]; creationOperationReceipt: { operationId: string; idempotencyKey: string; payloadDigest: `sha256:${string}` }; sourceReconciliationReceipt?: CreationSourceReconciliationReceipt; createdAt: string };
@@ -1842,6 +1852,35 @@ export async function updateStoryUnit(input: {
 export async function archiveStoryUnit(input: { projectId: string; unitId: string; expectedVersion: string; token: string }): Promise<{ conflict: boolean; unit: StoryUnit }> {
   const { token, ...body } = input;
   return request(`${basePath}/story-units/archive`, { method: "POST", token, body });
+}
+
+export async function getNarrativeArrangement(projectId: string, workVersionId: string, narrativePathId: string): Promise<NarrativeArrangementRead> {
+  return request<NarrativeArrangementRead>(`${basePath}/narrative-arrangement?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&narrativePathId=${encodeURIComponent(narrativePathId)}`);
+}
+
+export async function createNarrativeArrangement(input: { projectId: string; workVersionId: string; narrativePathId: string; ownerStoryUnitId: string; expectedOwnerVersion: string; expectedRevision: 0; operationId: string; authorActionId: string; createdAt: string; token: string }): Promise<NarrativeArrangementWriteResult> {
+  const { token, ...body } = input;
+  return request<NarrativeArrangementWriteResult>(`${basePath}/narrative-arrangements/create`, { method: "POST", token, body });
+}
+
+export async function insertNarrativePlacement(input: { projectId: string; workVersionId: string; narrativePathId: string; expectedOwnerVersion: string; expectedRevision: number; operationId: string; authorActionId: string; createdAt: string; eventId: string; storyUnitId: string; role: NarrativePlacementRole; position: NarrativePositionIntent; token: string }): Promise<NarrativeArrangementWriteResult> {
+  const { token, ...body } = input;
+  return request<NarrativeArrangementWriteResult>(`${basePath}/narrative-arrangements/insert`, { method: "POST", token, body });
+}
+
+export async function moveNarrativePlacement(input: { projectId: string; workVersionId: string; narrativePathId: string; expectedOwnerVersion: string; expectedRevision: number; operationId: string; authorActionId: string; createdAt: string; placementId: string; storyUnitId: string; position: NarrativePositionIntent; token: string }): Promise<NarrativeArrangementWriteResult> {
+  const { token, ...body } = input;
+  return request<NarrativeArrangementWriteResult>(`${basePath}/narrative-arrangements/move`, { method: "POST", token, body });
+}
+
+export async function removeNarrativePlacement(input: { projectId: string; workVersionId: string; narrativePathId: string; expectedOwnerVersion: string; expectedRevision: number; operationId: string; authorActionId: string; createdAt: string; placementId: string; token: string }): Promise<NarrativeArrangementWriteResult> {
+  const { token, ...body } = input;
+  return request<NarrativeArrangementWriteResult>(`${basePath}/narrative-arrangements/remove`, { method: "POST", token, body });
+}
+
+export async function rollbackNarrativeArrangement(input: { projectId: string; workVersionId: string; narrativePathId: string; expectedOwnerVersion: string; expectedRevision: number; operationId: string; authorActionId: string; createdAt: string; targetRevision: number; token: string }): Promise<NarrativeArrangementWriteResult> {
+  const { token, ...body } = input;
+  return request<NarrativeArrangementWriteResult>(`${basePath}/narrative-arrangements/rollback`, { method: "POST", token, body });
 }
 
 export async function createStoryCollectionPoint(input: { projectId: string; unitId: string; expectedUnitVersion: string; operationId: string; title: string; eventIds: string[]; sourceVersionRef: string; order?: number; collapsed?: boolean; layout?: { x: number; y: number; pinned?: boolean }; token: string }): Promise<{ conflict: boolean; unit: StoryUnit; collectionPoint: StoryCollectionPoint | null; receipt: StoryCollectionPointReceipt | null }> {

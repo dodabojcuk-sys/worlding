@@ -1575,6 +1575,53 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => operations.archiveStoryUnit(body)) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/narrative-arrangement") {
+    const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = requireQueryValue(url, "workVersionId");
+    const narrativePathId = requireQueryValue(url, "narrativePathId");
+    sendJson(response, 200, { data: runProductOperation(() => operations.readNarrativeArrangement({ projectId, workVersionId, narrativePathId })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/narrative-arrangements/create") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "narrativePathId", "ownerStoryUnitId", "expectedOwnerVersion", "expectedRevision", "operationId", "authorActionId", "createdAt"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "narrative-arrangement", [body.narrativePathId, body.operationId]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.createNarrativeArrangement(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/narrative-arrangements/insert") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "narrativePathId", "expectedOwnerVersion", "expectedRevision", "operationId", "authorActionId", "createdAt", "eventId", "storyUnitId", "role", "position"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "narrative-placement", [body.eventId, body.operationId]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.insertNarrativePlacement({ ...body, sourceKind: "author-action", sourceRef: `author-action:${body.authorActionId}` })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/narrative-arrangements/move") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "narrativePathId", "expectedOwnerVersion", "expectedRevision", "operationId", "authorActionId", "createdAt", "placementId", "storyUnitId", "position"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "narrative-placement", [body.placementId, body.operationId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.moveNarrativePlacement({ ...body, sourceKind: "author-action", sourceRef: `author-action:${body.authorActionId}` })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/narrative-arrangements/remove") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "narrativePathId", "expectedOwnerVersion", "expectedRevision", "operationId", "authorActionId", "createdAt", "placementId"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "narrative-placement", [body.placementId, body.operationId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.removeNarrativePlacement({ ...body, sourceKind: "author-action", sourceRef: `author-action:${body.authorActionId}` })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/narrative-arrangements/rollback") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "narrativePathId", "expectedOwnerVersion", "expectedRevision", "operationId", "authorActionId", "createdAt", "targetRevision"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "narrative-arrangement", [body.narrativePathId, body.operationId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.rollbackNarrativeArrangement({ ...body, sourceKind: "author-action", sourceRef: `author-action:${body.authorActionId}` })) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/story-collection-points/create") {
     requireToken(request);
     const body = await readJsonBody(request);

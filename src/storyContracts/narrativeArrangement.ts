@@ -217,6 +217,7 @@ export function applyNarrativeArrangementMutation(
   if (duplicates(before.map((placement) => placement.placementId)).size || duplicates(before.map((placement) => `${placement.storyUnitId}:${placement.orderKey}`)).size) {
     return conflict("order-conflict", arrangement);
   }
+  if (before.some((placement) => !allowedStoryUnitIds.has(placement.storyUnitId))) return conflict("branch-mismatch", arrangement);
   let after: NarrativePlacement[];
   let rollbackOfRevision: number | null = null;
   if (mutation.action === "insert") {
@@ -258,6 +259,8 @@ export function applyNarrativeArrangementMutation(
     rollbackOfRevision = target.revision;
     after = target.placements.map((placement) => ({ ...placement, updatedRevision: arrangement.currentRevision + 1 }));
   }
+
+  if (after.some((placement) => !allowedStoryUnitIds.has(placement.storyUnitId))) return conflict("branch-mismatch", arrangement);
 
   const nextRevision = createRevision({
     revision: arrangement.currentRevision + 1,

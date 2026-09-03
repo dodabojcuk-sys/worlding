@@ -36,6 +36,22 @@ import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
 import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
+import {
+  applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
+  createNarrativeArrangement as createNarrativeArrangementValue,
+  narrativeArrangementId,
+  parseNarrativeArrangementStore,
+  projectNarrativeArrangement,
+  serializeNarrativeArrangementStore,
+  type NarrativeArrangement,
+  type NarrativeArrangementConflictCode,
+  type NarrativeArrangementMutation,
+  type NarrativeArrangementProjection,
+  type NarrativeArrangementReceipt,
+  type NarrativeArrangementStore,
+  type NarrativePlacementRole,
+  type NarrativePositionIntent
+} from "../storyContracts/narrativeArrangement.ts";
 
 import {
   createWorkspaceNote,
@@ -193,6 +209,7 @@ const CANON_PROVENANCE_KEYS = [
   "apply_operation_key",
   "apply_intent_hash"
 ] as const;
+const NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY = "narrative_arrangements_r0";
 
 export type StoryStudioWorldObjectType = typeof WORLD_OBJECT_TYPES[number];
 export type StoryStudioObjectCardBlockType = typeof OBJECT_CARD_BLOCK_TYPES[number];
@@ -443,6 +460,26 @@ export type StoryCollectionPointReceipt = {
   eventIds: string[];
   formalEventWrites: 0;
   formalRelationWrites: 0;
+};
+
+export type StoryStudioNarrativeArrangementRead = {
+  ownerVersion: string | null;
+  arrangement: NarrativeArrangement | null;
+  projection: NarrativeArrangementProjection;
+};
+
+export type StoryStudioNarrativeArrangementConflictCode =
+  | NarrativeArrangementConflictCode
+  | "stale-owner-version"
+  | "arrangement-already-exists";
+
+export type StoryStudioNarrativeArrangementWriteResult = {
+  conflict: boolean;
+  replayed: boolean;
+  code: StoryStudioNarrativeArrangementConflictCode | null;
+  ownerVersion: string;
+  arrangement: NarrativeArrangement | null;
+  receipt: NarrativeArrangementReceipt | null;
 };
 
 export type StoryStudioStoryUnit = {
@@ -2132,6 +2169,71 @@ export function createStoryStudioWorkspaceOperations(input: {
       return this.updateStoryUnit({ projectId: unitInput.projectId, unitId: unitInput.unitId, expectedVersion: unitInput.expectedVersion, lifecycle: "archived" });
     },
 
+    readNarrativeArrangement(arrangementInput: { projectId: string; workVersionId: string; narrativePathId: string }): StoryStudioNarrativeArrangementRead {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return readNarrativeArrangementProjection(projectPath, {
+        projectId: arrangementInput.projectId,
+        workVersionId: arrangementInput.workVersionId,
+        narrativePathId: arrangementInput.narrativePathId
+      });
+    },
+
+    createNarrativeArrangement(arrangementInput: {
+      projectId: string;
+      workVersionId: string;
+      narrativePathId: string;
+      ownerStoryUnitId: string;
+      expectedOwnerVersion: string;
+      expectedRevision: 0;
+      operationId: string;
+      authorActionId: string;
+      createdAt: string;
+    }): StoryStudioNarrativeArrangementWriteResult {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return createNarrativeArrangementRecord(projectPath, arrangementInput);
+    },
+
+    insertNarrativePlacement(arrangementInput: NarrativeArrangementWriterScope & {
+      eventId: string;
+      storyUnitId: string;
+      role: NarrativePlacementRole;
+      position: NarrativePositionIntent;
+    }): StoryStudioNarrativeArrangementWriteResult {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      assertWorkspaceEventExists(projectPath, arrangementInput.eventId);
+      return mutateNarrativeArrangementRecord(projectPath, arrangementInput, {
+        action: "insert",
+        eventId: arrangementInput.eventId,
+        storyUnitId: arrangementInput.storyUnitId,
+        role: arrangementInput.role,
+        position: arrangementInput.position
+      });
+    },
+
+    moveNarrativePlacement(arrangementInput: NarrativeArrangementWriterScope & {
+      placementId: string;
+      storyUnitId: string;
+      position: NarrativePositionIntent;
+    }): StoryStudioNarrativeArrangementWriteResult {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return mutateNarrativeArrangementRecord(projectPath, arrangementInput, {
+        action: "move",
+        placementId: arrangementInput.placementId,
+        storyUnitId: arrangementInput.storyUnitId,
+        position: arrangementInput.position
+      });
+    },
+
+    removeNarrativePlacement(arrangementInput: NarrativeArrangementWriterScope & { placementId: string }): StoryStudioNarrativeArrangementWriteResult {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return mutateNarrativeArrangementRecord(projectPath, arrangementInput, { action: "remove", placementId: arrangementInput.placementId });
+    },
+
+    rollbackNarrativeArrangement(arrangementInput: NarrativeArrangementWriterScope & { targetRevision: number }): StoryStudioNarrativeArrangementWriteResult {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return mutateNarrativeArrangementRecord(projectPath, arrangementInput, { action: "rollback", targetRevision: arrangementInput.targetRevision });
+    },
+
     createStoryCollectionPoint(pointInput: {
       projectId: string;
       unitId: string;
@@ -3330,6 +3432,183 @@ function assertStoryUnitStructure(projectPath: string, input: {
     const event = getWorkspaceTree(projectPath).groups.events.find((entry) => entry.id === branchPointEventId);
     if (!event || readWorkspaceNote(projectPath, event.relativePath).type !== "event") throw new Error("Story Unit branch point Event does not exist.");
   }
+}
+
+type NarrativeArrangementWriterScope = {
+  projectId: string;
+  workVersionId: string;
+  narrativePathId: string;
+  expectedOwnerVersion: string;
+  expectedRevision: number;
+  operationId: string;
+  authorActionId: string;
+  sourceKind: "author-action" | "author-control";
+  sourceRef: string;
+  createdAt: string;
+};
+
+type HostedNarrativeArrangement = {
+  note: ReturnType<typeof readWorkspaceNote>;
+  store: NarrativeArrangementStore;
+  arrangement: NarrativeArrangement;
+};
+
+function readNarrativeArrangementProjection(projectPath: string, input: { projectId: string; workVersionId: string; narrativePathId: string }): StoryStudioNarrativeArrangementRead {
+  requireText(input.projectId, "Narrative arrangement Project selector", 180);
+  const projectId = requireText(openStoryWorkspace(projectPath).project.id, "Narrative arrangement Project", 180);
+  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId);
+  const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
+  const storyUnits = narrativePathStoryUnits(projectPath, narrativePathId);
+  const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersion.identity.workVersionId, narrativePathId);
+  const projection = projectNarrativeArrangement({
+    projectId,
+    workVersionId: workVersion.identity.workVersionId,
+    narrativePathId,
+    eventIds: getWorkspaceTree(projectPath).groups.events.map((event) => event.id),
+    storyUnits: storyUnits.map((unit) => ({ storyUnitId: unit.id, order: unit.order })),
+    arrangement: hosted?.arrangement ?? null
+  });
+  return clone({ ownerVersion: hosted?.note.contentHash ?? null, arrangement: hosted?.arrangement ?? null, projection });
+}
+
+function createNarrativeArrangementRecord(projectPath: string, input: {
+  projectId: string;
+  workVersionId: string;
+  narrativePathId: string;
+  ownerStoryUnitId: string;
+  expectedOwnerVersion: string;
+  expectedRevision: 0;
+  operationId: string;
+  authorActionId: string;
+  createdAt: string;
+}): StoryStudioNarrativeArrangementWriteResult {
+  requireText(input.projectId, "Narrative arrangement Project selector", 180);
+  const workspace = openStoryWorkspace(projectPath);
+  const projectId = requireText(workspace.project.id, "Narrative arrangement Project", 180);
+  if (input.expectedRevision !== 0) throw new Error("Narrative arrangement creation expected revision must be 0.");
+  const ownerStoryUnitId = requireText(input.ownerStoryUnitId, "Narrative arrangement owner Story Unit", 180);
+  const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
+  if (ownerStoryUnitId !== narrativePathId) throw new Error("Narrative arrangement R0 must be hosted by its existing narrative-path Story Unit.");
+  narrativePathStoryUnits(projectPath, narrativePathId);
+  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId);
+  const sourceLineageId = workVersion.identity.kind === "root" ? workVersion.identity.workVersionId : workVersion.identity.parentVersionId!;
+  const proposed = createNarrativeArrangementValue({
+    projectId,
+    workVersionId: workVersion.identity.workVersionId,
+    sourceLineageId,
+    narrativePathId,
+    ownerStoryUnitId,
+    operationId: input.operationId,
+    authorActionId: input.authorActionId,
+    createdAt: input.createdAt
+  });
+  const existing = findHostedNarrativeArrangement(projectPath, projectId, workVersion.identity.workVersionId, narrativePathId);
+  if (existing) {
+    const prior = existing.arrangement.receipts[0];
+    if (prior?.operationId === proposed.receipt.operationId && prior.payloadDigest === proposed.receipt.payloadDigest) {
+      return clone({ conflict: false, replayed: true, code: null, ownerVersion: existing.note.contentHash, arrangement: existing.arrangement, receipt: prior });
+    }
+    return clone({ conflict: true, replayed: false, code: "arrangement-already-exists", ownerVersion: existing.note.contentHash, arrangement: existing.arrangement, receipt: null });
+  }
+  const note = findStoryUnitNote(projectPath, ownerStoryUnitId);
+  if (note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
+    return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: note.contentHash, arrangement: null, receipt: null });
+  }
+  const store = parseNarrativeArrangementStore(note.frontmatter[NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY], ownerStoryUnitId);
+  const nextStore = { ...store, arrangements: [...store.arrangements, proposed.arrangement] };
+  const update = updateWorkspaceNote(projectPath, {
+    relativePath: note.relativePath,
+    expectedContentHash: note.contentHash,
+    frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) }
+  });
+  if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash, arrangement: null, receipt: null });
+  return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash, arrangement: proposed.arrangement, receipt: proposed.receipt });
+}
+
+function mutateNarrativeArrangementRecord(
+  projectPath: string,
+  input: NarrativeArrangementWriterScope,
+  payload: Pick<Extract<NarrativeArrangementMutation, { action: "insert" }>, "action" | "eventId" | "storyUnitId" | "role" | "position">
+    | Pick<Extract<NarrativeArrangementMutation, { action: "move" }>, "action" | "placementId" | "storyUnitId" | "position">
+    | Pick<Extract<NarrativeArrangementMutation, { action: "remove" }>, "action" | "placementId">
+    | Pick<Extract<NarrativeArrangementMutation, { action: "rollback" }>, "action" | "targetRevision">
+): StoryStudioNarrativeArrangementWriteResult {
+  requireText(input.projectId, "Narrative arrangement Project selector", 180);
+  const projectId = requireText(openStoryWorkspace(projectPath).project.id, "Narrative arrangement Project", 180);
+  const workVersion = readNarrativeWorkVersion(projectPath, input.workVersionId);
+  const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
+  const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersion.identity.workVersionId, narrativePathId);
+  if (!hosted) throw new Error("Narrative arrangement does not exist.");
+  const expectedLineageId = workVersion.identity.kind === "root" ? workVersion.identity.workVersionId : workVersion.identity.parentVersionId!;
+  if (hosted.arrangement.sourceLineageId !== expectedLineageId) throw new Error("Narrative arrangement source lineage does not match WorkVersion authority.");
+  const allowedStoryUnitIds = new Set(narrativePathStoryUnits(projectPath, narrativePathId).map((unit) => unit.id));
+  const mutation = {
+    ...payload,
+    operationId: input.operationId,
+    authorActionId: input.authorActionId,
+    sourceKind: input.sourceKind,
+    sourceRef: input.sourceRef,
+    expectedRevision: input.expectedRevision,
+    createdAt: input.createdAt
+  } as NarrativeArrangementMutation;
+  const result = applyNarrativeArrangementMutationValue(hosted.arrangement, mutation, allowedStoryUnitIds);
+  if (!result.conflict && result.replayed) {
+    return clone({ conflict: false, replayed: true, code: null, ownerVersion: hosted.note.contentHash, arrangement: result.arrangement, receipt: result.receipt });
+  }
+  if (hosted.note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
+    return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.note.contentHash, arrangement: hosted.arrangement, receipt: null });
+  }
+  if (result.conflict) {
+    return clone({ conflict: true, replayed: false, code: result.code, ownerVersion: hosted.note.contentHash, arrangement: result.arrangement, receipt: null });
+  }
+  const nextStore = {
+    ...hosted.store,
+    arrangements: hosted.store.arrangements.map((arrangement) => arrangement.arrangementId === result.arrangement.arrangementId ? result.arrangement : arrangement)
+  };
+  const update = updateWorkspaceNote(projectPath, {
+    relativePath: hosted.note.relativePath,
+    expectedContentHash: hosted.note.contentHash,
+    frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) }
+  });
+  if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash, arrangement: hosted.arrangement, receipt: null });
+  return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash, arrangement: result.arrangement, receipt: result.receipt });
+}
+
+function findHostedNarrativeArrangement(projectPath: string, projectId: string, workVersionId: string, narrativePathId: string): HostedNarrativeArrangement | null {
+  const arrangementId = narrativeArrangementId({ projectId, workVersionId, narrativePathId, ownerStoryUnitId: narrativePathId });
+  const matches: HostedNarrativeArrangement[] = [];
+  for (const entry of getWorkspaceTree(projectPath).groups.storyUnits) {
+    const note = readWorkspaceNote(projectPath, entry.relativePath);
+    const store = parseNarrativeArrangementStore(note.frontmatter[NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY], note.id);
+    for (const arrangement of store.arrangements) {
+      if (arrangement.arrangementId === arrangementId) matches.push({ note, store, arrangement });
+    }
+  }
+  if (matches.length > 1) throw new Error("Narrative arrangement has more than one Story Unit host.");
+  return matches[0] ?? null;
+}
+
+function narrativePathStoryUnits(projectPath: string, narrativePathId: string): StoryStudioStoryUnit[] {
+  const units = listStoryUnits(projectPath, true);
+  const root = units.find((unit) => unit.id === narrativePathId);
+  if (!root) throw new Error("Narrative path Story Unit does not exist.");
+  if (root.lifecycle === "archived") throw new Error("Archived Story Unit cannot own an active narrative arrangement.");
+  if (root.kind === "branch") return [root];
+  return units.filter((unit) => unit.kind === "main" && unit.lifecycle !== "archived");
+}
+
+function readNarrativeWorkVersion(projectPath: string, workVersionId: string) {
+  const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+  const normalizedId = requireText(workVersionId, "Narrative arrangement WorkVersion", 180);
+  authority.verifyVersionIntegrity(normalizedId);
+  const version = authority.getVersion(normalizedId);
+  if (version.identity.status !== "active") throw new Error("Archived WorkVersion cannot receive narrative arrangement changes.");
+  return version;
+}
+
+function assertWorkspaceEventExists(projectPath: string, eventId: string): void {
+  const normalizedId = requireText(eventId, "Narrative placement Event", 180);
+  if (!getWorkspaceTree(projectPath).groups.events.some((entry) => entry.id === normalizedId)) throw new Error("Narrative placement Event does not exist.");
 }
 
 function listOutputArtifacts(projectPath: string, includeArchived: boolean): StoryStudioOutputArtifact[] {
