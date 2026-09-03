@@ -749,6 +749,14 @@ AI 在分析长篇来源时，可以建议新的分类；作者决定是否建�
 
 事件线以节点为基础。单元是侧栏中的容器，可以直接包含节点；集点是引用已有 Event 的结构化编排容器，不是强制层级，不复制 Event，也不等于 Story Unit 或故事分支。R0 的集点不支持嵌套；一个 Event 在同一 Story Unit 内最多有一个主要集点归属。主线、支线、暗线、角色线等是事件之间的故事关系和观察轨道，不是各自复制一份 Event 的数据库。
 
+#### 正式叙事编排权威
+
+Event 的叙事位置属于既有 Story Structure／Story Unit 权威，不属于 Event 自身。正式模型是版本化 `NarrativeArrangement` 与具有稳定身份的 `NarrativePlacement`：Placement 只引用 Event ID，并明确绑定当前 story/work、WorkVersion 来源谱系、既有 Story Unit 叙事路径、目标 Story Unit 和 arrangement revision。同一个 Event 可以因倒叙、回忆、再次揭示、不同分支或派生作品而拥有多个 Placement；不得复制 Event 来表达重复呈现，也不得给 Event 增加一个全局单值 `narrativeIndex`。
+
+`linkedEntityIds` 与 Collection Point `eventIds` 继续只表示无序成员关系，不能承载作者叙事顺序。正式顺序只能由 Story Unit 唯一 Writer 通过带 expected version、receipt、冲突和回滚的作者操作写入。UI、localStorage、画布坐标、世界时间、Event ID、标题、创建时间、API 返回数组和 AI 推断都不是正式排序 Owner。
+
+旧项目没有正式 arrangement 时，所有 Event 必须读取为 `unplaced`，不得自动补造 confirmed Placement，也不得在读取时写回。AI 或 UI 未来只能提出候选；候选经 AuthorControl 确认后，仍由同一个 Story Unit Writer 更新正式 arrangement。不同 WorkVersion 来源谱系和既有 Story Unit 分支保有独立 arrangement identity 与版本；筛选、视觉相交和普通保存视图不创建分支或合流。
+
 它需要支持：
 
 - 主线；

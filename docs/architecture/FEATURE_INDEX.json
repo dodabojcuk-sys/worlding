@@ -10,9 +10,24 @@
     "agentRuntimePluginHost": "src/storyAgent/agentRuntimePlugin.ts",
     "piInfrastructureAdapter": "src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts",
     "providerBoundary": "apps/story-studio/server/providerGateway/aiProviderGateway.mjs",
-    "candidateReviewOwner": "src/storyControlSurface/storyStudioAuthorControl.ts"
+    "candidateReviewOwner": "src/storyControlSurface/storyStudioAuthorControl.ts",
+    "narrativeArrangementOwner": "src/storyControlSurface/storyStudioWorkspaceOperations.ts"
   },
   "features": [
+    {
+      "id": "story-unit-narrative-arrangement-r0",
+      "status": "FOUNDER_REVIEW",
+      "maturity": "versioned-story-unit-child-aggregate-with-author-intent-writer-and-no-production-ui",
+      "entrypoints": ["src/storyContracts/narrativeArrangement.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
+      "sourceFiles": ["src/storyContracts/narrativeArrangement.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/server/server.mjs", "apps/story-studio/src/lib/localTransport.ts", "data/2026-09-03_天衍R12B2_1叙事编排权威合同/TIANYAN_NARRATIVE_ARRANGEMENT_CONTRACT_R0.md"],
+      "domainOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
+      "stateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
+      "persistenceOwner": "Existing Story Structure/Story Unit authority hosts versioned NarrativeArrangement and NarrativePlacement as one top-level Story Unit frontmatter child aggregate; Event, Canon, WorldState, Relation, UI and localStorage own no narrative order",
+      "providerDependency": "none; all tests use pure functions, temporary workspaces and a loopback local API with zero real Provider calls",
+      "tests": ["tests/storyContracts/narrativeArrangementR0.test.ts", "tests/storyStudio/narrativeArrangementAuthorityR0.test.ts", "tests/storyStudio/narrativeArrangementTransportR0.test.ts"],
+      "legacyProvenance": ["R12-B2 BLOCKED_NARRATIVE_ORDER_CONTRACT_REQUIRED", "Founder decision: Story Structure/Story Unit is the sole narrative-position owner"],
+      "remainingGap": "R12-B2 production EventLine UI, candidate UI/AuthorControl adaptation, deep multi-Unit branch continuation and explicit branch merge remain unstarted; legacy projects read as unplaced and are never auto-migrated"
+    },
     {
       "id": "event-line-story-modeling-r7",
       "status": "LOCAL_REVIEW",

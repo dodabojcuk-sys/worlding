@@ -27,8 +27,9 @@ await requirePath(index.boundaries.worldStateOwners[0], "boundaries.worldStateOw
 await requirePath(index.boundaries.eventOwners[0], "boundaries.eventOwners");
 await requirePath(index.boundaries.providerBoundary, "boundaries.providerBoundary");
 await requirePath(index.boundaries.candidateReviewOwner, "boundaries.candidateReviewOwner");
+await requirePath(index.boundaries.narrativeArrangementOwner, "boundaries.narrativeArrangementOwner");
 
-console.log(`Feature index OK: ${index.features.length} features, one Canon Writer, one WorldState owner, one Event owner.`);
+console.log(`Feature index OK: ${index.features.length} features, one Canon Writer, one WorldState owner, one Event owner, one NarrativeArrangement owner.`);
 
 async function requirePath(relativePath, owner) {
   if (typeof relativePath !== "string" || !relativePath || relativePath.startsWith("/") || relativePath.includes("..")) fail(`${owner} has an unsafe path`);
