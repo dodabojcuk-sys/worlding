@@ -221,3 +221,25 @@ final result: passed
 Automated design QA is complete. Founder experience acceptance must still be performed independently and is not implied by this result.
 
 final result: passed
+
+---
+
+# R12-B2 Design QA
+
+## Source visual truth
+
+R12-A 隔离原型及八个冻结目标截图已打开核对。统一候选的修改前生产实现已在 1440×900、1280×800、1152×720 与 743×529 保存截图。
+
+## Implementation screenshot
+
+不存在。生产实现因正式叙事位置 Owner 缺失而在写代码前停止。
+
+## Comparison status
+
+同尺寸修改后对照、局部放大、P0/P1/P2 迭代均未开始。用标题、ID、返回数组、世界时间或本地视图顺序生成截图会把 fallback 伪装成故事顺序，因此不允许进入视觉验收。
+
+## Blocker
+
+`StoryUnit.order` 只能排序单元；`linkedEntityIds` 与 Collection Point `eventIds` 在正式归一化中按 ID 字典序排序；Event 没有正式叙事位置字段。详见 `data/2026-09-03_天衍R12B2故事推进生产化/R12B2_NARRATIVE_ORDER_CONTRACT_GAP.md`。
+
+final result: blocked
