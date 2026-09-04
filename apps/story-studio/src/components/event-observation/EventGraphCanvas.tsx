@@ -20,6 +20,7 @@ import { temporalTrackProjection } from "../../../../../src/storyContracts/tempo
 import { buildFocusTrajectoryOverlay, type FocusTrajectoryRenderState } from "../../../../../src/storyContracts/eventObservation.ts";
 import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eventPerspectiveProjection.ts";
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
+import type { StorylineProjection } from "../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
 import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
@@ -97,6 +98,9 @@ export type EventGraphCanvasProps = {
     focusObjects: readonly PerspectiveObjectRef[];
     currentUnitLabel: string | null;
     detailsOpen: boolean;
+    storylines?: readonly StorylineProjection[];
+    storylineScope?: string;
+    onStorylineScope?(storylineId: string): void;
     onArrange(selection: { eventId: string; placementId: string | null }): void;
     onOpenStaging(): void;
   };
@@ -804,10 +808,28 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         {miniMapOpen ? <MiniMap pannable zoomable aria-label="事件线缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
       </ReactFlow>
       {!placements.length ? <div className="formal-narrative-empty" role="status"><GripHorizontal /><small>NarrativeArrangement 尚未建立</small><strong>尚未建立叙事编排</strong><p>{props.events.length} 个 Event 与 {(props.storyUnits ?? []).filter((unit) => unit.status !== "archived").length} 个 Story Unit 仍可核对；系统不会替作者猜顺序。</p><button type="button" className="primary-action" onClick={props.surface.onOpenStaging}>安排第一个事件</button></div> : null}
+      {props.surface.storylines?.length ? <StorylineCrossingMap storylines={props.surface.storylines} events={props.events} scope={props.surface.storylineScope ?? "all"} onScope={props.surface.onStorylineScope} onSelectEvent={props.onSelectEvent} /> : null}
       {projection.unresolvedBranchCount ? <p className="formal-narrative-warning"><AlertTriangle />{projection.unresolvedBranchCount} 个分叉或合流端点缺少可定位的正式 Placement，未绘制虚假连线。</p> : null}
     </div>
     <footer className="formal-narrative-legend"><span><i className="main" />叙事推进（非因果）</span><span><i className="branch" />分叉</span><span><i className="merge" />合流</span><span><i className="gap" />未知保持断开</span><strong>节点位置只读取当前编排；拖动画布不会写入。</strong></footer>
   </section>;
+}
+
+function StorylineCrossingMap(props: { storylines: readonly StorylineProjection[]; events: readonly EventLineEventSummary[]; scope: string; onScope?(storylineId: string): void; onSelectEvent(eventId: string): void }) {
+  const titleById = new Map(props.events.map((event) => [event.id, event.title]));
+  const membership = new Map<string, string[]>();
+  for (const line of props.storylines) for (const eventId of line.eventIds) membership.set(eventId, [...(membership.get(eventId) ?? []), line.id]);
+  const crossingIds = [...membership.entries()].filter(([, lines]) => lines.length >= 2).map(([eventId]) => eventId);
+  return <aside className="storyline-crossing-map" data-testid="storyline-crossing-map" data-storyline-scope={props.scope} aria-label="故事线交叉导览">
+    <header><div><small>故事线交叉导览</small><strong>{props.scope === "all" ? "全局：所有故事线同时可见" : "单线聚焦：其余线保留方向"}</strong></div>{props.scope !== "all" ? <button type="button" onClick={() => props.onScope?.("all")}>返回全部故事线</button> : null}</header>
+    <div className="storyline-crossing-rails">{props.storylines.map((line) => {
+      const titles = line.eventIds.map((eventId) => titleById.get(eventId)).filter((title): title is string => Boolean(title));
+      const shared = line.eventIds.filter((eventId) => (membership.get(eventId)?.length ?? 0) >= 2);
+      const active = props.scope === "all" || props.scope === line.id;
+      return <button type="button" key={line.id} className={active ? "is-active" : "is-muted"} data-storyline-id={line.id} onClick={() => props.onScope?.(line.id)}><span className="storyline-crossing-rail"><i /><i /><i /></span><strong>{line.label}</strong><small>{titles[0] ?? "起点待定"} → {titles.at(-1) ?? "终点待定"} · {shared.length ? `${shared.length} 个交叉点` : "独立推进"}</small></button>;
+    })}</div>
+    {crossingIds.length ? <nav aria-label="故事线交叉点">{crossingIds.map((eventId) => <button type="button" key={eventId} data-crossing-event-id={eventId} onClick={() => props.onSelectEvent(eventId)}>交叉点 · {titleById.get(eventId) ?? "可见事件"}</button>)}</nav> : <p>当前可见范围没有跨线 Event；不会依据画布相邻关系补造交叉。</p>}
+  </aside>;
 }
 
 function buildFormalNarrativeGraph(input: {

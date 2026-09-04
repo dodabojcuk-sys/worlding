@@ -46,3 +46,14 @@ test("reader projection omits reader-hidden Event body and title", () => {
   assert.equal(projection.hiddenCount, 2);
   assert.equal(JSON.stringify(projection).includes(secret), false);
 });
+
+test("comparison keeps different knowledge states side by side without carrying an Event hidden from either person", () => {
+  const projection = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "author", observerIds: ["character.lin", "character.wu"], events, characters });
+  assert.equal(projection.mode, "compare");
+  assert.deepEqual(projection.observers.map((observer) => observer.id), ["character.lin", "character.wu"]);
+  assert.equal(projection.visibleEvents.some((event) => event.eventId === "event.cross"), false, "阿芜未知的交叉事件 must not leak its title through a comparison row");
+  const misled = projection.visibleEvents.find((event) => event.eventId === "event.misled");
+  assert.ok(misled);
+  assert.deepEqual(misled.perspectives.map((item) => [item.observerLabel, item.state]), [["林昭", "suspects"], ["阿芜", "misled"]]);
+  assert.equal(JSON.stringify(projection).includes(secret), false);
+});

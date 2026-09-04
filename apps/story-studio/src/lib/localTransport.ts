@@ -1734,8 +1734,10 @@ export async function getVerifiedCanonEvent(projectId: string, eventId: string):
   return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?projectId=${encodeURIComponent(projectId)}&eventId=${encodeURIComponent(eventId)}`);
 }
 
-export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string): Promise<EventStoryCrossingKnowledgeProjection> {
-  return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?projectId=${encodeURIComponent(projectId)}&observerId=${encodeURIComponent(observerId)}`);
+export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string, observerIds: readonly string[] = []): Promise<EventStoryCrossingKnowledgeProjection> {
+  const parameters = new URLSearchParams({ projectId, observerId });
+  if (observerIds.length) parameters.set("observerIds", observerIds.slice(0, 5).join(","));
+  return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?${parameters.toString()}`);
 }
 
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {

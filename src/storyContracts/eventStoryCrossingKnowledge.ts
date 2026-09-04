@@ -8,6 +8,7 @@ export const EVENT_STORY_CROSSING_KNOWLEDGE_VERSION = "tianyan-event-story-cross
 
 export type EventKnowledgeState =
   | "experienced"
+  | "witnessed"
   | "informed"
   | "believes"
   | "suspects"
@@ -42,6 +43,8 @@ export type StoryCrossingEventInput = {
 export type StoryCrossingKnowledgeInput = {
   projectId: string;
   observerId: string;
+  /** Two to five formal characters form one safe, read-only comparison range. */
+  observerIds?: readonly string[];
   events: readonly StoryCrossingEventInput[];
   characters: readonly { id: string; label: string; revisionToken: string }[];
 };
@@ -68,6 +71,8 @@ export type EventStoryCrossingKnowledgeProjection = {
   providerCalls: 0;
   projectId: string;
   observer: KnowledgeObserver;
+  observers: KnowledgeObserver[];
+  mode: "single" | "compare";
   storylines: StorylineProjection[];
   visibleEvents: SafeKnowledgeEvent[];
   hiddenEventIds: string[];
@@ -83,7 +88,14 @@ const READER: KnowledgeObserver = { id: "reader", label: "当前读者", kind: "
  * discarded before the projection crosses the API/DOM/ContextPack boundary.
  */
 export function buildEventStoryCrossingKnowledgeProjection(input: StoryCrossingKnowledgeInput): EventStoryCrossingKnowledgeProjection {
-  const observer = resolveObserver(input.observerId, input.characters);
+  const requested = unique(input.observerIds ?? []);
+  const comparisonObservers = requested
+    .map((observerId) => resolveObserver(observerId, input.characters))
+    .filter((observer): observer is KnowledgeObserver => observer.kind === "character")
+    .slice(0, 5);
+  const mode = comparisonObservers.length >= 2 ? "compare" : "single";
+  const observer = mode === "compare" ? comparisonObservers[0]! : resolveObserver(input.observerId, input.characters);
+  const observers = mode === "compare" ? comparisonObservers : [observer];
   const memberships = new Map(input.events.map((event) => [event.id, storylineLabels(event.tags ?? [])]));
   const storylineMap = new Map<string, StorylineProjection>();
   for (const [eventId, labels] of memberships) {
@@ -115,8 +127,15 @@ export function buildEventStoryCrossingKnowledgeProjection(input: StoryCrossingK
   const visibleEvents: SafeKnowledgeEvent[] = [];
   const hiddenEventIds: string[] = [];
   for (const event of input.events) {
-    const state = knowledgeState(event.tags ?? [], observer);
-    if (!canSeeEvent(state, observer)) {
+    const states = observers.map((candidate) => ({ observer: candidate, state: knowledgeState(event.tags ?? [], candidate) }));
+    const state = states[0]!.state;
+    // A comparison range may only carry an Event identity when every compared
+    // character can already see it.  This prevents a known title from leaking
+    // through another character's side of the comparison table.
+    const visibleToRange = mode === "compare"
+      ? states.every((item) => canSeeEvent(item.state, item.observer))
+      : canSeeEvent(state, observer);
+    if (!visibleToRange) {
       hiddenEventIds.push(event.id);
       continue;
     }
@@ -132,8 +151,12 @@ export function buildEventStoryCrossingKnowledgeProjection(input: StoryCrossingK
       knowledgeState: state,
       knowledgeLabel: knowledgeStateLabel(state),
       sourceEventIds: evidence.filter((item) => item.learnedAtEventId === event.id).flatMap((item) => item.sourceAnchorIds),
-      body: event.body ?? null,
-      perspectives: observer.kind === "author"
+      // The event-line needs no prose in its knowledge projection.  Keeping
+      // it out for non-author ranges also makes the API boundary conservative.
+      body: observer.kind === "author" ? event.body ?? null : null,
+      perspectives: mode === "compare"
+        ? states.map((item) => ({ observerId: item.observer.id, observerLabel: item.observer.label, state: item.state, stateLabel: knowledgeStateLabel(item.state) }))
+        : observer.kind === "author"
         ? [READER, ...input.characters.map((character): KnowledgeObserver => ({ id: character.id, label: character.label, kind: "character" }))]
           .map((candidate) => { const candidateState = knowledgeState(event.tags ?? [], candidate); return { observerId: candidate.id, observerLabel: candidate.label, state: candidateState, stateLabel: knowledgeStateLabel(candidateState) }; })
         : [{ observerId: observer.id, observerLabel: observer.label, state, stateLabel: knowledgeStateLabel(state) }]
@@ -146,6 +169,8 @@ export function buildEventStoryCrossingKnowledgeProjection(input: StoryCrossingK
     providerCalls: 0,
     projectId: input.projectId,
     observer,
+    observers,
+    mode,
     storylines: [...storylineMap.values()]
       .map((line) => ({ ...line, eventIds: unique(line.eventIds).filter((eventId) => observer.kind === "author" || visibleEvents.some((event) => event.eventId === eventId)) }))
       .filter((line) => observer.kind === "author" || line.eventIds.length > 0)
@@ -172,7 +197,8 @@ export function knowledgeState(tags: readonly string[], observer: KnowledgeObser
   if (tags.some((tag) => /^(?:作者秘密|仅作者|author[- ]?only)$/iu.test(tag.trim()))) return "unknown";
   if (observer.kind === "reader" && tags.some((tag) => /^(?:读者未知|reader[- ]?hidden)$/iu.test(tag.trim()))) return "unknown";
   if (observer.kind === "character") {
-    if (taggedNames(tags, ["人物", "角色", "目击", "参与"]).some((name) => matchesObserver(name, names))) return "experienced";
+    if (taggedNames(tags, ["人物", "角色", "参与"]).some((name) => matchesObserver(name, names))) return "experienced";
+    if (taggedNames(tags, ["目击", "见证"]).some((name) => matchesObserver(name, names))) return "witnessed";
     if (taggedNames(tags, ["听闻", "得知"]).some((name) => matchesObserver(name, names))) return "informed";
     if (taggedNames(tags, ["相信"]).some((name) => matchesObserver(name, names))) return "believes";
     if (taggedNames(tags, ["推测", "怀疑"]).some((name) => matchesObserver(name, names))) return "suspects";
@@ -189,6 +215,7 @@ export function canSeeEvent(state: EventKnowledgeState, observer: KnowledgeObser
 export function knowledgeStateLabel(state: EventKnowledgeState): string {
   return ({
     experienced: "已亲历",
+    witnessed: "已目击",
     informed: "已得知",
     believes: "相信",
     suspects: "怀疑",
@@ -211,6 +238,7 @@ function knowledgeEvidence(event: StoryCrossingEventInput, observer: KnowledgeOb
   const state = knowledgeState(event.tags ?? [], observer);
   const authority: CharacterCognitiveAuthority = ({
     experienced: "confirmed_knowledge",
+    witnessed: "confirmed_knowledge",
     informed: "confirmed_knowledge",
     believes: "belief",
     suspects: "suspicion",

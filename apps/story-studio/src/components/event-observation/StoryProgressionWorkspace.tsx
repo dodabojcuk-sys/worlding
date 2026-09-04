@@ -73,12 +73,15 @@ export function StoryProgressionWorkspace(props: {
   storylineScope: string;
   observers: readonly KnowledgeObserver[];
   observerId: string;
+  observerIds: readonly string[];
+  comparisonMode: boolean;
   hiddenEventCount: number;
   selectedKnowledgeState: EventKnowledgeState | null;
   selectedStorylineLabels: readonly string[];
   selectedKnowledgePerspectives: readonly { observerId: string; observerLabel: string; state: EventKnowledgeState; stateLabel: string }[];
   onStorylineScope(id: string): void;
   onObserver(id: string): void;
+  onObservers(ids: string[]): void;
   onTask(task: EventTaskPreset): void;
   onFocusObjectIds(ids: string[]): void;
   onSelectEvent(eventId: string): void;
@@ -140,7 +143,7 @@ export function StoryProgressionWorkspace(props: {
       </div>
       <div className="story-progression-actions">
         <label className="story-progression-coordinate"><span>故事线范围</span><select data-testid="storyline-scope-select" value={props.storylineScope} onChange={(event) => props.onStorylineScope(event.target.value)}><option value="all">全部故事线</option>{props.storylineScope !== "all" && !props.storylines.some((line) => line.id === props.storylineScope) ? <option value={props.storylineScope}>正在恢复故事线…</option> : null}{props.storylines.map((line) => <option key={line.id} value={line.id}>{line.label} · {line.eventIds.length}</option>)}</select></label>
-        <label className="story-progression-coordinate"><span>观察者 / 知情视角</span><select data-testid="knowledge-observer-select" value={props.observerId} onChange={(event) => props.onObserver(event.target.value)}>{props.observers.map((observer) => <option key={observer.id} value={observer.id}>{observer.label}</option>)}</select></label>
+        <label className="story-progression-coordinate"><span>观察者 / 知情视角</span><select data-testid="knowledge-observer-select" value={props.comparisonMode ? "author" : props.observerId} onChange={(event) => props.onObserver(event.target.value)}>{props.comparisonMode ? <option value="author">比较视角（{props.observerIds.length} 人）</option> : null}{props.observers.map((observer) => <option key={observer.id} value={observer.id}>{observer.label}</option>)}</select></label>
         <button type="button" aria-expanded={scopeOpen} onClick={() => { setScopeOpen((open) => !open); setMoreOpen(false); }}><PanelTopOpen />范围：{props.currentUnitLabel ?? "全书"}<ChevronDown /></button>
         <button type="button" className="focus-object-trigger" aria-expanded={focusPickerOpen} onClick={() => { setFocusPickerOpen((open) => !open); setMoreOpen(false); }}><UsersRound />焦点：{selectedFocus.length ? selectedFocus.map((object) => object.label).join("、") : "未选择"}<ChevronDown /></button>
         {props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FilePlus2 />新增事件</button> : null}
@@ -148,8 +151,9 @@ export function StoryProgressionWorkspace(props: {
         <button type="button" aria-expanded={moreOpen} onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); }}><MoreHorizontal />更多</button>
       </div>
     </nav>
-    <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容{props.hiddenEventCount ? `；${props.hiddenEventCount} 个未知位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div>
-    {props.selectedStorylineLabels.length ? <div className="story-crossing-selection" data-testid="story-crossing-selection"><GitBranch /><span>同一事件所属：</span>{props.selectedStorylineLabels.map((label) => <button type="button" key={label} onClick={() => { const line = props.storylines.find((item) => item.label === label); if (line) props.onStorylineScope(line.id); }}>{label}</button>)}{props.observerId === "author" && props.selectedKnowledgePerspectives.length ? <small>知情差异：{props.selectedKnowledgePerspectives.map((item) => `${item.observerLabel} ${item.stateLabel}`).join(" · ")}</small> : null}</div> : null}
+    <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.comparisonMode ? props.observerIds.join(",") : props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.comparisonMode ? `比较视角：${props.observerIds.length} 位人物仅比较共同可见的事件` : `${props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容`}{props.hiddenEventCount ? `；${props.hiddenEventCount} 个未知位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div>
+    <KnowledgeComparePicker observers={props.observers} selectedIds={props.observerIds} onChange={props.onObservers} />
+    {props.selectedStorylineLabels.length ? <div className="story-crossing-selection" data-testid="story-crossing-selection"><GitBranch /><span>同一事件所属：</span>{props.selectedStorylineLabels.map((label) => <button type="button" key={label} onClick={() => { const line = props.storylines.find((item) => item.label === label); if (line) props.onStorylineScope(line.id); }}>{label}</button>)}{props.selectedKnowledgePerspectives.length ? <KnowledgeComparisonRows perspectives={props.selectedKnowledgePerspectives} /> : null}</div> : null}
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
     {candidateOverlayOpen && props.renderCandidateOverlay ? <aside className="story-progression-candidate-overlay" aria-label="候选审查叠层">{props.renderCandidateOverlay(() => setCandidateOverlayOpen(false))}</aside> : null}
@@ -170,7 +174,26 @@ function TaskButton(props: { active: boolean; icon: ReactNode; label: string; on
 }
 
 function trajectoryKnowledgeLabel(state: EventKnowledgeState): string {
-  return ({ experienced: "已亲历", informed: "已得知", believes: "相信", suspects: "怀疑", misled: "被误导", unknown: "未知", denied: "已否定", contradicted: "存在矛盾" } as const)[state];
+  return ({ experienced: "已亲历", witnessed: "已目击", informed: "已得知", believes: "相信", suspects: "怀疑", misled: "被误导", unknown: "未知", denied: "已否定", contradicted: "存在矛盾" } as const)[state];
+}
+
+function KnowledgeComparePicker(props: { observers: readonly KnowledgeObserver[]; selectedIds: readonly string[]; onChange(ids: string[]): void }) {
+  const characters = props.observers.filter((observer) => observer.kind === "character");
+  const toggle = (id: string) => {
+    const selected = props.selectedIds.includes(id);
+    const next = selected ? props.selectedIds.filter((item) => item !== id) : props.selectedIds.length < 5 ? [...props.selectedIds, id] : [...props.selectedIds];
+    props.onChange(next);
+  };
+  if (!characters.length) return null;
+  return <fieldset className="story-knowledge-compare-picker" data-testid="knowledge-compare-picker"><legend>人物知情比较（选择 2–5 人）</legend>{characters.map((observer) => <label key={observer.id}><input type="checkbox" checked={props.selectedIds.includes(observer.id)} disabled={!props.selectedIds.includes(observer.id) && props.selectedIds.length >= 5} onChange={() => toggle(observer.id)} />{observer.label}</label>)}<small>{props.selectedIds.length >= 2 ? `正在比较 ${props.selectedIds.length} 人；只显示所有已选人物共同可见的事件。` : "选择两人后进入并列比较；单选保持单人物视角。"}</small></fieldset>;
+}
+
+function KnowledgeComparisonRows(props: { perspectives: readonly { observerId: string; observerLabel: string; state: EventKnowledgeState; stateLabel: string }[] }) {
+  return <section className="story-knowledge-comparison" data-testid="knowledge-comparison"><strong>人物知情比较</strong><dl>{props.perspectives.map((item) => <div key={item.observerId} data-knowledge-state={item.state}><dt>{item.observerLabel}</dt><dd>{comparisonStateLabel(item.state)}</dd></div>)}</dl></section>;
+}
+
+function comparisonStateLabel(state: EventKnowledgeState): string {
+  return ({ experienced: "亲历 · 已确认", witnessed: "目击 · 已确认", informed: "被告知 · 已得知", believes: "相信 · 未证实", suspects: "推断 / 怀疑", misled: "误解 · 被错误信息误导", unknown: "未知", denied: "已否定", contradicted: "存在矛盾" } as const)[state];
 }
 
 function ScopeOverview(props: { units: readonly StoryUnit[]; narratives: readonly NarrativeArrangementRead[]; onClose(): void }) {

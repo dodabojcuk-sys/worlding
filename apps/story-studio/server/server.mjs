@@ -1042,7 +1042,8 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/knowledge-view") {
     const projectId = requireQueryValue(url, "projectId");
     const observerId = url.searchParams.get("observerId") || "author";
-    sendJson(response, 200, { data: runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, observerId)) });
+    const observerIds = (url.searchParams.get("observerIds") || "").split(",").map((value) => value.trim()).filter(Boolean).slice(0, 5);
+    sendJson(response, 200, { data: runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, observerId, observerIds)) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/event") {
@@ -3738,7 +3739,7 @@ function requireBoundedModelText(value, label, maximumCharacters) {
   return value.trim();
 }
 
-function projectEventStoryCrossingKnowledge(projectId, observerId) {
+function projectEventStoryCrossingKnowledge(projectId, observerId, observerIds = []) {
   requireProject(projectId);
   const events = operations.listWorldObjects({ projectId, type: "event" })
     .filter((event) => event.status !== "archived")
@@ -3747,7 +3748,7 @@ function projectEventStoryCrossingKnowledge(projectId, observerId) {
   const characters = operations.listWorldObjects({ projectId, type: "character" })
     .filter((character) => character.status !== "archived")
     .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));
-  return buildEventStoryCrossingKnowledgeProjection({ projectId, observerId, events, characters });
+  return buildEventStoryCrossingKnowledgeProjection({ projectId, observerId, observerIds, events, characters });
 }
 
 function referencesHiddenEvent(value, hiddenEventIds) {

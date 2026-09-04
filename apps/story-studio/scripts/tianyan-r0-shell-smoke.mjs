@@ -47,6 +47,7 @@ const r11ObservationEvidenceDirectory = process.env.TIANYAN_R11_OBSERVATION_EVID
 const r12EventLineEvidenceDirectory = process.env.TIANYAN_R12_EVENT_LINE_EVIDENCE_DIR || null;
 const r1DualAxisCausalEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R1_EVIDENCE_DIR || null;
 const r2StoryCrossingEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_EVIDENCE_DIR || null;
+const founderCloseoutR21EvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_1_EVIDENCE_DIR || null;
 const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
@@ -65,6 +66,8 @@ const r12EventLineOnly = process.env.TIANYAN_E2E_SCOPE === "r12-event-line-works
 const r1DualAxisCausalOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-dual-axis-causal-r1";
 const r2StoryCrossingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-story-crossing-r2";
 const r2KnowledgeIsolationOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-knowledge-isolation-r2";
+const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1";
+const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -154,12 +157,14 @@ try {
     await setupNarrativeFixture();
     await setupR1CausalFixture();
     await assertEventLineDualAxisCausalCoreR1(page, consoleProblems);
-  } else if (r2StoryCrossingOnly || r2KnowledgeIsolationOnly) {
+  } else if (r2StoryCrossingOnly || r2KnowledgeIsolationOnly || founderCloseoutR21Only || founderCloseoutR21RecordingOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
     await setupR1CausalFixture();
-    await assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, r2KnowledgeIsolationOnly ? "knowledge" : "crossing");
+    if (founderCloseoutR21RecordingOnly) await recordEventLineFounderCloseoutR21();
+    else if (founderCloseoutR21Only) await assertEventLineFounderCloseoutR21(page, consoleProblems);
+    else await assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, r2KnowledgeIsolationOnly ? "knowledge" : "crossing");
   } else if (r11ObservationOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -1042,11 +1047,11 @@ async function setupObservationFixture() {
     { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "目击：苏弦", "地点：雾港"] },
     { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", "知情：读者=未知", "物品：雾灯匣"] },
     { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "故事线：主故事线|调查线 · 雾港", "时间：2026-09-03 18:00", "人物：陆衍", "知情：林昭=已得知", "知情：阿芜=未知", "知情：读者=已得知", "地点：雾港", "时间冲突：港务钟与灯塔记录相差两小时"] },
-    { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港", "时间：2026-09-03", "人物：林昭", "知情：阿芜=未知", "知情：读者=未知", "地点：雾港"] },
-    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
-    { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
-    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", "知情：读者=未知", "推测：苏弦"] },
-    { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
+    { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-03", "人物：林昭", "知情：阿芜=未知", "知情：读者=未知", "地点：雾港"] },
+    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
+    { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
+    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", "知情：读者=未知", "推测：苏弦"] },
+    { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "故事线：主故事线|灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
     { key: "confrontation", title: "六人在旧码头对峙", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：林昭,阿芜,陆衍,顾澜,程野,苏弦", "地点：雾港"] },
     { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "故事线：调查线 · 雾港", "作者秘密", "时间：2026-09-05", "人物：顾澜", "知情：林昭=未知", "知情：阿芜=未知", "知情：读者=未知", "物品：雾灯匣"] },
     { key: "aftermath", title: "港务记录恢复公开", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-06", "人物：陆衍", "地点：雾港"] },
@@ -1161,6 +1166,7 @@ async function assertEventLineDualAxisCausalCoreR1(page, consoleProblems) {
   await workspace.waitFor();
   const graph = page.getByTestId("formal-narrative-event-graph");
   await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
   assert.equal(await graph.getAttribute("data-placement-count"), "18", "The R1 fixture uses more than the required eight Events.");
   await capture("01-1440-event-line-narrative-order.png");
 
@@ -1180,7 +1186,13 @@ async function assertEventLineDualAxisCausalCoreR1(page, consoleProblems) {
   await causal.getByRole("button", { name: new RegExp(r1CausalFixture.result.title, "u") }).click();
   await causal.waitFor();
   assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.result.id, "A result can become the selected Event without duplicating an Event.");
-  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.selected.title, "u") }).click();
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.downstream.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.downstream.id, "A second-level impact receives the same stable Event selection and canvas focus.");
+  await causal.getByRole("button", { name: "返回上一个因果节点", exact: true }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.result.id, "Causal backtrace returns through the actual navigation history.");
+  await causal.getByRole("button", { name: "回到起始事件", exact: true }).click();
   await causal.waitFor();
   assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.selected.id, "The author can trace a result back to its cause.");
   await capture("03-1440-causal-backtrace.png");
@@ -1197,6 +1209,7 @@ async function assertEventLineDualAxisCausalCoreR1(page, consoleProblems) {
   await capture("05-1440-event-line-return.png");
   await reloadProduct(page);
   await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
   assert.equal(await workspace.getAttribute("data-event-task"), "story", "Refresh preserves the current Event-line axis.");
   await page.locator(".page-context-dock").getByRole("button", { name: "因果", exact: true }).click();
   await page.getByTestId("event-causal-index").waitFor();
@@ -1238,6 +1251,9 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   assert.equal(labels.some((label) => label.includes("主故事线")), true);
   assert.equal(labels.some((label) => label.includes("人物线 · 林昭")), true);
   assert.equal(labels.some((label) => label.includes("调查线 · 雾港")), true);
+  const crossingMap = page.getByTestId("storyline-crossing-map");
+  await crossingMap.waitFor();
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > button").count() >= 3, "The global canvas exposes three directional Storyline rails, not only a filter menu.");
   const authorInvestigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
   assert.ok(authorInvestigationLineId);
   assert.equal(await graph.locator('[data-confirmed-event-id]').count(), 18, "Global story-crossing view uses one rendered projection per existing Placement.");
@@ -1248,6 +1264,11 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   await page.getByTestId("story-crossing-selection").waitFor();
   assert.match(await page.getByTestId("story-crossing-selection").innerText(), /主故事线/u);
   assert.match(await page.getByTestId("story-crossing-selection").innerText(), /调查线 · 雾港/u);
+  await crossingMap.locator(`[data-storyline-id="${authorInvestigationLineId}"]`).click();
+  await page.waitForFunction((lineId) => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === lineId, authorInvestigationLineId);
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > .is-muted").count() >= 2, "A focused Storyline keeps other rails visible but visually subordinate for direction context.");
+  await crossingMap.getByRole("button", { name: "返回全部故事线", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === "all");
   await storylineSelect.selectOption(authorInvestigationLineId);
   await page.waitForFunction((eventId) => document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`), crossEventId);
   assert.equal(new URL(page.url()).searchParams.get("eventId"), crossEventId, "Switching a crossing Event to another Storyline keeps the same stable Event selection.");
@@ -1298,20 +1319,30 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   assert.ok(focusedNodeGeometry && focusedNodeGeometry.nodeLeft >= focusedNodeGeometry.canvasLeft + 12 && focusedNodeGeometry.nodeRight <= focusedNodeGeometry.canvasRight - 12 && focusedNodeGeometry.nodeTop >= focusedNodeGeometry.canvasTop + 12 && focusedNodeGeometry.nodeBottom <= focusedNodeGeometry.canvasBottom - 12 && (focusedNodeGeometry.miniMapLeft === null || focusedNodeGeometry.nodeRight <= focusedNodeGeometry.miniMapLeft - 8 || focusedNodeGeometry.nodeBottom <= focusedNodeGeometry.miniMapTop - 8), `Focused Storyline must keep its selected Event fully readable and clear of the minimap=${JSON.stringify(focusedNodeGeometry)}`);
   await capture("04-ISOLATED_R2-character-b-misled-belief.png");
 
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  await page.getByTestId("knowledge-comparison").waitFor();
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /林昭\s*推断\s*\/\s*怀疑/u, "Comparison renders 林昭's cognitive state as text and structure.");
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u, "Comparison renders 阿芜's wrong belief without rewriting the Event.");
+  await capture("05-ISOLATED_R2-two-character-comparison.png");
+
   await workspace.getByRole("button", { name: "时间线", exact: true }).click();
   await page.getByTestId("formal-temporal-canvas").waitFor();
-  assert.equal(await observerSelect.inputValue(), wu.id, "Knowledge observer remains active on the world-time projection.");
+  assert.match(await page.getByTestId("knowledge-boundary-status").getAttribute("data-observer-id") ?? "", new RegExp(`${lin.id},${wu.id}`, "u"), "Knowledge comparison remains active on the world-time projection.");
   assert.equal(await storylineSelect.inputValue(), investigationLine.id, "Storyline scope remains active on the world-time projection.");
-  await capture("05-ISOLATED_R2-timeline-preserves-coordinates.png");
+  await capture("06-ISOLATED_R2-timeline-preserves-coordinates.png");
   await workspace.getByRole("button", { name: "事件线", exact: true }).click();
   await observerSelect.selectOption("author");
   await storylineSelect.selectOption("all");
   await graph.getByRole("button", { name: "全书位置", exact: true }).click();
-  await graph.locator(`[data-confirmed-event-id="${crossEventId}"] .formal-narrative-card-main`).click();
+  await crossingMap.locator(`[data-crossing-event-id="${crossEventId}"]`).click();
   await page.locator(".page-context-dock").getByRole("button", { name: "因果", exact: true }).click();
   await page.getByTestId("event-causal-index").waitFor();
   assert.equal(await page.getByTestId("event-causal-index").getAttribute("data-event-id"), crossEventId, "The R1 causal path keeps the selected crossing Event.");
-  await capture("06-ISOLATED_R2-causal-drawer-selection.png");
+  await capture("07-ISOLATED_R2-causal-drawer-selection.png");
 
   await observerSelect.selectOption(lin.id);
   await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
@@ -1323,7 +1354,7 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   await sidebar.waitFor();
   await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
   assert.match(await page.getByTestId("page-agent-knowledge-scope").innerText(), /林昭.*只接收当前知情范围/u);
-  await capture("07-ISOLATED_R2-page-agent-scoped.png");
+  await capture("08-ISOLATED_R2-page-agent-scoped.png");
 
   const opened = await postFixture(`${apiUrl}/__local/story-studio/tianyi/session/open`, { projectId: fixtureProjectId, operationId: `r2-session-${fixture.fixtureId}`, retentionMode: "normal" });
   const startedAgent = await postFixture(`${apiUrl}/__local/story-studio/tianyi-agent/run/start`, {
@@ -1369,8 +1400,208 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   assert.equal(await storylineSelect.inputValue(), investigationLine.id, "Refresh restores the Storyline coordinate.");
   assert.equal(new URL(page.url()).searchParams.get("eventId"), selectedBeforeRefresh, "Refresh restores the selected Event coordinate.");
   assert.equal((await page.locator("body").innerText()).includes(secret), false, "Refresh does not reintroduce hidden claim text into the DOM.");
-  await capture("08-ISOLATED_R2-refresh-restores-safe-view.png");
+  await capture("09-ISOLATED_R2-refresh-restores-safe-view.png");
   assert.deepEqual(consoleProblems, [], `R2 ${focus} interactions must not add browser console errors.`);
+}
+
+async function assertEventLineFounderCloseoutR21(page, consoleProblems) {
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R2.1 requires the existing Event, NarrativeArrangement and Relation fixtures.");
+  const secret = "R2_SECRET_CLAIM_雾灯匣夹层藏有真正航海图";
+  await seedR12NarrativeArrangements();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  const observerSelect = page.getByTestId("knowledge-observer-select");
+  const storylineSelect = page.getByTestId("storyline-scope-select");
+  await workspace.waitFor();
+  await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  const library = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const lin = library.data.objects.find((item) => item.type === "character" && item.title === "林昭");
+  const wu = library.data.objects.find((item) => item.type === "character" && item.title === "阿芜");
+  assert.ok(lin && wu, "Founder recovery fixture requires 林昭 and 阿芜.");
+  const investigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
+  assert.ok(investigationLineId);
+
+  // The selected crossing Event remains visible to 林昭.  Reload waits for the
+  // actual safe projection, not a timeout or the first transient paint.
+  await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"] .formal-narrative-card-main`).click();
+  await storylineSelect.selectOption(investigationLineId);
+  await observerSelect.selectOption(lin.id);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  assert.equal(await page.getByTestId("knowledge-boundary-status").getAttribute("data-observer-id"), lin.id);
+  assert.equal(await storylineSelect.inputValue(), investigationLineId);
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"]`).count(), 1);
+  assert.ok(await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"]`).evaluate((node) => node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0), "A restored Event must remain visibly laid out after knowledge data settles.");
+
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"] .formal-narrative-card-main`).click();
+  const comparison = page.getByTestId("knowledge-comparison");
+  await comparison.waitFor();
+  assert.match(await comparison.innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+  assert.match(await comparison.innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u);
+  assert.equal((await page.locator("body").innerText()).includes(secret), false, "Comparison API and DOM retain no hidden Event title/body.");
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"].is-selected`).count(), 1, "Refresh restores the selected shared Event only after the comparison projection has settled.");
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+
+  // A stale route that is no longer visible may not retain an orphaned detail
+  // drawer, title, identifier or empty final canvas.
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventObserver=${encodeURIComponent(lin.id)}&eventStoryline=${encodeURIComponent(investigationLineId)}&eventId=${encodeURIComponent(observationFixture.reveal.id)}`);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.getByTestId("event-line-recovery-notice").waitFor();
+  assert.equal(new URL(page.url()).searchParams.has("eventId"), false, "An invisible stale selection is removed from the recoverable route state.");
+  assert.equal(await page.locator(".page-context-dock").getAttribute("data-page-dock-open"), "false", "An Event absent from the final graph cannot leave a stale details drawer.");
+  assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "A closed rail is not a retained event-details panel.");
+  assert.ok(await graph.locator("[data-confirmed-event-id]").count() > 0, "The final safe graph must contain visible nodes rather than a blank canvas.");
+  const body = await page.locator("body").innerText();
+  assert.equal(body.includes(secret), false);
+  assert.equal(body.includes(observationFixture.reveal.title), false);
+  assert.deepEqual(consoleProblems, [], "Founder recovery uses stable projection transitions without console errors.");
+}
+
+async function recordEventLineFounderCloseoutR21() {
+  assert.ok(founderCloseoutR21EvidenceDirectory, "Founder closeout recording requires TIANYAN_EVENT_LINE_R2_1_EVIDENCE_DIR.");
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R2.1 recording requires the existing Event, NarrativeArrangement and Relation fixtures.");
+  mkdirSync(founderCloseoutR21EvidenceDirectory, { recursive: true });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    recordVideo: { dir: founderCloseoutR21EvidenceDirectory, size: { width: 1440, height: 900 } }
+  });
+  const page = await context.newPage();
+  const video = page.video();
+  const consoleProblems = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) consoleProblems.push(`${message.type()}: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => consoleProblems.push(error.message));
+  page.on("response", (response) => {
+    if (response.status() >= 400) consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`);
+  });
+  const capture = async (name) => {
+    await page.screenshot({ path: path.join(founderCloseoutR21EvidenceDirectory, name), fullPage: false });
+    // This dwell is solely for a human-readable final recording. Readiness is
+    // asserted separately at every state and never inferred from this delay.
+    await page.waitForTimeout(7_000);
+  };
+
+  await seedR12NarrativeArrangements();
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  const observerSelect = page.getByTestId("knowledge-observer-select");
+  const storylineSelect = page.getByTestId("storyline-scope-select");
+  await workspace.waitFor();
+  await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction(() => document.querySelectorAll('[data-confirmed-event-id]').length >= 8);
+  const library = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const lin = library.data.objects.find((item) => item.type === "character" && item.title === "林昭");
+  const wu = library.data.objects.find((item) => item.type === "character" && item.title === "阿芜");
+  assert.ok(lin && wu, "Founder recording requires 林昭 and 阿芜.");
+  const investigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
+  assert.ok(investigationLineId);
+  const crossingMap = page.getByTestId("storyline-crossing-map");
+  await crossingMap.waitFor();
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > button").count() >= 3, "The recording begins with three visible Storyline rails.");
+  await capture("01-GLOBAL-three-storylines-1440x900.png");
+
+  await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"] .formal-narrative-card-main`).click();
+  await page.getByTestId("story-crossing-selection").waitFor();
+  await crossingMap.locator(`[data-storyline-id="${investigationLineId}"]`).click();
+  await page.waitForFunction((lineId) => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === lineId, investigationLineId);
+  await capture("02-FOCUS-investigation-and-return-1440x900.png");
+  await crossingMap.getByRole("button", { name: "返回全部故事线", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === "all");
+  await capture("03-RETURN-all-storylines-1440x900.png");
+
+  await storylineSelect.selectOption(investigationLineId);
+  await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"] .formal-narrative-card-main`).click();
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture["false-lead"].id);
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  const comparison = page.getByTestId("knowledge-comparison");
+  await comparison.waitFor();
+  assert.match(await comparison.innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+  assert.match(await comparison.innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u);
+  await capture("04-COMPARE-two-character-knowledge-1440x900.png");
+
+  await storylineSelect.selectOption("all");
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.ok(await temporal.locator(".temporal-event-card").count() >= 3, "The recorded world-time view must show multiple Events.");
+  await capture("05-TIMELINE-multiple-events-1440x900.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await graph.waitFor();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").uncheck();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").uncheck();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await storylineSelect.selectOption("all");
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await crossingMap.locator(`[data-crossing-event-id="${observationFixture.blackout.id}"]`).click();
+  const dock = page.locator(".page-context-dock");
+  await dock.getByRole("button", { name: "因果", exact: true }).click();
+  const causal = page.getByTestId("event-causal-index");
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), observationFixture.blackout.id);
+  await causal.getByText("查看关系来源", { exact: true }).first().click();
+  await capture("06-CAUSAL-forward-start-1440x900.png");
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.result.title, "u") }).click();
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.downstream.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.downstream.id);
+  await capture("07-CAUSAL-forward-result-1440x900.png");
+  await causal.getByRole("button", { name: "返回上一个因果节点", exact: true }).click();
+  await causal.getByRole("button", { name: "回到起始事件", exact: true }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), observationFixture.blackout.id);
+  await capture("08-CAUSAL-backtrace-origin-1440x900.png");
+
+  await observerSelect.selectOption(lin.id);
+  await storylineSelect.selectOption(investigationLineId);
+  await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
+  const tianyiToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+  if (await tianyiToggle.getAttribute("aria-pressed") !== "true") await tianyiToggle.click();
+  const sidebar = page.locator(".tianyi-sidebar");
+  await sidebar.waitFor();
+  await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+  const agentScope = page.getByTestId("page-agent-knowledge-scope");
+  await agentScope.waitFor();
+  assert.match(await agentScope.innerText(), /林昭.*只接收当前知情范围/u);
+  await capture("09-AGENT-restricted-page-scope-1440x900.png");
+  await sidebar.locator(".tianyi-sidebar-header button[aria-label]").last().click();
+
+  await crossingMap.locator(`[data-crossing-event-id="${observationFixture.blackout.id}"]`).click();
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  await reloadProduct(page);
+  await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  assert.equal(await observerSelect.inputValue(), lin.id);
+  assert.equal(await storylineSelect.inputValue(), investigationLineId);
+  await capture("10-REFRESH-stable-safe-view-1440x900.png");
+  assert.deepEqual(consoleProblems, [], "Founder recording must not add browser console errors.");
+
+  await context.close();
+  const recordingPath = video ? await video.path() : null;
+  if (!recordingPath) throw new Error("Founder closeout recording was not written.");
+  const finalVideoPath = path.join(founderCloseoutR21EvidenceDirectory, "FOUNDER-GOLDEN-R2.1-1440x900.webm");
+  copyFileSync(recordingPath, finalVideoPath);
+  writeFileSync(path.join(founderCloseoutR21EvidenceDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
 }
 
 async function seedR12NarrativeArrangements() {
@@ -1962,6 +2193,8 @@ async function assertEventGraphWorkspace(page) {
   await page.waitForTimeout(220);
   const workspace = page.getByLabel("事件关系工作区");
   await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.is-remote)").length === 8);
   assert.equal(await workspace.getAttribute("data-event-graph-owner"), "projection", "The graph remains a projection rather than a second Event owner.");
   assert.equal(await page.locator(".event-graph-node:not(.is-remote)").count(), 8, "The global graph must read the eight confirmed events from the existing Event owner.");
   assert.equal(await page.locator(".page-context-dock").count(), 0, "Graph mode must not mount a second right-side Page Context dock.");
@@ -1969,6 +2202,22 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(await page.locator(".react-flow__edge-path").count() >= 6, true, "Formal and candidate relations must render through the same graph engine.");
   const closedGeometry = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+    const dimension = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        tag: element.tagName.toLowerCase(), className: element.className,
+        rect: { x: box.x, y: box.y, width: box.width, height: box.height },
+        display: style.display, position: style.position, boxSizing: style.boxSizing,
+        width: style.width, height: style.height, minWidth: style.minWidth, minHeight: style.minHeight,
+        maxWidth: style.maxWidth, maxHeight: style.maxHeight,
+        padding: style.padding, margin: style.margin, gap: style.gap,
+        flex: style.flex, flexDirection: style.flexDirection, flexGrow: style.flexGrow, flexShrink: style.flexShrink,
+        gridTemplateColumns: style.gridTemplateColumns, gridTemplateRows: style.gridTemplateRows,
+        overflow: style.overflow
+      };
+    };
     const flow = rect(".event-graph-flow");
     const graph = document.querySelector(".event-graph-workspace");
     const toolbar = rect(".event-graph-commandbar");
@@ -1984,6 +2233,21 @@ async function assertEventGraphWorkspace(page) {
       graphDisplay: graph ? getComputedStyle(graph).display : "", graphCssHeight: graph ? getComputedStyle(graph).height : "", graphFlex: graph ? getComputedStyle(graph).flex : "",
       eventLineWorkbenchHeight: rect(".event-line-workbench")?.height ?? 0, shellWorkspaceHeight: rect(".shell-workspace-event-line")?.height ?? 0,
       eventLineShellHeight: rect(".event-line-shell")?.height ?? 0, eventLineMainHeight: rect(".event-line-spine-main")?.height ?? 0,
+      flowAncestorTree: (() => {
+        const nodes = [];
+        let current = document.querySelector(".event-graph-flow");
+        while (current && nodes.length < 12) { nodes.push(dimension(current)); current = current.parentElement; }
+        return nodes;
+      })(),
+      eventLineMainChildren: [...document.querySelector(".event-line-spine-main")?.children ?? []].map((child) => dimension(child)),
+      layoutRegions: {
+        rail: dimension(document.querySelector(".shell-space-rail")),
+        directory: dimension(document.querySelector(".project-directory-panel")),
+        workspace: dimension(document.querySelector(".shell-workspace")),
+        pageDock: dimension(document.querySelector(".page-context-dock")),
+        graphInspector: dimension(document.querySelector(".event-graph-inspector")),
+        globalTianyi: dimension(document.querySelector(".tianyi-sidebar"))
+      },
       giantTitleVisible: Boolean(title && getComputedStyle(title).display !== "none" && title.getBoundingClientRect().height > 0),
       pageToolsVisible: Boolean(pageTools && getComputedStyle(pageTools).display !== "none")
     };
@@ -2929,6 +3193,7 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   const verifiedAfter = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(verifiedAfter.data.eventIds, verifiedBefore.data.eventIds, "Saving drafts must not change verified Canon events.");
   await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
   if (await eventViewButton(page, "故事脊柱").count()) await eventViewButton(page, "故事脊柱").click();
   assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
   const libraryRestored = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
