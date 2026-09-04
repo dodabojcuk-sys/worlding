@@ -45,6 +45,7 @@ const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const r10EvidenceDirectory = process.env.TIANYAN_R10_EVIDENCE_DIR || null;
 const r11ObservationEvidenceDirectory = process.env.TIANYAN_R11_OBSERVATION_EVIDENCE_DIR || null;
 const r12EventLineEvidenceDirectory = process.env.TIANYAN_R12_EVENT_LINE_EVIDENCE_DIR || null;
+const r1DualAxisCausalEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R1_EVIDENCE_DIR || null;
 const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
@@ -60,9 +61,11 @@ const r9RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r9-evidence-recording
 const r10RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r10-closeout-recording";
 const r11ObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r11-observation-workspace";
 const r12EventLineOnly = process.env.TIANYAN_E2E_SCOPE === "r12-event-line-workspace";
+const r1DualAxisCausalOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-dual-axis-causal-r1";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
+let r1CausalFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -110,8 +113,9 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const page = tianyiGoldenLoopOnly && tianyiGoldenLoopEvidenceDirectory
-    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: tianyiGoldenLoopEvidenceDirectory, size: { width: 1440, height: 900 } } })).newPage()
+  const recordingDirectory = tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : null;
+  const page = recordingDirectory
+    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
     : await browser.newPage({ viewport: { width: 1152, height: 720 } });
   const consoleProblems = [];
   page.on("console", (message) => {
@@ -141,6 +145,12 @@ try {
     await setupObservationFixture();
     await setupNarrativeFixture();
     await assertR12EventLineWorkspace(page, consoleProblems);
+  } else if (r1DualAxisCausalOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertEventLineDualAxisCausalCoreR1(page, consoleProblems);
   } else if (r11ObservationOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -1082,6 +1092,110 @@ async function setupNarrativeFixture() {
   narrativeFixture = { unit: unit.data, branch: branch.data, workVersionId: root.identity.workVersionId };
 }
 
+async function setupR1CausalFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const createType = async (label) => {
+    const state = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+    const created = await postFixture(`${base}/relations/types/create`, {
+      projectId: fixtureProjectId,
+      label,
+      description: `R1 因果索引验收：${label}。`,
+      expectedRepositoryRevision: state.data.repositoryRevision,
+      operationId: `r1-causal-type-${label}-${fixture.fixtureId}`,
+      sourceRef: "r1-causal-author-fixture"
+    });
+    return created.data.type.relationTypeId;
+  };
+  const typeIds = {};
+  for (const label of ["因果", "触发", "必要条件", "导致"]) typeIds[label] = await createType(label);
+  const link = async (sourceKey, targetKey, label, suffix, confirm = true) => {
+    const created = await postFixture(`${base}/relations/create`, {
+      projectId: fixtureProjectId,
+      sourceObjectId: observationFixture[sourceKey].id,
+      targetObjectId: observationFixture[targetKey].id,
+      relationTypeId: typeIds[label],
+      relationLabelSnapshot: label,
+      direction: "forward",
+      sourceRef: "r1-causal-author-fixture",
+      operationId: `r1-causal-${suffix}-${fixture.fixtureId}`
+    });
+    if (confirm) await postFixture(`${base}/relations/confirm`, {
+      projectId: fixtureProjectId,
+      relationId: created.data.relation.relationId,
+      expectedRelationRevision: created.data.relation.revision,
+      operationId: `r1-causal-confirm-${suffix}-${fixture.fixtureId}`
+    });
+    return created.data.relation.relationId;
+  };
+  await link("ledger", "blackout", "因果", "antecedent");
+  await link("signal", "blackout", "触发", "trigger");
+  await link("revealed-cause", "blackout", "必要条件", "condition");
+  await link("blackout", "revealed-consequence", "导致", "result");
+  await link("revealed-consequence", "aftermath", "导致", "downstream");
+  await link("warning", "blackout", "因果", "candidate", false);
+  r1CausalFixture = { selected: observationFixture.blackout, result: observationFixture["revealed-consequence"], downstream: observationFixture.aftermath };
+}
+
+async function assertEventLineDualAxisCausalCoreR1(page, consoleProblems) {
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R1 requires the shared Event, NarrativeArrangement and Relation fixtures.");
+  if (r1DualAxisCausalEvidenceDirectory) mkdirSync(r1DualAxisCausalEvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (r1DualAxisCausalEvidenceDirectory) await page.screenshot({ path: path.join(r1DualAxisCausalEvidenceDirectory, name), fullPage: false }); };
+  const providerRequests = [];
+  page.on("request", (request) => {
+    if (/story-modeling\/(?:plan|runs|execute)|\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  });
+  await seedR12NarrativeArrangements();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  await workspace.waitFor();
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  await graph.waitFor();
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "The R1 fixture uses more than the required eight Events.");
+  await capture("01-1440-event-line-narrative-order.png");
+
+  const selectedNode = graph.locator(`[data-confirmed-event-id="${r1CausalFixture.selected.id}"]`).first();
+  await selectedNode.locator(".formal-narrative-card-main").click();
+  const dock = page.locator(".page-context-dock");
+  await dock.getByRole("button", { name: "因果", exact: true }).click();
+  const causal = page.getByTestId("event-causal-index");
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.selected.id);
+  for (const label of ["前因", "直接触发", "必要条件", "结果", "后续影响（两级）", "待确认或冲突"]) await causal.getByText(label, { exact: true }).waitFor();
+  assert.ok(await causal.getByText(/作者确认/u).count() >= 1);
+  assert.ok(await causal.getByText(/AI 候选/u).count() >= 1);
+  await causal.getByText("查看关系来源", { exact: true }).first().click();
+  await capture("02-1440-causal-forward.png");
+
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.result.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.result.id, "A result can become the selected Event without duplicating an Event.");
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.selected.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.selected.id, "The author can trace a result back to its cause.");
+  await capture("03-1440-causal-backtrace.png");
+
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.equal(await temporal.locator(".temporal-event-card").count(), 18);
+  await temporal.locator(".temporal-crosshair").getByText(r1CausalFixture.selected.title, { exact: true }).waitFor();
+  await capture("04-1440-time-line-world-time.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await graph.waitFor();
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${r1CausalFixture.selected.id}"].is-selected`).count(), 1, "Returning to narrative order keeps the same selected Event.");
+  await capture("05-1440-event-line-return.png");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-event-task"), "story", "Refresh preserves the current Event-line axis.");
+  await page.locator(".page-context-dock").getByRole("button", { name: "因果", exact: true }).click();
+  await page.getByTestId("event-causal-index").waitFor();
+  assert.equal(await page.getByTestId("event-causal-index").getAttribute("data-event-id"), r1CausalFixture.selected.id, "Refresh retains the selected Event and its causal index.");
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "Refresh retains Events and NarrativeArrangement.");
+  assert.deepEqual(providerRequests, [], "R1 causal and dual-axis reads remain zero-Provider.");
+  assert.deepEqual(consoleProblems, [], "R1 causal and dual-axis interactions must not add console errors.");
+}
+
 async function seedR12NarrativeArrangements() {
   assert.ok(narrativeFixture, "R12 narrative fixture must exist before seeding arrangements.");
   const paths = [
@@ -1304,6 +1418,7 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
 
   const mainQuery = `projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(narrativeFixture.workVersionId)}&narrativePathId=${encodeURIComponent(narrativeFixture.unit.id)}`;
   const beforeReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  await workspace.getByRole("button", { name: "更多", exact: true }).click();
   await workspace.getByRole("button", { name: "证据审计", exact: true }).click();
   const audit = page.getByTestId("evidence-audit-board");
   await audit.waitFor();
@@ -1314,32 +1429,31 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   const afterReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
   assert.equal(afterReadOnly.data.arrangement.currentRevision, beforeReadOnly.data.arrangement.currentRevision, "Task switches are read-only projections.");
 
-  await workspace.getByRole("button", { name: "打开待编排", exact: true }).click();
+  await workspace.getByRole("button", { name: "待编排与冲突", exact: true }).click();
   const hookTray = workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title });
   assert.equal(await hookTray.count(), 1);
   await capture("10-1440-staging-before.png");
   await hookTray.getByRole("button", { name: "安排位置", exact: true }).click();
   let inspector = page.locator(".narrative-arrangement-inspector");
   await inspector.waitFor();
-  await inspector.getByRole("button", { name: "确认插入 Placement", exact: true }).click();
+  await inspector.getByRole("button", { name: "确认插入位置", exact: true }).click();
   await inspector.getByText(/编排已保存/u).waitFor();
   await page.locator(".page-context-dock-panel > header button").click();
   await graph.getByRole("button", { name: "定位所选", exact: true }).click();
-  await graph.locator(".react-flow__controls-zoomin").click();
-  await graph.locator(".react-flow__controls-zoomin").click();
+  for (let zoom = 0; zoom < 4; zoom += 1) await graph.locator(".react-flow__controls-zoomin").click();
   const hookNode = graph.locator(`[data-confirmed-event-id="${observationFixture.hook.id}"]`);
   await hookNode.locator(".formal-narrative-arrange").waitFor();
   await capture("11-1440-staging-after-insert.png");
   await hookNode.locator(".formal-narrative-arrange").click();
   inspector = page.locator(".narrative-arrangement-inspector");
   await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption("start");
-  await inspector.getByRole("button", { name: "确认移动 Placement", exact: true }).click();
+  await inspector.getByRole("button", { name: "确认调整位置", exact: true }).click();
   await inspector.getByText(/编排已保存/u).waitFor();
   const moved = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
   assert.equal(moved.data.projection.placed[0].eventId, observationFixture.hook.id, "The formal move Writer applies the author-selected position.");
   await inspector.getByRole("button", { name: "从当前编排移除", exact: true }).click();
   await inspector.getByRole("button", { name: "再次确认移除", exact: true }).click();
-  await inspector.getByText(/Placement 已移除/u).waitFor();
+  await inspector.getByText(/编排位置已移除/u).waitFor();
   assert.equal(await workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title }).count(), 1, "Removing a Placement returns the Event to staging without deleting it.");
 
   const beforeRepeatedPlacement = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
@@ -2467,7 +2581,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
 
     await page.getByLabel("天意候选轨迹").waitFor();
     assert.match(page.url(), /tianyiSession=.*tianyiCandidate=/u);
-    await page.getByLabel("作者调整（保留在 Work lane）").fill("保留原始证据引用，只收窄变化范围。");
+    await page.getByLabel("作者调整（保留在当前工作区）").fill("保留原始证据引用，只收窄变化范围。");
     await capture("05-1440x900-EVENT-LINE-candidate-trajectory.png");
 
     await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
@@ -2487,7 +2601,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await eventLineAdoption.getByRole("button", { name: "采纳", exact: true }).click();
     await eventLineAdoption.getByText("采纳已生效", { exact: true }).waitFor();
     const activeReceiptText = await eventLineAdoption.textContent();
-    assert.match(activeReceiptText, /BaseVersion.*结果版本.*查看变化.*撤销（创建补偿版本）/su);
+    assert.match(activeReceiptText, /基础版本.*结果版本.*查看变化.*撤销（创建补偿版本）/su);
     await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
     await capture("07-1440x900-EVENT-LINE-adoption-receipt.png");
     await eventLineAdoption.getByRole("button", { name: "撤销（创建补偿版本）", exact: true }).click();
@@ -2496,7 +2610,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
     await capture("08-1440x900-EVENT-LINE-compensation-version.png");
 
-    await page.getByLabel("天意候选轨迹").getByRole("button", { name: "返回同一 Work lane", exact: true }).click();
+    await page.getByLabel("天意候选轨迹").getByRole("button", { name: "返回创作工作区", exact: true }).click();
     await page.waitForURL((value) => value.pathname === "/tianyi" && value.searchParams.get("tianyiLane") === "work");
     await page.waitForFunction(() => document.querySelector("[aria-label='天意统一会话']")?.getAttribute("data-active-lane") === "work");
     await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
@@ -2514,7 +2628,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     const pendingMatches = allPending.filter((item) => item.title.startsWith("方向二：规则失效"));
     assert.equal(pendingMatches.length, 1, `The adopted Event must remain visibly reachable in the pending-arrangement region after reload: ${JSON.stringify(allPending)}`);
     assert.equal(pendingMatches[0].status, "committed", `The adopted Event must retain its author-confirmed state after reload: ${JSON.stringify(pendingMatches)}`);
-    await reloadedTrajectory.getByRole("button", { name: "返回同一 Work lane", exact: true }).click();
+    await reloadedTrajectory.getByRole("button", { name: "返回创作工作区", exact: true }).click();
     await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId);
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();

@@ -58,6 +58,8 @@ export function TemporalCanvas(props: {
   narratives?: readonly NarrativeArrangementRead[];
   detailsOpen?: boolean;
   taskSurface?: boolean;
+  viewport?: { x: number; y: number; zoom: number } | null;
+  onViewportChange?(viewport: { x: number; y: number; zoom: number }): void;
 }) {
   const [flow, setFlow] = useState<ReactFlowInstance<Node<TemporalCanvasNodeData>, Edge> | null>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
@@ -112,15 +114,15 @@ export function TemporalCanvas(props: {
         nodes={projection.nodes}
         edges={projection.edges}
         nodeTypes={nodeTypes}
-        onInit={setFlow}
-        onMove={(_, next) => setViewport(next)}
+        onInit={(instance) => { setFlow(instance); if (props.viewport) void instance.setViewport(props.viewport, { duration: 0 }); }}
+        onMove={(_, next) => { setViewport(next); props.onViewportChange?.(next); }}
         onNodeClick={(_, node) => { if (node.data.kind === "event") props.onSelectEvent(node.data.eventId); }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
         minZoom={.5}
         maxZoom={1.6}
-        defaultViewport={{ x: 72, y: 24, zoom: .82 }}
+        defaultViewport={props.viewport ?? { x: 72, y: 24, zoom: .82 }}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={24} size={1} color="rgba(20, 78, 88, .10)" />

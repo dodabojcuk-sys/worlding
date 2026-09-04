@@ -21,7 +21,7 @@ import {
   UsersRound,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type {
   NarrativeArrangementRead,
@@ -75,6 +75,7 @@ export function StoryProgressionWorkspace(props: {
   onCreateEvent?(): void;
   onLocateCurrent(): void;
   onOpenAdvanced(view: "spine" | "graph"): void;
+  renderCandidateOverlay?: (onClose: () => void) => ReactNode;
   renderEventLine(input: { onOpenStaging(): void }): ReactNode;
   renderTimeLine(): ReactNode;
 }) {
@@ -82,6 +83,14 @@ export function StoryProgressionWorkspace(props: {
   const [moreOpen, setMoreOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [stagingOpen, setStagingOpen] = useState(false);
+  const [candidateOverlayOpen, setCandidateOverlayOpen] = useState(Boolean(props.renderCandidateOverlay));
+  const previousCandidateAvailable = useRef(Boolean(props.renderCandidateOverlay));
+  useEffect(() => {
+    const available = Boolean(props.renderCandidateOverlay);
+    if (available && !previousCandidateAvailable.current) setCandidateOverlayOpen(true);
+    if (!available) setCandidateOverlayOpen(false);
+    previousCandidateAvailable.current = available;
+  }, [props.renderCandidateOverlay]);
   const eventById = useMemo(() => new Map(props.events.map((event) => [event.id, event])), [props.events]);
   const formalObjects = useMemo(() => props.objects.filter((object) => object.formal === true), [props.objects]);
   const focusObjectIds = props.focusObjectIds.filter((id) => formalObjects.some((object) => object.id === id)).slice(0, MAX_FOCUS_OBJECTS);
@@ -113,8 +122,9 @@ export function StoryProgressionWorkspace(props: {
     {props.taskNotice ? <p className="story-progression-migration-notice" role="status">{props.taskNotice}</p> : null}
     <nav className="story-progression-controls" aria-label="事件线任务">
       <div className="story-progression-tasks" role="group" aria-label="任务">
-        <TaskButton active={props.task === "story"} icon={<ArrowRight />} label="主故事脊" onClick={() => props.onTask("story")} />
-        <TaskButton active={false} icon={<GitBranch />} label="候选与可能性" onClick={() => { setMoreOpen(true); setScopeOpen(false); }} />
+        <TaskButton active={props.task === "story"} icon={<ArrowRight />} label="事件线" onClick={() => props.onTask("story")} />
+        <TaskButton active={props.task === "time"} icon={<Clock3 />} label="时间线" onClick={() => props.onTask("time")} />
+        {props.renderCandidateOverlay ? <TaskButton active={candidateOverlayOpen} icon={<GitBranch />} label="候选审查" onClick={() => { setCandidateOverlayOpen((open) => !open); setMoreOpen(false); setScopeOpen(false); }} /> : null}
         <TaskButton active={stagingOpen} icon={<AlertTriangle />} label="待编排与冲突" onClick={() => { props.onTask("story"); setStagingOpen((open) => !open); }} />
       </div>
       <div className="story-progression-actions">
@@ -127,7 +137,8 @@ export function StoryProgressionWorkspace(props: {
     </nav>
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
-    {moreOpen ? <section className="story-progression-advanced" aria-label="更多事件线观察"><div><small>二级工具 · 仍在同一 /event-line</small><strong>观察、核对与候选说明</strong><p>候选轨迹区别于正式主故事脊；以下入口只改变只读投影，不创建第二套 Event 或叙事顺序。</p></div><button type="button" onClick={() => props.onTask("time")}><Clock3 />时间核对</button><button type="button" onClick={() => props.onTask("audit")}><ShieldCheck />证据审计</button><button type="button" onClick={() => props.onOpenAdvanced("spine")}><PanelTopOpen />故事结构</button><button type="button" onClick={() => props.onOpenAdvanced("graph")}><GitBranch />关系网络</button><span><Eye />角色视角、关系变化按需进入二级观察</span></section> : null}
+    {candidateOverlayOpen && props.renderCandidateOverlay ? <aside className="story-progression-candidate-overlay" aria-label="候选审查叠层">{props.renderCandidateOverlay(() => setCandidateOverlayOpen(false))}</aside> : null}
+    {moreOpen ? <section className="story-progression-advanced" aria-label="更多事件线观察"><div><small>二级工具 · 仍在同一 /event-line</small><strong>观察、核对与候选说明</strong><p>候选轨迹区别于正式主故事脊；以下入口只改变只读投影，不创建第二套 Event 或叙事顺序。</p></div><button type="button" onClick={() => { props.onTask("time"); setMoreOpen(false); }}><Clock3 />时间核对</button><button type="button" onClick={() => { props.onTask("audit"); setMoreOpen(false); }}><ShieldCheck />证据审计</button><button type="button" onClick={() => { props.onOpenAdvanced("spine"); setMoreOpen(false); }}><PanelTopOpen />故事结构</button><button type="button" onClick={() => { props.onOpenAdvanced("graph"); setMoreOpen(false); }}><GitBranch />关系网络</button><span><Eye />角色视角、关系变化按需进入二级观察</span></section> : null}
     {props.task === "perspective" || props.task === "relationship"
       ? <UnavailableTask task={props.task} onBack={() => props.onTask("story")} />
       : props.task === "audit"
@@ -207,7 +218,7 @@ export function NarrativeArrangementInspector(props: {
       const result = placement
         ? await props.callbacks.move({ placementId: placement.placementId, storyUnitId, position })
         : await props.callbacks.insert({ eventId: targetEvent.id, storyUnitId, role, position });
-      setMessage(result.conflict ? `编排冲突：${conflictLabel(result.code)}。已重新读取，未静默覆盖。` : `编排已保存 · revision ${result.arrangement?.currentRevision ?? "?"} · receipt ${result.receipt?.receiptId ?? "已记录"}`);
+      setMessage(result.conflict ? `编排冲突：${conflictLabel(result.code)}。已重新读取，未静默覆盖。` : "编排已保存；版本与可追溯回执已保留在技术详情中。");
     } catch (error) { setMessage(error instanceof Error ? error.message : "编排操作失败；没有静默覆盖。"); }
     finally { setBusy(false); }
   };
@@ -217,13 +228,13 @@ export function NarrativeArrangementInspector(props: {
     setBusy(true); setMessage(null);
     try {
       const result = await props.callbacks.remove(placement.placementId);
-      setMessage(result.conflict ? `移除冲突：${conflictLabel(result.code)}。Placement 保持不变。` : `Placement 已移除 · receipt ${result.receipt?.receiptId ?? "已记录"}`);
+      setMessage(result.conflict ? `移除冲突：${conflictLabel(result.code)}。当前位置保持不变。` : "编排位置已移除；可追溯回执已保留在技术详情中。");
       setConfirmRemove(false);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "移除失败；Placement 保持不变。"); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "移除失败；当前位置保持不变。"); }
     finally { setBusy(false); }
   };
-  if (!targetEvent || !props.selection) return <div className="narrative-arrangement-inspector-empty"><GripHorizontal /><strong>选择一个 Event 的编排位置</strong><p>所有正式修改都会检查 Story Unit 版本与 Arrangement revision。</p></div>;
-  return <form className="narrative-arrangement-inspector" onSubmit={(event) => { event.preventDefault(); void submit(); }}><header><small>{placement ? "移动正式 Placement" : "放入正式编排"}</small><h2>{targetEvent.title}</h2><p>{placement ? `Placement ${placement.placementId}` : "当前 Event 尚未获得叙事位置。"}</p></header>{!props.callbacks ? <p className="narrative-arrangement-blocked"><AlertTriangle />当前项目缺少可写的 WorkVersion 或 Story Unit；仍保持只读 unplaced。</p> : <><label><span>目标 Story Unit</span><select value={storyUnitId} onChange={(event) => { setStoryUnitId(event.target.value); setAnchorPlacementId(""); }} required>{availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.kind === "branch" ? "支线 · " : "主线 · "}{unit.title}</option>)}</select></label>{!placement ? <label><span>呈现角色</span><select value={role} onChange={(event) => setRole(event.target.value as NarrativePlacementRole)}><option value="primary">主要呈现</option><option value="flashback">倒叙</option><option value="recap">回看</option><option value="reveal">再次揭示</option><option value="reinterpretation">重新解释</option></select></label> : null}<label><span>作者意图</span><select value={positionKind} onChange={(event) => { setPositionKind(event.target.value as NarrativePositionIntent["kind"]); setAnchorPlacementId(""); }}><option value="start">放在单元开头</option><option value="end">放在单元末尾</option><option value="before">放在某 Placement 之前</option><option value="after">放在某 Placement 之后</option></select></label>{positionKind === "before" || positionKind === "after" ? <label><span>锚点 Placement</span><select value={anchorPlacementId} onChange={(event) => setAnchorPlacementId(event.target.value)} required><option value="">请选择</option>{anchors.map((anchor) => <option key={anchor.placementId} value={anchor.placementId}>{props.events.find((event) => event.id === anchor.eventId)?.title ?? anchor.eventId}</option>)}</select></label> : null}<section><ShieldCheck /><div><strong>提交前检查</strong><p>使用当前 owner version 与 expectedRevision；冲突时拒绝写入，并返回 operation receipt。</p></div></section><button type="submit" className="primary-action" disabled={busy || !storyUnitId}>{busy ? "正在保存…" : placement ? "确认移动 Placement" : "确认插入 Placement"}</button>{placement ? <div className="narrative-remove-action"><button type="button" disabled={busy} onClick={() => void remove()}><Trash2 />{confirmRemove ? "再次确认移除" : "从当前编排移除"}</button>{confirmRemove ? <small>只移除 Placement；不会删除 Event 或改变世界时间。</small> : null}</div> : null}</>}{message ? <p className="narrative-arrangement-message" role="status">{message}</p> : null}</form>;
+  if (!targetEvent || !props.selection) return <div className="narrative-arrangement-inspector-empty"><GripHorizontal /><strong>选择一个 Event 的编排位置</strong><p>所有正式修改都会检查故事单元版本与编排修订。</p></div>;
+  return <form className="narrative-arrangement-inspector" onSubmit={(event) => { event.preventDefault(); void submit(); }}><header><small>{placement ? "调整正式编排位置" : "放入正式编排"}</small><h2>{targetEvent.title}</h2><p>{placement ? "当前 Event 已有正式叙事位置。" : "当前 Event 尚未获得叙事位置。"}</p></header>{!props.callbacks ? <p className="narrative-arrangement-blocked"><AlertTriangle />当前项目缺少可写的故事版本或故事单元；仍保持只读待编排。</p> : <><label><span>目标故事单元</span><select value={storyUnitId} onChange={(event) => { setStoryUnitId(event.target.value); setAnchorPlacementId(""); }} required>{availableUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.kind === "branch" ? "支线 · " : "主线 · "}{unit.title}</option>)}</select></label>{!placement ? <label><span>呈现角色</span><select value={role} onChange={(event) => setRole(event.target.value as NarrativePlacementRole)}><option value="primary">主要呈现</option><option value="flashback">倒叙</option><option value="recap">回看</option><option value="reveal">再次揭示</option><option value="reinterpretation">重新解释</option></select></label> : null}<label><span>作者意图</span><select value={positionKind} onChange={(event) => { setPositionKind(event.target.value as NarrativePositionIntent["kind"]); setAnchorPlacementId(""); }}><option value="start">放在单元开头</option><option value="end">放在单元末尾</option><option value="before">放在某个事件之前</option><option value="after">放在某个事件之后</option></select></label>{positionKind === "before" || positionKind === "after" ? <label><span>锚点事件</span><select value={anchorPlacementId} onChange={(event) => setAnchorPlacementId(event.target.value)} required><option value="">请选择</option>{anchors.map((anchor) => <option key={anchor.placementId} value={anchor.placementId}>{props.events.find((event) => event.id === anchor.eventId)?.title ?? "关联事件不可读取"}</option>)}</select></label> : null}<section><ShieldCheck /><div><strong>提交前检查</strong><p>使用当前故事版本与编排修订；冲突时拒绝写入，并保留可追溯回执。</p></div></section><button type="submit" className="primary-action" disabled={busy || !storyUnitId}>{busy ? "正在保存…" : placement ? "确认调整位置" : "确认插入位置"}</button>{placement ? <div className="narrative-remove-action"><button type="button" disabled={busy} onClick={() => void remove()}><Trash2 />{confirmRemove ? "再次确认移除" : "从当前编排移除"}</button>{confirmRemove ? <small>只移除叙事位置；不会删除 Event 或改变世界时间。</small> : null}</div> : null}</>}{message ? <p className="narrative-arrangement-message" role="status">{message}</p> : null}</form>;
 }
 
 function UnavailableTask(props: { task: "perspective" | "relationship"; onBack(): void }) {

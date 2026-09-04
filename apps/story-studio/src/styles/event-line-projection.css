@@ -254,6 +254,26 @@
 .story-progression-advanced p { margin: 0; color: var(--color-text-muted); font-size: .7rem; }
 .story-progression-advanced button { min-block-size: 2.2rem; display: inline-flex; align-items: center; gap: .35rem; padding-inline: .65rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .35rem; font-size: .72rem; }
 .story-progression-advanced button svg { inline-size: .85rem; }
+.story-progression-candidate-overlay { position: relative; z-index: 4; max-inline-size: 100rem; margin: 0 auto .85rem; }
+.story-progression-candidate-overlay .event-line-candidate-trajectory { margin: 0; }
+.event-causal-index { gap: .65rem; }
+.event-causal-index > section:first-child { padding-block-end: .65rem; border-block-end: 1px solid var(--color-border); }
+.event-causal-group { display: grid; gap: .4rem; }
+.event-causal-group > header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.event-causal-group > header small { color: var(--color-accent); font-size: .7rem; font-weight: 760; letter-spacing: .06em; }
+.event-causal-group > header span { color: var(--color-text-muted); font-size: .7rem; }
+.event-causal-group ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.event-causal-group li { display: grid; gap: .32rem; padding: .5rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.event-causal-group li[data-causal-certainty="ai-candidate"] { border-style: dashed; }
+.event-causal-group li[data-causal-certainty="conflict"] { border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border)); }
+.event-causal-group li[data-causal-certainty="speculative"] { border-color: color-mix(in srgb, var(--color-warning) 55%, var(--color-border)); }
+.event-causal-group li > button { display: grid; gap: .16rem; padding: 0; color: var(--color-text); background: transparent; border: 0; text-align: start; }
+.event-causal-group li > button strong { font-size: .78rem; }
+.event-causal-group li > button span,
+.event-causal-group details p,
+.event-causal-empty { margin: 0; color: var(--color-text-muted); font-size: .69rem; line-height: 1.45; }
+.event-causal-group details { color: var(--color-text-muted); font-size: .68rem; }
+.event-causal-group details summary { cursor: pointer; }
 .narrative-spine-board,
 .evidence-audit-board,
 .narrative-exceptions { max-inline-size: 100rem; margin-inline: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .6rem; box-shadow: 0 .35rem 1.3rem color-mix(in srgb, var(--color-text) 8%, transparent); }

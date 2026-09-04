@@ -22,11 +22,12 @@ test("R12 exposes one EventLine task workspace and renders order only from Narra
   assert.doesNotMatch(progression, /legacy-unplaced/u);
   assert.doesNotMatch(progression, /sort\([^\n]+(?:event\.id|event\.title|narrativeIndex)/u);
   assert.match(progression, /未排序集合；条目位置不代表作者顺序/u);
-  assert.doesNotMatch(progression, /label="事件线"/u);
+  assert.match(progression, /label="事件线"/u);
+  assert.match(progression, /label="时间线"/u);
   assert.match(progression, />时间核对</u);
   assert.match(progression, />证据审计</u);
-  assert.match(progression, /label="主故事脊"/u);
-  assert.match(progression, /label="候选与可能性"/u);
+  assert.match(progression, /renderCandidateOverlay/u);
+  assert.match(progression, /候选审查/u);
   assert.match(progression, /label="待编排与冲突"/u);
   assert.doesNotMatch(progression, /label="角色视角"|label="关系变化"/u);
   assert.match(progression, /MAX_FOCUS_OBJECTS = 3/u);
@@ -51,7 +52,7 @@ test("R12 placement controls reuse the Story Unit writer transport with explicit
   assert.match(adapter, /removeNarrativePlacement/u);
   assert.match(adapter, /expectedOwnerVersion/u);
   assert.match(adapter, /expectedRevision/u);
-  assert.match(progression, /receipt/u);
+  assert.match(progression, /可追溯回执/u);
   assert.doesNotMatch(progression, /localStorage|sessionStorage/u);
 });
 

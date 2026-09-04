@@ -38,7 +38,7 @@ export function TianyiAdoptionPanel(props: {
     <p>{review.proposal.summary}</p>
     <div className="tianyi-adoption-progress" aria-label="作者采纳进度"><span className="is-complete"><CheckCircle2 />候选</span><span className={impactReady ? "is-complete" : ""}><ShieldCheck />影响审查</span><span className={receipt ? "is-complete" : ""}><FileClock />作者采纳</span></div>
     {!receipt ? <>
-      {impactReady ? <section className="tianyi-structured-diff" aria-label="结构化故事语义 diff"><strong>结构化故事语义 diff</strong><dl><div><dt>基础版本</dt><dd>{review.proposal.writeTarget.version}</dd></div><div><dt>范围</dt><dd>{props.runtime.workScope === "current-story" ? "当前故事" : props.runtime.workScope === "selected-events" ? "选中事件" : "当前单元"}</dd></div><div><dt>变化</dt><dd>{review.impact?.preview?.change.join("；") || review.proposal.summary}</dd></div><div><dt>证据</dt><dd>{review.impact?.impact?.evidenceCoverage ?? review.proposal.evidence[0]?.sourceRef}</dd></div><div><dt>风险</dt><dd>{review.impact?.impact?.risks.join("；") || option?.summary || "未发现阻断性风险"}</dd></div></dl></section> : null}
+      {impactReady ? <section className="tianyi-structured-diff" aria-label="结构化故事语义 diff"><strong>结构化故事语义 diff</strong><dl><div><dt>基础版本</dt><dd>{authorVersionLabel(project.title, review.proposal.writeTarget.version)}</dd></div><div><dt>范围</dt><dd>{props.runtime.workScope === "current-story" ? "当前故事" : props.runtime.workScope === "selected-events" ? "选中事件" : "当前单元"}</dd></div><div><dt>变化</dt><dd>{authorImpactLabel(review)}</dd></div><div><dt>证据</dt><dd>{review.impact?.impact?.evidenceCoverage ?? "已附结构化来源"}</dd></div><div><dt>风险</dt><dd>{review.impact?.impact?.risks.join("；") || option?.summary || "未发现阻断性风险"}</dd></div></dl><details><summary>查看技术详情</summary><p>基础版本、来源引用与完整操作回执仅用于追溯，不参与作者默认阅读。</p></details></section> : null}
       <div className="tianyi-adoption-actions">
         {!impactReady ? <button type="button" className="primary-action" disabled={busy} onClick={() => void run((token) => beginTianyiCreativeEventImpact({ projectId: project.id, sessionId, candidateId, token }))}>打开结构化影响预览</button> : null}
         {impactReady && props.onOpenEventLine ? <button type="button" onClick={props.onOpenEventLine}>在事件线中打开<ArrowRight /></button> : null}
@@ -46,11 +46,23 @@ export function TianyiAdoptionPanel(props: {
       </div>
       <small>单击“采纳”即对当前明确目标原子生效；没有第二次确认。</small>
     </> : <section className="tianyi-adoption-receipt" aria-label="结构化采纳回执">
-      <header><CheckCircle2 /><div><strong>{receipt.status === "undone" ? "采纳已通过补偿版本撤销" : "采纳已生效"}</strong><small>{receipt.receiptId}</small></div></header>
-      <dl><div><dt>BaseVersion</dt><dd>{receipt.baseVersion.label}</dd></div><div><dt>结果版本</dt><dd>{receipt.status === "undone" ? receipt.compensation?.resultVersion.label : receipt.resultVersion.label}</dd></div><div><dt>目标</dt><dd>{receipt.targetStoryId}</dd></div><div><dt>对象</dt><dd>{receipt.appliedEventId}</dd></div><div><dt>来源</dt><dd>{receipt.sourceRefs.join("、")}</dd></div></dl>
+      <header><CheckCircle2 /><div><strong>{receipt.status === "undone" ? "采纳已通过补偿版本撤销" : "采纳已生效"}</strong><small>回执已保留，可在技术详情中追溯</small></div></header>
+      <dl><div><dt>基础版本</dt><dd>{authorVersionLabel(project.title, receipt.baseVersion.label)}</dd></div><div><dt>结果版本</dt><dd>{authorVersionLabel(project.title, receipt.status === "undone" ? receipt.compensation?.resultVersion.label : receipt.resultVersion.label)}</dd></div><div><dt>影响</dt><dd>{receipt.structuredDiff.length ? `影响 ${receipt.structuredDiff.length} 项故事变化` : "已生成新版本"}</dd></div><div><dt>来源</dt><dd>{receipt.sourceRefs.length ? `${receipt.sourceRefs.length} 条可追溯来源` : "来源已随回执保留"}</dd></div></dl>
       <details><summary>查看变化</summary><ul>{receipt.structuredDiff.map((item) => <li key={item.id}>{item.summary}</li>)}</ul></details>
+      <details><summary>查看技术详情</summary><dl><div><dt>回执标识</dt><dd>{receipt.receiptId}</dd></div><div><dt>目标标识</dt><dd>{receipt.targetStoryId}</dd></div><div><dt>事件标识</dt><dd>{receipt.appliedEventId}</dd></div></dl></details>
       {receipt.status === "active" ? <button type="button" disabled={busy} onClick={() => void run((token) => undoTianyiCreativeEvent({ projectId: project.id, sessionId, candidateId, token }))}><RotateCcw />撤销（创建补偿版本）</button> : <p><RotateCcw />原 Event 与历史回执仍保留；补偿 Event：{receipt.compensation?.eventId}</p>}
     </section>}
     {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
   </section>;
+}
+
+function authorVersionLabel(storyTitle: string, value: string | undefined): string {
+  const match = /(?:^|\D)(\d+)(?:\D|$)/u.exec(value ?? "");
+  return `基于《${storyTitle}》V${Math.max(1, Number(match?.[1] ?? 1))}`;
+}
+
+function authorImpactLabel(review: TianyiCreativeEventReview): string {
+  const changes = review.impact?.impact?.events.length ?? review.impact?.preview?.change.length ?? 0;
+  const relations = review.impact?.impact?.relationships.length ?? 0;
+  return changes || relations ? `影响 ${changes || 1} 个事件${relations ? `、${relations} 条因果关系` : ""}` : "影响范围已在预览中核对";
 }

@@ -100,6 +100,8 @@ export type EventGraphCanvasProps = {
     onArrange(selection: { eventId: string; placementId: string | null }): void;
     onOpenStaging(): void;
   };
+  viewport?: { x: number; y: number; zoom: number } | null;
+  onViewportChange?(viewport: { x: number; y: number; zoom: number }): void;
 };
 
 export function EventGraphCanvas(props: EventGraphCanvasProps) {
@@ -770,9 +772,10 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         nodeTypes={formalNarrativeNodeTypes}
         onInit={(instance) => {
           setFlow(instance);
-          void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
+          if (props.viewport) void instance.setViewport(props.viewport, { duration: 0 });
+          else void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
         }}
-        onMove={(_, viewport) => setDetail(viewport.zoom < .68 ? "far" : viewport.zoom > 1.12 ? "near" : "medium")}
+        onMove={(_, viewport) => { setDetail(viewport.zoom < .68 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); props.onViewportChange?.(viewport); }}
         onNodeClick={(_, node) => { if (node.data.kind === "placement") node.data.onOpen(); else if (node.data.kind === "topology") node.data.onToggle?.(); }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -937,7 +940,7 @@ function FormalNarrativePlacementNode(props: NodeProps<Node<FormalNarrativeNodeD
     <Handle type="source" position={Position.Right} isConnectable={false} className="formal-narrative-port" />
     {data.branching ? <Handle type="source" position={Position.Bottom} isConnectable={false} className="formal-narrative-port is-branch" /> : null}
     <button type="button" className="formal-narrative-card-main" onClick={(event) => { event.stopPropagation(); data.onOpen(); }} aria-label={`打开 Event：${data.title}`}><span>{data.status === "conflict" ? "冲突" : data.status === "draft" ? "作者草稿" : "正式 Event"}</span><b>{String(data.displayIndex).padStart(2, "0")}</b><strong>{data.title}</strong>{data.detail !== "far" ? <small>{data.unitLabel} · {placementRoleLabel(data.role)}</small> : null}{data.detail === "near" ? <><p>{data.summary}</p><time>{data.time}</time></> : null}</button>
-    {data.detail === "near" ? <button type="button" className="formal-narrative-arrange" onClick={(event) => { event.stopPropagation(); data.onArrange(); }}><GripHorizontal />编排位置</button> : null}
+    {data.detail !== "far" ? <button type="button" className="formal-narrative-arrange" onClick={(event) => { event.stopPropagation(); data.onArrange(); }}><GripHorizontal />编排位置</button> : null}
   </article>;
 }
 

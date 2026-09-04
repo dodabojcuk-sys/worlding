@@ -31,7 +31,7 @@ test("Work lane names a retained Page Agent Run without mounting execution contr
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {
   assert.match(canvas, /canvasKind === "narrative" \? 0\.86 : 0\.25/u);
   assert.match(timeline, /minZoom=\{\.5\}/u);
-  assert.match(timeline, /defaultViewport=\{\{ x: 72, y: 24, zoom: \.82 \}\}/u);
+  assert.match(timeline, /defaultViewport=\{props\.viewport \?\? \{ x: 72, y: 24, zoom: \.82 \}\}/u);
   assert.match(canvas, /const zoom = Math\.max\(\.95, fittedZoom\)/u);
   assert.match(canvas, /const focusNodes = nodes/u);
   assert.match(canvas, /paddingX - minX \* zoom/u);
