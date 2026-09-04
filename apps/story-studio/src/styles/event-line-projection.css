@@ -1948,7 +1948,7 @@
 .formal-narrative-legend i.gap { inline-size: .7rem; background: transparent; border-inline: 2px solid var(--color-text-muted); }
 .formal-narrative-legend strong { margin-inline-start: auto; color: var(--color-text); font-weight: 620; }
 
-.narrative-staging { flex: 0 0 auto; max-inline-size: 100rem; inline-size: 100%; max-block-size: 3.35rem; margin: .7rem auto 0; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .55rem; box-shadow: var(--shadow-sm); transition: max-block-size var(--motion-fast); }
+.narrative-staging { flex: 0 0 auto; max-inline-size: 100rem; inline-size: 100%; max-block-size: 6.5rem; margin: .7rem auto 0; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .55rem; box-shadow: var(--shadow-sm); transition: max-block-size var(--motion-fast); }
 .narrative-staging.is-open { max-block-size: min(18rem, 38vh); overflow: auto; }
 .narrative-staging > header { position: sticky; z-index: 2; inset-block-start: 0; min-block-size: 3.25rem; display: flex; align-items: center; gap: 1rem; padding: .5rem .7rem; background: var(--color-surface); border-block-end: 1px solid var(--color-border); }
 .narrative-staging > header > div { min-inline-size: 0; display: grid; gap: .06rem; }
@@ -1957,7 +1957,12 @@
 .narrative-staging > header > span { margin-inline-start: auto; color: var(--color-text-muted); font-size: .66rem; white-space: nowrap; }
 .narrative-staging > header button { min-block-size: 2rem; display: inline-flex; align-items: center; gap: .3rem; padding-inline: .55rem; color: var(--color-accent); background: var(--color-accent-soft); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: .65rem; white-space: nowrap; }
 .narrative-staging > header button svg { inline-size: .8rem; }
-.narrative-staging-preview { margin: 0; padding: .65rem .8rem; color: var(--color-text-muted); font-size: .68rem; }
+.narrative-staging-preview { min-block-size: 2.9rem; display: flex; align-items: center; gap: .45rem; margin: 0; padding: .45rem .7rem; overflow-x: auto; color: var(--color-text-muted); font-size: .68rem; list-style: none; scrollbar-width: thin; }
+.narrative-staging-preview li { flex: 0 0 auto; }
+.narrative-staging-preview button { min-block-size: 2rem; display: inline-flex; align-items: center; gap: .45rem; padding: .3rem .55rem; color: var(--color-text); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.narrative-staging-preview button:hover { border-color: var(--color-accent); }
+.narrative-staging-preview button span { color: var(--color-text-muted); font-size: .6rem; }
+.unplaced-event-actions { display: flex; align-items: center; gap: .4rem; }
 
 .shell-workspace-event-line .temporal-workspace { display: flex; flex-direction: column; }
 .shell-workspace-event-line .temporal-workspace.is-task-surface { block-size: auto; }

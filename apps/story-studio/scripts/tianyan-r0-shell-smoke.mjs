@@ -48,6 +48,7 @@ const r12EventLineEvidenceDirectory = process.env.TIANYAN_R12_EVENT_LINE_EVIDENC
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
+const authorEventReloadOnly = process.env.TIANYAN_E2E_SCOPE === "author-event-reload";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
 const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
@@ -122,7 +123,11 @@ try {
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (r12EventLineOnly) {
+  if (authorEventReloadOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertAuthorEventCreation(page, consoleProblems);
+  } else if (r12EventLineOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
@@ -1167,7 +1172,7 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   const workspace = page.getByTestId("story-progression-workspace");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-event-task"), "story");
-  assert.equal(await workspace.getAttribute("data-arrangement-state"), "legacy-unplaced");
+  assert.equal(await workspace.getAttribute("data-arrangement-state"), "unplaced");
   const graph = page.getByTestId("formal-narrative-event-graph");
   await graph.waitFor();
   assert.equal(await graph.getAttribute("data-event-line-renderer"), "EventGraphCanvas");
@@ -2511,6 +2516,16 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   await reloadProduct(page);
   if (await eventViewButton(page, "故事脊柱").count()) await eventViewButton(page, "故事脊柱").click();
   assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
+  const libraryRestored = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const restoredA = libraryRestored.data.objects.find((item) => item.id === drafts.find((item) => item.title === "手动事件 A").id);
+  assert.deepEqual(restoredA && { id: restoredA.id, title: restoredA.title, status: restoredA.status, revisionToken: restoredA.revisionToken }, { id: drafts.find((item) => item.title === "手动事件 A").id, title: "手动事件 A", status: "draft", revisionToken: drafts.find((item) => item.title === "手动事件 A").revisionToken }, "Reload must preserve the draft Event identity, title, status and revision token.");
+  const collapsedDraft = page.getByTestId("narrative-staging").locator(`[data-event-id="${restoredA.id}"]`);
+  assert.equal(await collapsedDraft.getAttribute("data-event-status"), "draft", "The collapsed staging summary must expose draft status without relying on color.");
+  assert.equal(await collapsedDraft.getAttribute("data-revision-token"), restoredA.revisionToken, "The collapsed staging summary must expose the restored revision identity.");
+  await collapsedDraft.getByRole("button", { name: "打开待编排事件：手动事件 A", exact: true }).click();
+  const expandedDraft = page.getByTestId("narrative-staging").locator(`.unplaced-event-tray [data-event-id="${restoredA.id}"]`);
+  await expandedDraft.getByText("状态：作者草稿", { exact: false }).waitFor();
+  assert.equal(await expandedDraft.getByRole("button", { name: "打开事件", exact: true }).count(), 1, "Expanded staging must expose a real Event open action.");
   await switchEventView(page, "关系图");
   await page.getByLabel("事件关系工作区").waitFor();
   assert.equal(await page.locator(".event-graph-node").filter({ hasText: "手动事件 B" }).count() > 0, true, "The same draft Event must project into the relation graph.");

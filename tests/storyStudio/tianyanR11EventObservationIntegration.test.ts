@@ -16,7 +16,10 @@ test("R12 exposes one EventLine task workspace and renders order only from Narra
   assert.match(workbench, /StoryProgressionWorkspace/u);
   assert.match(progression, /props\.narratives\.flatMap\(\(read\) => read\.projection\.placed/u);
   assert.match(progression, /new Set\(placed\.map\(\(placement\) => placement\.event\.id\)\)/u);
-  assert.match(progression, /未编排 Event 保持在画布之外/u);
+  assert.match(progression, /待编排事件摘要/u);
+  assert.match(progression, /data-revision-token/u);
+  assert.match(progression, /打开待编排事件：/u);
+  assert.doesNotMatch(progression, /legacy-unplaced/u);
   assert.doesNotMatch(progression, /sort\([^\n]+(?:event\.id|event\.title|narrativeIndex)/u);
   assert.match(progression, /未排序集合；条目位置不代表作者顺序/u);
   assert.match(progression, /label="事件线"/u);
