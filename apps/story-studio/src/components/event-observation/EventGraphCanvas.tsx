@@ -712,6 +712,8 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
   const [detail, setDetail] = useState<"far" | "medium" | "near">("far");
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
   const [collapsedUnitIds, setCollapsedUnitIds] = useState<Set<string>>(() => new Set());
+  const previousSelectedEventId = useRef(props.selectedEventId);
+  const focusFrame = useRef(0);
   const eventById = useMemo(() => new Map(props.events.map((event) => [event.id, event])), [props.events]);
   const unitById = useMemo(() => new Map((props.storyUnits ?? []).map((unit) => [unit.id, unit])), [props.storyUnits]);
   const placements = useMemo<FormalNarrativePlacement[]>(() => props.surface.narratives.flatMap((read) => read.projection.placed.flatMap((placement) => {
@@ -736,15 +738,21 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
   }), [collapsedUnitIds, detail, placements, props.selectedEventId, props.storyUnits, props.surface.focusObjects, props.surface.onArrange, props.onSelectEvent]);
   const focusEvent = useCallback((eventId: string | null, duration = 260) => {
     if (!flow || !eventId) return;
-    const target = projection.nodes.find((node) => node.data.kind === "placement" && node.data.eventId === eventId);
+    const target = flow.getNodes().find((node) => node.data.kind === "placement" && node.data.eventId === eventId);
     if (!target) return;
-    void flow.setCenter(target.position.x + 118, target.position.y + 72, { zoom: Math.max(.88, flow.getZoom()), duration });
-  }, [flow, projection.nodes]);
+    void flow.fitView({ nodes: [target], padding: 1.15, maxZoom: .88, duration });
+  }, [flow]);
   useEffect(() => {
-    if (!props.surface.detailsOpen || !props.selectedEventId) return;
-    const timer = window.setTimeout(() => focusEvent(props.selectedEventId, 220), 90);
-    return () => window.clearTimeout(timer);
-  }, [focusEvent, props.selectedEventId, props.surface.detailsOpen]);
+    if (previousSelectedEventId.current === props.selectedEventId) return;
+    previousSelectedEventId.current = props.selectedEventId;
+    if (!props.selectedEventId) return;
+    const firstFrame = window.requestAnimationFrame(() => {
+      const secondFrame = window.requestAnimationFrame(() => focusEvent(props.selectedEventId, 180));
+      focusFrame.current = secondFrame;
+    });
+    focusFrame.current = firstFrame;
+    return () => window.cancelAnimationFrame(focusFrame.current);
+  }, [focusEvent, props.selectedEventId]);
   useEffect(() => {
     const receive = (event: Event) => {
       const eventId = (event as CustomEvent<{ eventId?: string }>).detail?.eventId ?? props.selectedEventId;
@@ -757,7 +765,7 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
 
   return <section className="formal-narrative-workspace" data-testid="formal-narrative-event-graph" data-event-line-renderer="EventGraphCanvas" data-narrative-order-owner="NarrativeArrangementProjection" data-placement-count={placements.length} data-focus-track-count={props.surface.focusObjects.length}>
     <header className="formal-narrative-toolbar">
-      <div><small>叙事坐标 · 左向右推进</small><strong>{props.surface.currentUnitLabel ?? "全书事件线"}</strong><span>{placements.length} 个正式 Placement · {branchUnits.length} 条支线</span></div>
+      <div><small>叙事坐标 · 左向右推进</small><strong>{props.surface.currentUnitLabel ?? "全书事件线"}</strong><span>{placements.length} 个正式编排位置 · {branchUnits.length} 条支线</span></div>
       <nav aria-label="事件线画布控制">
         {branchUnits.length ? <button type="button" aria-pressed={collapsedUnitIds.size === branchUnits.length} onClick={toggleAllBranches}><GitBranch />{collapsedUnitIds.size === branchUnits.length ? "展开支线" : "折叠支线"}</button> : null}
         <button type="button" disabled={!props.selectedEventId} onClick={() => focusEvent(props.selectedEventId)}><Focus />定位所选</button>
@@ -773,7 +781,12 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         onInit={(instance) => {
           setFlow(instance);
           if (props.viewport) void instance.setViewport(props.viewport, { duration: 0 });
-          else void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
+          else {
+            const target = projection.nodes.find((node) => node.data.kind === "placement" && node.data.eventId === props.selectedEventId)
+              ?? projection.nodes.find((node) => node.data.kind === "placement");
+            if (target) window.requestAnimationFrame(() => void instance.fitView({ nodes: [target], padding: 1.15, maxZoom: .88, duration: 0 }));
+            else void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
+          }
         }}
         onMove={(_, viewport) => { setDetail(viewport.zoom < .68 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); props.onViewportChange?.(viewport); }}
         onNodeClick={(_, node) => { if (node.data.kind === "placement") node.data.onOpen(); else if (node.data.kind === "topology") node.data.onToggle?.(); }}
@@ -788,12 +801,12 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
       >
         <Background gap={22} size={1} color="rgba(20, 96, 92, .11)" />
         <Controls showInteractive={false} position="bottom-left" />
-        {miniMapOpen ? <MiniMap pannable zoomable aria-label="NarrativeArrangement 缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
+        {miniMapOpen ? <MiniMap pannable zoomable aria-label="事件线缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
       </ReactFlow>
       {!placements.length ? <div className="formal-narrative-empty" role="status"><GripHorizontal /><small>NarrativeArrangement 尚未建立</small><strong>尚未建立叙事编排</strong><p>{props.events.length} 个 Event 与 {(props.storyUnits ?? []).filter((unit) => unit.status !== "archived").length} 个 Story Unit 仍可核对；系统不会替作者猜顺序。</p><button type="button" className="primary-action" onClick={props.surface.onOpenStaging}>安排第一个事件</button></div> : null}
       {projection.unresolvedBranchCount ? <p className="formal-narrative-warning"><AlertTriangle />{projection.unresolvedBranchCount} 个分叉或合流端点缺少可定位的正式 Placement，未绘制虚假连线。</p> : null}
     </div>
-    <footer className="formal-narrative-legend"><span><i className="main" />叙事推进（非因果）</span><span><i className="branch" />分叉</span><span><i className="merge" />合流</span><span><i className="gap" />unknown 保持断开</span><strong>节点位置只读自 NarrativeArrangement；拖动画布不会写入。</strong></footer>
+    <footer className="formal-narrative-legend"><span><i className="main" />叙事推进（非因果）</span><span><i className="branch" />分叉</span><span><i className="merge" />合流</span><span><i className="gap" />未知保持断开</span><strong>节点位置只读取当前编排；拖动画布不会写入。</strong></footer>
   </section>;
 }
 
@@ -939,7 +952,7 @@ function FormalNarrativePlacementNode(props: NodeProps<Node<FormalNarrativeNodeD
     <Handle type="target" position={Position.Left} isConnectable={false} className="formal-narrative-port" />
     <Handle type="source" position={Position.Right} isConnectable={false} className="formal-narrative-port" />
     {data.branching ? <Handle type="source" position={Position.Bottom} isConnectable={false} className="formal-narrative-port is-branch" /> : null}
-    <button type="button" className="formal-narrative-card-main" onClick={(event) => { event.stopPropagation(); data.onOpen(); }} aria-label={`打开 Event：${data.title}`}><span>{data.status === "conflict" ? "冲突" : data.status === "draft" ? "作者草稿" : "正式 Event"}</span><b>{String(data.displayIndex).padStart(2, "0")}</b><strong>{data.title}</strong>{data.detail !== "far" ? <small>{data.unitLabel} · {placementRoleLabel(data.role)}</small> : null}{data.detail === "near" ? <><p>{data.summary}</p><time>{data.time}</time></> : null}</button>
+    <button type="button" className="formal-narrative-card-main" onClick={(event) => { event.stopPropagation(); data.onOpen(); }} aria-label={`打开事件：${data.title}`}><span>{data.status === "conflict" ? "冲突" : data.status === "draft" ? "作者草稿" : "正式事件"}</span><b>{String(data.displayIndex).padStart(2, "0")}</b><strong>{data.title}</strong>{data.detail !== "far" ? <small>{data.unitLabel} · {placementRoleLabel(data.role)}</small> : null}{data.detail === "near" ? <><p>{data.summary}</p><time>{data.time}</time></> : null}</button>
     {data.detail !== "far" ? <button type="button" className="formal-narrative-arrange" onClick={(event) => { event.stopPropagation(); data.onArrange(); }}><GripHorizontal />编排位置</button> : null}
   </article>;
 }

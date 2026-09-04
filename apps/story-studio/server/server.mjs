@@ -104,6 +104,7 @@ import { createTianyiAgentRuntimePort, validateTianyiAgentToolCall } from "../..
 import { agentRuntimePluginStatusProjection, createAgentRuntimePluginRegistry } from "../../../src/storyAgent/agentRuntimePluginRegistry.ts";
 import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin } from "../../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
+import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
@@ -305,13 +306,29 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const rootVersion = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
     const activeWorkVersionId = rootVersion?.identity.workVersionId ?? "work-version.unversioned";
     if (input.workVersionId !== activeWorkVersionId) throw new Error("Agent 请求的工作版本已不是当前激活版本；请刷新后重试。");
-    const request = input.contextRequest && typeof input.contextRequest === "object"
+    const rawRequest = input.contextRequest && typeof input.contextRequest === "object"
       ? input.contextRequest
       : { productMode: "world", activeOwner: { kind: "project", id: input.projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] };
-    const projection = await tianyi.getTianyiContextProjection({ projectId: input.projectId, contextRequest: request });
+    const knowledgeProjection = input.currentPage === "/event-line" && rawRequest.knowledgeView?.observerId
+      ? projectEventStoryCrossingKnowledge(input.projectId, rawRequest.knowledgeView.observerId)
+      : null;
+    const hiddenEventIds = new Set(knowledgeProjection?.hiddenEventIds ?? []);
+    const request = knowledgeProjection && knowledgeProjection.observer.kind !== "author"
+      ? {
+        ...rawRequest,
+        activeOwner: hiddenEventIds.has(rawRequest.activeOwner?.id) ? { kind: "project", id: input.projectId } : rawRequest.activeOwner,
+        selection: hiddenEventIds.has(rawRequest.selection?.objectId) ? { ...rawRequest.selection, objectId: null } : rawRequest.selection,
+        sourceRefs: Array.isArray(rawRequest.sourceRefs) ? rawRequest.sourceRefs.filter((ref) => !referencesHiddenEvent(ref?.id, hiddenEventIds)) : [],
+        eventRefs: Array.isArray(rawRequest.eventRefs) ? rawRequest.eventRefs.filter((ref) => !hiddenEventIds.has(ref?.eventId)) : []
+      }
+      : rawRequest;
+    const { knowledgeView: _knowledgeView, ...ownerContextRequest } = request;
+    const projection = await tianyi.getTianyiContextProjection({ projectId: input.projectId, contextRequest: ownerContextRequest });
     const archive = await tianyi.readTianyiSessionEvents({ projectId: input.projectId, sessionId: input.sessionId, startSequence: 1, limit: 200 });
     const sourceRefs = projection.sources.map((source) => ({ id: source.id, label: source.label, hash: source.hash, state: source.state === "current" ? "current" : source.state === "stale" ? "stale" : "excluded" }));
-    const authorSourceRefs = (archive?.events || []).filter((event) => event.actor === "author" && event.visibleContent).map((event) => event.eventId).slice(-24);
+    const authorSourceRefs = knowledgeProjection && knowledgeProjection.observer.kind !== "author"
+      ? []
+      : (archive?.events || []).filter((event) => event.actor === "author" && event.visibleContent).map((event) => event.eventId).slice(-24);
     const excludedRefs = projection.sources.filter((source) => source.exclusionReason).map((source) => ({ id: source.id, reason: source.exclusionReason || "excluded" }));
     const selectedSourceId = projection.selection.objectId ?? projection.selection.documentId ?? projection.selection.timelinePointId;
     const selectedEventReference = Array.isArray(request.eventRefs)
@@ -1020,6 +1037,12 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/verified-events") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: canonReadProjection.listVerifiedCanonEvents({ projectId }) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/event-line/knowledge-view") {
+    const projectId = requireQueryValue(url, "projectId");
+    const observerId = url.searchParams.get("observerId") || "author";
+    sendJson(response, 200, { data: runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, observerId)) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/event") {
@@ -3713,6 +3736,23 @@ function requireBoundedModelText(value, label, maximumCharacters) {
     throw productError(`${label}无效。`, 400);
   }
   return value.trim();
+}
+
+function projectEventStoryCrossingKnowledge(projectId, observerId) {
+  requireProject(projectId);
+  const events = operations.listWorldObjects({ projectId, type: "event" })
+    .filter((event) => event.status !== "archived")
+    .map((event) => operations.readWorldObject({ projectId, objectId: event.id }))
+    .map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, body: event.body }));
+  const characters = operations.listWorldObjects({ projectId, type: "character" })
+    .filter((character) => character.status !== "archived")
+    .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));
+  return buildEventStoryCrossingKnowledgeProjection({ projectId, observerId, events, characters });
+}
+
+function referencesHiddenEvent(value, hiddenEventIds) {
+  const text = typeof value === "string" ? value : "";
+  return [...hiddenEventIds].some((eventId) => text === eventId || text.includes(eventId));
 }
 
 function runProductOperation(operation) {

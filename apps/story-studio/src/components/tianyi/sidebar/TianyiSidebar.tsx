@@ -40,6 +40,7 @@ export type TianyiSidebarContextRequest = {
   eventRefs?: StoryStudioEventReference[];
   predictionSourceLabels?: string[];
   predictionSourceUnitSummary?: string;
+  knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number };
 };
 
 export function TianyiSidebar(props: {
@@ -310,13 +311,14 @@ export function TianyiSidebar(props: {
     </section>
     <TianyiSidebarComposer workspace={props.workspace} task={task} draft={props.runtime.pageAgentTaskDraft} modelLabel={modelLabel} permission={permission} disabled={busy || !project || !contextRequest || !providerReady} submit={submitAgent} onPermission={selectPermission} onDraft={props.runtime.setPageAgentTaskDraft} onTask={selectTask} context={runtimeContext} />
   </>;
-  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session">
+  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session" data-knowledge-observer={contextRequest?.knowledgeView?.observerId ?? "author"}>
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
       <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable} agentRunning={agentRunning} onMode={setMode} />
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
+      {contextRequest?.knowledgeView ? <p className="tianyi-knowledge-scope" data-testid="page-agent-knowledge-scope"><strong>{contextRequest.knowledgeView.observerLabel}</strong> · {t("tianyi.knowledgeScope")}{contextRequest.knowledgeView.hiddenEventCount ? `；${t("tianyi.knowledgeExcluded").replace("{count}", String(contextRequest.knowledgeView.hiddenEventCount))}` : ""}</p> : null}
       {mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;

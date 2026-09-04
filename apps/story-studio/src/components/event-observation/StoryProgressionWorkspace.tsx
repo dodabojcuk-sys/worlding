@@ -37,6 +37,7 @@ import {
 } from "../../../../../src/storyContracts/eventObservation.ts";
 import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eventPerspectiveProjection.ts";
 import type { EventLineEventSummary } from "../eventLineCommittedEvents";
+import type { EventKnowledgeState, KnowledgeObserver, StorylineProjection } from "../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 
 const MAX_FOCUS_OBJECTS = 3;
 
@@ -68,6 +69,16 @@ export function StoryProgressionWorkspace(props: {
   focusObjectIds: readonly string[];
   selectedEventId: string | null;
   detailsOpen: boolean;
+  storylines: readonly StorylineProjection[];
+  storylineScope: string;
+  observers: readonly KnowledgeObserver[];
+  observerId: string;
+  hiddenEventCount: number;
+  selectedKnowledgeState: EventKnowledgeState | null;
+  selectedStorylineLabels: readonly string[];
+  selectedKnowledgePerspectives: readonly { observerId: string; observerLabel: string; state: EventKnowledgeState; stateLabel: string }[];
+  onStorylineScope(id: string): void;
+  onObserver(id: string): void;
   onTask(task: EventTaskPreset): void;
   onFocusObjectIds(ids: string[]): void;
   onSelectEvent(eventId: string): void;
@@ -116,8 +127,8 @@ export function StoryProgressionWorkspace(props: {
 
   return <section className="story-progression-workspace" data-testid="story-progression-workspace" data-event-task={props.task} data-arrangement-state={hasArrangement ? placed.length ? "placed" : "formal-empty" : "unplaced"}>
     <header className="story-progression-heading">
-      <div><small>Event · 作者工作面</small><h1>{title}</h1><p>{summary}</p></div>
-      <dl><div><dt>当前范围</dt><dd>{props.currentUnitLabel ?? "全部 Story Unit"} · {props.events.length} 个 Event</dd></div><div><dt>正式位置</dt><dd>{placed.length} 个 Placement · {conflicts.length} 个冲突</dd></div></dl>
+      <div><small>故事事件 · 作者工作面</small><h1>{title}</h1><p>{summary}</p></div>
+      <dl><div><dt>当前范围</dt><dd>{props.currentUnitLabel ?? "全部故事单元"} · {props.events.length} 个事件</dd></div><div><dt>正式位置</dt><dd>{placed.length} 个编排位置 · {conflicts.length} 个冲突</dd></div></dl>
     </header>
     {props.taskNotice ? <p className="story-progression-migration-notice" role="status">{props.taskNotice}</p> : null}
     <nav className="story-progression-controls" aria-label="事件线任务">
@@ -128,6 +139,8 @@ export function StoryProgressionWorkspace(props: {
         <TaskButton active={stagingOpen} icon={<AlertTriangle />} label="待编排与冲突" onClick={() => { props.onTask("story"); setStagingOpen((open) => !open); }} />
       </div>
       <div className="story-progression-actions">
+        <label className="story-progression-coordinate"><span>故事线范围</span><select data-testid="storyline-scope-select" value={props.storylineScope} onChange={(event) => props.onStorylineScope(event.target.value)}><option value="all">全部故事线</option>{props.storylineScope !== "all" && !props.storylines.some((line) => line.id === props.storylineScope) ? <option value={props.storylineScope}>正在恢复故事线…</option> : null}{props.storylines.map((line) => <option key={line.id} value={line.id}>{line.label} · {line.eventIds.length}</option>)}</select></label>
+        <label className="story-progression-coordinate"><span>观察者 / 知情视角</span><select data-testid="knowledge-observer-select" value={props.observerId} onChange={(event) => props.onObserver(event.target.value)}>{props.observers.map((observer) => <option key={observer.id} value={observer.id}>{observer.label}</option>)}</select></label>
         <button type="button" aria-expanded={scopeOpen} onClick={() => { setScopeOpen((open) => !open); setMoreOpen(false); }}><PanelTopOpen />范围：{props.currentUnitLabel ?? "全书"}<ChevronDown /></button>
         <button type="button" className="focus-object-trigger" aria-expanded={focusPickerOpen} onClick={() => { setFocusPickerOpen((open) => !open); setMoreOpen(false); }}><UsersRound />焦点：{selectedFocus.length ? selectedFocus.map((object) => object.label).join("、") : "未选择"}<ChevronDown /></button>
         {props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FilePlus2 />新增事件</button> : null}
@@ -135,6 +148,8 @@ export function StoryProgressionWorkspace(props: {
         <button type="button" aria-expanded={moreOpen} onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); }}><MoreHorizontal />更多</button>
       </div>
     </nav>
+    <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容{props.hiddenEventCount ? `；${props.hiddenEventCount} 个未知位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div>
+    {props.selectedStorylineLabels.length ? <div className="story-crossing-selection" data-testid="story-crossing-selection"><GitBranch /><span>同一事件所属：</span>{props.selectedStorylineLabels.map((label) => <button type="button" key={label} onClick={() => { const line = props.storylines.find((item) => item.label === label); if (line) props.onStorylineScope(line.id); }}>{label}</button>)}{props.observerId === "author" && props.selectedKnowledgePerspectives.length ? <small>知情差异：{props.selectedKnowledgePerspectives.map((item) => `${item.observerLabel} ${item.stateLabel}`).join(" · ")}</small> : null}</div> : null}
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
     {candidateOverlayOpen && props.renderCandidateOverlay ? <aside className="story-progression-candidate-overlay" aria-label="候选审查叠层">{props.renderCandidateOverlay(() => setCandidateOverlayOpen(false))}</aside> : null}
@@ -152,6 +167,10 @@ export function StoryProgressionWorkspace(props: {
 
 function TaskButton(props: { active: boolean; icon: ReactNode; label: string; onClick(): void }) {
   return <button type="button" aria-pressed={props.active} onClick={props.onClick}>{props.icon}{props.label}</button>;
+}
+
+function trajectoryKnowledgeLabel(state: EventKnowledgeState): string {
+  return ({ experienced: "已亲历", informed: "已得知", believes: "相信", suspects: "怀疑", misled: "被误导", unknown: "未知", denied: "已否定", contradicted: "存在矛盾" } as const)[state];
 }
 
 function ScopeOverview(props: { units: readonly StoryUnit[]; narratives: readonly NarrativeArrangementRead[]; onClose(): void }) {

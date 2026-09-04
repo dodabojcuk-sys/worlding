@@ -224,6 +224,16 @@
 .story-progression-controls { position: sticky; inset-block-start: 0; z-index: 5; max-inline-size: 100rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0 auto 1rem; padding: .46rem; background: color-mix(in srgb, var(--color-surface) 92%, transparent); border: 1px solid var(--color-border); border-radius: .55rem; box-shadow: 0 .3rem 1.4rem color-mix(in srgb, var(--color-text) 8%, transparent); backdrop-filter: blur(14px); }
 .story-progression-tasks,
 .story-progression-actions { display: flex; align-items: center; gap: .3rem; min-inline-size: 0; }
+.story-progression-coordinate { flex: 0 0 auto; min-inline-size: 9.5rem; display: grid; gap: .12rem; padding: .18rem .42rem; color: var(--color-text-muted); border-inline-end: 1px solid var(--color-border); }
+.story-progression-coordinate span { font-size: .62rem; line-height: 1.1; }
+.story-progression-coordinate select { max-inline-size: 12rem; color: var(--color-text); background: transparent; border: 0; font: inherit; font-size: .75rem; font-weight: 700; }
+.story-knowledge-boundary-status { max-inline-size: 100rem; min-block-size: 2.2rem; display: flex; align-items: center; gap: .55rem; margin: -.45rem auto .8rem; padding: .45rem .7rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border)); border-radius: .45rem; font-size: .72rem; }
+.story-knowledge-boundary-status svg { inline-size: .9rem; block-size: .9rem; color: var(--color-accent); }
+.story-knowledge-boundary-status strong { margin-inline-start: auto; color: var(--color-accent); }
+.story-crossing-selection { max-inline-size: 100rem; display: flex; align-items: center; flex-wrap: wrap; gap: .42rem; margin: -.25rem auto .8rem; padding: .45rem .7rem; color: var(--color-text-muted); border-block-end: 1px solid var(--color-border); font-size: .72rem; }
+.story-crossing-selection svg { inline-size: .9rem; block-size: .9rem; }
+.story-crossing-selection button { padding: .28rem .48rem; color: var(--color-accent); background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border)); border-radius: 999px; }
+.story-crossing-selection small { flex-basis: 100%; color: var(--color-text-muted); }
 .story-progression-controls button { min-block-size: 2.25rem; display: inline-flex; align-items: center; justify-content: center; gap: .38rem; padding: .42rem .68rem; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: .35rem; font-size: .75rem; white-space: nowrap; }
 .story-progression-controls button svg { inline-size: .92rem; block-size: .92rem; }
 .story-progression-controls button:hover:not(:disabled) { color: var(--color-text); background: var(--color-accent-soft); }

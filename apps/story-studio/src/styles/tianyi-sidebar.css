@@ -19,6 +19,10 @@
 .tianyi-mode-switch button:hover { color: var(--color-text); }
 .tianyi-mode-running { margin-inline-start: .3rem; color: var(--color-accent); font-size: .6rem; font-weight: 700; }
 .tianyi-sidebar-stage { min-height: 0; flex: 1; display: grid; overflow: auto; padding: var(--space-4); }
+.tianyi-sidebar-stage:has(.tianyi-knowledge-scope) { grid-template-rows: auto minmax(0, 1fr); align-content: start; }
+.tianyi-knowledge-scope { margin: 0 0 .7rem; padding: .65rem .75rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border)); border-radius: .5rem; font-size: .72rem; line-height: 1.55; }
+.tianyi-knowledge-scope strong { color: var(--color-text); }
+.tianyi-sidebar-stage:has(.tianyi-knowledge-scope) .tianyi-agent-panel { min-height: 0; }
 .tianyi-sidebar[data-tianyi-mode="prediction"] { min-inline-size: var(--tianyi-sidebar-width); }
 .tianyi-sidebar[data-tianyi-mode="prediction"] .tianyi-sidebar-stage { display: block; padding: .75rem; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-workspace-background)); }
 .tianyi-prediction-mode-label { margin-inline-start: auto; padding: .2rem .55rem; color: var(--color-accent); background: var(--color-accent-soft); border-radius: 999px; font-size: var(--font-size-xs); font-weight: 700; }

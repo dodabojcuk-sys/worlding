@@ -81,6 +81,29 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, []);
 
   useEffect(() => {
+    const receiveKnowledgeContext = (event: Event) => {
+      const detail = (event as CustomEvent<{ eventRefs?: StoryStudioEventReference[]; selectionId?: string | null; knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number } }>).detail;
+      if (!detail?.knowledgeView) return;
+      setTianyiContextRequest((current) => {
+        const explicitMultiNodeContext = Boolean(current?.predictionSourceLabels?.length || (current?.eventRefs?.length ?? 0) > 1);
+        if (current && explicitMultiNodeContext) return { ...current, knowledgeView: detail.knowledgeView };
+        return {
+          productMode: "world",
+          activeOwner: { kind: detail.selectionId ? "world-object" : "project", id: detail.selectionId ?? props.runtime.project?.id ?? null },
+          selection: { documentId: null, objectId: detail.selectionId ?? null, timelinePointId: null },
+          sourceRefs: [],
+          memorySelections: [],
+          enabledSkillRefs: [],
+          eventRefs: detail.eventRefs ?? [],
+          knowledgeView: detail.knowledgeView
+        };
+      });
+    };
+    window.addEventListener("story-studio-event-line-knowledge-context", receiveKnowledgeContext);
+    return () => window.removeEventListener("story-studio-event-line-knowledge-context", receiveKnowledgeContext);
+  }, [props.runtime.project?.id]);
+
+  useEffect(() => {
     const media = window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY);
     const updateAutoCollapse = () => setAutoCollapseRail(media.matches);
     updateAutoCollapse();
@@ -192,13 +215,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setDirectoryOpen(false);
     workspaceDockCoordinator.close();
   };
-  const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string) => {
+  const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number }) => {
     const eventRefs = reference ? (Array.isArray(reference) ? reference : [reference]) : [];
-    setTianyiContextRequest(reference ? {
+    setTianyiContextRequest(reference || knowledgeView ? {
       productMode: "world",
       activeOwner: { kind: "world-object", id: eventRefs[0]?.eventId ?? null },
       selection: { documentId: null, objectId: eventRefs[0]?.eventId ?? null, timelinePointId: null },
-      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels, predictionSourceUnitSummary
+      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels, predictionSourceUnitSummary, knowledgeView
     } : null);
     if (initialDraft !== undefined) {
       if (predictionSourceLabels?.length) props.runtime.setPageAgentTaskDraft(initialDraft);

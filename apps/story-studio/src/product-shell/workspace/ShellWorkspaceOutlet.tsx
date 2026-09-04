@@ -16,7 +16,7 @@ export function ShellWorkspaceOutlet(props: {
   settingsOpen: boolean;
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
-  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void;
+  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number }): void;
   directoryObjectId: string | null;
 }) {
   const { t } = useI18n();

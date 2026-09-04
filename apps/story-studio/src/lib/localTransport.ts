@@ -4,6 +4,7 @@ import type { StoryStudioEventReference } from "../../../../src/storyContracts/s
 import type { StoryObservationProposalPatch } from "../../../../src/storyContracts/storyObservationProposalPatch.ts";
 import type { StoryStudioObjectProfile } from "../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import type { StoryStudioAgentDraftMode } from "../../../../src/storyContracts/storyStudioAgentDraft.ts";
+import type { EventStoryCrossingKnowledgeProjection } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { GoldenLoopCandidateReview, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 import type { NuwaSceneCandidateR0, NuwaSceneComparisonR0, NuwaSceneReplayR0, NuwaSceneSimulationReadModelR0 } from "../../../../src/nuwaSceneRuntimeContracts.ts";
 import type { NuwaBoundedProjection } from "./nuwaBoundedContract";
@@ -347,6 +348,7 @@ export type TianyiGroundedContextRequest = {
   sceneRef: TianyiObjectContextRef | null;
   explicitRefs: TianyiObjectContextRef[];
   eventRefs?: StoryStudioEventReference[];
+  knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number };
 };
 
 export type TianyiGroundedSourceManifestEntry = {
@@ -1730,6 +1732,10 @@ export async function getVerifiedCanonEventList(projectId: string): Promise<Veri
 
 export async function getVerifiedCanonEvent(projectId: string, eventId: string): Promise<VerifiedCanonEventDetailRead> {
   return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?projectId=${encodeURIComponent(projectId)}&eventId=${encodeURIComponent(eventId)}`);
+}
+
+export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string): Promise<EventStoryCrossingKnowledgeProjection> {
+  return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?projectId=${encodeURIComponent(projectId)}&observerId=${encodeURIComponent(observerId)}`);
 }
 
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {
