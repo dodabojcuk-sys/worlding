@@ -1,0 +1,71 @@
+.tianyi-workspace { min-width: 0; height: 100%; overflow: hidden; background: var(--color-canvas); color: var(--color-text-primary); display: grid; grid-template-rows: auto 1fr; }
+.tianyi-workspace-header { min-height: 76px; padding: 12px 24px; border-bottom: 1px solid var(--color-border-subtle); display: grid; grid-template-columns: minmax(120px, auto) auto 1fr; gap: 24px; align-items: center; background: color-mix(in srgb, var(--color-canvas) 94%, white); }
+.tianyi-workspace-header h1, .tianyi-workspace-header p { margin: 0; }
+.tianyi-workspace-header h1 { font-size: 24px; font-weight: 650; }
+.tianyi-workspace-header small { color: var(--color-text-muted); font-size: 10px; letter-spacing: .12em; }
+.tianyi-workspace-header > p { justify-self: end; display: flex; gap: 7px; align-items: center; color: var(--color-text-secondary); font-size: 13px; }
+.tianyi-workspace-header > p svg { width: 16px; }
+.tianyi-lane-switch { display: flex; border: 1px solid var(--color-border-subtle); border-radius: 10px; padding: 3px; background: var(--color-surface); }
+.tianyi-lane-switch button { border: 0; background: transparent; color: var(--color-text-secondary); border-radius: 7px; padding: 8px 18px; cursor: pointer; }
+.tianyi-lane-switch button[aria-selected="true"] { background: var(--color-accent-soft); color: var(--color-accent-strong); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent); }
+.tianyi-workspace-body { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px); }
+.tianyi-conversation-column { min-height: 0; overflow: auto; padding: 24px clamp(20px, 4vw, 64px) 30px; }
+.tianyi-visible-history { max-width: 920px; margin: 0 auto 20px; }
+.tianyi-visible-history article { max-width: 82%; margin: 0 0 16px; display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
+.tianyi-visible-history article.is-author { margin-left: auto; }
+.tianyi-visible-history article span { width: 34px; height: 34px; border-radius: 50%; background: var(--color-accent-strong); color: white; display: grid; place-items: center; font-size: 12px; }
+.tianyi-visible-history article.is-author span { background: var(--color-surface-muted); color: var(--color-text-primary); }
+.tianyi-visible-history article p { margin: 4px 0 0; white-space: pre-wrap; line-height: 1.72; }
+.tianyi-conversation-welcome { padding: 32px 0 20px; text-align: center; color: var(--color-text-secondary); }
+.tianyi-conversation-welcome svg { width: 28px; color: var(--color-accent); }
+.tianyi-conversation-welcome h2 { color: var(--color-text-primary); margin: 8px 0; }
+.tianyi-lane-stage { max-width: 920px; margin: 0 auto 22px; }
+.tianyi-stage-heading { display: flex; align-items: end; justify-content: space-between; border-top: 1px solid var(--color-border-subtle); padding-top: 20px; margin-bottom: 14px; }
+.tianyi-stage-heading h2 { margin: 4px 0 0; font-size: 19px; }
+.tianyi-stage-heading small, .tianyi-stage-heading > span { color: var(--color-text-muted); font-size: 11px; }
+.tianyi-summary-card, .tianyi-impact-card, .tianyi-work-contract { border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-surface); padding: 16px; margin-bottom: 14px; }
+.tianyi-summary-card p { margin: 8px 0; }
+.tianyi-summary-card small { color: var(--color-text-muted); }
+.tianyi-candidate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.tianyi-candidate-grid article { min-width: 0; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-surface); padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+.tianyi-candidate-grid article[data-candidate-state="deferred"] { border-style: dashed; background: color-mix(in srgb, var(--color-accent-soft) 34%, var(--color-surface)); }
+.tianyi-candidate-grid article[data-candidate-state="handed-off"] { border-color: var(--color-accent); }
+.tianyi-candidate-grid header { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 11px; }
+.tianyi-candidate-grid h3, .tianyi-candidate-grid p { margin: 0; }
+.tianyi-candidate-grid h3 { font-size: 15px; }
+.tianyi-candidate-grid p { font-size: 13px; line-height: 1.55; }
+.tianyi-candidate-grid > article > small { color: var(--color-text-muted); line-height: 1.45; }
+.tianyi-candidate-grid footer { display: flex; flex-wrap: wrap; gap: 7px; margin-top: auto; }
+.tianyi-candidate-grid button, .tianyi-impact-card button { border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 10px; background: transparent; color: inherit; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.tianyi-candidate-grid .primary-action, .tianyi-impact-card .primary-action { background: var(--color-accent-strong); color: white; border-color: transparent; }
+.tianyi-candidate-grid svg, .tianyi-impact-card svg { width: 14px; }
+.tianyi-work-contract { display: grid; grid-template-columns: 1fr 200px; gap: 18px; }
+.tianyi-work-contract dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tianyi-work-contract dt { font-size: 11px; color: var(--color-text-muted); }
+.tianyi-work-contract dd { margin: 4px 0 0; font-size: 13px; }
+.tianyi-work-contract label { font-size: 11px; color: var(--color-text-muted); }
+.tianyi-work-contract select { width: 100%; display: block; margin-top: 6px; border: 1px solid var(--color-border-subtle); background: var(--color-canvas); color: inherit; border-radius: 8px; padding: 9px; }
+.tianyi-impact-card header { display: flex; justify-content: space-between; }
+.tianyi-impact-card header span { color: var(--color-accent-strong); font-size: 12px; }
+.tianyi-impact-card ul { padding-left: 20px; color: var(--color-text-secondary); line-height: 1.7; }
+.tianyi-work-empty { border: 1px dashed var(--color-border-subtle); padding: 22px; border-radius: 12px; color: var(--color-text-muted); }
+.tianyi-workspace-error { max-width: 920px; margin: 0 auto 12px; color: var(--color-danger); }
+.tianyi-workspace-composer { max-width: 920px; margin: 0 auto; position: sticky; bottom: 0; border: 1px solid var(--color-border-subtle); border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 96%, transparent); box-shadow: 0 12px 34px rgba(0,0,0,.08); padding: 12px; }
+.tianyi-workspace-composer textarea { width: 100%; resize: vertical; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; min-height: 62px; }
+.tianyi-workspace-composer > div { display: flex; align-items: center; gap: 8px; }
+.tianyi-workspace-composer button { border: 0; background: transparent; color: var(--color-text-secondary); padding: 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.tianyi-workspace-composer button svg { width: 16px; }
+.tianyi-workspace-composer .tianyi-send { margin-left: auto; background: var(--color-accent-strong); color: white; padding-inline: 14px; }
+.tianyi-workspace-composer button:disabled { opacity: .45; cursor: not-allowed; }
+.tianyi-current-context { border-left: 1px solid var(--color-border-subtle); background: var(--color-surface); padding: 20px; overflow: auto; }
+.tianyi-current-context > header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+.tianyi-current-context > header small { color: var(--color-text-muted); }
+.tianyi-current-context > section { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 14px 0; border-top: 1px solid var(--color-border-subtle); }
+.tianyi-current-context svg { width: 18px; color: var(--color-accent); }
+.tianyi-current-context p { margin: 5px 0; font-size: 13px; }
+.tianyi-current-context small { color: var(--color-text-muted); }
+.tianyi-workspace-empty { margin: auto; text-align: center; }
+.is-spinning { animation: tianyi-spin 1s linear infinite; }
+@keyframes tianyi-spin { to { transform: rotate(360deg); } }
+@media (max-width: 76rem) { .tianyi-workspace-body { grid-template-columns: minmax(0, 1fr); } .tianyi-current-context { display: none; } .tianyi-workspace-header > p { display: none; } .tianyi-candidate-grid { grid-template-columns: 1fr; } }
+@media (max-width: 50rem) { .tianyi-workspace-header { grid-template-columns: 1fr auto; padding-inline: 14px; } .tianyi-conversation-column { padding: 16px 14px 24px; } .tianyi-work-contract { grid-template-columns: 1fr; } .tianyi-work-contract dl { grid-template-columns: 1fr; } }

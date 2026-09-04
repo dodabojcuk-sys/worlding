@@ -193,8 +193,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels, predictionSourceUnitSummary
     } : null);
     if (initialDraft !== undefined) {
-      if (predictionSourceLabels?.length) props.runtime.setAgentTaskDraft(initialDraft);
-      else props.runtime.setDialogueComposerDraft(initialDraft);
+      if (predictionSourceLabels?.length) props.runtime.setPageAgentTaskDraft(initialDraft);
+      else props.runtime.setWorkComposerDraft(initialDraft);
     }
     if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
     workspaceDockCoordinator.openQuickTianyi();
@@ -252,7 +252,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     {!settingsOpen && !accountOpen && <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={openCharacterProfileEditor} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterProfileEditor} />}
-    {!settingsOpen && !accountOpen && tianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line"} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}

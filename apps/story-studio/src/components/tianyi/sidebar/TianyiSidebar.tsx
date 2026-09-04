@@ -25,7 +25,7 @@ import type { TranslationKey } from "../../../product-shell/i18n/translations";
 import { TianyiSidebarComposer } from "../composer/TianyiSidebarComposer";
 import type { CapabilityMenuItem } from "../capability-launcher/capabilityMenuTypes";
 import { TianyiAgentPanel } from "./TianyiAgentPanel";
-import { TianyiDialoguePanel } from "./TianyiDialoguePanel";
+import { TianyiWorkPanel } from "./TianyiWorkPanel";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 
@@ -45,12 +45,13 @@ export function TianyiSidebar(props: {
   workspace: TianyiContextualSpaceId;
   pageLabel: string;
   runtime: TianyanShellRuntimeState;
+  agentAvailable: boolean;
   contextRequest?: TianyiSidebarContextRequest | null;
   onClose(): void;
   onOpenSettings(): void;
 }) {
   const { t } = useI18n();
-  const [mode, setMode] = useState<TianyiSidebarMode>("dialogue");
+  const [mode, setMode] = useState<TianyiSidebarMode>("work");
   const [task, setTask] = useState<CapabilityMenuItem | null>(null);
   const [session, setSession] = useState<TianyiSessionMetadata | null>(null);
   const [run, setRun] = useState<TianyiAgentRunProjection | null>(null);
@@ -100,6 +101,10 @@ export function TianyiSidebar(props: {
   }, [contextRequest?.eventRefs?.length]);
 
   useEffect(() => {
+    if (!props.agentAvailable) setMode("work");
+  }, [props.agentAvailable]);
+
+  useEffect(() => {
     const receive = (event: Event) => setPredictionRunning(Boolean((event as CustomEvent<{ running?: boolean }>).detail?.running));
     window.addEventListener("story-studio-prediction-agent-state", receive);
     return () => window.removeEventListener("story-studio-prediction-agent-state", receive);
@@ -128,42 +133,35 @@ export function TianyiSidebar(props: {
   }, [mode, project, props.runtime]);
 
   useEffect(() => {
-    if (!project || !props.runtime.dialogueSessionId) { setSession(null); return; }
+    if (!project || !props.runtime.tianyiConversationId) { setSession(null); return; }
     let active = true;
-    void props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, props.runtime.dialogueSessionId!, token)).then((value) => {
-      if (active) setSession(Array.isArray(value) ? value.find((item) => item.id === props.runtime.dialogueSessionId) ?? null : value);
+    void props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, props.runtime.tianyiConversationId!, token)).then((value) => {
+      if (active) setSession(Array.isArray(value) ? value.find((item) => item.id === props.runtime.tianyiConversationId) ?? null : value);
     }).catch(() => { if (active) setSession(null); });
     return () => { active = false; };
-  }, [project, props.runtime, props.runtime.dialogueSessionId]);
+  }, [project, props.runtime, props.runtime.tianyiConversationId]);
 
   useEffect(() => {
-    if (!project || !props.runtime.agentSessionId) { setRun(null); return; }
-    const key = tianyiAgentRunStorageKey(project.id, workVersionId, props.runtime.agentSessionId);
-    const runId = props.runtime.activeAgentRunId ?? window.sessionStorage.getItem(key);
+    if (!project || !props.runtime.tianyiConversationId) { setRun(null); return; }
+    const key = tianyiAgentRunStorageKey(project.id, workVersionId, props.runtime.tianyiConversationId);
+    const runId = props.runtime.activePageAgentRunId ?? window.sessionStorage.getItem(key);
     if (!runId) return;
     let active = true;
-    void props.runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId, token })).then((value) => {
+    void props.runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId, token })).then((value) => {
       if (active) setRun(value);
     }).catch(() => { if (active) setRun(null); });
     return () => { active = false; };
-  }, [project, props.runtime, props.runtime.activeAgentRunId, props.runtime.agentSessionId, workVersionId]);
+  }, [project, props.runtime, props.runtime.activePageAgentRunId, props.runtime.tianyiConversationId, workVersionId]);
 
   const selectTask = (item: CapabilityMenuItem | null) => {
     setTask(item);
     if (item?.requiredMode === "agent") setMode("agent");
   };
-  const ensureDialogueSession = async () => {
+  const ensureConversation = async () => {
     if (!project) throw new Error(t("tianyi.noActiveProject"));
-    if (props.runtime.dialogueSessionId) return props.runtime.dialogueSessionId;
+    if (props.runtime.tianyiConversationId) return props.runtime.tianyiConversationId;
     const opened = await props.runtime.withConnection((token) => openTianyiSession(project.id, operationId("open-session"), token));
-    props.runtime.setDialogueSessionId(opened.sessionId);
-    return opened.sessionId;
-  };
-  const ensureAgentSession = async () => {
-    if (!project) throw new Error(t("tianyi.noActiveProject"));
-    if (props.runtime.agentSessionId) return props.runtime.agentSessionId;
-    const opened = await props.runtime.withConnection((token) => openTianyiSession(project.id, operationId("open-agent-session"), token));
-    props.runtime.setAgentSessionId(opened.sessionId);
+    props.runtime.setTianyiConversationId(opened.sessionId);
     return opened.sessionId;
   };
   const refreshSession = async (sessionId: string) => {
@@ -171,19 +169,19 @@ export function TianyiSidebar(props: {
     const value = await props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, sessionId, token));
     setSession(Array.isArray(value) ? value.find((item) => item.id === sessionId) ?? null : value);
   };
-  const submitDialogue = () => void (async () => {
+  const submitWork = () => void (async () => {
     if (!providerReady) {
       setError(t("tianyi.providerUnavailable"));
       return;
     }
-    if (!props.runtime.dialogueComposerDraft.trim() || !project || !contextRequest || !submitGate.tryEnter()) return;
+    if (!props.runtime.workComposerDraft.trim() || !project || !contextRequest || !submitGate.tryEnter()) return;
     setBusy(true); setError("");
     try {
-      const sessionId = await ensureDialogueSession();
+      const sessionId = await ensureConversation();
       const selectedModelId = props.runtime.modelStatus?.profile.profile?.modelId;
       const profileId = props.runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
       if (!profileId) throw new Error(t("tianyi.providerUnavailable"));
-      const question = props.runtime.dialogueComposerDraft.trim();
+      const question = props.runtime.workComposerDraft.trim();
       const result = await props.runtime.withConnection((token) => streamTianyiGroundedAnswer({
         operationId: operationId("grounded-answer"),
         submissionId: operationId("grounded-submission"),
@@ -203,7 +201,7 @@ export function TianyiSidebar(props: {
         token
       }));
       if (result.status !== "current" || !result.answer) throw new Error(t("tianyi.actionFailed"));
-      props.runtime.setDialogueComposerDraft("");
+      props.runtime.setWorkComposerDraft("");
       await refreshSession(sessionId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
@@ -211,15 +209,15 @@ export function TianyiSidebar(props: {
   })();
   const submitAgent = () => void (async () => {
     if (!providerReady) { setError(t("tianyi.providerUnavailable")); return; }
-    if ((!props.runtime.agentTaskDraft.trim() && !task) || !project || !contextRequest || !submitGate.tryEnter()) return;
+    if ((!props.runtime.pageAgentTaskDraft.trim() && !task) || !project || !contextRequest || !submitGate.tryEnter()) return;
     setBusy(true); setError("");
     try {
-      const sessionId = await ensureAgentSession();
-      const taskText = [task ? t(task.labelKey as TranslationKey) : "", props.runtime.agentTaskDraft.trim(), t(`tianyi.simulation.scopeTask.${scope}` as TranslationKey), t(`tianyi.simulation.freedomTask.${freedom}` as TranslationKey)].filter(Boolean).join("\n");
+      const sessionId = await ensureConversation();
+      const taskText = [task ? t(task.labelKey as TranslationKey) : "", props.runtime.pageAgentTaskDraft.trim(), t(`tianyi.simulation.scopeTask.${scope}` as TranslationKey), t(`tianyi.simulation.freedomTask.${freedom}` as TranslationKey)].filter(Boolean).join("\n");
       const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
       window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, workVersionId, sessionId), projection.runId);
-      props.runtime.setActiveAgentRunId(projection.runId);
-      setRun(projection); setTask(null); props.runtime.setAgentTaskDraft("");
+      props.runtime.setActivePageAgentRunId(projection.runId);
+      setRun(projection); setTask(null); props.runtime.setPageAgentTaskDraft("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); }
     finally { submitGate.leave(); setBusy(false); }
   })();
@@ -234,37 +232,37 @@ export function TianyiSidebar(props: {
     }
   })();
   const advanceRun = () => void (async () => {
-    if (!project || !props.runtime.agentSessionId || !run || busy) return;
+    if (!project || !props.runtime.tianyiConversationId || !run || busy) return;
     setBusy(true); setError("");
     try {
       const awaiting = run.plan.find((step) => step.status === "awaiting_author");
       setStreamText("");
       const next = await props.runtime.withConnection((token) => {
-        if (awaiting) return approveTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, stepId: awaiting.stepId, operationId: operationId("agent-approve"), token });
+        if (awaiting) return approveTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, stepId: awaiting.stepId, operationId: operationId("agent-approve"), token });
         const controller = new AbortController();
         streamController.current = controller;
-        return streamTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, operationId: operationId("agent-continue"), token, signal: controller.signal, onEvent(event) { if (event.type === "text-delta") setStreamText((current) => current + event.delta); } });
+        return streamTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, operationId: operationId("agent-continue"), token, signal: controller.signal, onEvent(event) { if (event.type === "text-delta") setStreamText((current) => current + event.delta); } });
       });
       setRun(next);
     } catch (cause) { if (!stopping.current) setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { streamController.current = null; setBusy(false); }
   })();
   const rejectStep = () => void (async () => {
     const awaiting = currentTianyiAgentStep(run);
-    if (!project || !props.runtime.agentSessionId || !run || !awaiting || busy) return;
+    if (!project || !props.runtime.tianyiConversationId || !run || !awaiting || busy) return;
     setBusy(true); setError("");
     try {
-      setRun(await props.runtime.withConnection((token) => rejectTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, stepId: awaiting.stepId, reason: t("tianyi.rejectNextStep"), operationId: operationId("agent-reject"), token })));
+      setRun(await props.runtime.withConnection((token) => rejectTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, stepId: awaiting.stepId, reason: t("tianyi.rejectNextStep"), operationId: operationId("agent-reject"), token })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
   const stopRun = () => void (async () => {
-    if (!project || !props.runtime.agentSessionId || !run) return;
+    if (!project || !props.runtime.tianyiConversationId || !run) return;
     stopping.current = true;
     const activeStream = streamController.current;
     // Stop the in-flight stream before persisting cancellation so a late
     // streamed projection cannot overwrite the terminal cancelled state.
     activeStream?.abort();
     try {
-      const cancelled = await props.runtime.withConnection((token) => cancelTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, reason: t("tianyi.stopRun"), operationId: operationId("agent-cancel"), token }));
+      const cancelled = await props.runtime.withConnection((token) => cancelTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, reason: t("tianyi.stopRun"), operationId: operationId("agent-cancel"), token }));
       setRun(cancelled);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
@@ -275,10 +273,10 @@ export function TianyiSidebar(props: {
     }
   })();
   const handoffCandidate = (candidateId: string) => void (async () => {
-    if (!project || !props.runtime.agentSessionId || !run || busy) return;
+    if (!project || !props.runtime.tianyiConversationId || !run || busy) return;
     setBusy(true); setError("");
     try {
-      setRun(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, workVersionId, sessionId: props.runtime.agentSessionId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
+      setRun(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
   const currentStep = currentTianyiAgentStep(run);
@@ -286,7 +284,7 @@ export function TianyiSidebar(props: {
   const simulationPack = run?.contextManifest?.simulationContextPack ?? null;
   const sourceCounts = simulationPack?.sources.reduce<Record<string, number>>((counts, source) => ({ ...counts, [source.sourceRole]: (counts[source.sourceRole] ?? 0) + 1 }), {}) ?? {};
   const runtimeContext = { page: props.pageLabel, selection: t("context.noneSelected"), referencedSources: simulationPack?.sources.length ?? contextRequest?.sourceRefs.length ?? 0, memoryState: "not-connected" as const, excludedScope: t("context.otherBranches"), usage: run ? String(simulationPack?.estimatedTokens ?? run.contextManifest?.estimatedTokens ?? 0) : null, budget: run ? String(run.budget.maxProviderCalls) : null };
-  const agentRunning = predictionRunning || busy || Boolean(props.runtime.activeAgentRunId) || Boolean(run && !["completed", "cancelled", "failed"].includes(run.status));
+  const agentRunning = predictionRunning || busy || Boolean(props.runtime.activePageAgentRunId) || Boolean(run && !["completed", "cancelled", "failed"].includes(run.status));
   const currentTemporalProjection = temporalProjectionRun && temporalProjectionRun.projectId === project?.id ? temporalProjectionRun : null;
   const temporalRunCard = currentTemporalProjection ? <section className={`tianyi-temporal-run-card is-${currentTemporalProjection.status}`} aria-label={t("tianyi.temporal.ready")}>
       <header><Clock3 aria-hidden="true" /><div><strong>{currentTemporalProjection.conflicts.length ? t("tianyi.temporal.conflict") : currentTemporalProjection.stale ? t("tianyi.temporal.stale") : t("tianyi.temporal.ready")}</strong><small>{t("tianyi.temporal.counts").replace("{placements}", String(currentTemporalProjection.placements.length)).replace("{conflicts}", String(currentTemporalProjection.conflicts.length))}</small></div></header>
@@ -309,16 +307,16 @@ export function TianyiSidebar(props: {
       <div className="tianyi-simulation-controls"><label>{t("tianyi.simulation.scope")}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="nearby">{t("tianyi.simulation.scope.nearby")}</option><option value="line">{t("tianyi.simulation.scope.line")}</option><option value="selected">{t("tianyi.simulation.scope.selected")}</option></select></label><label>{t("tianyi.simulation.freedom")}<select value={freedom} onChange={(event) => setFreedom(event.target.value as typeof freedom)}><option value="strict">{t("tianyi.simulation.freedom.strict")}</option><option value="balanced">{t("tianyi.simulation.freedom.balanced")}</option><option value="free">{t("tianyi.simulation.freedom.free")}</option></select></label></div>
       {sourcesOpen && <div className="tianyi-simulation-source-drawer" aria-label={t("tianyi.sources")}><strong>{t("tianyi.simulation.snapshot")}</strong>{simulationPack ? <>{simulationPack.sources.map((source) => <article key={source.sourceId}><b>{source.sourceRole}</b><span>{source.displayTitle}</span><small>{t("tianyi.simulation.sent").replace("{authority}", source.authorityLevel)}</small></article>)}{simulationPack.omitted.map((source) => <article key={source.sourceId} data-source-omitted="true"><b>EXCLUDED</b><span>{source.sourceId}</span><small>{source.reason}</small></article>)}</> : <p>{t("tianyi.simulation.pendingSnapshot")}</p>}</div>}
     </section>
-    <TianyiSidebarComposer workspace={props.workspace} task={task} draft={props.runtime.agentTaskDraft} modelLabel={modelLabel} permission={permission} disabled={busy || !project || !contextRequest || !providerReady} submit={submitAgent} onPermission={selectPermission} onDraft={props.runtime.setAgentTaskDraft} onTask={selectTask} context={runtimeContext} />
+    <TianyiSidebarComposer workspace={props.workspace} task={task} draft={props.runtime.pageAgentTaskDraft} modelLabel={modelLabel} permission={permission} disabled={busy || !project || !contextRequest || !providerReady} submit={submitAgent} onPermission={selectPermission} onDraft={props.runtime.setPageAgentTaskDraft} onTask={selectTask} context={runtimeContext} />
   </>;
-  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-dialogue-session-id={props.runtime.dialogueSessionId ?? "not-started"} data-agent-session-id={props.runtime.agentSessionId ?? "not-started"} data-session-owner="story-continuity/session">
+  return <aside className="tianyi-sidebar" aria-label={t("panel.globalTianyi")} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session">
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      <TianyiModeSwitch mode={mode} agentRunning={agentRunning} onMode={setMode} />
+      <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable} agentRunning={agentRunning} onMode={setMode} />
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
-      {mode === "dialogue" ? <TianyiDialoguePanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.dialogueComposerDraft} busy={busy} error={error} agentTaskRetained={agentRunning} onDraft={props.runtime.setDialogueComposerDraft} onSubmit={submitDialogue} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {mode === "work" ? <TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

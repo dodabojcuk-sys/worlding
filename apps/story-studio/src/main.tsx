@@ -8,6 +8,7 @@ import "./styles/project-directory.css";
 import "./styles/character-directory.css";
 import "./styles/right-dock.css";
 import "./styles/tianyi-sidebar.css";
+import "./styles/tianyi-workspace.css";
 import "./styles/event-line-projection.css";
 import "./styles/settings.css";
 import "@xyflow/react/dist/style.css";

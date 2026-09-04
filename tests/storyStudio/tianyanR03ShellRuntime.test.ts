@@ -5,13 +5,11 @@ import os from "node:os";
 import test from "node:test";
 
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../../apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts";
-import { tianyiAgentSessionStorageKey, tianyiDialogueSessionStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
+import { tianyiConversationStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
 import { createActionPermissionBroker } from "../../src/storyControlSurface/actionPermissionBroker.ts";
 
-test("R0.3 session and Agent recovery keys stay project- and session-scoped", () => {
-  assert.equal(tianyiDialogueSessionStorageKey("project-a"), "tianyi-dialogue-session:project-a");
-  assert.equal(tianyiAgentSessionStorageKey("project-a"), "tianyi-agent-session:project-a");
-  assert.notEqual(tianyiDialogueSessionStorageKey("project-a"), tianyiAgentSessionStorageKey("project-a"));
+test("R0.3 conversation and Page Agent Run recovery stay project- and session-scoped", () => {
+  assert.equal(tianyiConversationStorageKey("project-a"), "tianyi-conversation:project-a");
   assert.equal(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), "tianyi-agent-run:project-a:work-version.a:session-a");
   assert.notEqual(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), tianyiAgentRunStorageKey("project-a", "work-version.b", "session-a"));
 });

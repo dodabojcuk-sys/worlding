@@ -91,7 +91,7 @@ test("multi-node productization keeps Unit, active path, overlay, and Tianyi con
   assert.match(prediction, /这次采纳已保存/u);
   assert.match(prediction, /作者草稿与关系候选已保存 · 尚未进入正式故事/u);
   assert.match(tianyi, /data-tianyi-mode=\{mode\}/u);
-  assert.match(tianyi, /mode === "dialogue" \? <TianyiDialoguePanel[\s\S]*<TianyiAgentPanel/u);
+  assert.match(tianyi, /mode === "work" \? <TianyiWorkPanel[\s\S]*<TianyiAgentPanel/u);
   assert.match(tianyiStyles, /min-inline-size: var\(--tianyi-sidebar-width\)/u);
   assert.match(graphStyles, /event-graph-prediction-node\.is-review-excluded/u);
   assert.match(graph, /predictionSourceSummary/u);
