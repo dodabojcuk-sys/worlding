@@ -45,10 +45,12 @@ const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const r10EvidenceDirectory = process.env.TIANYAN_R10_EVIDENCE_DIR || null;
 const r11ObservationEvidenceDirectory = process.env.TIANYAN_R11_OBSERVATION_EVIDENCE_DIR || null;
 const r12EventLineEvidenceDirectory = process.env.TIANYAN_R12_EVENT_LINE_EVIDENCE_DIR || null;
+const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const authorEventReloadOnly = process.env.TIANYAN_E2E_SCOPE === "author-event-reload";
+const tianyiGoldenLoopOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-golden-loop";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
 const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
@@ -108,7 +110,9 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
+  const page = tianyiGoldenLoopOnly && tianyiGoldenLoopEvidenceDirectory
+    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: tianyiGoldenLoopEvidenceDirectory, size: { width: 1440, height: 900 } } })).newPage()
+    : await browser.newPage({ viewport: { width: 1152, height: 720 } });
   const consoleProblems = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
@@ -123,7 +127,12 @@ try {
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (authorEventReloadOnly) {
+  if (tianyiGoldenLoopOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertTianyiEventLineGoldenLoop(page, consoleProblems);
+  } else if (authorEventReloadOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await assertAuthorEventCreation(page, consoleProblems);
@@ -357,6 +366,7 @@ async function startProviderCatalogOllamaFixture() {
 }
 
 async function assertPermissionProjection(page) {
+  await gotoProduct(page, `${baseUrl}/event-line?rail=expanded`);
   await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI", "The shared right work surface must explicitly own Tianyi while its composer is visible.");
   await page.locator(".tianyi-sidebar").getByRole("tab", { name: "Agent", exact: true }).click();
@@ -372,7 +382,9 @@ async function assertPermissionProjection(page) {
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
   await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
-  await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
+  const openDirectory = page.getByRole("button", { name: "打开工程目录", exact: true });
+  if (await openDirectory.count()) await openDirectory.click();
 }
 
 async function assertSingleGlobalSearch(page) {
@@ -654,9 +666,9 @@ async function assertExactlyOneActiveDestination(page) {
 
 async function assertAgentFakeProviderStream(page) {
   await page.evaluate(() => window.sessionStorage.clear());
-  // The author-event scenario ends in the graph workspace. Reset the unrelated
-  // fake-provider regression to a stable shell surface before opening Tianyi.
-  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN`);
+  // Page Agent is intentionally available only on the Event Line in R0.
+  // Reset the fake-provider regression to that supported page before opening Tianyi.
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await startAgentFakeProviderStream(page, "检查角色知识边界");
   const streaming = page.locator(".tianyi-agent-streaming");
   await streaming.waitFor();
@@ -1983,8 +1995,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await projectDirectory.isHidden(), true, "Closing the secondary directory must release workspace width.");
   if (output) {
     await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
-    await page.locator(".tianyi-sidebar").getByRole("tab", { name: "对话", exact: true }).click();
-    await capture("Q-1440x900-dialogue-only.png");
+    await page.locator(".tianyi-sidebar").getByRole("tab", { name: "工作", exact: true }).click();
+    await capture("Q-1440x900-work-lane-only.png");
     await closeGlobalTianyiIfOpen(page);
   }
   const postDirectoryState = { url: page.url(), storyWorkspace: await page.getByTestId("story-progression-workspace").count(), body: (await page.locator("body").innerText()).slice(0, 500) };
@@ -2100,15 +2112,15 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Technical receipts must be closed by default in candidate overview.");
   await capture("M-1440x900-multi-path-overview.png");
   const readyRunId = await panel.getAttribute("data-run-id");
-  await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
-  await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
-  assert.equal(await tianyiSidebar.getByText("当前对话不会操纵任务；切回 Agent 可查看原有进度。", { exact: true }).count(), 1, "Dialogue must explain that it does not control the retained Agent task.");
-  assert.equal(await tianyiSidebar.getAttribute("data-tianyi-mode"), "dialogue", "The author may leave a ready Agent Run for ordinary dialogue.");
-  assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel").count(), 0, "Dialogue must not expose prediction controls, ContextPack, candidates or adoption.");
-  assert.equal(await tianyiSidebar.locator(".tianyi-dialogue-panel").getAttribute("data-dialogue-agent-controls"), "absent", "Dialogue must explicitly exclude Agent controls.");
+  await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
+  await tianyiSidebar.getByText("页面 Agent Run 在后台保留", { exact: true }).waitFor();
+  assert.equal(await tianyiSidebar.getByText("Work lane 不操纵该 Run；切回 Agent 可查看页面范围内的进度。", { exact: true }).count(), 1, "Work must explain that it does not control the retained Page Agent Run.");
+  assert.equal(await tianyiSidebar.getAttribute("data-tianyi-mode"), "work", "The author may leave a ready Page Agent Run for the shared Work lane.");
+  assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel").count(), 0, "Work must not expose Page Agent prediction controls or ContextPack execution.");
+  assert.equal(await tianyiSidebar.getByLabel("天意工作泳道").getAttribute("data-page-agent-dispatch"), "forbidden", "Work must explicitly exclude Page Agent dispatch.");
   await tianyiSidebar.locator(".tianyi-dialogue-composer textarea").fill("推演下一段故事");
-  assert.equal(await tianyiSidebar.getByRole("button", { name: "转到 Agent 模式", exact: true }).count(), 1, "Execution-like dialogue intent must offer an explicit Agent handoff without auto-running.");
-  await capture("F-1440x900-agent-background-retained-dialogue.png");
+  assert.equal(await tianyiSidebar.getByRole("button", { name: "转到 Agent", exact: true }).count(), 1, "Execution-like Work intent must offer an explicit Page Agent handoff without auto-running.");
+  await capture("F-1440x900-agent-background-retained-work.png");
   await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await page.getByLabel("多节点推演").waitFor();
   await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
@@ -2381,8 +2393,8 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
   assert.equal(await page.locator(".tianyi-sidebar").count(), 1, "Only one Tianyi work Dock may be mounted.");
-  assert.equal(await page.locator("[data-dialogue-session-id][data-agent-session-id]").count(), 1, "The single Dock must retain independent Dialogue and Agent session identities.");
-  assert.equal(await page.locator("[data-shared-session-id]").count(), 0, "The two modes must not claim a shared session identity.");
+  assert.equal(await page.locator(".tianyi-sidebar[data-work-lane='shared'][data-page-agent-session-owner='none']").count(), 1, "The single Dock must reuse the Tianyi Work lane while Page Agent owns no session.");
+  assert.equal(await page.locator(".tianyi-sidebar [role='tab']").filter({ hasText: "工作" }).count(), 1, "The sidebar names its conversation surface Work.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-tianyi-open.png"), fullPage: true });
   await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
   await visibleStoryEvent.click();
@@ -2400,6 +2412,117 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   await page.locator(".event-graph-flow").click({ position: { x: 12, y: 12 } });
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "Pane clear returns the state machine to NONE.");
   assert.deepEqual(consoleProblems, [], "Right surface interactions must not add browser console errors.");
+}
+
+async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
+  const providerRequests = [];
+  const observeProvider = (request) => {
+    if (/story-modeling\/(?:plan|runs|execute)|\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observeProvider);
+  const capture = async (name) => {
+    if (!tianyiGoldenLoopEvidenceDirectory) return;
+    mkdirSync(tianyiGoldenLoopEvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(tianyiGoldenLoopEvidenceDirectory, name), fullPage: false });
+    await page.waitForTimeout(4_500);
+  };
+  try {
+    await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+    await gotoProduct(page, `${baseUrl}/tianyi`);
+    await page.getByLabel("天意统一会话").waitFor();
+    assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
+    await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
+    await page.getByRole("button", { name: "附件", exact: true }).click();
+    await page.getByRole("button", { name: "来源", exact: true }).click();
+    await capture("01-1440x900-TIANYI-creative-author-intent.png");
+    await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
+    await page.locator(".tianyi-candidate-grid article").first().waitFor();
+    assert.equal(await page.locator(".tianyi-candidate-grid article").count(), 3, "Creative lane must form exactly three deterministic candidates.");
+    const conversationId = await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id");
+    assert.ok(conversationId && conversationId !== "not-started");
+    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await capture("02-1440x900-TIANYI-three-candidates.png");
+
+    const candidates = page.locator(".tianyi-candidate-grid article");
+    await candidates.nth(0).getByRole("button", { name: "保留可能性", exact: true }).click();
+    await candidates.nth(0).getByText("已保留可能性", { exact: true }).waitFor();
+    await candidates.nth(1).getByRole("button", { name: /进入工作模式/u }).click();
+    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
+    await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
+    assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
+    assert.match(await page.getByLabel("当前视图").textContent(), /3 个候选/u);
+    await page.getByLabel("工作范围").selectOption("selected-events");
+    await page.getByLabel("工作模式草稿").fill("只调整钥匙交接事件，不改变 Canon 或其他故事事实。");
+    await capture("03-1440x900-TIANYI-shared-work-lane.png");
+
+    await page.getByRole("button", { name: "打开结构化影响预览", exact: true }).click();
+    const adoption = page.getByTestId("tianyi-adoption-panel");
+    await adoption.locator(".tianyi-structured-diff").waitFor();
+    assert.equal(await adoption.getByRole("button", { name: "采纳", exact: true }).isEnabled(), true, "Impact review must enable the single author adoption action.");
+    assert.match(await adoption.textContent(), /基础版本.*范围.*变化.*证据.*风险/su);
+    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await capture("04-1440x900-TIANYI-structured-impact.png");
+    await adoption.getByRole("button", { name: /在事件线中打开/u }).click();
+
+    await page.getByLabel("天意候选轨迹").waitFor();
+    assert.match(page.url(), /tianyiSession=.*tianyiCandidate=/u);
+    await page.getByLabel("作者调整（保留在 Work lane）").fill("保留原始证据引用，只收窄变化范围。");
+    await capture("05-1440x900-EVENT-LINE-candidate-trajectory.png");
+
+    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    const sidebar = page.locator(".tianyi-sidebar");
+    await sidebar.waitFor();
+    assert.equal(await sidebar.getAttribute("data-tianyi-conversation-id"), conversationId, "The Event Line Work surface must reuse the same Work lane.");
+    assert.equal(await sidebar.getAttribute("data-page-agent-session-owner"), "none", "A Page Agent must not own an independent session.");
+    assert.equal(await sidebar.getAttribute("data-work-lane"), "shared");
+    assert.equal(await sidebar.getByRole("tab", { name: "工作", exact: true }).count(), 1);
+    assert.equal(await sidebar.getByRole("tab", { name: "Agent", exact: true }).count(), 1);
+    await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+    assert.match(await sidebar.textContent(), /当前页面.*事件线/su);
+    await capture("06-1440x900-EVENT-LINE-page-agent-scoped.png");
+    await sidebar.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+
+    const eventLineAdoption = page.getByLabel("天意候选轨迹").getByTestId("tianyi-adoption-panel");
+    await eventLineAdoption.getByRole("button", { name: "采纳", exact: true }).click();
+    await eventLineAdoption.getByText("采纳已生效", { exact: true }).waitFor();
+    const activeReceiptText = await eventLineAdoption.textContent();
+    assert.match(activeReceiptText, /BaseVersion.*结果版本.*查看变化.*撤销（创建补偿版本）/su);
+    await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
+    await capture("07-1440x900-EVENT-LINE-adoption-receipt.png");
+    await eventLineAdoption.getByRole("button", { name: "撤销（创建补偿版本）", exact: true }).click();
+    await eventLineAdoption.getByText("采纳已通过补偿版本撤销", { exact: true }).waitFor();
+    assert.match(await eventLineAdoption.textContent(), /原 Event 与历史回执仍保留/u);
+    await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
+    await capture("08-1440x900-EVENT-LINE-compensation-version.png");
+
+    await page.getByLabel("天意候选轨迹").getByRole("button", { name: "返回同一 Work lane", exact: true }).click();
+    await page.waitForURL((value) => value.pathname === "/tianyi" && value.searchParams.get("tianyiLane") === "work");
+    await page.waitForFunction(() => document.querySelector("[aria-label='天意统一会话']")?.getAttribute("data-active-lane") === "work");
+    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "保留原始证据引用，只收窄变化范围。", "Returning from Event Line must restore the same Work draft.");
+    assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events", "Returning from Event Line must restore the same Work scope.");
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await page.getByLabel("天意候选轨迹").waitFor();
+
+    await reloadProduct(page);
+    const reloadedTrajectory = page.getByLabel("天意候选轨迹");
+    await reloadedTrajectory.waitFor();
+    await reloadedTrajectory.getByText("采纳已通过补偿版本撤销", { exact: true }).waitFor();
+    const pending = page.getByTestId("narrative-staging");
+    const allPending = await pending.locator("[data-event-id]").evaluateAll((nodes) => nodes.map((node) => ({ title: node.textContent?.trim() ?? "", status: node.getAttribute("data-event-status"), id: node.getAttribute("data-event-id") })));
+    const pendingMatches = allPending.filter((item) => item.title.startsWith("方向二：规则失效"));
+    assert.equal(pendingMatches.length, 1, `The adopted Event must remain visibly reachable in the pending-arrangement region after reload: ${JSON.stringify(allPending)}`);
+    assert.equal(pendingMatches[0].status, "committed", `The adopted Event must retain its author-confirmed state after reload: ${JSON.stringify(pendingMatches)}`);
+    await reloadedTrajectory.getByRole("button", { name: "返回同一 Work lane", exact: true }).click();
+    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId);
+    await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
+    assert.deepEqual(providerRequests, [], "The deterministic Tianyi golden loop must make zero Provider calls.");
+    assert.deepEqual(consoleProblems, [], "The Tianyi golden loop must not add browser console warnings or errors.");
+  } finally {
+    page.off("request", observeProvider);
+  }
 }
 
 async function captureEventGraphEvidence(page, consoleProblems) {

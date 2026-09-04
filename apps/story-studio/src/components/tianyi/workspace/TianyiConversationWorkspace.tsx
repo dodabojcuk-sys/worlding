@@ -2,32 +2,38 @@ import { ArrowRight, BookOpen, FilePlus2, History, Link2, LoaderCircle, Papercli
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  beginTianyiCreativeEventImpact,
   captureTianyiCreativeAuthorSource,
   decideTianyiCreativeCandidate,
   extractTianyiCreativeProjection,
-  getTianyiCreativeEventReview,
   getTianyiCreativeProjection,
   getTianyiSessionMetadata,
   handoffTianyiCreativeCandidate,
   openTianyiSession,
-  type TianyiCreativeEventReview,
   type TianyiCreativeProjection,
   type TianyiSessionMetadata
 } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
+import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 
 type Lane = "creative" | "work";
 
 export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState }) {
   const { runtime } = props;
   const project = runtime.project;
-  const [lane, setLane] = useState<Lane>("creative");
+  const [lane, setLane] = useState<Lane>(() => new URLSearchParams(window.location.search).get("tianyiLane") === "work" ? "work" : "creative");
   const [projection, setProjection] = useState<TianyiCreativeProjection | null>(null);
   const [metadata, setMetadata] = useState<TianyiSessionMetadata | null>(null);
-  const [review, setReview] = useState<TianyiCreativeEventReview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const restoreRequestedLane = () => {
+      if (window.location.pathname === "/tianyi" && new URLSearchParams(window.location.search).get("tianyiLane") === "work") setLane("work");
+    };
+    restoreRequestedLane();
+    window.addEventListener("popstate", restoreRequestedLane);
+    return () => window.removeEventListener("popstate", restoreRequestedLane);
+  }, []);
 
   const operationId = (label: string) => `operation.tianyi-golden-loop.${label}.${crypto.randomUUID()}`;
   const ensureConversation = useCallback(async () => {
@@ -47,12 +53,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setProjection(nextProjection);
     setMetadata(Array.isArray(nextMetadata) ? nextMetadata.find((item) => item.id === sessionId) ?? null : nextMetadata);
     const activeCandidate = candidateId ?? nextProjection?.candidates.find((item) => item.state === "handed-off")?.candidateId ?? null;
-    if (activeCandidate) {
-      runtime.setActiveTianyiCandidateId(activeCandidate);
-      try {
-        setReview(await runtime.withConnection((token) => getTianyiCreativeEventReview({ projectId: project.id, sessionId, candidateId: activeCandidate, token })));
-      } catch { setReview(null); }
-    }
+    if (activeCandidate) runtime.setActiveTianyiCandidateId(activeCandidate);
   }, [project, runtime]);
 
   useEffect(() => {
@@ -108,18 +109,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       const result = await runtime.withConnection((token) => handoffTianyiCreativeCandidate({ projectId: project.id, sessionId: runtime.tianyiConversationId!, candidateId, operationId: operationId("handoff"), token }));
       runtime.setActiveTianyiCandidateId(candidateId);
       setProjection(result.projection);
-      setReview(result.eventReview ?? null);
       setLane("work");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "候选未能进入 Work lane。"); }
-    finally { setBusy(false); }
-  };
-
-  const beginImpact = async () => {
-    if (!project || !runtime.tianyiConversationId || !runtime.activeTianyiCandidateId || busy) return;
-    setBusy(true); setError("");
-    try {
-      setReview(await runtime.withConnection((token) => beginTianyiCreativeEventImpact({ projectId: project.id, sessionId: runtime.tianyiConversationId!, candidateId: runtime.activeTianyiCandidateId!, token })));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "影响预览未能建立。"); }
     finally { setBusy(false); }
   };
 
@@ -162,7 +153,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             <dl><div><dt>当前工作目标</dt><dd>{activeCandidate?.summary ?? "从共享候选注册表选择一项"}</dd></div><div><dt>目标故事</dt><dd>{project.title}</dd></div><div><dt>基础版本</dt><dd>{runtime.workVersionLabel ?? "当前主线（尚未建立版本）"}</dd></div><div><dt>ContextPack</dt><dd>{runtime.sharedTianyiReferences.length ? `${runtime.sharedTianyiReferences.length} 个引用` : "作者原话与当前故事范围"}</dd></div></dl>
             <label>工作范围<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">当前故事</option><option value="current-unit">当前单元</option><option value="selected-events">选中事件</option></select></label>
           </div>
-          {review ? <section className="tianyi-impact-card" data-impact-status={review.impact ? "ready" : "pending"}><header><strong>结构化影响预览</strong><span>{review.impact ? "已建立" : "尚未运行"}</span></header><p>{review.reviewContext.safety}</p>{review.impact ? <><ul><li>目标：{review.reviewContext.writeTarget.displayName}</li><li>来源：{review.reviewContext.source.versionLabel}</li><li>候选变化：{review.proposal.summary}</li><li>风险：{review.impact.options.map((option) => option.label).join(" / ")}</li></ul><button type="button" className="primary-action" onClick={openEventLine}>在事件线中打开<ArrowRight /></button></> : <button type="button" className="primary-action" onClick={beginImpact}>打开结构化影响预览</button>}</section> : <p className="tianyi-work-empty">在创意模式选择一个候选，Work lane 会保留目标、基础版本、范围与 ContextPack。</p>}
+          {activeCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <p className="tianyi-work-empty">在创意模式选择一个候选，Work lane 会保留目标、基础版本、范围与 ContextPack。</p>}
         </section>}
 
         {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}

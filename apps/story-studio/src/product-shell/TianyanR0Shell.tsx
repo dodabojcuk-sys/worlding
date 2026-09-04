@@ -111,6 +111,14 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, [activeId, rightWorkSurface.mode]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("tianyiSession");
+    const candidateId = params.get("tianyiCandidate");
+    if (sessionId && sessionId !== props.runtime.tianyiConversationId) props.runtime.setTianyiConversationId(sessionId);
+    if (candidateId && candidateId !== props.runtime.activeTianyiCandidateId) props.runtime.setActiveTianyiCandidateId(candidateId);
+  }, [activeId, locationRevision, props.runtime]);
+
+  useEffect(() => {
     if (rightWorkSurface.mode !== "NONE" && window.matchMedia("(max-width: 90rem)").matches) {
       setDirectoryOpen(false);
     }

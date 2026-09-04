@@ -28,6 +28,7 @@ import { TianyiAgentPanel } from "./TianyiAgentPanel";
 import { TianyiWorkPanel } from "./TianyiWorkPanel";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
+import { TianyiAdoptionPanel } from "../workspace/TianyiAdoptionPanel";
 
 export type TianyiSidebarContextRequest = {
   productMode: "world" | "writing" | "intelligence" | "localization" | "publish";
@@ -316,7 +317,7 @@ export function TianyiSidebar(props: {
       <button type="button" aria-label={t("panel.closeGlobalTianyi")} title={t("panel.closeGlobalTianyi")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
-      {mode === "work" ? <TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

@@ -113,9 +113,9 @@ export function StoryProgressionWorkspace(props: {
     {props.taskNotice ? <p className="story-progression-migration-notice" role="status">{props.taskNotice}</p> : null}
     <nav className="story-progression-controls" aria-label="事件线任务">
       <div className="story-progression-tasks" role="group" aria-label="任务">
-        <TaskButton active={props.task === "story"} icon={<ArrowRight />} label="事件线" onClick={() => props.onTask("story")} />
-        <TaskButton active={props.task === "time"} icon={<Clock3 />} label="时间线" onClick={() => props.onTask("time")} />
-        <TaskButton active={props.task === "audit"} icon={<ShieldCheck />} label="证据审计" onClick={() => props.onTask("audit")} />
+        <TaskButton active={props.task === "story"} icon={<ArrowRight />} label="主故事脊" onClick={() => props.onTask("story")} />
+        <TaskButton active={false} icon={<GitBranch />} label="候选与可能性" onClick={() => { setMoreOpen(true); setScopeOpen(false); }} />
+        <TaskButton active={stagingOpen} icon={<AlertTriangle />} label="待编排与冲突" onClick={() => { props.onTask("story"); setStagingOpen((open) => !open); }} />
       </div>
       <div className="story-progression-actions">
         <button type="button" aria-expanded={scopeOpen} onClick={() => { setScopeOpen((open) => !open); setMoreOpen(false); }}><PanelTopOpen />范围：{props.currentUnitLabel ?? "全书"}<ChevronDown /></button>
@@ -127,7 +127,7 @@ export function StoryProgressionWorkspace(props: {
     </nav>
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
-    {moreOpen ? <section className="story-progression-advanced" aria-label="更多事件线观察"><div><small>仍在同一 /event-line</small><strong>观察图层与路线说明</strong><p>这些入口只改变只读投影，不创建第二套 Event 或叙事顺序。</p></div><button type="button" onClick={() => props.onOpenAdvanced("spine")}><PanelTopOpen />故事结构</button><button type="button" onClick={() => props.onOpenAdvanced("graph")}><GitBranch />关系网络</button><span><Eye />角色视角、关系变化待正式合同后开放</span></section> : null}
+    {moreOpen ? <section className="story-progression-advanced" aria-label="更多事件线观察"><div><small>二级工具 · 仍在同一 /event-line</small><strong>观察、核对与候选说明</strong><p>候选轨迹区别于正式主故事脊；以下入口只改变只读投影，不创建第二套 Event 或叙事顺序。</p></div><button type="button" onClick={() => props.onTask("time")}><Clock3 />时间核对</button><button type="button" onClick={() => props.onTask("audit")}><ShieldCheck />证据审计</button><button type="button" onClick={() => props.onOpenAdvanced("spine")}><PanelTopOpen />故事结构</button><button type="button" onClick={() => props.onOpenAdvanced("graph")}><GitBranch />关系网络</button><span><Eye />角色视角、关系变化按需进入二级观察</span></section> : null}
     {props.task === "perspective" || props.task === "relationship"
       ? <UnavailableTask task={props.task} onBack={() => props.onTask("story")} />
       : props.task === "audit"

@@ -24,7 +24,7 @@ test("sidebar Work is one surface of the shared Work lane and cannot dispatch Pa
 test("Page Agent owns page-scoped prediction controls without owning a second Session", () => {
   assert.match(agent, /MultiNodePredictionPanel/u);
   assert.match(agent, /data-agent-run-preserved="true"/u);
-  assert.match(sidebar, /mode === "work" \? <TianyiWorkPanel[\s\S]*<TianyiAgentPanel/u);
+  assert.match(sidebar, /mode === "work" \? <>[\s\S]*<TianyiWorkPanel[\s\S]*<TianyiAgentPanel/u);
   assert.match(sidebar, /submitWork/u);
   assert.match(sidebar, /submitAgent/u);
   assert.match(sidebar, /data-page-agent-session-owner="none"/u);

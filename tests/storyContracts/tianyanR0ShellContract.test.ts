@@ -126,15 +126,16 @@ test("desktop topbar preserves every global control while keeping one search and
   assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-secondary \{ display: none; \}[\s\S]*shell-topbar-more \{ display: block; \}/);
 });
 
-test("Tianyi keeps isolated-session mode tabs in its title row with a light active indicator", () => {
+test("Tianyi keeps shared Work and page-scoped Agent tabs in its title row with a light active indicator", () => {
   const sidebar = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
   const modeSwitch = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiModeSwitch.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyi-sidebar.css", "utf8");
 
   assert.match(sidebar, /tianyi-sidebar-header[\s\S]*TianyiModeSwitch[\s\S]*panel\.closeGlobalTianyi/);
-  assert.match(sidebar, /data-dialogue-session-id/);
-  assert.match(sidebar, /data-agent-session-id/);
-  assert.doesNotMatch(sidebar, /data-shared-session-id/);
+  assert.match(sidebar, /data-tianyi-conversation-id/);
+  assert.match(sidebar, /data-work-lane="shared"/);
+  assert.match(sidebar, /data-page-agent-session-owner="none"/);
+  assert.doesNotMatch(sidebar, /data-dialogue-session-id|data-agent-session-id|data-shared-session-id/);
   assert.match(modeSwitch, /role="tablist"/);
   assert.match(modeSwitch, /role="tab"/);
   assert.match(modeSwitch, /aria-selected/);

@@ -173,7 +173,7 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
     : {})
 });
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
-const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl });
+const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl, creationSourceSelectionPort });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });
 const providerRootResolution = resolveProviderServerAppDataRoot({
   environment: process.env,
@@ -3475,6 +3475,7 @@ async function handleTianyiRequest(request, response, url) {
     "creative/candidate/event-review/begin-impact": [["projectId", "sessionId", "candidateId"], () => beginTianyiCreativeEventImpact(body)],
     "creative/candidate/event-review/reject": [["projectId", "sessionId", "candidateId"], () => rejectTianyiCreativeEvent(body)],
     "creative/candidate/event-review/confirm": [["projectId", "sessionId", "candidateId", "optionId"], () => confirmTianyiCreativeEvent(body)],
+    "creative/candidate/event-review/undo": [["projectId", "sessionId", "candidateId"], () => undoTianyiCreativeEvent(body)],
     "creative/pause": [["projectId", "sessionId", "operationId"], () => tianyi.pauseTianyiCreativeSession(body)],
     "creative/provider-unavailable": [["projectId", "sessionId", "operationId", "stage", "message"], () => tianyi.markTianyiCreativeProviderUnavailable(body)],
     "creative/recover": [["projectId", "sessionId", "operationId"], () => tianyi.recoverTianyiCreativeSession(body)],
@@ -3620,6 +3621,13 @@ async function confirmTianyiCreativeEvent(body) {
   const input = { sessionId: body.sessionId, candidateId: body.candidateId };
   const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
   return tianyiCreativeEventPort.confirm(project.id, input, projection, body.optionId);
+}
+
+async function undoTianyiCreativeEvent(body) {
+  const project = requireProject(body.projectId);
+  const input = { sessionId: body.sessionId, candidateId: body.candidateId };
+  const projection = await tianyi.readTianyiCreativeProjection({ projectId: project.id, sessionId: body.sessionId });
+  return tianyiCreativeEventPort.undo(project.id, input, projection);
 }
 
 function requireToken(request) {
