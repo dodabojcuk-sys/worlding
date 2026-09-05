@@ -2737,7 +2737,8 @@ export type TianyiAgentRunProjection = {
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
   budget: { maxProviderCalls: number; maxOutputTokens: number; providerCalls: number; estimatedTokens: number };
-  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number; completionTokens: number; totalTokens: number; streamEventCount: number };
+  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; streamEventCount: number };
+  executionIdentity: { requestedProviderId: string | null; requestedModelId: string | null; responseModelId: string | null; runId: string; stepId: string | null };
   permissionProfile: "step-by-step" | "conservative" | "proactive";
   plan: Array<{ stepId: string; title: string; kind: string; classification: "read" | "proposal"; requiredPermission: "none" | "author-approval"; status: string; toolName?: string; error?: string | null }>;
   toolCalls: Array<{ callId: string; toolName: string; classification: "read" | "proposal"; status: string; arguments: Record<string, unknown>; output: Record<string, unknown> | null; receiptId: string | null; error: string | null; startedAt: string; completedAt: string | null }>;
@@ -2753,10 +2754,11 @@ export type TianyiAgentRunProjection = {
   updatedAt: string;
 };
 export type StoryIntakeCandidateProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidate;
-export type StoryIntakeCandidateKindProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidateKind;
+export type StoryIntakeCandidateTypeProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidateType;
 export type StoryIntakeLifecycleStatusProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus;
 
 export type TianyiAgentStreamEvent =
+  | { type: "response-metadata"; responseModelId: string; sequence: number; recordedAt: string }
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
   | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
   | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };

@@ -2,21 +2,21 @@ import { createHash } from "node:crypto";
 
 export const STORY_INTAKE_ENVELOPE_VERSION = "tianyan-story-intake-envelope/v1" as const;
 export const STORY_INTAKE_REQUEST_VERSION = "tianyan-story-intake-request/v1" as const;
-export const STORY_INTAKE_ENVELOPE_MAX_SERIALIZED_LENGTH = 9_000;
-export const STORY_INTAKE_CANDIDATE_KINDS = [
+export const STORY_INTAKE_ENVELOPE_MAX_SERIALIZED_LENGTH = 11_000;
+export const STORY_INTAKE_CANDIDATE_TYPES = [
   "character",
   "item",
   "location",
-  "organization",
-  "rule",
   "event",
   "relation",
-  "storyUnit",
-  "narrativePathMembership"
+  "story_unit",
+  "narrative_path_membership",
+  "unresolved"
 ] as const;
 
-export type StoryIntakeCandidateKind = typeof STORY_INTAKE_CANDIDATE_KINDS[number];
-export type StoryIntakeLifecycleStatus = "pending-review" | "deferred" | "pending-archive" | "rejected";
+export type StoryIntakeCandidateType = typeof STORY_INTAKE_CANDIDATE_TYPES[number];
+export type StoryIntakeLifecycleStatus = "pending-review" | "deferred" | "pending-archive" | "rejected" | "confirmed";
+export type StoryIntakeIdentityDecision = "link_existing" | "propose_new" | "ambiguous";
 export type StoryIntakeSourceRef = { sessionId: string; eventId: string; contentHash: string };
 export type StoryIntakeBaseVersion = { workVersionId: string; revision: number; manifestId: string | null };
 export type StoryIntakeSourceSpan = { start: number; end: number; excerpt: string };
@@ -27,16 +27,22 @@ export type StoryIntakeProposedLink = {
 };
 export type StoryIntakeCandidate = {
   candidateId: string;
-  kind: StoryIntakeCandidateKind;
+  type: StoryIntakeCandidateType;
   proposedName: string | null;
   proposedTitle: string | null;
+  summary: string;
   sourceRef: StoryIntakeSourceRef;
   sourceSpan: StoryIntakeSourceSpan;
+  sourceEvidence: StoryIntakeSourceSpan;
   confidence: number;
   uncertainties: string[];
+  existingEntityMatch: null | { objectId: string; objectType: "character" | "item" | "location"; title: string; revisionToken: string };
+  identityDecision: StoryIntakeIdentityDecision;
   baseVersion: StoryIntakeBaseVersion;
-  proposedLinks: StoryIntakeProposedLink[];
+  proposedRelations: StoryIntakeProposedLink[];
+  warnings: string[];
   lifecycleStatus: StoryIntakeLifecycleStatus;
+  formalApplication: null | { owner: "story-workspace-object"; objectId: string; proposalId: string; receiptId: string; appliedAt: string };
   narrativePath: null | { kind: "main" | "side" | "hidden" | "character" | "item" | "location" | "custom"; label: string };
 };
 export type StoryIntakeEnvelope = {
@@ -48,21 +54,25 @@ export type StoryIntakeEnvelope = {
   sourceRef: StoryIntakeSourceRef;
   baseVersion: StoryIntakeBaseVersion;
   candidates: StoryIntakeCandidate[];
-  provider: { runtime: "pi"; structuredTool: "propose_story_intake"; providerCalls: number };
-  formalStoryWrites: 0;
+  provider: { runtime: "pi"; structuredTool: "propose_story_intake"; providerCalls: number; requestedProviderId: string | null; requestedModelId: string | null; responseModelId: string | null };
+  formalStoryWrites: number;
   createdAt: string;
 };
 
 export type StoryIntakeToolArguments = {
   candidates: Array<{
     localRef: string;
-    kind: StoryIntakeCandidateKind;
+    type: StoryIntakeCandidateType;
     proposedName: string | null;
     proposedTitle: string | null;
+    summary: string;
     sourceSpan: { excerpt: string };
     confidence: number;
     uncertainties: string[];
-    proposedLinks: Array<{ relation: StoryIntakeProposedLink["relation"]; targetLocalRef: string; label: string | null }>;
+    existingEntityId: string | null;
+    identityDecision: StoryIntakeIdentityDecision;
+    proposedRelations: Array<{ relation: StoryIntakeProposedLink["relation"]; targetLocalRef: string; label: string | null }>;
+    warnings: string[];
     narrativePath: StoryIntakeCandidate["narrativePath"];
   }>;
 };
@@ -74,10 +84,10 @@ export type StoryIntakeRequest = {
 
 const ID_PATTERN = /^[a-z0-9]+(?:[._:-][a-z0-9]+)*$/iu;
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
-const KINDS = new Set<string>(STORY_INTAKE_CANDIDATE_KINDS);
+const TYPES = new Set<string>(STORY_INTAKE_CANDIDATE_TYPES);
 const LINKS = new Set<StoryIntakeProposedLink["relation"]>(["precedes", "involves", "occurs-at", "belongs-to-story-unit", "member-of-narrative-path", "related-to"]);
 const PATH_KINDS = new Set<NonNullable<StoryIntakeCandidate["narrativePath"]>["kind"]>(["main", "side", "hidden", "character", "item", "location", "custom"]);
-const NAME_KINDS = new Set<StoryIntakeCandidateKind>(["character", "item", "location", "organization", "rule"]);
+const NAME_TYPES = new Set<StoryIntakeCandidateType>(["character", "item", "location"]);
 
 export function parseStoryIntakeRequest(value: unknown): StoryIntakeRequest | null {
   if (value == null) return null;
@@ -96,6 +106,10 @@ export function buildStoryIntakeEnvelope(input: {
   baseVersion: StoryIntakeBaseVersion;
   toolArguments: unknown;
   providerCalls: number;
+  requestedProviderId?: string | null;
+  requestedModelId?: string | null;
+  responseModelId?: string | null;
+  existingEntities?: Array<{ objectId: string; objectType: "character" | "item" | "location"; title: string; revisionToken: string }>;
   createdAt: string;
 }): StoryIntakeEnvelope {
   const projectId = requireId(input.projectId, "Project identifier", 160);
@@ -111,41 +125,55 @@ export function buildStoryIntakeEnvelope(input: {
   const localRefs = new Set<string>();
   const drafts = args.candidates.map((value, index) => {
     const candidate = requireRecord(value, `Story Intake candidate ${index + 1}`);
-    requireExactKeys(candidate, ["localRef", "kind", "proposedName", "proposedTitle", "sourceSpan", "confidence", "uncertainties", "proposedLinks", "narrativePath"], `Story Intake candidate ${index + 1}`);
+    requireExactKeys(candidate, ["localRef", "type", "proposedName", "proposedTitle", "summary", "sourceSpan", "confidence", "uncertainties", "existingEntityId", "identityDecision", "proposedRelations", "warnings", "narrativePath"], `Story Intake candidate ${index + 1}`);
     const localRef = requireId(candidate.localRef, "Candidate local reference", 80);
     if (localRefs.has(localRef)) throw new Error("Story Intake candidate local references must be unique.");
     localRefs.add(localRef);
-    const kind = requireKind(candidate.kind);
+    const type = requireCandidateType(candidate.type);
     const proposedName = candidate.proposedName === null ? null : requireText(candidate.proposedName, "Candidate proposed name", 160);
     const proposedTitle = candidate.proposedTitle === null ? null : requireText(candidate.proposedTitle, "Candidate proposed title", 200);
-    if (NAME_KINDS.has(kind) ? !proposedName || proposedTitle !== null : !proposedTitle || proposedName !== null) throw new Error("Story Intake candidate name/title does not match its kind.");
+    if (NAME_TYPES.has(type) ? !proposedName || proposedTitle !== null : !proposedTitle || proposedName !== null) throw new Error("Story Intake candidate name/title does not match its type.");
+    const summary = requireText(candidate.summary, "Candidate summary", 800);
     const sourceSpan = parseSourceSpan(candidate.sourceSpan, sourceText);
     const confidence = typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1 ? candidate.confidence : (() => { throw new Error("Story Intake confidence must be between 0 and 1."); })();
     const uncertainties = parseTextList(candidate.uncertainties, "Candidate uncertainties", 1, 8, 320);
-    const proposedLinks = parseToolLinks(candidate.proposedLinks);
-    const narrativePath = parseNarrativePath(candidate.narrativePath, kind);
-    return { localRef, kind, proposedName, proposedTitle, sourceSpan, confidence, uncertainties, proposedLinks, narrativePath };
+    const identityDecision = requireIdentityDecision(candidate.identityDecision);
+    const existingEntityId = candidate.existingEntityId === null ? null : requireId(candidate.existingEntityId, "Existing entity identifier", 180);
+    const existingEntityMatch = existingEntityId === null ? null : (input.existingEntities ?? []).find((entity) => entity.objectId === existingEntityId) ?? (() => { throw new Error("Story Intake existing entity match is outside the authorized project index."); })();
+    if (identityDecision === "link_existing" && !existingEntityMatch) throw new Error("link_existing requires an authorized existing entity match.");
+    if (identityDecision === "propose_new" && existingEntityMatch) throw new Error("propose_new cannot silently link an existing entity.");
+    if (!NAME_TYPES.has(type) && (existingEntityMatch || identityDecision !== "propose_new")) throw new Error("Only entity candidates may make identity-link decisions.");
+    const proposedRelations = parseToolLinks(candidate.proposedRelations);
+    const warnings = parseTextList(candidate.warnings, "Candidate warnings", 0, 8, 320);
+    const narrativePath = parseNarrativePath(candidate.narrativePath, type);
+    return { localRef, type, proposedName, proposedTitle, summary, sourceSpan, confidence, uncertainties, existingEntityMatch, identityDecision, proposedRelations, warnings, narrativePath };
   });
   const candidateIdByLocalRef = new Map(drafts.map((candidate) => [candidate.localRef, deterministicId("candidate.story-intake", runId, candidate.localRef)]));
   const candidates: StoryIntakeCandidate[] = drafts.map((candidate) => ({
     candidateId: candidateIdByLocalRef.get(candidate.localRef)!,
-    kind: candidate.kind,
+    type: candidate.type,
     proposedName: candidate.proposedName,
     proposedTitle: candidate.proposedTitle,
+    summary: candidate.summary,
     sourceRef,
     sourceSpan: candidate.sourceSpan,
+    sourceEvidence: candidate.sourceSpan,
     confidence: candidate.confidence,
     uncertainties: candidate.uncertainties,
+    existingEntityMatch: candidate.existingEntityMatch,
+    identityDecision: candidate.identityDecision,
     baseVersion,
-    proposedLinks: candidate.proposedLinks.map((link) => {
+    proposedRelations: candidate.proposedRelations.map((link) => {
       const targetCandidateId = candidateIdByLocalRef.get(link.targetLocalRef);
-      if (!targetCandidateId) throw new Error(`Story Intake link target does not exist: ${link.targetLocalRef}.`);
+      if (!targetCandidateId) throw new Error(`Story Intake relation target does not exist: ${link.targetLocalRef}.`);
       return { relation: link.relation, targetCandidateId, label: link.label };
     }),
+    warnings: candidate.warnings,
     lifecycleStatus: "pending-review",
+    formalApplication: null,
     narrativePath: candidate.narrativePath
   }));
-  if (!Number.isSafeInteger(input.providerCalls) || input.providerCalls < 1 || input.providerCalls > 4) throw new Error("Story Intake Provider call count is invalid.");
+  if (!Number.isSafeInteger(input.providerCalls) || input.providerCalls < 1 || input.providerCalls > 3) throw new Error("Story Intake Provider call count is invalid.");
   if (!Number.isFinite(Date.parse(input.createdAt))) throw new Error("Story Intake created timestamp is invalid.");
   const envelope: StoryIntakeEnvelope = {
     version: STORY_INTAKE_ENVELOPE_VERSION,
@@ -156,7 +184,7 @@ export function buildStoryIntakeEnvelope(input: {
     sourceRef,
     baseVersion,
     candidates,
-    provider: { runtime: "pi", structuredTool: "propose_story_intake", providerCalls: input.providerCalls },
+    provider: { runtime: "pi", structuredTool: "propose_story_intake", providerCalls: input.providerCalls, requestedProviderId: input.requestedProviderId ?? null, requestedModelId: input.requestedModelId ?? null, responseModelId: input.responseModelId ?? null },
     formalStoryWrites: 0,
     createdAt: new Date(input.createdAt).toISOString()
   };
@@ -164,10 +192,45 @@ export function buildStoryIntakeEnvelope(input: {
   return envelope;
 }
 
-export function updateStoryIntakeCandidateLifecycle(envelope: StoryIntakeEnvelope, candidateId: string, lifecycleStatus: StoryIntakeLifecycleStatus): StoryIntakeEnvelope {
+/** Read-boundary migration only. New envelopes are always serialized with the
+ * canonical v1 `type` values and never write legacy `kind` aliases. */
+export function migrateStoryIntakeEnvelopeV1(value: unknown): StoryIntakeEnvelope | null {
+  if (value == null) return null;
+  const envelope = requireRecord(value, "Story Intake envelope");
+  if (envelope.version !== STORY_INTAKE_ENVELOPE_VERSION || !Array.isArray(envelope.candidates)) throw new Error("Story Intake envelope version is invalid.");
+  const candidates = envelope.candidates.map((rawValue, index) => {
+    const raw = requireRecord(rawValue, `Story Intake persisted candidate ${index + 1}`);
+    const legacyValue = typeof raw.kind === "string" ? raw.kind : raw.type;
+    const type = migrateCandidateType(legacyValue);
+    const { kind: _legacyKind, proposedLinks: legacyLinks, ...rest } = raw;
+    const warnings = Array.isArray(rest.warnings) ? [...rest.warnings] : [];
+    if (legacyValue === "organization" || legacyValue === "rule") warnings.push(`旧候选类型 ${legacyValue} 已迁移为 unresolved；需作者重新归类。`);
+    return {
+      ...rest,
+      type,
+      proposedRelations: Array.isArray(rest.proposedRelations) ? rest.proposedRelations : Array.isArray(legacyLinks) ? legacyLinks : [],
+      warnings
+    } as unknown as StoryIntakeCandidate;
+  });
+  return { ...structuredClone(envelope), candidates } as unknown as StoryIntakeEnvelope;
+}
+
+export function updateStoryIntakeCandidateLifecycle(envelope: StoryIntakeEnvelope, candidateId: string, lifecycleStatus: Exclude<StoryIntakeLifecycleStatus, "confirmed">): StoryIntakeEnvelope {
   if (!(["pending-review", "deferred", "pending-archive", "rejected"] as string[]).includes(lifecycleStatus)) throw new Error("Story Intake lifecycle status is invalid.");
-  if (!envelope.candidates.some((candidate) => candidate.candidateId === candidateId)) throw new Error("Story Intake candidate does not exist.");
-  return { ...structuredClone(envelope), candidates: envelope.candidates.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, lifecycleStatus } : candidate), formalStoryWrites: 0 };
+  const target = envelope.candidates.find((candidate) => candidate.candidateId === candidateId);
+  if (!target) throw new Error("Story Intake candidate does not exist.");
+  if (target.lifecycleStatus === "confirmed") throw new Error("A formally applied Story Intake candidate cannot return to a candidate-only lifecycle.");
+  return { ...structuredClone(envelope), candidates: envelope.candidates.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, lifecycleStatus } : candidate) };
+}
+
+export function confirmStoryIntakeCandidate(envelope: StoryIntakeEnvelope, candidateId: string, application: NonNullable<StoryIntakeCandidate["formalApplication"]>): StoryIntakeEnvelope {
+  const candidate = envelope.candidates.find((item) => item.candidateId === candidateId);
+  if (!candidate) throw new Error("Story Intake candidate does not exist.");
+  if (candidate.lifecycleStatus === "confirmed" && candidate.formalApplication) return structuredClone(envelope);
+  if (candidate.lifecycleStatus === "rejected") throw new Error("A rejected Story Intake candidate must be restored before formal confirmation.");
+  if (!["character", "item", "location"].includes(candidate.type)) throw new Error("This candidate type does not yet have a safe formal Story Intake writer adapter.");
+  if (candidate.identityDecision !== "propose_new") throw new Error("Only an explicit propose_new identity decision can create a new formal object in this slice.");
+  return { ...structuredClone(envelope), candidates: envelope.candidates.map((item) => item.candidateId === candidateId ? { ...item, lifecycleStatus: "confirmed", formalApplication: structuredClone(application) } : item), formalStoryWrites: envelope.formalStoryWrites + 1 };
 }
 
 function parseSourceRef(value: unknown): StoryIntakeSourceRef {
@@ -194,7 +257,7 @@ function parseSourceSpan(value: unknown, sourceText: string): StoryIntakeSourceS
   return { start, end, excerpt };
 }
 
-function parseToolLinks(value: unknown): StoryIntakeToolArguments["candidates"][number]["proposedLinks"] {
+function parseToolLinks(value: unknown): StoryIntakeToolArguments["candidates"][number]["proposedRelations"] {
   if (!Array.isArray(value) || value.length > 24) throw new Error("Story Intake proposed links are invalid.");
   return value.map((item) => {
     const link = requireRecord(item, "Story Intake proposed link");
@@ -204,9 +267,9 @@ function parseToolLinks(value: unknown): StoryIntakeToolArguments["candidates"][
   });
 }
 
-function parseNarrativePath(value: unknown, kind: StoryIntakeCandidateKind): StoryIntakeCandidate["narrativePath"] {
-  if (kind !== "narrativePathMembership") {
-    if (value !== null) throw new Error("Only narrativePathMembership candidates may define a Narrative Path.");
+function parseNarrativePath(value: unknown, type: StoryIntakeCandidateType): StoryIntakeCandidate["narrativePath"] {
+  if (type !== "narrative_path_membership") {
+    if (value !== null) throw new Error("Only narrative_path_membership candidates may define a Narrative Path.");
     return null;
   }
   const input = requireRecord(value, "Narrative Path candidate");
@@ -215,9 +278,19 @@ function parseNarrativePath(value: unknown, kind: StoryIntakeCandidateKind): Sto
   return { kind: input.kind as NonNullable<StoryIntakeCandidate["narrativePath"]>["kind"], label: requireText(input.label, "Narrative Path label", 120) };
 }
 
-function requireKind(value: unknown): StoryIntakeCandidateKind {
-  if (typeof value !== "string" || !KINDS.has(value)) throw new Error("Story Intake candidate kind is invalid.");
-  return value as StoryIntakeCandidateKind;
+function requireCandidateType(value: unknown): StoryIntakeCandidateType {
+  if (typeof value !== "string" || !TYPES.has(value)) throw new Error("Story Intake candidate type is invalid.");
+  return value as StoryIntakeCandidateType;
+}
+function migrateCandidateType(value: unknown): StoryIntakeCandidateType {
+  if (value === "storyUnit") return "story_unit";
+  if (value === "narrativePathMembership" || value === "storyline") return "narrative_path_membership";
+  if (value === "organization" || value === "rule") return "unresolved";
+  return requireCandidateType(value);
+}
+function requireIdentityDecision(value: unknown): StoryIntakeIdentityDecision {
+  if (value !== "link_existing" && value !== "propose_new" && value !== "ambiguous") throw new Error("Story Intake identity decision is invalid.");
+  return value;
 }
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error(`${label} must be a plain JSON object.`);

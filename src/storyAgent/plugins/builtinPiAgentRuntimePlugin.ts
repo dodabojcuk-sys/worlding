@@ -21,12 +21,14 @@ export function createBuiltinPiAgentRuntimePlugin(): AgentRuntimePlugin {
   });
 }
 export type PiTextStreamEvent =
+  | { type: "response-metadata"; responseModelId: string; sequence: number; recordedAt: string }
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
   | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
   | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };
 
 export type PiProviderUsage = { promptTokens: number; completionTokens: number; totalTokens: number };
 export type PiTextProviderEvent =
+  | { type: "response-metadata"; responseModelId: string }
   | { type: "chunk"; text: string; finishReason: string | null; usage: PiProviderUsage | null }
   | { type: "tool-call-start"; id: string; name: string; index: number }
   | { type: "tool-call-delta"; id: string; name: string; index: number; argumentsDelta: string }
@@ -60,11 +62,12 @@ export type PiTextAgentRequest = {
   retry: boolean;
   signal?: AbortSignal;
   tools?: readonly PiTextAgentTool[];
+  requiredToolName?: string | null;
   authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>;
-  openProviderStream(input: { messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
+  openProviderStream(input: { messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
   onEvent?(event: PiTextStreamEvent): Promise<void> | void;
 };
-export type PiTextAgentResult = { text: string; providerCalls: number; traceId: string | null; usage: PiProviderUsage; latencyMs: number };
+export type PiTextAgentResult = { text: string; providerCalls: number; traceId: string | null; responseModelId: string | null; usage: PiProviderUsage | null; latencyMs: number };
 
 export class PiAgentAdapterError extends Error {
   readonly code: "cancelled" | "provider-unavailable" | "provider-failed" | "tool-denied" | "tool-approval-required" | "invalid-tool-call" | "unknown";
@@ -94,6 +97,7 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
   async function run(request: PiTextAgentRequest): Promise<PiTextAgentResult> {
     const key = scopeKey(request);
     if (active.has(key)) throw new PiAgentAdapterError({ code: "unknown", message: "同一工作版本中的 Agent Run 已在执行。", retryable: false });
+    if (request.requiredToolName && !(request.tools ?? []).some((tool) => tool.name === request.requiredToolName)) throw new PiAgentAdapterError({ code: "invalid-tool-call", message: "必需工具不在本次运行白名单中。", retryable: false });
     const startedAt = monotonicNow();
     const [{ Agent }, { AssistantMessageEventStream, Type, contentText }] = await Promise.all([import("@earendil-works/pi-agent-core"), import("@earendil-works/pi-ai")]);
     const model = { id: request.modelId, name: request.modelId, api: "openai-completions" as const, provider: request.providerId, baseUrl: "http://127.0.0.1/pi-provider-gateway", reasoning: false, input: ["text" as const], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32_000, maxTokens: request.maxOutputTokens };
@@ -103,7 +107,8 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
     let terminalBridgeError: PiAgentAdapterError | null = null;
     let pendingApproval: { toolName: string; arguments: Record<string, unknown> } | null = null;
     const approvalReceipts = new Map<string, string>();
-    let usage: PiProviderUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    let usage: PiProviderUsage | null = null;
+    let responseModelId: string | null = null;
     const emit = async (event: Omit<PiTextStreamEvent, "sequence" | "recordedAt">) => {
       sequence += 1;
       await request.onEvent?.({ ...event, sequence, recordedAt: now() } as PiTextStreamEvent);
@@ -126,7 +131,7 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
       streamFn: async (_selectedModel, context, options = {}) => {
         providerCalls += 1;
         const stream = new AssistantMessageEventStream();
-        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
+        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, async onResponseModel(value) { responseModelId = value; await emit({ type: "response-metadata", responseModelId: value }); }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
         return stream;
       }
     });
@@ -146,7 +151,7 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
       if (!assistant) throw new PiAgentAdapterError({ code: "provider-failed", message: "Pi Agent 没有返回可读取的文本回合。", retryable: true });
       if (assistant.stopReason === "aborted") throw new PiAgentAdapterError({ code: "cancelled", message: "本次 Agent 运行已取消。", retryable: false });
       if (assistant.stopReason === "error") throw new PiAgentAdapterError({ code: "provider-failed", message: assistant.errorMessage || "Provider 回合失败。", retryable: true });
-      return { text: contentText(assistant.content).trim(), providerCalls, traceId, usage, latencyMs: Math.max(0, Math.round(monotonicNow() - startedAt)) };
+      return { text: contentText(assistant.content).trim(), providerCalls, traceId, responseModelId, usage, latencyMs: Math.max(0, Math.round(monotonicNow() - startedAt)) };
     } catch (cause) {
       throw normalizePiError(cause, request.signal?.aborted === true);
     } finally {
@@ -165,7 +170,7 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
   return Object.freeze({ id: "pi.agent-core" as const, packageVersion: "0.84.4" as const, run, cancel });
 }
 
-async function bridgeProviderStream(input: { stream: { push(event: unknown): void; end(result?: unknown): void }; request: PiTextAgentRequest; messages: PiGatewayMessage[]; providerCall: number; retry: boolean; signal?: AbortSignal; model: { api: "openai-completions"; provider: string; id: string }; onTrace(value: string | null): void; onUsage(value: PiProviderUsage): void; onTerminalError(error: PiAgentAdapterError): void }) {
+async function bridgeProviderStream(input: { stream: { push(event: unknown): void; end(result?: unknown): void }; request: PiTextAgentRequest; messages: PiGatewayMessage[]; providerCall: number; retry: boolean; signal?: AbortSignal; model: { api: "openai-completions"; provider: string; id: string }; onTrace(value: string | null): void; onResponseModel(value: string): void | Promise<void>; onUsage(value: PiProviderUsage): void; onTerminalError(error: PiAgentAdapterError): void }) {
   const emptyUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
   const content: Array<{ type: "text"; text: string } | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown>; partialJson?: string }> = [];
   const providerToolCalls = new Map<string, { contentIndex: number; id: string; name: string; argumentsJson: string; ended: boolean }>();
@@ -185,6 +190,9 @@ async function bridgeProviderStream(input: { stream: { push(event: unknown): voi
     const provider = await input.request.openProviderStream({
       messages: input.messages,
       tools: (input.request.tools ?? []).map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false } })),
+      ...(input.providerCall === 1 && input.request.requiredToolName
+        ? { toolChoice: { type: "function" as const, function: { name: input.request.requiredToolName } } }
+        : {}),
       providerCall: input.providerCall,
       retry: input.retry,
       signal: input.signal
@@ -193,6 +201,7 @@ async function bridgeProviderStream(input: { stream: { push(event: unknown): voi
     let finishReason = "stop";
     for await (const event of provider.events) {
       if (input.signal?.aborted) throw abortError();
+      if (event.type === "response-metadata") { await input.onResponseModel(event.responseModelId); continue; }
       if (event.type === "tool-call-malformed") throw new PiAgentAdapterError({ code: "invalid-tool-call", message: `Provider 工具帧无效：${event.reason}。`, retryable: false });
       if (event.type === "tool-call-aborted") throw abortError();
       if (event.type === "tool-call-start") {

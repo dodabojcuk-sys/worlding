@@ -38,6 +38,10 @@
 .tianyi-intake-progress button svg, .tianyi-intake-failure button svg { width: 14px; }
 .tianyi-intake-explanation { color: var(--color-text-secondary); line-height: 1.55; }
 .tianyi-intake-boundary { margin: 14px 0; border-block: 1px solid var(--color-border-subtle); padding: 10px 0; flex-wrap: wrap; }
+.tianyi-intake-runtime-audit { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.tianyi-intake-runtime-audit div { min-width: 0; padding: 8px; border-radius: 8px; background: var(--color-canvas); }
+.tianyi-intake-runtime-audit dt { color: var(--color-text-muted); font-size: 11px; }
+.tianyi-intake-runtime-audit dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 12px; }
 .tianyi-intake-groups { display: grid; gap: 15px; }
 .tianyi-intake-groups > section > header { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
 .tianyi-intake-groups h3 { margin: 0; font-size: 14px; }
@@ -48,6 +52,8 @@
 .tianyi-intake-candidate[data-candidate-state="pending-archive"] { border-color: var(--color-accent); }
 .tianyi-intake-candidate > header { display: flex; justify-content: space-between; gap: 10px; }
 .tianyi-intake-candidate > header span, .tianyi-intake-path { color: var(--color-text-muted); font-size: 11px; }
+.tianyi-intake-candidate > p { margin: 7px 0; line-height: 1.5; }
+.tianyi-intake-candidate .tianyi-intake-identity { color: var(--color-text-secondary); font-size: 12px; }
 .tianyi-intake-candidate blockquote { margin: 9px 0; border-left: 2px solid var(--color-accent); padding: 7px 9px; background: var(--color-surface); }
 .tianyi-intake-candidate blockquote p { margin: 4px 0 0; line-height: 1.5; }
 .tianyi-intake-candidate details { color: var(--color-text-secondary); font-size: 12px; }
@@ -139,4 +145,4 @@
 .is-spinning { animation: tianyi-spin 1s linear infinite; }
 @keyframes tianyi-spin { to { transform: rotate(360deg); } }
 @media (max-width: 76rem) { .tianyi-workspace-body { grid-template-columns: minmax(0, 1fr); } .tianyi-current-context { display: none; } .tianyi-workspace-header > p { display: none; } .tianyi-candidate-grid { grid-template-columns: 1fr; } }
-@media (max-width: 50rem) { .tianyi-workspace-header { grid-template-columns: 1fr auto; padding-inline: 14px; } .tianyi-conversation-column { padding: 16px 14px 24px; } .tianyi-work-contract { grid-template-columns: 1fr; } .tianyi-work-contract dl, .tianyi-structured-diff dl, .tianyi-adoption-receipt dl, .tianyi-intake-groups > section > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div i { width: 2px; height: 12px; margin-left: 14px; } }
+@media (max-width: 50rem) { .tianyi-workspace-header { grid-template-columns: 1fr auto; padding-inline: 14px; } .tianyi-conversation-column { padding: 16px 14px 24px; } .tianyi-work-contract { grid-template-columns: 1fr; } .tianyi-work-contract dl, .tianyi-structured-diff dl, .tianyi-adoption-receipt dl, .tianyi-intake-groups > section > div, .tianyi-intake-runtime-audit { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div i { width: 2px; height: 12px; margin-left: 14px; } }

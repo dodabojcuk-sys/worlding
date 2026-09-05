@@ -276,7 +276,7 @@ try {
 }
 
 async function assertTianyiStoryIntake(page, consoleProblems) {
-  const storyText = "故事单元：旧灯塔。\n主线：林昭调查港口连续熄灯。\n支线：父亲留下的守夜记录指向多年前的失踪案。\n林昭带着雾灯匣进入旧灯塔，在值班室找到守夜记录，随后决定前往雾港追查失踪船只。";
+  const storyText = "林昭在雾港灯塔亲眼看见守夜钟失踪。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟。旧城航线因此中断，林昭决定追查守夜钟的去向。";
   await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "Story Intake E2E", folderSlug: fixtureProjectId });
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
   const libraryBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -301,18 +301,20 @@ async function assertTianyiStoryIntake(page, consoleProblems) {
   const retry = intake.getByRole("button", { name: "重试", exact: true });
   await retry.waitFor();
   await retry.click();
-  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed").catch(async (error) => {
+    const status = await intake.getAttribute("data-story-intake-status");
+    const visibleState = (await intake.innerText()).slice(0, 2_000);
+    throw new Error(`Story Intake retry did not complete; status=${status}; visible=${visibleState}`, { cause: error });
+  });
 
-  for (const label of ["人物", "物品", "地点", "事件", "关系", "故事单元", "故事路径"]) await intake.getByRole("heading", { name: label, exact: true }).waitFor();
-  assert.match(await intake.innerText(), /林昭/u);
-  assert.match(await intake.innerText(), /父亲/u);
-  assert.match(await intake.innerText(), /雾灯匣/u);
-  assert.match(await intake.innerText(), /守夜记录/u);
-  assert.match(await intake.innerText(), /旧灯塔/u);
-  assert.match(await intake.innerText(), /值班室/u);
-  assert.match(await intake.innerText(), /雾港/u);
+  for (const label of ["人物", "物品", "地点", "事件", "故事单元", "故事路径成员", "未解问题"]) await intake.getByRole("heading", { name: label, exact: true }).waitFor();
+  for (const label of ["林昭", "阿芜", "顾澜", "守夜钟", "雾港灯塔"]) assert.match(await intake.innerText(), new RegExp(label, "u"));
+  assert.match(await intake.innerText(), /亲历|亲眼/u);
+  assert.match(await intake.innerText(), /被告知/u);
+  assert.match(await intake.innerText(), /误解/u);
   assert.match(await intake.innerText(), /原文证据/u);
-  assert.match(await intake.innerText(), /仅候选.*正式故事写入 0/u);
+  assert.match(await intake.innerText(), /Canon 写入 0.*已确认资料对象 0/u);
+  assert.match(await intake.innerText(), /请求[\s\S]*deterministic-text-fixture/u);
 
   const firstCandidate = intake.locator(".tianyi-intake-candidate").first();
   const decisionResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
@@ -322,15 +324,23 @@ async function assertTianyiStoryIntake(page, consoleProblems) {
   const archivedCandidate = intake.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first();
   await archivedCandidate.waitFor();
   assert.match(await archivedCandidate.innerText(), /已送入待归档.*未采纳/u);
+  const awuCandidate = intake.locator(".tianyi-intake-candidate").filter({ hasText: "阿芜" }).first();
+  const confirmResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
+  await awuCandidate.getByRole("button", { name: "逐项确认", exact: true }).click();
+  const confirmResponse = await confirmResponsePromise;
+  assert.equal(confirmResponse.status(), 200, `Story Intake confirmation failed: ${await confirmResponse.text()}`);
+  await awuCandidate.getByText(/已由作者确认为资料对象/u).waitFor();
   const conversationId = await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id");
   await reloadProduct(page);
   await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
   assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id"), conversationId, "Refresh must recover the same TianyiConversation.");
   await page.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first().getByText(/已送入待归档.*未采纳/u).waitFor();
+  await page.locator('.tianyi-intake-candidate[data-candidate-state="confirmed"]').getByText(/已由作者确认为资料对象/u).waitFor();
 
   const libraryAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  assert.deepEqual(libraryAfter.data, libraryBefore.data, "Story Intake candidates must not create formal library owners.");
+  assert.equal(libraryAfter.data.objects.length, libraryBefore.data.objects.length + 1, "one explicit confirmation must create exactly one formal object");
+  assert.equal(libraryAfter.data.objects.some((object) => object.type === "character" && object.title === "阿芜"), true);
   assert.deepEqual(canonAfter.data, canonBefore.data, "Story Intake candidates must not enter Canon/Event projection.");
   assert.deepEqual(consoleProblems, [], "Story Intake stop, retry and refresh must not add browser console problems.");
 }

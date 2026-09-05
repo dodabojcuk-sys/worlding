@@ -41,11 +41,14 @@ test("Pi adapter streams deterministic gateway chunks and reports bounded observ
 test("Pi adapter routes every tool call through the injected approval boundary", async () => {
   let calls = 0;
   let executions = 0;
+  const toolChoices: unknown[] = [];
   const adapter = createPiTextAgentAdapter();
   const result = await adapter.run(request({
     tools: [{ name: "read_context_manifest", label: "读取上下文", description: "只读", inputSchema: { type: "object", properties: {}, additionalProperties: false }, async execute() { executions += 1; return { sourceCount: 1 }; } }],
+    requiredToolName: "read_context_manifest",
     async authorizeTool(input) { return { allowed: input.toolName === "read_context_manifest" }; },
-    async openProviderStream() {
+    async openProviderStream(input) {
+      toolChoices.push(input.toolChoice ?? null);
       calls += 1;
       return calls === 1
         ? { traceId: "trace.tool", events: events([
@@ -61,6 +64,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   assert.equal(result.text, "已读取");
   assert.equal(calls, 2);
   assert.equal(executions, 1);
+  assert.deepEqual(toolChoices, [{ type: "function", function: { name: "read_context_manifest" } }, null]);
 });
 
 test("Pi adapter carries native event-graph candidate frames through author approval to the Relation owner port", async () => {

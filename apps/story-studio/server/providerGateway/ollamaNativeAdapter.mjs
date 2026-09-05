@@ -89,6 +89,7 @@ async function* consumeJsonLines(body, complete) {
   const decoder = new TextDecoder();
   let buffer = "";
   let doneSeen = false;
+  let modelSeen = false;
   try {
     while (true) {
       const result = await reader.read();
@@ -101,6 +102,10 @@ async function* consumeJsonLines(body, complete) {
         let payload;
         try { payload = JSON.parse(line); } catch { throw providerGatewayError("invalid-response"); }
         if (payload?.error) throw providerGatewayError("invalid-response");
+        if (!modelSeen && typeof payload?.model === "string" && payload.model.trim()) {
+          modelSeen = true;
+          yield Object.freeze({ type: "response-metadata", responseModelId: payload.model.trim().slice(0, 240) });
+        }
         const text = typeof payload?.message?.content === "string" ? payload.message.content : "";
         if (text) yield Object.freeze({ type: "chunk", text, finishReason: null, usage: null });
         if (payload?.done === true) {

@@ -428,6 +428,14 @@ Canon、Event、WorldState、来源、分支与版本身份、权限、持久化
 
 角色 Agent、物品 Agent、地点 Agent、组织 Agent 和规则 Agent 也不等于各自常驻一个 Pi Agent 实例。它们的稳定身份、状态、记忆、关系和知识边界属于天衍；是否以及何时调用某个运行底座，由当前任务、权限、预算和作者意图决定。
 
+### Story Intake Envelope v1
+
+作者明确执行“整理为故事候选”时，Pi Runtime 只能通过白名单结构化工具 `propose_story_intake` 形成一个版本化候选包。v1 新写入唯一使用以下 `type`：`character`、`item`、`location`、`event`、`relation`、`story_unit`、`narrative_path_membership`、`unresolved`。旧值 `storyUnit`、`narrativePathMembership`、`storyline` 只允许在读取边界迁移，不能继续写入。
+
+`story_unit` 是作者组织故事的叙事单元；`narrative_path_membership` 只是某个 Event 或 StoryUnit 属于同一版本内主线、支线、暗线等路径的候选成员关系，不是正式故事线实体，也不建立第二个 StoryUnit、Storyline、Event 或版本 Owner。每个候选必须绑定精确原文证据、来源、`BaseVersion`、置信度、不确定性、提议关系和候选生命周期。Provider 自由文本只能作为说明，不能替代工具结果或自动转成候选。
+
+候选包在作者审查前对 Canon、Event、Relation、StoryUnit、NarrativeArrangement、WorkVersion 和资料对象的正式写入均为零。“送入待归档”仍是候选生命周期；只有作者逐项确认且存在对应唯一 Writer 适配时，目标 Writer 才可处理该一项，其他未确认、拒绝或不受支持类型继续保持候选。
+
 ## 1. Agent 的共同结构
 
 每个 Agent 都可以拥有：

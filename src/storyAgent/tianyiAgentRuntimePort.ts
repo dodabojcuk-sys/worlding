@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 import type { TianyiSimulationContextPack } from "./tianyiSimulationSourceContract.ts";
-import { updateStoryIntakeCandidateLifecycle, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
+import { confirmStoryIntakeCandidate, migrateStoryIntakeEnvelopeV1, updateStoryIntakeCandidateLifecycle, type StoryIntakeCandidate, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -90,7 +90,8 @@ export type TianyiAgentRunProjection = {
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
   budget: { maxProviderCalls: number; maxOutputTokens: number; providerCalls: number; estimatedTokens: number };
-  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number; completionTokens: number; totalTokens: number; streamEventCount: number };
+  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; streamEventCount: number };
+  executionIdentity: { requestedProviderId: string | null; requestedModelId: string | null; responseModelId: string | null; runId: string; stepId: string | null };
   permissionProfile: TianyiAgentPermissionProfile;
   plan: TianyiAgentPlanStep[];
   toolCalls: TianyiAgentToolCall[];
@@ -306,10 +307,11 @@ export type TianyiAgentRuntimeDependencies = {
   now?: () => string;
   persistence: TianyiAgentRuntimePersistence;
   buildContextManifest(input: { projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextRequest?: Record<string, unknown> }): Promise<TianyiAgentContextManifest>;
-  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string; storyIntakeEnvelope?: StoryIntakeEnvelope | null }>;
+  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; onExecutionIdentity(identity: { providerId: string; profileId: string; modelId: string }): Promise<void>; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string; responseModelId: string | null; storyIntakeEnvelope?: StoryIntakeEnvelope | null }>;
   cancelProvider?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<boolean> | boolean;
   fixtureResponse?(input: { task: string; contextManifest: TianyiAgentContextManifest; steering: string[] }): Promise<{ text: string; candidates: TianyiAgentCandidate[] }>;
   handoffCandidate?(input: { projectId: string; sessionId: string; runId: string; candidate: TianyiAgentCandidate; operationId: string }): Promise<{ owner: string; id: string; revision: number | null }>;
+  confirmStoryIntakeCandidate?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidate: StoryIntakeCandidate; envelope: StoryIntakeEnvelope; operationId: string }): Promise<NonNullable<StoryIntakeCandidate["formalApplication"]>>;
 };
 
 export type TianyiAgentRuntimePort = {
@@ -358,7 +360,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
         label: kind === "snapshot" ? "运行状态回执" : kind === "stream" ? "流式事件回执" : kind === "tool-call" ? "工具回执" : kind === "approval" ? "审批回执" : kind === "steering" ? "纠正回执" : "运行回执",
         operationId,
         recordedAt
-      }]
+      }].slice(-4)
     });
     const receipt = await dependencies.persistence.appendEvent({ version: "tianyi-agent-runtime-event/v1", runId: next.runId, workVersionId: next.workVersionId, operationId, kind, ...(streamEvent ? { streamEvent } : {}), projection: next, recordedAt });
     if (receipt.alreadyCompleted) {
@@ -403,8 +405,9 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, workVersionId, sessionId: input.sessionId, task,
       currentPage, contextRequest: input.contextRequest ?? null, status: "planning", contextManifest: null, resultSummary: null,
       model: { providerId: null, profileId: null, modelId: null, runtime: dependencies.runProvider ? "pi" : "fixture" },
-      budget: { maxProviderCalls: storyIntake ? 2 : 1, maxOutputTokens: storyIntake ? 2_048 : 512, providerCalls: 0, estimatedTokens: 0 },
-      observability: { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
+      budget: { maxProviderCalls: storyIntake ? 3 : 1, maxOutputTokens: storyIntake ? 1_024 : 512, providerCalls: 0, estimatedTokens: 0 },
+      observability: { traceId: null, latencyMs: null, promptTokens: null, completionTokens: null, totalTokens: null, streamEventCount: 0 },
+      executionIdentity: { requestedProviderId: null, requestedModelId: null, responseModelId: null, runId, stepId: null },
       permissionProfile, plan: planFor(runId, storyIntake), toolCalls: [], approvals: [], steering: [], candidates: [], storyIntakeEnvelope: null, receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp
     };
     return save({ ...projection, status: storyIntake ? "running" : "awaiting_author" }, input.operationId);
@@ -456,6 +459,13 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
           maxOutputTokens: run.budget.maxOutputTokens,
           retry: run.status === "failed" || run.budget.providerCalls > 0 || run.toolCalls.some((call) => call.status === "approved"),
           signal,
+          async onExecutionIdentity(identity) {
+            run = await save({
+              ...run,
+              model: { providerId: identity.providerId, profileId: identity.profileId, modelId: identity.modelId, runtime: "pi" },
+              executionIdentity: { ...run.executionIdentity, requestedProviderId: identity.providerId, requestedModelId: identity.modelId, stepId: step.stepId }
+            }, deterministicId("operation.tianyi-agent.execution-identity", run.runId, operationId));
+          },
           async authorizeTool(call) {
             const definition = validateTianyiAgentToolCall(call);
             if (definition.name === "read_context_manifest") {
@@ -473,7 +483,12 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
             const toolCalls = event.type === "tool-call-end"
               ? run.toolCalls.map((call) => call.toolName === event.toolName && call.status === "approved" ? { ...call, status: event.isError ? "failed" as const : "completed" as const, error: event.isError ? "受控产品工具执行失败。" : null, completedAt: event.recordedAt } : call)
               : run.toolCalls;
-            run = await save({ ...run, toolCalls, observability: { ...run.observability, streamEventCount: run.observability.streamEventCount + 1 } }, `${operationId}.stream.${event.sequence}`, "stream", event);
+            run = await save({
+              ...run,
+              toolCalls,
+              executionIdentity: event.type === "response-metadata" ? { ...run.executionIdentity, responseModelId: event.responseModelId } : run.executionIdentity,
+              observability: { ...run.observability, streamEventCount: run.observability.streamEventCount + 1 }
+            }, `${operationId}.stream.${event.sequence}`, "stream", event);
             await onEvent?.(event);
           }
         });
@@ -484,8 +499,10 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
           ...run,
           model: { providerId: result.providerId, profileId: result.profileId, modelId: result.modelId, runtime },
           budget: { ...run.budget, providerCalls: run.budget.providerCalls + providerCalls },
-          observability: { ...run.observability, traceId: result.traceId, latencyMs: result.latencyMs, ...result.usage },
-          storyIntakeEnvelope: result.storyIntakeEnvelope ?? run.storyIntakeEnvelope
+          observability: { ...run.observability, traceId: result.traceId, latencyMs: result.latencyMs, ...(result.usage ?? { promptTokens: null, completionTokens: null, totalTokens: null }) },
+          executionIdentity: { requestedProviderId: result.providerId, requestedModelId: result.modelId, responseModelId: result.responseModelId, runId: run.runId, stepId: step.stepId },
+          storyIntakeEnvelope: result.storyIntakeEnvelope ?? run.storyIntakeEnvelope,
+          error: null
         };
       } catch (cause) {
         const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
@@ -519,6 +536,11 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       const next = { ...run, status: "completed" as const, stopReason: "作者可继续审查候选；本次 Agent 分析已完成。" };
       return save(next, input.operationId);
     } catch (cause) {
+      // Provider callbacks durably save execution identity and stream progress.
+      // Reload that latest projection before recording a terminal failure so an
+      // exception cannot overwrite already-persisted evidence with stale state.
+      const latest = await load({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId });
+      if (latest && latest.revision > run.revision) run = latest;
       const message = cause instanceof Error ? cause.message : "Agent 运行未完成。";
       const source = cause as { code?: unknown; retryable?: unknown; toolCall?: { toolName?: unknown; arguments?: unknown } } | null;
       const code = typeof source?.code === "string" ? source.code : "unknown";
@@ -602,7 +624,12 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
   async function decideStoryIntakeCandidate(input: Parameters<TianyiAgentRuntimePort["decideStoryIntakeCandidate"]>[0]): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
     if (!run.storyIntakeEnvelope) throw new Error("Story Intake 候选包尚未生成。");
-    const storyIntakeEnvelope = updateStoryIntakeCandidateLifecycle(run.storyIntakeEnvelope, input.candidateId, input.lifecycleStatus);
+    const candidate = run.storyIntakeEnvelope.candidates.find((item) => item.candidateId === input.candidateId);
+    if (!candidate) throw new Error("Story Intake 候选不存在。");
+    if (input.lifecycleStatus === "confirmed" && candidate.lifecycleStatus === "confirmed" && candidate.formalApplication) return run;
+    const storyIntakeEnvelope = input.lifecycleStatus === "confirmed"
+      ? confirmStoryIntakeCandidate(run.storyIntakeEnvelope, input.candidateId, await (dependencies.confirmStoryIntakeCandidate?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId, candidate, envelope: run.storyIntakeEnvelope, operationId: input.operationId }) ?? Promise.reject(new Error("当前没有可用的 Story Intake 正式 Writer 适配器。"))))
+      : updateStoryIntakeCandidateLifecycle(run.storyIntakeEnvelope, input.candidateId, input.lifecycleStatus);
     return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
   }
 
@@ -624,8 +651,9 @@ function normalizeRecoveredProjection(projection: TianyiAgentRunProjection, work
     ...projection,
     workVersionId: legacy.workVersionId ?? workVersionId,
     contextManifest: projection.contextManifest ? { ...projection.contextManifest, workVersionId: projection.contextManifest.workVersionId ?? workVersionId } : null,
-    observability: legacy.observability ?? { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
-    storyIntakeEnvelope: projection.storyIntakeEnvelope ?? null
+    observability: legacy.observability ?? { traceId: null, latencyMs: null, promptTokens: null, completionTokens: null, totalTokens: null, streamEventCount: 0 },
+    executionIdentity: projection.executionIdentity ?? { requestedProviderId: projection.model.providerId, requestedModelId: projection.model.modelId, responseModelId: null, runId: projection.runId, stepId: null },
+    storyIntakeEnvelope: migrateStoryIntakeEnvelopeV1(projection.storyIntakeEnvelope ?? null)
   };
 }
 function isStoryIntakeContextRequest(value: unknown): boolean {

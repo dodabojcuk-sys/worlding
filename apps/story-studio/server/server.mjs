@@ -422,6 +422,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       error.retryable = false;
       throw error;
     }
+    await input.onExecutionIdentity({ providerId: profile.providerId, profileId: profile.id, modelId: profile.modelId });
     const storyIntakeContext = input.contextManifest.storyIntakeSource;
     const contextPayload = input.contextManifest.simulationContextPack;
     if (!storyIntakeContext && (!contextPayload || contextPayload.sourceState === "INSUFFICIENT")) {
@@ -442,6 +443,14 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const baseVersion = rootVersion
       ? { workVersionId: rootVersion.identity.workVersionId, revision: rootVersion.identity.currentRevision, manifestId: rootVersion.identity.headManifestId }
       : { workVersionId: "work-version.unversioned", revision: 0, manifestId: null };
+    const existingEntities = storyIntakeContext
+      ? ["character", "item", "location"].flatMap((objectType) => operations.listWorldObjects({ projectId: input.projectId, type: objectType }).map((object) => ({
+        objectId: object.id,
+        objectType,
+        title: object.title,
+        revisionToken: object.revisionToken
+      }))).slice(0, 120)
+      : [];
     let capturedStoryIntakeEnvelope = null;
     let storyIntakeToolExecutions = 0;
     const storyIntakeTools = storyIntakeContext ? [createStoryIntakeProposalTool({
@@ -451,6 +460,9 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       sourceRef: storyIntakeContext.sourceRef,
       sourceText: storyIntakeEvent.visibleContent,
       baseVersion,
+      requestedProviderId: profile.providerId,
+      requestedModelId: profile.modelId,
+      existingEntities,
       onEnvelope(envelope) {
         storyIntakeToolExecutions += 1;
         if (storyIntakeToolExecutions > 1) throw new Error("Story Intake 每次运行只允许提交一个候选包。");
@@ -461,7 +473,12 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       "请只根据下方已保存的作者原话进行结构化识别。",
       "必须恰好调用一次 propose_story_intake；正式候选仅来自该工具。",
       "sourceSpan.excerpt 必须是原文中逐字存在的连续片段。uncertainties 必须非空，不得伪装确定性。",
-      "narrativePathMembership 只表示同一故事版本内的主线、支线、暗线或其他组织轨道；不得创建 IF、女娲、翻译、POV 或改编版本。",
+      "Event 是世界中发生的稳定事实；story_unit 是作者组织故事的叙事单元；narrative_path_membership 只表示 Event/StoryUnit 在同版本故事路径中的成员关系。三者不得混同。",
+      "摘要中要保留知情边界：亲历、被告知、推断、误解必须分开表达；误解不是 Canon。",
+      existingEntities.length
+        ? `以下是当前项目授权的已有对象索引。只有精确指向其 objectId 才可 link_existing；同名不确定时必须 ambiguous：${JSON.stringify(existingEntities.map(({ objectId, objectType, title }) => ({ objectId, objectType, title })))}`
+        : "当前没有授权的已有对象索引；实体识别只能 propose_new。",
+      "narrative_path_membership 只表示同一故事版本内的主线、支线、暗线或其他组织轨道；它不是故事线实体，不得创建 IF、女娲、翻译、POV 或改编版本。",
       "不得创建或修改任何正式 Agent、Event、Relation、StoryUnit、NarrativePlacement、WorkVersion 或 Canon。不输出思维过程。",
       "\n作者原话：\n" + storyIntakeEvent.visibleContent
     ].join("\n") : JSON.stringify(contextPayload);
@@ -477,10 +494,11 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       providerId: profile.providerId,
       profileId: profile.id,
       modelId: profile.modelId,
-      maxOutputTokens: Math.min(storyIntakeContext ? 2_048 : 512, input.maxOutputTokens),
+      maxOutputTokens: Math.min(storyIntakeContext ? 1_024 : 512, input.maxOutputTokens),
       retry: input.retry,
       signal: input.signal,
       tools: storyIntakeTools,
+      requiredToolName: storyIntakeContext ? "propose_story_intake" : null,
       authorizeTool: input.authorizeTool,
       async openProviderStream(providerInput) {
         if (agentFakeProviderStreamAllowed && storyIntakeContext) {
@@ -526,18 +544,19 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
           profileId: profile.id,
           messages: providerInput.messages,
           tools: providerInput.tools,
-          maxOutputTokens: Math.min(storyIntakeContext ? 2_048 : 512, input.maxOutputTokens),
+          toolChoice: providerInput.toolChoice,
+          maxOutputTokens: Math.min(storyIntakeContext ? 1_024 : 512, input.maxOutputTokens),
           signal: providerInput.signal,
           idempotencyKey: `tianyi-agent.${input.projectId}.${input.workVersionId}.${input.runId}.attempt-${stableHash(input.attemptId).slice(0, 16)}.${providerInput.providerCall}`,
           budgetScope: `tianyi-agent:${input.projectId}:${input.workVersionId}`,
-          toolLoopTurn: false,
+          toolLoopTurn: providerInput.providerCall > 1,
           retry: providerInput.retry
         });
       },
       onEvent: input.onEvent
     });
     const storyIntakeEnvelope = capturedStoryIntakeEnvelope
-      ? { ...capturedStoryIntakeEnvelope, provider: { ...capturedStoryIntakeEnvelope.provider, providerCalls: result.providerCalls } }
+      ? { ...capturedStoryIntakeEnvelope, provider: { ...capturedStoryIntakeEnvelope.provider, providerCalls: result.providerCalls, requestedProviderId: profile.providerId, requestedModelId: profile.modelId, responseModelId: result.responseModelId } }
       : null;
     return { providerId: profile.providerId, profileId: profile.id, modelId: profile.modelId, ...result, text: result.text.slice(0, 6_000), storyIntakeEnvelope };
   },
@@ -581,6 +600,69 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       }
     }));
     return { owner: "agent-recognition-proposal", id: proposalResult.proposal.proposalId, revision: proposalResult.proposal.revision };
+  },
+  async confirmStoryIntakeCandidate(input) {
+    const project = requireProject(input.projectId);
+    if (input.envelope.projectId !== project.id || input.envelope.sessionId !== input.sessionId || input.envelope.runId !== input.runId) throw new Error("Story Intake 候选包与当前运行不匹配。");
+    const currentRoot = creationSourceSelectionPort.resolveRootWorkVersion(project.id);
+    const currentBaseVersion = currentRoot
+      ? { workVersionId: currentRoot.identity.workVersionId, revision: currentRoot.identity.currentRevision, manifestId: currentRoot.identity.headManifestId }
+      : { workVersionId: "work-version.unversioned", revision: 0, manifestId: null };
+    if (JSON.stringify(currentBaseVersion) !== JSON.stringify(input.envelope.baseVersion)) throw new Error("Story Intake BaseVersion 已过期；请重新整理后再确认。");
+    if (!["character", "item", "location"].includes(input.candidate.type) || input.candidate.identityDecision !== "propose_new") throw new Error("该候选尚没有安全的正式 Writer 适配器。");
+    const title = input.candidate.proposedName?.trim();
+    if (!title) throw new Error("Story Intake 实体候选缺少名称。");
+    const duplicates = operations.listWorldObjects({ projectId: project.id, type: input.candidate.type }).filter((object) => [object.title, ...object.aliases].some((label) => label.normalize("NFC") === title.normalize("NFC")));
+    if (duplicates.length) throw new Error("发现同名对象；需要作者先完成身份合并决定。");
+    recordAuthorInitiatedAction(project.id, "library-write", "story-intake-candidate", [input.candidate.candidateId], "author");
+    const now = new Date().toISOString();
+    const proposalResult = await runAsyncProductOperation(() => createAgentRecognitionProposal({
+      workspacePath: path.join(rootPath, project.id),
+      proposal: {
+        projectId: project.id,
+        storyId: `story.${project.id}`,
+        tianyiSessionId: input.sessionId,
+        sourceEventId: input.envelope.sourceRef.eventId,
+        sourceReceiptId: `receipt.story-intake.${input.envelope.sourceRef.contentHash.slice(0, 24)}`,
+        sourceWorkspace: "tianyi-story-intake",
+        objectKind: input.candidate.type,
+        suggestedName: title,
+        suggestedFields: {
+          summary: input.candidate.summary,
+          confidence: input.candidate.confidence,
+          proposedRelations: input.candidate.proposedRelations,
+          warnings: input.candidate.warnings,
+          requestedModel: input.envelope.provider.requestedModelId,
+          responseModel: input.envelope.provider.responseModelId
+        },
+        evidence: [{ sourceRef: `${input.sessionId}:${input.envelope.sourceRef.eventId}`, excerpt: input.candidate.sourceEvidence.excerpt }],
+        uncertainties: input.candidate.uncertainties,
+        duplicateMatches: [],
+        now
+      }
+    }));
+    const application = await agentProposalOperations.confirmObject({
+      projectId: project.id,
+      proposalId: proposalResult.proposal.proposalId,
+      expectedProposalRevision: proposalResult.proposal.revision,
+      operationId: input.operationId,
+      object: {
+        objectType: input.candidate.type,
+        title,
+        status: "active",
+        tags: ["天意 Story Intake"],
+        aliases: [],
+        body: `# ${title}\n\n${input.candidate.summary}\n\n## 来源证据\n\n${input.candidate.sourceEvidence.excerpt}`
+      },
+      now
+    });
+    return {
+      owner: "story-workspace-object",
+      objectId: application.receipt.targetObjectRef.objectId,
+      proposalId: application.proposal.proposalId,
+      receiptId: application.receipt.operationId,
+      appliedAt: application.receipt.appliedAt
+    };
   }
 });
 
@@ -3847,27 +3929,23 @@ function referencesHiddenEvent(value, hiddenEventIds) {
 }
 
 function storyIntakeFixtureArguments(sourceText) {
-  const containsProbe = ["林昭", "父亲", "雾灯匣", "守夜记录", "旧灯塔", "值班室", "雾港"].every((fragment) => sourceText.includes(fragment));
+  const containsProbe = ["林昭", "阿芜", "顾澜", "雾港灯塔", "守夜钟"].every((fragment) => sourceText.includes(fragment));
   if (!containsProbe) {
     const excerpt = sourceText.trim().slice(0, 1_200);
-    return { candidates: [{ localRef: "event-1", kind: "event", proposedName: null, proposedTitle: "待审查的故事事件", sourceSpan: { excerpt }, confidence: 0.5, uncertainties: ["原文需要作者进一步确认结构边界。"], proposedLinks: [], narrativePath: null }] };
+    return { candidates: [{ localRef: "unresolved-1", type: "unresolved", proposedName: null, proposedTitle: "待解析的故事内容", summary: "本地测试夹具未包含对该文本的预设识别。", sourceSpan: { excerpt }, confidence: 0.2, uncertainties: ["需要真实 Pi Runtime 进行结构化识别。"], existingEntityId: null, identityDecision: "propose_new", proposedRelations: [], warnings: ["这是明确的测试夹具输出，不是 AI 结果。"], narrativePath: null }] };
   }
-  const candidate = (localRef, kind, proposedName, proposedTitle, excerpt, confidence, uncertainties, proposedLinks = [], narrativePath = null) => ({ localRef, kind, proposedName, proposedTitle, sourceSpan: { excerpt }, confidence, uncertainties, proposedLinks, narrativePath });
+  const candidate = (localRef, type, proposedName, proposedTitle, summary, excerpt, confidence, uncertainties, proposedRelations = [], narrativePath = null, warnings = []) => ({ localRef, type, proposedName, proposedTitle, summary, sourceSpan: { excerpt }, confidence, uncertainties, existingEntityId: null, identityDecision: "propose_new", proposedRelations, warnings, narrativePath });
   return { candidates: [
-    candidate("character-linzhao", "character", "林昭", null, "林昭", 0.99, ["身份背景未展开。"]),
-    candidate("character-father", "character", "父亲", null, "父亲", 0.9, ["姓名与状态未知。"]),
-    candidate("item-fog-lamp-box", "item", "雾灯匣", null, "雾灯匣", 0.99, ["来源与功能未知。"]),
-    candidate("item-watch-record", "item", "守夜记录", null, "守夜记录", 0.99, ["完整内容待核实。"]),
-    candidate("location-old-lighthouse", "location", "旧灯塔", null, "旧灯塔", 0.99, ["地理位置未知。"]),
-    candidate("location-duty-room", "location", "值班室", null, "值班室", 0.98, ["所属地点待确认。"]),
-    candidate("location-fog-harbor", "location", "雾港", null, "雾港", 0.99, ["是否等同港口未知。"]),
-    candidate("story-unit-old-lighthouse", "storyUnit", null, "旧灯塔", "故事单元：旧灯塔", 0.99, ["单元边界未说明。"]),
-    candidate("event-enter-lighthouse", "event", null, "林昭进入旧灯塔", "林昭带着雾灯匣进入旧灯塔", 0.98, ["世界时间未知。"]),
-    candidate("event-find-record", "event", null, "林昭找到守夜记录", "在值班室找到守夜记录", 0.98, ["发现内容未知。"]),
-    candidate("event-depart-fog-harbor", "event", null, "林昭决定前往雾港", "随后决定前往雾港追查失踪船只", 0.98, ["尚未确认到达。"]),
-    candidate("relation-event-order", "relation", null, "找到记录后决定前往雾港", "在值班室找到守夜记录，随后决定前往雾港追查失踪船只", 0.97, ["仅确认先后，非因果。"], [{ relation: "related-to", targetLocalRef: "event-find-record", label: "前" }, { relation: "related-to", targetLocalRef: "event-depart-fog-harbor", label: "后" }]),
-    candidate("path-main", "narrativePathMembership", null, "主线：调查港口连续熄灯", "主线：林昭调查港口连续熄灯", 0.99, ["正式编排待确认。"], [], { kind: "main", label: "调查港口连续熄灯" }),
-    candidate("path-side", "narrativePathMembership", null, "支线：守夜记录与失踪案", "支线：父亲留下的守夜记录指向多年前的失踪案", 0.98, ["具体关系未确定。"], [], { kind: "side", label: "守夜记录与失踪案" })
+    candidate("c-linzhao", "character", "林昭", null, "亲历失踪并决定追查。", "林昭", 0.99, ["背景未知。"]),
+    candidate("c-awu", "character", "阿芜", null, "被告知后误解顾澜。", "阿芜", 0.99, ["信息源为码头工人。"], [{ relation: "related-to", targetLocalRef: "e-missing", label: "被告知" }, { relation: "related-to", targetLocalRef: "c-gulan", label: "误解" }], null, ["误解不是事实。"]),
+    candidate("c-gulan", "character", "顾澜", null, "被阿芜误认为偷钟者。", "顾澜", 0.98, ["是否参与未知。"]),
+    candidate("i-bell", "item", "守夜钟", null, "失踪物品。", "守夜钟", 0.99, ["去向未知。"]),
+    candidate("l-lighthouse", "location", "雾港灯塔", null, "失踪发生地。", "雾港灯塔", 0.99, ["地点层级未知。"]),
+    candidate("e-missing", "event", null, "林昭目击守夜钟失踪", "林昭亲历的失踪事件。", "林昭在雾港灯塔亲眼看见守夜钟失踪", 0.98, ["世界时间未知。"]),
+    candidate("e-investigate", "event", null, "林昭决定追查", "林昭作出追查决定。", "林昭决定追查守夜钟的去向", 0.99, ["行动尚未发生。"], [{ relation: "related-to", targetLocalRef: "e-missing", label: "在失踪后" }]),
+    candidate("u-bell", "story_unit", null, "守夜钟失踪", "失踪至追查的叙事单元。", sourceText, 0.9, ["单元边界待确认。"]),
+    candidate("p-main", "narrative_path_membership", null, "主线：追查守夜钟", "同版本故事路径成员候选。", "林昭决定追查守夜钟的去向", 0.92, ["成员待确认。"], [], { kind: "main", label: "追查守夜钟" }),
+    candidate("x-thief", "unresolved", null, "守夜钟由谁取走", "真实取钟者未知。", "却误以为顾澜偷走了钟", 0.99, ["顾澜仅是误解对象。"], [], null, ["不得推定顾澜偷钟。"])
   ] };
 }
 

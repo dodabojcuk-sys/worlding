@@ -1,4 +1,4 @@
-import { Archive, ArrowRight, BookOpen, CircleStop, FilePlus2, History, Link2, LoaderCircle, Paperclip, RotateCcw, Send, Sparkles, X } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, Check, CircleStop, FilePlus2, History, Link2, LoaderCircle, Paperclip, RotateCcw, Send, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -15,7 +15,7 @@ import {
   recoverTianyiAgentRun,
   startTianyiAgentRun,
   streamTianyiAgentRun,
-  type StoryIntakeCandidateKindProjection,
+  type StoryIntakeCandidateTypeProjection,
   type StoryIntakeCandidateProjection,
   type StoryIntakeLifecycleStatusProjection,
   type TianyiAgentRunProjection,
@@ -208,7 +208,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const activeCandidate = useMemo(() => projection?.candidates.find((item) => item.candidateId === runtime.activeTianyiCandidateId) ?? null, [projection, runtime.activeTianyiCandidateId]);
   const intakeGroups = useMemo(() => {
     const candidates = intakeRun?.storyIntakeEnvelope?.candidates ?? [];
-    return STORY_INTAKE_GROUP_ORDER.map((kind) => ({ kind, candidates: candidates.filter((candidate) => candidate.kind === kind) })).filter((group) => STORY_INTAKE_PRIMARY_GROUPS.has(group.kind) || group.candidates.length > 0);
+    return STORY_INTAKE_GROUP_ORDER.map((type) => ({ type, candidates: candidates.filter((candidate) => candidate.type === type) })).filter((group) => STORY_INTAKE_PRIMARY_GROUPS.has(group.type) || group.candidates.length > 0);
   }, [intakeRun]);
   const draft = lane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft;
   const setDraft = lane === "creative" ? runtime.setCreativeComposerDraft : runtime.setWorkComposerDraft;
@@ -240,8 +240,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             {intakeStreamText ? <p className="tianyi-intake-explanation">{intakeStreamText}</p> : null}
             {intakeRun.error ? <div className="tianyi-intake-failure" role="alert"><p>{intakeRun.error.message}</p>{intakeRun.error.retryable ? <button type="button" onClick={retryStoryIntake}><RotateCcw />重试</button> : null}</div> : null}
             {intakeRun.storyIntakeEnvelope ? <>
-              <div className="tianyi-intake-boundary"><span>仅候选 · 正式故事写入 0</span><span>基于 {intakeRun.storyIntakeEnvelope.baseVersion.workVersionId}@r{intakeRun.storyIntakeEnvelope.baseVersion.revision}</span></div>
-              <div className="tianyi-intake-groups">{intakeGroups.map((group) => <section key={group.kind} data-intake-kind={group.kind}><header><h3>{storyIntakeGroupLabel(group.kind)}</h3><span>{group.candidates.length}</span></header><div>{group.candidates.length ? group.candidates.map((candidate) => <StoryIntakeCandidateCard key={candidate.candidateId} candidate={candidate} busy={busy} onDecision={decideIntakeCandidate} />) : <p className="tianyi-intake-empty">本轮未识别出该类候选</p>}</div></section>)}</div>
+              <div className="tianyi-intake-boundary"><span>Canon 写入 0 · 已确认资料对象 {intakeRun.storyIntakeEnvelope.formalStoryWrites}</span><span>基于 {intakeRun.storyIntakeEnvelope.baseVersion.workVersionId}@r{intakeRun.storyIntakeEnvelope.baseVersion.revision}</span></div>
+              <dl className="tianyi-intake-runtime-audit" aria-label="Pi 运行回执">
+                <div><dt>请求</dt><dd>{intakeRun.executionIdentity.requestedProviderId ?? "unknown"} / {intakeRun.executionIdentity.requestedModelId ?? "unknown"}</dd></div>
+                <div><dt>响应模型</dt><dd>{intakeRun.executionIdentity.responseModelId ?? "unknown"}</dd></div>
+                <div><dt>Run / Step</dt><dd>{intakeRun.executionIdentity.runId} / {intakeRun.executionIdentity.stepId ?? "unknown"}</dd></div>
+                <div><dt>耗时</dt><dd>{intakeRun.observability.latencyMs === null ? "unknown" : `${intakeRun.observability.latencyMs} ms`}</dd></div>
+                <div><dt>Token</dt><dd>{intakeRun.observability.totalTokens === null ? "unknown" : intakeRun.observability.totalTokens}</dd></div>
+                <div><dt>失败码</dt><dd>{intakeRun.error?.code ?? "none"}</dd></div>
+              </dl>
+              <div className="tianyi-intake-groups">{intakeGroups.map((group) => <section key={group.type} data-intake-type={group.type}><header><h3>{storyIntakeGroupLabel(group.type)}</h3><span>{group.candidates.length}</span></header><div>{group.candidates.length ? group.candidates.map((candidate) => <StoryIntakeCandidateCard key={candidate.candidateId} candidate={candidate} busy={busy} onDecision={decideIntakeCandidate} />) : <p className="tianyi-intake-empty">本轮未识别出该类候选</p>}</div></section>)}</div>
             </> : null}
           </section> : null}
           {projection?.summary ? <article className="tianyi-summary-card"><strong>{t("tianyi.workspace.summary")}</strong><p>{projection.summary}</p><small>{t("tianyi.workspace.source")}: {projection.summarySourceRefs[0]?.eventId.slice(0, 12)} · {t(projection.summaryState === "current" ? "tianyi.workspace.currentVersion" : "tianyi.workspace.refreshSummary")}</small></article> : null}
@@ -272,9 +280,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   </main>;
 }
 
-const STORY_INTAKE_GROUP_ORDER: StoryIntakeCandidateKindProjection[] = ["character", "item", "location", "organization", "rule", "event", "relation", "storyUnit", "narrativePathMembership"];
-const STORY_INTAKE_PRIMARY_GROUPS = new Set<StoryIntakeCandidateKindProjection>(["character", "item", "location", "event", "relation", "storyUnit", "narrativePathMembership"]);
-function storyIntakeGroupLabel(kind: StoryIntakeCandidateKindProjection): string { return ({ character: "人物", item: "物品", location: "地点", organization: "组织", rule: "规则", event: "事件", relation: "关系", storyUnit: "故事单元", narrativePathMembership: "故事路径" } satisfies Record<StoryIntakeCandidateKindProjection, string>)[kind]; }
+const STORY_INTAKE_GROUP_ORDER: StoryIntakeCandidateTypeProjection[] = ["character", "item", "location", "event", "relation", "story_unit", "narrative_path_membership", "unresolved"];
+const STORY_INTAKE_PRIMARY_GROUPS = new Set<StoryIntakeCandidateTypeProjection>(STORY_INTAKE_GROUP_ORDER);
+function storyIntakeGroupLabel(type: StoryIntakeCandidateTypeProjection): string { return ({ character: "人物", item: "物品", location: "地点", event: "事件", relation: "关系", story_unit: "故事单元", narrative_path_membership: "故事路径成员", unresolved: "未解问题" } satisfies Record<StoryIntakeCandidateTypeProjection, string>)[type]; }
 function storyIntakeStatusLabel(run: TianyiAgentRunProjection): string { return ({ idle: "尚未开始", planning: "准备中", awaiting_author: "等待作者", running: "真实运行中", paused: "已停止", completed: "已完成", failed: "失败 · 原话已保留", cancelled: "已停止 · 可重新发起" } satisfies Record<TianyiAgentRunProjection["status"], string>)[run.status]; }
 
 function StoryIntakeCandidateCard(props: { candidate: StoryIntakeCandidateProjection; busy: boolean; onDecision(candidateId: string, status: StoryIntakeLifecycleStatusProjection): void }) {
@@ -282,10 +290,12 @@ function StoryIntakeCandidateCard(props: { candidate: StoryIntakeCandidateProjec
   const title = candidate.proposedName ?? candidate.proposedTitle ?? "未命名候选";
   return <article className="tianyi-intake-candidate" data-candidate-state={candidate.lifecycleStatus}>
     <header><strong>{title}</strong><span>{Math.round(candidate.confidence * 100)}%</span></header>
+    <p>{candidate.summary}</p>
+    <p className="tianyi-intake-identity">身份判定：{candidate.identityDecision === "propose_new" ? "建议新建" : candidate.identityDecision === "link_existing" ? `关联已有对象 ${candidate.existingEntityMatch?.title ?? ""}` : "有歧义，需作者决定"}</p>
     {candidate.narrativePath ? <p className="tianyi-intake-path">同版本路径 · {candidate.narrativePath.label}</p> : null}
     <blockquote><small>原文证据 {candidate.sourceSpan.start}–{candidate.sourceSpan.end}</small><p>{candidate.sourceSpan.excerpt}</p></blockquote>
-    <details><summary>不确定性与提议链接</summary><ul>{candidate.uncertainties.map((uncertainty) => <li key={uncertainty}>{uncertainty}</li>)}</ul>{candidate.proposedLinks.length ? <p>{candidate.proposedLinks.length} 条待审链接</p> : null}</details>
-    <footer>{candidate.lifecycleStatus === "pending-archive" ? <span><Archive />已送入待归档 · 未采纳</span> : candidate.lifecycleStatus === "rejected" ? <span>已拒绝</span> : <><button type="button" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "rejected")}><X />拒绝</button><button type="button" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "deferred")}>暂时保留</button><button type="button" className="primary-action" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "pending-archive")}><Archive />送入待归档</button></>}</footer>
+    <details><summary>不确定性、警告与提议关系</summary><ul>{candidate.uncertainties.map((uncertainty) => <li key={uncertainty}>{uncertainty}</li>)}{candidate.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>{candidate.proposedRelations.length ? <p>{candidate.proposedRelations.length} 条待审关系</p> : null}</details>
+    <footer>{candidate.lifecycleStatus === "confirmed" ? <span><Check />已由作者确认为资料对象 · 回执 {candidate.formalApplication?.receiptId}</span> : candidate.lifecycleStatus === "pending-archive" ? <span><Archive />已送入待归档 · 未采纳</span> : candidate.lifecycleStatus === "rejected" ? <span>已拒绝</span> : <><button type="button" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "rejected")}><X />拒绝</button><button type="button" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "deferred")}>暂时保留</button><button type="button" className="primary-action" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "pending-archive")}><Archive />送入待归档</button>{["character", "item", "location"].includes(candidate.type) && candidate.identityDecision === "propose_new" ? <button type="button" disabled={props.busy} onClick={() => props.onDecision(candidate.candidateId, "confirmed")}><Check />逐项确认</button> : <span>当前类型仍只能保留为候选</span>}</>}</footer>
   </article>;
 }
 
