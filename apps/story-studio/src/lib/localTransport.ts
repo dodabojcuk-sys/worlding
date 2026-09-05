@@ -2732,6 +2732,7 @@ export type TianyiAgentRunProjection = {
     estimatedTokens: number;
     compaction: { state: "none" | "available" | "applied"; summaryVersion: number; preservedAnchors: string[]; receiptId: string | null };
     simulationContextPack?: { snapshotId: string; authorIntent: string; intent: string; sourceState: string; entryPoint: string; sources: Array<{ sourceId: string; sourceRole: string; authorityLevel: string; displayTitle: string }>; omitted: Array<{ sourceId: string; reason: string }>; estimatedTokens: number; maxProviderCalls: 1 } | null;
+    storyIntakeSource?: { version: "tianyan-story-intake-context/v1"; sourceRef: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeSourceRef; sourceLength: number } | null;
   } | null;
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
@@ -2743,6 +2744,7 @@ export type TianyiAgentRunProjection = {
   approvals: Array<{ stepId: string; decision: "approved" | "rejected"; operationId: string; receiptId: string; recordedAt: string }>;
   steering: Array<{ instruction: string; operationId: string; recordedAt: string }>;
   candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; sourceRefs: string[]; uncertainties: string[]; targetOwnerKind: string; state: string; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>;
+  storyIntakeEnvelope: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeEnvelope | null;
   receipts: Array<{ receiptId: string; kind: string; label: string; operationId: string; recordedAt: string }>;
   stopReason: string | null;
   error: { category: string; code: string; message: string; retryable: boolean; retryBoundary: "none" | "author-explicit" } | null;
@@ -2750,6 +2752,9 @@ export type TianyiAgentRunProjection = {
   createdAt: string;
   updatedAt: string;
 };
+export type StoryIntakeCandidateProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidate;
+export type StoryIntakeCandidateKindProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidateKind;
+export type StoryIntakeLifecycleStatusProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus;
 
 export type TianyiAgentStreamEvent =
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
@@ -2796,6 +2801,7 @@ export async function recoverTianyiAgentRun(input: { projectId: string; workVers
 export async function getTianyiAgentRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/projection?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
 export async function getTianyiAgentRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRuntimeEvent[]> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRuntimeEvent[]>(`${basePath}/tianyi-agent/run/events?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
 export async function handoffTianyiAgentCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
+export async function decideTianyiStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/story-intake/candidate/decision`, { method: "POST", token, body }); }
 
 export type TianyiCreativeSourceRef = { sessionId: string; eventId: string; contentHash: string };
 export type TianyiCreativeProjection = { version: "tianyi-creative-session-projection/v1"; sessionId: string | null; sessionContentHash: string; lifecycle: "idle" | "capturing" | "responding" | "extracting" | "review-ready" | "paused" | "recovering" | "provider-unavailable" | "completed" | "archived"; archived: boolean; originals: Array<TianyiCreativeSourceRef & { text: string; recordedAt: string }>; responses: Array<{ eventId: string; text: string; runtime: "fixture" | "provider"; recordedAt: string }>; summary: string | null; themes: string[]; openQuestions: string[]; summarySourceRefs: TianyiCreativeSourceRef[]; summaryState: "missing" | "current" | "stale"; candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; uncertainties: string[]; sourceExcerpt: string; targetOwnerKind: string; duplicateHints: string[]; reviewStatus: "pending" | "rejected" | "deferred" | "handed-off"; sourceRefs: TianyiCreativeSourceRef[]; state: "pending" | "rejected" | "deferred" | "handed-off"; revision: number; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>; pendingCount: number; pendingCandidateRefs: string[]; unresolvedCount: number; lastSafePoint: { eventId: string; sequence: number; contentHash: string } | null; providerUnavailable: { stage: "response" | "extraction"; message: string; retryable: boolean } | null };

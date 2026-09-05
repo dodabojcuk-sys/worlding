@@ -26,6 +26,37 @@
 .tianyi-summary-card, .tianyi-impact-card, .tianyi-work-contract { border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-surface); padding: 16px; margin-bottom: 14px; }
 .tianyi-summary-card p { margin: 8px 0; }
 .tianyi-summary-card small { color: var(--color-text-muted); }
+.tianyi-fixture-notice { border: 1px dashed var(--color-warning, #b7791f); border-radius: 9px; padding: 9px 12px; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-warning, #b7791f) 7%, transparent); }
+.tianyi-intake-run { border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-border-subtle)); border-radius: 14px; background: var(--color-surface); padding: 16px; margin-bottom: 16px; }
+.tianyi-intake-run > header, .tianyi-intake-boundary, .tianyi-intake-progress, .tianyi-intake-failure { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tianyi-intake-run > header p { margin: 4px 0 0; color: var(--color-text-muted); font-size: 12px; }
+.tianyi-intake-run > header > span, .tianyi-intake-boundary span { border-radius: 999px; padding: 4px 8px; background: var(--color-accent-soft); color: var(--color-accent); font-size: 11px; }
+.tianyi-intake-progress, .tianyi-intake-failure { margin-top: 12px; padding: 10px; border-radius: 9px; background: var(--color-canvas); color: var(--color-text-secondary); }
+.tianyi-intake-progress svg { width: 17px; color: var(--color-accent); }
+.tianyi-intake-progress span { flex: 1; }
+.tianyi-intake-progress button, .tianyi-intake-failure button { border: 1px solid var(--color-border); background: var(--color-surface); color: inherit; border-radius: 7px; padding: 7px 9px; display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+.tianyi-intake-progress button svg, .tianyi-intake-failure button svg { width: 14px; }
+.tianyi-intake-explanation { color: var(--color-text-secondary); line-height: 1.55; }
+.tianyi-intake-boundary { margin: 14px 0; border-block: 1px solid var(--color-border-subtle); padding: 10px 0; flex-wrap: wrap; }
+.tianyi-intake-groups { display: grid; gap: 15px; }
+.tianyi-intake-groups > section > header { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.tianyi-intake-groups h3 { margin: 0; font-size: 14px; }
+.tianyi-intake-groups > section > header span { color: var(--color-text-muted); font-size: 12px; }
+.tianyi-intake-groups > section > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.tianyi-intake-empty { grid-column: 1 / -1; margin: 0; border: 1px dashed var(--color-border-subtle); border-radius: 9px; padding: 10px; color: var(--color-text-muted); font-size: 12px; }
+.tianyi-intake-candidate { min-width: 0; border: 1px solid var(--color-border-subtle); border-radius: 10px; padding: 12px; background: var(--color-canvas); }
+.tianyi-intake-candidate[data-candidate-state="pending-archive"] { border-color: var(--color-accent); }
+.tianyi-intake-candidate > header { display: flex; justify-content: space-between; gap: 10px; }
+.tianyi-intake-candidate > header span, .tianyi-intake-path { color: var(--color-text-muted); font-size: 11px; }
+.tianyi-intake-candidate blockquote { margin: 9px 0; border-left: 2px solid var(--color-accent); padding: 7px 9px; background: var(--color-surface); }
+.tianyi-intake-candidate blockquote p { margin: 4px 0 0; line-height: 1.5; }
+.tianyi-intake-candidate details { color: var(--color-text-secondary); font-size: 12px; }
+.tianyi-intake-candidate details ul { padding-left: 18px; }
+.tianyi-intake-candidate footer { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tianyi-intake-candidate footer button, .tianyi-intake-candidate footer span { border: 1px solid var(--color-border); border-radius: 7px; padding: 6px 8px; background: var(--color-surface); color: inherit; display: inline-flex; align-items: center; gap: 5px; }
+.tianyi-intake-candidate footer button { cursor: pointer; }
+.tianyi-intake-candidate footer button.primary-action { background: var(--color-accent); color: var(--color-text-on-structure); border-color: var(--color-accent); }
+.tianyi-intake-candidate footer svg { width: 13px; }
 .tianyi-candidate-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .tianyi-candidate-grid article { min-width: 0; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-surface); padding: 15px; display: flex; flex-direction: column; gap: 10px; }
 .tianyi-candidate-grid article[data-candidate-state="deferred"] { border-style: dashed; background: color-mix(in srgb, var(--color-accent-soft) 34%, var(--color-surface)); }
@@ -108,4 +139,4 @@
 .is-spinning { animation: tianyi-spin 1s linear infinite; }
 @keyframes tianyi-spin { to { transform: rotate(360deg); } }
 @media (max-width: 76rem) { .tianyi-workspace-body { grid-template-columns: minmax(0, 1fr); } .tianyi-current-context { display: none; } .tianyi-workspace-header > p { display: none; } .tianyi-candidate-grid { grid-template-columns: 1fr; } }
-@media (max-width: 50rem) { .tianyi-workspace-header { grid-template-columns: 1fr auto; padding-inline: 14px; } .tianyi-conversation-column { padding: 16px 14px 24px; } .tianyi-work-contract { grid-template-columns: 1fr; } .tianyi-work-contract dl, .tianyi-structured-diff dl, .tianyi-adoption-receipt dl { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div i { width: 2px; height: 12px; margin-left: 14px; } }
+@media (max-width: 50rem) { .tianyi-workspace-header { grid-template-columns: 1fr auto; padding-inline: 14px; } .tianyi-conversation-column { padding: 16px 14px 24px; } .tianyi-work-contract { grid-template-columns: 1fr; } .tianyi-work-contract dl, .tianyi-structured-diff dl, .tianyi-adoption-receipt dl, .tianyi-intake-groups > section > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div { grid-template-columns: 1fr; } .event-line-candidate-trajectory > div i { width: 2px; height: 12px; margin-left: 14px; } }

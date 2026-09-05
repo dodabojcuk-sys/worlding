@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 import type { TianyiSimulationContextPack } from "./tianyiSimulationSourceContract.ts";
+import { updateStoryIntakeCandidateLifecycle, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -34,6 +35,7 @@ export type TianyiAgentContextManifest = {
     receiptId: string | null;
   };
   simulationContextPack?: TianyiSimulationContextPack | null;
+  storyIntakeSource?: { version: "tianyan-story-intake-context/v1"; sourceRef: StoryIntakeSourceRef; sourceLength: number } | null;
 };
 
 export type TianyiAgentStreamEvent = AgentRuntimeStreamEvent;
@@ -95,6 +97,7 @@ export type TianyiAgentRunProjection = {
   approvals: Array<{ stepId: string; decision: "approved" | "rejected"; operationId: string; receiptId: string; recordedAt: string }>;
   steering: Array<{ instruction: string; operationId: string; recordedAt: string }>;
   candidates: TianyiAgentCandidate[];
+  storyIntakeEnvelope: StoryIntakeEnvelope | null;
   receipts: Array<{ receiptId: string; kind: "tool" | "runtime" | "owner" | "compaction"; label: string; operationId: string; recordedAt: string }>;
   stopReason: string | null;
   error: { category: "provider-unavailable" | "provider-failed" | "tool-failed" | "invalid-tool-call" | "conflict" | "cancelled" | "unknown"; code: string; message: string; retryable: boolean; retryBoundary: "none" | "author-explicit" } | null;
@@ -127,6 +130,17 @@ export type TianyiAgentToolDefinition = {
 };
 
 export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = Object.freeze([
+  {
+    name: "propose_story_intake",
+    label: "提出结构化故事候选",
+    classification: "proposal",
+    owner: "tianyi-context",
+    requiredPermission: "none",
+    scope: "current-session",
+    timeoutMs: 5_000,
+    inputSchema: { type: "object", required: ["candidates"], properties: { candidates: { type: "array", maxLength: 64 } } },
+    idempotency: "operation-id"
+  },
   {
     name: "read_context_manifest",
     label: "查看当前引用范围",
@@ -292,7 +306,7 @@ export type TianyiAgentRuntimeDependencies = {
   now?: () => string;
   persistence: TianyiAgentRuntimePersistence;
   buildContextManifest(input: { projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextRequest?: Record<string, unknown> }): Promise<TianyiAgentContextManifest>;
-  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string }>;
+  runProvider?(input: { runId: string; attemptId: string; projectId: string; workVersionId: string; sessionId: string; currentPage: string; task: string; contextManifest: TianyiAgentContextManifest; steering: string[]; maxOutputTokens: number; retry: boolean; signal?: AbortSignal; authorizeTool(call: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>; onEvent(event: AgentRuntimeStreamEvent): Promise<void> }): Promise<AgentRuntimeResult & { providerId: string; profileId: string; modelId: string; storyIntakeEnvelope?: StoryIntakeEnvelope | null }>;
   cancelProvider?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<boolean> | boolean;
   fixtureResponse?(input: { task: string; contextManifest: TianyiAgentContextManifest; steering: string[] }): Promise<{ text: string; candidates: TianyiAgentCandidate[] }>;
   handoffCandidate?(input: { projectId: string; sessionId: string; runId: string; candidate: TianyiAgentCandidate; operationId: string }): Promise<{ owner: string; id: string; revision: number | null }>;
@@ -310,6 +324,7 @@ export type TianyiAgentRuntimePort = {
   recoverRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
   getRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
   readRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
+  decideStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: StoryIntakeLifecycleStatus; operationId: string }): Promise<TianyiAgentRunProjection>;
 };
 
 export type AgentRuntimePort = TianyiAgentRuntimePort;
@@ -361,7 +376,12 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     return run;
   }
 
-  function planFor(runId: string): TianyiAgentPlanStep[] {
+  function planFor(runId: string, storyIntake: boolean): TianyiAgentPlanStep[] {
+    if (storyIntake) return [
+      { stepId: `${runId}.context`, title: "读取本轮已保存的作者原话", kind: "read-context", classification: "read", requiredPermission: "none", status: "pending", toolName: "read_context_manifest", error: null },
+      { stepId: `${runId}.analysis`, title: "Pi Agent 结构化识别", kind: "model-analysis", classification: "read", requiredPermission: "none", status: "pending", error: null },
+      { stepId: `${runId}.candidates`, title: "形成带精确来源的故事候选", kind: "candidate-proposal", classification: "proposal", requiredPermission: "none", status: "pending", toolName: "propose_story_intake", error: null }
+    ];
     return [
       { stepId: `${runId}.context`, title: "确认当前引用范围", kind: "read-context", classification: "read", requiredPermission: "author-approval", status: "awaiting_author", toolName: "read_context_manifest", error: null },
       { stepId: `${runId}.analysis`, title: "基于来源分析任务", kind: "model-analysis", classification: "read", requiredPermission: "none", status: "pending", error: null },
@@ -374,6 +394,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     const currentPage = normalizeCurrentPage(input.currentPage);
     const permissionProfile = normalizePermissionProfile(input.permissionProfile);
     const workVersionId = normalizeWorkVersionId(input.workVersionId);
+    const storyIntake = isStoryIntakeContextRequest(input.contextRequest);
     const runId = deterministicId("tianyi-agent-run", input.projectId, workVersionId, input.sessionId, input.operationId);
     const existing = await load({ projectId: input.projectId, workVersionId, sessionId: input.sessionId, runId });
     if (existing) return existing;
@@ -382,11 +403,11 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, workVersionId, sessionId: input.sessionId, task,
       currentPage, contextRequest: input.contextRequest ?? null, status: "planning", contextManifest: null, resultSummary: null,
       model: { providerId: null, profileId: null, modelId: null, runtime: dependencies.runProvider ? "pi" : "fixture" },
-      budget: { maxProviderCalls: 1, maxOutputTokens: 512, providerCalls: 0, estimatedTokens: 0 },
+      budget: { maxProviderCalls: storyIntake ? 2 : 1, maxOutputTokens: storyIntake ? 2_048 : 512, providerCalls: 0, estimatedTokens: 0 },
       observability: { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
-      permissionProfile, plan: planFor(runId), toolCalls: [], approvals: [], steering: [], candidates: [], receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp
+      permissionProfile, plan: planFor(runId, storyIntake), toolCalls: [], approvals: [], steering: [], candidates: [], storyIntakeEnvelope: null, receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp
     };
-    return save({ ...projection, status: "awaiting_author" }, input.operationId);
+    return save({ ...projection, status: storyIntake ? "running" : "awaiting_author" }, input.operationId);
   }
 
   async function executeContextStep(run: TianyiAgentRunProjection, operationId: string): Promise<TianyiAgentRunProjection> {
@@ -441,6 +462,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
               const approval = run.approvals.find((item) => item.stepId === `${run.runId}.context` && item.decision === "approved");
               return approval ? { allowed: true, approvalReceiptId: approval.receiptId } : { allowed: false, reason: "当前引用范围尚未获得作者批准。", approvalRequired: true };
             }
+            if (definition.name === "propose_story_intake" && run.currentPage === "/tianyi" && run.contextManifest.storyIntakeSource) return { allowed: true };
             if (definition.classification === "read") return { allowed: true };
             const matching = run.toolCalls.find((item) => item.toolName === call.toolName && stableArguments(item.arguments) === stableArguments(call.arguments));
             if (matching?.status === "approved" && matching.receiptId) return { allowed: true, approvalReceiptId: matching.receiptId };
@@ -462,7 +484,8 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
           ...run,
           model: { providerId: result.providerId, profileId: result.profileId, modelId: result.modelId, runtime },
           budget: { ...run.budget, providerCalls: run.budget.providerCalls + providerCalls },
-          observability: { ...run.observability, traceId: result.traceId, latencyMs: result.latencyMs, ...result.usage }
+          observability: { ...run.observability, traceId: result.traceId, latencyMs: result.latencyMs, ...result.usage },
+          storyIntakeEnvelope: result.storyIntakeEnvelope ?? run.storyIntakeEnvelope
         };
       } catch (cause) {
         const code = cause && typeof cause === "object" && "code" in cause ? String(cause.code) : "";
@@ -470,13 +493,18 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
         throw cause;
       }
     }
-    if (!text && dependencies.fixtureResponse) {
+    const storyIntake = Boolean(run.contextManifest.storyIntakeSource);
+    if (!text && !storyIntake && dependencies.fixtureResponse) {
       const result = await dependencies.fixtureResponse({ task: run.task, contextManifest: run.contextManifest, steering: run.steering.map((item) => item.instruction) });
       text = result.text;
       run = { ...run, candidates: result.candidates };
     }
-    const candidates = run.candidates.length ? run.candidates : parseCandidateText(text, run.contextManifest);
-    const next = { ...run, resultSummary: text.trim().slice(0, 2_400) || "分析已完成；具体候选仍需作者审查。", candidates, plan: run.plan.map((item) => item.stepId === step.stepId ? { ...item, status: "completed" as const } : item), status: "awaiting_author" as const, budget: { ...run.budget, estimatedTokens: Math.min(32_000, run.budget.estimatedTokens + Math.ceil(text.length / 4)) } };
+    if (storyIntake && !run.storyIntakeEnvelope) {
+      const error = Object.assign(new Error("Pi Agent 没有返回通过 Schema 校验的结构化故事候选。"), { code: "invalid-tool-call", retryable: true });
+      throw error;
+    }
+    const candidates = storyIntake ? run.candidates : run.candidates.length ? run.candidates : parseCandidateText(text, run.contextManifest);
+    const next = { ...run, resultSummary: text.trim().slice(0, 2_400) || "分析已完成；具体候选仍需作者审查。", candidates, plan: run.plan.map((item) => storyIntake && (item.kind === "model-analysis" || item.kind === "candidate-proposal") ? { ...item, status: "completed" as const } : item.stepId === step.stepId ? { ...item, status: "completed" as const } : item), status: storyIntake ? "completed" as const : "awaiting_author" as const, stopReason: storyIntake ? "结构化故事候选已生成，等待作者审查或送入待归档。" : run.stopReason, budget: { ...run.budget, estimatedTokens: Math.min(32_000, run.budget.estimatedTokens + Math.ceil(text.length / 4)) } };
     return save(next, operationId);
   }
 
@@ -571,8 +599,15 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     return save(next, input.operationId, "receipt");
   }
 
+  async function decideStoryIntakeCandidate(input: Parameters<TianyiAgentRuntimePort["decideStoryIntakeCandidate"]>[0]): Promise<TianyiAgentRunProjection> {
+    const run = await requireRun(input);
+    if (!run.storyIntakeEnvelope) throw new Error("Story Intake 候选包尚未生成。");
+    const storyIntakeEnvelope = updateStoryIntakeCandidateLifecycle(run.storyIntakeEnvelope, input.candidateId, input.lifecycleStatus);
+    return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
+  }
+
   const readRunEvents = (input: { projectId: string; workVersionId: string; sessionId: string; runId: string }) => dependencies.persistence.readEvents(input);
-  return Object.freeze({ runtimeId: "tianyi.agent-runtime" as const, runtimeVersion: "r0.6" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, readRunEvents, handoffCandidate });
+  return Object.freeze({ runtimeId: "tianyi.agent-runtime" as const, runtimeVersion: "r0.6" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, readRunEvents, handoffCandidate, decideStoryIntakeCandidate });
 }
 
 function runKey(projectId: string, workVersionId: string, sessionId: string, runId: string): string { return `${projectId}:${workVersionId}:${sessionId}:${runId}`; }
@@ -589,8 +624,14 @@ function normalizeRecoveredProjection(projection: TianyiAgentRunProjection, work
     ...projection,
     workVersionId: legacy.workVersionId ?? workVersionId,
     contextManifest: projection.contextManifest ? { ...projection.contextManifest, workVersionId: projection.contextManifest.workVersionId ?? workVersionId } : null,
-    observability: legacy.observability ?? { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 }
+    observability: legacy.observability ?? { traceId: null, latencyMs: null, promptTokens: 0, completionTokens: 0, totalTokens: 0, streamEventCount: 0 },
+    storyIntakeEnvelope: projection.storyIntakeEnvelope ?? null
   };
+}
+function isStoryIntakeContextRequest(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const request = value as { storyIntake?: unknown };
+  return Boolean(request.storyIntake && typeof request.storyIntake === "object" && !Array.isArray(request.storyIntake));
 }
 function parseCandidateText(text: string, manifest: TianyiAgentContextManifest): TianyiAgentCandidate[] {
   const title = text.trim().slice(0, 80) || "待作者确认的分析建议";

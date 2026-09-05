@@ -70,6 +70,7 @@ const r2KnowledgeIsolationOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-k
 const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1";
 const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
 const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
+const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -101,7 +102,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -139,7 +140,9 @@ try {
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (shellFocusR22AOnly) {
+  if (storyIntakeOnly) {
+    await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (shellFocusR22AOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
@@ -270,6 +273,66 @@ try {
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
   if (ollamaFixture) await new Promise((resolve) => ollamaFixture.server.close(resolve));
   removeTianyanE2eFixture(fixture);
+}
+
+async function assertTianyiStoryIntake(page, consoleProblems) {
+  const storyText = "故事单元：旧灯塔。\n主线：林昭调查港口连续熄灯。\n支线：父亲留下的守夜记录指向多年前的失踪案。\n林昭带着雾灯匣进入旧灯塔，在值班室找到守夜记录，随后决定前往雾港追查失踪船只。";
+  await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "Story Intake E2E", folderSlug: fixtureProjectId });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const libraryBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+
+  await gotoProduct(page, `${baseUrl}/tianyi`);
+  const composer = page.getByRole("textbox", { name: "创意模式草稿", exact: true });
+
+  await composer.fill("停止验证：这段原话必须保留，但本次运行不得留下候选。");
+  await page.getByRole("button", { name: "整理为故事候选", exact: true }).click();
+  const intake = page.locator('[aria-label="Story Intake 运行"]');
+  await intake.waitFor();
+  await page.waitForTimeout(35);
+  await intake.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => ["cancelled", "paused"].includes(document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") || ""));
+  assert.match(await page.locator(".tianyi-visible-history").innerText(), /停止验证/u, "Stopping must preserve the author's source in the same conversation.");
+
+  await composer.fill(storyText);
+  await page.getByRole("button", { name: "整理为故事候选", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "failed");
+  assert.match(await intake.innerText(), /失败.*原话已保留/u);
+  const retry = intake.getByRole("button", { name: "重试", exact: true });
+  await retry.waitFor();
+  await retry.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
+
+  for (const label of ["人物", "物品", "地点", "事件", "关系", "故事单元", "故事路径"]) await intake.getByRole("heading", { name: label, exact: true }).waitFor();
+  assert.match(await intake.innerText(), /林昭/u);
+  assert.match(await intake.innerText(), /父亲/u);
+  assert.match(await intake.innerText(), /雾灯匣/u);
+  assert.match(await intake.innerText(), /守夜记录/u);
+  assert.match(await intake.innerText(), /旧灯塔/u);
+  assert.match(await intake.innerText(), /值班室/u);
+  assert.match(await intake.innerText(), /雾港/u);
+  assert.match(await intake.innerText(), /原文证据/u);
+  assert.match(await intake.innerText(), /仅候选.*正式故事写入 0/u);
+
+  const firstCandidate = intake.locator(".tianyi-intake-candidate").first();
+  const decisionResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
+  await firstCandidate.getByRole("button", { name: "送入待归档", exact: true }).click();
+  const decisionResponse = await decisionResponsePromise;
+  assert.equal(decisionResponse.status(), 200, `Story Intake archive decision failed: ${await decisionResponse.text()}`);
+  const archivedCandidate = intake.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first();
+  await archivedCandidate.waitFor();
+  assert.match(await archivedCandidate.innerText(), /已送入待归档.*未采纳/u);
+  const conversationId = await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id");
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
+  assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id"), conversationId, "Refresh must recover the same TianyiConversation.");
+  await page.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first().getByText(/已送入待归档.*未采纳/u).waitFor();
+
+  const libraryAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(libraryAfter.data, libraryBefore.data, "Story Intake candidates must not create formal library owners.");
+  assert.deepEqual(canonAfter.data, canonBefore.data, "Story Intake candidates must not enter Canon/Event projection.");
+  assert.deepEqual(consoleProblems, [], "Story Intake stop, retry and refresh must not add browser console problems.");
 }
 
 async function assertProviderCatalogSettingsR0(page) {
@@ -3199,7 +3262,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
   };
   try {
     await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
-    await gotoProduct(page, `${baseUrl}/tianyi`);
+    await gotoProduct(page, `${baseUrl}/tianyi?testFixture=legacy-three-candidates`);
     await page.getByLabel("天意统一会话").waitFor();
     assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
     await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");

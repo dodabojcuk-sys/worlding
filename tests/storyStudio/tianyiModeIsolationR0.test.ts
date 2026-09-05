@@ -37,12 +37,15 @@ test("runtime owns one conversation while Creative, Work and Page Agent transien
   assert.doesNotMatch(runtime, /dialogueSessionId|agentSessionId|tianyiDialogueSessionStorageKey|tianyiAgentSessionStorageKey/u);
 });
 
-test("Tianyi big page exposes Creative and Work lanes with a shared registry and deterministic provider-free candidates", () => {
+test("Tianyi big page exposes Creative and Work lanes with real Pi Story Intake plus an explicit legacy fixture", () => {
   assert.match(workspace, /tianyi\.workspace\.creativeMode/u);
   assert.match(workspace, /tianyi\.workspace\.workMode/u);
   assert.match(workspace, /tianyi\.workspace\.continuity/u);
   assert.match(workspace, /tianyi\.workspace\.candidateRegistry/u);
   assert.match(workspace, /collaborate: false/u);
   assert.match(workspace, /deterministicThreeCandidates/u);
-  assert.match(workspace, /tianyi\.workspace\.localOnly/u);
+  assert.match(workspace, /legacy-three-candidates/u);
+  assert.match(workspace, /startTianyiAgentRun/u);
+  assert.match(workspace, /streamTianyiAgentRun/u);
+  assert.match(workspace, /propose_story_intake|story-intake/u);
 });

@@ -160,6 +160,60 @@ test("simulation fake adapter cannot expose native product tools or write an art
   }
 });
 
+test("Story Intake streams one allowlisted Pi tool into a durable candidate-only envelope", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-story-intake-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  const token = "tianyi-story-intake-token";
+  const port = 5500 + Math.floor(Math.random() * 200);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "Story Intake 夹具", folderSlug: "story-intake" });
+  const beforeObjects = operations.listWorldObjects({ projectId: "story-intake" }).length;
+  const server = startServer(rootPath, stateFilePath, token, port, { TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1" });
+  try {
+    await waitForServer(baseUrl, server);
+    const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "story-intake", operationId: "operation.story-intake.open" }, headers);
+    const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
+    const text = "故事单元：旧灯塔。\n主线：林昭调查港口连续熄灯。\n支线：父亲留下的守夜记录指向多年前的失踪案。\n林昭带着雾灯匣进入旧灯塔，在值班室找到守夜记录，随后决定前往雾港追查失踪船只。";
+    const capturedResponse = await post(`${baseUrl}/__local/story-studio/tianyi/creative/capture`, { projectId: "story-intake", sessionId, operationId: "operation.story-intake.capture", submissionId: "submission.story-intake", text, collaborate: false }, headers);
+    assert.equal(capturedResponse.status, 200);
+    const source = (await capturedResponse.json() as { data: { source: { sessionId: string; eventId: string; contentHash: string } } }).data.source;
+    const workVersionId = "work-version.unversioned";
+    const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "story-intake", workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "operation.story-intake.start" }, headers);
+    assert.equal(startedResponse.status, 201);
+    const started = (await startedResponse.json() as { data: any }).data;
+    assert.equal(started.status, "running");
+    assert.equal(started.plan[0].requiredPermission, "none");
+    const contextualizedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/continue`, { projectId: "story-intake", workVersionId, sessionId, runId: started.runId, operationId: "operation.story-intake.context" }, headers);
+    assert.equal(contextualizedResponse.status, 200);
+    const contextualized = (await contextualizedResponse.json() as { data: any }).data;
+    assert.equal(contextualized.error, null, JSON.stringify(contextualized.error));
+    assert.equal(contextualized.contextManifest.storyIntakeSource.sourceRef.eventId, source.eventId);
+    const streamed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "story-intake", workVersionId, sessionId, runId: started.runId, operationId: "operation.story-intake.stream" }, { ...headers, accept: "application/x-ndjson" });
+    const messages = (await streamed.text()).trim().split("\n").map((line) => JSON.parse(line));
+    const toolStarts = messages.filter((message) => message.type === "event" && message.data?.type === "tool-call-start");
+    const completed = messages.find((message) => message.type === "projection")?.data;
+    assert.equal(toolStarts.length, 1);
+    assert.equal(toolStarts[0].data.toolName, "propose_story_intake");
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.model.runtime, "pi");
+    assert.equal(completed.storyIntakeEnvelope.formalStoryWrites, 0);
+    assert.equal(completed.storyIntakeEnvelope.provider.providerCalls, 2);
+    assert.ok(completed.storyIntakeEnvelope.candidates.some((candidate: any) => candidate.proposedName === "林昭"));
+    assert.ok(completed.storyIntakeEnvelope.candidates.some((candidate: any) => candidate.kind === "storyUnit" && candidate.proposedTitle === "旧灯塔"));
+    assert.equal(completed.storyIntakeEnvelope.candidates.every((candidate: any) => text.slice(candidate.sourceSpan.start, candidate.sourceSpan.end) === candidate.sourceSpan.excerpt), true);
+    const firstCandidate = completed.storyIntakeEnvelope.candidates[0];
+    const archived = await post(`${baseUrl}/__local/story-studio/tianyi-agent/story-intake/candidate/decision`, { projectId: "story-intake", workVersionId, sessionId, runId: started.runId, candidateId: firstCandidate.candidateId, lifecycleStatus: "pending-archive", operationId: "operation.story-intake.archive" }, headers);
+    assert.equal(archived.status, 200);
+    assert.equal((await archived.json() as { data: any }).data.storyIntakeEnvelope.candidates[0].lifecycleStatus, "pending-archive");
+    assert.equal(operations.listWorldObjects({ projectId: "story-intake" }).length, beforeObjects, "candidate lifecycle must not create formal story objects");
+  } finally {
+    await terminateChildProcess(server, { label: "Story Intake transport server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
 function startServer(rootPath: string, stateFilePath: string, token: string, port: number, extraEnv: Record<string, string> = {}) {
   return spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
