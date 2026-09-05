@@ -9,11 +9,11 @@ const runtime = readFileSync("apps/story-studio/src/product-shell/runtime/Tianya
 const workspace = readFileSync("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx", "utf8");
 
 test("sidebar Work is one surface of the shared Work lane and cannot dispatch Page Agent work", () => {
-  assert.match(work, /同一 Work lane 的可见历史/u);
+  assert.match(work, /tianyi\.workLane\.history/u);
   assert.match(work, /data-page-agent-dispatch="forbidden"/u);
   assert.match(work, /event\.key !== "Enter" \|\| event\.shiftKey/u);
-  assert.match(work, /转到 Agent/u);
-  assert.doesNotMatch(work, /MultiNodePrediction|predictionMode|Run ID|采纳|Provider 卡片|查看执行过程/u);
+  assert.match(work, /tianyi\.workLane\.toAgent/u);
+  assert.doesNotMatch(work, /MultiNodePrediction|predictionMode|Run ID|TianyiAdoptionPanel|AgentExecutionGraph/u);
   assert.match(sidebar, /streamTianyiGroundedAnswer/u);
   assert.match(sidebar, /taskKind: "grounded-answer"/u);
   assert.match(sidebar, /profiles\.find\(\(item\) => item\.modelId === selectedModelId\)\?\.id/u);
@@ -38,11 +38,11 @@ test("runtime owns one conversation while Creative, Work and Page Agent transien
 });
 
 test("Tianyi big page exposes Creative and Work lanes with a shared registry and deterministic provider-free candidates", () => {
-  assert.match(workspace, /创意模式/u);
-  assert.match(workspace, /工作模式/u);
-  assert.match(workspace, /同一会话/u);
-  assert.match(workspace, /共享候选注册表/u);
+  assert.match(workspace, /tianyi\.workspace\.creativeMode/u);
+  assert.match(workspace, /tianyi\.workspace\.workMode/u);
+  assert.match(workspace, /tianyi\.workspace\.continuity/u);
+  assert.match(workspace, /tianyi\.workspace\.candidateRegistry/u);
   assert.match(workspace, /collaborate: false/u);
   assert.match(workspace, /deterministicThreeCandidates/u);
-  assert.match(workspace, /Provider 调用为 0/u);
+  assert.match(workspace, /tianyi\.workspace\.localOnly/u);
 });

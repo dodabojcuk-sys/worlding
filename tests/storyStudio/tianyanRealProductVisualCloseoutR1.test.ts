@@ -22,10 +22,10 @@ test("Provider settings invalidate the Shell status snapshot without exposing cr
 });
 
 test("Work lane names a retained Page Agent Run without mounting execution controls", () => {
-  assert.match(work, /页面 Agent Run 在后台保留/u);
-  assert.match(work, /Work lane 不操纵该 Run/u);
+  assert.match(work, /tianyi\.workLane\.runRetained/u);
+  assert.match(work, /tianyi\.workLane\.runRetainedHint/u);
   assert.match(sidebar, /pageAgentRunRetained=\{agentRunning\}/u);
-  assert.doesNotMatch(work, /MultiNodePrediction|predictionMode|采纳|查看执行过程/u);
+  assert.doesNotMatch(work, /MultiNodePrediction|predictionMode|TianyiAdoptionPanel|AgentExecutionGraph/u);
 });
 
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {

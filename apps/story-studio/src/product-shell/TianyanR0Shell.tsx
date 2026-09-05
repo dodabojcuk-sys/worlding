@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../src/storyAgent/contextualCapabilityRegistry.ts";
 import { TianyiSidebar, type TianyiSidebarContextRequest } from "../components/tianyi/sidebar/TianyiSidebar";
@@ -34,6 +34,7 @@ import { storyStudioWorkspaceRoute } from "./navigation/topLevelDestinationRegis
 import type { GlobalSearchOpenRequest, GlobalSearchResult, GlobalSearchScope } from "./global-search/globalSearchTypes";
 import type { StoryStudioEventReference } from "../../../../src/storyContracts/storyStudioEventReference.ts";
 import { useWorkspaceDockSlot, workspaceDockCoordinator } from "./WorkspaceDockCoordinator";
+import { cssLength, resolveShellFocusLayout, type ShellFocusLayout } from "./layout/shellFocusLayout";
 
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
@@ -56,12 +57,30 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [searchRequest, setSearchRequest] = useState<GlobalSearchOpenRequest | null>(null);
   const [tianyiContextRequest, setTianyiContextRequest] = useState<TianyiSidebarContextRequest | null>(null);
   const [directoryOpen, setDirectoryOpen] = useState(() => resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches));
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
   const dock = useDockLayoutState();
   const rightWorkSurface = useWorkspaceDockSlot();
   const tianyiOpen = rightWorkSurface.mode === "TIANYI";
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const update = () => setFocusLayout(resolveShellFocusLayout({
+      shellWidth: shell.getBoundingClientRect().width,
+      railWidth: cssLength(shell, "--rail-current"),
+      directoryWidth: cssLength(shell, "--directory-width"),
+      contextDockWidth: cssLength(shell, "--dock-stack-width"),
+      toolRailWidth: cssLength(shell, "--panel-controls-width")
+    }));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, [locale, railCollapsed]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -142,10 +161,53 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, [activeId, locationRevision, props.runtime]);
 
   useEffect(() => {
-    if (rightWorkSurface.mode !== "NONE" && window.matchMedia("(max-width: 90rem)").matches) {
+    if (rightWorkSurface.mode !== "NONE") {
+      dock.closePanel();
+    }
+    if (rightWorkSurface.mode !== "NONE" && focusLayout !== "wide") {
       setDirectoryOpen(false);
     }
-  }, [rightWorkSurface.mode]);
+  }, [focusLayout, rightWorkSurface.mode]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    const workspace = shell?.querySelector<HTMLElement>(".shell-workspace");
+    if (!workspace) return;
+    const overlayOpen = focusLayout === "narrow" && (directoryOpen || dock.state.activeToolId !== null || rightWorkSurface.mode !== "NONE");
+    workspace.toggleAttribute("inert", overlayOpen);
+    if (overlayOpen) workspace.setAttribute("aria-hidden", "true");
+    else workspace.removeAttribute("aria-hidden");
+    return () => { workspace.removeAttribute("inert"); workspace.removeAttribute("aria-hidden"); };
+  }, [directoryOpen, dock.state.activeToolId, focusLayout, rightWorkSurface.mode]);
+
+  useEffect(() => {
+    if (focusLayout !== "narrow") return;
+    const overlaySelector = rightWorkSurface.mode !== "NONE" ? ".tianyi-sidebar" : dock.state.activeToolId ? ".dock-panel-stack" : directoryOpen ? ".project-directory-panel" : null;
+    if (!overlaySelector) return;
+    const overlay = shellRef.current?.querySelector<HTMLElement>(overlaySelector);
+    if (!overlay) return;
+    const focusableSelector = "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [href], [tabindex]:not([tabindex='-1'])";
+    const focusables = () => Array.from(overlay.querySelectorAll<HTMLElement>(focusableSelector)).filter((item) => item.getClientRects().length > 0);
+    window.requestAnimationFrame(() => focusables()[0]?.focus());
+    const containFocus = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        if (rightWorkSurface.mode !== "NONE") workspaceDockCoordinator.close();
+        else if (dock.state.activeToolId) dock.closePanel();
+        else setDirectoryOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (!items.length) { event.preventDefault(); overlay.focus(); return; }
+      const first = items[0]; const last = items.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      else if (!overlay.contains(document.activeElement)) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener("keydown", containFocus);
+    return () => window.removeEventListener("keydown", containFocus);
+  }, [directoryOpen, dock.state.activeToolId, focusLayout, rightWorkSurface.mode]);
 
   const navigate = (destination: StoryStudioShellDestination) => {
     const query = shellLab ? window.location.search : "";
@@ -153,6 +215,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setActiveId(destination.id);
     setSettingsOpen(false);
     setAccountOpen(false);
+    dock.closePanel();
+    workspaceDockCoordinator.close();
   };
   const locationParams = new URLSearchParams(window.location.search);
   const directorySelection = locationParams.get("directoryObject");
@@ -227,18 +291,36 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       if (predictionSourceLabels?.length) props.runtime.setPageAgentTaskDraft(initialDraft);
       else props.runtime.setWorkComposerDraft(initialDraft);
     }
-    if (window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
+    dock.closePanel();
+    if (focusLayout !== "wide") setDirectoryOpen(false);
     workspaceDockCoordinator.openQuickTianyi();
   };
 
   const toggleTianyi = () => {
-    if (!tianyiOpen && window.matchMedia("(max-width: 90rem)").matches) setDirectoryOpen(false);
+    if (activeId === "tianyi") return;
+    dock.closePanel();
+    if (!tianyiOpen && focusLayout !== "wide") setDirectoryOpen(false);
     if (tianyiOpen) workspaceDockCoordinator.closeQuickTianyi();
     else workspaceDockCoordinator.openQuickTianyi();
   };
-  const togglePanel = (panel: "project-directory" | "global-tianyi") => panel === "project-directory" ? setDirectoryOpen((open) => !open) : toggleTianyi();
+  const toggleDirectory = () => setDirectoryOpen((open) => {
+    if (!open && focusLayout !== "wide") {
+      dock.closePanel();
+      workspaceDockCoordinator.close();
+    }
+    return !open;
+  });
+  const togglePageTool = (toolId: Parameters<typeof dock.togglePanel>[0]) => {
+    if (dock.state.activeToolId !== toolId) {
+      workspaceDockCoordinator.close();
+      if (focusLayout !== "wide") setDirectoryOpen(false);
+    }
+    dock.togglePanel(toolId);
+  };
+  const togglePanel = (panel: "project-directory" | "tianyi-agent") => panel === "project-directory" ? toggleDirectory() : toggleTianyi();
 
   return <div
+    ref={shellRef}
     className="tianyan-r0-shell"
     data-testid="tianyan-r0-shell"
     data-theme={theme}
@@ -246,8 +328,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-rail-collapsed={railCollapsed}
     data-directory-visible={directoryOpen}
     data-dock-panel-count={dock.state.openPanelIds.length}
+    data-active-dock-tool={dock.state.activeToolId ?? "none"}
     data-tianyi-open={tianyiOpen}
     data-right-work-surface={rightWorkSurface.mode}
+    data-shell-focus-layout={focusLayout}
     data-settings-open={settingsOpen}
     data-account-open={accountOpen}
     data-connection-state={props.runtime.connectionState}
@@ -270,26 +354,27 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       workVersionLabel={props.runtime.workVersionLabel}
       directoryOpen={directoryOpen}
       tianyiOpen={tianyiOpen}
+      tianyiActionAvailable={activeId !== "tianyi"}
       searchContext={searchContext}
       searchRequest={searchRequest}
       onSearchNavigate={navigateSearchResult}
       onOpenProject={props.runtime.openProject}
       onToggleTheme={toggleTheme}
-      onToggleDirectory={() => setDirectoryOpen((open) => !open)}
+      onToggleDirectory={toggleDirectory}
       onToggleTianyi={toggleTianyi}
     />
-    {!settingsOpen && !accountOpen && directoryOpen && (characterDirectoryOpen ? <CharacterDirectoryPanel runtime={props.runtime} selectedId={directorySelection} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryReview") === "pending" ? "pending" : "classified"} onClose={() => setDirectoryOpen(false)} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryReview", "pending"); else params.delete("directoryReview"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
+    {!settingsOpen && !accountOpen && directoryOpen && (characterDirectoryOpen ? <CharacterDirectoryPanel runtime={props.runtime} selectedId={directorySelection} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryReview") === "pending" ? "pending" : "classified"} onClose={toggleDirectory} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryReview", "pending"); else params.delete("directoryReview"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
     <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} />
-    {!settingsOpen && !accountOpen && <RightDock layout={dock.state} onToggle={dock.togglePanel} onResize={dock.resizePanel} />}
+    {!settingsOpen && !accountOpen && <RightDock compact={focusLayout !== "wide"} modal={focusLayout === "narrow"} layout={dock.state} onToggle={togglePageTool} onResize={dock.resizePanel} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={openCharacterProfileEditor} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterProfileEditor} />}
-    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line"} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={focusLayout !== "wide"} modal={focusLayout === "narrow"} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line"} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}
       panelVisibility={{
         "project-directory": directoryOpen,
-        "global-tianyi": tianyiOpen
+        "tianyi-agent": tianyiOpen
       }}
       theme={theme}
       onClose={() => setCommandOpen(false)}

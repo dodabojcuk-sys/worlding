@@ -12,6 +12,7 @@ const formalEventNode = readFileSync("apps/story-studio/src/components/graph-nod
 const tianyiSidebar = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
 const coordinator = readFileSync("apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts", "utf8");
 const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "utf8");
+const focusLayout = readFileSync("apps/story-studio/src/product-shell/layout/shellFocusLayout.ts", "utf8");
 
 test("event workspace separates layout coordinate from observation lens while retaining local selection", () => {
   assert.match(controls, /aria-label="事件观察组合"/u);
@@ -63,8 +64,9 @@ test("one five-state right work surface arbitrates page inspectors, creation, re
   assert.doesNotMatch(graph, /setInspectorOpen|useState\(Boolean\(props\.selectedEventId\)\)/u);
   assert.doesNotMatch(dockLayout, /isTianyiOpen|setTianyiOpen/u);
   assert.doesNotMatch(workspace, /event-line-simulation-entry/u);
-  assert.match(shell, /max-width: 90rem/u);
-  assert.match(shellStyles, /@media \(max-width: 90rem\)[\s\S]*--tianyi-current: 0rem/u);
+  assert.match(shell, /resolveShellFocusLayout/u);
+  assert.match(focusLayout, /MAIN_WORKSPACE_SAFE_WIDTH = 840/u);
+  assert.match(shellStyles, /data-shell-focus-layout="focused"[\s\S]*--tianyi-current: 0rem/u);
 });
 
 test("closing Tianyi retains one conversation plus isolated Work and Page Agent drafts outside the visual drawer", () => {

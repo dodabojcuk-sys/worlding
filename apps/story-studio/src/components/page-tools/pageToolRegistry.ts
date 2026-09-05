@@ -17,3 +17,7 @@ export function pageToolById(id: DockToolId): PageToolDefinition {
   if (!definition) throw new Error(`Unknown page tool: ${id}`);
   return definition;
 }
+
+export function pageToolAvailable(id: DockToolId): boolean {
+  return pageToolById(id).availability === "available";
+}

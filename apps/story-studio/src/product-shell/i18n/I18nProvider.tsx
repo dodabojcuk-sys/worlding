@@ -14,11 +14,16 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function I18nProvider(props: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>(() => {
     const requested = new URLSearchParams(window.location.search).get("locale");
-    return requested === "en-US" ? "en-US" : "zh-CN";
+    const retained = window.localStorage.getItem("tianyan.shell.locale");
+    return requested === "en-US" || requested === "zh-CN" ? requested : retained === "en-US" ? "en-US" : "zh-CN";
   });
 
   useEffect(() => {
     document.documentElement.lang = locale;
+    window.localStorage.setItem("tianyan.shell.locale", locale);
+    const url = new URL(window.location.href);
+    url.searchParams.set("locale", locale);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }, [locale]);
 
   const value = useMemo<I18nContextValue>(() => ({

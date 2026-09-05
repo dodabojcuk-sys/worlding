@@ -41,10 +41,10 @@ test("zh-CN and en-US contain exactly the same shell translation keys", () => {
 });
 
 test("R0.2 workbench keeps global panels separate from the composable page-tool Dock", () => {
-  assert.deepEqual(Object.keys(TIAN_YAN_R0_DEFAULT_LAYOUT), ["project-directory", "global-tianyi"]);
+  assert.deepEqual(Object.keys(TIAN_YAN_R0_DEFAULT_LAYOUT), ["project-directory", "tianyi-agent"]);
   assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["project-directory"].visible, true);
-  assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["global-tianyi"].visible, true);
-  assert.deepEqual(TIAN_YAN_R0_2_WORKBENCH_ORDER, ["global-space-rail", "project-directory", "central-workspace", "page-tool-stack", "page-tool-rail", "global-tianyi"]);
+  assert.equal(TIAN_YAN_R0_DEFAULT_LAYOUT["tianyi-agent"].visible, true);
+  assert.deepEqual(TIAN_YAN_R0_2_WORKBENCH_ORDER, ["global-space-rail", "project-directory", "central-workspace", "context-dock", "tool-launcher-rail"]);
 
   const initial = createInitialDockLayout();
   assert.deepEqual(initial.openPanelIds, []);
@@ -53,8 +53,9 @@ test("R0.2 workbench keeps global panels separate from the composable page-tool 
 
   const expertFirst = toggleDockPanel(initial, "expert-analysis");
   const logSecond = toggleDockPanel(expertFirst, "engineering-log");
-  assert.deepEqual(logSecond.openPanelIds, ["expert-analysis", "engineering-log"]);
-  assert.deepEqual(toggleDockPanel(logSecond, "expert-analysis").openPanelIds, ["engineering-log"]);
+  assert.deepEqual(logSecond.openPanelIds, ["engineering-log"]);
+  assert.equal(logSecond.activeToolId, "engineering-log");
+  assert.deepEqual(toggleDockPanel(logSecond, "reader-appreciation").openPanelIds, ["engineering-log"]);
   assert.equal(resizeDockPanel(logSecond, "expert-analysis", 20).panelSizes["expert-analysis"], 160);
   assert.equal(resizeDockPanel(logSecond, "expert-analysis", 900).panelSizes["expert-analysis"], 640);
 
@@ -106,10 +107,11 @@ test("desktop topbar preserves every global control while keeping one search and
 
   assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
   assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
-  assert.equal((topbar.match(/data-panel-toggle="global-tianyi"/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="tianyi-agent"/gu) ?? []).length, 1);
   assert.match(topbar, /data-panel-toggle="project-directory"/);
   assert.match(topbar, /toggleLocale/);
   assert.match(topbar, /onToggleTheme/);
+  assert.match(topbar, /tianyiActionAvailable/);
   assert.match(topbar, /onToggleTianyi/);
   assert.match(topbar, /CloudOff/);
   assert.match(topbar, /shell-runtime-status/);
@@ -122,7 +124,7 @@ test("desktop topbar preserves every global control while keeping one search and
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
   assert.match(topbar, /shell-topbar-overflow-menu/);
   assert.match(topbar, /aria-controls="shell-topbar-overflow-menu"/);
-  assert.match(topbar, /data-panel-toggle="project-directory"[\s\S]*data-panel-toggle="global-tianyi"/);
+  assert.match(topbar, /data-panel-toggle="project-directory"[\s\S]*data-panel-toggle="tianyi-agent"/);
   assert.match(styles, /@media \(max-width: 75rem\)[\s\S]*shell-topbar-secondary \{ display: none; \}[\s\S]*shell-topbar-more \{ display: block; \}/);
 });
 
@@ -131,7 +133,7 @@ test("Tianyi keeps shared Work and page-scoped Agent tabs in its title row with 
   const modeSwitch = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiModeSwitch.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyi-sidebar.css", "utf8");
 
-  assert.match(sidebar, /tianyi-sidebar-header[\s\S]*TianyiModeSwitch[\s\S]*panel\.closeGlobalTianyi/);
+  assert.match(sidebar, /tianyi-sidebar-header[\s\S]*TianyiModeSwitch[\s\S]*panel\.closeTianyiAgent/);
   assert.match(sidebar, /data-tianyi-conversation-id/);
   assert.match(sidebar, /data-work-lane="shared"/);
   assert.match(sidebar, /data-page-agent-session-owner="none"/);

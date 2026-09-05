@@ -40,7 +40,7 @@ export const workspaceDockCoordinator = {
     publish({ mode, ownerId: pageId });
   },
   openQuickTianyi(): void {
-    publish({ mode: "TIANYI", ownerId: "global-tianyi" });
+    publish({ mode: "TIANYI", ownerId: "tianyi-agent" });
   },
   closePageInspector(pageId: string): void {
     if (currentSurface.ownerId === pageId && currentSurface.mode !== "TIANYI") publish({ mode: "NONE", ownerId: null });

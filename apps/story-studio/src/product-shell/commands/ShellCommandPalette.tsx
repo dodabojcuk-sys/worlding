@@ -57,11 +57,11 @@ export function ShellCommandPalette(props: {
       icon: destinationIcons[destination.icon],
       run: () => props.onNavigate(destination)
     }));
-    const panelCommands: ShellCommand[] = (["project-directory", "global-tianyi"] as const).map((panel) => {
+    const panelCommands: ShellCommand[] = (["project-directory", "tianyi-agent"] as const).map((panel) => {
       const visible = props.panelVisibility[panel];
       const labelKey = panel === "project-directory"
         ? visible ? "panel.closeProjectDirectory" : "panel.openProjectDirectory"
-        : visible ? "panel.closeGlobalTianyi" : "panel.openGlobalTianyi";
+        : visible ? "panel.closeTianyiAgent" : "panel.openTianyiAgent";
       return {
         id: `panel:${panel}`,
         group: "command.groupPanels",

@@ -370,20 +370,13 @@
   .composer-runtime-control > button span { display: none; }
 }
 
-@media (min-width: 64.0625rem) and (max-width: 90rem) {
-  .tianyan-r0-shell[data-tianyi-open="true"]:has(.event-line-workbench) {
-    grid-template-columns: var(--rail-current) 0 minmax(0, 1fr) var(--tianyi-sidebar-width);
-    grid-template-areas:
-      "rail topbar topbar topbar"
-      "rail directory workspace tianyi";
-  }
-  .tianyan-r0-shell[data-tianyi-open="true"]:has(.event-line-workbench) .tianyi-sidebar {
-    position: static;
-    grid-area: tianyi;
-    inset: auto;
-    inline-size: auto;
-    box-shadow: none;
-  }
+.tianyan-r0-shell[data-shell-focus-layout="wide"][data-tianyi-open="true"] .tianyi-sidebar {
+  position: static;
+  grid-area: tianyi;
+  inset: auto;
+  inline-size: auto;
+  width: auto;
+  box-shadow: none;
 }
 
 @media (max-width: 50rem) {

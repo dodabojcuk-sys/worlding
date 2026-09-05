@@ -4,7 +4,8 @@ import test from "node:test";
 
 import { createCapabilityMenuRegistry } from "../../apps/story-studio/src/components/tianyi/capability-launcher/capabilityMenuRegistry.ts";
 import { PAGE_TOOL_REGISTRY } from "../../apps/story-studio/src/components/page-tools/pageToolRegistry.ts";
-import { clampDockPanelSize, createInitialDockLayout, toggleDockPanel } from "../../apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts";
+import { clampDockPanelSize, createInitialDockLayout, normalizeDockLayoutState, toggleDockPanel } from "../../apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts";
+import { resolveShellFocusLayout } from "../../apps/story-studio/src/product-shell/layout/shellFocusLayout.ts";
 
 const source = (path: string) => readFileSync(path, "utf8");
 
@@ -25,24 +26,24 @@ test("project directory keeps Classified and Pending review in the same navigati
   assert.doesNotMatch(contract, /writeCanon|createEvent|setWorldState|storyBody|absolutePath/u);
 });
 
-test("page-tool rail order is independent from the user-owned multi-panel stack", () => {
+test("page-tool registry feeds one contextual dock and unavailable tools cannot open", () => {
   assert.equal(PAGE_TOOL_REGISTRY[0]?.id, "engineering-log");
   const initial = createInitialDockLayout();
   assert.deepEqual(initial.openPanelIds, []);
   const expertFirst = toggleDockPanel(initial, "expert-analysis");
   const logSecond = toggleDockPanel(expertFirst, "engineering-log");
-  assert.deepEqual(logSecond.openPanelIds, ["expert-analysis", "engineering-log"]);
-  assert.deepEqual(toggleDockPanel(logSecond, "expert-analysis").openPanelIds, ["engineering-log"]);
+  assert.deepEqual(logSecond.openPanelIds, ["engineering-log"]);
+  assert.equal(logSecond.activeToolId, "engineering-log");
+  assert.deepEqual(toggleDockPanel(logSecond, "reader-appreciation").openPanelIds, ["engineering-log"]);
+  assert.deepEqual(normalizeDockLayoutState({ ...logSecond, openPanelIds: ["expert-analysis", "engineering-log"], activeToolId: null }).openPanelIds, ["engineering-log"]);
   assert.equal(clampDockPanelSize(1), 160);
   assert.equal(clampDockPanelSize(900), 640);
   const stack = source("apps/story-studio/src/product-shell/right-dock/DockPanelStack.tsx");
   const resize = source("apps/story-studio/src/product-shell/right-dock/DockResizeHandle.tsx");
   const log = source("apps/story-studio/src/components/page-tools/EngineeringLogPanel.tsx");
   const expert = source("apps/story-studio/src/components/page-tools/ExpertAnalysisPanel.tsx");
-  assert.match(stack, /DockResizeHandle/);
+  assert.doesNotMatch(stack, /\.map\(/);
   assert.match(resize, /role="separator"/);
-  assert.match(resize, /ArrowUp/);
-  assert.match(resize, /ArrowDown/);
   assert.doesNotMatch(log, /今天|昨天/u);
   assert.match(log, /data-receipt-projection="local-demo"/);
   assert.match(expert, /onAdoptSuggestion/);
@@ -50,27 +51,29 @@ test("page-tool rail order is independent from the user-owned multi-panel stack"
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);
 });
 
-test("page-tool rail starts compact at the narrow breakpoint and keeps tool availability visually grouped", () => {
+test("page-tool rail follows measured Shell focus mode and blocks unavailable tools", () => {
   const dock = source("apps/story-studio/src/product-shell/right-dock/RightDock.tsx");
   const rail = source("apps/story-studio/src/product-shell/right-dock/DockToolRail.tsx");
   const styles = source("apps/story-studio/src/styles/right-dock.css");
   const tokens = source("apps/story-studio/src/product-shell/theme/tokens.css");
 
-  assert.match(dock, /window\.matchMedia\("\(max-width: 75rem\)"\)/);
-  assert.match(dock, /collapseForCompactViewport/);
-  assert.match(dock, /expanded=\{toolRailExpanded\}/);
-  assert.match(dock, /onToggleExpanded/);
-  assert.doesNotMatch(dock, /setToolRailExpanded\([^)]*props\.layout/);
+  assert.match(dock, /compact: boolean/);
+  assert.match(dock, /compact=\{props\.compact\}/);
   assert.match(rail, /aria-expanded=\{props\.expanded\}/);
   assert.match(rail, /dock\.expandTools/);
   assert.match(rail, /dock\.collapseTools/);
   assert.match(rail, /dock-tool-rail-list/);
+  assert.match(rail, /disabled=\{!available\}/);
+  assert.match(rail, /dock-tool-launcher-menu/);
   assert.doesNotMatch(rail, /tool\.available|tool\.extensionTools/);
   assert.doesNotMatch(rail, /tool\.notConnected/);
   for (const tool of PAGE_TOOL_REGISTRY) assert.match(rail, new RegExp(`t\\(tool\\.labelKey\\)`));
   assert.match(styles, /dock-tool-rail:not\(\[data-expanded="true"\]\) button\[data-tool-id\] span/);
   assert.match(styles, /dock-tool-rail\[data-expanded="true"\] button\[data-tool-id\]/);
   assert.match(tokens, /--panel-controls-expanded-width: 8\.5rem/);
+  assert.equal(resolveShellFocusLayout({ shellWidth: 1600, railWidth: 132, directoryWidth: 224, contextDockWidth: 272, toolRailWidth: 60 }), "wide");
+  assert.equal(resolveShellFocusLayout({ shellWidth: 1195, railWidth: 132, directoryWidth: 224, contextDockWidth: 272, toolRailWidth: 60 }), "focused");
+  assert.equal(resolveShellFocusLayout({ shellWidth: 600, railWidth: 56, directoryWidth: 224, contextDockWidth: 272, toolRailWidth: 60 }), "narrow");
 });
 
 test("composer bottom controls use the unified fixed overlay rather than the clipped sidebar", () => {

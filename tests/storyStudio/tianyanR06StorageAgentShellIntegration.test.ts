@@ -92,7 +92,7 @@ test("topbar has one search and one directory switch without deleting the other 
   const navigation = source("apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx");
   assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
   assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
-  assert.equal((topbar.match(/data-panel-toggle="global-tianyi"/gu) ?? []).length, 1);
+  assert.equal((topbar.match(/data-panel-toggle="tianyi-agent"/gu) ?? []).length, 1);
   assert.match(topbar, /toggleLocale/);
   assert.match(topbar, /onToggleTheme/);
   assert.match(topbar, /onToggleTianyi/);

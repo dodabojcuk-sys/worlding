@@ -49,6 +49,7 @@ const r1DualAxisCausalEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R1_EVID
 const r2StoryCrossingEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_EVIDENCE_DIR || null;
 const founderCloseoutR21EvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_1_EVIDENCE_DIR || null;
 const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
+const shellFocusR22AEvidenceDirectory = process.env.TIANYAN_SHELL_R22A_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
@@ -68,6 +69,7 @@ const r2StoryCrossingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-story-
 const r2KnowledgeIsolationOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-knowledge-isolation-r2";
 const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1";
 const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
+const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -119,7 +121,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   const page = recordingDirectory
     ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
     : await browser.newPage({ viewport: { width: 1152, height: 720 } });
@@ -137,7 +139,13 @@ try {
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (tianyiGoldenLoopOnly) {
+  if (shellFocusR22AOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertWorkspaceShellFocusR22A(page, consoleProblems);
+  } else if (tianyiGoldenLoopOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
@@ -391,7 +399,7 @@ async function startProviderCatalogOllamaFixture() {
 
 async function assertPermissionProjection(page) {
   await gotoProduct(page, `${baseUrl}/event-line?rail=expanded`);
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI", "The shared right work surface must explicitly own Tianyi while its composer is visible.");
   await page.locator(".tianyi-sidebar").getByRole("tab", { name: "Agent", exact: true }).click();
   const trigger = page.getByRole("button", { name: "权限", exact: true });
@@ -405,7 +413,7 @@ async function assertPermissionProjection(page) {
   assert.deepEqual(state.disabled, ["仅建议未授权", "授权编辑未授权"], "Only broker-backed permissions are interactive in the R0.3 shell.");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
-  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
+  await page.getByRole("button", { name: "关闭天意助手", exact: true }).first().click();
   await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
   const openDirectory = page.getByRole("button", { name: "打开工程目录", exact: true });
   if (await openDirectory.count()) await openDirectory.click();
@@ -706,14 +714,14 @@ async function assertAgentFakeProviderStream(page) {
 async function startAgentFakeProviderStream(page, task) {
   const sidebar = page.locator(".tianyi-sidebar");
   if (!await sidebar.isVisible()) {
-    const globalToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+    const globalToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
     if (await globalToggle.isVisible()) {
       // A previous scenario can leave the responsive Dock's boolean state true
       // while its narrow-layout panel is not rendered. Normalize to closed,
       // then open through the same product control a user sees.
       if (await globalToggle.getAttribute("aria-pressed") === "true") {
         await globalToggle.click();
-        await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+        await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
       }
       await globalToggle.click();
     } else await page.locator("[data-tianyi-drawer-trigger]").first().click();
@@ -864,7 +872,7 @@ async function assertResponsiveHeader922(page) {
   await topbar.waitFor();
   await page.getByRole("button", { name: "选择当前作品与版本", exact: true }).waitFor();
   const directory = page.locator('[data-panel-toggle="project-directory"]');
-  const tianyi = page.locator('[data-panel-toggle="global-tianyi"]');
+  const tianyi = page.locator('[data-panel-toggle="tianyi-agent"]');
   await directory.waitFor();
   await tianyi.waitFor();
   assert.match((await directory.innerText()).trim(), /目录/u, "Directory remains a named primary control at 922px.");
@@ -884,7 +892,7 @@ async function assertResponsiveHeader922(page) {
   assert.match((await tianyi.getAttribute("aria-pressed")) ?? "", /^(true|false)$/u);
   if (await tianyi.getAttribute("aria-pressed") === "true") {
     await tianyi.click();
-    await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+    await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
   }
 }
 
@@ -1348,7 +1356,7 @@ async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, fo
   await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
   await storylineSelect.selectOption(investigationLine.id);
   await page.waitForFunction((lineId) => new URL(window.location.href).searchParams.get("eventStoryline") === lineId, investigationLine.id);
-  const tianyiToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+  const tianyiToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
   if (await tianyiToggle.getAttribute("aria-pressed") !== "true") await tianyiToggle.click();
   const sidebar = page.locator(".tianyi-sidebar");
   await sidebar.waitFor();
@@ -1574,7 +1582,7 @@ async function recordEventLineFounderCloseoutR21() {
   await observerSelect.selectOption(lin.id);
   await storylineSelect.selectOption(investigationLineId);
   await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
-  const tianyiToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+  const tianyiToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
   if (await tianyiToggle.getAttribute("aria-pressed") !== "true") await tianyiToggle.click();
   const sidebar = page.locator(".tianyi-sidebar");
   await sidebar.waitFor();
@@ -1773,7 +1781,7 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   await capture("07-1280-detail.png");
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
   await closeGlobalTianyiIfOpen(page);
@@ -2549,7 +2557,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
   assert.equal(await projectDirectory.isHidden(), true, "Closing the secondary directory must release workspace width.");
   if (output) {
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.locator(".tianyi-sidebar").getByRole("tab", { name: "工作", exact: true }).click();
     await capture("Q-1440x900-work-lane-only.png");
     await closeGlobalTianyiIfOpen(page);
@@ -2696,6 +2704,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await page.locator(".agent-gate-mark").count() >= 1, true, "Gate nodes need a dedicated gate mark.");
   assert.equal(await page.locator(".agent-result-mark").count() >= 1, true, "Result nodes need a dedicated result mark.");
   await capture("C-1440x900-agent-execution-process-tool-gate-result.png");
+  await tianyiSidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-panel-toggle")), "tianyi-agent", "Closing the focused-layout Agent overlay must restore trigger focus before interacting with the main workspace.");
   await page.getByRole("button", { name: "查看当前", exact: true }).click();
   await page.waitForTimeout(220);
   const currentExecutionFocus = await page.evaluate(() => {
@@ -2706,6 +2717,13 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     return { resultVisible: visible(result), reviewVisible: visible(review) };
   });
   assert.deepEqual(currentExecutionFocus, { resultVisible: true, reviewVisible: true }, `View Current must directly locate Result and Human Review=${JSON.stringify(currentExecutionFocus)}`);
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
+  if (await panel.locator(".tianyi-prediction-technical-details").getAttribute("open") === null) {
+    await panel.getByText("技术回执与历史", { exact: true }).click();
+  }
+  await panel.getByRole("button", { name: "查看执行图", exact: true }).click();
+  await page.getByLabel("Agent 执行过程").waitFor();
   await capture("C2-1440x900-agent-execution-gate-result.png");
 
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -2735,7 +2753,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(180);
 
+  await tianyiSidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
   await page.getByRole("button", { name: "返回事件图", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
   assert.equal(await page.getByLabel("单元目录").isHidden(), true, "Path focus must keep the Unit directory temporarily collapsed.");
   assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Switching paths must close technical receipts.");
@@ -2748,6 +2770,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.deepEqual(conflictCanon.data.eventIds, canonBefore.data.eventIds, "Previewing a time-conflict path must not write Canon.");
   assert.equal(conflictLibrary.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftCountBefore, "Previewing a time-conflict path must not create a draft Event.");
   await capture("I-1440x900-time-conflict-blocked-no-write.png");
+  if (await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).count() === 0) {
+    assert.equal(await panel.getAttribute("data-prediction-view"), "overview", "A freshly remounted Agent may finish its local history recovery only by returning the retained Run to its overview.");
+    await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
+    await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).waitFor();
+  }
   await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.matches(".tianyi-prediction-goal textarea"));
   assert.equal(await panel.locator(".tianyi-prediction-goal textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
@@ -2946,13 +2973,13 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   const actionsReachable = await form.locator("footer button").evaluateAll((buttons) => buttons.every((button) => { const rect = button.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.width > 0; }));
   assert.equal(actionsReachable, true, "1152 create actions must remain reachable.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-event-create-actions.png"), fullPage: true });
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
   assert.equal(await page.locator(".tianyi-sidebar").count(), 1, "Only one Tianyi work Dock may be mounted.");
   assert.equal(await page.locator(".tianyi-sidebar[data-work-lane='shared'][data-page-agent-session-owner='none']").count(), 1, "The single Dock must reuse the Tianyi Work lane while Page Agent owns no session.");
   assert.equal(await page.locator(".tianyi-sidebar [role='tab']").filter({ hasText: "工作" }).count(), 1, "The sidebar names its conversation surface Work.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-tianyi-open.png"), fullPage: true });
-  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
+  await page.getByRole("button", { name: "关闭天意助手", exact: true }).first().click();
   await visibleStoryEvent.click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
   const typeState = await getFixture(`${apiUrl}/__local/story-studio/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -2968,6 +2995,171 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   await page.locator(".event-graph-flow").click({ position: { x: 12, y: 12 } });
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "Pane clear returns the state machine to NONE.");
   assert.deepEqual(consoleProblems, [], "Right surface interactions must not add browser console errors.");
+}
+
+async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
+  const providerRequests = [];
+  const observeProvider = (request) => {
+    if (/\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observeProvider);
+  const capture = async (name) => {
+    if (!shellFocusR22AEvidenceDirectory) return;
+    mkdirSync(shellFocusR22AEvidenceDirectory, { recursive: true });
+    await page.waitForFunction(async () => {
+      const shell = document.querySelector(".tianyan-r0-shell");
+      if (!shell) return false;
+      const finiteMotion = shell.getAnimations({ subtree: true }).some((animation) => {
+        const timing = animation.effect?.getComputedTiming();
+        return animation.playState === "running" && timing?.iterations !== Infinity;
+      });
+      if (finiteMotion) return false;
+      const snapshot = () => [".shell-workspace", ".project-directory-panel", ".dock-panel-stack", ".dock-tool-rail"].map((selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height].map((value) => Math.round(value * 10) / 10);
+      });
+      const before = JSON.stringify(snapshot());
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return before === JSON.stringify(snapshot());
+    });
+    await page.screenshot({ path: path.join(shellFocusR22AEvidenceDirectory, name), fullPage: false });
+    await page.waitForTimeout(5_500);
+  };
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN`);
+  const workspace = page.getByLabel("天意统一会话");
+  await workspace.waitFor();
+  assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
+  assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
+  assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
+  assert.equal(await page.getByRole("button", { name: "整理成三个候选", exact: true }).count(), 1);
+  await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
+  await page.getByRole("button", { name: "附件", exact: true }).click();
+  await capture("01-1195x720-TIANYI-creative-mode.png");
+  await page.getByRole("tab", { name: "工作模式", exact: true }).click();
+  assert.equal(await page.getByRole("heading", { name: "选择一个候选继续" }).count(), 1);
+  assert.equal(await page.getByLabel("工作模式草稿").getAttribute("placeholder"), "继续完善当前候选，准备进入影响预览……");
+  assert.equal(await page.getByRole("button", { name: "继续完善候选", exact: true }).count(), 1);
+  await page.getByLabel("工作模式草稿").fill("只属于工作泳道的草稿");
+  await page.getByLabel("工作范围").selectOption("selected-events");
+  await capture("02-1195x720-TIANYI-work-mode.png");
+  await page.getByRole("tab", { name: "创意模式", exact: true }).click();
+  assert.equal(await page.getByLabel("创意模式草稿").inputValue(), "这个草稿必须在 Shell 面板切换后继续保留。");
+  await page.getByRole("tab", { name: "工作模式", exact: true }).click();
+  assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
+  assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
+  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 1, "Shared attachments must remain visible across lanes.");
+  const before = await shellGeometry(page);
+  assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
+  await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+  const afterDirectoryClose = await shellGeometry(page);
+  assert.ok(afterDirectoryClose.main.width >= 560, `Closing DirectoryPane must not collapse MainWorkspace=${JSON.stringify(afterDirectoryClose)}`);
+  assert.equal(afterDirectoryClose.scrollWidth, afterDirectoryClose.clientWidth, `Shell must not overflow horizontally=${JSON.stringify(afterDirectoryClose)}`);
+  await page.getByRole("button", { name: "页面工具", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "读者鉴赏", exact: true }).count(), 0, "Unavailable tools must not appear in the compact launcher.");
+  await page.getByRole("button", { name: "工程日志", exact: true }).click();
+  let dockGeometry = await shellGeometry(page);
+  assert.equal(dockGeometry.directoryOpen, "false", "Directory and ContextDock must be mutually exclusive in focused layout.");
+  assert.equal(dockGeometry.dockPanelCount, "1");
+  assert.equal(dockGeometry.activeDockTool, "engineering-log");
+  assert.ok(dockGeometry.main.width >= 840, `ContextDock overlay must preserve a readable workspace=${JSON.stringify(dockGeometry)}`);
+  await capture("03-1195x720-CONTEXT-DOCK-engineering-log.png");
+  await page.getByRole("button", { name: "页面工具", exact: true }).click();
+  await page.getByRole("button", { name: "专家分析", exact: true }).click();
+  dockGeometry = await shellGeometry(page);
+  assert.equal(dockGeometry.dockPanelCount, "1", "Switching tools must replace rather than append.");
+  assert.equal(dockGeometry.activeDockTool, "expert-analysis");
+  const closeExpert = page.getByRole("button", { name: "关闭 专家分析", exact: true });
+  await closeExpert.press("Escape");
+  assert.equal((await shellGeometry(page)).dockPanelCount, "0");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "页面工具");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "页面工具", "Esc must return focus to the launcher.");
+  await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  assert.equal((await shellGeometry(page)).directoryOpen, "true");
+  await page.waitForFunction(() => {
+    const directory = document.querySelector(".project-directory-panel");
+    const workspace = document.querySelector(".shell-workspace");
+    if (!directory || !workspace) return false;
+    const directoryRect = directory.getBoundingClientRect();
+    const workspaceRect = workspace.getBoundingClientRect();
+    const hit = document.elementFromPoint(directoryRect.left + Math.min(68, directoryRect.width / 2), directoryRect.top + Math.min(180, directoryRect.height / 2));
+    return directoryRect.width >= 200 && workspaceRect.left >= directoryRect.right - 1 && Boolean(hit && directory.contains(hit));
+  });
+  await capture("04-1195x720-DIRECTORY-dock-mutual-exclusion.png");
+
+  for (const [width, height] of [[1195, 720], [1280, 800], [1440, 900], [1600, 900]]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(40);
+    const geometry = await shellGeometry(page);
+    assert.ok(geometry.main && geometry.main.width > 0 && geometry.main.height > 0, `MainWorkspace must remain mounted at ${width}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scrollWidth <= geometry.clientWidth && geometry.bodyScrollWidth <= geometry.bodyClientWidth, `No body overflow at ${width}=${JSON.stringify(geometry)}`);
+    if (width === 1600) await capture("05-1600x900-TIANYI-stable-wide.png");
+  }
+
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await page.getByRole("button", { name: "更多全局状态", exact: true }).click();
+  await page.locator("#shell-topbar-overflow-menu button").first().click();
+  await page.getByLabel("Unified Tianyi conversation").waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en-US");
+  assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await page.getByLabel("Work draft").inputValue(), "只属于工作泳道的草稿", "Locale change must retain user content and lane draft.");
+  assert.equal(await page.getByLabel("Work scope").inputValue(), "selected-events");
+  assert.equal(await page.getByRole("heading", { name: "Choose a candidate to continue" }).count(), 1);
+  assert.equal(await page.getByLabel("Work draft").getAttribute("placeholder"), "Refine the current candidate and prepare its impact preview…");
+  await capture("06-1195x720-TIANYI-complete-English.png");
+  await reloadProduct(page);
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en-US", "Locale must survive refresh.");
+  assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true", "Lane must survive refresh.");
+  await capture("07-1195x720-TIANYI-English-refresh-restored.png");
+
+  await gotoProduct(page, `${baseUrl}/event-line?eventTask=story&locale=zh-CN`);
+  await page.locator(".event-line-workbench").waitFor();
+  const eventUrl = page.url();
+  const mainBeforeAgent = await page.locator(".shell-workspace-event-line").count();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 1);
+  assert.equal(await page.locator(".shell-workspace-event-line").count(), mainBeforeAgent, "Opening Agent must not unmount the event workspace.");
+  assert.equal(page.url(), eventUrl, "Opening Agent must preserve pathname and query state.");
+  await capture("08-1195x720-EVENT-LINE-context-Tianyi-Agent.png");
+  await page.locator(".tianyi-sidebar").getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  assert.equal(page.url(), eventUrl);
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-panel-toggle")), "tianyi-agent", "Closing Agent must restore the trigger focus.");
+  page.off("request", observeProvider);
+  assert.deepEqual(providerRequests, [], `Shell checks must make zero Provider calls: ${providerRequests.join(", ")}`);
+  assert.deepEqual(consoleProblems, [], "Shell focus interactions must not add browser console errors.");
+}
+
+async function shellGeometry(page) {
+  return page.evaluate(() => {
+    const measure = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom, display: style.display, visibility: style.visibility };
+    };
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return {
+      pathname: window.location.pathname,
+      query: window.location.search,
+      directoryOpen: shell?.getAttribute("data-directory-visible") ?? null,
+      activeDockTool: shell?.getAttribute("data-active-dock-tool") ?? null,
+      dockPanelCount: shell?.getAttribute("data-dock-panel-count") ?? null,
+      main: measure('[aria-label="天意统一会话"]'),
+      directory: measure(".project-directory-panel"),
+      dock: measure(".dock-panel-stack"),
+      toolRail: measure(".dock-tool-rail"),
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      bodyClientWidth: document.body.clientWidth,
+      bodyScrollWidth: document.body.scrollWidth,
+      activeElement: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, label: document.activeElement.getAttribute("aria-label"), text: document.activeElement.innerText.slice(0, 80) } : null
+    };
+  });
 }
 
 async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
@@ -3003,7 +3195,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await candidates.nth(0).getByRole("button", { name: "保留可能性", exact: true }).click();
     await candidates.nth(0).getByText("已保留可能性", { exact: true }).waitFor();
     await candidates.nth(1).getByRole("button", { name: /进入工作模式/u }).click();
-    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
     assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
@@ -3026,7 +3218,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.getByLabel("作者调整（保留在当前工作区）").fill("保留原始证据引用，只收窄变化范围。");
     await capture("05-1440x900-EVENT-LINE-candidate-trajectory.png");
 
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     const sidebar = page.locator(".tianyi-sidebar");
     await sidebar.waitFor();
     assert.equal(await sidebar.getAttribute("data-tianyi-conversation-id"), conversationId, "The Event Line Work surface must reuse the same Work lane.");
@@ -3037,7 +3229,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
     assert.match(await sidebar.textContent(), /当前页面.*事件线/su);
     await capture("06-1440x900-EVENT-LINE-page-agent-scoped.png");
-    await sidebar.getByRole("button", { name: "关闭全局天意", exact: true }).click();
+    await sidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
 
     const eventLineAdoption = page.getByLabel("天意候选轨迹").getByTestId("tianyi-adoption-panel");
     await eventLineAdoption.getByRole("button", { name: "采纳", exact: true }).click();
@@ -3048,14 +3240,14 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await capture("07-1440x900-EVENT-LINE-adoption-receipt.png");
     await eventLineAdoption.getByRole("button", { name: "撤销（创建补偿版本）", exact: true }).click();
     await eventLineAdoption.getByText("采纳已通过补偿版本撤销", { exact: true }).waitFor();
-    assert.match(await eventLineAdoption.textContent(), /原 Event 与历史回执仍保留/u);
+    assert.match(await eventLineAdoption.textContent(), /原事件与历史回执仍保留/u);
     await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
     await capture("08-1440x900-EVENT-LINE-compensation-version.png");
 
     await page.getByLabel("天意候选轨迹").getByRole("button", { name: "返回创作工作区", exact: true }).click();
     await page.waitForURL((value) => value.pathname === "/tianyi" && value.searchParams.get("tianyiLane") === "work");
     await page.waitForFunction(() => document.querySelector("[aria-label='天意统一会话']")?.getAttribute("data-active-lane") === "work");
-    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "保留原始证据引用，只收窄变化范围。", "Returning from Event Line must restore the same Work draft.");
     assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events", "Returning from Event Line must restore the same Work scope.");
     await page.goBack({ waitUntil: "domcontentloaded" });
@@ -3071,7 +3263,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     assert.equal(pendingMatches.length, 1, `The adopted Event must remain visibly reachable in the pending-arrangement region after reload: ${JSON.stringify(allPending)}`);
     assert.equal(pendingMatches[0].status, "committed", `The adopted Event must retain its author-confirmed state after reload: ${JSON.stringify(pendingMatches)}`);
     await reloadedTrajectory.getByRole("button", { name: "返回创作工作区", exact: true }).click();
-    await page.getByLabel("工作模式工作区").waitFor({ state: "attached" });
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId);
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
     assert.deepEqual(providerRequests, [], "The deterministic Tianyi golden loop must make zero Provider calls.");
@@ -3469,7 +3661,7 @@ async function recordR10Closeout() {
       await page.getByTestId("story-modeling-confirmation").getByRole("button", { name: "确认运行一次", exact: true }).click();
     }
     await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     const dockWidth = await page.locator(".tianyi-sidebar").evaluate((element) => Math.round(element.getBoundingClientRect().width));
     assert.equal(dockWidth, 348);
@@ -3617,7 +3809,7 @@ async function recordR9Evidence() {
     await switchEventView(page, "时间轴");
     const timeline = page.getByLabel("独立时间线工作区");
     await timeline.waitFor();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await timeline.getByRole("button", { name: "时间总览", exact: true }).click();
     await pause(page, 350);
@@ -3762,7 +3954,7 @@ async function recordR8Foundation() {
     const aiTools = page.getByRole("button", { name: /AI 工具/u }).last();
     await aiTools.click();
     await page.getByRole("button", { name: /AI 工具/u }).last().click();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R8 1152 workspace must not create page-level horizontal overflow.");
     await shot(page, "08-1152-timeline-tianyi-348.png");
@@ -3876,7 +4068,7 @@ async function recordR7Interaction() {
     await closeDirectory.click();
     await switchEventView(page, "关系图");
     await page.getByLabel("事件关系工作区").waitFor();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await pause(page);
     await closeGlobalTianyiIfOpen(page);
@@ -3970,7 +4162,7 @@ async function recordR6Closeout() {
     await switchEventView(page, "时间轴");
     await page.getByLabel("时间标尺").waitFor();
     await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await page.waitForTimeout(500);
     const dockWidth = await page.locator(".tianyi-sidebar").evaluate((element) => Math.round(element.getBoundingClientRect().width));
