@@ -1784,6 +1784,17 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
+  const focusedPageRailButton = page.locator(".page-context-dock-rail").getByRole("button", { name: "因果", exact: true });
+  const focusedPageRailBox = await focusedPageRailButton.boundingBox();
+  assert.ok(focusedPageRailBox, "The Event page-tool rail remains visible while Tianyi is open.");
+  assert.equal(await focusedPageRailButton.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)?.closest("button") === button;
+  }), true, "The visible Event page-tool trigger must remain the real pointer hit target above Tianyi.");
+  await focusedPageRailButton.click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 0, "Selecting a page tool replaces Tianyi in the one shared right-side slot.");
+  await page.locator(".page-context-dock-panel > header button").click();
   await closeGlobalTianyiIfOpen(page);
 
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -3124,9 +3135,21 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.locator(".tianyi-sidebar").count(), 1);
   assert.equal(await page.locator(".shell-workspace-event-line").count(), mainBeforeAgent, "Opening Agent must not unmount the event workspace.");
   assert.equal(page.url(), eventUrl, "Opening Agent must preserve pathname and query state.");
+  const eventPageTool = page.locator(".page-context-dock-rail").getByRole("button", { name: "因果", exact: true });
+  assert.ok(await eventPageTool.boundingBox(), "Opening Tianyi must keep the Event page-tool rail visible.");
+  assert.equal(await eventPageTool.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)?.closest("button") === button;
+  }), true, "The Event page-tool rail must remain clickable above the Tianyi overlay.");
   await capture("08-1195x720-EVENT-LINE-context-Tianyi-Agent.png");
+  await eventPageTool.click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 0, "A page tool replaces Tianyi instead of stacking another right-side surface.");
+  await page.locator(".page-context-dock-panel > header button").click();
+  await page.locator('[data-panel-toggle="tianyi-agent"]').click();
   await page.locator(".tianyi-sidebar").getByRole("button", { name: "关闭天意助手", exact: true }).click();
   assert.equal(page.url(), eventUrl);
+  await page.waitForFunction(() => document.activeElement?.getAttribute("data-panel-toggle") === "tianyi-agent");
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-panel-toggle")), "tianyi-agent", "Closing Agent must restore the trigger focus.");
   page.off("request", observeProvider);
   assert.deepEqual(providerRequests, [], `Shell checks must make zero Provider calls: ${providerRequests.join(", ")}`);

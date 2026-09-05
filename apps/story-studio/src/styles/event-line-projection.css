@@ -115,6 +115,21 @@
 .shell-workspace-event-line .page-context-dock-panel > header button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
 .shell-workspace-event-line .page-context-dock-body { min-block-size: 0; overflow: auto; }
 
+/* In focused desktop mode Tianyi is an overlay. Keep the page-owned launcher
+   rail above that overlay so authors can replace Tianyi with Event details,
+   causality, candidates, review, or arrangement without first closing it. */
+.tianyan-r0-shell[data-shell-focus-layout="focused"][data-tianyi-open="true"] .shell-workspace-event-line .page-context-dock {
+  position: fixed;
+  inset-block: var(--topbar-height) 0;
+  inset-inline-end: 0;
+  inline-size: 3.25rem;
+  z-index: calc(var(--layer-tianyi) + 1);
+}
+
+.tianyan-r0-shell:has(.shell-workspace-event-line .page-context-dock-rail)[data-shell-focus-layout="focused"][data-tianyi-open="true"] .tianyi-sidebar {
+  inset-inline-end: 3.25rem;
+}
+
 @media (min-width: 90.0625rem) {
   .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 23.25rem; }
 }
