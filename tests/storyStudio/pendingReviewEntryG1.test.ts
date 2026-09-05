@@ -118,3 +118,23 @@ test("R2 E07 lists every persisted Story Intake batch and makes each exact batch
   assert.match(shell, /eventAdvanced: "graph"/u, "关系候选入口必须打开事件线既有的关系 Owner 工作面");
   assert.match(shell, /eventPending: "relations"/u, "关系 Owner 工作面必须定位到待确认关系，而不是落到空图");
 });
+
+test("R3 makes loading, story-wide pending totals, and the selected batch range explicit", () => {
+  const directory = readFileSync("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx", "utf8");
+  const projection = readFileSync("apps/story-studio/src/product-shell/project-directory/useProjectDirectoryProjection.ts", "utf8");
+  const entry = readFileSync("apps/story-studio/src/product-shell/project-directory/PendingReviewEntry.tsx", "utf8");
+
+  assert.match(projection, /pendingStatus: "idle" \| "loading" \| "ready" \| "failed"/u);
+  assert.doesNotMatch(projection, /getTianyiStoryIntakeRuns\([^\n]+\.catch\(\(\) => \[\]\)/u, "持久 Story Intake 读取失败必须进入 failed，不能把未知批次计为 0");
+  assert.match(directory, /pendingLoading \? "…"/u, "加载期间不得把未知总数伪装成 0");
+  assert.match(directory, /pendingReady \? state\.projection\?\.pendingCount \?\? 0 : pendingLoading \? "…" : "—"/u, "读取失败也不得把未知总数伪装成 0");
+  assert.match(directory, /directory\.pendingUnavailable/u);
+  assert.match(directory, /directory\.pendingLoading/u);
+  assert.match(directory, /storyIntakeBatches\.length/u);
+  assert.match(directory, /directory\.pendingBatchSummary/u);
+  assert.match(directory, /directory\.pendingProcessedExcluded/u, "处理记录必须与待确认来源分开说明");
+  assert.match(entry, /batchCount/u);
+  assert.match(entry, /pendingEntryAria/u, "故事级汇总必须完整说明待确认数和批次数，不能冒充单批次操作");
+  assert.match(entry, /pendingContinueLatest/u, "故事级入口必须明确它只会继续最近批次，而不是把总数伪装成单批操作");
+  assert.match(directory, /pendingBatchItemCount/u, "批次行必须区分待决定数与批次总数");
+});

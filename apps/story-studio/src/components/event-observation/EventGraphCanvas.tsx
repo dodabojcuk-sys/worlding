@@ -800,7 +800,10 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         {branchUnits.length ? <button type="button" aria-pressed={collapsedUnitIds.size === branchUnits.length} onClick={toggleAllBranches}><GitBranch />{collapsedUnitIds.size === branchUnits.length ? "展开支线" : "折叠支线"}</button> : null}
         <button type="button" aria-pressed={semanticLevel === "overview"} onClick={() => fitWholeNarrative(flow, 180)}><Maximize2 />全书概览</button>
         <button type="button" aria-pressed={semanticLevel === "reading"} disabled={!props.selectedEventId} onClick={() => focusEvent(props.selectedEventId)}><Focus />阅读所选</button>
-        <button type="button" aria-pressed={miniMapOpen} onClick={() => setMiniMapOpen((open) => !open)}><MapPin />缩略导航</button>
+        <button type="button" aria-label={semanticLevel === "reading" ? "打开缩略导航并返回全书概览" : miniMapOpen ? "隐藏缩略导航" : "显示缩略导航"} aria-pressed={miniMapOpen && semanticLevel === "overview"} onClick={() => {
+          if (semanticLevel === "reading") { setMiniMapOpen(true); fitWholeNarrative(flow, 180); }
+          else setMiniMapOpen((open) => !open);
+        }}><MapPin />缩略导航</button>
       </nav>
     </header>
     <div className="formal-narrative-flow" tabIndex={0} aria-label="NarrativeArrangement 图形事件线，可缩放和平移">
@@ -826,7 +829,7 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
       >
         <Background gap={22} size={1} color="rgba(20, 96, 92, .11)" />
         <Controls showInteractive={false} position="bottom-left" />
-        {miniMapOpen ? <MiniMap pannable zoomable aria-label="事件线缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
+        {miniMapOpen && semanticLevel === "overview" ? <MiniMap className="formal-narrative-minimap" pannable zoomable aria-label="事件线缩略导航" nodeColor={(node) => node.data?.kind === "placement" ? node.data.status === "conflict" ? "#b94a48" : node.data.status === "draft" ? "#9ca8a5" : "#147d78" : node.data?.kind === "focus" ? "#d9911d" : "#b8c6c2"} nodeStrokeWidth={2} /> : null}
       </ReactFlow>
       {!placements.length ? <div className="formal-narrative-empty" role="status"><GripHorizontal /><small>NarrativeArrangement 尚未建立</small><strong>尚未建立叙事编排</strong><p>{props.events.length} 个 Event 与 {(props.storyUnits ?? []).filter((unit) => unit.status !== "archived").length} 个 Story Unit 仍可核对；系统不会替作者猜顺序。</p><button type="button" className="primary-action" onClick={props.surface.onOpenStaging}>安排第一个事件</button></div> : null}
       {props.surface.storylines?.length ? <StorylineCrossingMap storylines={props.surface.storylines} events={props.events} scope={props.surface.storylineScope ?? "all"} onScope={props.surface.onStorylineScope} onSelectEvent={props.onSelectEvent} /> : null}

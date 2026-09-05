@@ -1894,6 +1894,7 @@
 .formal-narrative-workspace[data-semantic-level="overview"] .formal-narrative-card { box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="reading"] .formal-narrative-card.is-selected { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent); }
 .formal-narrative-flow .react-flow__minimap { border: 1px solid var(--color-border); border-radius: .3rem; box-shadow: none; }
+.formal-narrative-flow .formal-narrative-minimap { inline-size: 8.25rem; block-size: 5.25rem; inset-inline-end: .65rem; inset-block-end: .65rem; opacity: .9; }
 
 .story-progression-heading,
 .story-progression-controls,

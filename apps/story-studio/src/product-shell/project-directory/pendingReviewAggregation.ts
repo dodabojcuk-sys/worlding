@@ -109,7 +109,7 @@ export function buildPendingReviewAggregation(input: {
   }
   const storyIntakeTargets: StoryIntakeReviewTarget[] = [];
   const storyIntakeItemKeys = new Set<string>();
-  for (const run of input.storyIntakeRuns ?? []) {
+  for (const run of [...(input.storyIntakeRuns ?? [])].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))) {
     const storyIntake = run.storyIntakeEnvelope;
     if (!storyIntake || run.projectId !== input.projectId || run.workVersionId !== input.workVersionId || storyIntake.projectId !== input.projectId || storyIntake.baseVersion.workVersionId !== input.workVersionId || storyIntake.sessionId !== run.sessionId || storyIntake.runId !== run.runId) continue;
     for (const candidate of storyIntake.candidates) {

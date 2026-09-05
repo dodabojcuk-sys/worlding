@@ -120,19 +120,23 @@
 .pending-duplicate { color: var(--color-warning) !important; }
 .pending-review-notice { margin: var(--space-2); padding: var(--space-2); color: var(--color-warning); background: var(--color-surface-muted); font-size: var(--font-size-xs); }
 .pending-review-directory-summary { display: grid; gap: var(--space-3); padding: var(--space-3); }
-.pending-review-entry { width: 100%; min-height: 3.25rem; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2); padding: var(--space-3); color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
-.pending-review-entry:hover { border-color: var(--color-accent); }
+.pending-review-entry { width: 100%; min-height: 3.25rem; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; color: var(--color-text); background: transparent; border: 0; border-block: 1px solid var(--color-border); cursor: pointer; text-align: start; }
+.pending-review-entry:hover { color: var(--color-accent); }
 .pending-review-entry:focus-visible { outline: .1875rem solid var(--color-focus); outline-offset: .125rem; }
 .pending-review-entry svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
-.pending-review-entry strong { min-inline-size: 1.5rem; padding: 2px var(--space-1); color: var(--color-accent); background: var(--color-surface); border-radius: var(--radius-xs); text-align: center; }
+.pending-review-entry > span { min-inline-size: 0; display: grid; gap: .1rem; }
+.pending-review-entry > span strong { color: inherit; font-size: var(--font-size-sm); }
+.pending-review-entry > span small { overflow: hidden; color: var(--color-text-muted); font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
+.pending-review-entry > strong { min-inline-size: 1.8rem; color: var(--color-accent); font-size: 1.1rem; text-align: end; }
 .pending-review-directory-summary > p,
 .pending-review-directory-summary > small { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
-.pending-review-directory-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1); margin: 0; }
-.pending-review-directory-summary dl > div { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: var(--color-surface-muted); border-radius: var(--radius-xs); font-size: var(--font-size-xs); }
-.pending-review-directory-summary dt { color: var(--color-text-muted); }
-.pending-review-directory-summary dd { margin: 0; color: var(--color-text); font-weight: 600; }
+.pending-review-loading { display: flex; align-items: center; min-block-size: 3rem; }
+.pending-review-breakdown { display: grid; gap: var(--space-2); }
+.pending-review-breakdown > div { display: grid; gap: .15rem; padding-block-end: var(--space-2); border-block-end: 1px solid var(--color-border-subtle); }
+.pending-review-breakdown small, .pending-review-breakdown span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.pending-review-breakdown strong { color: var(--color-text); font-size: var(--font-size-xs); font-weight: 600; }
 .pending-review-story-intake-batches { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
-.pending-review-story-intake-batches li { overflow: hidden; color: var(--color-text-muted); background: var(--color-surface-muted); border-inline-start: 2px solid var(--color-accent); font-size: var(--font-size-xs); }
+.pending-review-story-intake-batches li { overflow: hidden; color: var(--color-text-muted); border-inline-start: 2px solid var(--color-accent); font-size: var(--font-size-xs); }
 .pending-review-story-intake-batches button { inline-size: 100%; min-block-size: 2.25rem; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); color: inherit; background: transparent; border: 0; text-align: start; cursor: pointer; }
 .pending-review-story-intake-batches button:hover, .pending-review-story-intake-batches button:focus-visible { color: var(--color-text); background: var(--color-accent-soft); outline: none; }
 .pending-review-story-intake-batches button span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

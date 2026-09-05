@@ -178,7 +178,9 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     if (rightWorkSurface.mode !== "NONE") {
       dock.closePanel();
     }
-    if (rightWorkSurface.mode !== "NONE" && focusLayout !== "wide") {
+    // EventLine's inspector is already an inline, page-owned column.  Only
+    // Tianyi is a shell overlay that needs to take over the medium layout.
+    if (rightWorkSurface.mode === "TIANYI" && focusLayout !== "wide") {
       setDirectoryOpen(false);
     }
   }, [focusLayout, rightWorkSurface.mode]);
@@ -187,7 +189,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const shell = shellRef.current;
     const workspace = shell?.querySelector<HTMLElement>(".shell-workspace");
     if (!workspace) return;
-    const overlayOpen = focusLayout === "narrow" && (directoryOpen || dock.state.activeToolId !== null || rightWorkSurface.mode !== "NONE");
+    const overlayOpen = focusLayout === "narrow" && (directoryOpen || dock.state.activeToolId !== null || rightWorkSurface.mode === "TIANYI");
     workspace.toggleAttribute("inert", overlayOpen);
     if (overlayOpen) workspace.setAttribute("aria-hidden", "true");
     else workspace.removeAttribute("aria-hidden");
@@ -196,7 +198,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
 
   useEffect(() => {
     if (focusLayout !== "narrow") return;
-    const overlaySelector = rightWorkSurface.mode !== "NONE" ? ".tianyi-sidebar" : dock.state.activeToolId ? ".dock-panel-stack" : directoryOpen ? ".project-directory-panel" : null;
+    const overlaySelector = rightWorkSurface.mode === "TIANYI" ? ".tianyi-sidebar" : dock.state.activeToolId ? ".dock-panel-stack" : directoryOpen ? ".project-directory-panel" : null;
     if (!overlaySelector) return;
     const overlay = shellRef.current?.querySelector<HTMLElement>(overlaySelector);
     if (!overlay) return;
