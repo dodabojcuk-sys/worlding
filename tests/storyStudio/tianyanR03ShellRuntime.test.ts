@@ -5,13 +5,15 @@ import os from "node:os";
 import test from "node:test";
 
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../../apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts";
-import { tianyiConversationStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
+import { tianyiComposerDraftStorageKey, tianyiConversationStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
 import { createActionPermissionBroker } from "../../src/storyControlSurface/actionPermissionBroker.ts";
 
 test("R0.3 conversation and Page Agent Run recovery stay project- and session-scoped", () => {
   assert.equal(tianyiConversationStorageKey("project-a"), "tianyi-conversation:project-a");
   assert.equal(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), "tianyi-agent-run:project-a:work-version.a:session-a");
   assert.notEqual(tianyiAgentRunStorageKey("project-a", "work-version.a", "session-a"), tianyiAgentRunStorageKey("project-a", "work-version.b", "session-a"));
+  assert.equal(tianyiComposerDraftStorageKey("project-a", "creative"), "tianyi-composer-draft:project-a:creative");
+  assert.notEqual(tianyiComposerDraftStorageKey("project-a", "work"), tianyiComposerDraftStorageKey("project-b", "work"));
 });
 
 test("R0.3 author submission gate prevents duplicate session or run dispatch before UI state updates", () => {

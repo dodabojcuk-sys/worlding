@@ -34,14 +34,23 @@ test("R12 exposes one EventLine task workspace and renders order only from Narra
   assert.doesNotMatch(progression, /NarrativeSpineBoard/u);
   assert.match(graph, /data-narrative-order-owner="NarrativeArrangementProjection"/u);
   assert.match(graph, /id: placement\.placementId/u);
-  assert.match(graph, /instance\.fitView\(\{ padding: \.12, maxZoom: \.75/u);
+  assert.match(graph, /fitWholeNarrative\(instance\)/u);
+  assert.match(graph, /projection\.nodes\.filter\(\(node\) => node\.data\.kind !== "focus"\)/u);
+  assert.match(graph, /instance\.fitView\(\{ nodes: visibleNodes, padding: \.07, minZoom: \.24, maxZoom: \.82/u);
+  assert.match(graph, /storyline-crossing-map.*is-collapsed/u);
   assert.match(graph, /minZoom=\{\.24\}/u);
   assert.match(graph, /formal-narrative-edge is-branch/u);
   assert.match(graph, /formal-narrative-edge is-merge/u);
   assert.match(graph, /unit\.mergeTargetUnitId && mergeTarget/u);
+  assert.match(graph, /position: \{ x: mergeX, y: mainY - 60 \}/u, "merge topology must stay clear of both the Story Unit topology node and the main placement title");
   assert.match(graph, /index > anchor && placement\.storyUnitId === unit\.mergeTargetUnitId/u);
   assert.match(timeline, /data-temporal-projection="independent"/u);
   assert.match(styles, /formal-narrative-flow/u);
+  assert.match(graph, /data-semantic-level=\{semanticLevel\}/u);
+  assert.match(graph, />全书概览</u);
+  assert.match(graph, />阅读所选</u);
+  assert.match(graph, /setSemanticLevel\("reading"\)/u);
+  assert.match(progression, /compareOpen \? <div className="story-knowledge-compare-popover"/u, "multi-observer controls must be on demand instead of a permanent canvas banner");
 });
 
 test("R12 placement controls reuse the Story Unit writer transport with explicit concurrency receipts", () => {

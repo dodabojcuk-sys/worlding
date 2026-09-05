@@ -1877,6 +1877,24 @@
   overflow: hidden;
 }
 
+.story-knowledge-compare-popover { position: absolute; z-index: 9; inset-block-start: 6.9rem; inset-inline-end: clamp(1rem, 2.4vw, 2.2rem); inline-size: min(48rem, calc(100% - 2rem)); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; box-shadow: var(--shadow-panel); }
+.story-knowledge-compare-popover .story-knowledge-compare-picker { margin: 0; border: 0; }
+
+/* R2 reading density: keep the canvas dominant and expose only two author-facing
+ * semantic levels. Fine zoom remains a rendering concern inside each level. */
+.story-progression-workspace { padding: .72rem clamp(.7rem, 1.6vw, 1.35rem) 1rem; }
+.story-progression-heading { align-items: center; padding-block-end: .55rem; }
+.story-progression-heading > div { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: .1rem .7rem; }
+.story-progression-heading > div > small { grid-column: 1 / -1; }
+.story-progression-heading h1 { margin: 0; font-size: 1.42rem; }
+.story-progression-heading p { overflow: hidden; max-inline-size: 48rem; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
+.story-progression-heading dl { padding: .45rem .65rem; border-radius: .35rem; }
+.story-progression-controls { margin-block-end: .48rem; border-radius: .38rem; box-shadow: none; backdrop-filter: none; }
+.formal-narrative-workspace, .shell-workspace-event-line .temporal-workspace.is-task-surface { border-radius: .42rem; box-shadow: none; }
+.formal-narrative-workspace[data-semantic-level="overview"] .formal-narrative-card { box-shadow: none; }
+.formal-narrative-workspace[data-semantic-level="reading"] .formal-narrative-card.is-selected { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent); }
+.formal-narrative-flow .react-flow__minimap { border: 1px solid var(--color-border); border-radius: .3rem; box-shadow: none; }
+
 .story-progression-heading,
 .story-progression-controls,
 .story-progression-migration-notice { flex: 0 0 auto; }
@@ -1948,6 +1966,8 @@
 .storyline-crossing-map { position: absolute; z-index: 5; inset: .7rem auto auto .7rem; display: grid; gap: .45rem; inline-size: min(21rem, calc(100% - 1.4rem)); padding: .55rem .6rem; background: color-mix(in srgb, var(--color-surface) 94%, var(--color-accent-soft)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: 0 .25rem .9rem color-mix(in srgb, var(--color-text) 12%, transparent); }
 .storyline-crossing-map > header { display: flex; align-items: start; justify-content: space-between; gap: .55rem; }
 .storyline-crossing-map > header div { display: grid; gap: .08rem; }
+.storyline-crossing-map > header .storyline-crossing-actions { display: flex; grid-auto-flow: column; gap: .3rem; }
+.storyline-crossing-map.is-collapsed { inline-size: auto; max-inline-size: calc(100% - 1.4rem); padding: .42rem .5rem; box-shadow: none; }
 .storyline-crossing-map small { color: var(--color-text-muted); font-size: .65rem; line-height: 1.35; }
 .storyline-crossing-map strong { font-size: .7rem; }
 .storyline-crossing-map button { color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .26rem; }
@@ -1965,7 +1985,7 @@
 .formal-narrative-flow .react-flow__pane:focus-visible,
 .shell-workspace-event-line .temporal-flow .react-flow__pane:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .formal-narrative-placement-node { inline-size: 14.5rem; }
-.formal-narrative-placement-node.is-far { inline-size: 9.5rem; }
+.formal-narrative-placement-node.is-far { inline-size: 14.5rem; }
 .formal-narrative-card { inline-size: 14.5rem; overflow: hidden; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-block-start: .24rem solid var(--color-accent); border-radius: .48rem; box-shadow: 0 .35rem 1rem color-mix(in srgb, var(--color-text) 10%, transparent); }
 .formal-narrative-card.is-selected { border-color: var(--color-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 19%, transparent), 0 .45rem 1.2rem color-mix(in srgb, var(--color-text) 12%, transparent); }
 .formal-narrative-card.is-draft { border-block-start-color: var(--color-text-muted); border-style: dashed; }
@@ -1977,14 +1997,14 @@
 .formal-narrative-card-main > small,
 .formal-narrative-card-main > p,
 .formal-narrative-card-main > time { grid-column: 1 / -1; }
-.formal-narrative-card-main > strong { overflow: hidden; font: 650 .92rem/1.28 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.formal-narrative-card-main > strong { display: -webkit-box; overflow: hidden; font: 650 .92rem/1.28 var(--font-display); -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .formal-narrative-card-main > small,
 .formal-narrative-card-main > time { color: var(--color-text-muted); font-size: .65rem; }
 .formal-narrative-card-main > p { display: -webkit-box; overflow: hidden; margin: .1rem 0 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .formal-narrative-arrange { inline-size: calc(100% - 1rem); min-block-size: 1.85rem; display: inline-flex; align-items: center; justify-content: center; gap: .3rem; margin: 0 .5rem .5rem; color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .65rem; }
 .formal-narrative-arrange svg { inline-size: .75rem; }
-.formal-narrative-card.is-far { inline-size: 9.5rem; }
-.formal-narrative-card.is-far .formal-narrative-card-main { min-block-size: 4.7rem; padding: .55rem; }
+.formal-narrative-card.is-far { inline-size: 14.5rem; }
+.formal-narrative-card.is-far .formal-narrative-card-main { min-block-size: 5.35rem; padding: .55rem .65rem; }
 .formal-narrative-card.is-far .formal-narrative-card-main > span { font-size: .52rem; }
 .formal-narrative-card.is-far .formal-narrative-card-main > b { font-size: 1rem; }
 .formal-narrative-port { inline-size: .62rem; block-size: .62rem; background: var(--color-surface); border: 2px solid var(--color-accent); }
@@ -2092,8 +2112,8 @@
   .story-progression-heading { padding-block-end: .75rem; }
   .formal-narrative-workspace,
   .shell-workspace-event-line .temporal-workspace.is-task-surface { min-block-size: 24rem; }
-  .formal-narrative-toolbar { align-items: stretch; flex-direction: column; gap: .45rem; }
-  .formal-narrative-toolbar nav { inline-size: 100%; }
+  .formal-narrative-toolbar { align-items: center; flex-direction: row; gap: .45rem; }
+  .formal-narrative-toolbar nav { inline-size: auto; }
   .formal-narrative-legend strong { display: none; }
   .focus-object-picker,
   .story-progression-advanced { inset-block-start: 9.8rem; inset-inline-end: .85rem; }

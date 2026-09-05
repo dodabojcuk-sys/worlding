@@ -156,6 +156,7 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const restoreRailViewport = useRef(false);
   const temporalAutoFitKey = useRef<string | null>(null);
   const relationSelectionActive = useRef(false);
+  const pendingRelationRequestHandled = useRef(false);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuTriggerRef = useRef<HTMLElement | null>(null);
   const contextMenuWasOpen = useRef(false);
@@ -185,6 +186,19 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
     workspaceDockCoordinator.openPageInspector("event-line", mode);
   }, []);
   const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
+
+  useEffect(() => {
+    if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;
+    const relation = graphRelations.find((item) => item.reviewState === "candidate" && item.relationTypeResolution === "unresolved")
+      ?? graphRelations.find((item) => item.reviewState === "candidate");
+    if (!relation) return;
+    pendingRelationRequestHandled.current = true;
+    restoreRailViewport.current = false;
+    railViewport.current = null;
+    setSelection({ kind: "relation", id: relation.relationId });
+    openInspector("RELATION_REVIEW");
+    setRailOpen(false);
+  }, [graphRelations, openInspector]);
 
   useEffect(() => {
     const receive = (event: Event) => {
@@ -714,6 +728,7 @@ const formalNarrativeNodeTypes = {
 function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surface: NonNullable<EventGraphCanvasProps["narrativeSurface"]> }) {
   const [flow, setFlow] = useState<ReactFlowInstance<Node<FormalNarrativeNodeData>, Edge> | null>(null);
   const [detail, setDetail] = useState<"far" | "medium" | "near">("far");
+  const [semanticLevel, setSemanticLevel] = useState<"overview" | "reading">(props.selectedEventId ? "reading" : "overview");
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
   const [collapsedUnitIds, setCollapsedUnitIds] = useState<Set<string>>(() => new Set());
   const previousSelectedEventId = useRef(props.selectedEventId);
@@ -740,11 +755,22 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
       return next;
     })
   }), [collapsedUnitIds, detail, placements, props.selectedEventId, props.storyUnits, props.surface.focusObjects, props.surface.onArrange, props.onSelectEvent]);
+  const fitWholeNarrative = useCallback((instance: ReactFlowInstance<Node<FormalNarrativeNodeData>, Edge> | null = flow, duration = 0) => {
+    if (!instance) return;
+    setSemanticLevel("overview");
+    const visibleIds = new Set(projection.nodes.filter((node) => node.data.kind !== "focus").map((node) => node.id));
+    const visibleNodes = instance.getNodes().filter((node) => visibleIds.has(node.id));
+    if (!visibleNodes.length) return;
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      void instance.fitView({ nodes: visibleNodes, padding: .07, minZoom: .24, maxZoom: .82, duration });
+    }));
+  }, [flow, projection.nodes]);
   const focusEvent = useCallback((eventId: string | null, duration = 260) => {
     if (!flow || !eventId) return;
     const target = flow.getNodes().find((node) => node.data.kind === "placement" && node.data.eventId === eventId);
     if (!target) return;
-    void flow.fitView({ nodes: [target], padding: 1.15, maxZoom: .88, duration });
+    setSemanticLevel("reading");
+    void flow.fitView({ nodes: [target], padding: 1.15, maxZoom: 1.04, duration });
   }, [flow]);
   useEffect(() => {
     if (previousSelectedEventId.current === props.selectedEventId) return;
@@ -767,13 +793,13 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
   }, [focusEvent, props.selectedEventId]);
   const toggleAllBranches = () => setCollapsedUnitIds((current) => current.size === branchUnits.length ? new Set() : new Set(branchUnits.map((unit) => unit.id)));
 
-  return <section className="formal-narrative-workspace" data-testid="formal-narrative-event-graph" data-event-line-renderer="EventGraphCanvas" data-narrative-order-owner="NarrativeArrangementProjection" data-placement-count={placements.length} data-focus-track-count={props.surface.focusObjects.length}>
+  return <section className="formal-narrative-workspace" data-testid="formal-narrative-event-graph" data-event-line-renderer="EventGraphCanvas" data-narrative-order-owner="NarrativeArrangementProjection" data-placement-count={placements.length} data-focus-track-count={props.surface.focusObjects.length} data-semantic-level={semanticLevel}>
     <header className="formal-narrative-toolbar">
       <div><small>叙事坐标 · 左向右推进</small><strong>{props.surface.currentUnitLabel ?? "全书事件线"}</strong><span>{placements.length} 个正式编排位置 · {branchUnits.length} 条支线</span></div>
       <nav aria-label="事件线画布控制">
         {branchUnits.length ? <button type="button" aria-pressed={collapsedUnitIds.size === branchUnits.length} onClick={toggleAllBranches}><GitBranch />{collapsedUnitIds.size === branchUnits.length ? "展开支线" : "折叠支线"}</button> : null}
-        <button type="button" disabled={!props.selectedEventId} onClick={() => focusEvent(props.selectedEventId)}><Focus />定位所选</button>
-        <button type="button" onClick={() => void flow?.fitView({ padding: .12, duration: 280, maxZoom: 1.05 })}><Maximize2 />全书位置</button>
+        <button type="button" aria-pressed={semanticLevel === "overview"} onClick={() => fitWholeNarrative(flow, 180)}><Maximize2 />全书概览</button>
+        <button type="button" aria-pressed={semanticLevel === "reading"} disabled={!props.selectedEventId} onClick={() => focusEvent(props.selectedEventId)}><Focus />阅读所选</button>
         <button type="button" aria-pressed={miniMapOpen} onClick={() => setMiniMapOpen((open) => !open)}><MapPin />缩略导航</button>
       </nav>
     </header>
@@ -785,14 +811,9 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         onInit={(instance) => {
           setFlow(instance);
           if (props.viewport) void instance.setViewport(props.viewport, { duration: 0 });
-          else {
-            const target = projection.nodes.find((node) => node.data.kind === "placement" && node.data.eventId === props.selectedEventId)
-              ?? projection.nodes.find((node) => node.data.kind === "placement");
-            if (target) window.requestAnimationFrame(() => void instance.fitView({ nodes: [target], padding: 1.15, maxZoom: .88, duration: 0 }));
-            else void instance.fitView({ padding: .12, maxZoom: .75, duration: 0 });
-          }
+          else fitWholeNarrative(instance);
         }}
-        onMove={(_, viewport) => { setDetail(viewport.zoom < .68 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); props.onViewportChange?.(viewport); }}
+        onMove={(_, viewport) => { setDetail(viewport.zoom < .9 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); props.onViewportChange?.(viewport); }}
         onNodeClick={(_, node) => { if (node.data.kind === "placement") node.data.onOpen(); else if (node.data.kind === "topology") node.data.onToggle?.(); }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -816,19 +837,20 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
 }
 
 function StorylineCrossingMap(props: { storylines: readonly StorylineProjection[]; events: readonly EventLineEventSummary[]; scope: string; onScope?(storylineId: string): void; onSelectEvent(eventId: string): void }) {
+  const [expanded, setExpanded] = useState(false);
   const titleById = new Map(props.events.map((event) => [event.id, event.title]));
   const membership = new Map<string, string[]>();
   for (const line of props.storylines) for (const eventId of line.eventIds) membership.set(eventId, [...(membership.get(eventId) ?? []), line.id]);
   const crossingIds = [...membership.entries()].filter(([, lines]) => lines.length >= 2).map(([eventId]) => eventId);
-  return <aside className="storyline-crossing-map" data-testid="storyline-crossing-map" data-storyline-scope={props.scope} aria-label="故事线交叉导览">
-    <header><div><small>故事线交叉导览</small><strong>{props.scope === "all" ? "全局：所有故事线同时可见" : "单线聚焦：其余线保留方向"}</strong></div>{props.scope !== "all" ? <button type="button" onClick={() => props.onScope?.("all")}>返回全部故事线</button> : null}</header>
-    <div className="storyline-crossing-rails">{props.storylines.map((line) => {
+  return <aside className={`storyline-crossing-map ${expanded ? "is-expanded" : "is-collapsed"}`} data-testid="storyline-crossing-map" data-storyline-scope={props.scope} aria-label="故事线交叉导览">
+    <header><div><small>故事线交叉导览</small><strong>{props.scope === "all" ? `${props.storylines.length} 条故事线` : "单线聚焦"}</strong></div><div className="storyline-crossing-actions">{props.scope !== "all" ? <button type="button" onClick={() => props.onScope?.("all")}>返回全部</button> : null}<button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? "收起" : "展开"}</button></div></header>
+    {expanded ? <><div className="storyline-crossing-rails">{props.storylines.map((line) => {
       const titles = line.eventIds.map((eventId) => titleById.get(eventId)).filter((title): title is string => Boolean(title));
       const shared = line.eventIds.filter((eventId) => (membership.get(eventId)?.length ?? 0) >= 2);
       const active = props.scope === "all" || props.scope === line.id;
       return <button type="button" key={line.id} className={active ? "is-active" : "is-muted"} data-storyline-id={line.id} onClick={() => props.onScope?.(line.id)}><span className="storyline-crossing-rail"><i /><i /><i /></span><strong>{line.label}</strong><small>{titles[0] ?? "起点待定"} → {titles.at(-1) ?? "终点待定"} · {shared.length ? `${shared.length} 个交叉点` : "独立推进"}</small></button>;
     })}</div>
-    {crossingIds.length ? <nav aria-label="故事线交叉点">{crossingIds.map((eventId) => <button type="button" key={eventId} data-crossing-event-id={eventId} onClick={() => props.onSelectEvent(eventId)}>交叉点 · {titleById.get(eventId) ?? "可见事件"}</button>)}</nav> : <p>当前可见范围没有跨线 Event；不会依据画布相邻关系补造交叉。</p>}
+    {crossingIds.length ? <nav aria-label="故事线交叉点">{crossingIds.map((eventId) => <button type="button" key={eventId} data-crossing-event-id={eventId} onClick={() => props.onSelectEvent(eventId)}>交叉点 · {titleById.get(eventId) ?? "可见事件"}</button>)}</nav> : <p>当前可见范围没有跨线 Event；不会依据画布相邻关系补造交叉。</p>}</> : null}
   </aside>;
 }
 
@@ -848,16 +870,13 @@ function buildFormalNarrativeGraph(input: {
   const branchUnits = input.units.filter((unit) => unit.kind === "branch" && unit.status !== "archived").sort((left, right) => left.order - right.order);
   const branchPlacements = new Map(branchUnits.map((unit) => [unit.id, input.placements.filter((placement) => placement.storyUnitId === unit.id)]));
   const anchorIndex = new Map(branchUnits.map((unit) => [unit.id, mainPlacements.findIndex((placement) => placement.eventId === unit.branchPointEventId)]));
-  const extraSlotsAt = new Map<number, number>();
-  for (const unit of branchUnits) {
-    const index = anchorIndex.get(unit.id) ?? -1;
-    if (index < 0) continue;
-    extraSlotsAt.set(index, Math.max(extraSlotsAt.get(index) ?? 0, (branchPlacements.get(unit.id)?.length ?? 0) + 1));
-  }
   const xStep = 250;
   const startX = 170;
   const mainY = 165;
-  const mainX = mainPlacements.map((_, index) => startX + (index + [...extraSlotsAt.entries()].filter(([anchor]) => anchor < index).reduce((sum, [, slots]) => sum + slots, 0)) * xStep);
+  // Branches occupy their own vertical lane and may share the main lane's
+  // columns. Reserving extra horizontal slots made the whole book unreadably
+  // small at ordinary laptop widths without adding semantic information.
+  const mainX = mainPlacements.map((_, index) => startX + index * xStep);
   const placementPosition = new Map<string, { x: number; y: number }>();
   const nodes: Node<FormalNarrativeNodeData>[] = [];
   const edges: Edge[] = [];
@@ -919,7 +938,7 @@ function buildFormalNarrativeGraph(input: {
     const mergeNodeId = `merge:${unit.id}`;
     const mergeX = mergeTarget ? mainX[mergeTargetIndex]! - 110 : anchorX + Math.max(1.7, items.length + .65) * xStep;
     if (unit.mergeTargetUnitId && mergeTarget) {
-      nodes.push({ id: mergeNodeId, type: "narrativeTopology", position: { x: mergeX, y: mainY + 34 }, data: { kind: "topology", topology: "merge", label: `合流至 ${unitById.get(unit.mergeTargetUnitId)?.title ?? "目标单元"}`, detail: "Story Unit 声明的合流" } });
+      nodes.push({ id: mergeNodeId, type: "narrativeTopology", position: { x: mergeX, y: mainY - 60 }, data: { kind: "topology", topology: "merge", label: `合流至 ${unitById.get(unit.mergeTargetUnitId)?.title ?? "目标单元"}`, detail: "Story Unit 声明的合流" } });
     } else if (unit.mergeTargetUnitId) {
       unresolvedBranchCount += 1;
     }

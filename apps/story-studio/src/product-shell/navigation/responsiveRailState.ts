@@ -1,5 +1,5 @@
 export const SHELL_RAIL_AUTO_COLLAPSE_QUERY = "(max-width: 75rem)";
-export const SHELL_DIRECTORY_OVERLAY_QUERY = "(max-width: 50rem)";
+export const SHELL_DIRECTORY_OVERLAY_QUERY = "(max-width: 76rem)";
 
 export type ShellRailPreference = "auto" | "collapsed" | "expanded";
 

@@ -167,7 +167,12 @@ export function EventLineWorkbench(props: {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<CanonReadFailure | null>(null);
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
-  const [observationState, setObservationState] = useState<EventObservationState>(() => readEventObservationState(props.projectId, props.perspectiveObjects ?? []));
+  const [observationState, setObservationState] = useState<EventObservationState>(() => {
+    const restored = readEventObservationState(props.projectId, props.perspectiveObjects ?? []);
+    return new URLSearchParams(window.location.search).get("eventAdvanced") === "graph"
+      ? normalizeEventObservationState({ ...restored, layout: "relation-network", lens: "none" }, props.perspectiveObjects ?? [])
+      : restored;
+  });
   const initialTaskResolution = useMemo(() => resolveEventTaskPreset(window.location.search), []);
   const [eventTask, setEventTask] = useState<EventTaskPreset>(initialTaskResolution.task);
   const [eventTaskNotice, setEventTaskNotice] = useState<string | null>(() => initialTaskResolution.unrecognizedLegacyState
@@ -175,7 +180,7 @@ export function EventLineWorkbench(props: {
     : initialTaskResolution.migratedLegacyState
       ? "旧事件线链接已映射到同一工作区的新任务预设。"
       : null);
-  const [advancedView, setAdvancedView] = useState<"spine" | "graph" | null>(null);
+  const [advancedView, setAdvancedView] = useState<"spine" | "graph" | null>(() => new URLSearchParams(window.location.search).get("eventAdvanced") === "graph" ? "graph" : null);
   const [arrangementSelection, setArrangementSelection] = useState<NarrativeArrangementSelection | null>(null);
   const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
   const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable">("idle");

@@ -11,13 +11,19 @@ const source = (path: string) => readFileSync(path, "utf8");
 
 test("project directory keeps Classified and Pending review in the same navigation slot", () => {
   const panel = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx");
-  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx");
+  const pendingEntry = source("apps/story-studio/src/product-shell/project-directory/PendingReviewEntry.tsx");
+  const aggregation = source("apps/story-studio/src/product-shell/project-directory/pendingReviewAggregation.ts");
   const contract = source("src/storyContracts/projectDirectoryContract.ts");
   assert.match(panel, /directory\.classified/);
-  assert.match(panel, /PendingReviewPanel/);
+  assert.match(panel, /PendingReviewEntry/);
+  assert.match(panel, /onOpenPendingReview/);
   assert.doesNotMatch(panel, /全部.*资料.*创作.*参考/su);
-  assert.match(pending, /decideSourceImportCandidate/);
-  assert.match(pending, /confirmAgentRecognitionObject/);
+  assert.match(pendingEntry, /onClick=\{props\.onOpen\}/);
+  assert.match(pendingEntry, /directory\.pendingLabel/);
+  assert.match(aggregation, /input\.imports/);
+  assert.match(aggregation, /input\.storyIntake/);
+  assert.match(aggregation, /input\.proposals/);
+  assert.match(aggregation, /input\.relations/);
   assert.match(panel, /data-story-fact-owner="false"/);
   assert.match(panel, /project-directory-tabs/);
   assert.match(panel, /ProjectDirectoryTree/);

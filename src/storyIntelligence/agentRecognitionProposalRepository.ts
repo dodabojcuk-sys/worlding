@@ -182,7 +182,7 @@ export async function createAgentRecognitionProposal(input: {
     const { now, ...proposalInput } = normalized;
     const proposal: AgentRecognitionProposal = {
       ...proposalInput,
-      proposalId: proposalIdForKey(normalized.idempotencyKey),
+      proposalId: agentRecognitionProposalIdForKey(normalized.idempotencyKey),
       status: "pending",
       revision: 1,
       createdAt: now,
@@ -329,6 +329,32 @@ export async function completeAgentRecognitionApplication(input: {
       activeApplication: null,
       lastError: null,
       updatedAt: appliedAt
+    };
+  });
+}
+
+export async function compensateAgentRecognitionApplication(input: {
+  workspacePath: string;
+  projectId: string;
+  proposalId: string;
+  operationId: string;
+  targetObjectId: string;
+  now: string;
+}): Promise<AgentRecognitionProposal> {
+  const projectId = requireProjectId(input.projectId);
+  return mutateProposal(input.workspacePath, projectId, input.proposalId, (proposal) => {
+    const operationId = requireMachineId(input.operationId, "Agent proposal compensation operation");
+    if (proposal.lastError?.code === "application-compensated" && proposal.lastError.operationId === operationId && !proposal.applicationReceipt && !proposal.targetObjectRef) return proposal;
+    if (proposal.applicationReceipt?.operationId !== operationId || proposal.targetObjectRef?.objectId !== boundedReferenceText(input.targetObjectId, "Target object identifier", 160)) throw new Error("Agent recognition compensation does not match the completed application.");
+    const occurredAt = timestamp(input.now, "Application compensation time");
+    return {
+      ...proposal,
+      status: proposal.revision > 1 ? "edited" : "pending",
+      targetObjectRef: null,
+      applicationReceipt: null,
+      activeApplication: null,
+      lastError: { code: "application-compensated", message: "The formal object application was compensated by its owning batch.", operationId, occurredAt },
+      updatedAt: occurredAt
     };
   });
 }
@@ -580,7 +606,7 @@ function stableProposalIdentity(value: Pick<AgentRecognitionProposal, "projectId
   });
 }
 
-function proposalIdForKey(key: string): string {
+export function agentRecognitionProposalIdForKey(key: string): string {
   if (!HASH_PATTERN.test(key)) throw new Error("Agent recognition proposal key is invalid.");
   return `agent-proposal.${key.slice(0, 24)}`;
 }

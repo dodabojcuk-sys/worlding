@@ -771,6 +771,12 @@ input:focus-visible {
   }
 }
 
+@media (max-width: 76rem) {
+  .tianyan-r0-shell {
+    --directory-current: 0rem;
+  }
+}
+
 @media (max-width: 50rem) {
   :root {
     --directory-width: 0rem;

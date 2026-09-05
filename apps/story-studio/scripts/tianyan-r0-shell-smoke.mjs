@@ -520,13 +520,13 @@ async function assertSingleGlobalSearch(page) {
   await dialog.waitFor({ state: "hidden" });
 
   await page.getByRole("tab", { name: /待确认/u }).click();
-  assert.match(page.url(), /directoryReview=pending/u, "Pending review stays in the directory URL state rather than navigating to Data");
+  assert.match(page.url(), /directoryMode=pending/u, "The compact pending summary stays in the directory URL state until the author opens its central review surface");
   assert.match(new URL(page.url()).pathname, /\/(world|event-line|library|tianyi|collections)/u, "Pending review must not force the Data route");
   await page.getByRole("tab", { name: /已分类/u }).click();
 }
 
 async function openCharacterDirectory(page) {
-  const panel = page.locator(".project-directory-panel");
+  const panel = await ensureProjectDirectoryOpen(page);
   const characterCategory = panel.locator('[data-directory-node="directory.library.character"]');
   if (!(await characterCategory.count())) {
     const root = panel.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
@@ -534,6 +534,13 @@ async function openCharacterDirectory(page) {
     await panel.locator('[data-directory-node="directory.library"]').click();
   }
   await characterCategory.click();
+}
+
+async function ensureProjectDirectoryOpen(page) {
+  const panel = page.locator(".project-directory-panel");
+  if (!(await panel.isVisible())) await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  await panel.waitFor();
+  return panel;
 }
 
 async function assertCharacterDirectoryAndInspector(page) {
@@ -915,8 +922,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
 }
 
 async function assertNoProjectDirectoryShell(page) {
-  const panel = page.locator(".project-directory-panel");
-  await panel.waitFor();
+  const panel = await ensureProjectDirectoryOpen(page);
   for (const label of ["故事结构", "信息资料", "设定", "来源", "创意"]) {
     await panel.getByText(label, { exact: true }).waitFor();
   }
@@ -926,13 +932,13 @@ async function assertNoProjectDirectoryShell(page) {
   await panel.getByRole("button", { name: "新建作品", exact: true }).waitFor();
   await panel.getByRole("button", { name: "导入 .tianyan", exact: true }).waitFor();
   await panel.getByRole("tab", { name: /待确认/u }).click();
-  await panel.getByText("暂无待确认项。", { exact: true }).waitFor();
+  await panel.getByRole("button", { name: "待确认项目 0", exact: true }).waitFor();
+  assert.equal(await panel.locator(".pending-review-directory-summary dd").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "No-project pending entry keeps every category at zero without mounting the central review surface.");
   await panel.getByRole("tab", { name: /已分类/u }).click();
 }
 
 async function assertZeroItemDirectoryShell(page) {
-  const panel = page.locator(".project-directory-panel");
-  await panel.waitFor();
+  const panel = await ensureProjectDirectoryOpen(page);
   await panel.getByText("故事结构", { exact: true }).waitFor();
   assert.equal(await panel.locator(".project-directory-tree strong").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "A project with zero records keeps the same classified shell.");
   assert.equal(await panel.locator("[data-directory-empty-shell-actions]").count(), 0, "An opened empty project must not be presented as an import-only state.");

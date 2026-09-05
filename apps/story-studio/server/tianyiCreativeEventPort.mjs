@@ -217,12 +217,43 @@ export function createTianyiCreativeEventPort({ operations, authorControl, creat
     return state(projectId, input, projection);
   }
 
+  function reconfirm(projectId, input, projection) {
+    const prepared = createCandidate(projectId, input, projection);
+    const receipt = adoptionReceipt(prepared.planning);
+    if (!receipt || receipt.status !== "undone" || !receipt.appliedEventId) throw new Error("只有已撤销且回执完整的 Event 候选才能恢复采纳。");
+    const originalEvent = operations.readWorldObject({ projectId, objectId: receipt.appliedEventId });
+    if (!originalEvent || originalEvent.status !== "committed") throw new Error("原 Event 已丢失或状态已变化；不能猜测恢复。");
+    const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId);
+    if (!root) throw new Error("恢复采纳时主故事版本缺失。");
+    const createdAt = nextOperationTime(root.revision.createdAt);
+    const version = creationSourceSelectionPort.appendStructuredStoryRevision(projectId, {
+      expectedRevision: root.identity.currentRevision,
+      authorActionId: `author.tianyi-readopt.${input.candidateId}`,
+      idempotencyKey: input.operationId || `tianyi-readopt:${input.sessionId}:${input.candidateId}:r${root.identity.currentRevision}`,
+      createdAt,
+      semanticDeltaRefs: [`readopt-of:${receipt.receiptId}`, `event:${receipt.appliedEventId}`, `tianyi-candidate:${input.candidateId}`]
+    });
+    writeAdoptionReceipt(projectId, operations.readWorldObject({ projectId, objectId: prepared.planning.id }), {
+      ...receipt,
+      status: "active",
+      baseVersion: { workVersionId: root.identity.workVersionId, revision: root.identity.currentRevision, label: `${root.identity.displayName} V${root.identity.currentRevision}` },
+      resultVersion: { workVersionId: version.identity.workVersionId, revision: version.identity.currentRevision, label: `${version.identity.displayName} V${version.identity.currentRevision}` },
+      workVersionReceiptId: version.receipt.receiptId,
+      recordedAt: createdAt,
+      compensation: null
+    });
+    return state(projectId, input, projection);
+  }
+
   function undo(projectId, input, projection) {
     const prepared = createCandidate(projectId, input, projection);
     const receipt = adoptionReceipt(prepared.planning);
     if (!receipt || receipt.status !== "active") return state(projectId, input, projection);
     const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId);
-    if (!root || root.identity.workVersionId !== receipt.resultVersion.workVersionId || root.identity.currentRevision !== receipt.resultVersion.revision) throw new Error("故事版本已继续前进；本次撤销需要先重新评估，不能覆盖后续变化。");
+    const expectedCurrentRevision = Number.isSafeInteger(input.expectedCurrentRevision)
+      ? input.expectedCurrentRevision
+      : receipt.resultVersion.revision;
+    if (!root || root.identity.workVersionId !== receipt.resultVersion.workVersionId || root.identity.currentRevision !== expectedCurrentRevision) throw new Error("故事版本已继续前进；本次撤销需要先重新评估，不能覆盖后续变化。");
     const compensationMarker = `天意补偿：${input.sessionId}:${input.candidateId}`;
     const compensationPlanning = operations.listWorldObjects({ projectId, type: "event" })
       .filter((item) => item.status === "planned" && item.tags.includes(PORT_TAG))
@@ -241,7 +272,7 @@ export function createTianyiCreativeEventPort({ operations, authorControl, creat
       compensationEvent = operations.readWorldObject({ projectId, objectId: applied.application.appliedEventId });
     }
     const version = creationSourceSelectionPort.appendStructuredStoryRevision(projectId, {
-      expectedRevision: receipt.resultVersion.revision,
+      expectedRevision: root.identity.currentRevision,
       authorActionId: `author.tianyi-undo.${input.candidateId}`,
       idempotencyKey: `tianyi-undo:${input.sessionId}:${input.candidateId}`,
       createdAt: nextOperationTime(receipt.recordedAt),
@@ -255,5 +286,5 @@ export function createTianyiCreativeEventPort({ operations, authorControl, creat
     return state(projectId, input, projection);
   }
 
-  return { state, createCandidate, beginImpact, reject, confirm, undo };
+  return { state, createCandidate, beginImpact, reject, confirm, reconfirm, undo };
 }

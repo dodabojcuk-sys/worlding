@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 import type { TianyiSimulationContextPack } from "./tianyiSimulationSourceContract.ts";
-import { confirmStoryIntakeCandidate, migrateStoryIntakeEnvelopeV1, updateStoryIntakeCandidateLifecycle, type StoryIntakeCandidate, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
+import { confirmStoryIntakeCandidate, migrateStoryIntakeEnvelopeV1, rebaseStoryIntakeEnvelopeAfterUndo, undoStoryIntakeCandidateApplication, updateStoryIntakeCandidateLifecycle, type StoryIntakeBaseVersion, type StoryIntakeCandidate, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
 
 export type TianyiAgentRunStatus =
   | "idle"
@@ -301,6 +301,10 @@ export const TIANYI_AGENT_TOOL_REGISTRY: readonly TianyiAgentToolDefinition[] = 
 export type TianyiAgentRuntimePersistence = {
   appendEvent(event: TianyiAgentRuntimeEvent): Promise<{ alreadyCompleted: boolean; receiptId: string }>;
   readEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
+  /** The Archive owner may expose a read-only current-work-version discovery. */
+  findLatestStoryIntakeRun?(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRuntimeEvent | null>;
+  /** Read-only discovery of every current-work-version Story Intake run. */
+  listStoryIntakeRuns?(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRuntimeEvent[]>;
 };
 
 export type TianyiAgentRuntimeDependencies = {
@@ -311,7 +315,7 @@ export type TianyiAgentRuntimeDependencies = {
   cancelProvider?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<boolean> | boolean;
   fixtureResponse?(input: { task: string; contextManifest: TianyiAgentContextManifest; steering: string[] }): Promise<{ text: string; candidates: TianyiAgentCandidate[] }>;
   handoffCandidate?(input: { projectId: string; sessionId: string; runId: string; candidate: TianyiAgentCandidate; operationId: string }): Promise<{ owner: string; id: string; revision: number | null }>;
-  confirmStoryIntakeCandidate?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidate: StoryIntakeCandidate; envelope: StoryIntakeEnvelope; operationId: string }): Promise<NonNullable<StoryIntakeCandidate["formalApplication"]>>;
+  confirmStoryIntakeCandidate?(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidate: StoryIntakeCandidate; envelope: StoryIntakeEnvelope; operationId: string; expectedTargetObjectId?: string }): Promise<NonNullable<StoryIntakeCandidate["formalApplication"]>>;
 };
 
 export type TianyiAgentRuntimePort = {
@@ -325,8 +329,13 @@ export type TianyiAgentRuntimePort = {
   cancelRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; operationId: string; reason?: string }): Promise<TianyiAgentRunProjection>;
   recoverRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
   getRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null>;
+  findLatestStoryIntakeRun(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRunProjection | null>;
+  listStoryIntakeRuns(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRunProjection[]>;
   readRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRuntimeEvent[]>;
-  decideStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: StoryIntakeLifecycleStatus; operationId: string }): Promise<TianyiAgentRunProjection>;
+  decideStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: StoryIntakeLifecycleStatus; operationId: string; expectedTargetObjectId?: string }): Promise<TianyiAgentRunProjection>;
+  recordStoryIntakeApplication(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; application: NonNullable<StoryIntakeCandidate["formalApplication"]>; operationId: string }): Promise<TianyiAgentRunProjection>;
+  undoStoryIntakeApplication(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; receiptId: string; operationId: string }): Promise<TianyiAgentRunProjection>;
+  rebaseStoryIntakeAfterUndo(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; baseVersion: StoryIntakeBaseVersion; operationId: string }): Promise<TianyiAgentRunProjection>;
 };
 
 export type AgentRuntimePort = TianyiAgentRuntimePort;
@@ -345,6 +354,31 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     if (latest && latest.workVersionId !== input.workVersionId) return null;
     if (latest) cache.set(key, latest);
     return latest ? structuredClone(latest) : null;
+  }
+
+  async function findLatestStoryIntakeRun(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRunProjection | null> {
+    const event = await dependencies.persistence.findLatestStoryIntakeRun?.(input);
+    if (!event) return null;
+    const projection = normalizeRecoveredProjection(event.projection, input.workVersionId);
+    const envelope = projection.storyIntakeEnvelope;
+    if (!envelope || projection.projectId !== input.projectId || projection.workVersionId !== input.workVersionId || projection.sessionId !== envelope.sessionId || projection.runId !== envelope.runId || envelope.projectId !== input.projectId || envelope.baseVersion.workVersionId !== input.workVersionId) return null;
+    cache.set(runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId), projection);
+    return structuredClone(projection);
+  }
+
+  async function listStoryIntakeRuns(input: { projectId: string; workVersionId: string }): Promise<TianyiAgentRunProjection[]> {
+    const latest = dependencies.persistence.listStoryIntakeRuns ? null : await dependencies.persistence.findLatestStoryIntakeRun?.(input);
+    const events = dependencies.persistence.listStoryIntakeRuns ? await dependencies.persistence.listStoryIntakeRuns(input) : latest ? [latest] : [];
+    const projections: TianyiAgentRunProjection[] = [];
+    for (const event of events) {
+      if (!event) continue;
+      const projection = normalizeRecoveredProjection(event.projection, input.workVersionId);
+      const envelope = projection.storyIntakeEnvelope;
+      if (!envelope || projection.projectId !== input.projectId || projection.workVersionId !== input.workVersionId || projection.sessionId !== envelope.sessionId || projection.runId !== envelope.runId || envelope.projectId !== input.projectId || envelope.baseVersion.workVersionId !== input.workVersionId) continue;
+      cache.set(runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId), projection);
+      projections.push(structuredClone(projection));
+    }
+    return projections.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || `${right.sessionId}:${right.runId}`.localeCompare(`${left.sessionId}:${left.runId}`));
   }
 
   async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
@@ -628,13 +662,34 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     if (!candidate) throw new Error("Story Intake 候选不存在。");
     if (input.lifecycleStatus === "confirmed" && candidate.lifecycleStatus === "confirmed" && candidate.formalApplication) return run;
     const storyIntakeEnvelope = input.lifecycleStatus === "confirmed"
-      ? confirmStoryIntakeCandidate(run.storyIntakeEnvelope, input.candidateId, await (dependencies.confirmStoryIntakeCandidate?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId, candidate, envelope: run.storyIntakeEnvelope, operationId: input.operationId }) ?? Promise.reject(new Error("当前没有可用的 Story Intake 正式 Writer 适配器。"))))
+      ? confirmStoryIntakeCandidate(run.storyIntakeEnvelope, input.candidateId, await (dependencies.confirmStoryIntakeCandidate?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId, candidate, envelope: run.storyIntakeEnvelope, operationId: input.operationId, expectedTargetObjectId: input.expectedTargetObjectId }) ?? Promise.reject(new Error("当前没有可用的 Story Intake 正式 Writer 适配器。"))))
       : updateStoryIntakeCandidateLifecycle(run.storyIntakeEnvelope, input.candidateId, input.lifecycleStatus);
     return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
   }
 
+  async function recordStoryIntakeApplication(input: Parameters<TianyiAgentRuntimePort["recordStoryIntakeApplication"]>[0]): Promise<TianyiAgentRunProjection> {
+    const run = await requireRun(input);
+    if (!run.storyIntakeEnvelope) throw new Error("Story Intake 候选包尚未生成。");
+    const storyIntakeEnvelope = confirmStoryIntakeCandidate(run.storyIntakeEnvelope, input.candidateId, input.application);
+    return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
+  }
+
+  async function undoStoryIntakeApplication(input: Parameters<TianyiAgentRuntimePort["undoStoryIntakeApplication"]>[0]): Promise<TianyiAgentRunProjection> {
+    const run = await requireRun(input);
+    if (!run.storyIntakeEnvelope) throw new Error("Story Intake 候选包尚未生成。");
+    const storyIntakeEnvelope = undoStoryIntakeCandidateApplication(run.storyIntakeEnvelope, input.candidateId, input.receiptId);
+    return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
+  }
+
+  async function rebaseStoryIntakeAfterUndo(input: Parameters<TianyiAgentRuntimePort["rebaseStoryIntakeAfterUndo"]>[0]): Promise<TianyiAgentRunProjection> {
+    const run = await requireRun(input);
+    if (!run.storyIntakeEnvelope) throw new Error("Story Intake 候选包尚未生成。");
+    const storyIntakeEnvelope = rebaseStoryIntakeEnvelopeAfterUndo(run.storyIntakeEnvelope, input.baseVersion);
+    return save({ ...run, storyIntakeEnvelope }, input.operationId, "receipt");
+  }
+
   const readRunEvents = (input: { projectId: string; workVersionId: string; sessionId: string; runId: string }) => dependencies.persistence.readEvents(input);
-  return Object.freeze({ runtimeId: "tianyi.agent-runtime" as const, runtimeVersion: "r0.6" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, readRunEvents, handoffCandidate, decideStoryIntakeCandidate });
+  return Object.freeze({ runtimeId: "tianyi.agent-runtime" as const, runtimeVersion: "r0.6" as const, startRun, continueRun, steerRun, approveStep, rejectStep, pauseRun, resumeRun, cancelRun, recoverRun: load, getRunProjection: load, findLatestStoryIntakeRun, listStoryIntakeRuns, readRunEvents, handoffCandidate, decideStoryIntakeCandidate, recordStoryIntakeApplication, undoStoryIntakeApplication, rebaseStoryIntakeAfterUndo });
 }
 
 function runKey(projectId: string, workVersionId: string, sessionId: string, runId: string): string { return `${projectId}:${workVersionId}:${sessionId}:${runId}`; }

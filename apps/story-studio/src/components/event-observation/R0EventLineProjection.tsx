@@ -36,7 +36,7 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
       const events = list.status === "ready"
         ? eventWorkspaceProjectionSummaries(library.objects, list.eventIds)
         : [];
-      const perspectiveObjects: PerspectiveObjectRef[] = library.objects.flatMap((object) => object.type === "character" || object.type === "location" || object.type === "item" ? [{ id: object.id, type: object.type, label: object.title, ownerId: project.id, version: object.revisionToken, scope: "project" as const, formal: true }] : []);
+      const perspectiveObjects: PerspectiveObjectRef[] = library.objects.flatMap((object) => object.status !== "archived" && (object.type === "character" || object.type === "location" || object.type === "item") ? [{ id: object.id, type: object.type, label: object.title, ownerId: project.id, version: object.revisionToken, scope: "project" as const, formal: true }] : []);
       const narrativeRoot = units.filter((unit) => unit.kind === "main" && unit.status !== "archived").sort((left, right) => left.order - right.order)[0] ?? null;
       const narrativeRoots = narrativeRoot
         ? [narrativeRoot, ...units.filter((unit) => unit.kind === "branch" && unit.status !== "archived").sort((left, right) => left.order - right.order)]

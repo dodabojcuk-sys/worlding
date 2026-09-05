@@ -42,7 +42,13 @@ export type StoryIntakeCandidate = {
   proposedRelations: StoryIntakeProposedLink[];
   warnings: string[];
   lifecycleStatus: StoryIntakeLifecycleStatus;
-  formalApplication: null | { owner: "story-workspace-object"; objectId: string; proposalId: string; receiptId: string; appliedAt: string };
+  formalApplication: null | {
+    owner: "story-workspace-object" | "story-studio-event-owner" | "story-unit-owner" | "narrative-arrangement-owner" | "relation-owner";
+    objectId: string;
+    proposalId: string | null;
+    receiptId: string;
+    appliedAt: string;
+  };
   narrativePath: null | { kind: "main" | "side" | "hidden" | "character" | "item" | "location" | "custom"; label: string };
 };
 export type StoryIntakeEnvelope = {
@@ -223,14 +229,46 @@ export function updateStoryIntakeCandidateLifecycle(envelope: StoryIntakeEnvelop
   return { ...structuredClone(envelope), candidates: envelope.candidates.map((candidate) => candidate.candidateId === candidateId ? { ...candidate, lifecycleStatus } : candidate) };
 }
 
+/** Revalidates an unchanged candidate envelope after its exact batch receipt was
+ * fully compensated. Candidate identity, source evidence and lifecycle stay
+ * intact; only the version precondition advances to the verified current root. */
+export function rebaseStoryIntakeEnvelopeAfterUndo(envelope: StoryIntakeEnvelope, baseVersion: StoryIntakeBaseVersion): StoryIntakeEnvelope {
+  if (envelope.candidates.some((candidate) => candidate.formalApplication !== null || candidate.lifecycleStatus === "confirmed")) throw new Error("Story Intake 批次仍有未撤销的正式应用，不能更新 BaseVersion。");
+  if (baseVersion.workVersionId !== envelope.baseVersion.workVersionId || baseVersion.revision < envelope.baseVersion.revision) throw new Error("Story Intake 撤销后的 BaseVersion 不属于同一条前进的主版本。");
+  const nextBase = structuredClone(baseVersion);
+  return { ...structuredClone(envelope), baseVersion: nextBase, candidates: envelope.candidates.map((candidate) => ({ ...candidate, baseVersion: structuredClone(nextBase) })) };
+}
+
 export function confirmStoryIntakeCandidate(envelope: StoryIntakeEnvelope, candidateId: string, application: NonNullable<StoryIntakeCandidate["formalApplication"]>): StoryIntakeEnvelope {
   const candidate = envelope.candidates.find((item) => item.candidateId === candidateId);
   if (!candidate) throw new Error("Story Intake candidate does not exist.");
   if (candidate.lifecycleStatus === "confirmed" && candidate.formalApplication) return structuredClone(envelope);
   if (candidate.lifecycleStatus === "rejected") throw new Error("A rejected Story Intake candidate must be restored before formal confirmation.");
-  if (!["character", "item", "location"].includes(candidate.type)) throw new Error("This candidate type does not yet have a safe formal Story Intake writer adapter.");
-  if (candidate.identityDecision !== "propose_new") throw new Error("Only an explicit propose_new identity decision can create a new formal object in this slice.");
+  if (candidate.type === "unresolved") throw new Error("Unresolved content stays candidate-only and cannot be marked as a formal write.");
+  if (["character", "item", "location"].includes(candidate.type) && candidate.identityDecision !== "propose_new") throw new Error("Only an explicit propose_new identity decision can create a new formal object in this slice.");
+  const expectedOwner = storyIntakeOwnerFor(candidate.type);
+  if (application.owner !== expectedOwner) throw new Error(`Story Intake ${candidate.type} candidate does not use its safe formal Story Intake writer (${expectedOwner}).`);
   return { ...structuredClone(envelope), candidates: envelope.candidates.map((item) => item.candidateId === candidateId ? { ...item, lifecycleStatus: "confirmed", formalApplication: structuredClone(application) } : item), formalStoryWrites: envelope.formalStoryWrites + 1 };
+}
+
+function storyIntakeOwnerFor(type: StoryIntakeCandidate["type"]): string {
+  if (["character", "item", "location"].includes(type)) return "story-workspace-object";
+  if (type === "event") return "story-studio-event-owner";
+  if (type === "story_unit") return "story-unit-owner";
+  if (type === "narrative_path_membership") return "narrative-arrangement-owner";
+  if (type === "relation") return "relation-owner";
+  throw new Error(`Story Intake ${type} candidate does not have a formal Owner.`);
+}
+
+export function undoStoryIntakeCandidateApplication(envelope: StoryIntakeEnvelope, candidateId: string, receiptId: string): StoryIntakeEnvelope {
+  const candidate = envelope.candidates.find((item) => item.candidateId === candidateId);
+  if (!candidate) throw new Error("Story Intake candidate does not exist.");
+  if (!candidate.formalApplication || candidate.formalApplication.receiptId !== receiptId) throw new Error("Story Intake undo receipt does not match the applied candidate.");
+  return {
+    ...structuredClone(envelope),
+    candidates: envelope.candidates.map((item) => item.candidateId === candidateId ? { ...item, lifecycleStatus: "pending-review", formalApplication: null } : item),
+    formalStoryWrites: Math.max(0, envelope.formalStoryWrites - 1)
+  };
 }
 
 function parseSourceRef(value: unknown): StoryIntakeSourceRef {

@@ -119,13 +119,47 @@
 .pending-review-panel article > footer svg { inline-size: .8rem; block-size: .8rem; }
 .pending-duplicate { color: var(--color-warning) !important; }
 .pending-review-notice { margin: var(--space-2); padding: var(--space-2); color: var(--color-warning); background: var(--color-surface-muted); font-size: var(--font-size-xs); }
+.pending-review-directory-summary { display: grid; gap: var(--space-3); padding: var(--space-3); }
+.pending-review-entry { width: 100%; min-height: 3.25rem; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2); padding: var(--space-3); color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; text-align: start; }
+.pending-review-entry:hover { border-color: var(--color-accent); }
+.pending-review-entry:focus-visible { outline: .1875rem solid var(--color-focus); outline-offset: .125rem; }
+.pending-review-entry svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.pending-review-entry strong { min-inline-size: 1.5rem; padding: 2px var(--space-1); color: var(--color-accent); background: var(--color-surface); border-radius: var(--radius-xs); text-align: center; }
+.pending-review-directory-summary > p,
+.pending-review-directory-summary > small { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.pending-review-directory-summary dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-1); margin: 0; }
+.pending-review-directory-summary dl > div { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); background: var(--color-surface-muted); border-radius: var(--radius-xs); font-size: var(--font-size-xs); }
+.pending-review-directory-summary dt { color: var(--color-text-muted); }
+.pending-review-directory-summary dd { margin: 0; color: var(--color-text); font-weight: 600; }
+.pending-review-story-intake-batches { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.pending-review-story-intake-batches li { overflow: hidden; color: var(--color-text-muted); background: var(--color-surface-muted); border-inline-start: 2px solid var(--color-accent); font-size: var(--font-size-xs); }
+.pending-review-story-intake-batches button { inline-size: 100%; min-block-size: 2.25rem; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) var(--space-2); color: inherit; background: transparent; border: 0; text-align: start; cursor: pointer; }
+.pending-review-story-intake-batches button:hover, .pending-review-story-intake-batches button:focus-visible { color: var(--color-text); background: var(--color-accent-soft); outline: none; }
+.pending-review-story-intake-batches button span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pending-review-story-intake-batches button strong { flex: 0 0 auto; color: var(--color-accent); font-size: inherit; }
+.pending-review-story-intake-batches .is-relation { border-inline-start-color: var(--color-warning); }
+.pending-review-story-intake-batches .is-relation button span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.pending-review-story-intake-batches .is-relation svg { inline-size: .875rem; block-size: .875rem; flex: 0 0 auto; }
 
-@media (max-width: 50rem) {
-  .project-directory-panel {
+.pending-review-workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface); }
+.pending-review-workspace-heading { display: flex; align-items: start; justify-content: space-between; gap: var(--space-4); padding: var(--space-6) var(--space-7) var(--space-3); border-block-end: 1px solid var(--color-border); }
+.pending-review-workspace-heading small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.pending-review-workspace-heading h1 { margin: var(--space-1) 0; font-size: var(--font-size-2xl); }
+.pending-review-workspace-heading p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.pending-review-workspace-heading button { flex: 0 0 auto; min-height: 2.25rem; padding-inline: var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; }
+.pending-review-workspace-note { max-width: 72rem; margin: var(--space-3) var(--space-7) 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; }
+.pending-review-workspace .pending-review-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); align-content: start; gap: var(--space-3); padding: var(--space-5) var(--space-7) var(--space-7); }
+.pending-review-workspace .pending-review-panel > article { align-content: start; min-block-size: 15rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.pending-review-workspace .pending-review-panel > article > footer { margin-block-start: auto; }
+@media (max-width: 76rem) { .pending-review-workspace-heading { padding-inline: var(--space-5); } .pending-review-workspace-note { margin-inline: var(--space-5); } .pending-review-workspace .pending-review-panel { grid-template-columns: 1fr; padding-inline: var(--space-5); } }
+
+@media (max-width: 76rem) {
+  .project-directory-panel,
+  .character-directory-panel {
     position: fixed;
     inset-block: var(--topbar-height) 0;
-    inset-inline: var(--rail-current) 0;
-    width: auto;
+    inset-inline: var(--rail-current) auto;
+    width: min(var(--directory-width), calc(100vw - var(--rail-current) - var(--panel-controls-width)));
     z-index: 9;
     box-shadow: var(--shadow-panel);
   }

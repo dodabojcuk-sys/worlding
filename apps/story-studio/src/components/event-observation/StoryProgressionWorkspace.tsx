@@ -95,6 +95,7 @@ export function StoryProgressionWorkspace(props: {
 }) {
   const [focusPickerOpen, setFocusPickerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [stagingOpen, setStagingOpen] = useState(false);
   const [candidateOverlayOpen, setCandidateOverlayOpen] = useState(Boolean(props.renderCandidateOverlay));
@@ -148,11 +149,12 @@ export function StoryProgressionWorkspace(props: {
         <button type="button" className="focus-object-trigger" aria-expanded={focusPickerOpen} onClick={() => { setFocusPickerOpen((open) => !open); setMoreOpen(false); }}><UsersRound />焦点：{selectedFocus.length ? selectedFocus.map((object) => object.label).join("、") : "未选择"}<ChevronDown /></button>
         {props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FilePlus2 />新增事件</button> : null}
         <button type="button" disabled={!props.selectedEventId} onClick={props.onLocateCurrent}><LocateFixed />聚焦当前</button>
+        <button type="button" aria-expanded={compareOpen} onClick={() => { setCompareOpen((open) => !open); setMoreOpen(false); setScopeOpen(false); }}><UsersRound />比较视角</button>
         <button type="button" aria-expanded={moreOpen} onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); }}><MoreHorizontal />更多</button>
       </div>
     </nav>
-    <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.comparisonMode ? props.observerIds.join(",") : props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.comparisonMode ? `比较视角：${props.observerIds.length} 位人物仅比较共同可见的事件` : `${props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容`}{props.hiddenEventCount ? `；${props.hiddenEventCount} 个未知位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div>
-    <KnowledgeComparePicker observers={props.observers} selectedIds={props.observerIds} onChange={props.onObservers} />
+    {(props.comparisonMode || props.observerId !== "author" || props.hiddenEventCount > 0 || props.selectedKnowledgeState) ? <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.comparisonMode ? props.observerIds.join(",") : props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.comparisonMode ? `比较视角：${props.observerIds.length} 位人物仅比较共同可见的事件` : `${props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容`}{props.hiddenEventCount ? `；${props.hiddenEventCount} 个未知位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div> : null}
+    {compareOpen ? <div className="story-knowledge-compare-popover"><KnowledgeComparePicker observers={props.observers} selectedIds={props.observerIds} onChange={props.onObservers} /></div> : null}
     {props.selectedStorylineLabels.length ? <div className="story-crossing-selection" data-testid="story-crossing-selection"><GitBranch /><span>同一事件所属：</span>{props.selectedStorylineLabels.map((label) => <button type="button" key={label} onClick={() => { const line = props.storylines.find((item) => item.label === label); if (line) props.onStorylineScope(line.id); }}>{label}</button>)}{props.selectedKnowledgePerspectives.length ? <KnowledgeComparisonRows perspectives={props.selectedKnowledgePerspectives} /> : null}</div> : null}
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}

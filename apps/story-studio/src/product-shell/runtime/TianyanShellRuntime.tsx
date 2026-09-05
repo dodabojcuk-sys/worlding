@@ -15,7 +15,7 @@ import {
 } from "../../lib/localTransport";
 import { LocalFolderProvider } from "../../lib/storageProvider";
 import { TianyanR0Shell } from "../TianyanR0Shell";
-import { tianyiConversationStorageKey } from "./tianyiShellSessionRecovery";
+import { tianyiComposerDraftStorageKey, tianyiConversationStorageKey } from "./tianyiShellSessionRecovery";
 
 export type TianyanShellRuntimeState = {
   project: StoryStudioProject | null;
@@ -90,6 +90,8 @@ export function TianyanShellRuntime() {
         setConnectionState("ready");
         return;
       }
+      setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative")) ?? "");
+      setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work")) ?? "");
       setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(activeProject.id)));
       const [versionResult, runtimeResult] = await Promise.allSettled([
         getCreationSourcePortState({ projectId: activeProject.id }),
@@ -132,6 +134,8 @@ export function TianyanShellRuntime() {
   const openActiveProject = useCallback(async (projectId: string) => {
     const nextProject = await withConnection((token) => openProject(projectId, token));
     setProject(nextProject);
+    setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "creative")) ?? "");
+    setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "work")) ?? "");
     setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(nextProject.id)));
     setActivePageAgentRunId(null);
     setActiveTianyiCandidateId(null);
@@ -147,6 +151,8 @@ export function TianyanShellRuntime() {
     const nextProject = await withConnection((token) => createProject({ title, folderSlug: `project-${crypto.randomUUID()}`, token }));
     setProject(nextProject);
     setProjects((current) => [...current, nextProject]);
+    setCreativeComposerDraft("");
+    setWorkComposerDraft("");
     setTianyiConversationId(null);
     setActivePageAgentRunId(null);
     setActiveTianyiCandidateId(null);
@@ -165,6 +171,20 @@ export function TianyanShellRuntime() {
     if (sessionId) window.sessionStorage.setItem(key, sessionId);
     else window.sessionStorage.removeItem(key);
   }, [project]);
+  const persistComposerDraft = useCallback((lane: "creative" | "work", value: string) => {
+    if (!project) return;
+    const key = tianyiComposerDraftStorageKey(project.id, lane);
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  }, [project]);
+  const persistCreativeComposerDraft = useCallback((value: string) => {
+    setCreativeComposerDraft(value);
+    persistComposerDraft("creative", value);
+  }, [persistComposerDraft]);
+  const persistWorkComposerDraft = useCallback((value: string) => {
+    setWorkComposerDraft(value);
+    persistComposerDraft("work", value);
+  }, [persistComposerDraft]);
   const addSharedTianyiReference = useCallback((reference: TianyanShellRuntimeState["sharedTianyiReferences"][number]) => {
     setSharedTianyiReferences((current) => current.some((item) => item.id === reference.id) ? current : [...current, reference]);
   }, []);
@@ -192,8 +212,8 @@ export function TianyanShellRuntime() {
     pageAgentTaskDraft,
     sharedTianyiReferences,
     setTianyiConversationId: persistTianyiConversationId,
-    setCreativeComposerDraft,
-    setWorkComposerDraft,
+    setCreativeComposerDraft: persistCreativeComposerDraft,
+    setWorkComposerDraft: persistWorkComposerDraft,
     setWorkScope,
     setActiveTianyiCandidateId,
     setActivePageAgentRunId,
@@ -204,7 +224,7 @@ export function TianyanShellRuntime() {
     createProject: createNewProject,
     setPermissionProfile,
     withConnection
-  }), [activePageAgentRunId, activeTianyiCandidateId, addSharedTianyiReference, connectionState, createNewProject, creativeComposerDraft, modelStatus, openActiveProject, pageAgentTaskDraft, permissionState, persistTianyiConversationId, project, projects, retryConnection, setPermissionProfile, sharedTianyiReferences, withConnection, workComposerDraft, workScope, workVersionId, workVersionLabel]);
+  }), [activePageAgentRunId, activeTianyiCandidateId, addSharedTianyiReference, connectionState, createNewProject, creativeComposerDraft, modelStatus, openActiveProject, pageAgentTaskDraft, permissionState, persistCreativeComposerDraft, persistTianyiConversationId, persistWorkComposerDraft, project, projects, retryConnection, setPermissionProfile, sharedTianyiReferences, withConnection, workComposerDraft, workScope, workVersionId, workVersionLabel]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

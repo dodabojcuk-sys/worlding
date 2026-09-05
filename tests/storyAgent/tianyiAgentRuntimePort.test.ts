@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { buildStoryIntakeEnvelope } from "../../src/storyContracts/storyIntakeEnvelope.ts";
 import {
   compactTianyiAgentContext,
   createTianyiAgentRuntimePort,
@@ -83,6 +84,40 @@ test("Tianyi runtime keeps a recoverable plan, approvals and owner handoff in on
   assert.equal(recovered?.candidates[0]?.ownerReceipt?.id, "proposal.fixture");
   assert.ok((recovered?.receipts.length ?? 0) <= 4, "the recoverable projection stays bounded while the append-only event log retains every operation");
   assert.ok(fixture.events.length >= 6);
+});
+
+test("a fresh browser can recover only the current project/work-version Story Intake Envelope", async () => {
+  const seed = fixtureAdapter();
+  const started = await seed.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.persisted", task: "整理作者原话", currentPage: "/tianyi", operationId: "operation.persisted.start" });
+  const envelope = buildStoryIntakeEnvelope({
+    projectId: started.projectId,
+    sessionId: started.sessionId,
+    runId: started.runId,
+    sourceRef: { sessionId: started.sessionId, eventId: "event.author.persisted", contentHash: "a".repeat(64) },
+    sourceText: "林昭在雾港确认钟声来自旧港。",
+    baseVersion: { workVersionId: started.workVersionId, revision: 1, manifestId: "manifest.persisted" },
+    toolArguments: { candidates: [{ localRef: "event.bell", type: "event", proposedName: null, proposedTitle: "钟声来源确认", summary: "林昭确认钟声来自旧港。", sourceSpan: { excerpt: "林昭在雾港确认钟声来自旧港" }, confidence: 0.9, uncertainties: ["具体时间待作者确认。"], existingEntityId: null, identityDecision: "propose_new", proposedRelations: [], warnings: [], narrativePath: null }] },
+    providerCalls: 1,
+    requestedProviderId: "local-fake",
+    requestedModelId: "deterministic",
+    responseModelId: "deterministic",
+    createdAt: "2026-09-05T00:00:00.000Z"
+  });
+  const event: TianyiAgentRuntimeEvent = { version: "tianyi-agent-runtime-event/v1", runId: started.runId, workVersionId: started.workVersionId, operationId: "operation.persisted.snapshot", kind: "snapshot", projection: { ...started, storyIntakeEnvelope: envelope }, recordedAt: "2026-09-05T00:00:01.000Z" };
+  const adapter = createTianyiAgentRuntimePort({
+    persistence: { async appendEvent() { return { alreadyCompleted: false, receiptId: "receipt.fixture" }; }, async readEvents() { return []; }, async findLatestStoryIntakeRun() { return event; }, async listStoryIntakeRuns() { return [event]; } },
+    async buildContextManifest(input) { return manifest(input.sessionId, input.workVersionId); }
+  });
+
+  const recovered = await adapter.findLatestStoryIntakeRun({ projectId: "project-fixture", workVersionId: "work-version.fixture" });
+  assert.equal(recovered?.sessionId, "session.persisted");
+  assert.equal(recovered?.runId, started.runId);
+  assert.equal(recovered?.storyIntakeEnvelope?.envelopeId, envelope.envelopeId);
+  const listed = await adapter.listStoryIntakeRuns({ projectId: "project-fixture", workVersionId: "work-version.fixture" });
+  assert.deepEqual(listed.map((run) => `${run.sessionId}:${run.runId}`), [`session.persisted:${started.runId}`], "all-batch discovery keeps the persisted run identity without copying its Envelope");
+  assert.deepEqual(await adapter.listStoryIntakeRuns({ projectId: "project.other", workVersionId: "work-version.fixture" }), [], "all-batch discovery rejects cross-project records");
+  assert.equal(await adapter.findLatestStoryIntakeRun({ projectId: "project.other", workVersionId: "work-version.fixture" }), null, "another project cannot discover this Envelope");
+  assert.equal(await adapter.findLatestStoryIntakeRun({ projectId: "project-fixture", workVersionId: "work-version.other" }), null, "another work version cannot discover this Envelope");
 });
 
 test("runtime durably replays stream events and rejects a different work-version scope", async () => {

@@ -257,6 +257,7 @@ export type ModelServiceStatus = {
   };
   tianyiDialogue: {
     ready: boolean;
+    runtime: "local-fake" | "provider" | "unavailable";
     reason: "provider-unconfigured" | "provider-disabled" | "model-unselected" | null;
   };
   agentRuntime?: {
@@ -2801,9 +2802,68 @@ export async function resumeTianyiAgentRun(input: { projectId: string; workVersi
 export async function cancelTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/cancel`, { method: "POST", token, body }); }
 export async function recoverTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, ...body } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/recover`, { method: "POST", token, body }); }
 export async function getTianyiAgentRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/projection?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
+export async function getLatestTianyiStoryIntakeRun(input: { projectId: string; workVersionId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/latest-story-intake?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}`, { token }); }
+export async function getTianyiStoryIntakeRuns(input: { projectId: string; workVersionId: string; token: string }): Promise<TianyiAgentRunProjection[]> { const { token, projectId, workVersionId } = input; return request<TianyiAgentRunProjection[]>(`${basePath}/tianyi-agent/run/story-intakes?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}`, { token }); }
 export async function getTianyiAgentRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRuntimeEvent[]> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRuntimeEvent[]>(`${basePath}/tianyi-agent/run/events?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
 export async function handoffTianyiAgentCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
 export async function decideTianyiStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/story-intake/candidate/decision`, { method: "POST", token, body }); }
+
+export type StoryIntakeBatchPreviewProjection = {
+  version: "tianyan-story-intake-batch-preview/v1";
+  previewId: string;
+  projectId: string;
+  sessionId: string;
+  runId: string;
+  envelopeId: string;
+  baseVersion: { workVersionId: string; revision: number; manifestId: string | null };
+  candidateIds: string[];
+  excludedRelationKeys: string[];
+  relationBindings: Array<{ relationKey: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  entityBindings: Array<{ candidateId: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  items: Array<{ candidateId: string; type: StoryIntakeCandidateTypeProjection; title: string; owner: string; action: string; supported: boolean; reason: string | null }>;
+  storyUnit: { candidateId: string | null; title: string; summary: string; targetId: string | null; targetVersion: number | null; position: "start" | "end" };
+  impact: { events: number; storyUnits: number; narrativePlacements: number; worldObjects: number; relations: number; unresolved: number };
+  conflicts: string[];
+  canConfirm: boolean;
+  activeReceipt: StoryIntakeBatchReceiptProjection | null;
+};
+
+export type StoryIntakeBatchReceiptProjection = {
+  version: "tianyan-story-intake-batch-receipt/v1";
+  receiptId: string;
+  previewId: string;
+  projectId: string;
+  sessionId: string;
+  runId: string;
+  envelopeId: string;
+  candidateIds: string[];
+  excludedRelationKeys: string[];
+  relationBindings: Array<{ relationKey: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  entityBindings?: Array<{ candidateId: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  omittedCandidateIds: string[];
+  position: "start" | "end";
+  storyUnit: { candidateId: string | null; title: string; summary: string; targetId: string | null; targetVersion: string | null; position: "start" | "end" };
+  status: "active" | "undone" | "recovery-required";
+  recoveryMessage?: string;
+  items: Array<{ candidateId: string; type: StoryIntakeCandidateTypeProjection; title: string; owner: string; targetId: string | null; receiptId: string; undoState: "available" | "undone" | "not-required" }>;
+  recordedAt: string;
+  undoneAt: string | null;
+};
+
+export async function previewTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; token: string }): Promise<StoryIntakeBatchPreviewProjection> {
+  const { token, ...body } = input;
+  return request<StoryIntakeBatchPreviewProjection>(`${basePath}/tianyi-agent/story-intake/batch/preview`, { method: "POST", token, body });
+}
+
+export async function confirmTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; previewId: string; expectedBaseRevision: number; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; receipt: StoryIntakeBatchReceiptProjection }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/tianyi-agent/story-intake/batch/confirm`, { method: "POST", token, body });
+}
+
+export async function undoTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; receipt: StoryIntakeBatchReceiptProjection }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/tianyi-agent/story-intake/batch/undo`, { method: "POST", token, body });
+}
 
 export type TianyiCreativeSourceRef = { sessionId: string; eventId: string; contentHash: string };
 export type TianyiCreativeProjection = { version: "tianyi-creative-session-projection/v1"; sessionId: string | null; sessionContentHash: string; lifecycle: "idle" | "capturing" | "responding" | "extracting" | "review-ready" | "paused" | "recovering" | "provider-unavailable" | "completed" | "archived"; archived: boolean; originals: Array<TianyiCreativeSourceRef & { text: string; recordedAt: string }>; responses: Array<{ eventId: string; text: string; runtime: "fixture" | "provider"; recordedAt: string }>; summary: string | null; themes: string[]; openQuestions: string[]; summarySourceRefs: TianyiCreativeSourceRef[]; summaryState: "missing" | "current" | "stale"; candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; uncertainties: string[]; sourceExcerpt: string; targetOwnerKind: string; duplicateHints: string[]; reviewStatus: "pending" | "rejected" | "deferred" | "handed-off"; sourceRefs: TianyiCreativeSourceRef[]; state: "pending" | "rejected" | "deferred" | "handed-off"; revision: number; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>; pendingCount: number; pendingCandidateRefs: string[]; unresolvedCount: number; lastSafePoint: { eventId: string; sequence: number; contentHash: string } | null; providerUnavailable: { stage: "response" | "extraction"; message: string; retryable: boolean } | null };

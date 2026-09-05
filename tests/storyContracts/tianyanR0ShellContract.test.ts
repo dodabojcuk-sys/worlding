@@ -88,7 +88,8 @@ test("R0.6 uses one global search engine while the legacy command panel remains 
   assert.doesNotMatch(navigation, /shell-global-search-entry/);
   assert.match(topbar, /GlobalSearchControl/);
   assert.match(topbar, /createGlobalSearchEngine/);
-  assert.match(directory, /PendingReviewPanel/);
+  assert.match(directory, /PendingReviewEntry/);
+  assert.doesNotMatch(directory, /<PendingReviewPanel/);
   assert.match(directory, /project-directory-tabs/);
   assert.doesNotMatch(directory, /project-directory-search-entry/);
   assert.match(directory, /project-directory-close/);
@@ -188,7 +189,7 @@ test("responsive rail resolves to complete expanded labels or a 56px icon rail",
   const labelRule = styles.match(/\.shell-space-label\s*\{([\s\S]*?)\}/)?.[1] ?? "";
 
   assert.equal(SHELL_RAIL_AUTO_COLLAPSE_QUERY, "(max-width: 75rem)");
-  assert.equal(SHELL_DIRECTORY_OVERLAY_QUERY, "(max-width: 50rem)");
+  assert.equal(SHELL_DIRECTORY_OVERLAY_QUERY, "(max-width: 76rem)");
   assert.equal(resolveInitialDirectoryOpen(true), false);
   assert.equal(resolveInitialDirectoryOpen(false), true);
   assert.equal(resolveShellRailCollapsed("auto", true), true);
