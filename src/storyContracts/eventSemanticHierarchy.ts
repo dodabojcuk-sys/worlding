@@ -188,9 +188,12 @@ function parseNarrativeTime(value: string | null, start: string | null, end: str
   if (!value) return { kind: "unknown", label: "未知时间", start: null, end: null, source: null };
   const trimmed = value.trim();
   if (/^(?:unknown|未知|未定|不明)$/iu.test(trimmed)) return { kind: "unknown", label: "未知时间", start: null, end: null, source: null };
+  if (/^\d{4}(?:[-/.年]\d{1,2})(?:[-/.月]\d{1,2}日?)?(?:[ T]\d{1,2}(?::\d{2}){0,2})?$/u.test(trimmed)) {
+    return { kind: "exact", label: trimmed, start: trimmed, end: trimmed, source };
+  }
   if (/^(?:约|大约|之后|之前|before|after|around|相对)/iu.test(trimmed)) return { kind: "relative", label: trimmed, start: null, end: null, source };
-  if (/[~～至到\-–—]/u.test(trimmed)) {
-    const [rangeStart, rangeEnd] = trimmed.split(/[~～至到\-–—]/u).map((item) => item.trim());
+  if (/(?:\s+[\-–—]\s+|[~～]|\s*(?:至|到)\s*)/u.test(trimmed)) {
+    const [rangeStart, rangeEnd] = trimmed.split(/(?:\s+[\-–—]\s+|[~～]|\s*(?:至|到)\s*)/u).map((item) => item.trim());
     return { kind: "range", label: trimmed, start: rangeStart || null, end: rangeEnd || null, source };
   }
   return { kind: "exact", label: trimmed, start: trimmed, end: trimmed, source };

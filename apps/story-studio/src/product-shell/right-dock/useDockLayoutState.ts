@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { pageToolAvailable } from "../../components/page-tools/pageToolRegistry.ts";
 import { DOCK_PANEL_MAX_SIZE, DOCK_PANEL_MIN_SIZE, type DockLayoutState, type DockToolId } from "./types.ts";
 
 export function createInitialDockLayout(): DockLayoutState {
@@ -15,15 +16,21 @@ export function clampDockPanelSize(size: number): number {
 }
 
 export function toggleDockPanel(state: DockLayoutState, toolId: DockToolId): DockLayoutState {
-  const isOpen = state.openPanelIds.includes(toolId);
-  const openPanelIds = isOpen
-    ? state.openPanelIds.filter((id) => id !== toolId)
-    : [...state.openPanelIds, toolId];
+  if (!pageToolAvailable(toolId)) return normalizeDockLayoutState(state);
+  const isOpen = state.activeToolId === toolId;
+  const activeToolId = isOpen ? null : toolId;
   return {
     ...state,
-    openPanelIds,
-    activeToolId: isOpen ? openPanelIds.at(-1) ?? null : toolId
+    openPanelIds: activeToolId ? [activeToolId] : [],
+    activeToolId
   };
+}
+
+/** Migrates pre-R2.2A multi-panel state without rendering more than one tool. */
+export function normalizeDockLayoutState(state: DockLayoutState): DockLayoutState {
+  const requested = state.activeToolId ?? state.openPanelIds.at(-1) ?? null;
+  const activeToolId = requested && pageToolAvailable(requested) ? requested : null;
+  return { ...state, activeToolId, openPanelIds: activeToolId ? [activeToolId] : [] };
 }
 
 export function resizeDockPanel(state: DockLayoutState, toolId: DockToolId, nextSize: number): DockLayoutState {
@@ -35,6 +42,7 @@ export function useDockLayoutState() {
   return {
     state,
     togglePanel: (toolId: DockToolId) => setState((current) => toggleDockPanel(current, toolId)),
+    closePanel: () => setState((current) => ({ ...current, openPanelIds: [], activeToolId: null })),
     resizePanel: (toolId: DockToolId, nextSize: number) => setState((current) => resizeDockPanel(current, toolId, nextSize))
   };
 }

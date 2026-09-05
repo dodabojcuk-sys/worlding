@@ -35,3 +35,16 @@ test("status and story-line labels distinguish prediction from confirmed fact", 
   assert.equal(node.status, "prediction");
   assert.equal(node.storyLine.kind, "hidden");
 });
+
+test("ISO calendar dates remain exact while explicit intervals remain ranges", () => {
+  const exact = buildEventSemanticNode({ id: "event.exact", title: "精确日期", tags: ["时间：2026-09-03"] });
+  const range = buildEventSemanticNode({ id: "event.range", title: "日期区间", tags: ["时间：2026-09-02 00:00 – 2026-09-03 00:00"] });
+  const relative = buildEventSemanticNode({ id: "event.relative", title: "相对日期", tags: ["时间：之后三天"] });
+
+  assert.equal(exact.time.kind, "exact");
+  assert.equal(exact.time.start, "2026-09-03");
+  assert.equal(range.time.kind, "range");
+  assert.equal(range.time.start, "2026-09-02 00:00");
+  assert.equal(range.time.end, "2026-09-03 00:00");
+  assert.equal(relative.time.kind, "relative");
+});

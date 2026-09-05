@@ -18,8 +18,9 @@ test("timeline exposes synchronized top and left rulers plus selected Event cros
 test("unplaced and conflict Events remain in explicit regions instead of the timeline tail", () => {
   assert.match(canvas, /temporal-unplaced-tray/u);
   assert.match(canvas, /temporal-conflict-summary/u);
-  assert.doesNotMatch(canvas, /temporal-conflict-zone/u);
-  assert.match(canvas, /state !== "unplaced" && node\.data\.state !== "conflict"/u);
+  assert.match(canvas, /temporal-conflict-zone/u);
+  assert.match(canvas, /item\.state === "conflict"[\s\S]{0,160}conflictBaseY/u);
+  assert.match(canvas, /node\.data\.state !== "unplaced" && node\.data\.state !== "conflict"/u);
   assert.match(canvas, /不会被塞到时间末尾/u);
 });
 

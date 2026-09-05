@@ -4,6 +4,7 @@ import type { StoryStudioEventReference } from "../../../../src/storyContracts/s
 import type { StoryObservationProposalPatch } from "../../../../src/storyContracts/storyObservationProposalPatch.ts";
 import type { StoryStudioObjectProfile } from "../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import type { StoryStudioAgentDraftMode } from "../../../../src/storyContracts/storyStudioAgentDraft.ts";
+import type { EventStoryCrossingKnowledgeProjection } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { GoldenLoopCandidateReview, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 import type { NuwaSceneCandidateR0, NuwaSceneComparisonR0, NuwaSceneReplayR0, NuwaSceneSimulationReadModelR0 } from "../../../../src/nuwaSceneRuntimeContracts.ts";
 import type { NuwaBoundedProjection } from "./nuwaBoundedContract";
@@ -256,6 +257,7 @@ export type ModelServiceStatus = {
   };
   tianyiDialogue: {
     ready: boolean;
+    runtime: "local-fake" | "provider" | "unavailable";
     reason: "provider-unconfigured" | "provider-disabled" | "model-unselected" | null;
   };
   agentRuntime?: {
@@ -347,6 +349,7 @@ export type TianyiGroundedContextRequest = {
   sceneRef: TianyiObjectContextRef | null;
   explicitRefs: TianyiObjectContextRef[];
   eventRefs?: StoryStudioEventReference[];
+  knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number };
 };
 
 export type TianyiGroundedSourceManifestEntry = {
@@ -1732,6 +1735,12 @@ export async function getVerifiedCanonEvent(projectId: string, eventId: string):
   return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?projectId=${encodeURIComponent(projectId)}&eventId=${encodeURIComponent(eventId)}`);
 }
 
+export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string, observerIds: readonly string[] = []): Promise<EventStoryCrossingKnowledgeProjection> {
+  const parameters = new URLSearchParams({ projectId, observerId });
+  if (observerIds.length) parameters.set("observerIds", observerIds.slice(0, 5).join(","));
+  return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?${parameters.toString()}`);
+}
+
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {
   return request("/__local/story-studio/workspace/folders/create", {
     method: "POST",
@@ -2724,17 +2733,20 @@ export type TianyiAgentRunProjection = {
     estimatedTokens: number;
     compaction: { state: "none" | "available" | "applied"; summaryVersion: number; preservedAnchors: string[]; receiptId: string | null };
     simulationContextPack?: { snapshotId: string; authorIntent: string; intent: string; sourceState: string; entryPoint: string; sources: Array<{ sourceId: string; sourceRole: string; authorityLevel: string; displayTitle: string }>; omitted: Array<{ sourceId: string; reason: string }>; estimatedTokens: number; maxProviderCalls: 1 } | null;
+    storyIntakeSource?: { version: "tianyan-story-intake-context/v1"; sourceRef: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeSourceRef; sourceLength: number } | null;
   } | null;
   resultSummary: string | null;
   model: { providerId: string | null; profileId: string | null; modelId: string | null; runtime: "fixture" | "provider" | "pi" };
   budget: { maxProviderCalls: number; maxOutputTokens: number; providerCalls: number; estimatedTokens: number };
-  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number; completionTokens: number; totalTokens: number; streamEventCount: number };
+  observability: { traceId: string | null; latencyMs: number | null; promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; streamEventCount: number };
+  executionIdentity: { requestedProviderId: string | null; requestedModelId: string | null; responseModelId: string | null; runId: string; stepId: string | null };
   permissionProfile: "step-by-step" | "conservative" | "proactive";
   plan: Array<{ stepId: string; title: string; kind: string; classification: "read" | "proposal"; requiredPermission: "none" | "author-approval"; status: string; toolName?: string; error?: string | null }>;
   toolCalls: Array<{ callId: string; toolName: string; classification: "read" | "proposal"; status: string; arguments: Record<string, unknown>; output: Record<string, unknown> | null; receiptId: string | null; error: string | null; startedAt: string; completedAt: string | null }>;
   approvals: Array<{ stepId: string; decision: "approved" | "rejected"; operationId: string; receiptId: string; recordedAt: string }>;
   steering: Array<{ instruction: string; operationId: string; recordedAt: string }>;
   candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; sourceRefs: string[]; uncertainties: string[]; targetOwnerKind: string; state: string; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>;
+  storyIntakeEnvelope: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeEnvelope | null;
   receipts: Array<{ receiptId: string; kind: string; label: string; operationId: string; recordedAt: string }>;
   stopReason: string | null;
   error: { category: string; code: string; message: string; retryable: boolean; retryBoundary: "none" | "author-explicit" } | null;
@@ -2742,8 +2754,12 @@ export type TianyiAgentRunProjection = {
   createdAt: string;
   updatedAt: string;
 };
+export type StoryIntakeCandidateProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidate;
+export type StoryIntakeCandidateTypeProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeCandidateType;
+export type StoryIntakeLifecycleStatusProjection = import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus;
 
 export type TianyiAgentStreamEvent =
+  | { type: "response-metadata"; responseModelId: string; sequence: number; recordedAt: string }
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
   | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
   | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };
@@ -2786,12 +2802,72 @@ export async function resumeTianyiAgentRun(input: { projectId: string; workVersi
 export async function cancelTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; reason?: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/run/cancel`, { method: "POST", token, body }); }
 export async function recoverTianyiAgentRun(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, ...body } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/recover`, { method: "POST", token, body }); }
 export async function getTianyiAgentRunProjection(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/projection?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
+export async function getLatestTianyiStoryIntakeRun(input: { projectId: string; workVersionId: string; token: string }): Promise<TianyiAgentRunProjection | null> { const { token, projectId, workVersionId } = input; return request<TianyiAgentRunProjection | null>(`${basePath}/tianyi-agent/run/latest-story-intake?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}`, { token }); }
+export async function getTianyiStoryIntakeRuns(input: { projectId: string; workVersionId: string; token: string }): Promise<TianyiAgentRunProjection[]> { const { token, projectId, workVersionId } = input; return request<TianyiAgentRunProjection[]>(`${basePath}/tianyi-agent/run/story-intakes?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}`, { token }); }
 export async function getTianyiAgentRunEvents(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; token: string }): Promise<TianyiAgentRuntimeEvent[]> { const { token, projectId, workVersionId, sessionId, runId } = input; return request<TianyiAgentRuntimeEvent[]>(`${basePath}/tianyi-agent/run/events?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(workVersionId)}&sessionId=${encodeURIComponent(sessionId)}&runId=${encodeURIComponent(runId)}`, { token }); }
 export async function handoffTianyiAgentCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
+export async function decideTianyiStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/story-intake/candidate/decision`, { method: "POST", token, body }); }
+
+export type StoryIntakeBatchPreviewProjection = {
+  version: "tianyan-story-intake-batch-preview/v1";
+  previewId: string;
+  projectId: string;
+  sessionId: string;
+  runId: string;
+  envelopeId: string;
+  baseVersion: { workVersionId: string; revision: number; manifestId: string | null };
+  candidateIds: string[];
+  excludedRelationKeys: string[];
+  relationBindings: Array<{ relationKey: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  entityBindings: Array<{ candidateId: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  items: Array<{ candidateId: string; type: StoryIntakeCandidateTypeProjection; title: string; owner: string; action: string; supported: boolean; reason: string | null }>;
+  storyUnit: { candidateId: string | null; title: string; summary: string; targetId: string | null; targetVersion: number | null; position: "start" | "end" };
+  impact: { events: number; storyUnits: number; narrativePlacements: number; worldObjects: number; relations: number; unresolved: number };
+  conflicts: string[];
+  canConfirm: boolean;
+  activeReceipt: StoryIntakeBatchReceiptProjection | null;
+};
+
+export type StoryIntakeBatchReceiptProjection = {
+  version: "tianyan-story-intake-batch-receipt/v1";
+  receiptId: string;
+  previewId: string;
+  projectId: string;
+  sessionId: string;
+  runId: string;
+  envelopeId: string;
+  candidateIds: string[];
+  excludedRelationKeys: string[];
+  relationBindings: Array<{ relationKey: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  entityBindings?: Array<{ candidateId: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
+  omittedCandidateIds: string[];
+  position: "start" | "end";
+  storyUnit: { candidateId: string | null; title: string; summary: string; targetId: string | null; targetVersion: string | null; position: "start" | "end" };
+  status: "active" | "undone" | "recovery-required";
+  recoveryMessage?: string;
+  items: Array<{ candidateId: string; type: StoryIntakeCandidateTypeProjection; title: string; owner: string; targetId: string | null; receiptId: string; undoState: "available" | "undone" | "not-required" }>;
+  recordedAt: string;
+  undoneAt: string | null;
+};
+
+export async function previewTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; token: string }): Promise<StoryIntakeBatchPreviewProjection> {
+  const { token, ...body } = input;
+  return request<StoryIntakeBatchPreviewProjection>(`${basePath}/tianyi-agent/story-intake/batch/preview`, { method: "POST", token, body });
+}
+
+export async function confirmTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; previewId: string; expectedBaseRevision: number; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; receipt: StoryIntakeBatchReceiptProjection }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/tianyi-agent/story-intake/batch/confirm`, { method: "POST", token, body });
+}
+
+export async function undoTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; receipt: StoryIntakeBatchReceiptProjection }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/tianyi-agent/story-intake/batch/undo`, { method: "POST", token, body });
+}
 
 export type TianyiCreativeSourceRef = { sessionId: string; eventId: string; contentHash: string };
 export type TianyiCreativeProjection = { version: "tianyi-creative-session-projection/v1"; sessionId: string | null; sessionContentHash: string; lifecycle: "idle" | "capturing" | "responding" | "extracting" | "review-ready" | "paused" | "recovering" | "provider-unavailable" | "completed" | "archived"; archived: boolean; originals: Array<TianyiCreativeSourceRef & { text: string; recordedAt: string }>; responses: Array<{ eventId: string; text: string; runtime: "fixture" | "provider"; recordedAt: string }>; summary: string | null; themes: string[]; openQuestions: string[]; summarySourceRefs: TianyiCreativeSourceRef[]; summaryState: "missing" | "current" | "stale"; candidates: Array<{ candidateId: string; kind: string; title: string; summary: string; uncertainties: string[]; sourceExcerpt: string; targetOwnerKind: string; duplicateHints: string[]; reviewStatus: "pending" | "rejected" | "deferred" | "handed-off"; sourceRefs: TianyiCreativeSourceRef[]; state: "pending" | "rejected" | "deferred" | "handed-off"; revision: number; ownerReceipt: { owner: string; id: string; revision: number | null } | null }>; pendingCount: number; pendingCandidateRefs: string[]; unresolvedCount: number; lastSafePoint: { eventId: string; sequence: number; contentHash: string } | null; providerUnavailable: { stage: "response" | "extraction"; message: string; retryable: boolean } | null };
-export type TianyiCreativeEventReview = { version: "tianyan-tianyi-event-review-bridge/r0"; proposal: { id: string; title: string; summary: string; origin: { projectId: string; sessionId: string; eventId: string; version: string }; writeTarget: { storyId: string; version: string; owner: string }; evidence: Array<{ sourceRef: string; excerpt: string }>; unknowns: string[] }; reviewContext: { project: { id: string; displayName: string }; source: { displayName: string; versionLabel: string; freshness: "current" }; writeTarget: { id: string; displayName: string }; safety: "候选，不会自动写入故事事实" }; planning: { id: string; title: string; revision: string } | null; candidateReview: GoldenLoopCandidateReview | null; impact: { id: string; status: string; options: Array<{ id: string; label: string; summary: string }> } | null; changeSet: { id: string; status: string; application: { appliedEventId: string | null } } | null; confirmedEvents: Array<{ id: string; title: string; revision: string }>; writeBoundary: { canon: 0; worldState: 0; event: 0; provider: 0; plugin: 0 } };
+export type TianyiCreativeEventReview = { version: "tianyan-tianyi-event-review-bridge/r0"; proposal: { id: string; title: string; summary: string; origin: { projectId: string; sessionId: string; eventId: string; version: string }; writeTarget: { storyId: string; version: string; owner: string }; evidence: Array<{ sourceRef: string; excerpt: string }>; unknowns: string[] }; reviewContext: { project: { id: string; displayName: string }; source: { displayName: string; versionLabel: string; freshness: "current" }; writeTarget: { id: string; displayName: string }; safety: "候选，不会自动写入故事事实" }; planning: { id: string; title: string; revision: string } | null; candidateReview: GoldenLoopCandidateReview | null; impact: { id: string; status: string; impact?: { characters: Array<{ id: string; summary: string }>; events: Array<{ id: string; summary: string }>; relationships: Array<{ id: string; summary: string }>; rulesAndLocations: Array<{ id: string; summary: string }>; risks: string[]; opportunities: string[]; evidenceCoverage: string; evidenceCount: number }; options: Array<{ id: string; label: string; summary: string; consequence?: string; riskLevel?: "low" | "medium" | "high"; selected?: boolean }>; preview?: { before: string[]; change: string[]; after: string[]; longTermPressure: string[]; preservedMysteries: string[]; assumptions: string[] } | null } | null; changeSet: { id: string; status: string; changes?: Array<{ id: string; summary: string; evidenceCount: number }>; application: { appliedEventId: string | null } } | null; confirmedEvents: Array<{ id: string; title: string; revision: string }>; versionState: { workVersionId: string; revision: number; manifestId: string } | null; adoptionReceipt: null | { schemaVersion: "tianyan-tianyi-adoption-receipt/r0"; receiptId: string; status: "active" | "undone"; sessionId: string; candidateId: string; targetStoryId: string; baseVersion: { workVersionId: string; revision: number; label: string }; resultVersion: { workVersionId: string; revision: number; label: string }; changeSetId: string; appliedEventId: string; workVersionReceiptId: string; recordedAt: string; structuredDiff: Array<{ id: string; summary: string; evidenceCount: number }>; sourceRefs: string[]; compensation: null | { eventId: string; workVersionReceiptId: string; resultVersion: { workVersionId: string; revision: number; label: string } } }; writeBoundary: { canon: 0; worldState: 0; event: 0; provider: 0; plugin: 0 } };
 export async function captureTianyiCreativeAuthorSource(input: { projectId: string; sessionId: string; operationId: string; submissionId: string; text: string; collaborate: boolean; token: string }): Promise<{ source: TianyiCreativeSourceRef; alreadyCompleted: boolean }> { const { token, ...body } = input; return tianyiRequest("creative/capture", token, body); }
 export async function extractTianyiCreativeProjection(input: { projectId: string; sessionId: string; operationId: string; source: TianyiCreativeSourceRef; fixture?: unknown; token: string }): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }> { const { token, ...body } = input; return tianyiRequest("creative/extract", token, body); }
 export async function getTianyiCreativeProjection(projectId: string, sessionId: string, token: string): Promise<TianyiCreativeProjection | null> { return tianyiRequest("creative/projection", token, { projectId, sessionId }); }
@@ -2802,6 +2878,7 @@ export async function getTianyiCreativeEventReview(input: { projectId: string; s
 export async function beginTianyiCreativeEventImpact(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview> { const { token, ...body } = input; return tianyiRequest("creative/candidate/event-review/begin-impact", token, body); }
 export async function rejectTianyiCreativeEvent(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview> { const { token, ...body } = input; return tianyiRequest("creative/candidate/event-review/reject", token, body); }
 export async function confirmTianyiCreativeEvent(input: { projectId: string; sessionId: string; candidateId: string; optionId: string; token: string }): Promise<TianyiCreativeEventReview> { const { token, ...body } = input; return tianyiRequest("creative/candidate/event-review/confirm", token, body); }
+export async function undoTianyiCreativeEvent(input: { projectId: string; sessionId: string; candidateId: string; token: string }): Promise<TianyiCreativeEventReview> { const { token, ...body } = input; return tianyiRequest("creative/candidate/event-review/undo", token, body); }
 export async function pauseTianyiCreativeSession(projectId: string, sessionId: string, operationId: string, token: string): Promise<{ projection: TianyiCreativeProjection }> { return tianyiRequest("creative/pause", token, { projectId, sessionId, operationId }); }
 export async function markTianyiCreativeProviderUnavailable(input: { projectId: string; sessionId: string; operationId: string; stage: "response" | "extraction"; message?: string; token: string }): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }> { const { token, ...body } = input; return tianyiRequest("creative/provider-unavailable", token, body); }
 export async function recoverTianyiCreativeSession(projectId: string, sessionId: string, operationId: string, token: string): Promise<{ projection: TianyiCreativeProjection; alreadyCompleted: boolean }> { return tianyiRequest("creative/recover", token, { projectId, sessionId, operationId }); }

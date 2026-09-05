@@ -18,7 +18,8 @@ test("R10 temporal canvas reads composition branchTrack and separates conflict n
   assert.match(timeline, /data-temporal-track/u);
   assert.match(timeline, /data-track-origin/u);
   assert.match(timeline, /temporal-conflict-summary/u);
-  assert.doesNotMatch(timeline, /temporal-conflict-zone/u);
+  assert.match(timeline, /temporal-conflict-zone/u);
+  assert.match(timeline, /保留冲突，不自动选择一个日期/u);
 });
 
 test("R10 narrative canvas exposes branch navigation and uses an in-product Collection Point dialog", () => {

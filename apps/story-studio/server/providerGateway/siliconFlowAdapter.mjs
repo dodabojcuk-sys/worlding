@@ -143,6 +143,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
           max_tokens: input.maxOutputTokens,
           temperature: input.temperature,
           ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
+          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
           ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
         })
       }, input);
@@ -154,15 +155,17 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       try { payload = await response.json(); } catch { throw providerGatewayError("invalid-response"); }
       const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
       const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
+      const toolCalls = normalizeNonStreamToolCalls(choice?.message);
       const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
       const usage = normalizeUsage(payload?.usage);
-      if (!content && !finishReason) throw providerGatewayError("invalid-response");
+      if (!content && !toolCalls.length && !finishReason) throw providerGatewayError("invalid-response");
       telemetry.lastUsage = usage;
       telemetry.lastTraceId = boundedTraceId(response.headers?.get?.(traceHeader));
       telemetry.lastLatencyMs = Date.now() - startedAt;
       return Object.freeze({
         modelId: typeof payload?.model === "string" ? payload.model : input.modelId,
         content,
+        ...(toolCalls.length ? { toolCalls } : {}),
         finishReason,
         usage,
         traceId: telemetry.lastTraceId
@@ -290,6 +293,7 @@ async function* parseSse(body, signal, onUsage) {
   let completed = false;
   const toolCalls = new Map();
   let toolFinishSeen = false;
+  let responseModelSeen = false;
   try {
     while (!completed) {
       const result = await readWithAbort(reader, signal);
@@ -316,6 +320,10 @@ async function* parseSse(body, signal, onUsage) {
           const normalized = normalizeProviderPayload(event.payload, toolCalls, toolFinishSeen);
           if (normalized.toolFinishSeen) toolFinishSeen = true;
           for (const item of normalized.events) {
+            if (item.type === "response-metadata") {
+              if (responseModelSeen) continue;
+              responseModelSeen = true;
+            }
             if (item.type === "chunk" && item.usage) onUsage?.(item.usage);
             yield item;
           }
@@ -368,6 +376,7 @@ function normalizeProviderPayload(payload, toolCalls, toolFinishSeen) {
   const usage = normalizeUsage(payload?.usage);
   const rawCalls = Array.isArray(choice?.delta?.tool_calls) ? choice.delta.tool_calls : [];
   const events = [];
+  if (typeof payload?.model === "string" && payload.model.trim()) events.push(Object.freeze({ type: "response-metadata", responseModelId: payload.model.trim().slice(0, 240) }));
   if (text || (finishReason && finishReason !== "tool_calls") || usage) events.push(Object.freeze({ type: "chunk", text, finishReason: finishReason === "tool_calls" ? null : finishReason, usage }));
   for (const raw of rawCalls) {
     const index = Number.isInteger(raw?.index) && raw.index >= 0 ? raw.index : null;
@@ -439,6 +448,23 @@ function normalizeUsage(value) {
   const totalTokens = finiteNonNegativeInteger(value.total_tokens);
   if (promptTokens === null || completionTokens === null || totalTokens === null) return null;
   return Object.freeze({ promptTokens, completionTokens, totalTokens });
+}
+
+function normalizeNonStreamToolCalls(message) {
+  const rawCalls = Array.isArray(message?.tool_calls)
+    ? message.tool_calls
+    : message?.function_call && typeof message.function_call === "object"
+      ? [{ id: "legacy-function-call", type: "function", function: message.function_call }]
+      : [];
+  return Object.freeze(rawCalls.map((raw, index) => {
+    const id = typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim().slice(0, 160) : `tool-call-${index}`;
+    const name = typeof raw?.function?.name === "string" && /^[A-Za-z_][A-Za-z0-9_-]{0,95}$/u.test(raw.function.name) ? raw.function.name : null;
+    const argumentsJson = typeof raw?.function?.arguments === "string" ? raw.function.arguments : "";
+    let args;
+    try { args = JSON.parse(argumentsJson || "{}"); } catch { throw providerGatewayError("invalid-response"); }
+    if (!name || !args || typeof args !== "object" || Array.isArray(args)) throw providerGatewayError("invalid-response");
+    return Object.freeze({ id, name, argumentsJson: argumentsJson || "{}", arguments: Object.freeze(structuredClone(args)) });
+  }));
 }
 
 function finiteNonNegativeInteger(value) {

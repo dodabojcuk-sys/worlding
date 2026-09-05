@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildEventParticipationProjection,
+  buildFocusTrajectoryOverlay,
   eventObservationCombinationSupport,
   eventObservationLegacyView,
   eventTaskSearchParams,
@@ -94,6 +95,27 @@ test("participation keeps direct, witnessed, explicit absence and unknown distin
   assert.equal(projection.columns[3]?.cells[0]?.state, "unknown", "missing evidence must not mean absence");
   assert.deepEqual(projection.columns[3]?.cells[0]?.evidenceRefs, [], "unknown participation must not claim a participation source");
   assert.equal(projection.columns[0]?.cells[0]?.evidenceRefs.includes("owner:project.long-night@r3"), true);
+});
+
+test("focus trajectories keep weak evidence visible while unknown and explicit absence break the path", () => {
+  const anchors = [
+    { anchorId: "placement.direct-a", event: { id: "event.direct-a", title: "首次出现", tags: ["人物：江月"] } },
+    { anchorId: "placement.weak", event: { id: "event.weak", title: "旁人传闻", tags: ["听闻：江月"] } },
+    { anchorId: "placement.unknown", event: { id: "event.unknown", title: "证据空白", tags: [] } },
+    { anchorId: "placement.direct-b", event: { id: "event.direct-b", title: "再次出现", tags: ["人物：江月"] } },
+    { anchorId: "placement.absent", event: { id: "event.absent", title: "明确离场", tags: ["缺席：江月"] } },
+    { anchorId: "placement.direct-c", event: { id: "event.direct-c", title: "最终出现", tags: ["人物：江月"] } }
+  ];
+  const overlay = buildFocusTrajectoryOverlay({
+    anchors,
+    objects,
+    focusObjectIds: ["character.jiang", "location.harbor", "item.cube", "character.tag-only"]
+  });
+
+  assert.deepEqual(overlay.objects.map((object) => object.id), ["character.jiang", "location.harbor", "item.cube"]);
+  assert.deepEqual(overlay.points.filter((point) => point.objectId === "character.jiang").map((point) => point.state), ["direct", "weak", "direct", "explicit-absence", "direct"]);
+  assert.equal(overlay.points.some((point) => point.anchorId === "placement.unknown"), false);
+  assert.deepEqual(overlay.segments.map((segment) => [segment.sourcePointId, segment.targetPointId, segment.weak]), [["focus:character.jiang:placement.direct-a", "focus:character.jiang:placement.weak", true]]);
 });
 
 test("world-time coordinate differs from narrative order and preserves unknown as unknown", () => {

@@ -8,18 +8,49 @@ const participation = readFileSync("apps/story-studio/src/components/event-obser
 const adapter = readFileSync("apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "utf8");
 const contract = readFileSync("src/storyContracts/eventObservation.ts", "utf8");
 const progression = readFileSync("apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx", "utf8");
+const graph = readFileSync("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "utf8");
+const timeline = readFileSync("apps/story-studio/src/components/event-observation/TemporalCanvas.tsx", "utf8");
 const styles = readFileSync("apps/story-studio/src/styles/event-line-projection.css", "utf8");
 
 test("R12 exposes one EventLine task workspace and renders order only from NarrativeArrangement Placement", () => {
   assert.match(workbench, /StoryProgressionWorkspace/u);
-  assert.match(progression, /props\.narrative\?\.projection\.placed/u);
-  assert.match(progression, /props\.narrative\?\.projection\.unplaced/u);
+  assert.match(progression, /props\.narratives\.flatMap\(\(read\) => read\.projection\.placed/u);
+  assert.match(progression, /new Set\(placed\.map\(\(placement\) => placement\.event\.id\)\)/u);
+  assert.match(progression, /待编排事件摘要/u);
+  assert.match(progression, /data-revision-token/u);
+  assert.match(progression, /打开待编排事件：/u);
+  assert.doesNotMatch(progression, /legacy-unplaced/u);
   assert.doesNotMatch(progression, /sort\([^\n]+(?:event\.id|event\.title|narrativeIndex)/u);
-  assert.match(progression, /未排序集合；卡片位置不代表作者顺序/u);
-  assert.match(progression, /角色视角 · 未开放/u);
-  assert.match(progression, /关系变化 · 未开放/u);
+  assert.match(progression, /未排序集合；条目位置不代表作者顺序/u);
+  assert.match(progression, /label="事件线"/u);
+  assert.match(progression, /label="时间线"/u);
+  assert.match(progression, />时间核对</u);
+  assert.match(progression, />证据审计</u);
+  assert.match(progression, /renderCandidateOverlay/u);
+  assert.match(progression, /候选审查/u);
+  assert.match(progression, /label="待编排与冲突"/u);
+  assert.doesNotMatch(progression, /label="角色视角"|label="关系变化"/u);
   assert.match(progression, /MAX_FOCUS_OBJECTS = 3/u);
-  assert.match(styles, /narrative-spine-grid/u);
+  assert.doesNotMatch(progression, /NarrativeSpineBoard/u);
+  assert.match(graph, /data-narrative-order-owner="NarrativeArrangementProjection"/u);
+  assert.match(graph, /id: placement\.placementId/u);
+  assert.match(graph, /fitWholeNarrative\(instance\)/u);
+  assert.match(graph, /projection\.nodes\.filter\(\(node\) => node\.data\.kind !== "focus"\)/u);
+  assert.match(graph, /instance\.fitView\(\{ nodes: visibleNodes, padding: \.07, minZoom: \.24, maxZoom: \.82/u);
+  assert.match(graph, /storyline-crossing-map.*is-collapsed/u);
+  assert.match(graph, /minZoom=\{\.24\}/u);
+  assert.match(graph, /formal-narrative-edge is-branch/u);
+  assert.match(graph, /formal-narrative-edge is-merge/u);
+  assert.match(graph, /unit\.mergeTargetUnitId && mergeTarget/u);
+  assert.match(graph, /position: \{ x: mergeX, y: mainY - 60 \}/u, "merge topology must stay clear of both the Story Unit topology node and the main placement title");
+  assert.match(graph, /index > anchor && placement\.storyUnitId === unit\.mergeTargetUnitId/u);
+  assert.match(timeline, /data-temporal-projection="independent"/u);
+  assert.match(styles, /formal-narrative-flow/u);
+  assert.match(graph, /data-semantic-level=\{semanticLevel\}/u);
+  assert.match(graph, />全书概览</u);
+  assert.match(graph, />阅读所选</u);
+  assert.match(graph, /setSemanticLevel\("reading"\)/u);
+  assert.match(progression, /compareOpen \? <div className="story-knowledge-compare-popover"/u, "multi-observer controls must be on demand instead of a permanent canvas banner");
 });
 
 test("R12 placement controls reuse the Story Unit writer transport with explicit concurrency receipts", () => {
@@ -30,7 +61,7 @@ test("R12 placement controls reuse the Story Unit writer transport with explicit
   assert.match(adapter, /removeNarrativePlacement/u);
   assert.match(adapter, /expectedOwnerVersion/u);
   assert.match(adapter, /expectedRevision/u);
-  assert.match(progression, /receipt/u);
+  assert.match(progression, /可追溯回执/u);
   assert.doesNotMatch(progression, /localStorage|sessionStorage/u);
 });
 

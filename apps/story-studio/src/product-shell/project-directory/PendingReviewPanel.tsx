@@ -22,7 +22,7 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 type PendingItem = {
   id: string;
-  kind: "source" | "golden" | "agent" | "agent-type" | "relation";
+  kind: "source" | "golden" | "agent" | "relation";
   title: string;
   summary: string;
   source: string;
@@ -112,7 +112,7 @@ export function PendingReviewPanel(props: {
         duplicateTargetId: null,
         candidateId: candidate.id
       }));
-      const agentItems = proposals.filter((proposal) => proposal.status === "pending" || proposal.status === "edited").flatMap((proposal): PendingItem[] => {
+      const agentItems = proposals.filter((proposal) => proposal.status === "pending" || proposal.status === "edited").map((proposal): PendingItem => {
         const base: PendingItem = {
           id: `agent:${proposal.proposalId}`,
           kind: "agent",
@@ -122,10 +122,7 @@ export function PendingReviewPanel(props: {
           duplicateTargetId: proposal.duplicateMatches[0]?.objectId ?? null,
           proposal
         };
-        const typeProposal = Array.isArray(proposal.suggestedFields.proposedCustomTypes) && proposal.suggestedFields.proposedCustomTypes.length
-          ? [{ ...base, id: `agent-type:${proposal.proposalId}`, kind: "agent-type" as const, title: `${proposal.suggestedName} · ${t("pending.agentType")}`, summary: t("pending.agentTypeReadOnly") }]
-          : [];
-        return [base, ...typeProposal];
+        return base;
       });
       const relationItems = relations.relations.map((relation): PendingItem => ({
         id: `relation:${relation.relationId}`,
@@ -170,10 +167,11 @@ export function PendingReviewPanel(props: {
   return <section className="pending-review-panel" aria-label={t("directory.pending")} data-story-fact-owner="false">
     {notice && <p className="pending-review-notice" role="status">{notice}</p>}
     {!items.length && <p className="project-directory-empty">{t("pending.empty")}</p>}
-    {items.map((item) => <article key={item.id} data-pending-kind={item.kind}>
-      <header><strong>{item.title}</strong><small>{item.source}</small></header>
+    {items.map((item) => <article key={item.id} data-pending-kind={item.kind} data-pending-category={item.kind === "source" ? "source" : item.kind === "golden" ? "decision" : "candidate"}>
+      <header><strong>{item.title}</strong><small>{t("directory.pendingSourceBatch").replace("{batch}", item.source)}</small></header>
       <p>{item.summary}</p>
       {item.duplicateTargetId && <small className="pending-duplicate">{t("pending.duplicate")}</small>}
+      {item.kind === "agent" && item.proposal && Array.isArray(item.proposal.suggestedFields.proposedCustomTypes) && item.proposal.suggestedFields.proposedCustomTypes.length ? <small>{t("pending.agentType")}: {item.proposal.suggestedFields.proposedCustomTypes.join("、")}</small> : null}
       {item.kind === "agent" && item.proposal && <AgentProposalEditor proposal={item.proposal} busy={busy === item.id} onSave={(suggestedName, uncertainties) => perform(item.id, async () => {
         const proposal = item.proposal!;
         await props.runtime.withConnection((token) => editAgentRecognitionProposal({ projectId: props.runtime.project!.id, proposalId: proposal.proposalId, expectedRevision: proposal.revision, suggestedName, suggestedFields: proposal.suggestedFields, uncertainties, duplicateMatches: proposal.duplicateMatches, token }));
@@ -192,9 +190,23 @@ export function PendingReviewPanel(props: {
         {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, () => approveRelation(item))}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
         {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { const relation = item.relation!; await props.runtime.withConnection((token) => rejectRelationCandidate({ projectId: props.runtime.project!.id, relationId: relation.relationId, expectedRelationRevision: relation.revision, operationId: `directory-reject-relation-${relation.relationId}-${relation.revision}`, token })); })}><X aria-hidden="true" />{t("pending.reject")}</button>}
         {item.kind === "golden" && <small>{t("pending.goldenNeedsReview")}</small>}
-        {item.kind === "agent-type" && <small>{t("pending.agentTypeReadOnly")}</small>}
         <button type="button" disabled={busy === item.id} onClick={() => setNotice(t("pending.deferred"))}><Pause aria-hidden="true" />{t("pending.defer")}</button>
       </footer>
     </article>)}
   </section>;
+}
+
+/** Central presentation only; decisions still flow through the original ports. */
+export function PendingReviewWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenSource(reference: ProjectDirectoryStableReference): void; onClose(): void }) {
+  const { t } = useI18n();
+  const projectLabel = props.runtime.project?.title ?? t("directory.pendingWorkspaceUnopened");
+  const versionLabel = props.runtime.workVersionLabel ?? t("directory.pendingWorkspaceCurrentVersion");
+  return <main className="shell-workspace pending-review-workspace" aria-labelledby="pending-review-workspace-title" data-story-fact-owner="false">
+    <header className="pending-review-workspace-heading">
+      <div><small>{t("directory.pendingWorkspaceEyebrow")}</small><h1 id="pending-review-workspace-title">{t("directory.pending")}</h1><p>{projectLabel} · {versionLabel}</p></div>
+      <button type="button" onClick={props.onClose}>{t("directory.pendingWorkspaceBack")}</button>
+    </header>
+    <p className="pending-review-workspace-note">{t("directory.pendingWorkspaceNote")}</p>
+    <PendingReviewPanel runtime={props.runtime} onOpenSource={props.onOpenSource} />
+  </main>;
 }

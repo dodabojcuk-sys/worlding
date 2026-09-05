@@ -151,7 +151,7 @@ export function createStoryStudioAgentProposalOperations(input: {
       const workspacePath = projectWorkspacePath(input.rootPath, command.projectId);
       const current = await readAgentRecognitionProposal({ workspacePath, projectId: command.projectId, proposalId: command.proposalId });
       assertObjectProposal(current, command.object.objectType);
-      const targetObjectId = targetObjectIdFor(command.object.objectType, current.proposalId);
+      const targetObjectId = targetObjectIdForAgentProposal(command.object.objectType, current.proposalId);
       const begun = await beginAgentRecognitionApplication({
         workspacePath,
         projectId: command.projectId,
@@ -276,7 +276,7 @@ function targetCharacterId(proposalId: string): string {
   return `character.agent-proposal-${digest}`;
 }
 
-function targetObjectIdFor(objectType: AgentProposalObjectApplication["objectType"], proposalId: string): string {
+export function targetObjectIdForAgentProposal(objectType: AgentProposalObjectApplication["objectType"], proposalId: string): string {
   if (objectType === "character") return targetCharacterId(proposalId);
   const digest = createHash("sha256").update(`${objectType}:${proposalId}`).digest("hex").slice(0, 24);
   return `${objectType}.agent-proposal-${digest}`;

@@ -17,16 +17,16 @@
     {
       "id": "story-unit-narrative-arrangement-r0",
       "status": "FOUNDER_REVIEW",
-      "maturity": "production-event-line-author-workspace-with-versioned-story-unit-owned-placement-writer",
+      "maturity": "r12c-graphical-narrative-arrangement-and-independent-world-time-founder-candidate",
       "entrypoints": ["apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "apps/story-studio/src/components/EventLineWorkbench.tsx", "apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx"],
-      "sourceFiles": ["src/storyContracts/narrativeArrangement.ts", "src/storyContracts/eventObservation.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/server/server.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "apps/story-studio/src/components/EventLineWorkbench.tsx", "apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx", "apps/story-studio/src/styles/event-line-projection.css", "data/2026-09-03_天衍R12B2_1叙事编排权威合同/TIANYAN_NARRATIVE_ARRANGEMENT_CONTRACT_R0.md"],
+      "sourceFiles": ["src/storyContracts/narrativeArrangement.ts", "src/storyContracts/eventObservation.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/server/server.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "apps/story-studio/src/components/EventLineWorkbench.tsx", "apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx", "apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "apps/story-studio/src/components/event-observation/TemporalCanvas.tsx", "apps/story-studio/src/styles/event-line-projection.css", "data/2026-09-03_天衍R12B2_1叙事编排权威合同/TIANYAN_NARRATIVE_ARRANGEMENT_CONTRACT_R0.md"],
       "domainOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
       "stateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
       "persistenceOwner": "Existing Story Structure/Story Unit authority hosts versioned NarrativeArrangement and NarrativePlacement as one top-level Story Unit frontmatter child aggregate; Event, Canon, WorldState, Relation, UI and localStorage own no narrative order",
       "providerDependency": "none; all tests use pure functions, temporary workspaces and a loopback local API with zero real Provider calls",
       "tests": ["tests/storyContracts/narrativeArrangementR0.test.ts", "tests/storyContracts/eventObservation.test.ts", "tests/storyStudio/narrativeArrangementAuthorityR0.test.ts", "tests/storyStudio/narrativeArrangementTransportR0.test.ts", "tests/storyStudio/tianyanR11EventObservationIntegration.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
       "legacyProvenance": ["R12-B2 BLOCKED_NARRATIVE_ORDER_CONTRACT_REQUIRED", "Founder decision: Story Structure/Story Unit is the sole narrative-position owner"],
-      "remainingGap": "Founder independent experience review remains required; character perspective, relationship evolution, candidate UI/AuthorControl adaptation, deep multi-Unit branch continuation and explicit branch merge remain unopened; legacy projects read as unplaced and are never auto-migrated"
+      "remainingGap": "Founder independent R12-C visual review remains required; character perspective, relationship evolution, candidate UI/AuthorControl adaptation, and deeper multi-Unit branch continuation remain unopened; legacy projects read as unplaced and are never auto-migrated"
     },
     {
       "id": "event-line-story-modeling-r7",
@@ -45,16 +45,16 @@
     {
       "id": "tianyi-pi-text-vertical-slice-r0.6",
       "status": "LOCAL_REVIEW",
-      "maturity": "provider-gateway-routed-streaming-with-session-replay",
-      "entrypoints": ["src/storyAgent/tianyiAgentRuntimePort.ts", "apps/story-studio/server/server.mjs"],
-      "sourceFiles": ["src/storyAgent/agentRuntimePlugin.ts", "src/storyAgent/agentRuntimePluginRegistry.ts", "src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts", "src/storyAgent/tianyiProductTools.ts", "src/storyWorkspace/workspacePathPolicy.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "apps/story-studio/src/settings/agent/INTEGRATION_REQUEST.md", "docs/architecture/TIANYAN_R0_6_AGENT_TEXT_VERTICAL_SLICE_PRE_IMPLEMENTATION_MAP.md"],
+      "maturity": "provider-gateway-routed-story-intake-with-adaptive-review-work-batch-owner-receipts-and-undo",
+      "entrypoints": ["apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx", "apps/story-studio/src/components/tianyi/workspace/StoryIntakeReviewSurface.tsx", "apps/story-studio/src/components/tianyi/workspace/StoryIntakeWorkSurface.tsx", "src/storyAgent/tianyiAgentRuntimePort.ts", "apps/story-studio/server/storyIntakeBatchPort.mjs", "apps/story-studio/server/server.mjs"],
+      "sourceFiles": ["src/storyAgent/agentRuntimePlugin.ts", "src/storyAgent/agentRuntimePluginRegistry.ts", "src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts", "src/storyAgent/tianyiProductTools.ts", "src/storyAgent/storyIntakeTool.ts", "src/storyContracts/storyIntakeEnvelope.ts", "src/storyWorkspace/workspacePathPolicy.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts", "apps/story-studio/server/providerGateway/aiProviderGateway.mjs", "apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "apps/story-studio/server/storyIntakeBatchPort.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx", "apps/story-studio/src/components/tianyi/workspace/StoryIntakeReviewSurface.tsx", "apps/story-studio/src/components/tianyi/workspace/StoryIntakeWorkSurface.tsx", "apps/story-studio/src/components/tianyi/workspace/storyIntakeWorkspaceState.ts", "apps/story-studio/src/settings/agent/AgentSettingsSection.tsx", "apps/story-studio/src/settings/agent/INTEGRATION_REQUEST.md", "docs/architecture/TIANYAN_R0_6_AGENT_TEXT_VERTICAL_SLICE_PRE_IMPLEMENTATION_MAP.md"],
       "domainOwners": ["src/storyAgent/tianyiAgentRuntimePort.ts"],
       "stateOwners": ["src/storyContinuity", "src/storyControlSurface/storyStudioTianyiOperations.ts"],
-      "persistenceOwner": "Existing Tianyi Session/Archive runtime-changed events store project/work-version/session-scoped run snapshots and normalized stream events; Pi owns no product state",
-      "providerDependency": "Existing Provider Gateway and configured SiliconFlow adapter only; tests inject deterministic streams and make zero real model calls",
-      "tests": ["tests/storyAgent/agentRuntimePluginRegistry.test.ts", "tests/storyAgent/piAgentTextAdapter.test.ts", "tests/storyAgent/tianyiAgentRuntimePort.test.ts", "tests/storyAgent/tianyiProductTools.test.ts", "tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts", "tests/storyWorkspace/tianyanR06StorageAgentRoundtrip.test.ts"],
+      "persistenceOwner": "Existing Tianyi Session/Archive runtime-changed events store project/work-version/session-scoped run snapshots and normalized stream events; project-local batch receipts record exact scope and compensation while formal changes remain in existing Owners; Pi owns no product state",
+      "providerDependency": "Existing Provider Gateway and configured active adapter only; Story Intake is explicit author action and exposes only propose_story_intake; tests inject deterministic streams and make zero real model calls",
+      "tests": ["tests/storyAgent/agentRuntimePluginRegistry.test.ts", "tests/storyAgent/piAgentTextAdapter.test.ts", "tests/storyAgent/tianyiAgentRuntimePort.test.ts", "tests/storyAgent/tianyiProductTools.test.ts", "tests/storyContracts/storyIntakeEnvelope.test.ts", "tests/storyStudio/storyStudioProviderGateway.test.ts", "tests/storyStudio/tianyiAgentRuntimeTransportR0.test.ts", "tests/storyStudio/tianyiModeIsolationR0.test.ts", "tests/storyStudio/storyIntakeWorkspaceContinuityG1.test.ts", "tests/storyStudio/storyIntakeWorkspaceRegressionG1.test.ts", "tests/storyStudio/storyIntakeBatchG1.test.ts", "tests/storyWorkspace/tianyanR06StorageAgentRoundtrip.test.ts"],
       "legacyProvenance": ["@earendil-works/pi-agent-core@0.84.2 pinned inside built-in Pi plugin; host ABI registry has no dynamic loader or external executable plugin install"],
-      "remainingGap": "A real Provider call remains author-triggered and was not run in R0.6; Provider Gateway currently exposes normalized text chunks, so production model-originated tool-call frames remain unavailable until that existing gateway contract is extended"
+      "remainingGap": "Founder visual and experience review plus the budgeted real Pi validation remain incomplete; relation candidates without author-bound identity endpoints stay in review, and Story Context is not a separate repository. Malformed, evidence-free or unauthorized tool results fail closed and never become formal story facts"
     },
     {
       "id": "portable-workspace-settings-r0.6",
@@ -325,16 +325,16 @@
     {
       "id": "event-line",
       "status": "PRODUCTION_CONNECTED",
-      "maturity": "r11-compositional-observation-with-owner-backed-participation",
+      "maturity": "r12c-formal-graphical-event-line-with-independent-continuous-time-and-owner-backed-participation",
       "entrypoints": ["apps/story-studio/src/components/EventLineWorkbench.tsx"],
-      "sourceFiles": ["apps/story-studio/src/App.tsx", "apps/story-studio/src/components/eventLineCommittedEvents.ts", "apps/story-studio/src/components/event-observation/EventObservationControls.tsx", "apps/story-studio/src/components/event-observation/ParticipationObservation.tsx", "src/storyContracts/storyStudioEventReference.ts", "src/storyContracts/eventObservation.ts", "src/storyContracts/eventPerspectiveProjection.ts"],
+      "sourceFiles": ["apps/story-studio/src/App.tsx", "apps/story-studio/src/components/eventLineCommittedEvents.ts", "apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx", "apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx", "apps/story-studio/src/components/event-observation/TemporalCanvas.tsx", "apps/story-studio/src/components/event-observation/EventObservationControls.tsx", "apps/story-studio/src/components/event-observation/ParticipationObservation.tsx", "src/storyContracts/storyStudioEventReference.ts", "src/storyContracts/eventObservation.ts", "src/storyContracts/eventPerspectiveProjection.ts"],
       "domainOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
       "stateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
-      "persistenceOwner": "sole WorldState/Event owner; Candidate Review remains separate; R11 layout, lens, layers, focus ids, and semantic scale are project-scoped browser view state only",
-      "providerDependency": "candidate generation only; R11 layout, lens, focus, scale, save, filter, zoom, and refresh perform zero Provider calls",
+      "persistenceOwner": "sole WorldState/Event owner plus Story Unit-owned NarrativeArrangement; Candidate Review remains separate; task, focus, layout, lens, layers and semantic scale are project-scoped browser view state only",
+      "providerDependency": "candidate generation only; event-line/time-line task switching, focus, detail, zoom, staging reads and refresh perform zero Provider calls",
       "tests": ["tests/storyContracts/eventObservation.test.ts", "tests/storyContracts/eventPerspectiveProjection.test.ts", "tests/storyStudio/tianyanR11EventObservationIntegration.test.ts", "tests/storyStudio/tianyanEventWorkDockAuthorCopyR0.test.ts", "tests/storyStudio/goldenLoopSourceAuthority.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
       "legacyProvenance": ["122924e04595aeafbc5c96895d2ac85fc34b1535 compact entry adapted"],
-      "remainingGap": "Relationship evolution still lacks a versioned relation-state sequence; Founder independent experience review remains required. Confirmed facts remain the primary Event Line read model and R11 observation state cannot write Event, Canon, WorldState, Relation, or Story Unit facts"
+      "remainingGap": "Relationship evolution still lacks a versioned relation-state sequence; Founder independent R12-C visual review remains required. The graphical views cannot write Event, Canon, WorldState, Relation or narrative order except through the existing explicit NarrativeArrangement Writer"
     },
     {
       "id": "author-review-canon-writer",

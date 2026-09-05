@@ -12,6 +12,7 @@ const formalEventNode = readFileSync("apps/story-studio/src/components/graph-nod
 const tianyiSidebar = readFileSync("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx", "utf8");
 const coordinator = readFileSync("apps/story-studio/src/product-shell/WorkspaceDockCoordinator.ts", "utf8");
 const dockLayout = readFileSync("apps/story-studio/src/product-shell/right-dock/useDockLayoutState.ts", "utf8");
+const focusLayout = readFileSync("apps/story-studio/src/product-shell/layout/shellFocusLayout.ts", "utf8");
 
 test("event workspace separates layout coordinate from observation lens while retaining local selection", () => {
   assert.match(controls, /aria-label="事件观察组合"/u);
@@ -36,11 +37,11 @@ test("timeline owns an independent projection while preserving formal Event ids"
   assert.match(workspace, /<TemporalCanvas/u);
   assert.doesNotMatch(workspace, /<EventGraphCanvas[^>]+mode=\{projectionMode === "timeline"/u);
   assert.match(timeline, /data-temporal-projection="independent"/u);
-  assert.match(timeline, /id: event\.id, type: "temporalEvent"/u);
+  assert.match(timeline, /id: item\.event\.id,\s*type: "temporalEvent"/u);
   assert.match(timeline, /TemporalEventNode/u);
   assert.match(timeline, /temporal-unplaced-tray/u);
   assert.match(timeline, /temporal-conflict-summary/u);
-  assert.doesNotMatch(timeline, /temporal-conflict-zone/u);
+  assert.match(timeline, /temporal-conflict-zone/u);
   assert.match(timeline, /props\.onReturnGraph/u);
   assert.match(workspace, /next === "line" \|\| next === "graph" \|\| next === "timeline" \|\| next === "perspective"/u);
   assert.doesNotMatch(timeline, /createWorldObject|updateWorldObject|storyStudioAuthorControl|storyStudioWorkspaceOperations/u);
@@ -63,15 +64,16 @@ test("one five-state right work surface arbitrates page inspectors, creation, re
   assert.doesNotMatch(graph, /setInspectorOpen|useState\(Boolean\(props\.selectedEventId\)\)/u);
   assert.doesNotMatch(dockLayout, /isTianyiOpen|setTianyiOpen/u);
   assert.doesNotMatch(workspace, /event-line-simulation-entry/u);
-  assert.match(shell, /max-width: 90rem/u);
-  assert.match(shellStyles, /@media \(max-width: 90rem\)[\s\S]*--tianyi-current: 0rem/u);
+  assert.match(shell, /resolveShellFocusLayout/u);
+  assert.match(focusLayout, /MAIN_WORKSPACE_SAFE_WIDTH = 840/u);
+  assert.match(shellStyles, /data-shell-focus-layout="focused"[\s\S]*--tianyi-current: 0rem/u);
 });
 
-test("closing Tianyi retains isolated dialogue and Agent sessions plus unsent drafts outside the visual drawer", () => {
+test("closing Tianyi retains one conversation plus isolated Work and Page Agent drafts outside the visual drawer", () => {
   assert.match(shell, /tianyiOpen && <TianyiSidebar/u);
-  assert.doesNotMatch(shell, /setDialogueComposerDraft\(""\)[\s\S]{0,240}closeQuickTianyi\(\)/u);
-  assert.match(tianyiSidebar, /dialogueSessionId/u);
-  assert.match(tianyiSidebar, /agentSessionId/u);
-  assert.match(tianyiSidebar, /dialogueComposerDraft/u);
-  assert.match(tianyiSidebar, /agentTaskDraft/u);
+  assert.doesNotMatch(shell, /setWorkComposerDraft\(""\)[\s\S]{0,240}closeQuickTianyi\(\)/u);
+  assert.match(tianyiSidebar, /tianyiConversationId/u);
+  assert.doesNotMatch(tianyiSidebar, /dialogueSessionId|agentSessionId/u);
+  assert.match(tianyiSidebar, /workComposerDraft/u);
+  assert.match(tianyiSidebar, /pageAgentTaskDraft/u);
 });

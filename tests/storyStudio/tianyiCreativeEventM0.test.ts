@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import test from "node:test";
 
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
+import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
 test("Tianyi Event candidate reaches the existing review and sole Event writer without duplicates", async () => {
@@ -14,7 +15,12 @@ test("Tianyi Event candidate reaches the existing review and sole Event writer w
   const projectId = "tianyi-event-m0";
   const token = "tianyi-event-m0-token";
   const port = 48_000 + (process.pid % 1_000);
-  createStoryStudioWorkspaceOperations({ rootPath, stateFilePath }).createProject({ title: "天意事件 M0", folderSlug: projectId });
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "天意事件 M0", folderSlug: projectId });
+  const spineEvent = operations.createWorldObject({ projectId, type: "event", title: "钟楼仍亮着", status: "planned", tags: ["Fixture"] });
+  operations.createStoryUnit({ projectId, title: "主故事脊", linkedEntityIds: [spineEvent.id] });
+  const rootVersion = createCreationSourceSelectionPort({ operations }).createRoot(projectId);
+  const baseRevision = rootVersion.identity.currentRevision;
   const env = { ...process.env, PORT: String(port), WORLD_OS_STORY_STUDIO_ROOT: rootPath, WORLD_OS_STORY_STUDIO_STATE_FILE: stateFilePath, WORLD_OS_LOCAL_CONTROL_TOKEN: token };
   let server = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], { cwd: process.cwd(), env, stdio: "ignore" });
   const base = `http://127.0.0.1:${port}`;
@@ -45,11 +51,21 @@ test("Tianyi Event candidate reaches the existing review and sole Event writer w
     const impactData = (await impact.json() as { data: { impact: { options: Array<{ id: string }> } } }).data;
     const confirmed = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review/confirm`, { projectId, sessionId, candidateId: candidate.candidateId, optionId: impactData.impact.options[0].id }, headers);
     assert.equal(confirmed.status, 200);
-    const finalData = (await confirmed.json() as { data: { confirmedEvents: Array<{ id: string }> } }).data;
+    const finalData = (await confirmed.json() as { data: { confirmedEvents: Array<{ id: string }>; adoptionReceipt: { status: string; baseVersion: { revision: number }; resultVersion: { revision: number }; structuredDiff: unknown[] } } }).data;
     assert.equal(finalData.confirmedEvents.length, 1);
+    assert.equal(finalData.adoptionReceipt.status, "active");
+    assert.equal(finalData.adoptionReceipt.baseVersion.revision, baseRevision);
+    assert.equal(finalData.adoptionReceipt.resultVersion.revision, baseRevision + 1);
+    assert.ok(finalData.adoptionReceipt.structuredDiff.length > 0);
     const retry = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review/confirm`, { projectId, sessionId, candidateId: candidate.candidateId, optionId: impactData.impact.options[0].id }, headers);
     assert.equal(retry.status, 200);
     assert.equal((await retry.json() as { data: { confirmedEvents: unknown[] } }).data.confirmedEvents.length, 1);
+    const undone = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review/undo`, { projectId, sessionId, candidateId: candidate.candidateId }, headers);
+    assert.equal(undone.status, 200);
+    const undoneData = (await undone.json() as { data: { adoptionReceipt: { status: string; compensation: { eventId: string; resultVersion: { revision: number } } } } }).data;
+    assert.equal(undoneData.adoptionReceipt.status, "undone");
+    assert.ok(undoneData.adoptionReceipt.compensation.eventId);
+    assert.equal(undoneData.adoptionReceipt.compensation.resultVersion.revision, baseRevision + 2);
     const newerSource = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "event-newer-source", submissionId: "event-newer-submission", text: "钟楼记录被重新发现，需要重新整理。", collaborate: false }, headers);
     assert.equal(newerSource.status, 200);
     const staleReview = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review`, { projectId, sessionId, candidateId: candidate.candidateId }, headers);
@@ -58,6 +74,8 @@ test("Tianyi Event candidate reaches the existing review and sole Event writer w
     const detail = await fetch(`${base}/__local/story-studio/event-line/event?projectId=${projectId}&eventId=${finalData.confirmedEvents[0].id}`, { headers });
     assert.equal(detail.status, 200);
     assert.equal((await detail.json() as { data: { status: string } }).data.status, "ready");
+    const afterReload = await post(`${base}/__local/story-studio/tianyi/creative/candidate/event-review`, { projectId, sessionId, candidateId: candidate.candidateId }, headers);
+    assert.equal(afterReload.status, 400, "The deliberately newer creative source keeps the old candidate stale even though its receipt remains durable.");
   } finally {
     await terminateChildProcess(server, { label: "Tianyi Event M0 server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
     await rm(rootPath, { recursive: true, force: true });

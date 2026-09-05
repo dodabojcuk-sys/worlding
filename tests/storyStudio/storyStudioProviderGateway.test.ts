@@ -287,6 +287,40 @@ test("minimal non-stream inference reuses the Provider Gateway and exposes only 
   assert.equal(JSON.stringify(result).includes(TEST_CREDENTIAL), false);
 });
 
+test("Gateway forwards a named required tool and parses non-stream tool_calls", async () => {
+  let observedBody: Record<string, any> | null = null;
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async (_url: URL | RequestInfo, init?: RequestInit) => {
+      observedBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        model: "Qwen/Qwen3.5-35B-A3B",
+        choices: [{ message: { role: "assistant", content: "", tool_calls: [{ id: "call_intake", type: "function", function: { name: "propose_story_intake", arguments: "{\"candidates\":[]}" } }] }, finish_reason: "tool_calls" }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+  const result = await gateway.openChatCompletion({
+    profileId: PROFILE_ID,
+    messages: [{ role: "user", content: "Use the tool." }],
+    maxOutputTokens: 32,
+    tools: [{ name: "propose_story_intake", description: "Propose candidates", parameters: { type: "object", required: ["candidates"], properties: { candidates: { type: "array" } }, additionalProperties: false } }],
+    toolChoice: { type: "function", function: { name: "propose_story_intake" } }
+  });
+  assert.equal(observedBody?.stream, false);
+  assert.equal(observedBody?.tools[0].function.name, "propose_story_intake");
+  assert.deepEqual(observedBody?.tool_choice, { type: "function", function: { name: "propose_story_intake" } });
+  assert.deepEqual(result.toolCalls, [{ id: "call_intake", name: "propose_story_intake", argumentsJson: "{\"candidates\":[]}", arguments: { candidates: [] } }]);
+});
+
+test("Gateway rejects a named tool choice outside the declared allowlist", async () => {
+  const gateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => { throw new Error("must not dispatch"); } });
+  await assert.rejects(gateway.openChatStream({
+    ...requestInput(),
+    tools: [{ name: "propose_story_intake", description: "Propose candidates", parameters: { type: "object", properties: {}, additionalProperties: false } }],
+    toolChoice: { type: "function", function: { name: "other_tool" } }
+  }), (error: unknown) => error instanceof ProviderGatewayError && error.code === "invalid-request");
+});
+
 test("one large transport chunk may contain many individually bounded SSE events", async () => {
   const payload = `${Array.from({ length: 4_000 }, () => (
     "data: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\n\n"

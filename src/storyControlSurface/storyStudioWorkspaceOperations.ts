@@ -1191,6 +1191,27 @@ export function createStoryStudioWorkspaceOperations(input: {
       const operationId = requireText(objectInput.operationId, "Agent proposal application operation", 180);
       const title = requireText(objectInput.title, "Object title", 80);
       const profile = normalizeOptionalObjectProfile(objectInput.profile, "character");
+      if (hasConflictingAgentProposalObjectIdentity(projectPath, targetObjectId, "character")) {
+        return { created: false, conflict: true, object: null };
+      }
+      const restored = restoreCompensatedAgentProposalObject(projectPath, {
+        targetObjectId,
+        objectType: "character",
+        proposalId,
+        proposalRevision,
+        operationId,
+        title,
+        status: optionalText(objectInput.status, "status", 64) || "active",
+        tags: requireStringList(objectInput.tags, "tags"),
+        aliases: requireStringList(objectInput.aliases, "aliases"),
+        body: typeof objectInput.body === "string" ? objectInput.body : `# ${title}\n\n`,
+        profile
+      });
+      if (restored) {
+        rememberObject(projectPath, restored.relativePath);
+        recordCanonicalRevision(projectPath, { kind: "object", id: restored.id }, "save", null, operationId);
+        return { created: false, conflict: false, object: readProductObject(projectPath, restored.id) };
+      }
       const result = createWorkspaceNoteOnce(projectPath, {
         id: targetObjectId,
         type: "character",
@@ -1238,6 +1259,27 @@ export function createStoryStudioWorkspaceOperations(input: {
       const operationId = requireText(objectInput.operationId, "Agent proposal application operation", 180);
       const title = requireText(objectInput.title, "Object title", 80);
       const profile = normalizeOptionalObjectProfile(objectInput.profile, objectType);
+      if (hasConflictingAgentProposalObjectIdentity(projectPath, targetObjectId, objectType)) {
+        return { created: false, conflict: true, object: null };
+      }
+      const restored = restoreCompensatedAgentProposalObject(projectPath, {
+        targetObjectId,
+        objectType,
+        proposalId,
+        proposalRevision,
+        operationId,
+        title,
+        status: optionalText(objectInput.status, "status", 64) || "active",
+        tags: requireStringList(objectInput.tags, "tags"),
+        aliases: requireStringList(objectInput.aliases, "aliases"),
+        body: typeof objectInput.body === "string" ? objectInput.body : `# ${title}\n\n`,
+        profile
+      });
+      if (restored) {
+        rememberObject(projectPath, restored.relativePath);
+        recordCanonicalRevision(projectPath, { kind: "object", id: restored.id }, "save", null, operationId);
+        return { created: false, conflict: false, object: readProductObject(projectPath, restored.id) };
+      }
       const result = createWorkspaceNoteOnce(projectPath, {
         id: targetObjectId,
         type: objectType,
@@ -1261,6 +1303,59 @@ export function createStoryStudioWorkspaceOperations(input: {
       rememberObject(projectPath, result.note.relativePath);
       recordCanonicalRevision(projectPath, { kind: "object", id: result.note.id }, "create", null, operationId);
       return { created: result.created, conflict: false, object: readProductObject(projectPath, result.note.id) };
+    },
+
+    archiveAgentProposalObjectOnce(objectInput: {
+      projectId: string;
+      targetObjectId: string;
+      objectType: Extract<StoryStudioWorldObjectType, "character" | "item" | "location">;
+      proposalId: string;
+      proposalRevision: number;
+      operationId: string;
+      title: string;
+      status: string;
+      tags: string[];
+      aliases: string[];
+      body: string;
+    }): { found: boolean; archived: boolean; conflict: boolean } {
+      const projectPath = resolveProjectPath(rootPath, objectInput.projectId);
+      const objectType = objectInput.objectType;
+      const targetObjectId = objectType === "character"
+        ? requireAgentProposalCharacterId(objectInput.targetObjectId)
+        : requireAgentProposalObjectId(objectInput.targetObjectId, objectType);
+      const relativePath = agentProposalObjectRelativePath(objectType, targetObjectId);
+      const summary = listObjectSummaries(projectPath).find((item) => item.relativeId === relativePath);
+      if (!summary) return { found: false, archived: false, conflict: false };
+      const current = readWorkspaceNote(projectPath, relativePath);
+      const exactSource = current.id === targetObjectId
+        && current.type === objectType
+        && current.title === requireText(objectInput.title, "Object title", 80)
+        && current.body.trimEnd() === String(objectInput.body).trimEnd()
+        && stableJson(stringList(current.frontmatter.tags)) === stableJson(requireStringList(objectInput.tags, "tags"))
+        && stableJson(stringList(current.frontmatter.aliases)) === stableJson(requireStringList(objectInput.aliases, "aliases"))
+        && stableJson(current.frontmatter.card_blocks) === stableJson(defaultObjectCardBlocks(objectType))
+        && current.frontmatter.card_layout === "horizontal"
+        && stableJson(requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_ids, "Agent proposal history", 128)) === stableJson([requireText(objectInput.proposalId, "Agent proposal identifier", 160)])
+        && stableJson(requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_revisions, "Agent proposal revision history", 128)) === stableJson([String(requirePositiveInteger(objectInput.proposalRevision, "Agent proposal revision"))])
+        && stableJson(requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_operation_ids, "Agent proposal operation history", 128)) === stableJson([requireText(objectInput.operationId, "Agent proposal application operation", 180)])
+        && current.frontmatter[OBJECT_PROFILE_FRONTMATTER_KEY] == null;
+      if (!exactSource) return { found: true, archived: false, conflict: true };
+      const expectedStatus = requireText(objectInput.status, "Object status", 64);
+      if (current.status === "archived") {
+        const previousStatus = optionalText(current.frontmatter.library_previous_status, "Previous library status", 64);
+        return { found: true, archived: false, conflict: previousStatus !== expectedStatus };
+      }
+      if (current.status !== expectedStatus) return { found: true, archived: false, conflict: true };
+      const update = updateWorkspaceNote(projectPath, {
+        relativePath,
+        expectedContentHash: current.contentHash,
+        frontmatter: { status: "archived", library_previous_status: current.status },
+        body: current.body
+      });
+      if (update.conflict) return { found: true, archived: false, conflict: true };
+      rememberObject(projectPath, relativePath);
+      recordCanonicalRevision(projectPath, { kind: "object", id: current.id }, "save", null, objectInput.operationId);
+      return { found: true, archived: true, conflict: false };
     },
 
     mergeAgentProposalIntoCharacterOnce(objectInput: {
@@ -2193,6 +2288,19 @@ export function createStoryStudioWorkspaceOperations(input: {
       return createNarrativeArrangementRecord(projectPath, arrangementInput);
     },
 
+    discardNarrativeArrangement(arrangementInput: {
+      projectId: string;
+      workVersionId: string;
+      narrativePathId: string;
+      expectedOwnerVersion: string;
+      expectedRevision: number;
+      expectedCreateOperationId: string;
+      allowedOperationIds: string[];
+    }) {
+      const projectPath = resolveProjectPath(rootPath, arrangementInput.projectId);
+      return discardNarrativeArrangementRecord(projectPath, arrangementInput);
+    },
+
     insertNarrativePlacement(arrangementInput: NarrativeArrangementWriterScope & {
       eventId: string;
       storyUnitId: string;
@@ -2971,6 +3079,87 @@ function findObjectNote(projectPath: string, objectId: string) {
   return readWorkspaceNote(projectPath, summary.relativeId);
 }
 
+/**
+ * A failed Story Intake batch archives only the exact object created by its
+ * Agent proposal. A later author retry may reuse that canonical id, but only
+ * when the archived note still matches the proposal-owned canonical source.
+ * Any author edit, provenance expansion, type mismatch, or lifecycle
+ * change leaves the existing note untouched and lets normal conflict handling
+ * stop the retry.
+ */
+function restoreCompensatedAgentProposalObject(projectPath: string, input: {
+  targetObjectId: string;
+  objectType: Extract<StoryStudioWorldObjectType, "character" | "item" | "location">;
+  proposalId: string;
+  proposalRevision: number;
+  operationId: string;
+  title: string;
+  status: string;
+  tags: string[];
+  aliases: string[];
+  body: string;
+  profile: StoryStudioObjectProfile | null;
+}): ReturnType<typeof readWorkspaceNote> | null {
+  const relativePath = agentProposalObjectRelativePath(input.objectType, input.targetObjectId);
+  const summaries = listObjectSummaries(projectPath).filter((item) => item.id === input.targetObjectId);
+  if (summaries.length !== 1 || summaries[0].relativeId !== relativePath) return null;
+  const current = readWorkspaceNote(projectPath, relativePath);
+  const expectedProfile = input.profile ? serializeStoryStudioObjectProfile(input.profile) : undefined;
+  const exactCompensatedSource = current.type === input.objectType
+    && current.status === "archived"
+    && current.title === input.title
+    && current.body.trimEnd() === input.body.trimEnd()
+    && optionalText(current.frontmatter.library_previous_status, "Previous library status", 64) === input.status
+    && stableJson(stringList(current.frontmatter.tags)) === stableJson(input.tags)
+    && stableJson(stringList(current.frontmatter.aliases)) === stableJson(input.aliases)
+    && stableJson(current.frontmatter.card_blocks) === stableJson(defaultObjectCardBlocks(input.objectType))
+    && current.frontmatter.card_layout === "horizontal"
+    && stableJson(requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_ids, "Agent proposal history", 128)) === stableJson([input.proposalId])
+    && stableJson(requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_revisions, "Agent proposal revision history", 128)) === stableJson([String(input.proposalRevision)])
+    && requireBoundedFrontmatterStringList(current.frontmatter.agent_proposal_operation_ids, "Agent proposal operation history", 128).length === 1
+    && stableJson(current.frontmatter[OBJECT_PROFILE_FRONTMATTER_KEY]) === stableJson(expectedProfile);
+  if (!exactCompensatedSource) return null;
+  const update = updateWorkspaceNote(projectPath, {
+    relativePath: current.relativePath,
+    expectedContentHash: current.contentHash,
+    frontmatter: {
+      title: input.title,
+      status: input.status,
+      tags: input.tags,
+      aliases: input.aliases,
+      card_layout: "horizontal",
+      card_blocks: defaultObjectCardBlocks(input.objectType),
+      agent_proposal_ids: [input.proposalId],
+      agent_proposal_revisions: [String(input.proposalRevision)],
+      agent_proposal_operation_ids: [input.operationId],
+      ...(expectedProfile ? { [OBJECT_PROFILE_FRONTMATTER_KEY]: expectedProfile } : {})
+    },
+    removeFrontmatterKeys: [
+      "library_previous_status",
+      ...(expectedProfile ? [] : [OBJECT_PROFILE_FRONTMATTER_KEY])
+    ],
+    body: input.body
+  });
+  return update.conflict ? null : update.note;
+}
+
+function hasConflictingAgentProposalObjectIdentity(
+  projectPath: string,
+  targetObjectId: string,
+  objectType: Extract<StoryStudioWorldObjectType, "character" | "item" | "location">
+): boolean {
+  const relativePath = agentProposalObjectRelativePath(objectType, targetObjectId);
+  const matches = listObjectSummaries(projectPath).filter((item) => item.id === targetObjectId);
+  return matches.length > 1 || (matches.length === 1 && matches[0].relativeId !== relativePath);
+}
+
+function agentProposalObjectRelativePath(
+  objectType: Extract<StoryStudioWorldObjectType, "character" | "item" | "location">,
+  targetObjectId: string
+): string {
+  return `world/${objectType === "character" ? "characters" : objectType === "item" ? "items" : "locations"}/${targetObjectId}.md`;
+}
+
 function requirePlanningSource(projectPath: string, objectId: string) {
   const note = findObjectNote(projectPath, requireText(objectId, "Planning event identifier", 160));
   if (!isPlanningNote(note)) throw new Error("Planning source must be an author-owned planned event.");
@@ -3524,6 +3713,36 @@ function createNarrativeArrangementRecord(projectPath: string, input: {
   });
   if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash, arrangement: null, receipt: null });
   return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash, arrangement: proposed.arrangement, receipt: proposed.receipt });
+}
+
+function discardNarrativeArrangementRecord(projectPath: string, input: {
+  projectId: string;
+  workVersionId: string;
+  narrativePathId: string;
+  expectedOwnerVersion: string;
+  expectedRevision: number;
+  expectedCreateOperationId: string;
+  allowedOperationIds: string[];
+}) {
+  const projectId = requireText(openStoryWorkspace(projectPath).project.id, "Narrative arrangement Project", 180);
+  const workVersionId = requireText(input.workVersionId, "Narrative arrangement WorkVersion", 180);
+  const narrativePathId = requireText(input.narrativePathId, "Narrative arrangement path", 180);
+  const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersionId, narrativePathId);
+  if (!hosted) {
+    const note = findStoryUnitNote(projectPath, narrativePathId);
+    return clone({ conflict: false, replayed: true, code: null, ownerVersion: note.contentHash });
+  }
+  const expectedRevision = requireNonNegativeInteger(input.expectedRevision, "Narrative arrangement discard revision");
+  const createOperationId = requireText(input.expectedCreateOperationId, "Narrative arrangement create operation", 180);
+  const allowedOperationIds = new Set(input.allowedOperationIds.map((operationId) => requireText(operationId, "Narrative arrangement discard operation", 180)));
+  const head = hosted.arrangement.revisions.at(-1)!;
+  if (hosted.arrangement.currentRevision !== expectedRevision || head.placements.length !== 0) return clone({ conflict: true, replayed: false, code: "arrangement-not-empty-or-revision-changed", ownerVersion: hosted.note.contentHash });
+  if (hosted.arrangement.receipts[0]?.operationId !== createOperationId || hosted.arrangement.receipts.some((receipt) => !allowedOperationIds.has(receipt.operationId))) return clone({ conflict: true, replayed: false, code: "arrangement-operation-mismatch", ownerVersion: hosted.note.contentHash });
+  if (hosted.note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.note.contentHash });
+  const nextStore = { ...hosted.store, arrangements: hosted.store.arrangements.filter((arrangement) => arrangement.arrangementId !== hosted.arrangement.arrangementId) };
+  const update = updateWorkspaceNote(projectPath, { relativePath: hosted.note.relativePath, expectedContentHash: hosted.note.contentHash, frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) } });
+  if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash });
+  return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash });
 }
 
 function mutateNarrativeArrangementRecord(

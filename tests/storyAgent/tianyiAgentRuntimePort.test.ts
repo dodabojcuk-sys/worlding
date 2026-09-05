@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { buildStoryIntakeEnvelope } from "../../src/storyContracts/storyIntakeEnvelope.ts";
 import {
   compactTianyiAgentContext,
   createTianyiAgentRuntimePort,
@@ -81,26 +82,89 @@ test("Tianyi runtime keeps a recoverable plan, approvals and owner handoff in on
   const recovered = await recoveredAdapter.adapter.recoverRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.fixture", runId: started.runId });
   assert.equal(recovered?.runId, started.runId);
   assert.equal(recovered?.candidates[0]?.ownerReceipt?.id, "proposal.fixture");
+  assert.ok((recovered?.receipts.length ?? 0) <= 4, "the recoverable projection stays bounded while the append-only event log retains every operation");
   assert.ok(fixture.events.length >= 6);
+});
+
+test("a fresh browser can recover only the current project/work-version Story Intake Envelope", async () => {
+  const seed = fixtureAdapter();
+  const started = await seed.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.persisted", task: "整理作者原话", currentPage: "/tianyi", operationId: "operation.persisted.start" });
+  const envelope = buildStoryIntakeEnvelope({
+    projectId: started.projectId,
+    sessionId: started.sessionId,
+    runId: started.runId,
+    sourceRef: { sessionId: started.sessionId, eventId: "event.author.persisted", contentHash: "a".repeat(64) },
+    sourceText: "林昭在雾港确认钟声来自旧港。",
+    baseVersion: { workVersionId: started.workVersionId, revision: 1, manifestId: "manifest.persisted" },
+    toolArguments: { candidates: [{ localRef: "event.bell", type: "event", proposedName: null, proposedTitle: "钟声来源确认", summary: "林昭确认钟声来自旧港。", sourceSpan: { excerpt: "林昭在雾港确认钟声来自旧港" }, confidence: 0.9, uncertainties: ["具体时间待作者确认。"], existingEntityId: null, identityDecision: "propose_new", proposedRelations: [], warnings: [], narrativePath: null }] },
+    providerCalls: 1,
+    requestedProviderId: "local-fake",
+    requestedModelId: "deterministic",
+    responseModelId: "deterministic",
+    createdAt: "2026-09-05T00:00:00.000Z"
+  });
+  const event: TianyiAgentRuntimeEvent = { version: "tianyi-agent-runtime-event/v1", runId: started.runId, workVersionId: started.workVersionId, operationId: "operation.persisted.snapshot", kind: "snapshot", projection: { ...started, storyIntakeEnvelope: envelope }, recordedAt: "2026-09-05T00:00:01.000Z" };
+  const adapter = createTianyiAgentRuntimePort({
+    persistence: { async appendEvent() { return { alreadyCompleted: false, receiptId: "receipt.fixture" }; }, async readEvents() { return []; }, async findLatestStoryIntakeRun() { return event; }, async listStoryIntakeRuns() { return [event]; } },
+    async buildContextManifest(input) { return manifest(input.sessionId, input.workVersionId); }
+  });
+
+  const recovered = await adapter.findLatestStoryIntakeRun({ projectId: "project-fixture", workVersionId: "work-version.fixture" });
+  assert.equal(recovered?.sessionId, "session.persisted");
+  assert.equal(recovered?.runId, started.runId);
+  assert.equal(recovered?.storyIntakeEnvelope?.envelopeId, envelope.envelopeId);
+  const listed = await adapter.listStoryIntakeRuns({ projectId: "project-fixture", workVersionId: "work-version.fixture" });
+  assert.deepEqual(listed.map((run) => `${run.sessionId}:${run.runId}`), [`session.persisted:${started.runId}`], "all-batch discovery keeps the persisted run identity without copying its Envelope");
+  assert.deepEqual(await adapter.listStoryIntakeRuns({ projectId: "project.other", workVersionId: "work-version.fixture" }), [], "all-batch discovery rejects cross-project records");
+  assert.equal(await adapter.findLatestStoryIntakeRun({ projectId: "project.other", workVersionId: "work-version.fixture" }), null, "another project cannot discover this Envelope");
+  assert.equal(await adapter.findLatestStoryIntakeRun({ projectId: "project-fixture", workVersionId: "work-version.other" }), null, "another work version cannot discover this Envelope");
 });
 
 test("runtime durably replays stream events and rejects a different work-version scope", async () => {
   const fixture = fixtureAdapter(async (input) => {
-    await input.onEvent({ type: "text-delta", delta: "分段一", sequence: 1, recordedAt: "2026-08-29T00:00:00.000Z" });
-    await input.onEvent({ type: "text-delta", delta: "分段二", sequence: 2, recordedAt: "2026-08-29T00:00:01.000Z" });
-    return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model", text: "分段一分段二", providerCalls: 1, traceId: "trace.fixture", latencyMs: 12, usage: { promptTokens: 3, completionTokens: 4, totalTokens: 7 } };
+    await input.onExecutionIdentity({ providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-request-model" });
+    await input.onEvent({ type: "response-metadata", responseModelId: "fixture-response-model", sequence: 1, recordedAt: "2026-08-29T00:00:00.000Z" });
+    await input.onEvent({ type: "text-delta", delta: "分段一", sequence: 2, recordedAt: "2026-08-29T00:00:01.000Z" });
+    await input.onEvent({ type: "text-delta", delta: "分段二", sequence: 3, recordedAt: "2026-08-29T00:00:02.000Z" });
+    return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-request-model", responseModelId: "fixture-response-model", text: "分段一分段二", providerCalls: 1, traceId: "trace.fixture", latencyMs: 12, usage: { promptTokens: 3, completionTokens: 4, totalTokens: 7 } };
   });
   const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.a", sessionId: "session.stream", task: "流式测试", currentPage: "/tianyi", operationId: "operation.stream.start" });
   await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.stream.approve" });
   const delivered: string[] = [];
   const completed = await fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.stream.run", onEvent(event) { if (event.type === "text-delta") delivered.push(event.delta); } });
   assert.equal(completed.resultSummary, "分段一分段二");
-  assert.equal(completed.observability.streamEventCount, 2);
+  assert.equal(completed.observability.streamEventCount, 3);
   assert.equal(completed.observability.totalTokens, 7);
+  assert.equal(completed.executionIdentity.requestedModelId, "fixture-request-model");
+  assert.equal(completed.executionIdentity.responseModelId, "fixture-response-model");
   assert.deepEqual(delivered, ["分段一", "分段二"]);
   const replay = await fixture.adapter.readRunEvents({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId });
-  assert.deepEqual(replay.filter((event) => event.kind === "stream").map((event) => event.streamEvent?.type), ["text-delta", "text-delta"]);
+  assert.deepEqual(replay.filter((event) => event.kind === "stream").map((event) => event.streamEvent?.type), ["response-metadata", "text-delta", "text-delta"]);
   assert.equal(await fixture.adapter.recoverRun({ projectId: started.projectId, workVersionId: "work-version.b", sessionId: started.sessionId, runId: started.runId }), null);
+});
+
+test("Story Intake fails explicitly when a Provider returns only text instead of the required native tool", async () => {
+  const events: TianyiAgentRuntimeEvent[] = [];
+  const adapter = createTianyiAgentRuntimePort({
+    persistence: {
+      async appendEvent(event) { events.push(event); return { alreadyCompleted: false, receiptId: "receipt.fixture" }; },
+      async readEvents(input) { return events.filter((event) => event.runId === input.runId); }
+    },
+    async buildContextManifest(input) { return { ...manifest(input.sessionId, input.workVersionId), storyIntakeSource: { version: "tianyan-story-intake-context/v1", sourceRef: { sessionId: input.sessionId, eventId: "event.author.intake", contentHash: "a".repeat(64) }, sourceLength: 80 } }; },
+    async runProvider(input) {
+      await input.onExecutionIdentity({ providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model" });
+      await input.onEvent({ type: "text-delta", delta: "自由文本不能成为候选", sequence: 1, recordedAt: "2026-09-05T00:00:00.000Z" });
+      return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model", responseModelId: null, text: "自由文本不能成为候选", providerCalls: 1, traceId: null, latencyMs: 10, usage: null, storyIntakeEnvelope: null };
+    }
+  });
+  const started = await adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.intake-text", task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1" } }, operationId: "operation.intake-text.start" });
+  const contextReady = await adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.intake-text.context" });
+  const failed = await adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.intake-text.run" });
+  assert.equal(contextReady.status, "running");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.error?.code, "invalid-tool-call");
+  assert.equal(failed.storyIntakeEnvelope, null);
+  assert.equal(failed.candidates.length, 0);
 });
 
 test("event-line work records only the frozen ContextPack receipt without provider tools or semantic writes", async () => {
@@ -208,7 +272,8 @@ test("rejected native product tool request remains non-executable after recovery
 });
 
 test("configured production run path never disguises Provider unavailable with fixture output", async () => {
-  const fixture = fixtureAdapter(async () => {
+  const fixture = fixtureAdapter(async (input) => {
+    await input.onExecutionIdentity({ providerId: "configured-provider", profileId: "configured-profile", modelId: "requested-model" });
     throw Object.assign(new Error("Provider 未配置"), { name: "ProviderUnavailable", code: "provider-unavailable", retryable: false });
   });
   const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.unconfigured", task: "真实 Provider 测试", currentPage: "/tianyi", operationId: "operation.unconfigured.start" });
@@ -218,4 +283,7 @@ test("configured production run path never disguises Provider unavailable with f
   assert.equal(failed.error?.category, "provider-unavailable");
   assert.equal(failed.resultSummary, null);
   assert.equal(failed.model.runtime, "pi");
+  assert.equal(failed.executionIdentity.requestedProviderId, "configured-provider");
+  assert.equal(failed.executionIdentity.requestedModelId, "requested-model");
+  assert.equal(failed.executionIdentity.responseModelId, null);
 });

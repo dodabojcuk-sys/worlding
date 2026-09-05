@@ -350,6 +350,11 @@ export function createStoryStudioTianyiOperations(options: {
     let current = await readCurrent();
     const existing = current.value.find((event) => event.type === "runtime-changed" && event.operationId === operationId && parseAgentRuntimeEvent(event.content)?.runId === runId);
     if (existing) return { alreadyCompleted: true, receiptId: parseAgentRuntimeEvent(existing.content)?.receiptId ?? runtimeReceiptId, contentHash: current.contentHash };
+    const runtimePayload = { version: "tianyi-agent-runtime-event/v1", runId, workVersionId: requireStableId(input.workVersionId), operationId, kind: input.kind, receiptId: runtimeReceiptId, ...(input.streamEvent ? { streamEvent: input.streamEvent } : {}), projection: input.projection, recordedAt };
+    // Runtime snapshots can contain ten evidence-bearing candidates. Keep the
+    // canonical key order but omit presentation whitespace so the existing
+    // bounded Tianyi interaction owner can persist the whole batch atomically.
+    const compactRuntimeContent = `${JSON.stringify(JSON.parse(stableJson(runtimePayload)))}\n`;
     const event = {
       version: "story-tianyi-interaction-event/v1" as const,
       eventId: `event.tianyi-agent-runtime.${sha256(`${sessionId}\u0000${operationId}`).slice(0, 24)}`,
@@ -358,7 +363,7 @@ export function createStoryStudioTianyiOperations(options: {
       type: "runtime-changed" as const,
       recordedAt,
       actor: "system" as const,
-      content: stableJson({ version: "tianyi-agent-runtime-event/v1", runId, workVersionId: requireStableId(input.workVersionId), operationId, kind: input.kind, receiptId: runtimeReceiptId, ...(input.streamEvent ? { streamEvent: input.streamEvent } : {}), projection: input.projection, recordedAt }),
+      content: compactRuntimeContent,
       responseClassifications: [],
       memoryCandidateIds: [],
       receiptId: runtimeReceiptId,
@@ -382,6 +387,32 @@ export function createStoryStudioTianyiOperations(options: {
       .map((event) => parseAgentRuntimeEvent(event.content))
       .filter((event): event is NonNullable<ReturnType<typeof parseAgentRuntimeEvent>> => Boolean(event) && event.runId === input.runId && event.workVersionId === input.workVersionId)
       .map((event) => ({ ...event, contentHash: session.contentHash }));
+  }
+
+  /** Read-only discovery from the existing Session Archive; no Session is opened or copied. */
+  async function listStoryIntakeRuns(input: { projectId: string; workVersionId: string }) {
+    const project = projectContext(input.projectId);
+    const workVersionId = requireStableId(input.workVersionId);
+    const latestByRun = new Map<string, NonNullable<ReturnType<typeof parseAgentRuntimeEvent>> & { contentHash: string }>();
+    for (const metadata of await listSessionMetadata(project)) {
+      const session = await readSession(project, metadata.id);
+      if (!session) continue;
+      for (const interaction of session.value) {
+        if (interaction.type !== "runtime-changed") continue;
+        const event = parseAgentRuntimeEvent(interaction.content);
+        if (!event || event.workVersionId !== workVersionId) continue;
+        if (!isCurrentStoryIntakeRuntimeProjection(event.projection, { projectId: input.projectId, workVersionId, sessionId: metadata.id, runId: event.runId })) continue;
+        const candidate = { ...event, contentHash: session.contentHash };
+        const key = `${metadata.id}:${event.runId}`;
+        const current = latestByRun.get(key);
+        if (!current || candidate.recordedAt > current.recordedAt || (candidate.recordedAt === current.recordedAt && candidate.operationId > current.operationId)) latestByRun.set(key, candidate);
+      }
+    }
+    return [...latestByRun.values()].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt) || `${right.runId}:${right.operationId}`.localeCompare(`${left.runId}:${left.operationId}`));
+  }
+
+  async function findLatestStoryIntakeRun(input: { projectId: string; workVersionId: string }) {
+    return (await listStoryIntakeRuns(input))[0] ?? null;
   }
 
   async function rebuildTianyiArchiveRecall(input: { projectId: string }) {
@@ -483,7 +514,7 @@ export function createStoryStudioTianyiOperations(options: {
     return { receipt: receipt.value, contentHash: receipt.contentHash, currentStatus: receipt.value.version === "story-tianyi-context-receipt/v3" || receipt.value.version === "story-tianyi-context-receipt/v4" || receipt.value.version === "story-tianyi-context-receipt/v5" ? (receipt.value.stale ? "stale" : "current") : deriveReceiptCurrentStatus(receipt.value, projection), sourceDetails, archiveMessageDetails };
   }
 
-  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), ...predictions, ...temporalProjections, ...storyModeling, getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
+  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), ...predictions, ...temporalProjections, ...storyModeling, getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, findLatestStoryIntakeRun, listStoryIntakeRuns, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
 
   function projectContext(projectId: string) { return { rootPath: options.rootPath, agentId, scope: "project" as const, projectId: requireProjectId(projectId) }; }
 
@@ -1033,4 +1064,14 @@ function parseAgentRuntimeEvent(value: string): {
   } catch {
     return null;
   }
+}
+
+function isCurrentStoryIntakeRuntimeProjection(value: Record<string, unknown>, input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): boolean {
+  if (value.projectId !== input.projectId || value.workVersionId !== input.workVersionId || value.sessionId !== input.sessionId || value.runId !== input.runId) return false;
+  const envelope = value.storyIntakeEnvelope;
+  if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) return false;
+  const record = envelope as Record<string, unknown>;
+  if (record.projectId !== input.projectId || record.sessionId !== input.sessionId || record.runId !== input.runId || typeof record.envelopeId !== "string") return false;
+  const baseVersion = record.baseVersion;
+  return Boolean(baseVersion && typeof baseVersion === "object" && !Array.isArray(baseVersion) && (baseVersion as Record<string, unknown>).workVersionId === input.workVersionId);
 }

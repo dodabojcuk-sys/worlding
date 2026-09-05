@@ -5,7 +5,7 @@ import test from "node:test";
 const source = (path: string) => readFileSync(path, "utf8");
 const runtime = source("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx");
 const settings = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
-const dialogue = source("apps/story-studio/src/components/tianyi/sidebar/TianyiDialoguePanel.tsx");
+const work = source("apps/story-studio/src/components/tianyi/sidebar/TianyiWorkPanel.tsx");
 const sidebar = source("apps/story-studio/src/components/tianyi/sidebar/TianyiSidebar.tsx");
 const canvas = source("apps/story-studio/src/components/event-observation/EventGraphCanvas.tsx");
 const timeline = source("apps/story-studio/src/components/event-observation/TemporalCanvas.tsx");
@@ -21,16 +21,17 @@ test("Provider settings invalidate the Shell status snapshot without exposing cr
   assert.doesNotMatch(runtime, /apiKey|Authorization|credentialValue/u);
 });
 
-test("Dialogue names a retained background Agent task without mounting execution controls", () => {
-  assert.match(dialogue, /Agent 任务在后台保留/u);
-  assert.match(dialogue, /当前对话不会操纵任务/u);
-  assert.match(sidebar, /agentTaskRetained=\{agentRunning\}/u);
-  assert.doesNotMatch(dialogue, /MultiNodePrediction|ContextPack|predictionMode|采纳|查看执行过程/u);
+test("Work lane names a retained Page Agent Run without mounting execution controls", () => {
+  assert.match(work, /tianyi\.workLane\.runRetained/u);
+  assert.match(work, /tianyi\.workLane\.runRetainedHint/u);
+  assert.match(sidebar, /pageAgentRunRetained=\{agentRunning\}/u);
+  assert.doesNotMatch(work, /MultiNodePrediction|predictionMode|TianyiAdoptionPanel|AgentExecutionGraph/u);
 });
 
 test("candidate and execution defaults preserve readable node widths and pan overflow", () => {
   assert.match(canvas, /canvasKind === "narrative" \? 0\.86 : 0\.25/u);
-  assert.match(timeline, /minZoom=\{\.82\}/u);
+  assert.match(timeline, /minZoom=\{\.5\}/u);
+  assert.match(timeline, /defaultViewport=\{props\.viewport \?\? \{ x: 72, y: 24, zoom: \.82 \}\}/u);
   assert.match(canvas, /const zoom = Math\.max\(\.95, fittedZoom\)/u);
   assert.match(canvas, /const focusNodes = nodes/u);
   assert.match(canvas, /paddingX - minX \* zoom/u);

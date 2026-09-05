@@ -64,7 +64,7 @@ test("RESPONSIVE_HEADER_922 keeps context, named panels, and overflow access", (
   const styles = source("apps/story-studio/src/styles/tianyan-r0-shell.css");
   assert.match(topbar, /shell-project-selector/);
   assert.match(topbar, /data-panel-toggle="project-directory"/);
-  assert.match(topbar, /data-panel-toggle="global-tianyi"/);
+  assert.match(topbar, /data-panel-toggle="tianyi-agent"/);
   assert.match(topbar, /topbar\.more/);
   assert.match(topbar, /aria-expanded=\{moreOpen\}/);
   assert.match(topbar, /window\.requestAnimationFrame\(\(\) => moreToggleRef\.current\?\.focus\(\)\)/);

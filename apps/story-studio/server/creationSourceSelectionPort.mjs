@@ -576,9 +576,27 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     return resolveWorkVersionOwnerSnapshotRefs(slices);
   }
 
+  function appendStructuredStoryRevision(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const root = versionAuthority.listVersions().find((item) => item.identity.kind === "root") || null;
+    if (!root) throw new Error("当前作品尚未建立主故事版本，不能执行正式采纳。");
+    if (root.identity.status !== "active") throw new Error("当前主故事版本已归档，不能执行正式采纳。");
+    return versionAuthority.appendRevision({
+      workVersionId: root.identity.workVersionId,
+      expectedRevision: input.expectedRevision,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: input.expectedRevision + 1 }),
+      optionalNuwaProvenanceRefs: [],
+      semanticDeltaRefs: input.semanticDeltaRefs
+    });
+  }
+
   return Object.freeze({
     resolveActiveProject,
     resolveRootWorkVersion: (projectId) => authority(projectId).listVersions().find((item) => item.identity.kind === "root") || null,
+    appendStructuredStoryRevision,
     validateWorkVersionSource: read,
     buildNeutralStoryPackage: async (projectId, input = {}) => {
       const root = authority(projectId).listVersions().find((item) => item.identity.kind === "root");

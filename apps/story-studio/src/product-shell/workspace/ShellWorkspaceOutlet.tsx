@@ -8,6 +8,7 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference.ts";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
+import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/TianyiConversationWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -15,7 +16,7 @@ export function ShellWorkspaceOutlet(props: {
   settingsOpen: boolean;
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
-  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string): void;
+  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number }): void;
   directoryObjectId: string | null;
 }) {
   const { t } = useI18n();
@@ -36,6 +37,10 @@ export function ShellWorkspaceOutlet(props: {
     return <main className="shell-workspace shell-workspace-writing" aria-label={t(props.destination.labelKey as TranslationKey)}>
       <CreationSimulationEntry onOpenTianyi={props.onOpenTianyi} t={t} />
     </main>;
+  }
+
+  if (!props.shellLab && props.destination.id === "tianyi") {
+    return <TianyiConversationWorkspace runtime={props.runtime} />;
   }
 
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">

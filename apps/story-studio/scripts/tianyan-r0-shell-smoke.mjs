@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
@@ -11,6 +12,8 @@ import { createTianyanE2eFixture, removeTianyanE2eFixture } from "../../../scrip
 import { assertCanonicalRuntime } from "../../../scripts/canonical-runtime.mjs";
 import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthority } from "../../../src/storyWorkspace/workVersionAuthority.ts";
 import { resolveWorkVersionOwnerSnapshotRefs } from "../../../src/storyWorkspace/workVersionSnapshotResolver.ts";
+import { projectNarrativeArrangement } from "../../../src/storyContracts/narrativeArrangement.ts";
+import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
 
 assertCanonicalRuntime();
 const require = createRequire(import.meta.url);
@@ -42,9 +45,16 @@ const r9EvidenceDirectory = process.env.TIANYAN_R9_EVIDENCE_DIR || null;
 const r10EvidenceDirectory = process.env.TIANYAN_R10_EVIDENCE_DIR || null;
 const r11ObservationEvidenceDirectory = process.env.TIANYAN_R11_OBSERVATION_EVIDENCE_DIR || null;
 const r12EventLineEvidenceDirectory = process.env.TIANYAN_R12_EVENT_LINE_EVIDENCE_DIR || null;
+const r1DualAxisCausalEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R1_EVIDENCE_DIR || null;
+const r2StoryCrossingEvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_EVIDENCE_DIR || null;
+const founderCloseoutR21EvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_1_EVIDENCE_DIR || null;
+const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
+const shellFocusR22AEvidenceDirectory = process.env.TIANYAN_SHELL_R22A_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
+const authorEventReloadOnly = process.env.TIANYAN_E2E_SCOPE === "author-event-reload";
+const tianyiGoldenLoopOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-golden-loop";
 const timelineOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline";
 const timelineRecordingOnly = process.env.TIANYAN_E2E_SCOPE === "semantic-timeline-recording";
 const r6RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r6-closeout-recording";
@@ -54,9 +64,17 @@ const r9RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r9-evidence-recording
 const r10RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "r10-closeout-recording";
 const r11ObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r11-observation-workspace";
 const r12EventLineOnly = process.env.TIANYAN_E2E_SCOPE === "r12-event-line-workspace";
+const r1DualAxisCausalOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-dual-axis-causal-r1";
+const r2StoryCrossingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-story-crossing-r2";
+const r2KnowledgeIsolationOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-knowledge-isolation-r2";
+const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1";
+const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
+const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
+const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
+let r1CausalFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -84,7 +102,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -104,7 +122,10 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const page = await browser.newPage({ viewport: { width: 1152, height: 720 } });
+  const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const page = recordingDirectory
+    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
+    : await browser.newPage({ viewport: { width: 1152, height: 720 } });
   const consoleProblems = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
@@ -119,11 +140,42 @@ try {
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
-  if (r12EventLineOnly) {
+  if (storyIntakeOnly) {
+    await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (shellFocusR22AOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertWorkspaceShellFocusR22A(page, consoleProblems);
+  } else if (tianyiGoldenLoopOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertTianyiEventLineGoldenLoop(page, consoleProblems);
+  } else if (authorEventReloadOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertAuthorEventCreation(page, consoleProblems);
+  } else if (r12EventLineOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
     await assertR12EventLineWorkspace(page, consoleProblems);
+  } else if (r1DualAxisCausalOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertEventLineDualAxisCausalCoreR1(page, consoleProblems);
+  } else if (r2StoryCrossingOnly || r2KnowledgeIsolationOnly || founderCloseoutR21Only || founderCloseoutR21RecordingOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    if (founderCloseoutR21RecordingOnly) await recordEventLineFounderCloseoutR21();
+    else if (founderCloseoutR21Only) await assertEventLineFounderCloseoutR21(page, consoleProblems);
+    else await assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, r2KnowledgeIsolationOnly ? "knowledge" : "crossing");
   } else if (r11ObservationOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -221,6 +273,76 @@ try {
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
   if (ollamaFixture) await new Promise((resolve) => ollamaFixture.server.close(resolve));
   removeTianyanE2eFixture(fixture);
+}
+
+async function assertTianyiStoryIntake(page, consoleProblems) {
+  const storyText = "林昭在雾港灯塔亲眼看见守夜钟失踪。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟。旧城航线因此中断，林昭决定追查守夜钟的去向。";
+  await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "Story Intake E2E", folderSlug: fixtureProjectId });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const libraryBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonBefore = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+
+  await gotoProduct(page, `${baseUrl}/tianyi`);
+  const composer = page.getByRole("textbox", { name: "创意模式草稿", exact: true });
+
+  await composer.fill("停止验证：这段原话必须保留，但本次运行不得留下候选。");
+  await page.getByRole("button", { name: "整理为故事候选", exact: true }).click();
+  const intake = page.locator('[aria-label="Story Intake 运行"]');
+  await intake.waitFor();
+  await page.waitForTimeout(35);
+  await intake.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => ["cancelled", "paused"].includes(document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") || ""));
+  assert.match(await page.locator(".tianyi-visible-history").innerText(), /停止验证/u, "Stopping must preserve the author's source in the same conversation.");
+
+  await composer.fill(storyText);
+  await page.getByRole("button", { name: "整理为故事候选", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "failed");
+  assert.match(await intake.innerText(), /失败.*原话已保留/u);
+  const retry = intake.getByRole("button", { name: "重试", exact: true });
+  await retry.waitFor();
+  await retry.click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed").catch(async (error) => {
+    const status = await intake.getAttribute("data-story-intake-status");
+    const visibleState = (await intake.innerText()).slice(0, 2_000);
+    throw new Error(`Story Intake retry did not complete; status=${status}; visible=${visibleState}`, { cause: error });
+  });
+
+  for (const label of ["人物", "物品", "地点", "事件", "故事单元", "故事路径成员", "未解问题"]) await intake.getByRole("heading", { name: label, exact: true }).waitFor();
+  for (const label of ["林昭", "阿芜", "顾澜", "守夜钟", "雾港灯塔"]) assert.match(await intake.innerText(), new RegExp(label, "u"));
+  assert.match(await intake.innerText(), /亲历|亲眼/u);
+  assert.match(await intake.innerText(), /被告知/u);
+  assert.match(await intake.innerText(), /误解/u);
+  assert.match(await intake.innerText(), /原文证据/u);
+  assert.match(await intake.innerText(), /Canon 写入 0.*已确认资料对象 0/u);
+  assert.match(await intake.innerText(), /请求[\s\S]*deterministic-text-fixture/u);
+
+  const firstCandidate = intake.locator(".tianyi-intake-candidate").first();
+  const decisionResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
+  await firstCandidate.getByRole("button", { name: "送入待归档", exact: true }).click();
+  const decisionResponse = await decisionResponsePromise;
+  assert.equal(decisionResponse.status(), 200, `Story Intake archive decision failed: ${await decisionResponse.text()}`);
+  const archivedCandidate = intake.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first();
+  await archivedCandidate.waitFor();
+  assert.match(await archivedCandidate.innerText(), /已送入待归档.*未采纳/u);
+  const awuCandidate = intake.locator(".tianyi-intake-candidate").filter({ hasText: "阿芜" }).first();
+  const confirmResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
+  await awuCandidate.getByRole("button", { name: "逐项确认", exact: true }).click();
+  const confirmResponse = await confirmResponsePromise;
+  assert.equal(confirmResponse.status(), 200, `Story Intake confirmation failed: ${await confirmResponse.text()}`);
+  await awuCandidate.getByText(/已由作者确认为资料对象/u).waitFor();
+  const conversationId = await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id");
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
+  assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id"), conversationId, "Refresh must recover the same TianyiConversation.");
+  await page.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first().getByText(/已送入待归档.*未采纳/u).waitFor();
+  await page.locator('.tianyi-intake-candidate[data-candidate-state="confirmed"]').getByText(/已由作者确认为资料对象/u).waitFor();
+
+  const libraryAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(libraryAfter.data.objects.length, libraryBefore.data.objects.length + 1, "one explicit confirmation must create exactly one formal object");
+  assert.equal(libraryAfter.data.objects.some((object) => object.type === "character" && object.title === "阿芜"), true);
+  assert.deepEqual(canonAfter.data, canonBefore.data, "Story Intake candidates must not enter Canon/Event projection.");
+  assert.deepEqual(consoleProblems, [], "Story Intake stop, retry and refresh must not add browser console problems.");
 }
 
 async function assertProviderCatalogSettingsR0(page) {
@@ -349,7 +471,8 @@ async function startProviderCatalogOllamaFixture() {
 }
 
 async function assertPermissionProjection(page) {
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await gotoProduct(page, `${baseUrl}/event-line?rail=expanded`);
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI", "The shared right work surface must explicitly own Tianyi while its composer is visible.");
   await page.locator(".tianyi-sidebar").getByRole("tab", { name: "Agent", exact: true }).click();
   const trigger = page.getByRole("button", { name: "权限", exact: true });
@@ -363,8 +486,10 @@ async function assertPermissionProjection(page) {
   assert.deepEqual(state.disabled, ["仅建议未授权", "授权编辑未授权"], "Only broker-backed permissions are interactive in the R0.3 shell.");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => document.querySelector(".permission-popover") === null);
-  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
-  await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  await page.getByRole("button", { name: "关闭天意助手", exact: true }).first().click();
+  await gotoProduct(page, `${baseUrl}/world?rail=expanded`);
+  const openDirectory = page.getByRole("button", { name: "打开工程目录", exact: true });
+  if (await openDirectory.count()) await openDirectory.click();
 }
 
 async function assertSingleGlobalSearch(page) {
@@ -395,13 +520,13 @@ async function assertSingleGlobalSearch(page) {
   await dialog.waitFor({ state: "hidden" });
 
   await page.getByRole("tab", { name: /待确认/u }).click();
-  assert.match(page.url(), /directoryReview=pending/u, "Pending review stays in the directory URL state rather than navigating to Data");
+  assert.match(page.url(), /directoryMode=pending/u, "The compact pending summary stays in the directory URL state until the author opens its central review surface");
   assert.match(new URL(page.url()).pathname, /\/(world|event-line|library|tianyi|collections)/u, "Pending review must not force the Data route");
   await page.getByRole("tab", { name: /已分类/u }).click();
 }
 
 async function openCharacterDirectory(page) {
-  const panel = page.locator(".project-directory-panel");
+  const panel = await ensureProjectDirectoryOpen(page);
   const characterCategory = panel.locator('[data-directory-node="directory.library.character"]');
   if (!(await characterCategory.count())) {
     const root = panel.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
@@ -409,6 +534,13 @@ async function openCharacterDirectory(page) {
     await panel.locator('[data-directory-node="directory.library"]').click();
   }
   await characterCategory.click();
+}
+
+async function ensureProjectDirectoryOpen(page) {
+  const panel = page.locator(".project-directory-panel");
+  if (!(await panel.isVisible())) await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  await panel.waitFor();
+  return panel;
 }
 
 async function assertCharacterDirectoryAndInspector(page) {
@@ -646,9 +778,9 @@ async function assertExactlyOneActiveDestination(page) {
 
 async function assertAgentFakeProviderStream(page) {
   await page.evaluate(() => window.sessionStorage.clear());
-  // The author-event scenario ends in the graph workspace. Reset the unrelated
-  // fake-provider regression to a stable shell surface before opening Tianyi.
-  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN`);
+  // Page Agent is intentionally available only on the Event Line in R0.
+  // Reset the fake-provider regression to that supported page before opening Tianyi.
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await startAgentFakeProviderStream(page, "检查角色知识边界");
   const streaming = page.locator(".tianyi-agent-streaming");
   await streaming.waitFor();
@@ -662,14 +794,14 @@ async function assertAgentFakeProviderStream(page) {
 async function startAgentFakeProviderStream(page, task) {
   const sidebar = page.locator(".tianyi-sidebar");
   if (!await sidebar.isVisible()) {
-    const globalToggle = page.locator('[data-panel-toggle="global-tianyi"]');
+    const globalToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
     if (await globalToggle.isVisible()) {
       // A previous scenario can leave the responsive Dock's boolean state true
       // while its narrow-layout panel is not rendered. Normalize to closed,
       // then open through the same product control a user sees.
       if (await globalToggle.getAttribute("aria-pressed") === "true") {
         await globalToggle.click();
-        await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+        await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
       }
       await globalToggle.click();
     } else await page.locator("[data-tianyi-drawer-trigger]").first().click();
@@ -790,8 +922,7 @@ async function captureCharacterDirectoryEvidence(page, consoleProblems) {
 }
 
 async function assertNoProjectDirectoryShell(page) {
-  const panel = page.locator(".project-directory-panel");
-  await panel.waitFor();
+  const panel = await ensureProjectDirectoryOpen(page);
   for (const label of ["故事结构", "信息资料", "设定", "来源", "创意"]) {
     await panel.getByText(label, { exact: true }).waitFor();
   }
@@ -801,13 +932,13 @@ async function assertNoProjectDirectoryShell(page) {
   await panel.getByRole("button", { name: "新建作品", exact: true }).waitFor();
   await panel.getByRole("button", { name: "导入 .tianyan", exact: true }).waitFor();
   await panel.getByRole("tab", { name: /待确认/u }).click();
-  await panel.getByText("暂无待确认项。", { exact: true }).waitFor();
+  await panel.getByRole("button", { name: "待确认项目 0", exact: true }).waitFor();
+  assert.equal(await panel.locator(".pending-review-directory-summary dd").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "No-project pending entry keeps every category at zero without mounting the central review surface.");
   await panel.getByRole("tab", { name: /已分类/u }).click();
 }
 
 async function assertZeroItemDirectoryShell(page) {
-  const panel = page.locator(".project-directory-panel");
-  await panel.waitFor();
+  const panel = await ensureProjectDirectoryOpen(page);
   await panel.getByText("故事结构", { exact: true }).waitFor();
   assert.equal(await panel.locator(".project-directory-tree strong").allTextContents().then((counts) => counts.every((count) => count === "0")), true, "A project with zero records keeps the same classified shell.");
   assert.equal(await panel.locator("[data-directory-empty-shell-actions]").count(), 0, "An opened empty project must not be presented as an import-only state.");
@@ -820,7 +951,7 @@ async function assertResponsiveHeader922(page) {
   await topbar.waitFor();
   await page.getByRole("button", { name: "选择当前作品与版本", exact: true }).waitFor();
   const directory = page.locator('[data-panel-toggle="project-directory"]');
-  const tianyi = page.locator('[data-panel-toggle="global-tianyi"]');
+  const tianyi = page.locator('[data-panel-toggle="tianyi-agent"]');
   await directory.waitFor();
   await tianyi.waitFor();
   assert.match((await directory.innerText()).trim(), /目录/u, "Directory remains a named primary control at 922px.");
@@ -840,7 +971,7 @@ async function assertResponsiveHeader922(page) {
   assert.match((await tianyi.getAttribute("aria-pressed")) ?? "", /^(true|false)$/u);
   if (await tianyi.getAttribute("aria-pressed") === "true") {
     await tianyi.click();
-    await page.waitForFunction(() => document.querySelector('[data-panel-toggle="global-tianyi"]')?.getAttribute("aria-pressed") === "false");
+    await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
   }
 }
 
@@ -994,29 +1125,30 @@ async function setupObservationFixture() {
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", tags: ["港区"] });
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "雾灯匣", status: "active", tags: ["关键物品"] });
   const definitions = [
-    { key: "revealed-consequence", title: "先揭示的港口后果", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03", "人物：林昭", "地点：雾港", "物品：雾灯匣"] },
-    { key: "revealed-cause", title: "后揭示的码头起因", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01", "目击：林昭", "地点：雾港"] },
-    { key: "explicit-absence", title: "密室中的明确缺席", tags: ["作者草稿", "单元：雾港追踪", "时间：之后三天", "缺席：林昭", "物品：雾灯匣"] },
+    { key: "revealed-consequence", title: "先揭示的港口后果", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03 18:00", "人物：林昭", "地点：雾港", "物品：雾灯匣"] },
+    { key: "revealed-cause", title: "后揭示的码头起因", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 05:30", "目击：林昭", "地点：雾港"] },
+    { key: "explicit-absence", title: "密室中的明确缺席", tags: ["作者草稿", "单元：雾港追踪", "时间：之后3天", "相对锚点：潮汐信号第一次中断", "缺席：林昭", "物品：雾灯匣"] },
     { key: "unknown", title: "时间未定的匿名来客", tags: ["作者草稿", "单元：雾港追踪"] },
-    { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01", "人物：程野", "地点：雾港"] },
-    { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "人物：顾澜", "物品：雾灯匣"] },
-    { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "目击：苏弦", "地点：雾港"] },
-    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02", "人物：阿芜", "物品：雾灯匣"] },
-    { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-03", "人物：陆衍", "地点：雾港"] },
-    { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-03", "人物：林昭", "地点：雾港"] },
-    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "时间：回忆", "听闻：林昭", "地点：雾港"] },
-    { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
-    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-04", "推测：苏弦"] },
-    { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
+    { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "人物：程野", "地点：雾港"] },
+    { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02 00:00 – 2026-09-03 00:00", "人物：顾澜", "物品：雾灯匣"] },
+    { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "目击：苏弦", "地点：雾港"] },
+    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", "知情：读者=未知", "物品：雾灯匣"] },
+    { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "故事线：主故事线|调查线 · 雾港", "时间：2026-09-03 18:00", "人物：陆衍", "知情：林昭=已得知", "知情：阿芜=未知", "知情：读者=已得知", "地点：雾港", "时间冲突：港务钟与灯塔记录相差两小时"] },
+    { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-03", "人物：林昭", "知情：阿芜=未知", "知情：读者=未知", "地点：雾港"] },
+    { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
+    { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
+    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", "知情：读者=未知", "推测：苏弦"] },
+    { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "故事线：主故事线|灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
     { key: "confrontation", title: "六人在旧码头对峙", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：林昭,阿芜,陆衍,顾澜,程野,苏弦", "地点：雾港"] },
-    { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：顾澜", "物品：雾灯匣"] },
+    { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "故事线：调查线 · 雾港", "作者秘密", "时间：2026-09-05", "人物：顾澜", "知情：林昭=未知", "知情：阿芜=未知", "知情：读者=未知", "物品：雾灯匣"] },
     { key: "aftermath", title: "港务记录恢复公开", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-06", "人物：陆衍", "地点：雾港"] },
-    { key: "hook", title: "外海传来新的灯语", tags: ["作者草稿", "单元：雾港追踪", "时间：未来", "目击：阿芜", "地点：雾港"] }
+    { key: "hook", title: "外海传来新的灯语", tags: ["作者草稿", "单元：雾港追踪", "时间：未知", "目击：阿芜", "地点：雾港"] }
   ];
   const created = [];
   for (const definition of definitions) {
-    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: definition.title, status: "draft", tags: definition.tags, body: `${definition.title}只用于 R11 隔离观察工作台验收。` });
-    created.push({ ...definition, id: result.data.id });
+    const body = definition.key === "reveal" ? "R2_SECRET_CLAIM_雾灯匣夹层藏有真正航海图；该正文仅作者可见。" : `${definition.title}只用于 R12-C 隔离事件线验收。`;
+    const result = await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "event", title: definition.title, status: "draft", tags: definition.tags, body });
+    created.push({ ...definition, id: result.data.id, relativeId: result.data.relativeId, revisionToken: result.data.revisionToken, status: result.data.status });
   }
   observationFixture = Object.fromEntries(created.map((event) => [event.key, event]));
 }
@@ -1062,8 +1194,593 @@ async function setupNarrativeFixture() {
   narrativeFixture = { unit: unit.data, branch: branch.data, workVersionId: root.identity.workVersionId };
 }
 
+async function setupR1CausalFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const createType = async (label) => {
+    const state = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+    const created = await postFixture(`${base}/relations/types/create`, {
+      projectId: fixtureProjectId,
+      label,
+      description: `R1 因果索引验收：${label}。`,
+      expectedRepositoryRevision: state.data.repositoryRevision,
+      operationId: `r1-causal-type-${label}-${fixture.fixtureId}`,
+      sourceRef: "r1-causal-author-fixture"
+    });
+    return created.data.type.relationTypeId;
+  };
+  const typeIds = {};
+  for (const label of ["因果", "触发", "必要条件", "导致"]) typeIds[label] = await createType(label);
+  const link = async (sourceKey, targetKey, label, suffix, confirm = true) => {
+    const created = await postFixture(`${base}/relations/create`, {
+      projectId: fixtureProjectId,
+      sourceObjectId: observationFixture[sourceKey].id,
+      targetObjectId: observationFixture[targetKey].id,
+      relationTypeId: typeIds[label],
+      relationLabelSnapshot: label,
+      direction: "forward",
+      sourceRef: "r1-causal-author-fixture",
+      operationId: `r1-causal-${suffix}-${fixture.fixtureId}`
+    });
+    if (confirm) await postFixture(`${base}/relations/confirm`, {
+      projectId: fixtureProjectId,
+      relationId: created.data.relation.relationId,
+      expectedRelationRevision: created.data.relation.revision,
+      operationId: `r1-causal-confirm-${suffix}-${fixture.fixtureId}`
+    });
+    return created.data.relation.relationId;
+  };
+  await link("ledger", "blackout", "因果", "antecedent");
+  await link("signal", "blackout", "触发", "trigger");
+  await link("revealed-cause", "blackout", "必要条件", "condition");
+  await link("blackout", "revealed-consequence", "导致", "result");
+  await link("revealed-consequence", "aftermath", "导致", "downstream");
+  await link("warning", "blackout", "因果", "candidate", false);
+  r1CausalFixture = { selected: observationFixture.blackout, result: observationFixture["revealed-consequence"], downstream: observationFixture.aftermath };
+}
+
+async function assertEventLineDualAxisCausalCoreR1(page, consoleProblems) {
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R1 requires the shared Event, NarrativeArrangement and Relation fixtures.");
+  if (r1DualAxisCausalEvidenceDirectory) mkdirSync(r1DualAxisCausalEvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (r1DualAxisCausalEvidenceDirectory) await page.screenshot({ path: path.join(r1DualAxisCausalEvidenceDirectory, name), fullPage: false }); };
+  const providerRequests = [];
+  page.on("request", (request) => {
+    if (/story-modeling\/(?:plan|runs|execute)|\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  });
+  await seedR12NarrativeArrangements();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  await workspace.waitFor();
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "The R1 fixture uses more than the required eight Events.");
+  await capture("01-1440-event-line-narrative-order.png");
+
+  const selectedNode = graph.locator(`[data-confirmed-event-id="${r1CausalFixture.selected.id}"]`).first();
+  await selectedNode.locator(".formal-narrative-card-main").click();
+  const dock = page.locator(".page-context-dock");
+  await dock.getByRole("button", { name: "因果", exact: true }).click();
+  const causal = page.getByTestId("event-causal-index");
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.selected.id);
+  for (const label of ["前因", "直接触发", "必要条件", "结果", "后续影响（两级）", "待确认或冲突"]) await causal.getByText(label, { exact: true }).waitFor();
+  assert.ok(await causal.getByText(/作者确认/u).count() >= 1);
+  assert.ok(await causal.getByText(/AI 候选/u).count() >= 1);
+  await causal.getByText("查看关系来源", { exact: true }).first().click();
+  await capture("02-1440-causal-forward.png");
+
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.result.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.result.id, "A result can become the selected Event without duplicating an Event.");
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.downstream.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.downstream.id, "A second-level impact receives the same stable Event selection and canvas focus.");
+  await causal.getByRole("button", { name: "返回上一个因果节点", exact: true }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.result.id, "Causal backtrace returns through the actual navigation history.");
+  await causal.getByRole("button", { name: "回到起始事件", exact: true }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.selected.id, "The author can trace a result back to its cause.");
+  await capture("03-1440-causal-backtrace.png");
+
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.equal(await temporal.locator(".temporal-event-card").count(), 18);
+  await temporal.locator(".temporal-crosshair").getByText(r1CausalFixture.selected.title, { exact: true }).waitFor();
+  await capture("04-1440-time-line-world-time.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await graph.waitFor();
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${r1CausalFixture.selected.id}"].is-selected`).count(), 1, "Returning to narrative order keeps the same selected Event.");
+  await capture("05-1440-event-line-return.png");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  assert.equal(await workspace.getAttribute("data-event-task"), "story", "Refresh preserves the current Event-line axis.");
+  await page.locator(".page-context-dock").getByRole("button", { name: "因果", exact: true }).click();
+  await page.getByTestId("event-causal-index").waitFor();
+  assert.equal(await page.getByTestId("event-causal-index").getAttribute("data-event-id"), r1CausalFixture.selected.id, "Refresh retains the selected Event and its causal index.");
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "Refresh retains Events and NarrativeArrangement.");
+  assert.deepEqual(providerRequests, [], "R1 causal and dual-axis reads remain zero-Provider.");
+  assert.deepEqual(consoleProblems, [], "R1 causal and dual-axis interactions must not add console errors.");
+}
+
+async function assertEventLineStoryCrossingKnowledgeR2(page, consoleProblems, focus) {
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R2 reuses the existing Event, NarrativeArrangement, Relation and character owners.");
+  if (r2StoryCrossingEvidenceDirectory) mkdirSync(r2StoryCrossingEvidenceDirectory, { recursive: true });
+  const capture = async (name) => {
+    if (!r2StoryCrossingEvidenceDirectory) return;
+    await page.screenshot({ path: path.join(r2StoryCrossingEvidenceDirectory, name), fullPage: false });
+    // Evidence recording dwell only: this makes each verified state readable in
+    // the continuous review video and is never used as a readiness condition.
+    await page.waitForTimeout(5_500);
+  };
+  const secret = "R2_SECRET_CLAIM_雾灯匣夹层藏有真正航海图";
+  await seedR12NarrativeArrangements();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  await workspace.waitFor();
+  const loadSurface = page.locator(".tianyi-event-line-golden-loop");
+  assert.equal(await loadSurface.getAttribute("data-load-phase"), "interactive", "Event Line records the transition from immediate feedback to the interactive surface.");
+  const navigationStartedAt = Number(await loadSurface.getAttribute("data-navigation-started-at"));
+  const firstFeedbackAt = Number(await loadSurface.getAttribute("data-first-feedback-at"));
+  const interactiveAt = Number(await loadSurface.getAttribute("data-interactive-at"));
+  assert.equal(Number.isFinite(navigationStartedAt) && Number.isFinite(firstFeedbackAt) && Number.isFinite(interactiveAt), true, "Navigation, first feedback and interactivity timings are recorded.");
+  assert.equal(firstFeedbackAt >= navigationStartedAt && interactiveAt >= firstFeedbackAt, true, "Load timing order is monotonic and does not use a fixed readiness delay.");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  await graph.waitFor();
+  const storylineSelect = page.getByTestId("storyline-scope-select");
+  const observerSelect = page.getByTestId("knowledge-observer-select");
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="storyline-scope-select"] option').length >= 4);
+  const labels = await storylineSelect.locator("option").allTextContents();
+  assert.equal(labels.some((label) => label.includes("主故事线")), true);
+  assert.equal(labels.some((label) => label.includes("人物线 · 林昭")), true);
+  assert.equal(labels.some((label) => label.includes("调查线 · 雾港")), true);
+  const crossingMap = page.getByTestId("storyline-crossing-map");
+  await crossingMap.waitFor();
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > button").count() >= 3, "The global canvas exposes three directional Storyline rails, not only a filter menu.");
+  const authorInvestigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
+  assert.ok(authorInvestigationLineId);
+  assert.equal(await graph.locator('[data-confirmed-event-id]').count(), 18, "Global story-crossing view uses one rendered projection per existing Placement.");
+  await capture("01-ISOLATED_R2-all-three-storylines.png");
+
+  const crossEventId = observationFixture.blackout.id;
+  await graph.locator(`[data-confirmed-event-id="${crossEventId}"] .formal-narrative-card-main`).click();
+  await page.getByTestId("story-crossing-selection").waitFor();
+  assert.match(await page.getByTestId("story-crossing-selection").innerText(), /主故事线/u);
+  assert.match(await page.getByTestId("story-crossing-selection").innerText(), /调查线 · 雾港/u);
+  await crossingMap.locator(`[data-storyline-id="${authorInvestigationLineId}"]`).click();
+  await page.waitForFunction((lineId) => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === lineId, authorInvestigationLineId);
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > .is-muted").count() >= 2, "A focused Storyline keeps other rails visible but visually subordinate for direction context.");
+  await crossingMap.getByRole("button", { name: "返回全部故事线", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === "all");
+  await storylineSelect.selectOption(authorInvestigationLineId);
+  await page.waitForFunction((eventId) => document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`), crossEventId);
+  assert.equal(new URL(page.url()).searchParams.get("eventId"), crossEventId, "Switching a crossing Event to another Storyline keeps the same stable Event selection.");
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${crossEventId}"]`).count(), 1, "A crossing Event is not duplicated inside a focused Storyline.");
+  await capture("02-ISOLATED_R2-crossing-event-same-id.png");
+
+  const library = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const lin = library.data.objects.find((item) => item.type === "character" && item.title === "林昭");
+  const wu = library.data.objects.find((item) => item.type === "character" && item.title === "阿芜");
+  assert.ok(lin && wu, "R2 requires two formal character observers.");
+  await observerSelect.selectOption(lin.id);
+  await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
+  await page.waitForFunction(() => Number(document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-hidden-event-count") || "0") > 0);
+  const linDom = await page.locator("body").innerText();
+  assert.equal(linDom.includes(secret), false, "A hidden claim body must not enter the character DOM.");
+  const linPayload = await getFixture(`${apiUrl}/__local/story-studio/event-line/knowledge-view?projectId=${encodeURIComponent(fixtureProjectId)}&observerId=${encodeURIComponent(lin.id)}`);
+  assert.equal(JSON.stringify(linPayload).includes(secret), false, "A hidden claim body must not enter the Knowledge View response payload.");
+  assert.equal(linPayload.data.hiddenEventIds.includes(observationFixture.reveal.id), true, "The server records only the hidden Event identity, not its title or body.");
+  await capture("03-ISOLATED_R2-character-a-knowledge-boundary.png");
+
+  await observerSelect.selectOption(wu.id);
+  await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, wu.id);
+  const investigationLine = (await getFixture(`${apiUrl}/__local/story-studio/event-line/knowledge-view?projectId=${encodeURIComponent(fixtureProjectId)}&observerId=${encodeURIComponent(wu.id)}`)).data.storylines.find((line) => line.label === "调查线 · 雾港");
+  assert.ok(investigationLine, "Character B retains the investigation projection that contains the misleading source.");
+  await storylineSelect.selectOption(investigationLine.id);
+  const misleadingNode = graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"] .formal-narrative-card-main`);
+  await misleadingNode.waitFor();
+  await misleadingNode.click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.textContent?.includes("被误导"));
+  await page.waitForFunction((eventId) => {
+    const node = document.querySelector(`[data-confirmed-event-id="${eventId}"]`);
+    const canvas = node?.closest(".formal-narrative-flow");
+    if (!node || !canvas) return false;
+    const nodeBox = node.getBoundingClientRect();
+    const canvasBox = canvas.getBoundingClientRect();
+    const miniMapBox = canvas.querySelector(".react-flow__minimap")?.getBoundingClientRect();
+    const fullyInside = nodeBox.left >= canvasBox.left + 12 && nodeBox.right <= canvasBox.right - 12 && nodeBox.top >= canvasBox.top + 12 && nodeBox.bottom <= canvasBox.bottom - 12;
+    const clearOfMiniMap = !miniMapBox || nodeBox.right <= miniMapBox.left - 8 || nodeBox.bottom <= miniMapBox.top - 8;
+    return fullyInside && clearOfMiniMap;
+  }, observationFixture["false-lead"].id);
+  assert.match(await page.getByTestId("knowledge-boundary-status").innerText(), /被误导/u, "Character B sees an attributed wrong belief, not a rewritten Event fact.");
+  const focusedNodeGeometry = await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"]`).evaluate((node) => {
+    const nodeBox = node.getBoundingClientRect();
+    const canvasBox = node.closest(".formal-narrative-flow")?.getBoundingClientRect();
+    const miniMapBox = node.closest(".formal-narrative-flow")?.querySelector(".react-flow__minimap")?.getBoundingClientRect();
+    return canvasBox ? { nodeLeft: nodeBox.left, nodeRight: nodeBox.right, nodeTop: nodeBox.top, nodeBottom: nodeBox.bottom, canvasLeft: canvasBox.left, canvasRight: canvasBox.right, canvasTop: canvasBox.top, canvasBottom: canvasBox.bottom, miniMapLeft: miniMapBox?.left ?? null, miniMapTop: miniMapBox?.top ?? null } : null;
+  });
+  assert.ok(focusedNodeGeometry && focusedNodeGeometry.nodeLeft >= focusedNodeGeometry.canvasLeft + 12 && focusedNodeGeometry.nodeRight <= focusedNodeGeometry.canvasRight - 12 && focusedNodeGeometry.nodeTop >= focusedNodeGeometry.canvasTop + 12 && focusedNodeGeometry.nodeBottom <= focusedNodeGeometry.canvasBottom - 12 && (focusedNodeGeometry.miniMapLeft === null || focusedNodeGeometry.nodeRight <= focusedNodeGeometry.miniMapLeft - 8 || focusedNodeGeometry.nodeBottom <= focusedNodeGeometry.miniMapTop - 8), `Focused Storyline must keep its selected Event fully readable and clear of the minimap=${JSON.stringify(focusedNodeGeometry)}`);
+  await capture("04-ISOLATED_R2-character-b-misled-belief.png");
+
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  await page.getByTestId("knowledge-comparison").waitFor();
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /林昭\s*推断\s*\/\s*怀疑/u, "Comparison renders 林昭's cognitive state as text and structure.");
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u, "Comparison renders 阿芜's wrong belief without rewriting the Event.");
+  await capture("05-ISOLATED_R2-two-character-comparison.png");
+
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  await page.getByTestId("formal-temporal-canvas").waitFor();
+  assert.match(await page.getByTestId("knowledge-boundary-status").getAttribute("data-observer-id") ?? "", new RegExp(`${lin.id},${wu.id}`, "u"), "Knowledge comparison remains active on the world-time projection.");
+  assert.equal(await storylineSelect.inputValue(), investigationLine.id, "Storyline scope remains active on the world-time projection.");
+  await capture("06-ISOLATED_R2-timeline-preserves-coordinates.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await observerSelect.selectOption("author");
+  await storylineSelect.selectOption("all");
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await crossingMap.locator(`[data-crossing-event-id="${crossEventId}"]`).click();
+  await page.locator(".page-context-dock").getByRole("button", { name: "因果", exact: true }).click();
+  await page.getByTestId("event-causal-index").waitFor();
+  assert.equal(await page.getByTestId("event-causal-index").getAttribute("data-event-id"), crossEventId, "The R1 causal path keeps the selected crossing Event.");
+  await capture("07-ISOLATED_R2-causal-drawer-selection.png");
+
+  await observerSelect.selectOption(lin.id);
+  await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
+  await storylineSelect.selectOption(investigationLine.id);
+  await page.waitForFunction((lineId) => new URL(window.location.href).searchParams.get("eventStoryline") === lineId, investigationLine.id);
+  const tianyiToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
+  if (await tianyiToggle.getAttribute("aria-pressed") !== "true") await tianyiToggle.click();
+  const sidebar = page.locator(".tianyi-sidebar");
+  await sidebar.waitFor();
+  await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+  assert.match(await page.getByTestId("page-agent-knowledge-scope").innerText(), /林昭.*只接收当前知情范围/u);
+  await capture("08-ISOLATED_R2-page-agent-scoped.png");
+
+  const opened = await postFixture(`${apiUrl}/__local/story-studio/tianyi/session/open`, { projectId: fixtureProjectId, operationId: `r2-session-${fixture.fixtureId}`, retentionMode: "normal" });
+  const startedAgent = await postFixture(`${apiUrl}/__local/story-studio/tianyi-agent/run/start`, {
+    projectId: fixtureProjectId,
+    workVersionId: narrativeFixture.workVersionId,
+    sessionId: opened.data.sessionId,
+    task: "只核对当前观察者可知内容",
+    currentPage: "/event-line",
+    permissionProfile: "step-by-step",
+    operationId: `r2-agent-${fixture.fixtureId}`,
+    contextRequest: {
+      productMode: "world",
+      activeOwner: { kind: "world-object", id: observationFixture.reveal.id },
+      selection: { documentId: null, objectId: observationFixture.reveal.id, timelinePointId: null },
+      sourceRefs: [{ id: observationFixture.reveal.id, kind: "event", origin: "event-line" }],
+      memorySelections: [],
+      enabledSkillRefs: [],
+      eventRefs: [{ version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: observationFixture.reveal.id, revisionToken: observationFixture.reveal.revisionToken, state: observationFixture.reveal.status, requestedUse: "constraint" }],
+      knowledgeView: { observerId: lin.id, observerLabel: lin.title, hiddenEventCount: linPayload.data.hiddenCount }
+    }
+  });
+  const agent = await postFixture(`${apiUrl}/__local/story-studio/tianyi-agent/run/approve`, {
+    projectId: fixtureProjectId,
+    workVersionId: narrativeFixture.workVersionId,
+    sessionId: opened.data.sessionId,
+    runId: startedAgent.data.runId,
+    stepId: startedAgent.data.plan.find((step) => step.kind === "read-context").stepId,
+    operationId: `r2-agent-context-approve-${fixture.fixtureId}`
+  });
+  assert.ok(agent.data.contextManifest, `Approved context step must build a manifest: ${JSON.stringify({ status: agent.data.status, plan: agent.data.plan, error: agent.data.error })}`);
+  const contextPackText = JSON.stringify(agent.data.contextManifest);
+  assert.equal(contextPackText.includes(secret), false, "Page Agent ContextPack excludes hidden claim text.");
+  assert.equal(contextPackText.includes(observationFixture.reveal.id), false, "Page Agent ContextPack excludes the hidden Event reference before source resolution.");
+  assert.deepEqual(agent.data.contextManifest.authorSourceRefs, [], "Restricted Page Agent cannot inherit omniscient author conversation sources.");
+  assert.equal(agent.data.budget.providerCalls, 0);
+
+  await sidebar.locator(".tianyi-sidebar-header button[aria-label]").last().click();
+  const selectedBeforeRefresh = new URL(page.url()).searchParams.get("eventId");
+  assert.equal(new URL(page.url()).searchParams.get("eventStoryline"), investigationLine.id, `Storyline coordinate must remain in the URL before refresh: ${page.url()}`);
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await observerSelect.inputValue(), lin.id, "Refresh restores the Knowledge View coordinate.");
+  assert.equal(await storylineSelect.inputValue(), investigationLine.id, "Refresh restores the Storyline coordinate.");
+  assert.equal(new URL(page.url()).searchParams.get("eventId"), selectedBeforeRefresh, "Refresh restores the selected Event coordinate.");
+  assert.equal((await page.locator("body").innerText()).includes(secret), false, "Refresh does not reintroduce hidden claim text into the DOM.");
+  await capture("09-ISOLATED_R2-refresh-restores-safe-view.png");
+  assert.deepEqual(consoleProblems, [], `R2 ${focus} interactions must not add browser console errors.`);
+}
+
+async function assertEventLineFounderCloseoutR21(page, consoleProblems) {
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R2.1 requires the existing Event, NarrativeArrangement and Relation fixtures.");
+  const secret = "R2_SECRET_CLAIM_雾灯匣夹层藏有真正航海图";
+  await seedR12NarrativeArrangements();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  const observerSelect = page.getByTestId("knowledge-observer-select");
+  const storylineSelect = page.getByTestId("storyline-scope-select");
+  await workspace.waitFor();
+  await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  const library = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const lin = library.data.objects.find((item) => item.type === "character" && item.title === "林昭");
+  const wu = library.data.objects.find((item) => item.type === "character" && item.title === "阿芜");
+  assert.ok(lin && wu, "Founder recovery fixture requires 林昭 and 阿芜.");
+  const investigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
+  assert.ok(investigationLineId);
+
+  // The selected crossing Event remains visible to 林昭.  Reload waits for the
+  // actual safe projection, not a timeout or the first transient paint.
+  await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"] .formal-narrative-card-main`).click();
+  await storylineSelect.selectOption(investigationLineId);
+  await observerSelect.selectOption(lin.id);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  assert.equal(await page.getByTestId("knowledge-boundary-status").getAttribute("data-observer-id"), lin.id);
+  assert.equal(await storylineSelect.inputValue(), investigationLineId);
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"]`).count(), 1);
+  assert.ok(await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"]`).evaluate((node) => node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0), "A restored Event must remain visibly laid out after knowledge data settles.");
+
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"] .formal-narrative-card-main`).click();
+  const comparison = page.getByTestId("knowledge-comparison");
+  await comparison.waitFor();
+  assert.match(await comparison.innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+  assert.match(await comparison.innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u);
+  assert.equal((await page.locator("body").innerText()).includes(secret), false, "Comparison API and DOM retain no hidden Event title/body.");
+  await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  assert.equal(await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"].is-selected`).count(), 1, "Refresh restores the selected shared Event only after the comparison projection has settled.");
+  assert.match(await page.getByTestId("knowledge-comparison").innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+
+  // A stale route that is no longer visible may not retain an orphaned detail
+  // drawer, title, identifier or empty final canvas.
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventObserver=${encodeURIComponent(lin.id)}&eventStoryline=${encodeURIComponent(investigationLineId)}&eventId=${encodeURIComponent(observationFixture.reveal.id)}`);
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.getByTestId("event-line-recovery-notice").waitFor();
+  assert.equal(new URL(page.url()).searchParams.has("eventId"), false, "An invisible stale selection is removed from the recoverable route state.");
+  assert.equal(await page.locator(".page-context-dock").getAttribute("data-page-dock-open"), "false", "An Event absent from the final graph cannot leave a stale details drawer.");
+  assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "A closed rail is not a retained event-details panel.");
+  assert.ok(await graph.locator("[data-confirmed-event-id]").count() > 0, "The final safe graph must contain visible nodes rather than a blank canvas.");
+  const body = await page.locator("body").innerText();
+  assert.equal(body.includes(secret), false);
+  assert.equal(body.includes(observationFixture.reveal.title), false);
+  assert.deepEqual(consoleProblems, [], "Founder recovery uses stable projection transitions without console errors.");
+}
+
+async function recordEventLineFounderCloseoutR21() {
+  assert.ok(founderCloseoutR21EvidenceDirectory, "Founder closeout recording requires TIANYAN_EVENT_LINE_R2_1_EVIDENCE_DIR.");
+  assert.ok(observationFixture && narrativeFixture && r1CausalFixture, "R2.1 recording requires the existing Event, NarrativeArrangement and Relation fixtures.");
+  mkdirSync(founderCloseoutR21EvidenceDirectory, { recursive: true });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    recordVideo: { dir: founderCloseoutR21EvidenceDirectory, size: { width: 1440, height: 900 } }
+  });
+  const page = await context.newPage();
+  const video = page.video();
+  const consoleProblems = [];
+  page.on("console", (message) => {
+    if (["error", "warning"].includes(message.type())) consoleProblems.push(`${message.type()}: ${message.text()}`);
+  });
+  page.on("pageerror", (error) => consoleProblems.push(error.message));
+  page.on("response", (response) => {
+    if (response.status() >= 400) consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`);
+  });
+  const capture = async (name) => {
+    await page.screenshot({ path: path.join(founderCloseoutR21EvidenceDirectory, name), fullPage: false });
+    // This dwell is solely for a human-readable final recording. Readiness is
+    // asserted separately at every state and never inferred from this delay.
+    await page.waitForTimeout(7_000);
+  };
+
+  await seedR12NarrativeArrangements();
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
+  const workspace = page.getByTestId("story-progression-workspace");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  const observerSelect = page.getByTestId("knowledge-observer-select");
+  const storylineSelect = page.getByTestId("storyline-scope-select");
+  await workspace.waitFor();
+  await graph.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction(() => document.querySelectorAll('[data-confirmed-event-id]').length >= 8);
+  const library = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const lin = library.data.objects.find((item) => item.type === "character" && item.title === "林昭");
+  const wu = library.data.objects.find((item) => item.type === "character" && item.title === "阿芜");
+  assert.ok(lin && wu, "Founder recording requires 林昭 and 阿芜.");
+  const investigationLineId = await storylineSelect.locator("option").filter({ hasText: "调查线 · 雾港" }).getAttribute("value");
+  assert.ok(investigationLineId);
+  const crossingMap = page.getByTestId("storyline-crossing-map");
+  await crossingMap.waitFor();
+  assert.ok(await crossingMap.locator(".storyline-crossing-rails > button").count() >= 3, "The recording begins with three visible Storyline rails.");
+  await capture("01-GLOBAL-three-storylines-1440x900.png");
+
+  await graph.locator(`[data-confirmed-event-id="${observationFixture.blackout.id}"] .formal-narrative-card-main`).click();
+  await page.getByTestId("story-crossing-selection").waitFor();
+  await crossingMap.locator(`[data-storyline-id="${investigationLineId}"]`).click();
+  await page.waitForFunction((lineId) => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === lineId, investigationLineId);
+  await capture("02-FOCUS-investigation-and-return-1440x900.png");
+  await crossingMap.getByRole("button", { name: "返回全部故事线", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="storyline-crossing-map"]')?.getAttribute("data-storyline-scope") === "all");
+  await capture("03-RETURN-all-storylines-1440x900.png");
+
+  await storylineSelect.selectOption(investigationLineId);
+  await graph.locator(`[data-confirmed-event-id="${observationFixture["false-lead"].id}"] .formal-narrative-card-main`).click();
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture["false-lead"].id);
+  await observerSelect.selectOption("author");
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").check();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").check();
+  await page.waitForFunction((ids) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === ids, `${lin.id},${wu.id}`);
+  const comparison = page.getByTestId("knowledge-comparison");
+  await comparison.waitFor();
+  assert.match(await comparison.innerText(), /林昭\s*推断\s*\/\s*怀疑/u);
+  assert.match(await comparison.innerText(), /阿芜\s*误解\s*·\s*被错误信息误导/u);
+  await capture("04-COMPARE-two-character-knowledge-1440x900.png");
+
+  await storylineSelect.selectOption("all");
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.ok(await temporal.locator(".temporal-event-card").count() >= 3, "The recorded world-time view must show multiple Events.");
+  await capture("05-TIMELINE-multiple-events-1440x900.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await graph.waitFor();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("林昭").uncheck();
+  await page.getByTestId("knowledge-compare-picker").getByLabel("阿芜").uncheck();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === "author");
+  await storylineSelect.selectOption("all");
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await crossingMap.locator(`[data-crossing-event-id="${observationFixture.blackout.id}"]`).click();
+  const dock = page.locator(".page-context-dock");
+  await dock.getByRole("button", { name: "因果", exact: true }).click();
+  const causal = page.getByTestId("event-causal-index");
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), observationFixture.blackout.id);
+  await causal.getByText("查看关系来源", { exact: true }).first().click();
+  await capture("06-CAUSAL-forward-start-1440x900.png");
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.result.title, "u") }).click();
+  await causal.getByRole("button", { name: new RegExp(r1CausalFixture.downstream.title, "u") }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), r1CausalFixture.downstream.id);
+  await capture("07-CAUSAL-forward-result-1440x900.png");
+  await causal.getByRole("button", { name: "返回上一个因果节点", exact: true }).click();
+  await causal.getByRole("button", { name: "回到起始事件", exact: true }).click();
+  await causal.waitFor();
+  assert.equal(await causal.getAttribute("data-event-id"), observationFixture.blackout.id);
+  await capture("08-CAUSAL-backtrace-origin-1440x900.png");
+
+  await observerSelect.selectOption(lin.id);
+  await storylineSelect.selectOption(investigationLineId);
+  await page.waitForFunction((id) => document.querySelector('[data-testid="knowledge-boundary-status"]')?.getAttribute("data-observer-id") === id, lin.id);
+  const tianyiToggle = page.locator('[data-panel-toggle="tianyi-agent"]');
+  if (await tianyiToggle.getAttribute("aria-pressed") !== "true") await tianyiToggle.click();
+  const sidebar = page.locator(".tianyi-sidebar");
+  await sidebar.waitFor();
+  await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+  const agentScope = page.getByTestId("page-agent-knowledge-scope");
+  await agentScope.waitFor();
+  assert.match(await agentScope.innerText(), /林昭.*只接收当前知情范围/u);
+  await capture("09-AGENT-restricted-page-scope-1440x900.png");
+  await sidebar.locator(".tianyi-sidebar-header button[aria-label]").last().click();
+
+  await crossingMap.locator(`[data-crossing-event-id="${observationFixture.blackout.id}"]`).click();
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  await reloadProduct(page);
+  await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="knowledge-projection-loading"]') === null);
+  await page.waitForFunction((eventId) => Boolean(document.querySelector(`[data-confirmed-event-id="${eventId}"].is-selected`)), observationFixture.blackout.id);
+  assert.equal(await observerSelect.inputValue(), lin.id);
+  assert.equal(await storylineSelect.inputValue(), investigationLineId);
+  await capture("10-REFRESH-stable-safe-view-1440x900.png");
+  assert.deepEqual(consoleProblems, [], "Founder recording must not add browser console errors.");
+
+  await context.close();
+  const recordingPath = video ? await video.path() : null;
+  if (!recordingPath) throw new Error("Founder closeout recording was not written.");
+  const finalVideoPath = path.join(founderCloseoutR21EvidenceDirectory, "FOUNDER-GOLDEN-R2.1-1440x900.webm");
+  copyFileSync(recordingPath, finalVideoPath);
+  writeFileSync(path.join(founderCloseoutR21EvidenceDirectory, "recording-path.txt"), `${recordingPath}\n`, "utf8");
+}
+
+async function seedR12NarrativeArrangements() {
+  assert.ok(narrativeFixture, "R12 narrative fixture must exist before seeding arrangements.");
+  const paths = [
+    {
+      unit: narrativeFixture.unit,
+      placements: [
+        ["revealed-consequence", "reveal"],
+        ["signal", "primary"],
+        ["unknown", "primary"],
+        ["ledger", "primary"],
+        ["witness", "primary"],
+        ["warning", "primary"],
+        ["blackout", "primary"],
+        ["branch", "primary"],
+        ["confrontation", "primary"],
+        ["revealed-cause", "flashback"],
+        ["reveal", "reinterpretation"],
+        ["aftermath", "primary"],
+        ["explicit-absence", "primary"]
+      ]
+    },
+    {
+      unit: narrativeFixture.branch,
+      placements: [
+        ["branch", "reinterpretation"],
+        ["echo", "recap"],
+        ["map", "primary"],
+        ["false-lead", "primary"],
+        ["return", "primary"]
+      ]
+    }
+  ];
+  const seeded = {};
+  for (const [pathIndex, pathFixture] of paths.entries()) {
+    let result = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/create`, {
+      projectId: fixtureProjectId,
+      workVersionId: narrativeFixture.workVersionId,
+      narrativePathId: pathFixture.unit.id,
+      ownerStoryUnitId: pathFixture.unit.id,
+      expectedOwnerVersion: pathFixture.unit.version,
+      expectedRevision: 0,
+      operationId: `r12c-e2e-create-${pathIndex}-${fixture.fixtureId}`,
+      authorActionId: `author.r12c-create-${pathIndex}-${fixture.fixtureId}`,
+      createdAt: `2026-09-03T08:0${pathIndex}:00.000Z`
+    });
+    assert.equal(result.data.conflict, false, `Narrative path ${pathFixture.unit.title} should be created.`);
+    for (const [placementIndex, [eventKey, role]] of pathFixture.placements.entries()) {
+      result = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
+        projectId: fixtureProjectId,
+        workVersionId: narrativeFixture.workVersionId,
+        narrativePathId: pathFixture.unit.id,
+        expectedOwnerVersion: result.data.ownerVersion,
+        expectedRevision: result.data.arrangement.currentRevision,
+        operationId: `r12c-e2e-insert-${pathIndex}-${placementIndex}-${fixture.fixtureId}`,
+        authorActionId: `author.r12c-insert-${pathIndex}-${placementIndex}-${fixture.fixtureId}`,
+        createdAt: `2026-09-03T08:${String(pathIndex * 20 + placementIndex + 2).padStart(2, "0")}:00.000Z`,
+        eventId: observationFixture[eventKey].id,
+        storyUnitId: pathFixture.unit.id,
+        role,
+        position: { kind: "end" }
+      });
+      assert.equal(result.data.conflict, false, `Fixture Placement ${eventKey} should be inserted.`);
+    }
+    seeded[pathFixture.unit.id] = result.data;
+  }
+  return seeded;
+}
+
+function assertR12ProjectionConflictFixture(seeded) {
+  const main = seeded[narrativeFixture.unit.id].arrangement;
+  const head = main.revisions.find((revision) => revision.revision === main.currentRevision);
+  assert.ok(head && head.placements.length >= 2, "The R12 projection-conflict fixture requires two main Placements.");
+  const duplicatedOrder = head.placements.map((placement, index) => index === 1 ? { ...placement, orderKey: head.placements[0].orderKey } : placement);
+  const { revisionDigest: _revisionDigest, ...headBody } = { ...head, placements: duplicatedOrder };
+  const conflictedHead = { ...headBody, revisionDigest: createHash("sha256").update(stableJson(headBody), "utf8").digest("hex") };
+  const conflicted = { ...main, currentVersion: conflictedHead.revisionDigest, revisions: main.revisions.map((revision) => revision.revision === head.revision ? conflictedHead : revision) };
+  const eventIds = Object.values(observationFixture).map((event) => event.id);
+  const storyUnits = [narrativeFixture.unit, narrativeFixture.branch].map((unit) => ({ storyUnitId: unit.id, order: unit.order }));
+  const orderProjection = projectNarrativeArrangement({ projectId: main.projectId, workVersionId: main.workVersionId, narrativePathId: main.narrativePathId, eventIds, storyUnits, arrangement: conflicted });
+  assert.ok(orderProjection.conflicts.some((entry) => entry.state === "order-conflict"), "The same 18-Event fixture covers an explicit order-conflict projection.");
+  const danglingEventId = head.placements.at(-1).eventId;
+  const danglingProjection = projectNarrativeArrangement({ projectId: main.projectId, workVersionId: main.workVersionId, narrativePathId: main.narrativePathId, eventIds: eventIds.filter((eventId) => eventId !== danglingEventId), storyUnits, arrangement: main });
+  assert.ok(danglingProjection.conflicts.some((entry) => entry.state === "dangling-reference" && entry.eventId === danglingEventId), "The same 18-Event fixture covers an explicit dangling-reference projection.");
+}
+
 async function assertR12EventLineWorkspace(page, consoleProblems) {
   assert.ok(observationFixture, "R12 event-line fixture must exist.");
+  assert.ok(narrativeFixture, "R12 narrative fixture must exist.");
+  assert.equal(narrativeFixture.branch.branchPointEventId, observationFixture.branch.id, "The branch fixture keeps its formal fork Event.");
+  assert.equal(narrativeFixture.branch.mergeTargetUnitId, narrativeFixture.unit.id, "The branch fixture keeps its formal merge target.");
   if (r12EventLineEvidenceDirectory) mkdirSync(r12EventLineEvidenceDirectory, { recursive: true });
   const capture = async (name) => { if (r12EventLineEvidenceDirectory) await page.screenshot({ path: path.join(r12EventLineEvidenceDirectory, name), fullPage: false }); };
   const providerRequests = [];
@@ -1076,146 +1793,219 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   const workspace = page.getByTestId("story-progression-workspace");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-event-task"), "story");
-  assert.equal(await workspace.getAttribute("data-arrangement-state"), "legacy-unplaced");
-  assert.equal(await workspace.locator(".narrative-event-card").count(), 0, "Legacy Events cannot receive an inferred narrative order.");
-  assert.ok(await workspace.locator(".unplaced-event-tray article").count() >= 4, "Legacy Events remain visibly unplaced.");
-  assert.equal(await page.getByRole("button", { name: "角色视角 · 未开放", exact: true }).isDisabled(), true);
-  assert.equal(await page.getByRole("button", { name: "关系变化 · 未开放", exact: true }).isDisabled(), true);
-  await capture("00-1440-legacy-unplaced.png");
+  assert.equal(await workspace.getAttribute("data-arrangement-state"), "unplaced");
+  const graph = page.getByTestId("formal-narrative-event-graph");
+  await graph.waitFor();
+  assert.equal(await graph.getAttribute("data-event-line-renderer"), "EventGraphCanvas");
+  assert.equal(await graph.getAttribute("data-narrative-order-owner"), "NarrativeArrangementProjection");
+  assert.equal(await graph.getAttribute("data-placement-count"), "0");
+  assert.equal(await workspace.locator(".narrative-event-card").count(), 0, "The retired flat-card renderer is not active.");
+  await graph.getByRole("button", { name: "安排第一个事件", exact: true }).click();
+  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), 18, "Unplaced Events stay in the explicit staging drawer, not on the graph.");
+  await capture("00-1440-no-arrangement.png");
+  await workspace.getByRole("button", { name: "收起", exact: true }).click();
 
-  const arrangeNext = async (position = "end", anchorTitle = null, eventTitle = null) => {
-    const tray = workspace.locator(".unplaced-event-tray article");
-    const target = eventTitle ? tray.filter({ hasText: eventTitle }) : tray.first();
-    await target.getByRole("button", { name: "安排位置", exact: true }).click();
-    const inspector = page.locator(".narrative-arrangement-inspector");
-    await inspector.waitFor();
-    await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption(position);
-    if (anchorTitle) await inspector.getByText("锚点 Placement").locator("..").getByRole("combobox").selectOption({ label: anchorTitle });
-    await inspector.getByRole("button", { name: "确认插入 Placement", exact: true }).click();
-    await inspector.getByText(/编排已保存/u).waitFor();
-  };
-  const authoredSequence = ["revealed-cause", "revealed-consequence", "explicit-absence", "unknown"].map((key) => observationFixture[key].title);
-  for (const eventTitle of authoredSequence) await arrangeNext("end", null, eventTitle);
-  await page.waitForFunction(() => document.querySelectorAll(".narrative-event-card").length >= 4);
-  assert.equal(await workspace.getAttribute("data-arrangement-state"), "placed");
-  const remainingUnplacedCount = Object.keys(observationFixture).length - 4;
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount);
-  const storyTitles = await workspace.locator(".narrative-event-card h3").allTextContents();
-  assert.deepEqual(storyTitles.slice(0, 4), authoredSequence, "Explicit end insertions preserve the exact author-selected sequence rather than the tray order.");
-  await page.locator(".page-context-dock-panel > header button").click();
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporalWithoutArrangement = page.getByTestId("formal-temporal-canvas");
+  await temporalWithoutArrangement.waitFor();
+  assert.equal(await temporalWithoutArrangement.locator(".temporal-event-card").count(), 18, "World time remains visible without a NarrativeArrangement.");
+  assert.equal(await temporalWithoutArrangement.getAttribute("data-temporal-projection"), "independent");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+
+  const seededArrangements = await seedR12NarrativeArrangements();
+  assertR12ProjectionConflictFixture(seededArrangements);
   await reloadProduct(page);
   await workspace.waitFor();
-  await capture("01-1440-default-story.png");
+  assert.equal(await workspace.getAttribute("data-event-task"), "story");
+  assert.equal(await workspace.getAttribute("data-arrangement-state"), "placed");
+  assert.equal(await graph.getAttribute("data-placement-count"), "18", "Thirteen main and five branch Placements render from two formal arrangements.");
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), 18);
+  assert.ok(await graph.locator(".formal-narrative-edge.is-main").count() >= 12, "The main Event spine is actual graph geometry.");
+  assert.ok(await graph.locator(".formal-narrative-edge.is-branch").count() >= 2, "The branch is actual graph geometry.");
+  assert.ok(await graph.locator(".formal-narrative-edge.is-merge").count() >= 2, "The merge is actual graph geometry.");
+  const repeatedBranchEvent = graph.locator(`[data-confirmed-event-id="${observationFixture.branch.id}"]`);
+  assert.equal(await repeatedBranchEvent.count(), 2, "One Event may have distinct main and branch Placement nodes.");
+  assert.equal(new Set(await repeatedBranchEvent.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-placement-id")))).size, 2);
+  await capture("01-1440-event-line.png");
+
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("02-1440-branch-merge.png");
+  const expandedPlacementCount = await graph.locator(".formal-narrative-placement-node").count();
+  await graph.getByRole("button", { name: "折叠支线", exact: true }).click();
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), expandedPlacementCount - 5, "Collapsing a branch hides only its local Placement nodes.");
+  assert.equal(await graph.locator(".formal-topology-node.is-collapsed").count(), 1);
+  await graph.getByRole("button", { name: "展开支线", exact: true }).click();
+  assert.equal(await graph.locator(".formal-narrative-placement-node").count(), expandedPlacementCount);
 
   await workspace.getByRole("button", { name: /焦点：/u }).click();
   for (const label of ["林昭", "雾港", "雾灯匣"]) await page.getByRole("checkbox", { name: new RegExp(label, "u") }).check();
   await page.getByRole("button", { name: "完成", exact: true }).click();
-  assert.equal(await workspace.locator(".narrative-track-label:not(.is-spine)").count(), 3, "R12 renders at most three focus tracks under the shared Event columns.");
-  assert.ok(await workspace.locator(".narrative-trajectory-cell.is-explicit-absence").count() >= 1);
-  assert.ok(await workspace.locator(".narrative-trajectory-cell.is-unknown").count() >= 1);
-  await capture("02-1440-three-focus-tracks.png");
-
-  await page.setViewportSize({ width: 1152, height: 720 });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R12 1152px viewport has no page-level overflow.");
-  await capture("02a-1152-three-focus-tracks.png");
+  assert.equal(await graph.getAttribute("data-focus-track-count"), "3");
+  assert.ok(await graph.locator(".formal-focus-point").count() >= 3, "Selected people, locations, and items overlay the same Event graph.");
+  assert.ok(await graph.locator(".formal-focus-point.is-explicit-absence").count() >= 1, "Explicit absence has its own shape.");
+  assert.ok(await graph.locator(".formal-focus-edge.is-weak").count() >= 1, "Sourced hearsay or inference uses a weak dashed connection.");
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("03-1440-three-focus.png");
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await workspace.locator(".narrative-event-card-main").first().click();
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
   await page.locator(".page-context-dock-panel").waitFor();
+  await page.waitForTimeout(220);
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "Opening details at 1280px collapses the project directory first.");
+  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 360, "The graph retains usable context beside the 1280px details Dock.");
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  await capture("03-1280-event-detail.png");
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await capture("07-1280-detail.png");
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
+  const focusedPageRailButton = page.locator(".page-context-dock-rail").getByRole("button", { name: "因果", exact: true });
+  const focusedPageRailBox = await focusedPageRailButton.boundingBox();
+  assert.ok(focusedPageRailBox, "The Event page-tool rail remains visible while Tianyi is open.");
+  assert.equal(await focusedPageRailButton.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)?.closest("button") === button;
+  }), true, "The visible Event page-tool trigger must remain the real pointer hit target above Tianyi.");
+  await focusedPageRailButton.click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 0, "Selecting a page tool replaces Tianyi in the one shared right-side slot.");
+  await page.locator(".page-context-dock-panel > header button").click();
   await closeGlobalTianyiIfOpen(page);
 
-  await workspace.getByRole("button", { name: "证据审计", exact: true }).click();
-  await page.getByTestId("evidence-audit-board").waitFor();
-  assert.ok(await page.locator(".evidence-audit-board td.is-unknown").count() >= 1, "Audit makes unknown explicit.");
-  await page.locator(".evidence-audit-board thead th button").first().click();
-  await page.locator(".page-context-dock-panel").waitFor();
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await capture("04-1440-evidence-audit.png");
-  await workspace.getByRole("button", { name: "时间核对", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector('[data-testid="story-progression-workspace"]')?.getAttribute("data-event-task") === "time");
-  const timeTitles = await workspace.locator(".narrative-event-card h3").allTextContents();
-  assert.deepEqual(timeTitles.slice(0, 2), ["后揭示的码头起因", "先揭示的港口后果"], "World time changes coordinates without changing Placement identity.");
-  await page.locator(".event-line-spine-main").evaluate((element) => { element.scrollTop = 0; });
-  await capture("05-1440-world-time.png");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await page.waitForTimeout(180);
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "The 1152px event workspace defaults to a collapsed directory.");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "The 1152px viewport has no page-level overflow.");
+  await capture("08-1152.png");
 
-  await workspace.getByRole("button", { name: "故事推进", exact: true }).click();
-  await workspace.locator(".narrative-arrange-button").first().click();
+  await page.setViewportSize({ width: 743, height: 529 });
+  await graph.getByRole("button", { name: "定位所选", exact: true }).click();
+  await page.waitForTimeout(280);
+  await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  await page.waitForTimeout(180);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "The 200% equivalent viewport has no page-level overflow.");
+  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 280, "The graph remains mounted behind the overlay details drawer.");
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2);
+  await capture("09-743x529.png");
+  await page.locator(".page-context-dock-panel > header button").click();
+  assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Closing the mobile drawer preserves current Event identity.");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  const temporal = page.getByTestId("formal-temporal-canvas");
+  await temporal.waitFor();
+  assert.equal(await temporal.getAttribute("data-time-line-renderer"), "TemporalCanvas");
+  assert.equal(await temporal.locator(".temporal-event-card").count(), 18, "World time keeps one node per Event even when an Event has multiple Placements.");
+  assert.ok(await temporal.locator(".temporal-event-card.is-range").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-relative").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-fuzzy").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-concurrent").count() >= 2);
+  assert.ok(await temporal.locator(".temporal-event-card.is-unplaced").count() >= 1);
+  assert.ok(await temporal.locator(".temporal-event-card.is-conflict").count() >= 1);
+  assert.equal(await temporal.locator(`[data-event-id="${observationFixture.branch.id}"]`).count(), 1);
+  await temporal.locator(`[data-event-id="${observationFixture.branch.id}"] em`).getByText("2 个 NarrativePlacement", { exact: true }).waitFor();
+  assert.ok(await temporal.locator(".temporal-focus-point").count() >= 3, "Focus trajectories follow the independent time coordinates.");
+  const temporalXs = await temporal.locator(".temporal-event-node:not(.is-unplaced):not(.is-conflict)").evaluateAll((nodes) => nodes.map((node) => {
+    const match = node.style.transform.match(/translate\(([-\d.]+)px,\s*[-\d.]+px\)/u);
+    return match ? Number(match[1]) : null;
+  }).filter((value) => value !== null));
+  const uniqueXs = [...new Set(temporalXs)].sort((left, right) => left - right);
+  const temporalGaps = uniqueXs.slice(1).map((value, index) => Math.round((value - uniqueXs[index]) * 10) / 10);
+  assert.ok(new Set(temporalGaps).size > 1, "Continuous world-time distance is not an equal-card reorder.");
+  await capture("04-1440-time-line.png");
+  await temporal.getByRole("button", { name: "时间总览", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("05-1440-time-states.png");
+
+  const mainQuery = `projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(narrativeFixture.workVersionId)}&narrativePathId=${encodeURIComponent(narrativeFixture.unit.id)}`;
+  const beforeReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  await workspace.getByRole("button", { name: "更多", exact: true }).click();
+  await workspace.getByRole("button", { name: "证据审计", exact: true }).click();
+  const audit = page.getByTestId("evidence-audit-board");
+  await audit.waitFor();
+  assert.ok(await audit.locator("td.is-unknown").count() >= 1, "Evidence audit keeps unknown explicit.");
+  assert.ok(await audit.locator("td.is-explicit-absence").count() >= 1, "Evidence audit distinguishes explicit absence.");
+  await capture("06-1440-audit.png");
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  const afterReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  assert.equal(afterReadOnly.data.arrangement.currentRevision, beforeReadOnly.data.arrangement.currentRevision, "Task switches are read-only projections.");
+
+  await workspace.getByRole("button", { name: "待编排与冲突", exact: true }).click();
+  const hookTray = workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title });
+  assert.equal(await hookTray.count(), 1);
+  await capture("10-1440-staging-before.png");
+  await hookTray.getByRole("button", { name: "安排位置", exact: true }).click();
   let inspector = page.locator(".narrative-arrangement-inspector");
-  await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption("after");
-  await inspector.getByText("锚点 Placement").locator("..").getByRole("combobox").selectOption({ label: storyTitles[1] });
-  await inspector.getByRole("button", { name: "确认移动 Placement", exact: true }).click();
+  await inspector.waitFor();
+  await inspector.getByRole("button", { name: "确认插入位置", exact: true }).click();
   await inspector.getByText(/编排已保存/u).waitFor();
-  assert.deepEqual((await workspace.locator(".narrative-event-card h3").allTextContents()).slice(0, 2), [storyTitles[1], storyTitles[0]]);
-  await workspace.locator(".narrative-arrange-button").last().click();
+  await page.locator(".page-context-dock-panel > header button").click();
+  await graph.getByRole("button", { name: "定位所选", exact: true }).click();
+  for (let zoom = 0; zoom < 4; zoom += 1) await graph.locator(".react-flow__controls-zoomin").click();
+  const hookNode = graph.locator(`[data-confirmed-event-id="${observationFixture.hook.id}"]`);
+  await hookNode.locator(".formal-narrative-arrange").waitFor();
+  await capture("11-1440-staging-after-insert.png");
+  await hookNode.locator(".formal-narrative-arrange").click();
   inspector = page.locator(".narrative-arrangement-inspector");
+  await inspector.getByText("作者意图").locator("..").getByRole("combobox").selectOption("start");
+  await inspector.getByRole("button", { name: "确认调整位置", exact: true }).click();
+  await inspector.getByText(/编排已保存/u).waitFor();
+  const moved = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
+  assert.equal(moved.data.projection.placed[0].eventId, observationFixture.hook.id, "The formal move Writer applies the author-selected position.");
   await inspector.getByRole("button", { name: "从当前编排移除", exact: true }).click();
   await inspector.getByRole("button", { name: "再次确认移除", exact: true }).click();
-  await inspector.getByText(/Placement 已移除/u).waitFor();
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount + 1, "Removal keeps the Event in the explicit unplaced set.");
-  await arrangeNext();
-  assert.equal(await workspace.locator(".narrative-event-card").count(), 4, "An explicit insert can restore the removed Event without deleting or duplicating it.");
-  assert.equal(await workspace.locator(".unplaced-event-tray article").count(), remainingUnplacedCount);
+  await inspector.getByText(/编排位置已移除/u).waitFor();
+  assert.equal(await workspace.locator(".unplaced-event-tray article").filter({ hasText: observationFixture.hook.title }).count(), 1, "Removing a Placement returns the Event to staging without deleting it.");
 
-  const sourceState = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const units = await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const rootUnit = units.data.filter((unit) => unit.kind === "main" && unit.status !== "archived").sort((left, right) => left.order - right.order)[0];
-  const query = `projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(sourceState.data.root.id)}&narrativePathId=${encodeURIComponent(rootUnit.id)}`;
-  const beforeRepeatedPlacement = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
+  const beforeRepeatedPlacement = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${mainQuery}`);
   const repeated = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
     projectId: fixtureProjectId,
-    workVersionId: sourceState.data.root.id,
-    narrativePathId: rootUnit.id,
+    workVersionId: narrativeFixture.workVersionId,
+    narrativePathId: narrativeFixture.unit.id,
     expectedOwnerVersion: beforeRepeatedPlacement.data.ownerVersion,
     expectedRevision: beforeRepeatedPlacement.data.arrangement.currentRevision,
-    operationId: `r12-e2e-repeat-${fixture.fixtureId}`,
-    authorActionId: `author.r12-repeat-${fixture.fixtureId}`,
-    createdAt: new Date().toISOString(),
+    operationId: `r12c-e2e-repeat-${fixture.fixtureId}`,
+    authorActionId: `author.r12c-repeat-${fixture.fixtureId}`,
+    createdAt: "2026-09-03T09:00:00.000Z",
     eventId: observationFixture["revealed-consequence"].id,
-    storyUnitId: rootUnit.id,
+    storyUnitId: narrativeFixture.unit.id,
     role: "reinterpretation",
     position: { kind: "end" }
   });
   assert.equal(repeated.data.conflict, false, "The formal Writer permits one Event to have more than one Placement identity.");
   const stale = await postFixture(`${apiUrl}/__local/story-studio/narrative-arrangements/insert`, {
     projectId: fixtureProjectId,
-    workVersionId: sourceState.data.root.id,
-    narrativePathId: rootUnit.id,
+    workVersionId: narrativeFixture.workVersionId,
+    narrativePathId: narrativeFixture.unit.id,
     expectedOwnerVersion: repeated.data.ownerVersion,
     expectedRevision: beforeRepeatedPlacement.data.arrangement.currentRevision,
-    operationId: `r12-e2e-stale-${fixture.fixtureId}`,
-    authorActionId: `author.r12-stale-${fixture.fixtureId}`,
-    createdAt: new Date().toISOString(),
+    operationId: `r12c-e2e-stale-${fixture.fixtureId}`,
+    authorActionId: `author.r12c-stale-${fixture.fixtureId}`,
+    createdAt: "2026-09-03T09:01:00.000Z",
     eventId: observationFixture.signal.id,
-    storyUnitId: rootUnit.id,
+    storyUnitId: narrativeFixture.unit.id,
     role: "primary",
     position: { kind: "end" }
   });
-  assert.equal(stale.data.conflict && stale.data.code, "stale-arrangement-revision", "A stale expectedRevision must fail without silently overwriting author order.");
-  await reloadProduct(page);
-  const repeatedCards = workspace.locator(`[data-confirmed-event-id="${observationFixture["revealed-consequence"].id}"]`);
-  assert.equal(await repeatedCards.count(), 2, "The same Event renders twice through distinct formal Placement identities.");
-  assert.equal(new Set(await repeatedCards.evaluateAll((cards) => cards.map((card) => card.getAttribute("data-placement-id")))).size, 2);
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.locator(".event-line-spine-main").evaluate((element) => { element.scrollTop = 0; });
-  await capture("07-1440-refresh-preserved-order.png");
-  const beforeReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
-  await reloadProduct(page);
-  const afterReadOnly = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?${query}`);
-  assert.equal(afterReadOnly.data.arrangement.currentRevision, beforeReadOnly.data.arrangement.currentRevision, "View changes and reloads do not write narrative order.");
+  assert.equal(stale.data.conflict && stale.data.code, "stale-arrangement-revision", "A stale expectedRevision fails without silently overwriting author order.");
 
-  await page.setViewportSize({ width: 743, height: 529 });
-  const closeDirectory = page.locator(".project-directory-close");
-  if (await closeDirectory.isVisible()) await closeDirectory.click();
-  await workspace.locator(".narrative-event-card-main").first().click();
-  await page.locator(".page-context-dock-panel").waitFor();
-  await page.waitForTimeout(160);
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R12 200% equivalent viewport has no page-level overflow.");
-  await capture("06-743x529-200pct-equivalent.png");
+  await workspace.getByRole("button", { name: "时间线", exact: true }).click();
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-event-task"), "time", "Refresh preserves the selected formal task preset.");
+  assert.equal(await page.getByTestId("formal-temporal-canvas").count(), 1);
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  const refreshedRepeated = graph.locator(`[data-confirmed-event-id="${observationFixture["revealed-consequence"].id}"]`);
+  assert.equal(await refreshedRepeated.count(), 2);
+  await graph.getByRole("button", { name: "全书位置", exact: true }).click();
+  await page.waitForTimeout(320);
+  await capture("12-1440-refresh-preserved.png");
+
   assert.deepEqual(providerRequests, [], "Task switches, focus and detail remain zero-Provider read projections.");
   assert.deepEqual(consoleProblems, [], "R12 event-line interactions must not add browser console errors.");
 }
@@ -1476,10 +2266,12 @@ function eventViewButton(page, name) {
 
 async function switchEventView(page, name) {
   if (await page.locator(".event-observation-controls").filter({ visible: true }).count() === 0) {
-    const advanced = page.getByRole("button", { name: "高级观察设置", exact: true }).filter({ visible: true }).first();
-    if (await advanced.count()) {
-      await advanced.click();
-      await page.getByRole("button", { name: "故事结构", exact: true }).click();
+    const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
+    if (await more.count()) {
+      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+      const entry = name === "故事脊柱" ? "故事结构" : "关系网络";
+      await page.getByRole("button", { name: entry, exact: true }).filter({ visible: true }).first().click();
+      if (name === "故事脊柱" || name === "关系图") return;
     }
   }
   await eventViewButton(page, name).click();
@@ -1499,6 +2291,8 @@ async function assertEventGraphWorkspace(page) {
   await page.waitForTimeout(220);
   const workspace = page.getByLabel("事件关系工作区");
   await workspace.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
+  await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.is-remote)").length === 8);
   assert.equal(await workspace.getAttribute("data-event-graph-owner"), "projection", "The graph remains a projection rather than a second Event owner.");
   assert.equal(await page.locator(".event-graph-node:not(.is-remote)").count(), 8, "The global graph must read the eight confirmed events from the existing Event owner.");
   assert.equal(await page.locator(".page-context-dock").count(), 0, "Graph mode must not mount a second right-side Page Context dock.");
@@ -1506,6 +2300,22 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(await page.locator(".react-flow__edge-path").count() >= 6, true, "Formal and candidate relations must render through the same graph engine.");
   const closedGeometry = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+    const dimension = (element) => {
+      if (!element) return null;
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        tag: element.tagName.toLowerCase(), className: element.className,
+        rect: { x: box.x, y: box.y, width: box.width, height: box.height },
+        display: style.display, position: style.position, boxSizing: style.boxSizing,
+        width: style.width, height: style.height, minWidth: style.minWidth, minHeight: style.minHeight,
+        maxWidth: style.maxWidth, maxHeight: style.maxHeight,
+        padding: style.padding, margin: style.margin, gap: style.gap,
+        flex: style.flex, flexDirection: style.flexDirection, flexGrow: style.flexGrow, flexShrink: style.flexShrink,
+        gridTemplateColumns: style.gridTemplateColumns, gridTemplateRows: style.gridTemplateRows,
+        overflow: style.overflow
+      };
+    };
     const flow = rect(".event-graph-flow");
     const graph = document.querySelector(".event-graph-workspace");
     const toolbar = rect(".event-graph-commandbar");
@@ -1521,6 +2331,21 @@ async function assertEventGraphWorkspace(page) {
       graphDisplay: graph ? getComputedStyle(graph).display : "", graphCssHeight: graph ? getComputedStyle(graph).height : "", graphFlex: graph ? getComputedStyle(graph).flex : "",
       eventLineWorkbenchHeight: rect(".event-line-workbench")?.height ?? 0, shellWorkspaceHeight: rect(".shell-workspace-event-line")?.height ?? 0,
       eventLineShellHeight: rect(".event-line-shell")?.height ?? 0, eventLineMainHeight: rect(".event-line-spine-main")?.height ?? 0,
+      flowAncestorTree: (() => {
+        const nodes = [];
+        let current = document.querySelector(".event-graph-flow");
+        while (current && nodes.length < 12) { nodes.push(dimension(current)); current = current.parentElement; }
+        return nodes;
+      })(),
+      eventLineMainChildren: [...document.querySelector(".event-line-spine-main")?.children ?? []].map((child) => dimension(child)),
+      layoutRegions: {
+        rail: dimension(document.querySelector(".shell-space-rail")),
+        directory: dimension(document.querySelector(".project-directory-panel")),
+        workspace: dimension(document.querySelector(".shell-workspace")),
+        pageDock: dimension(document.querySelector(".page-context-dock")),
+        graphInspector: dimension(document.querySelector(".event-graph-inspector")),
+        globalTianyi: dimension(document.querySelector(".tianyi-sidebar"))
+      },
       giantTitleVisible: Boolean(title && getComputedStyle(title).display !== "none" && title.getBoundingClientRect().height > 0),
       pageToolsVisible: Boolean(pageTools && getComputedStyle(pageTools).display !== "none")
     };
@@ -1822,9 +2647,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
   assert.equal(await projectDirectory.isHidden(), true, "Closing the secondary directory must release workspace width.");
   if (output) {
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
-    await page.locator(".tianyi-sidebar").getByRole("tab", { name: "对话", exact: true }).click();
-    await capture("Q-1440x900-dialogue-only.png");
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+    await page.locator(".tianyi-sidebar").getByRole("tab", { name: "工作", exact: true }).click();
+    await capture("Q-1440x900-work-lane-only.png");
     await closeGlobalTianyiIfOpen(page);
   }
   const postDirectoryState = { url: page.url(), storyWorkspace: await page.getByTestId("story-progression-workspace").count(), body: (await page.locator("body").innerText()).slice(0, 500) };
@@ -1940,15 +2765,15 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Technical receipts must be closed by default in candidate overview.");
   await capture("M-1440x900-multi-path-overview.png");
   const readyRunId = await panel.getAttribute("data-run-id");
-  await tianyiSidebar.getByRole("tab", { name: "对话", exact: true }).click();
-  await tianyiSidebar.getByText("Agent 任务在后台保留", { exact: true }).waitFor();
-  assert.equal(await tianyiSidebar.getByText("当前对话不会操纵任务；切回 Agent 可查看原有进度。", { exact: true }).count(), 1, "Dialogue must explain that it does not control the retained Agent task.");
-  assert.equal(await tianyiSidebar.getAttribute("data-tianyi-mode"), "dialogue", "The author may leave a ready Agent Run for ordinary dialogue.");
-  assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel").count(), 0, "Dialogue must not expose prediction controls, ContextPack, candidates or adoption.");
-  assert.equal(await tianyiSidebar.locator(".tianyi-dialogue-panel").getAttribute("data-dialogue-agent-controls"), "absent", "Dialogue must explicitly exclude Agent controls.");
+  await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
+  await tianyiSidebar.getByText("页面 Agent Run 在后台保留", { exact: true }).waitFor();
+  assert.equal(await tianyiSidebar.getByText("Work lane 不操纵该 Run；切回 Agent 可查看页面范围内的进度。", { exact: true }).count(), 1, "Work must explain that it does not control the retained Page Agent Run.");
+  assert.equal(await tianyiSidebar.getAttribute("data-tianyi-mode"), "work", "The author may leave a ready Page Agent Run for the shared Work lane.");
+  assert.equal(await tianyiSidebar.locator(".tianyi-prediction-panel").count(), 0, "Work must not expose Page Agent prediction controls or ContextPack execution.");
+  assert.equal(await tianyiSidebar.getByLabel("天意工作泳道").getAttribute("data-page-agent-dispatch"), "forbidden", "Work must explicitly exclude Page Agent dispatch.");
   await tianyiSidebar.locator(".tianyi-dialogue-composer textarea").fill("推演下一段故事");
-  assert.equal(await tianyiSidebar.getByRole("button", { name: "转到 Agent 模式", exact: true }).count(), 1, "Execution-like dialogue intent must offer an explicit Agent handoff without auto-running.");
-  await capture("F-1440x900-agent-background-retained-dialogue.png");
+  assert.equal(await tianyiSidebar.getByRole("button", { name: "转到 Agent", exact: true }).count(), 1, "Execution-like Work intent must offer an explicit Page Agent handoff without auto-running.");
+  await capture("F-1440x900-agent-background-retained-work.png");
   await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await page.getByLabel("多节点推演").waitFor();
   await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
@@ -1969,6 +2794,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await page.locator(".agent-gate-mark").count() >= 1, true, "Gate nodes need a dedicated gate mark.");
   assert.equal(await page.locator(".agent-result-mark").count() >= 1, true, "Result nodes need a dedicated result mark.");
   await capture("C-1440x900-agent-execution-process-tool-gate-result.png");
+  await tianyiSidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-panel-toggle")), "tianyi-agent", "Closing the focused-layout Agent overlay must restore trigger focus before interacting with the main workspace.");
   await page.getByRole("button", { name: "查看当前", exact: true }).click();
   await page.waitForTimeout(220);
   const currentExecutionFocus = await page.evaluate(() => {
@@ -1979,6 +2807,13 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     return { resultVisible: visible(result), reviewVisible: visible(review) };
   });
   assert.deepEqual(currentExecutionFocus, { resultVisible: true, reviewVisible: true }, `View Current must directly locate Result and Human Review=${JSON.stringify(currentExecutionFocus)}`);
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
+  if (await panel.locator(".tianyi-prediction-technical-details").getAttribute("open") === null) {
+    await panel.getByText("技术回执与历史", { exact: true }).click();
+  }
+  await panel.getByRole("button", { name: "查看执行图", exact: true }).click();
+  await page.getByLabel("Agent 执行过程").waitFor();
   await capture("C2-1440x900-agent-execution-gate-result.png");
 
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -2008,7 +2843,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(180);
 
+  await tianyiSidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-panel-toggle="tianyi-agent"]')?.getAttribute("aria-pressed") === "false");
   await page.getByRole("button", { name: "返回事件图", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  await page.waitForFunction((runId) => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-run-id") === runId, readyRunId);
   await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
   assert.equal(await page.getByLabel("单元目录").isHidden(), true, "Path focus must keep the Unit directory temporarily collapsed.");
   assert.equal(await panel.locator(".tianyi-prediction-technical-details").getAttribute("open"), null, "Switching paths must close technical receipts.");
@@ -2021,6 +2860,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.deepEqual(conflictCanon.data.eventIds, canonBefore.data.eventIds, "Previewing a time-conflict path must not write Canon.");
   assert.equal(conflictLibrary.data.objects.filter((item) => item.type === "event" && item.status === "draft").length, draftCountBefore, "Previewing a time-conflict path must not create a draft Event.");
   await capture("I-1440x900-time-conflict-blocked-no-write.png");
+  if (await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).count() === 0) {
+    assert.equal(await panel.getAttribute("data-prediction-view"), "overview", "A freshly remounted Agent may finish its local history recovery only by returning the retained Run to its overview.");
+    await panel.locator('[data-path-id="prediction-path.conflict"] button').press("Enter");
+    await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).waitFor();
+  }
   await panel.getByRole("button", { name: "返回修正推演要求", exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.matches(".tianyi-prediction-goal textarea"));
   assert.equal(await panel.locator(".tianyi-prediction-goal textarea").evaluate((element) => document.activeElement === element), true, "The conflict correction route must restore focus to the authored request.");
@@ -2083,7 +2927,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(relationsAfter.data.relations.filter((relation) => relation.relationTypeId === "relation-type.unresolved" && relation.reviewState === "candidate").length, 1, "An unmatched AI edge must remain visibly unresolved rather than inventing a formal RelationType.");
   const unresolvedPredictionRelationId = relationsAfter.data.relations.find((relation) => relation.relationTypeId === "relation-type.unresolved" && relation.reviewState === "candidate")?.relationId;
   assert.ok(unresolvedPredictionRelationId, "The browser flow must retain the automatic unresolved Relation identity for author review.");
-  assert.equal(await panel.getByText(/自动生成待确认关系/).count() >= 1, true, "The acceptance receipt must disclose automatic pending relations.");
+  const postAdoptionPanelText = await panel.innerText();
+  assert.equal(postAdoptionPanelText.includes("自动生成待确认关系"), true, `The acceptance receipt must disclose automatic pending relations: ${JSON.stringify(postAdoptionPanelText)}`);
   assert.deepEqual(canonAfter.data.eventIds, canonBefore.data.eventIds, "Prediction acceptance must not change Canon.");
   await capture("D-1440x900-draft-created.png");
 
@@ -2218,13 +3063,13 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   const actionsReachable = await form.locator("footer button").evaluateAll((buttons) => buttons.every((button) => { const rect = button.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= window.innerHeight && rect.width > 0; }));
   assert.equal(actionsReachable, true, "1152 create actions must remain reachable.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-event-create-actions.png"), fullPage: true });
-  await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
   assert.equal(await page.locator(".tianyi-sidebar").count(), 1, "Only one Tianyi work Dock may be mounted.");
-  assert.equal(await page.locator("[data-dialogue-session-id][data-agent-session-id]").count(), 1, "The single Dock must retain independent Dialogue and Agent session identities.");
-  assert.equal(await page.locator("[data-shared-session-id]").count(), 0, "The two modes must not claim a shared session identity.");
+  assert.equal(await page.locator(".tianyi-sidebar[data-work-lane='shared'][data-page-agent-session-owner='none']").count(), 1, "The single Dock must reuse the Tianyi Work lane while Page Agent owns no session.");
+  assert.equal(await page.locator(".tianyi-sidebar [role='tab']").filter({ hasText: "工作" }).count(), 1, "The sidebar names its conversation surface Work.");
   if (output) await page.screenshot({ path: path.join(output, "1152x720-tianyi-open.png"), fullPage: true });
-  await page.getByRole("button", { name: "关闭全局天意", exact: true }).first().click();
+  await page.getByRole("button", { name: "关闭天意助手", exact: true }).first().click();
   await visibleStoryEvent.click();
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "EVENT_DETAILS");
   const typeState = await getFixture(`${apiUrl}/__local/story-studio/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -2240,6 +3085,294 @@ async function assertRightWorkSurfaceStateMachine(page, consoleProblems) {
   await page.locator(".event-graph-flow").click({ position: { x: 12, y: 12 } });
   assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "NONE", "Pane clear returns the state machine to NONE.");
   assert.deepEqual(consoleProblems, [], "Right surface interactions must not add browser console errors.");
+}
+
+async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
+  const providerRequests = [];
+  const observeProvider = (request) => {
+    if (/\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observeProvider);
+  const capture = async (name) => {
+    if (!shellFocusR22AEvidenceDirectory) return;
+    mkdirSync(shellFocusR22AEvidenceDirectory, { recursive: true });
+    await page.waitForFunction(async () => {
+      const shell = document.querySelector(".tianyan-r0-shell");
+      if (!shell) return false;
+      const finiteMotion = shell.getAnimations({ subtree: true }).some((animation) => {
+        const timing = animation.effect?.getComputedTiming();
+        return animation.playState === "running" && timing?.iterations !== Infinity;
+      });
+      if (finiteMotion) return false;
+      const snapshot = () => [".shell-workspace", ".project-directory-panel", ".dock-panel-stack", ".dock-tool-rail"].map((selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width, rect.height].map((value) => Math.round(value * 10) / 10);
+      });
+      const before = JSON.stringify(snapshot());
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return before === JSON.stringify(snapshot());
+    });
+    await page.screenshot({ path: path.join(shellFocusR22AEvidenceDirectory, name), fullPage: false });
+    await page.waitForTimeout(5_500);
+  };
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN`);
+  const workspace = page.getByLabel("天意统一会话");
+  await workspace.waitFor();
+  assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
+  assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
+  assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
+  assert.equal(await page.getByRole("button", { name: "整理成三个候选", exact: true }).count(), 1);
+  await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
+  await page.getByRole("button", { name: "附件", exact: true }).click();
+  await capture("01-1195x720-TIANYI-creative-mode.png");
+  await page.getByRole("tab", { name: "工作模式", exact: true }).click();
+  assert.equal(await page.getByRole("heading", { name: "选择一个候选继续" }).count(), 1);
+  assert.equal(await page.getByLabel("工作模式草稿").getAttribute("placeholder"), "继续完善当前候选，准备进入影响预览……");
+  assert.equal(await page.getByRole("button", { name: "继续完善候选", exact: true }).count(), 1);
+  await page.getByLabel("工作模式草稿").fill("只属于工作泳道的草稿");
+  await page.getByLabel("工作范围").selectOption("selected-events");
+  await capture("02-1195x720-TIANYI-work-mode.png");
+  await page.getByRole("tab", { name: "创意模式", exact: true }).click();
+  assert.equal(await page.getByLabel("创意模式草稿").inputValue(), "这个草稿必须在 Shell 面板切换后继续保留。");
+  await page.getByRole("tab", { name: "工作模式", exact: true }).click();
+  assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
+  assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
+  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 1, "Shared attachments must remain visible across lanes.");
+  const before = await shellGeometry(page);
+  assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
+  await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+  const afterDirectoryClose = await shellGeometry(page);
+  assert.ok(afterDirectoryClose.main.width >= 560, `Closing DirectoryPane must not collapse MainWorkspace=${JSON.stringify(afterDirectoryClose)}`);
+  assert.equal(afterDirectoryClose.scrollWidth, afterDirectoryClose.clientWidth, `Shell must not overflow horizontally=${JSON.stringify(afterDirectoryClose)}`);
+  await page.getByRole("button", { name: "页面工具", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "读者鉴赏", exact: true }).count(), 0, "Unavailable tools must not appear in the compact launcher.");
+  await page.getByRole("button", { name: "工程日志", exact: true }).click();
+  let dockGeometry = await shellGeometry(page);
+  assert.equal(dockGeometry.directoryOpen, "false", "Directory and ContextDock must be mutually exclusive in focused layout.");
+  assert.equal(dockGeometry.dockPanelCount, "1");
+  assert.equal(dockGeometry.activeDockTool, "engineering-log");
+  assert.ok(dockGeometry.main.width >= 840, `ContextDock overlay must preserve a readable workspace=${JSON.stringify(dockGeometry)}`);
+  await capture("03-1195x720-CONTEXT-DOCK-engineering-log.png");
+  await page.getByRole("button", { name: "页面工具", exact: true }).click();
+  await page.getByRole("button", { name: "专家分析", exact: true }).click();
+  dockGeometry = await shellGeometry(page);
+  assert.equal(dockGeometry.dockPanelCount, "1", "Switching tools must replace rather than append.");
+  assert.equal(dockGeometry.activeDockTool, "expert-analysis");
+  const closeExpert = page.getByRole("button", { name: "关闭 专家分析", exact: true });
+  await closeExpert.press("Escape");
+  assert.equal((await shellGeometry(page)).dockPanelCount, "0");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "页面工具");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "页面工具", "Esc must return focus to the launcher.");
+  await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  assert.equal((await shellGeometry(page)).directoryOpen, "true");
+  await page.waitForFunction(() => {
+    const directory = document.querySelector(".project-directory-panel");
+    const workspace = document.querySelector(".shell-workspace");
+    if (!directory || !workspace) return false;
+    const directoryRect = directory.getBoundingClientRect();
+    const workspaceRect = workspace.getBoundingClientRect();
+    const hit = document.elementFromPoint(directoryRect.left + Math.min(68, directoryRect.width / 2), directoryRect.top + Math.min(180, directoryRect.height / 2));
+    return directoryRect.width >= 200 && workspaceRect.left >= directoryRect.right - 1 && Boolean(hit && directory.contains(hit));
+  });
+  await capture("04-1195x720-DIRECTORY-dock-mutual-exclusion.png");
+
+  for (const [width, height] of [[1195, 720], [1280, 800], [1440, 900], [1600, 900]]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(40);
+    const geometry = await shellGeometry(page);
+    assert.ok(geometry.main && geometry.main.width > 0 && geometry.main.height > 0, `MainWorkspace must remain mounted at ${width}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scrollWidth <= geometry.clientWidth && geometry.bodyScrollWidth <= geometry.bodyClientWidth, `No body overflow at ${width}=${JSON.stringify(geometry)}`);
+    if (width === 1600) await capture("05-1600x900-TIANYI-stable-wide.png");
+  }
+
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await page.getByRole("button", { name: "更多全局状态", exact: true }).click();
+  await page.locator("#shell-topbar-overflow-menu button").first().click();
+  await page.getByLabel("Unified Tianyi conversation").waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en-US");
+  assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await page.getByLabel("Work draft").inputValue(), "只属于工作泳道的草稿", "Locale change must retain user content and lane draft.");
+  assert.equal(await page.getByLabel("Work scope").inputValue(), "selected-events");
+  assert.equal(await page.getByRole("heading", { name: "Choose a candidate to continue" }).count(), 1);
+  assert.equal(await page.getByLabel("Work draft").getAttribute("placeholder"), "Refine the current candidate and prepare its impact preview…");
+  await capture("06-1195x720-TIANYI-complete-English.png");
+  await reloadProduct(page);
+  assert.equal(await page.evaluate(() => document.documentElement.lang), "en-US", "Locale must survive refresh.");
+  assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true", "Lane must survive refresh.");
+  await capture("07-1195x720-TIANYI-English-refresh-restored.png");
+
+  await gotoProduct(page, `${baseUrl}/event-line?eventTask=story&locale=zh-CN`);
+  await page.locator(".event-line-workbench").waitFor();
+  const eventUrl = page.url();
+  const mainBeforeAgent = await page.locator(".shell-workspace-event-line").count();
+  await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+  assert.equal(await page.getByTestId("tianyan-r0-shell").getAttribute("data-right-work-surface"), "TIANYI");
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 1);
+  assert.equal(await page.locator(".shell-workspace-event-line").count(), mainBeforeAgent, "Opening Agent must not unmount the event workspace.");
+  assert.equal(page.url(), eventUrl, "Opening Agent must preserve pathname and query state.");
+  const eventPageTool = page.locator(".page-context-dock-rail").getByRole("button", { name: "因果", exact: true });
+  assert.ok(await eventPageTool.boundingBox(), "Opening Tianyi must keep the Event page-tool rail visible.");
+  assert.equal(await eventPageTool.evaluate((button) => {
+    const bounds = button.getBoundingClientRect();
+    return document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)?.closest("button") === button;
+  }), true, "The Event page-tool rail must remain clickable above the Tianyi overlay.");
+  await capture("08-1195x720-EVENT-LINE-context-Tianyi-Agent.png");
+  await eventPageTool.click();
+  await page.locator(".page-context-dock-panel").waitFor();
+  assert.equal(await page.locator(".tianyi-sidebar").count(), 0, "A page tool replaces Tianyi instead of stacking another right-side surface.");
+  await page.locator(".page-context-dock-panel > header button").click();
+  await page.locator('[data-panel-toggle="tianyi-agent"]').click();
+  await page.locator(".tianyi-sidebar").getByRole("button", { name: "关闭天意助手", exact: true }).click();
+  assert.equal(page.url(), eventUrl);
+  await page.waitForFunction(() => document.activeElement?.getAttribute("data-panel-toggle") === "tianyi-agent");
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-panel-toggle")), "tianyi-agent", "Closing Agent must restore the trigger focus.");
+  page.off("request", observeProvider);
+  assert.deepEqual(providerRequests, [], `Shell checks must make zero Provider calls: ${providerRequests.join(", ")}`);
+  assert.deepEqual(consoleProblems, [], "Shell focus interactions must not add browser console errors.");
+}
+
+async function shellGeometry(page) {
+  return page.evaluate(() => {
+    const measure = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom, display: style.display, visibility: style.visibility };
+    };
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return {
+      pathname: window.location.pathname,
+      query: window.location.search,
+      directoryOpen: shell?.getAttribute("data-directory-visible") ?? null,
+      activeDockTool: shell?.getAttribute("data-active-dock-tool") ?? null,
+      dockPanelCount: shell?.getAttribute("data-dock-panel-count") ?? null,
+      main: measure('[aria-label="天意统一会话"]'),
+      directory: measure(".project-directory-panel"),
+      dock: measure(".dock-panel-stack"),
+      toolRail: measure(".dock-tool-rail"),
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      bodyClientWidth: document.body.clientWidth,
+      bodyScrollWidth: document.body.scrollWidth,
+      activeElement: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, label: document.activeElement.getAttribute("aria-label"), text: document.activeElement.innerText.slice(0, 80) } : null
+    };
+  });
+}
+
+async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
+  const providerRequests = [];
+  const observeProvider = (request) => {
+    if (/story-modeling\/(?:plan|runs|execute)|\/__local\/story-studio\/provider|\/api\/provider/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observeProvider);
+  const capture = async (name) => {
+    if (!tianyiGoldenLoopEvidenceDirectory) return;
+    mkdirSync(tianyiGoldenLoopEvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(tianyiGoldenLoopEvidenceDirectory, name), fullPage: false });
+    await page.waitForTimeout(4_500);
+  };
+  try {
+    await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+    await gotoProduct(page, `${baseUrl}/tianyi?testFixture=legacy-three-candidates`);
+    await page.getByLabel("天意统一会话").waitFor();
+    assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
+    await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
+    await page.getByRole("button", { name: "附件", exact: true }).click();
+    await page.getByRole("button", { name: "来源", exact: true }).click();
+    await capture("01-1440x900-TIANYI-creative-author-intent.png");
+    await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
+    await page.locator(".tianyi-candidate-grid article").first().waitFor();
+    assert.equal(await page.locator(".tianyi-candidate-grid article").count(), 3, "Creative lane must form exactly three deterministic candidates.");
+    const conversationId = await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id");
+    assert.ok(conversationId && conversationId !== "not-started");
+    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await capture("02-1440x900-TIANYI-three-candidates.png");
+
+    const candidates = page.locator(".tianyi-candidate-grid article");
+    await candidates.nth(0).getByRole("button", { name: "保留可能性", exact: true }).click();
+    await candidates.nth(0).getByText("已保留可能性", { exact: true }).waitFor();
+    await candidates.nth(1).getByRole("button", { name: /进入工作模式/u }).click();
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
+    await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
+    assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
+    assert.match(await page.getByLabel("当前视图").textContent(), /3 个候选/u);
+    await page.getByLabel("工作范围").selectOption("selected-events");
+    await page.getByLabel("工作模式草稿").fill("只调整钥匙交接事件，不改变 Canon 或其他故事事实。");
+    await capture("03-1440x900-TIANYI-shared-work-lane.png");
+
+    await page.getByRole("button", { name: "打开结构化影响预览", exact: true }).click();
+    const adoption = page.getByTestId("tianyi-adoption-panel");
+    await adoption.locator(".tianyi-structured-diff").waitFor();
+    assert.equal(await adoption.getByRole("button", { name: "采纳", exact: true }).isEnabled(), true, "Impact review must enable the single author adoption action.");
+    assert.match(await adoption.textContent(), /基础版本.*范围.*变化.*证据.*风险/su);
+    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await capture("04-1440x900-TIANYI-structured-impact.png");
+    await adoption.getByRole("button", { name: /在事件线中打开/u }).click();
+
+    await page.getByLabel("天意候选轨迹").waitFor();
+    assert.match(page.url(), /tianyiSession=.*tianyiCandidate=/u);
+    await page.getByLabel("作者调整（保留在当前工作区）").fill("保留原始证据引用，只收窄变化范围。");
+    await capture("05-1440x900-EVENT-LINE-candidate-trajectory.png");
+
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
+    const sidebar = page.locator(".tianyi-sidebar");
+    await sidebar.waitFor();
+    assert.equal(await sidebar.getAttribute("data-tianyi-conversation-id"), conversationId, "The Event Line Work surface must reuse the same Work lane.");
+    assert.equal(await sidebar.getAttribute("data-page-agent-session-owner"), "none", "A Page Agent must not own an independent session.");
+    assert.equal(await sidebar.getAttribute("data-work-lane"), "shared");
+    assert.equal(await sidebar.getByRole("tab", { name: "工作", exact: true }).count(), 1);
+    assert.equal(await sidebar.getByRole("tab", { name: "Agent", exact: true }).count(), 1);
+    await sidebar.getByRole("tab", { name: "Agent", exact: true }).click();
+    assert.match(await sidebar.textContent(), /当前页面.*事件线/su);
+    await capture("06-1440x900-EVENT-LINE-page-agent-scoped.png");
+    await sidebar.getByRole("button", { name: "关闭天意助手", exact: true }).click();
+
+    const eventLineAdoption = page.getByLabel("天意候选轨迹").getByTestId("tianyi-adoption-panel");
+    await eventLineAdoption.getByRole("button", { name: "采纳", exact: true }).click();
+    await eventLineAdoption.getByText("采纳已生效", { exact: true }).waitFor();
+    const activeReceiptText = await eventLineAdoption.textContent();
+    assert.match(activeReceiptText, /基础版本.*结果版本.*查看变化.*撤销（创建补偿版本）/su);
+    await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
+    await capture("07-1440x900-EVENT-LINE-adoption-receipt.png");
+    await eventLineAdoption.getByRole("button", { name: "撤销（创建补偿版本）", exact: true }).click();
+    await eventLineAdoption.getByText("采纳已通过补偿版本撤销", { exact: true }).waitFor();
+    assert.match(await eventLineAdoption.textContent(), /原事件与历史回执仍保留/u);
+    await page.locator(".tianyi-event-line-golden-loop").evaluate((element) => { element.scrollTop = 0; });
+    await capture("08-1440x900-EVENT-LINE-compensation-version.png");
+
+    await page.getByLabel("天意候选轨迹").getByRole("button", { name: "返回创作工作区", exact: true }).click();
+    await page.waitForURL((value) => value.pathname === "/tianyi" && value.searchParams.get("tianyiLane") === "work");
+    await page.waitForFunction(() => document.querySelector("[aria-label='天意统一会话']")?.getAttribute("data-active-lane") === "work");
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "保留原始证据引用，只收窄变化范围。", "Returning from Event Line must restore the same Work draft.");
+    assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events", "Returning from Event Line must restore the same Work scope.");
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await page.getByLabel("天意候选轨迹").waitFor();
+
+    await reloadProduct(page);
+    const reloadedTrajectory = page.getByLabel("天意候选轨迹");
+    await reloadedTrajectory.waitFor();
+    await reloadedTrajectory.getByText("采纳已通过补偿版本撤销", { exact: true }).waitFor();
+    const pending = page.getByTestId("narrative-staging");
+    const allPending = await pending.locator("[data-event-id]").evaluateAll((nodes) => nodes.map((node) => ({ title: node.textContent?.trim() ?? "", status: node.getAttribute("data-event-status"), id: node.getAttribute("data-event-id") })));
+    const pendingMatches = allPending.filter((item) => item.title.startsWith("方向二：规则失效"));
+    assert.equal(pendingMatches.length, 1, `The adopted Event must remain visibly reachable in the pending-arrangement region after reload: ${JSON.stringify(allPending)}`);
+    assert.equal(pendingMatches[0].status, "committed", `The adopted Event must retain its author-confirmed state after reload: ${JSON.stringify(pendingMatches)}`);
+    await reloadedTrajectory.getByRole("button", { name: "返回创作工作区", exact: true }).click();
+    await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
+    assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId);
+    await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
+    assert.deepEqual(providerRequests, [], "The deterministic Tianyi golden loop must make zero Provider calls.");
+    assert.deepEqual(consoleProblems, [], "The Tianyi golden loop must not add browser console warnings or errors.");
+  } finally {
+    page.off("request", observeProvider);
+  }
 }
 
 async function captureEventGraphEvidence(page, consoleProblems) {
@@ -2354,8 +3487,19 @@ async function assertAuthorEventCreation(page, consoleProblems) {
   const verifiedAfter = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(verifiedAfter.data.eventIds, verifiedBefore.data.eventIds, "Saving drafts must not change verified Canon events.");
   await reloadProduct(page);
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
   if (await eventViewButton(page, "故事脊柱").count()) await eventViewButton(page, "故事脊柱").click();
   assert.equal(await page.getByText("手动事件 A", { exact: true }).count() > 0, true, "The draft Event must survive reload in the story spine.");
+  const libraryRestored = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const restoredA = libraryRestored.data.objects.find((item) => item.id === drafts.find((item) => item.title === "手动事件 A").id);
+  assert.deepEqual(restoredA && { id: restoredA.id, title: restoredA.title, status: restoredA.status, revisionToken: restoredA.revisionToken }, { id: drafts.find((item) => item.title === "手动事件 A").id, title: "手动事件 A", status: "draft", revisionToken: drafts.find((item) => item.title === "手动事件 A").revisionToken }, "Reload must preserve the draft Event identity, title, status and revision token.");
+  const collapsedDraft = page.getByTestId("narrative-staging").locator(`[data-event-id="${restoredA.id}"]`);
+  assert.equal(await collapsedDraft.getAttribute("data-event-status"), "draft", "The collapsed staging summary must expose draft status without relying on color.");
+  assert.equal(await collapsedDraft.getAttribute("data-revision-token"), restoredA.revisionToken, "The collapsed staging summary must expose the restored revision identity.");
+  await collapsedDraft.getByRole("button", { name: "打开待编排事件：手动事件 A", exact: true }).click();
+  const expandedDraft = page.getByTestId("narrative-staging").locator(`.unplaced-event-tray [data-event-id="${restoredA.id}"]`);
+  await expandedDraft.getByText("状态：作者草稿", { exact: false }).waitFor();
+  assert.equal(await expandedDraft.getByRole("button", { name: "打开事件", exact: true }).count(), 1, "Expanded staging must expose a real Event open action.");
   await switchEventView(page, "关系图");
   await page.getByLabel("事件关系工作区").waitFor();
   assert.equal(await page.locator(".event-graph-node").filter({ hasText: "手动事件 B" }).count() > 0, true, "The same draft Event must project into the relation graph.");
@@ -2619,7 +3763,7 @@ async function recordR10Closeout() {
       await page.getByTestId("story-modeling-confirmation").getByRole("button", { name: "确认运行一次", exact: true }).click();
     }
     await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'));
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     const dockWidth = await page.locator(".tianyi-sidebar").evaluate((element) => Math.round(element.getBoundingClientRect().width));
     assert.equal(dockWidth, 348);
@@ -2767,7 +3911,7 @@ async function recordR9Evidence() {
     await switchEventView(page, "时间轴");
     const timeline = page.getByLabel("独立时间线工作区");
     await timeline.waitFor();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await timeline.getByRole("button", { name: "时间总览", exact: true }).click();
     await pause(page, 350);
@@ -2912,7 +4056,7 @@ async function recordR8Foundation() {
     const aiTools = page.getByRole("button", { name: /AI 工具/u }).last();
     await aiTools.click();
     await page.getByRole("button", { name: /AI 工具/u }).last().click();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "R8 1152 workspace must not create page-level horizontal overflow.");
     await shot(page, "08-1152-timeline-tianyi-348.png");
@@ -3026,7 +4170,7 @@ async function recordR7Interaction() {
     await closeDirectory.click();
     await switchEventView(page, "关系图");
     await page.getByLabel("事件关系工作区").waitFor();
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await pause(page);
     await closeGlobalTianyiIfOpen(page);
@@ -3120,7 +4264,7 @@ async function recordR6Closeout() {
     await switchEventView(page, "时间轴");
     await page.getByLabel("时间标尺").waitFor();
     await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
-    await page.getByRole("button", { name: "打开全局天意", exact: true }).click();
+    await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
     await page.waitForFunction(() => Math.round(document.querySelector(".tianyi-sidebar")?.getBoundingClientRect().width ?? 0) === 348);
     await page.waitForTimeout(500);
     const dockWidth = await page.locator(".tianyi-sidebar").evaluate((element) => Math.round(element.getBoundingClientRect().width));

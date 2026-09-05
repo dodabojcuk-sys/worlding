@@ -9,11 +9,13 @@ export const AGENT_RUNTIME_HOST_API_VERSION = "1.0.0" as const;
 
 export type AgentRuntimeCapability = "text-stream" | "native-tool-frames" | "cancel" | "resume" | "author-approval";
 export type AgentRuntimeStreamEvent =
+  | { type: "response-metadata"; responseModelId: string; sequence: number; recordedAt: string }
   | { type: "text-delta"; delta: string; sequence: number; recordedAt: string }
   | { type: "tool-call-start"; toolCallId: string; toolName: string; sequence: number; recordedAt: string }
   | { type: "tool-call-end"; toolCallId: string; toolName: string; isError: boolean; sequence: number; recordedAt: string };
 export type AgentRuntimeUsage = { promptTokens: number; completionTokens: number; totalTokens: number };
 export type AgentRuntimeProviderEvent =
+  | { type: "response-metadata"; responseModelId: string }
   | { type: "chunk"; text: string; finishReason: string | null; usage: AgentRuntimeUsage | null }
   | { type: "tool-call-start"; id: string; name: string; index: number }
   | { type: "tool-call-delta"; id: string; name: string; index: number; argumentsDelta: string }
@@ -47,11 +49,12 @@ export type AgentRuntimeRequest = {
   retry: boolean;
   signal?: AbortSignal;
   tools?: readonly AgentRuntimeTool[];
+  requiredToolName?: string | null;
   authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>;
-  openProviderStream(input: { messages: AgentRuntimeGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<AgentRuntimeProviderStream>;
+  openProviderStream(input: { messages: AgentRuntimeGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<AgentRuntimeProviderStream>;
   onEvent?(event: AgentRuntimeStreamEvent): Promise<void> | void;
 };
-export type AgentRuntimeResult = { text: string; providerCalls: number; traceId: string | null; usage: AgentRuntimeUsage; latencyMs: number };
+export type AgentRuntimeResult = { text: string; providerCalls: number; traceId: string | null; responseModelId: string | null; usage: AgentRuntimeUsage | null; latencyMs: number };
 export type AgentRuntimeErrorCode = "cancelled" | "provider-unavailable" | "provider-failed" | "tool-denied" | "tool-approval-required" | "invalid-tool-call" | "unknown";
 
 export class AgentRuntimePluginError extends Error {

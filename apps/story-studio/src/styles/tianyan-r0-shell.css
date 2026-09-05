@@ -63,7 +63,20 @@ input:focus-visible {
   color: var(--color-text);
   background: var(--color-app-background);
   transition: grid-template-columns var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+  overflow: hidden;
 }
+
+.tianyan-r0-shell[data-shell-focus-layout="focused"],
+.tianyan-r0-shell[data-shell-focus-layout="narrow"] {
+  --dock-current: 0rem;
+  --tianyi-current: 0rem;
+}
+
+.tianyan-r0-shell[data-shell-focus-layout="narrow"] {
+  --directory-current: 0rem;
+}
+
+.shell-workspace { min-width: 0; grid-area: workspace; }
 
 .tianyan-r0-shell:has(.dock-tool-rail[data-expanded="true"]) {
   --panel-controls-width: var(--panel-controls-expanded-width);
@@ -755,6 +768,12 @@ input:focus-visible {
     grid-template-areas:
       "rail topbar topbar topbar"
       "rail directory workspace tools";
+  }
+}
+
+@media (max-width: 76rem) {
+  .tianyan-r0-shell {
+    --directory-current: 0rem;
   }
 }
 
