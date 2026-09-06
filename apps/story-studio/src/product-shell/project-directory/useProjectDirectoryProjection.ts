@@ -8,6 +8,7 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 export type DirectoryLoadState = { projectId: string | null; projection: ProjectDirectoryProjection | null; pending: PendingReviewAggregation | null; error: boolean; pendingStatus: "idle" | "loading" | "ready" | "failed" };
 const projectionCache = new Map<string, DirectoryLoadState>();
+const emptyCoreRetries = new Map<string, number>();
 type DirectoryCoreRead = {
   library: Awaited<ReturnType<typeof getWorldLibrary>>;
   units: Awaited<ReturnType<typeof listStoryUnits>>;
@@ -54,11 +55,27 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     // project that is again on screen, leaving the directory's loading shell
     // indefinitely.  Only an actual cleanup of this read makes it obsolete.
     let cancelled = false;
+    let emptyCoreRetryTimer: number | null = null;
     const isCurrentProject = () => !cancelled;
     const cached = projectionCache.get(projectId);
     setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: false, pendingStatus: "loading" });
     void readDirectoryCore(projectId).then((core) => {
       if (!isCurrentProject() || core.library.project.id !== projectId) return;
+      // A newly active project can expose the directory while a just-completed
+      // local receipt is becoming visible to the read projection. Never turn
+      // that transient, fully empty snapshot into a durable empty directory.
+      // This is deliberately bounded: genuinely empty projects still render
+      // their empty state after two read-only retries.
+      const emptyCore = core.library.objects.length === 0 && core.units.length === 0;
+      const retries = emptyCoreRetries.get(projectId) ?? 0;
+      if (emptyCore && retries < 2) {
+        emptyCoreRetries.set(projectId, retries + 1);
+        emptyCoreRetryTimer = window.setTimeout(() => {
+          if (isCurrentProject()) setPendingRevision((revision) => revision + 1);
+        }, 150);
+        return;
+      }
+      if (!emptyCore) emptyCoreRetries.delete(projectId);
       const makeState = (input: { workVersionId: string | null; imports: Awaited<ReturnType<typeof listSourceImportReviews>>; review: Awaited<ReturnType<typeof getGoldenLoopCandidateReview>>; relations: Awaited<ReturnType<typeof listRelations>>["relations"]; verifiedEventIds: readonly string[]; proposals: Awaited<ReturnType<typeof listAgentRecognitionProposals>>; storyIntakeRuns: Awaited<ReturnType<typeof getTianyiStoryIntakeRuns>>; pendingStatus: DirectoryLoadState["pendingStatus"]; error?: boolean }): DirectoryLoadState => {
         const pending = buildPendingReviewAggregation({ projectId, workVersionId: input.workVersionId, imports: input.imports, golden: input.review, proposals: input.proposals, relations: input.relations, storyIntakeRuns: input.storyIntakeRuns.map((run) => ({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId, updatedAt: run.updatedAt, storyIntakeEnvelope: run.storyIntakeEnvelope })) });
         return { projectId, projection: createProjectDirectoryViewModel(translate.current, { library: core.library, units: core.units, sources: input.imports, workVersionId: input.workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: input.verifiedEventIds }), pending, error: input.error ?? false, pendingStatus: input.pendingStatus };
@@ -87,7 +104,10 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
         }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
       }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
     }).catch(() => { if (isCurrentProject()) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: true, pendingStatus: "failed" }); });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (emptyCoreRetryTimer !== null) window.clearTimeout(emptyCoreRetryTimer);
+    };
   // Moving deeper in a directory is an explicit author request to inspect the
   // next scope. Re-read the existing projection at that boundary: a startup
   // snapshot may legitimately have been empty before an external local import
