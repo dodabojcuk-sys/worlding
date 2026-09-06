@@ -18,6 +18,7 @@ export function ShellWorkspaceOutlet(props: {
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
+  onOpenPendingReview(): void;
   directoryObjectId: string | null;
 }) {
   const { t } = useI18n();
@@ -41,7 +42,7 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "tianyi") {
-    return <TianyiConversationWorkspace runtime={props.runtime} />;
+    return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} />;
   }
 
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">

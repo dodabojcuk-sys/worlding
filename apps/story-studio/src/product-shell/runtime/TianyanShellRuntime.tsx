@@ -65,7 +65,7 @@ export function TianyanShellRuntime() {
   const [tianyiConversationId, setTianyiConversationId] = useState<string | null>(null);
   const [creativeComposerDraft, setCreativeComposerDraft] = useState("");
   const [workComposerDraft, setWorkComposerDraft] = useState("");
-  const [workScope, setWorkScope] = useState<TianyanShellRuntimeState["workScope"]>("current-unit");
+  const [workScope, setWorkScope] = useState<TianyanShellRuntimeState["workScope"]>("current-story");
   const [activeTianyiCandidateId, setActiveTianyiCandidateId] = useState<string | null>(null);
   const [activePageAgentRunId, setActivePageAgentRunId] = useState<string | null>(null);
   const [pageAgentTaskDraft, setPageAgentTaskDraft] = useState("");

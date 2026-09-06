@@ -1861,17 +1861,23 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   await page.waitForTimeout(320);
   await capture("03-1440-three-focus.png");
 
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1195, height: 800 });
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   await graph.getByRole("button", { name: "全书位置", exact: true }).click();
   await page.waitForTimeout(320);
   await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
   await page.locator(".page-context-dock-panel").waitFor();
   await page.waitForTimeout(220);
-  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "Opening details at 1280px collapses the project directory first.");
-  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 360, "The graph retains usable context beside the 1280px details Dock.");
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "true", "Opening details at 1195px preserves the author’s open project directory.");
+  const directoryBox = await page.locator(".project-directory-panel").boundingBox();
+  const flowBox = await graph.locator(".formal-narrative-flow").boundingBox();
+  assert.ok(directoryBox && flowBox, "The directory and narrative canvas must both be measurable at 1195px.");
+  assert.ok(flowBox.width >= 360, "The graph retains usable context beside the 1195px details Dock.");
+  assert.ok(directoryBox.x + directoryBox.width <= flowBox.x || flowBox.x + flowBox.width <= directoryBox.x, "The preserved directory must not cover the narrative canvas at 1195px.");
   assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  await capture("07-1280-detail.png");
+  await capture("07-1195-directory-and-detail.png");
   await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");

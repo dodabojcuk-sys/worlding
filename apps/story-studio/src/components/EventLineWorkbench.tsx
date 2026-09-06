@@ -637,19 +637,11 @@ export function EventLineWorkbench(props: {
     return () => window.cancelAnimationFrame(frame);
   }, [dockState]);
 
-  // Preserve the directory while it is an inline companion. Once its own 76rem
-  // breakpoint turns it into a drawer, the page inspector must take the space:
-  // otherwise the drawer masks the EventLine canvas and its selected event.
-  // This replaces the old, overly broad 80rem rule with the actual overlay
-  // breakpoint, so 1217–1280px no longer closes a docked directory needlessly.
-  const shouldCloseDirectoryForPageInspector = () => window.matchMedia("(max-width: 76rem)").matches;
   const openEvent = (eventId: string) => {
-    if (shouldCloseDirectoryForPageInspector()) window.dispatchEvent(new Event("story-studio-close-project-directory"));
     setSelectedEventId(eventId);
     requestDockState({ open: true, activeLens: "detail" }, eventId);
   };
   const openCausalEvent = (eventId: string) => {
-    if (shouldCloseDirectoryForPageInspector()) window.dispatchEvent(new Event("story-studio-close-project-directory"));
     if (selectedEventId && selectedEventId !== eventId) setCausalHistory((current) => [...current, selectedEventId]);
     setSelectedEventId(eventId);
     requestDockState({ open: true, activeLens: "relations" }, eventId);
@@ -683,7 +675,6 @@ export function EventLineWorkbench(props: {
   };
   const beginEventCreate = () => {
     if (!props.onSaveEvent) return;
-    if (shouldCloseDirectoryForPageInspector()) window.dispatchEvent(new Event("story-studio-close-project-directory"));
     setCreationError(null);
     setCreationNotice(null);
     requestDockState({ open: true, activeLens: "create" });
@@ -840,7 +831,6 @@ export function EventLineWorkbench(props: {
     requestDockState({ open: false, activeLens: "detail" });
   };
   const openArrangement = (selection: NarrativeArrangementSelection) => {
-    if (shouldCloseDirectoryForPageInspector()) window.dispatchEvent(new Event("story-studio-close-project-directory"));
     setArrangementSelection(selection);
     setSelectedEventId(selection.eventId);
     requestDockState({ open: true, activeLens: "arrange" }, selection.eventId);

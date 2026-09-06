@@ -11,9 +11,9 @@ test("R4 supersedes R3 dismissal with temporary suppression while preserving aut
   assert.match(shell, /directoryPreferredOpen/u);
   assert.match(shell, /directoryPresented/u);
   assert.doesNotMatch(shell, /rightWorkSurface\.mode !== "NONE" && focusLayout !== "wide"/u);
-  assert.match(workbench, /shouldCloseDirectoryForPageInspector/u);
-  assert.match(workbench, /window\.matchMedia\("\(max-width: 76rem\)"\)/u);
-  assert.match(workbench, /story-studio-restore-project-directory/u);
+  assert.doesNotMatch(workbench, /shouldCloseDirectoryForPageInspector/u);
+  const eventInspectorActions = workbench.match(/const openEvent[\s\S]*?const returnToPreviousCausalEvent/u)?.[0] ?? "";
+  assert.doesNotMatch(eventInspectorActions, /story-studio-close-project-directory/u, "1195px 打开事件检查器不能靠关闭目录腾出画布");
   assert.doesNotMatch(workbench, /const openEvent = \(eventId: string\) => \{\s*if \(window\.matchMedia\("\(max-width: 80rem\)"\)/u);
 });
 

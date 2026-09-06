@@ -81,13 +81,18 @@ test("R2 keeps one task frame across Creative, Review and Work while preserving 
 
 test("R2 exact pending targets recover their requested candidate from the same persisted Envelope", () => {
   assert.match(workspace, /get\("tianyiCandidate"\)/u);
+  assert.match(workspace, /get\("tianyiEnvelope"\)/u);
+  assert.match(workspace, /const runId = requestedRunId \?\? window\.sessionStorage\.getItem/u, "冷启动必须优先用完整 URL 的 run 身份恢复，而不是依赖同页 sessionStorage");
+  assert.match(workspace, /requestedEnvelopeId !== envelope\.envelopeId/u);
   assert.match(workspace, /createActiveStoryIntakeCandidateRef\(envelope, requestedCandidate\.candidateId\)/u);
   assert.match(workspace, /requestedCandidate \? \[requestedCandidate\.candidateId\] : \[\]/u);
 });
 
-test("R2 refresh restores a selected scope into Work even when the transient focus ref is absent", () => {
-  assert.match(workspace, /disabled=\{!activeIntakeRef && !activeLegacyCandidate && selectedIntakeCandidateIds\.length === 0\}/u);
-  assert.match(workspace, /moveIntakeCandidatesToWork\(selectedIntakeCandidateIds\)/u);
+test("R4 lets Work remain available without a transient candidate while preserving Envelope scope recovery", () => {
+  assert.match(workspace, /aria-selected=\{lane === "work"\} onClick=\{\(\) => changeLane\("work"\)\}/u);
+  assert.match(workspace, /data-global-work=\{lane === "work" && !activeIntakeCandidate \? "true" : undefined\}/u);
+  assert.match(workspace, /const moveIntakeCandidatesToWork = \(candidateIds: readonly string\[\]\) =>/u);
+  assert.match(workspace, /onEnterWork=\{moveIntakeCandidatesToWork\}/u);
 });
 
 test("relation dependencies expose candidate inclusion, existing-object binding, locate, and exclusion recovery actions before the scope is recalculated", () => {

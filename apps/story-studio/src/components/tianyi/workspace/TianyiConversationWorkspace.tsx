@@ -11,7 +11,9 @@ import {
   getTianyiCreativeProjection,
   getLatestTianyiStoryIntakeRun,
   getTianyiSessionMetadata,
+  getWorldLibrary,
   handoffTianyiCreativeCandidate,
+  listStoryUnits,
   openTianyiSession,
   recoverTianyiAgentRun,
   startTianyiAgentRun,
@@ -20,8 +22,11 @@ import {
   type StoryIntakeLifecycleStatusProjection,
   type TianyiAgentRunProjection,
   type TianyiCreativeProjection,
-  type TianyiSessionMetadata
+  type TianyiSessionMetadata,
+  type StoryUnit,
+  type WorldObject
 } from "../../../lib/localTransport";
+import { createStoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
@@ -44,7 +49,7 @@ import {
 
 type Lane = "creative" | "review" | "work";
 
-export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState }) {
+export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenPendingReview(): void }) {
   const { runtime } = props;
   const { t } = useI18n();
   const project = runtime.project;
@@ -57,6 +62,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [error, setError] = useState("");
   const [activeIntakeRef, setActiveIntakeRef] = useState<ActiveStoryIntakeCandidateRef | null>(null);
   const [selectedIntakeCandidateIds, setSelectedIntakeCandidateIds] = useState<string[]>([]);
+  const [workContextEvents, setWorkContextEvents] = useState<WorldObject[]>([]);
+  const [workContextUnits, setWorkContextUnits] = useState<StoryUnit[]>([]);
+  const [selectedWorkUnitId, setSelectedWorkUnitId] = useState<string | null>(null);
+  const [selectedWorkEventIds, setSelectedWorkEventIds] = useState<string[]>([]);
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
@@ -71,7 +80,47 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setIntakeStreamText("");
     setActiveIntakeRef(null);
     setSelectedIntakeCandidateIds([]);
+    setWorkContextEvents([]);
+    setWorkContextUnits([]);
+    setSelectedWorkUnitId(null);
+    setSelectedWorkEventIds([]);
     setError("");
+  }, [project?.id]);
+
+  const globalWorkEventRefs = useMemo(() => {
+    if (!project) return [];
+    const currentUnit = workContextUnits.find((unit) => unit.id === selectedWorkUnitId) ?? null;
+    const targetIds = runtime.workScope === "current-story"
+      ? workContextEvents.map((event) => event.id)
+      : runtime.workScope === "current-unit"
+        ? currentUnit?.linkedEntityIds ?? []
+        : selectedWorkEventIds;
+    return workContextEvents
+      .filter((event) => targetIds.includes(event.id))
+      .slice(0, 4)
+      .map((event) => createStoryStudioEventReference({ projectId: project.id, event, requestedUse: "constraint" }));
+  }, [project, runtime.workScope, selectedWorkEventIds, selectedWorkUnitId, workContextEvents, workContextUnits]);
+
+  const globalWorkContextLabel = runtime.workScope === "current-story"
+    ? `当前故事 · ${globalWorkEventRefs.length} 项正式事件`
+    : runtime.workScope === "current-unit"
+      ? `${workContextUnits.find((unit) => unit.id === selectedWorkUnitId)?.title ?? "尚未选择故事单元"} · ${globalWorkEventRefs.length} 项正式事件`
+      : `已选事件 · ${globalWorkEventRefs.length} 项`;
+
+  useEffect(() => {
+    if (!project) return;
+    let active = true;
+    void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id)]).then(([library, units]) => {
+      if (!active) return;
+      const events = library.objects.filter((item) => item.type === "event" && (item.status === "draft" || item.status === "planned" || item.status === "committed")) as WorldObject[];
+      setWorkContextEvents(events);
+      setWorkContextUnits(units);
+      setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
+      setSelectedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)).slice(0, 4));
+    }).catch(() => {
+      if (active) { setWorkContextEvents([]); setWorkContextUnits([]); }
+    });
+    return () => { active = false; };
   }, [project?.id]);
 
   useEffect(() => {
@@ -176,23 +225,42 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const sessionId = runtime.tianyiConversationId;
     if (!sessionId || !project) return;
     let active = true;
-    const runId = window.sessionStorage.getItem(tianyiStoryIntakeRunStorageKey(project.id, workVersionId, sessionId));
+    const requested = new URLSearchParams(window.location.search);
+    const hasExplicitIntakeTarget = Boolean(requested.get("tianyiEnvelope") || requested.get("tianyiCandidate") || requested.get("tianyiRun"));
+    const requestedRunId = requested.get("tianyiRun");
+    const runId = requestedRunId ?? window.sessionStorage.getItem(tianyiStoryIntakeRunStorageKey(project.id, workVersionId, sessionId));
     if (!runId) {
-      if (lane !== "creative") setError("未找到可恢复的候选批次；原文仍保留，请回到创意重新整理。");
+      if (lane === "review" || hasExplicitIntakeTarget) setError("未找到可恢复的候选批次；原文仍保留，请回到创意重新整理。");
       return;
     }
     void runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, runId, token })).then((next) => {
       if (!active) return;
       setIntakeRun(next);
       if (!next?.storyIntakeEnvelope) {
-        if (lane !== "creative") setError("候选批次已丢失或尚未完成；未写入任何内容，请回到创意恢复。");
+        if (lane === "review" || hasExplicitIntakeTarget) setError("候选批次已丢失或尚未完成；未写入任何内容，请回到创意恢复。");
+        return;
+      }
+      const envelope = next.storyIntakeEnvelope;
+      const requestedProjectId = requested.get("pendingProject");
+      const requestedWorkVersionId = requested.get("pendingWorkVersion");
+      const requestedSessionId = requested.get("tianyiSession");
+      const requestedEnvelopeId = requested.get("tianyiEnvelope");
+      if (hasExplicitIntakeTarget && (requestedProjectId !== project.id || requestedWorkVersionId !== workVersionId || requestedSessionId !== sessionId || requestedRunId !== runId || requestedEnvelopeId !== envelope.envelopeId)) {
+        setActiveIntakeRef(null);
+        setSelectedIntakeCandidateIds([]);
+        setError("待确认入口对应的候选批次已变化或无法恢复；没有写入任何内容，请回到待确认重新选择。");
         return;
       }
       setError("");
-      const envelope = next.storyIntakeEnvelope;
       const restoredRef = parseActiveStoryIntakeCandidateRef(window.sessionStorage.getItem(storyIntakeCandidateRefStorageKey(project.id, sessionId)), project.id);
-      const requestedCandidateId = new URLSearchParams(window.location.search).get("tianyiCandidate");
+      const requestedCandidateId = requested.get("tianyiCandidate");
       const requestedCandidate = requestedCandidateId ? envelope.candidates.find((candidate) => candidate.candidateId === requestedCandidateId) : null;
+      if (hasExplicitIntakeTarget && requestedCandidateId && !requestedCandidate) {
+        setActiveIntakeRef(null);
+        setSelectedIntakeCandidateIds([]);
+        setError("待确认入口对应的候选已不存在；没有写入任何内容，请回到待确认重新选择。");
+        return;
+      }
       if (requestedCandidate) {
         const requestedRef = createActiveStoryIntakeCandidateRef(envelope, requestedCandidate.candidateId);
         setActiveIntakeRef(requestedRef);
@@ -208,7 +276,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       } catch { setSelectedIntakeCandidateIds([]); }
     }).catch((cause) => { if (active && lane !== "creative") setError(cause instanceof Error ? cause.message : "候选批次恢复失败。"); });
     return () => { active = false; };
-  }, [project, runtime, runtime.tianyiConversationId, workVersionId]);
+  }, [lane, project, runtime, runtime.tianyiConversationId, workVersionId]);
 
   useEffect(() => {
     const envelope = intakeRun?.storyIntakeEnvelope;
@@ -239,10 +307,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       });
     });
     setIntakeRun(next);
-    if (next.storyIntakeEnvelope) {
-      window.dispatchEvent(new Event("story-studio-pending-review-changed"));
-      changeLane("review");
-    }
+    if (next.storyIntakeEnvelope) window.dispatchEvent(new Event("story-studio-pending-review-changed"));
     intakeAbort.current = null;
   };
 
@@ -289,6 +354,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setBusy(true); setError("");
     try {
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
+      if (conversationLane === "work" && runtime.sharedTianyiReferences.length) throw new Error("已保留的附件或来源尚未绑定到正式对象，不能静默带入 Provider；请从目录或事件线选择可追溯的对象后再发送。");
+      if (conversationLane === "work" && runtime.workScope !== "current-story" && globalWorkEventRefs.length === 0) throw new Error("当前工作范围没有可追溯的正式事件；请选择故事单元或事件后再发送。");
       const sessionId = await ensureConversation();
       const selectedModelId = runtime.modelStatus?.profile.profile?.modelId;
       const profileId = runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
@@ -307,7 +374,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             accessMode: "author",
             subjectRef: null,
             sceneRef: null,
-            explicitRefs: []
+            explicitRefs: [],
+            ...(conversationLane === "work" && globalWorkEventRefs.length ? { eventRefs: globalWorkEventRefs } : {})
           },
           token
         }));
@@ -460,7 +528,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     ? { eyebrow: "连续创作", title: "保留原话，和天意一起展开故事", detail: runtime.tianyiConversationId ? `当前对话已保存 · ${intakeCandidateCount ? `已有 ${intakeCandidateCount} 项候选` : "可随时整理候选"}` : "从一段真实故事内容开始" }
     : lane === "review"
       ? { eyebrow: "候选审阅", title: `连续阅读并处理 ${intakeCandidateCount} 项候选`, detail: t("tianyi.workspace.continuity") }
-      : { eyebrow: "候选工作", title: `编排当前 ${selectedIntakeCandidates.length} 项，再决定是否采纳`, detail: "先看结构化影响；只有明确范围会交给既有 Owner" };
+      : selectedIntakeCandidates.length
+        ? { eyebrow: "候选工作", title: `编排当前 ${selectedIntakeCandidates.length} 项，再决定是否采纳`, detail: "先看结构化影响；只有明确范围会交给既有 Owner" }
+        : { eyebrow: "全局工作", title: "围绕当前故事持续推进", detail: "可讨论、核对范围或添加引用；没有候选也不会关闭工作上下文" };
 
   if (!project) return <main className="shell-workspace tianyi-workspace"><section className="tianyi-workspace-empty"><Sparkles /><h1>{t("space.tianyi")}</h1><p>{t("tianyi.workspace.noProject")}</p></section></main>;
 
@@ -469,9 +539,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           <div><small>作者工作台</small><h1>天意</h1></div>
       <div className="tianyi-lane-switch" role="tablist" aria-label={t("tianyi.workspace.modeLabel")}>
         <button type="button" role="tab" aria-selected={lane === "creative"} onClick={() => changeLane("creative")}><span>{t("tianyi.workspace.creativeMode")}</span><small>展开想法</small></button>
-        <button type="button" role="tab" aria-selected={lane === "review"} disabled={!intakeRun?.storyIntakeEnvelope} onClick={() => changeLane("review")}><span>审阅</span><small>把关取舍</small></button>
-        <button type="button" role="tab" aria-selected={lane === "work"} disabled={!activeIntakeRef && !activeLegacyCandidate && selectedIntakeCandidateIds.length === 0} onClick={() => activeIntakeRef || activeLegacyCandidate ? changeLane("work") : moveIntakeCandidatesToWork(selectedIntakeCandidateIds)}><span>{t("tianyi.workspace.workMode")}</span><small>推进落地</small></button>
+        <button type="button" role="tab" aria-selected={lane === "work"} onClick={() => changeLane("work")}><span>{t("tianyi.workspace.workMode")}</span><small>推进落地</small></button>
       </div>
+      <button type="button" className="tianyi-pending-anchor" onClick={props.onOpenPendingReview}>待确认<span>{intakeCandidateCount ? `${intakeCandidateCount} 项候选` : "查看全部"}</span></button>
       <button type="button" className="tianyi-conversation-anchor" onClick={() => changeLane("creative")} aria-current={lane === "creative" ? "page" : undefined}><History /><span>{lane === "creative" ? "当前长对话" : "返回长对话"}</span><small>草稿与来源保持</small></button>
     </header>
 
@@ -480,7 +550,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       <div className="tianyi-task-status"><span>{project.title}</span><span>{runtime.workVersionLabel ?? "当前主线"}</span>{intakeRun?.storyIntakeEnvelope ? <span>批次已恢复</span> : null}</div>
     </section>
 
-    <div className="tianyi-workspace-body" data-full-work-surface={lane !== "creative"}>
+    <div className="tianyi-workspace-body" data-full-work-surface={lane !== "creative"} data-global-work={lane === "work" && !activeIntakeCandidate ? "true" : undefined}>
       <section className="tianyi-conversation-column">
         {lane === "creative" ? <section className="tianyi-visible-history" aria-label={t("tianyi.workspace.historyLabel")}>
           {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <div className="tianyi-conversation-welcome"><Sparkles /><h2>{t("tianyi.workspace.welcomeTitle")}</h2><p>{t("tianyi.workspace.welcomeBody")}</p><small>{t("tianyi.workspace.localOnly")}</small></div>}
@@ -496,7 +566,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             {intakeRun.error ? <div className="tianyi-intake-failure" role="alert"><p>{intakeRun.error.message}</p>{intakeRun.error.retryable ? <button type="button" onClick={retryStoryIntake}><RotateCcw />重试</button> : null}</div> : null}
             {intakeRun.storyIntakeEnvelope ? <>
               <div className="tianyi-intake-boundary"><span>Canon 写入 0 · 已确认资料对象 {intakeRun.storyIntakeEnvelope.formalStoryWrites}</span><span>基于 {intakeRun.storyIntakeEnvelope.baseVersion.workVersionId}@r{intakeRun.storyIntakeEnvelope.baseVersion.revision}</span></div>
-              <div className="tianyi-intake-ready"><div><strong>{intakeRun.storyIntakeEnvelope.candidates.length} 项故事候选已准备好</strong><p>原文、来源和候选状态已保留；进入审阅不会写入正式故事。</p></div><button type="button" className="primary-action" onClick={() => changeLane("review")}>审阅这批候选<ArrowRight /></button></div>
+              <div className="tianyi-intake-ready"><div><strong>{intakeRun.storyIntakeEnvelope.candidates.length} 项故事候选已准备好</strong><p>原文、来源和候选状态已保留；审阅只是当前批次的任务，不会切换成另一条会话。</p></div><button type="button" className="primary-action" onClick={() => changeLane("review")}>审阅这批候选<ArrowRight /></button></div>
               <details className="tianyi-intake-runtime-details"><summary>来源与运行诊断</summary><dl className="tianyi-intake-runtime-audit" aria-label="Pi 运行回执"><div><dt>请求</dt><dd>{intakeRun.executionIdentity.requestedProviderId ?? "unknown"} / {intakeRun.executionIdentity.requestedModelId ?? "unknown"}</dd></div><div><dt>响应模型</dt><dd>{intakeRun.executionIdentity.responseModelId ?? "unknown"}</dd></div><div><dt>Run / Step</dt><dd>{intakeRun.executionIdentity.runId} / {intakeRun.executionIdentity.stepId ?? "unknown"}</dd></div><div><dt>耗时</dt><dd>{intakeRun.observability.latencyMs === null ? "unknown" : `${intakeRun.observability.latencyMs} ms`}</dd></div><div><dt>Token</dt><dd>{intakeRun.observability.totalTokens === null ? "unknown" : intakeRun.observability.totalTokens}</dd></div><div><dt>失败码</dt><dd>{intakeRun.error?.code ?? "none"}</dd></div></dl></details>
             </> : null}
           </section> : null}
@@ -528,17 +598,28 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             onIncludeCandidate={(candidateId) => toggleIntakeCandidate(candidateId)}
             onLocateCandidate={(candidateId) => { focusIntakeCandidate(candidateId); changeLane("review"); }}
           /> : activeIntakeResolution ? <div className="story-intake-recovery" role="alert"><strong>无法恢复原候选</strong><p>{storyIntakeRecoveryMessage(activeIntakeResolution.status)}</p><button type="button" onClick={() => changeLane("review")}>返回当前批次审阅</button></div> : <>
-            <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? t("tianyi.workspace.chooseCandidate")}</h2></div><span>{t("tianyi.workspace.workGuide")}</span></div>
-            <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? t("tianyi.workspace.chooseFromRegistry")}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
-            {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <p className="tianyi-work-empty">{t("tianyi.workspace.workEmpty")}</p>}
+            <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div>
+            <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
+            {!activeLegacyCandidate ? <details className="tianyi-work-context-picker">
+              <summary>工作依据 · {globalWorkContextLabel}</summary>
+              {runtime.workScope === "current-unit" ? <label>故事单元<select value={selectedWorkUnitId ?? ""} onChange={(event) => setSelectedWorkUnitId(event.target.value || null)}><option value="">尚未选择</option>{workContextUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : null}
+              {runtime.workScope === "selected-events" ? <fieldset><legend>选择至多 4 项正式事件</legend>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" checked={selectedWorkEventIds.includes(event.id)} onChange={() => setSelectedWorkEventIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : current.length < 4 ? [...current, event.id] : current)} />{event.title}</label>)}</fieldset> : null}
+              <p>发送时只会带入以上可校验的 Event 引用；没有可引用事件时，不会伪造故事上下文。</p>
+              {runtime.sharedTianyiReferences.length ? <p>已保留 {runtime.sharedTianyiReferences.length} 条附件或来源，但它们尚未绑定到正式对象，不会静默发送给 Provider。</p> : null}
+            </details> : null}
+            {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <>
+              <section className="tianyi-visible-history tianyi-work-history" aria-label="当前工作对话">
+                {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
+              </section>
+            </>}
           </>}
         </section>}
 
         {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
-        {lane === "creative" ? <section className="tianyi-workspace-composer">
+        {(lane === "creative" || (lane === "work" && !activeIntakeCandidate)) ? <section className="tianyi-workspace-composer">
           <p className="tianyi-dialogue-runtime" role="status">{dialogueRuntime === "local-fake" ? "本地假服务 · 非真实 Pi；发送仅用于本地连续性测试。" : dialogueRuntime === "provider" ? "已配置 Provider；仅在明确发送时调用。" : "当前没有可用的真实 Provider；草稿会保留，发送不会生成假回复。"}</p>
           <textarea aria-label={t(lane === "creative" ? "tianyi.workspace.creativeDraft" : "tianyi.workspace.workDraft")} value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} placeholder={t(lane === "creative" ? "tianyi.workspace.creativePlaceholder" : "tianyi.workspace.workPlaceholder")} />
-          <div><button type="button" onClick={() => runtime.addSharedTianyiReference({ id: `attachment:${crypto.randomUUID()}`, label: t("tianyi.workspace.demoAttachment"), kind: "attachment" })}><Paperclip />{t("tianyi.workspace.attachment")}</button><button type="button" onClick={() => runtime.addSharedTianyiReference({ id: `source:${crypto.randomUUID()}`, label: t("tianyi.workspace.demoSource"), kind: "source" })}><Link2 />{t("tianyi.workspace.sourceAction")}</button>{legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}><MessageSquareText />发送消息</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}整理为故事候选</button></>}</div>
+          <div><button type="button" onClick={() => runtime.addSharedTianyiReference({ id: `attachment:${crypto.randomUUID()}`, label: t("tianyi.workspace.demoAttachment"), kind: "attachment" })}><Paperclip />{t("tianyi.workspace.attachment")}</button><button type="button" onClick={() => runtime.addSharedTianyiReference({ id: `source:${crypto.randomUUID()}`, label: t("tianyi.workspace.demoSource"), kind: "source" })}><Link2 />{t("tianyi.workspace.sourceAction")}</button>{lane === "work" ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}发送到当前工作</button> : legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}><MessageSquareText />发送消息</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}整理为故事候选</button></>}</div>
         </section> : null}
       </section>
 

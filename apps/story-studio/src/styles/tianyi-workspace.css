@@ -19,9 +19,13 @@
 .tianyi-lane-switch { display: flex; border: 1px solid var(--color-border-subtle); border-radius: 10px; padding: 3px; background: var(--color-surface); }
 .tianyi-lane-switch button { border: 0; background: transparent; color: var(--color-text-secondary); border-radius: 7px; padding: 8px 18px; cursor: pointer; }
 .tianyi-lane-switch button[aria-selected="true"] { background: var(--color-accent-soft); color: var(--color-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent); }
+.tianyi-pending-anchor { justify-self: end; display: inline-flex; align-items: baseline; gap: .45rem; border: 0; border-left: 1px solid var(--color-border-subtle); background: transparent; color: var(--color-accent); padding: .45rem 0 .45rem 1rem; font: 650 .78rem/1.2 var(--font-ui); cursor: pointer; white-space: nowrap; }
+.tianyi-pending-anchor span { color: var(--color-text-muted); font-size: .66rem; font-weight: 520; }
+.tianyi-pending-anchor:hover { color: color-mix(in srgb, var(--color-accent) 78%, var(--color-text)); }
 .tianyi-workspace-body { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 300px); }
 .tianyi-conversation-column { min-height: 0; overflow: auto; padding: 24px clamp(20px, 4vw, 64px) 30px; }
 .tianyi-visible-history { max-width: 920px; margin: 0 auto 20px; }
+.tianyi-work-history { margin-block: 1rem; border-top: 1px solid var(--color-border-subtle); padding-top: 1rem; }
 .tianyi-visible-history article { max-width: 82%; margin: 0 0 16px; display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
 .tianyi-visible-history article.is-author { margin-left: auto; }
 .tianyi-visible-history article span { width: 34px; height: 34px; border-radius: 50%; background: var(--color-accent); color: var(--color-text-on-structure); display: grid; place-items: center; font-size: 12px; }
@@ -89,6 +93,13 @@
 .tianyi-candidate-grid svg, .tianyi-impact-card svg { width: 14px; }
 .tianyi-work-contract { display: grid; grid-template-columns: 1fr 200px; gap: 18px; }
 .tianyi-work-contract dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tianyi-work-context-picker { display: grid; gap: 10px; margin: 0 24px 16px; padding: 10px 12px; color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 12px; }
+.tianyi-work-context-picker summary { color: var(--color-text); cursor: pointer; font-weight: 600; }
+.tianyi-work-context-picker label { display: grid; grid-template-columns: 1fr minmax(10rem, 18rem); align-items: center; gap: 10px; }
+.tianyi-work-context-picker select { min-width: 0; min-height: 2rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.tianyi-work-context-picker fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 7px 12px; min-width: 0; margin: 0; padding: 9px; border: 1px solid var(--color-border-subtle); }
+.tianyi-work-context-picker fieldset label { grid-template-columns: auto minmax(0, 1fr); }
+.tianyi-work-context-picker p { margin: 0; line-height: 1.45; }
 .tianyi-work-contract dt { font-size: 11px; color: var(--color-text-muted); }
 .tianyi-work-contract dd { margin: 4px 0 0; font-size: 13px; }
 .tianyi-work-contract label { font-size: 11px; color: var(--color-text-muted); }
@@ -105,6 +116,7 @@
 .tianyi-workspace-composer button svg { width: 16px; }
 .tianyi-workspace-composer .tianyi-send { margin-left: auto; background: var(--color-accent); color: var(--color-text-on-structure); padding-inline: 14px; }
 .tianyi-workspace-composer button:disabled { opacity: .45; cursor: not-allowed; }
+.tianyi-workspace-body[data-global-work="true"] .tianyi-workspace-composer { position: relative; margin-block-start: 1rem; }
 .tianyi-current-context { border-left: 1px solid var(--color-border-subtle); background: var(--color-surface); padding: 20px; overflow: auto; }
 .tianyi-current-context > header { display: flex; justify-content: space-between; margin-bottom: 20px; }
 .tianyi-current-context > header small { color: var(--color-text-muted); }
@@ -171,6 +183,7 @@
 .tianyi-lane-switch button:disabled { cursor: not-allowed; opacity: .45; }
 .tianyi-workspace-body[data-full-work-surface="true"] { grid-template-columns: minmax(0, 1fr); }
 .tianyi-workspace-body[data-full-work-surface="true"] .tianyi-conversation-column { overflow: hidden; padding: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.tianyi-workspace-body[data-global-work="true"] .tianyi-conversation-column { display: block; overflow: auto; padding: 1.25rem clamp(1.25rem, 4vw, 4rem) 1.75rem; }
 .tianyi-conversation-return { min-height: 34px; border: 0; border-bottom: 1px solid var(--color-border-subtle); background: #f2efe8; color: var(--color-text-secondary); padding: 6px 22px; display: inline-flex; align-items: center; gap: 7px; text-align: left; cursor: pointer; }
 .tianyi-conversation-return svg { width: 14px; }
 .tianyi-workspace-body[data-full-work-surface="true"] .tianyi-lane-stage:has(.story-intake-work) { max-width: none; min-height: 0; height: 100%; margin: 0; }
@@ -325,6 +338,7 @@
   .tianyi-lane-switch button span { white-space: nowrap; }
   .tianyi-conversation-anchor { min-width: 126px; padding-left: 10px; }
   .tianyi-conversation-anchor small { display: none; }
+  .tianyi-pending-anchor { padding-left: .7rem; }
   .story-intake-review-layout { grid-template-columns: minmax(0, 1fr); }
   .story-intake-evidence { display: none; }
   .story-intake-evidence-compact { display: block; margin: 0; padding: 7px 22px; border-bottom: 1px solid var(--color-border); background: #f7f4ed; color: var(--color-text-secondary); font-size: 11px; }

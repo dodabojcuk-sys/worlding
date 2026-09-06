@@ -24,6 +24,7 @@ export function GlobalStatusBar(props: {
   onToggleTheme(): void;
   onToggleDirectory(): void;
   onToggleTianyi(): void;
+  onOpenPendingReview(): void;
 }) {
   const { t, toggleLocale } = useI18n();
   const directoryToggleRef = useRef<HTMLButtonElement>(null);
@@ -149,6 +150,7 @@ export function GlobalStatusBar(props: {
         <span className="shell-topbar-divider" aria-hidden="true" />
       </div>
       <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button>
+      <button type="button" className="shell-topbar-text-control shell-pending-entry" data-panel-toggle="pending-review" onClick={props.onOpenPendingReview}><Check aria-hidden="true" /><span>{t("pendingReview.entry")}</span></button>
       {props.tianyiActionAvailable ? <button ref={tianyiToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="tianyi-agent" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} title={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("panel.tianyiAgent")}</span></button> : null}
       <div className="shell-topbar-more">
         <button ref={moreToggleRef} type="button" className="shell-topbar-text-control" aria-label={t("topbar.more")} title={t("topbar.more")} aria-haspopup="menu" aria-controls="shell-topbar-overflow-menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}><MoreHorizontal aria-hidden="true" /></button>
