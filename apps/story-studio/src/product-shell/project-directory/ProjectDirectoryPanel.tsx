@@ -1,5 +1,5 @@
 import { Network, RotateCcw, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 
@@ -10,6 +10,7 @@ import type { StoryIntakeReviewTarget } from "./pendingReviewAggregation";
 import { useI18n } from "../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 import type { DirectoryWorkspaceState } from "./directoryWorkspaceState";
+import { recordDirectoryReadDiagnostic } from "../../lib/directoryReadDiagnostics";
 
 export type ProjectDirectoryMode = "classified" | "pending";
 
@@ -29,6 +30,10 @@ export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState
   const pendingCount = state.pending?.pendingCount ?? 0;
   const storyIntakePendingCount = storyIntakeBatches.reduce((count, batch) => count + batch.pendingCount, 0);
   const otherPendingCount = Math.max(0, pendingCount - storyIntakePendingCount - relationCandidateCount);
+  const renderedUnitCount = state.projection?.groups.find((group) => group.id === "directory.story")?.children?.find((item) => item.id === "directory.story.units")?.count ?? 0;
+  useEffect(() => {
+    recordDirectoryReadDiagnostic({ phase: "panel-render", projectId: props.project?.id ?? null, responseProjectId: state.projection?.projectId ?? null, unitCount: renderedUnitCount, classifiedCount: state.projection?.classifiedCount ?? 0, outcome: state.error ? "failed" : state.projectId ? "ready" : "empty", reason: state.pendingStatus });
+  }, [props.project?.id, renderedUnitCount, state.error, state.pendingStatus, state.projectId, state.projection?.classifiedCount, state.projection?.projectId]);
   return <aside className="project-directory-panel" aria-label={t("panel.projectDirectory")} data-story-fact-owner="false">
     <header>
       <h2>{t("directory.label")}</h2>

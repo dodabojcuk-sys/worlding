@@ -2854,7 +2854,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
   const activeProject = await getFixture(`${apiUrl}/__local/story-studio/bootstrap`);
   assert.equal(activeProject.data.activeProject?.id, fixtureProjectId, "Multi-node directory must read the Event graph fixture project, never a previous empty project.");
-  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded&directoryTrace=1`);
   await closeGlobalTianyiIfOpen(page);
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
   if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
@@ -2914,7 +2914,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       return {
         bootstrap: bootstrap.body?.data?.activeProject?.id ?? null,
         library: { status: library.status, project: library.body?.data?.project?.id ?? null, objectCount: library.body?.data?.objects?.length ?? null },
-        units: { status: units.status, count: units.body?.data?.length ?? null, titles: units.body?.data?.map((unit) => unit.title) ?? null }
+        units: { status: units.status, count: units.body?.data?.length ?? null, titles: units.body?.data?.map((unit) => unit.title) ?? null },
+        directoryTrace: window.__tianyanDirectoryReadTrace ?? []
       };
     }, fixtureProjectId);
     throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug, sources: sourceDebug })}`, { cause: error });

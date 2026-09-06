@@ -21,6 +21,7 @@ import type {
   RelationTypeDefinitionR0,
   RelationTypeMutationResultR0
 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -3095,6 +3096,11 @@ async function request<T>(
   url: string,
   input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;
+  const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
+  const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
+  if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
   let response: Response;
   try {
     response = await fetch(url, {
@@ -3108,11 +3114,13 @@ async function request<T>(
       signal: input.signal
     });
   } catch (cause) {
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-failed", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: cause instanceof DOMException && cause.name === "AbortError" ? "cancelled" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw new LocalTransportError("操作已取消；没有新的内容被写入。", 499);
     }
     throw new LocalTransportError("本地服务暂时未连接。当前页面会保留；需要读取或保存时请重新连接。", 0);
   }
+  if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
   const source = await response.text();
   let payload: { data?: T; error?: string };
   try {
