@@ -3093,7 +3093,7 @@ async function intelligenceBridgeRequest<T>(route: string, token: string, body: 
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
 }
 
-const projectProjectionReads = new InFlightReadRegistry(15_000, 2_000);
+const projectProjectionReads = new InFlightReadRegistry(15_000, 5_000);
 
 async function readProjectProjection<T>(url: string): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
