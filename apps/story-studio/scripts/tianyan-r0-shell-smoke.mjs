@@ -2782,7 +2782,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     await persistedCharacterDirectory.waitFor({ state: "hidden" });
   }
   await projectDirectory.waitFor();
+  const classifiedDirectoryTab = projectDirectory.locator('[role="tab"]').first();
+  await classifiedDirectoryTab.waitFor({ state: "visible" });
+  if (await classifiedDirectoryTab.getAttribute("aria-selected") !== "true") await classifiedDirectoryTab.click();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
+  await directoryTree.waitFor({ state: "visible" });
   const directorySearch = directoryTree.locator('input[type="search"]');
   if (await directorySearch.inputValue()) await directorySearch.fill("");
   await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
