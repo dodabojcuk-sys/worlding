@@ -1454,7 +1454,10 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
   // the workspace inspector or local directory is layered over the canvas.
   void flow.fitView({
     nodes: nodes.map((node) => ({ id: node.id })),
-    padding: drawerOpen ? .18 : .08,
+    // Cards render taller than React Flow's provisional node measurements.
+    // Reserve that live-card margin so the remote context clusters remain
+    // inside the clipped canvas after the inspector narrows the workspace.
+    padding: drawerOpen ? .22 : .16,
     minZoom: .25,
     maxZoom: 1.05,
     duration: 0

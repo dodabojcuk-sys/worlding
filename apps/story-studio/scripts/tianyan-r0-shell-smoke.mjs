@@ -2884,7 +2884,18 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "故事结构" }).click();
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "单元" }).click();
   const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: /· 雾港/u });
-  await unitEntry.click();
+  try {
+    await unitEntry.click();
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({
+      text: element.innerText,
+      path: element.querySelector(".project-directory-page")?.getAttribute("data-directory-depth"),
+      entries: Array.from(element.querySelectorAll(".project-directory-entry")).map((entry) => entry.textContent?.trim()),
+      pendingStatus: element.querySelector("[data-pending-status]")?.getAttribute("data-pending-status"),
+      connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state")
+    }));
+    throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
+  }
   const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
   await setPointEntry.waitFor({ state: "visible" });
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
