@@ -9,9 +9,13 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 export type DirectoryLoadState = { projectId: string | null; projection: ProjectDirectoryProjection | null; pending: PendingReviewAggregation | null; error: boolean; pendingStatus: "idle" | "loading" | "ready" | "failed" };
 const projectionCache = new Map<string, DirectoryLoadState>();
 
+function createLoadingDirectoryProjection(projectId: string, t: (key: TranslationKey) => string): ProjectDirectoryProjection {
+  return { ...createEmptyProjectDirectoryProjection(t), projectId };
+}
+
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
 export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">): DirectoryLoadState {
-  const [state, setState] = useState<DirectoryLoadState>(() => project ? projectionCache.get(project.id) ?? { projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "idle" } : { projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" });
+  const [state, setState] = useState<DirectoryLoadState>(() => project ? projectionCache.get(project.id) ?? { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: false, pendingStatus: "idle" } : { projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" });
   const [pendingRevision, setPendingRevision] = useState(0);
   useEffect(() => {
     const refresh = () => setPendingRevision((revision) => revision + 1);
@@ -21,7 +25,7 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
   useEffect(() => {
     if (!project) { setState({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" }); return; }
     const cached = projectionCache.get(project.id);
-    let current = true; setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "loading" });
+    let current = true; setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: false, pendingStatus: "loading" });
     void getWorldLibrary(project.id).then((library) => {
       if (!current || library.project.id !== project.id) return;
       const makeState = (input: { workVersionId: string | null; imports: Awaited<ReturnType<typeof listSourceImportReviews>>; review: Awaited<ReturnType<typeof getGoldenLoopCandidateReview>>; relations: Awaited<ReturnType<typeof listRelations>>["relations"]; verifiedEventIds: readonly string[]; proposals: Awaited<ReturnType<typeof listAgentRecognitionProposals>>; storyIntakeRuns: Awaited<ReturnType<typeof getTianyiStoryIntakeRuns>>; pendingStatus: DirectoryLoadState["pendingStatus"]; error?: boolean }): DirectoryLoadState => {
@@ -60,7 +64,7 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
           render();
         }).catch(() => { if (current) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
       }).catch(() => { if (current) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
-    }).catch(() => { if (current) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId: project.id, projection: null, pending: null, error: true, pendingStatus: "failed" }); });
+    }).catch(() => { if (current) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: true, pendingStatus: "failed" }); });
     return () => { current = false; };
   }, [pendingRevision, project?.id, runtime, t]);
   return state;
