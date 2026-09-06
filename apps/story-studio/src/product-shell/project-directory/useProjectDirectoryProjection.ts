@@ -22,30 +22,44 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     if (!project) { setState({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" }); return; }
     const cached = projectionCache.get(project.id);
     let current = true; setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "loading" });
-    void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id)]).then(([library, units]) => {
+    void getWorldLibrary(project.id).then((library) => {
       if (!current || library.project.id !== project.id) return;
       const makeState = (input: { workVersionId: string | null; imports: Awaited<ReturnType<typeof listSourceImportReviews>>; review: Awaited<ReturnType<typeof getGoldenLoopCandidateReview>>; relations: Awaited<ReturnType<typeof listRelations>>["relations"]; verifiedEventIds: readonly string[]; proposals: Awaited<ReturnType<typeof listAgentRecognitionProposals>>; storyIntakeRuns: Awaited<ReturnType<typeof getTianyiStoryIntakeRuns>>; pendingStatus: DirectoryLoadState["pendingStatus"]; error?: boolean }): DirectoryLoadState => {
         const pending = buildPendingReviewAggregation({ projectId: project.id, workVersionId: input.workVersionId, imports: input.imports, golden: input.review, proposals: input.proposals, relations: input.relations, storyIntakeRuns: input.storyIntakeRuns.map((run) => ({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId, updatedAt: run.updatedAt, storyIntakeEnvelope: run.storyIntakeEnvelope })) });
         return { projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, sources: input.imports, workVersionId: input.workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: input.verifiedEventIds }), pending, error: input.error ?? false, pendingStatus: input.pendingStatus };
       };
-      const baseInput = { workVersionId: null, imports: [], review: null, relations: [], verifiedEventIds: [], proposals: [], storyIntakeRuns: [] };
-      const base = makeState({ ...baseInput, pendingStatus: "loading" });
-      projectionCache.set(project.id, base);
-      setState(base);
+      let units: Awaited<ReturnType<typeof listStoryUnits>> = [];
+      type ProjectionInput = Parameters<typeof makeState>[0];
+      const baseInput: Omit<ProjectionInput, "pendingStatus" | "error"> = { workVersionId: null, imports: [], review: null, relations: [], verifiedEventIds: [], proposals: [], storyIntakeRuns: [] };
+      let input: ProjectionInput = { ...baseInput, pendingStatus: "loading" };
+      const render = () => {
+        const next = makeState(input);
+        projectionCache.set(project.id, next);
+        setState(next);
+        return next;
+      };
+      const base = render();
+      void listStoryUnits(project.id).then((nextUnits) => {
+        if (!current) return;
+        units = nextUnits;
+        render();
+      }).catch(() => {
+        if (!current) return;
+        input = { ...input, error: true, pendingStatus: "failed" };
+        render();
+      });
       void Promise.all([getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id), listRelations({ projectId: project.id, reviewState: "candidate" }), getVerifiedCanonEventList(project.id)]).then(([source, imports, review, relations, verifiedEvents]) => {
         if (!current) return;
         const enrichedInput = { workVersionId: source.root?.id ?? null, imports, review, relations: relations.relations, verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : [], proposals: [], storyIntakeRuns: [] };
-        const enriched = makeState({ ...enrichedInput, pendingStatus: runtime ? "loading" : "ready" });
-        projectionCache.set(project.id, enriched);
-        setState(enriched);
+        input = { ...enrichedInput, pendingStatus: runtime ? "loading" : "ready" };
+        const enriched = render();
         if (!runtime) return;
         void Promise.all([runtime.withConnection((token) => listAgentRecognitionProposals(project.id, token)), enrichedInput.workVersionId ? runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId: project.id, workVersionId: enrichedInput.workVersionId!, token })) : Promise.resolve([])]).then(([proposals, storyIntakeRuns]) => {
           if (!current) return;
-          const next = makeState({ ...enrichedInput, proposals, storyIntakeRuns, pendingStatus: "ready" });
-          projectionCache.set(project.id, next);
-          setState(next);
-        }).catch(() => { if (current) setState({ ...enriched, error: true, pendingStatus: "failed" }); });
-      }).catch(() => { if (current) setState({ ...base, error: true, pendingStatus: "failed" }); });
+          input = { ...enrichedInput, proposals, storyIntakeRuns, pendingStatus: "ready" };
+          render();
+        }).catch(() => { if (current) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
+      }).catch(() => { if (current) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
     }).catch(() => { if (current) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId: project.id, projection: null, pending: null, error: true, pendingStatus: "failed" }); });
     return () => { current = false; };
   }, [pendingRevision, project?.id, runtime, t]);
