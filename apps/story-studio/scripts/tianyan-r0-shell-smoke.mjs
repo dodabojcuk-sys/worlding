@@ -2783,6 +2783,8 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   }
   await projectDirectory.waitFor();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
+  const directorySearch = directoryTree.locator('input[type="search"]');
+  if (await directorySearch.inputValue()) await directorySearch.fill("");
   await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
   await rootBreadcrumb.waitFor({ state: "visible" });
