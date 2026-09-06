@@ -11,11 +11,6 @@ const projectionCache = new Map<string, DirectoryLoadState>();
 type DirectoryCoreRead = {
   library: Awaited<ReturnType<typeof getWorldLibrary>>;
   units: Awaited<ReturnType<typeof listStoryUnits>>;
-  source: Awaited<ReturnType<typeof getCreationSourcePortState>>;
-  imports: Awaited<ReturnType<typeof listSourceImportReviews>>;
-  review: Awaited<ReturnType<typeof getGoldenLoopCandidateReview>>;
-  relations: Awaited<ReturnType<typeof listRelations>>["relations"];
-  verifiedEventIds: readonly string[];
 };
 const coreLoads = new Map<string, Promise<DirectoryCoreRead>>();
 
@@ -24,20 +19,10 @@ function readDirectoryCore(projectId: string): Promise<DirectoryCoreRead> {
   if (existing) return existing;
   const load = Promise.all([
     getWorldLibrary(projectId),
-    listStoryUnits(projectId),
-    getCreationSourcePortState({ projectId }),
-    listSourceImportReviews(projectId),
-    getGoldenLoopCandidateReview(projectId),
-    listRelations({ projectId, reviewState: "candidate" }),
-    getVerifiedCanonEventList(projectId)
-  ]).then(([library, units, source, imports, review, relations, verifiedEvents]) => ({
+    listStoryUnits(projectId)
+  ]).then(([library, units]) => ({
     library,
-    units,
-    source,
-    imports,
-    review,
-    relations: relations.relations,
-    verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : []
+    units
   })).finally(() => { coreLoads.delete(projectId); });
   coreLoads.set(projectId, load);
   return load;
@@ -81,8 +66,8 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
         return { projectId, projection: createProjectDirectoryViewModel(translate.current, { library: core.library, units: core.units, sources: input.imports, workVersionId: input.workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: input.verifiedEventIds }), pending, error: input.error ?? false, pendingStatus: input.pendingStatus };
       };
       type ProjectionInput = Parameters<typeof makeState>[0];
-      const baseInput: Omit<ProjectionInput, "pendingStatus" | "error"> = { workVersionId: core.source.root?.id ?? null, imports: core.imports, review: core.review, relations: core.relations, verifiedEventIds: core.verifiedEventIds, proposals: [], storyIntakeRuns: [] };
-      let input: ProjectionInput = { ...baseInput, pendingStatus: connection.current ? "loading" : "ready" };
+      const baseInput: Omit<ProjectionInput, "pendingStatus" | "error"> = { workVersionId: null, imports: [], review: null, relations: [], verifiedEventIds: [], proposals: [], storyIntakeRuns: [] };
+      let input: ProjectionInput = { ...baseInput, pendingStatus: "loading" };
       const render = () => {
         const next = makeState(input);
         projectionCache.set(projectId, next);
@@ -90,12 +75,18 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
         return next;
       };
       render();
-      const latestConnection = connection.current;
-      if (!latestConnection) return;
-      void Promise.all([latestConnection((token) => listAgentRecognitionProposals(projectId, token)), baseInput.workVersionId ? latestConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId: baseInput.workVersionId!, token })) : Promise.resolve([])]).then(([proposals, storyIntakeRuns]) => {
+      void Promise.all([getCreationSourcePortState({ projectId }), listSourceImportReviews(projectId), getGoldenLoopCandidateReview(projectId), listRelations({ projectId, reviewState: "candidate" }), getVerifiedCanonEventList(projectId)]).then(([source, imports, review, relations, verifiedEvents]) => {
         if (!isCurrentProject()) return;
-        input = { ...baseInput, proposals, storyIntakeRuns, pendingStatus: "ready" };
+        const enrichedInput = { workVersionId: source.root?.id ?? null, imports, review, relations: relations.relations, verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : [], proposals: [], storyIntakeRuns: [] };
+        const latestConnection = connection.current;
+        input = { ...enrichedInput, pendingStatus: latestConnection ? "loading" : "ready" };
         render();
+        if (!latestConnection) return;
+        void Promise.all([latestConnection((token) => listAgentRecognitionProposals(projectId, token)), enrichedInput.workVersionId ? latestConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId: enrichedInput.workVersionId!, token })) : Promise.resolve([])]).then(([proposals, storyIntakeRuns]) => {
+          if (!isCurrentProject()) return;
+          input = { ...enrichedInput, proposals, storyIntakeRuns, pendingStatus: "ready" };
+          render();
+        }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
       }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
     }).catch(() => { if (isCurrentProject()) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: true, pendingStatus: "failed" }); });
   }, [pendingRevision, project?.id]);
