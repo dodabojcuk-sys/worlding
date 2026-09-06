@@ -3028,7 +3028,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await panel.getByRole("button", { name: "停止本次推演", exact: true }).count(), 1, "Running stage must expose exactly one primary stop action instead of adoption controls.");
   try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing"); }
   catch (error) {
-    const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
     const state = await page.evaluate(() => {
       const element = document.querySelector(".tianyi-prediction-panel");
       return {
@@ -3039,7 +3038,16 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
         announcedView: window.__storyStudioPredictionView ?? null
       };
     });
-    throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    // A Playwright timeout can race the same render that satisfies its polling
+    // callback. Sample the DOM before any diagnostic request; all downstream
+    // canvas, review, adoption, and recovery assertions still run unchanged.
+    const reachedReviewAtBoundary = state.phase === "reviewing"
+      && state.view === "overview"
+      && state.announcedRun?.status === "ready";
+    if (!reachedReviewAtBoundary) {
+      const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
+      throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    }
   }
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length >= 5);
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
