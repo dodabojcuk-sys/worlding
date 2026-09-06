@@ -4,6 +4,11 @@ import test from "node:test";
 import { InFlightReadRegistry, InFlightReadTimeoutError } from "../../apps/story-studio/src/lib/inFlightReadRegistry.ts";
 import { decideDirectoryCoreDisposition } from "../../apps/story-studio/src/product-shell/project-directory/directoryProjectionLifecycle.ts";
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((done) => { resolve = done; }), resolve };
+}
+
 test("R4 directory coalesces concurrent project reads and releases the entry after completion", async () => {
   const reads = new InFlightReadRegistry(100);
   let starts = 0;
@@ -72,6 +77,39 @@ test("R4 directory reuses only a bounded fresh snapshot and invalidates it on wr
   assert.equal(reads.has("project.a/world-library"), true, "an unrelated write must not abort a valid in-flight owner read");
   resolveInFlight(30);
   assert.equal(await inFlight.promise, 30);
+});
+
+test("R4 directory does not refill a fresh snapshot from a read that began before a write", async () => {
+  const reads = new InFlightReadRegistry(100, 5_000);
+  const oldRead = deferred<number>();
+  let starts = 0;
+
+  const pendingOld = reads.read("project.a/story-units", () => oldRead.promise);
+  reads.invalidateSettled(); // POST begins: retain the in-flight GET but invalidate its cache generation.
+  oldRead.resolve(1);
+  assert.equal(await pendingOld.promise, 1, "the original caller may still receive its own old response");
+
+  // The write has now committed. Its pre-write read must already have been
+  // barred from refilling the freshness window, even though it completed late.
+  const afterWrite = reads.read("project.a/story-units", () => Promise.resolve(++starts + 1));
+  assert.equal(afterWrite.reused, false, "a late pre-write GET must not become a fresh snapshot");
+  assert.equal(await afterWrite.promise, 2);
+});
+
+test("R4 directory does not retain a read that started while a write was still pending", async () => {
+  const reads = new InFlightReadRegistry(100, 5_000);
+  const duringWrite = deferred<number>();
+  let starts = 0;
+
+  reads.invalidateSettled(); // POST begins.
+  const pendingDuringWrite = reads.read("project.a/world-library", () => duringWrite.promise);
+  duringWrite.resolve(7); // The endpoint may still return the old revision before POST commits.
+  assert.equal(await pendingDuringWrite.promise, 7);
+
+  reads.invalidateSettled(); // POST succeeds.
+  const afterWrite = reads.read("project.a/world-library", () => Promise.resolve(++starts + 7));
+  assert.equal(afterWrite.reused, false, "a GET started during POST cannot refill the post-write cache");
+  assert.equal(await afterWrite.promise, 8);
 });
 
 test("R4 directory distinguishes legitimate empty, project mismatch, cleanup, and ready data", () => {

@@ -3158,5 +3158,9 @@ async function request<T>(
       : "本地项目操作失败。";
     throw new LocalTransportError(payload.error || fallback, response.status);
   }
+  // The POST-start invalidation protects reads already in flight. This second
+  // boundary also makes reads begun during the write ineligible once the owner
+  // has committed its new revision.
+  if (input.method === "POST") projectProjectionReads.invalidateSettled();
   return payload.data;
 }

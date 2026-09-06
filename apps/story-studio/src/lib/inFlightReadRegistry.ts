@@ -11,13 +11,15 @@ export class InFlightReadTimeoutError extends Error {
 }
 
 /**
- * Coalesces only currently-running idempotent reads. Settled values are never
- * cached, so a later owner invalidation always starts a fresh read.
+ * Coalesces idempotent reads and can retain a short current snapshot. A write
+ * advances the generation without aborting existing readers, so their late
+ * response can reach its original caller but never refill that snapshot.
  */
 export class InFlightReadRegistry {
-  readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; releaseTimer?: ReturnType<typeof setTimeout> }>();
+  readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; generation: number; releaseTimer?: ReturnType<typeof setTimeout> }>();
   readonly #timeoutMs: number;
   readonly #freshForMs: number;
+  #generation = 0;
 
   constructor(timeoutMs: number, freshForMs = 0) {
     this.#timeoutMs = timeoutMs;
@@ -25,7 +27,7 @@ export class InFlightReadRegistry {
   }
 
   read<T>(key: string, start: (signal: AbortSignal) => Promise<T>): { promise: Promise<T>; reused: boolean; fresh: boolean } {
-    const existing = this.#reads.get(key) as { promise: Promise<T>; controller: AbortController; settledAt: number | null; releaseTimer?: ReturnType<typeof setTimeout> } | undefined;
+    const existing = this.#reads.get(key) as { promise: Promise<T>; controller: AbortController; settledAt: number | null; generation: number; releaseTimer?: ReturnType<typeof setTimeout> } | undefined;
     if (existing && (existing.settledAt === null || Date.now() - existing.settledAt <= this.#freshForMs)) {
       return { promise: existing.promise, reused: true, fresh: existing.settledAt !== null };
     }
@@ -39,11 +41,11 @@ export class InFlightReadRegistry {
         controller.abort();
       }, this.#timeoutMs);
     });
-    const entry = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, settledAt: null as number | null, releaseTimer: undefined as ReturnType<typeof setTimeout> | undefined };
+    const entry = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, settledAt: null as number | null, generation: this.#generation, releaseTimer: undefined as ReturnType<typeof setTimeout> | undefined };
     const promise = Promise.race([start(controller.signal), timeout])
       .then((value) => {
         entry.settledAt = Date.now();
-        if (this.#freshForMs === 0) this.#release(key, entry);
+        if (entry.generation !== this.#generation || this.#freshForMs === 0) this.#release(key, entry);
         else entry.releaseTimer = setTimeout(() => this.#release(key, entry), this.#freshForMs);
         return value;
       }, (error) => {
@@ -70,6 +72,9 @@ export class InFlightReadRegistry {
   }
 
   invalidateSettled(): void {
+    // In-flight reads continue for their original callers, but a write has
+    // made their response ineligible for the bounded freshness cache.
+    this.#generation += 1;
     for (const [key, entry] of this.#reads) {
       if (entry.settledAt !== null) this.#release(key, entry);
     }

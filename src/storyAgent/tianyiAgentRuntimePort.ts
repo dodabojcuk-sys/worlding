@@ -382,6 +382,15 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
   }
 
   async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
+    const key = runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId);
+    const current = cache.get(key);
+    // A run can receive a buffered stream completion after the author has
+    // successfully cancelled it.  The stream was started from an older
+    // projection, so appending that projection would otherwise resurrect the
+    // run as awaiting_author/completed.  Cancellation is terminal for this
+    // attempt; a new attempt must use the explicit resume/retry route and a
+    // new persisted transition instead.
+    if (current?.status === "cancelled" && projection.status !== "cancelled") return structuredClone(current);
     const recordedAt = now();
     const receiptId = deterministicId("receipt.tianyi-agent-runtime", projection.runId, operationId, String(projection.revision + 1));
     const next = structuredClone({
@@ -401,7 +410,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       const existing = await load({ projectId: next.projectId, workVersionId: next.workVersionId, sessionId: next.sessionId, runId: next.runId });
       if (existing) return existing;
     }
-    cache.set(runKey(next.projectId, next.workVersionId, next.sessionId, next.runId), next);
+    cache.set(key, next);
     return structuredClone(next);
   }
 
@@ -639,7 +648,10 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
 
   async function cancelRun(input: Parameters<TianyiAgentRuntimePort["cancelRun"]>[0]): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
-    if (run.status === "cancelled") return run;
+    // A completion that is already durable wins a late cancel request.  This
+    // is distinct from the in-flight cancellation path, which must become a
+    // terminal cancelled projection.
+    if (run.status === "completed" || run.status === "cancelled") return run;
     await dependencies.cancelProvider?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId });
     return save({ ...run, status: "cancelled", stopReason: input.reason || "作者取消了运行。", error: { category: "cancelled", code: "cancelled", message: input.reason || "作者取消了运行。", retryable: false, retryBoundary: "none" } }, input.operationId);
   }

@@ -228,6 +228,67 @@ test("Tianyi runtime preserves author control across rejection, steering and can
   assert.equal(duplicateCancel.status, "cancelled");
 });
 
+test("a successful cancel remains terminal when a buffered Provider completion arrives late", async () => {
+  let releaseCompletion: (() => void) | null = null;
+  let firstDeltaSaved: (() => void) | null = null;
+  const completionGate = new Promise<void>((resolve) => { releaseCompletion = resolve; });
+  const firstDeltaGate = new Promise<void>((resolve) => { firstDeltaSaved = resolve; });
+  const fixture = fixtureAdapter(async (input) => {
+    await input.onExecutionIdentity({ providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model" });
+    await input.onEvent({ type: "text-delta", delta: "第一个可见分段", sequence: 1, recordedAt: "2026-09-07T00:00:00.000Z" });
+    firstDeltaSaved?.();
+    await completionGate;
+    // Deliberately ignore input.signal here: this is the late buffered result
+    // a transport can still deliver after the author has stopped the attempt.
+    return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model", responseModelId: "fixture-model", text: "不应覆盖取消终态", providerCalls: 1, traceId: "trace.late", latencyMs: 8, usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 } };
+  });
+  const started = await fixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.cancel-race", task: "取消竞态", currentPage: "/tianyi", operationId: "operation.cancel-race.start" });
+  await fixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.cancel-race.context" });
+  const controller = new AbortController();
+  const inFlight = fixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.cancel-race.stream", signal: controller.signal });
+  await firstDeltaGate;
+  const cancelled = await fixture.adapter.cancelRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, reason: "作者停止运行", operationId: "operation.cancel-race.cancel" });
+  assert.equal(cancelled.status, "cancelled");
+  const cancellationRevision = cancelled.revision;
+  controller.abort();
+  releaseCompletion?.();
+  const lateResult = await inFlight;
+  assert.equal(lateResult.runId, started.runId);
+  assert.equal(lateResult.status, "cancelled", "a late stream completion cannot reactivate the cancelled attempt");
+  assert.equal(lateResult.revision, cancellationRevision);
+  const recovered = await fixture.adapter.recoverRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId });
+  assert.equal(recovered?.status, "cancelled");
+  assert.equal(recovered?.revision, cancellationRevision);
+  assert.equal(fixture.events.at(-1)?.projection.status, "cancelled", "the owner event log retains the terminal cancellation");
+  assert.equal(fixture.events.at(-1)?.projection.executionIdentity.runId, started.runId);
+});
+
+test("a cancel that arrives after durable completion reports completion, while a failed cancel is never optimistic", async () => {
+  const completedFixture = fixtureAdapter();
+  const started = await completedFixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.completed-before-cancel", task: "完成优先", currentPage: "/tianyi", operationId: "operation.completed-before-cancel.start" });
+  await completedFixture.adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.completed-before-cancel.context" });
+  const completed = await completedFixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.completed-before-cancel.complete" });
+  assert.equal(completed.status, "awaiting_author");
+  const finalized = await completedFixture.adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.completed-before-cancel.finalize" });
+  assert.equal(finalized.status, "completed");
+  const lateCancel = await completedFixture.adapter.cancelRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, reason: "太晚了", operationId: "operation.completed-before-cancel.cancel" });
+  assert.equal(lateCancel.status, "completed");
+
+  const failingFixture = fixtureAdapter();
+  const cancelledAdapter = createTianyiAgentRuntimePort({
+    persistence: {
+      async appendEvent(event) { failingFixture.events.push(event); return { alreadyCompleted: false, receiptId: "receipt.fixture" }; },
+      async readEvents(input) { return failingFixture.events.filter((event) => event.runId === input.runId); }
+    },
+    async buildContextManifest(input) { return manifest(input.sessionId, input.workVersionId); },
+    async cancelProvider() { throw new Error("取消请求未被服务端确认"); }
+  });
+  const failingStart = await cancelledAdapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.cancel-failure", task: "取消失败", currentPage: "/tianyi", operationId: "operation.cancel-failure.start" });
+  await assert.rejects(cancelledAdapter.cancelRun({ projectId: failingStart.projectId, workVersionId: failingStart.workVersionId, sessionId: failingStart.sessionId, runId: failingStart.runId, reason: "作者停止", operationId: "operation.cancel-failure.cancel" }), /未被服务端确认/u);
+  const stillActive = await cancelledAdapter.recoverRun({ projectId: failingStart.projectId, workVersionId: failingStart.workVersionId, sessionId: failingStart.sessionId, runId: failingStart.runId });
+  assert.equal(stillActive?.status, "awaiting_author", "a failed cancel request cannot be reported as cancelled");
+});
+
 test("native product tool requests pause for durable author approval before provider retry", async () => {
   let attempts = 0;
   let authorizedReceipt = "";

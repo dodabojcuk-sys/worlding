@@ -28,7 +28,7 @@ import type { CapabilityMenuItem } from "../capability-launcher/capabilityMenuTy
 import { TianyiAgentPanel } from "./TianyiAgentPanel";
 import { TianyiWorkPanel } from "./TianyiWorkPanel";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
-import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
+import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, shouldCommitTianyiAgentRunProjection, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 import { TianyiAdoptionPanel } from "../workspace/TianyiAdoptionPanel";
 
 export type TianyiKnowledgeViewContext = CharacterKnowledgeHandoff;
@@ -104,6 +104,16 @@ export function TianyiSidebar(props: {
       ? "conservative"
       : "step-by-step";
   const operationId = (label: string) => `operation.tianyan-shell.${label}.${crypto.randomUUID()}`;
+  const commitRunProjection = (next: TianyiAgentRunProjection) => {
+    setRun((current) => {
+      if (shouldCommitTianyiAgentRunProjection(current, next)) return next;
+      // Recovery and a stream response can arrive after a successful cancel.
+      // The runtime has already made that cancellation terminal; retain the
+      // newest terminal projection in the browser as well instead of briefly
+      // showing an actionable stale run.
+      return current;
+    });
+  };
 
   useEffect(() => {
     if (contextRequest?.eventRefs?.length) setMode("agent");
@@ -161,8 +171,8 @@ export function TianyiSidebar(props: {
     if (!runId) return;
     let active = true;
     void props.runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId, token })).then((value) => {
-      if (active) setRun(value);
-    }).catch(() => { if (active) setRun(null); });
+      if (active && value) commitRunProjection(value);
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [project, props.runtime, props.runtime.activePageAgentRunId, props.runtime.tianyiConversationId, workVersionId]);
 
@@ -232,7 +242,7 @@ export function TianyiSidebar(props: {
       const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
       window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, workVersionId, sessionId), projection.runId);
       props.runtime.setActivePageAgentRunId(projection.runId);
-      setRun(projection); setTask(null); props.runtime.setPageAgentTaskDraft("");
+      commitRunProjection(projection); setTask(null); props.runtime.setPageAgentTaskDraft("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); }
     finally { submitGate.leave(); setBusy(false); }
   })();
@@ -258,7 +268,7 @@ export function TianyiSidebar(props: {
         streamController.current = controller;
         return streamTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, operationId: operationId("agent-continue"), token, signal: controller.signal, onEvent(event) { if (event.type === "text-delta") setStreamText((current) => current + event.delta); } });
       });
-      setRun(next);
+      commitRunProjection(next);
     } catch (cause) { if (!stopping.current) setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { streamController.current = null; setBusy(false); }
   })();
   const rejectStep = () => void (async () => {
@@ -266,7 +276,7 @@ export function TianyiSidebar(props: {
     if (!project || !props.runtime.tianyiConversationId || !run || !awaiting || busy) return;
     setBusy(true); setError("");
     try {
-      setRun(await props.runtime.withConnection((token) => rejectTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, stepId: awaiting.stepId, reason: t("tianyi.rejectNextStep"), operationId: operationId("agent-reject"), token })));
+      commitRunProjection(await props.runtime.withConnection((token) => rejectTianyiAgentStep({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, stepId: awaiting.stepId, reason: t("tianyi.rejectNextStep"), operationId: operationId("agent-reject"), token })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
   const stopRun = () => void (async () => {
@@ -278,7 +288,7 @@ export function TianyiSidebar(props: {
     activeStream?.abort();
     try {
       const cancelled = await props.runtime.withConnection((token) => cancelTianyiAgentRun({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, reason: t("tianyi.stopRun"), operationId: operationId("agent-cancel"), token }));
-      setRun(cancelled);
+      commitRunProjection(cancelled);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed"));
     } finally {
@@ -291,7 +301,7 @@ export function TianyiSidebar(props: {
     if (!project || !props.runtime.tianyiConversationId || !run || busy) return;
     setBusy(true); setError("");
     try {
-      setRun(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
+      commitRunProjection(await props.runtime.withConnection((token) => handoffTianyiAgentCandidate({ projectId: project.id, workVersionId, sessionId: props.runtime.tianyiConversationId!, runId: run.runId, candidateId, operationId: operationId("candidate-handoff"), token })));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.actionFailed")); } finally { setBusy(false); }
   })();
   const currentStep = currentTianyiAgentStep(run);

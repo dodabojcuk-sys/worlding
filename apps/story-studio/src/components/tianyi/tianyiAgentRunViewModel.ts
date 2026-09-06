@@ -10,6 +10,17 @@ export function currentTianyiAgentStep(run: TianyiAgentRunProjection | null) {
   return run?.plan.find((step) => step.status === "awaiting_author") ?? null;
 }
 
+/**
+ * Browser recovery and stream completion are independent reads of the same
+ * durable run.  A stale response must not make a successfully cancelled run
+ * actionable again.
+ */
+export function shouldCommitTianyiAgentRunProjection(current: TianyiAgentRunProjection | null, next: TianyiAgentRunProjection): boolean {
+  if (!current || current.runId !== next.runId) return true;
+  if (current.status === "cancelled" && next.status !== "cancelled") return false;
+  return next.revision >= current.revision;
+}
+
 /** Only intents backed by the established permission broker are selectable. */
 export function agentPermissionProfileForIntent(intent: CapabilityPermissionIntent): AgentPermissionProfile | null {
   if (intent === "read-only") return "general";
