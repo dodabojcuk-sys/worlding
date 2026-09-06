@@ -6,11 +6,10 @@ import { buildPendingReviewAggregation, type PendingReviewAggregation } from "./
 import type { TranslationKey } from "../i18n/translations";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 import { recordDirectoryReadDiagnostic } from "../../lib/directoryReadDiagnostics";
+import { decideDirectoryCoreDisposition } from "./directoryProjectionLifecycle";
 
 export type DirectoryLoadState = { projectId: string | null; projection: ProjectDirectoryProjection | null; pending: PendingReviewAggregation | null; error: boolean; pendingStatus: "idle" | "loading" | "ready" | "failed" };
 const projectionCache = new Map<string, DirectoryLoadState>();
-const emptyCoreRetries = new Map<string, number>();
-const emptyCoreRetryDelays = [120, 240, 480, 960, 1_920, 3_840] as const;
 type DirectoryCoreRead = {
   library: Awaited<ReturnType<typeof getWorldLibrary>>;
   units: Awaited<ReturnType<typeof listStoryUnits>>;
@@ -81,33 +80,16 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     // project that is again on screen, leaving the directory's loading shell
     // indefinitely.  Only an actual cleanup of this read makes it obsolete.
     let cancelled = false;
-    let emptyCoreRetryTimer: number | null = null;
     const isCurrentProject = () => !cancelled;
     const cached = projectionCache.get(projectId);
     recordDirectoryReadDiagnostic({ phase: "effect-start", projectId, effectId, classifiedCount: cached?.projection?.classifiedCount ?? 0, outcome: "loading" });
     setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: false, pendingStatus: "loading" });
     void readDirectoryCore(projectId).then((core) => {
-      if (!isCurrentProject() || core.library.project.id !== projectId) {
-        recordDirectoryReadDiagnostic({ phase: "core-discard", projectId, effectId, responseProjectId: core.library.project.id, objectCount: core.library.objects.length, unitCount: core.units.length, outcome: "discarded", reason: cancelled ? "effect-cleanup" : "project-mismatch" });
+      const disposition = decideDirectoryCoreDisposition({ requestedProjectId: projectId, responseProjectId: core.library.project.id, cancelled, objectCount: core.library.objects.length, unitCount: core.units.length });
+      if (disposition.kind === "discard") {
+        recordDirectoryReadDiagnostic({ phase: "core-discard", projectId, effectId, responseProjectId: core.library.project.id, objectCount: core.library.objects.length, unitCount: core.units.length, outcome: "discarded", reason: disposition.reason });
         return;
       }
-      // A newly active project can expose the directory before its local read
-      // projection has caught up. Never turn that transient, fully empty
-      // snapshot into a durable empty directory. The bootstrap's summary can
-      // be just as stale as this first projection, so it must not decide
-      // whether recovery is allowed. This remains bounded: a genuinely empty
-      // project settles after the same short, read-only backoff window.
-      const emptyCore = core.library.objects.length === 0 && core.units.length === 0;
-      const retries = emptyCoreRetries.get(projectId) ?? 0;
-      if (emptyCore && retries < emptyCoreRetryDelays.length) {
-        emptyCoreRetries.set(projectId, retries + 1);
-        emptyCoreRetryTimer = window.setTimeout(() => {
-          if (isCurrentProject()) setPendingRevision((revision) => revision + 1);
-        }, emptyCoreRetryDelays[retries]);
-        recordDirectoryReadDiagnostic({ phase: "empty-retry-scheduled", projectId, effectId, objectCount: 0, unitCount: 0, outcome: "empty", reason: `attempt-${retries + 1}` });
-        return;
-      }
-      if (!emptyCore) emptyCoreRetries.delete(projectId);
       const makeState = (input: { workVersionId: string | null; imports: Awaited<ReturnType<typeof listSourceImportReviews>>; review: Awaited<ReturnType<typeof getGoldenLoopCandidateReview>>; relations: Awaited<ReturnType<typeof listRelations>>["relations"]; verifiedEventIds: readonly string[]; proposals: Awaited<ReturnType<typeof listAgentRecognitionProposals>>; storyIntakeRuns: Awaited<ReturnType<typeof getTianyiStoryIntakeRuns>>; pendingStatus: DirectoryLoadState["pendingStatus"]; error?: boolean }): DirectoryLoadState => {
         const pending = buildPendingReviewAggregation({ projectId, workVersionId: input.workVersionId, imports: input.imports, golden: input.review, proposals: input.proposals, relations: input.relations, storyIntakeRuns: input.storyIntakeRuns.map((run) => ({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId, updatedAt: run.updatedAt, storyIntakeEnvelope: run.storyIntakeEnvelope })) });
         return { projectId, projection: createProjectDirectoryViewModel(translate.current, { library: core.library, units: core.units, sources: input.imports, workVersionId: input.workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: input.verifiedEventIds }), pending, error: input.error ?? false, pendingStatus: input.pendingStatus };
@@ -139,7 +121,6 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     }).catch((error: unknown) => { if (isCurrentProject()) { recordDirectoryReadDiagnostic({ phase: "state-failed", projectId, effectId, outcome: "failed", reason: error instanceof Error ? error.name : "unknown" }); setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: true, pendingStatus: "failed" }); } });
     return () => {
       cancelled = true;
-      if (emptyCoreRetryTimer !== null) window.clearTimeout(emptyCoreRetryTimer);
       recordDirectoryReadDiagnostic({ phase: "effect-cleanup", projectId, effectId, outcome: "cancelled" });
     };
   // Tree navigation is presentation state. It must not cancel a project-level

@@ -22,6 +22,7 @@ import type {
   RelationTypeMutationResultR0
 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
+import { InFlightReadRegistry, InFlightReadTimeoutError } from "./inFlightReadRegistry";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -1483,7 +1484,7 @@ export async function openProject(projectId: string, token: string): Promise<Sto
 }
 
 export async function getWorldLibrary(projectId: string): Promise<WorldLibraryBootstrap> {
-  return request<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
+  return readProjectProjection<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
 }
 
 export async function getObjectCatalog(projectId: string, workVersionId: string): Promise<ObjectCatalogState> {
@@ -1795,7 +1796,7 @@ export async function recordAgentActivity(input: { projectId: string; actor: Age
 }
 
 export async function listStoryUnits(projectId: string, includeArchived = false): Promise<StoryUnit[]> {
-  return request<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
+  return readProjectProjection<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
 }
 
 export async function getStoryUnit(projectId: string, unitId: string): Promise<StoryUnit> {
@@ -3090,6 +3091,25 @@ async function tianyiRequest<T>(route: string, token: string, body: Record<strin
 
 async function intelligenceBridgeRequest<T>(route: string, token: string, body: Record<string, unknown>): Promise<T> {
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
+}
+
+const projectProjectionReads = new InFlightReadRegistry(15_000);
+
+async function readProjectProjection<T>(url: string): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const projectId = parsedUrl.searchParams.get("projectId");
+  const endpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" as const : "story-units" as const;
+  const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
+  if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: "loading" });
+  try {
+    return await read.promise;
+  } catch (error) {
+    if (error instanceof InFlightReadTimeoutError) {
+      recordDirectoryReadDiagnostic({ phase: "transport-timeout", endpoint, projectId, outcome: "failed", reason: "read-timeout", durationMs: error.timeoutMs });
+      throw new LocalTransportError("本地作品读取超时；请重新连接。现有作品没有被修改。", 504);
+    }
+    throw error;
+  }
 }
 
 async function request<T>(

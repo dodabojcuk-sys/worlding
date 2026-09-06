@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { InFlightReadRegistry, InFlightReadTimeoutError } from "../../apps/story-studio/src/lib/inFlightReadRegistry.ts";
+import { decideDirectoryCoreDisposition } from "../../apps/story-studio/src/product-shell/project-directory/directoryProjectionLifecycle.ts";
+
+test("R4 directory coalesces concurrent project reads and releases the entry after completion", async () => {
+  const reads = new InFlightReadRegistry(100);
+  let starts = 0;
+  let resolve!: (value: number) => void;
+  const first = reads.read("project.a/world-library", () => {
+    starts += 1;
+    return new Promise<number>((done) => { resolve = done; });
+  });
+  const second = reads.read("project.a/world-library", () => {
+    starts += 1;
+    return Promise.resolve(2);
+  });
+
+  assert.equal(first.reused, false);
+  assert.equal(second.reused, true);
+  assert.equal(first.promise, second.promise);
+  assert.equal(starts, 1);
+  resolve(30);
+  assert.deepEqual(await Promise.all([first.promise, second.promise]), [30, 30]);
+  assert.equal(reads.has("project.a/world-library"), false);
+
+  const fresh = reads.read("project.a/world-library", () => Promise.resolve(31));
+  assert.equal(fresh.reused, false, "settled reads are not cached across owner invalidations");
+  assert.equal(await fresh.promise, 31);
+});
+
+test("R4 directory times out a hung shared read, aborts it, and permits recovery", async () => {
+  const reads = new InFlightReadRegistry(10);
+  let aborted = false;
+  const hung = reads.read("project.a/story-units", (signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(new DOMException("aborted", "AbortError"));
+    });
+  }));
+
+  await assert.rejects(hung.promise, (error) => error instanceof InFlightReadTimeoutError && error.timeoutMs === 10);
+  assert.equal(aborted, true);
+  assert.equal(reads.has("project.a/story-units"), false);
+  assert.equal(await reads.read("project.a/story-units", () => Promise.resolve(["recovered"])).promise.then((items) => items[0]), "recovered");
+});
+
+test("R4 directory distinguishes legitimate empty, project mismatch, cleanup, and ready data", () => {
+  assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.a", cancelled: false, objectCount: 0, unitCount: 0 }), { kind: "commit", outcome: "empty" });
+  assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.a", cancelled: false, objectCount: 30, unitCount: 2 }), { kind: "commit", outcome: "ready" });
+  assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.b", cancelled: false, objectCount: 30, unitCount: 2 }), { kind: "discard", reason: "project-mismatch" });
+  assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.a", cancelled: true, objectCount: 30, unitCount: 2 }), { kind: "discard", reason: "effect-cleanup" });
+});
