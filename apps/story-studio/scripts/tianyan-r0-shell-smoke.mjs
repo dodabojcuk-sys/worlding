@@ -271,6 +271,10 @@ try {
       await gotoProduct(page, `${baseUrl}/world?locale=en-US&rail=expanded`);
       await assertExpandedLabels(page, "en-US");
     }
+    // Keep the fake-stream contract in the full gate, but execute it before the
+    // CPU-heavy event projections below. CI runners otherwise test accumulated
+    // fixture load instead of the stream's request -> delta -> projection path.
+    await assertAgentFakeProviderStream(page);
     if (eventGraphRecordingDirectory) await recordEventGraphOperation();
     await assertEventGraphWorkspace(page);
     await setupTimelineFixture();
@@ -281,7 +285,6 @@ try {
     if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
     if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
     await assertAuthorEventCreation(page, consoleProblems);
-    await assertAgentFakeProviderStream(page);
   }
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");

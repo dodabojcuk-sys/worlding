@@ -26,6 +26,8 @@
 | R20 | [pm-skills / outcome-roadmap](https://github.com/phuryn/pm-skills/blob/18468a95b427e70e258b51389796367c6f684e7d/pm-execution/skills/outcome-roadmap/SKILL.md) | 路线图方法 | D | 用作者结果、依赖和可观察验收表达阶段 | 固定版本资料；只用于项目路线图，不伪造工期或市场数据 |
 | R21 | [pm-skills / test-scenarios](https://github.com/phuryn/pm-skills/blob/18468a95b427e70e258b51389796367c6f684e7d/pm-execution/skills/test-scenarios/SKILL.md) | 测试设计 | D | 自包含前置、动作、预期和实际证据 | 固定版本资料；不把模板膨胀成重复矩阵 |
 | R22 | [awesome-design-md](https://github.com/VoltAgent/awesome-design-md/tree/8147538b4226ae41e2487a9179e3bcc1f68e8554) | 设计约束表达 | D | 层级、间距、边界、状态和 token 的文档形式 | 固定版本资料；不把营销页或第三方品牌规则直接覆盖到天衍 |
+| R23 | Leaflet `1.9.4`（仓库已安装） | 地图 M1 候选引擎 | U | 非地理坐标、自定义底图、键盘/无障碍与离线使用仍待进入 M1 时核对 | 只登记本地依赖事实；R4 任务 A 不读取其源码、不新增地图实现 |
+| R24 | React Flow `12.11.2`（仓库已安装） | 关系/拓扑候选投影 | U | 是否复用到人文关系层取决于画布密度与既有 Relation 投影 | 只登记本地依赖事实；不因已安装就默认采用 |
 
 ## 当前采用的机制
 
@@ -38,4 +40,4 @@
 | PM / R20-R21 | `18468a95b427e70e258b51389796367c6f684e7d` | 结果—依赖—可观察验收、隔离场景与失败证据 | 将模板当作产品或测试框架替代品 |
 | DESIGN.md / R22 | `8147538b4226ae41e2487a9179e3bcc1f68e8554` | 可验证地记录层级、间距、状态和 token | 套用 Linear/Notion 等第三方品牌或营销页数值 |
 
-R4 没有复制外部实现。完整来源说明与历史研究结论保留在用户提供的本地保存文档；后续进入女娲或预测专题时，再按需要复核 R02、R06、R07、R11、R12。
+R4 任务 A 没有复制外部实现，也没有为目录恢复新增外部依赖；修复依据来自同一产品运行链的脱敏 trace。地图 M1 开始时再定向核对 R17、R23、R24 与 Relation Owner 的实际适配和许可，不把“已登记”写成“已采用”；进入女娲或预测专题时，再按需要复核 R02、R06、R07、R11、R12。
