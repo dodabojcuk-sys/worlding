@@ -141,6 +141,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       announceAgentState(true, created.runId);
       setRun(created); announceRun(created); setPhase("validating");
       beginExecutionPolling(created.runId);
+      beginRunRecoveryPolling(created.runId);
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
       historyLoadGeneration.current += 1;
       setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); announceRun(ready);
@@ -248,7 +249,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   })();
   const retry = () => void (async () => {
     if (!project || !run || busy || !["failed", "stopped"].includes(run.status)) return;
-    setBusy(true); setError(""); setReceipt(null); setPhase("generating"); setViewState("running"); stopRequested.current = false; announceAgentState(true, run.runId); beginExecutionPolling(run.runId);
+    setBusy(true); setError(""); setReceipt(null); setPhase("generating"); setViewState("running"); stopRequested.current = false; announceAgentState(true, run.runId); beginExecutionPolling(run.runId); beginRunRecoveryPolling(run.runId);
     try {
       const ready = await props.runtime.withConnection((token) => retryMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
       setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); announceRun(ready);
