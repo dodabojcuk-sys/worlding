@@ -35,19 +35,12 @@ function createLoadingDirectoryProjection(projectId: string, t: (key: Translatio
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
 export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">): DirectoryLoadState {
   const withConnection = runtime?.withConnection;
-  const mounted = useRef(true);
-  const activeProjectId = useRef<string | null>(project?.id ?? null);
   const translate = useRef(t);
   const connection = useRef(withConnection);
   translate.current = t;
   connection.current = withConnection;
   const [state, setState] = useState<DirectoryLoadState>(() => project ? projectionCache.get(project.id) ?? { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: false, pendingStatus: "idle" } : { projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" });
   const [pendingRevision, setPendingRevision] = useState(0);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => { activeProjectId.current = project?.id ?? null; }, [project?.id]);
   useEffect(() => {
     const refresh = () => setPendingRevision((revision) => revision + 1);
     window.addEventListener("story-studio-pending-review-changed", refresh);
@@ -56,7 +49,12 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
   useEffect(() => {
     if (!project) { setState({ projectId: null, projection: createEmptyProjectDirectoryProjection(translate.current), pending: null, error: false, pendingStatus: "idle" }); return; }
     const projectId = project.id;
-    const isCurrentProject = () => mounted.current && activeProjectId.current === projectId;
+    // This effect owns its read.  A shared "current project" ref can briefly
+    // move during Shell recovery and discard a valid response for the very
+    // project that is again on screen, leaving the directory's loading shell
+    // indefinitely.  Only an actual cleanup of this read makes it obsolete.
+    let cancelled = false;
+    const isCurrentProject = () => !cancelled;
     const cached = projectionCache.get(projectId);
     setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: false, pendingStatus: "loading" });
     void readDirectoryCore(projectId).then((core) => {
@@ -89,6 +87,7 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
         }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
       }).catch(() => { if (isCurrentProject()) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
     }).catch(() => { if (isCurrentProject()) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: true, pendingStatus: "failed" }); });
+    return () => { cancelled = true; };
   }, [pendingRevision, project?.id]);
   return state;
 }
