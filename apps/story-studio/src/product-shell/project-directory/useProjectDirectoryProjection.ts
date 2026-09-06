@@ -7,9 +7,11 @@ import type { TranslationKey } from "../i18n/translations";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 export type DirectoryLoadState = { projectId: string | null; projection: ProjectDirectoryProjection | null; pending: PendingReviewAggregation | null; error: boolean; pendingStatus: "idle" | "loading" | "ready" | "failed" };
+const projectionCache = new Map<string, DirectoryLoadState>();
+
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
 export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">): DirectoryLoadState {
-  const [state, setState] = useState<DirectoryLoadState>(() => ({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" }));
+  const [state, setState] = useState<DirectoryLoadState>(() => project ? projectionCache.get(project.id) ?? { projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "idle" } : { projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" });
   const [pendingRevision, setPendingRevision] = useState(0);
   useEffect(() => {
     const refresh = () => setPendingRevision((revision) => revision + 1);
@@ -18,7 +20,8 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
   }, []);
   useEffect(() => {
     if (!project) { setState({ projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" }); return; }
-    let current = true; setState({ projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "loading" });
+    const cached = projectionCache.get(project.id);
+    let current = true; setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId: project.id, projection: null, pending: null, error: false, pendingStatus: "loading" });
     void Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id), getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id), runtime ? runtime.withConnection((token) => listAgentRecognitionProposals(project.id, token)) : Promise.resolve([]), listRelations({ projectId: project.id, reviewState: "candidate" }), getVerifiedCanonEventList(project.id)]).then(async ([library, units, source, imports, review, proposals, relations, verifiedEvents]) => {
       if (!current || library.project.id !== project.id) return;
       const workVersionId = source.root?.id ?? null;
@@ -27,8 +30,10 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
         : [];
       if (!current) return;
       const pending = buildPendingReviewAggregation({ projectId: project.id, workVersionId, imports, golden: review, proposals, relations: relations.relations, storyIntakeRuns: storyIntakeRuns.map((run) => ({ projectId: run.projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId, updatedAt: run.updatedAt, storyIntakeEnvelope: run.storyIntakeEnvelope })) });
-      setState({ projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, sources: imports, workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : [] }), pending, error: false, pendingStatus: "ready" });
-    }).catch(() => { if (current) setState({ projectId: project.id, projection: null, pending: null, error: true, pendingStatus: "failed" }); });
+      const next: DirectoryLoadState = { projectId: project.id, projection: createProjectDirectoryViewModel(t, { library, units, sources: imports, workVersionId, pendingCount: pending.pendingCount, verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : [] }), pending, error: false, pendingStatus: "ready" };
+      projectionCache.set(project.id, next);
+      setState(next);
+    }).catch(() => { if (current) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId: project.id, projection: null, pending: null, error: true, pendingStatus: "failed" }); });
     return () => { current = false; };
   }, [pendingRevision, project?.id, runtime, t]);
   return state;
