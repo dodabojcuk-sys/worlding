@@ -46,7 +46,7 @@ test("Tianyi blocks unconfigured Providers before a request and opens Shell sett
   assert.match(sidebar, /data-provider-state="unconfigured"/);
   assert.match(sidebar, /onOpenSettings\(\): void/);
   assert.match(sidebar, /onClick=\{props\.onOpenSettings\}/);
-  assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady\}/);
+  assert.match(sidebar, /disabled=\{busy \|\| !project \|\| !contextRequest \|\| !providerReady \|\| Boolean\(roleContext\) \|\| Boolean\(displayOnlyContext\)\}/);
   assert.match(server, /const selectedModelReady = configured && activeProfile\?\.enabled === true && Boolean\(activeProfile\.modelId\)/);
   assert.match(server, /const tianyiDialogueReady = selectedModelReady \|\| agentFakeProviderStreamAllowed/);
   assert.match(server, /"model-unselected"/);

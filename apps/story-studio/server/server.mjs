@@ -322,6 +322,9 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const rawRequest = input.contextRequest && typeof input.contextRequest === "object"
       ? input.contextRequest
       : { productMode: "world", activeOwner: { kind: "project", id: input.projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] };
+    if (rawRequest.knowledgeView?.contextAccess === "character" || rawRequest.knowledgeView?.contextAccess === "display-only") {
+      throw new Error("角色或读者视角不能进入作者 Agent ContextPack；请使用带稳定 SubjectRef 的依据问答。");
+    }
     const storyIntake = parseStoryIntakeRequest(rawRequest.storyIntake ?? null);
     const knowledgeProjection = input.currentPage === "/event-line" && rawRequest.knowledgeView?.observerId
       ? projectEventStoryCrossingKnowledge(input.projectId, rawRequest.knowledgeView.observerId)
@@ -3955,7 +3958,7 @@ function projectEventStoryCrossingKnowledge(projectId, observerId, observerIds =
   const events = operations.listWorldObjects({ projectId, type: "event" })
     .filter((event) => event.status !== "archived")
     .map((event) => operations.readWorldObject({ projectId, objectId: event.id }))
-    .map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, body: event.body }));
+    .map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, knowledgeSubjectIds: event.knowledgeSubjects, body: event.body }));
   const characters = operations.listWorldObjects({ projectId, type: "character" })
     .filter((character) => character.status !== "archived")
     .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));

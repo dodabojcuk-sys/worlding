@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../../../src/storyAgent/contextualCapabilityRegistry.ts";
 import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
+import type { CharacterKnowledgeHandoff } from "../../../../../../src/storyContracts/characterKnowledgeHandoff.ts";
 import type { TemporalProjectionRun } from "../../../../../../src/storyContracts/temporalProjection.ts";
 import {
   getTianyiSessionMetadata,
@@ -30,6 +31,8 @@ import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 import { TianyiAdoptionPanel } from "../workspace/TianyiAdoptionPanel";
 
+export type TianyiKnowledgeViewContext = CharacterKnowledgeHandoff;
+
 export type TianyiSidebarContextRequest = {
   productMode: "world" | "writing" | "intelligence" | "localization" | "publish";
   activeOwner: { kind: "project" | "writing-document" | "world-object" | "visual-document"; id: string | null };
@@ -40,7 +43,7 @@ export type TianyiSidebarContextRequest = {
   eventRefs?: StoryStudioEventReference[];
   predictionSourceLabels?: string[];
   predictionSourceUnitSummary?: string;
-  knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number };
+  knowledgeView?: TianyiKnowledgeViewContext;
 };
 
 export function TianyiSidebar(props: {
@@ -82,6 +85,8 @@ export function TianyiSidebar(props: {
     selection: { documentId: null, objectId: null, timelinePointId: null },
     sourceRefs: [], memorySelections: [], enabledSkillRefs: []
   } : null), [project, props.contextRequest, props.workspace]);
+  const roleContext = contextRequest?.knowledgeView?.contextAccess === "character" ? contextRequest.knowledgeView : null;
+  const displayOnlyContext = contextRequest?.knowledgeView?.contextAccess === "display-only";
   const modelLabel = useMemo(() => {
     const profile = props.runtime.modelStatus?.profile.profile;
     if (!profile?.enabled) return null;
@@ -107,6 +112,10 @@ export function TianyiSidebar(props: {
   useEffect(() => {
     if (!props.agentAvailable) setMode("work");
   }, [props.agentAvailable]);
+
+  useEffect(() => {
+    if (roleContext || displayOnlyContext) setMode("work");
+  }, [displayOnlyContext, roleContext]);
 
   useEffect(() => {
     const receive = (event: Event) => setPredictionRunning(Boolean((event as CustomEvent<{ running?: boolean }>).detail?.running));
@@ -174,6 +183,7 @@ export function TianyiSidebar(props: {
     setSession(Array.isArray(value) ? value.find((item) => item.id === sessionId) ?? null : value);
   };
   const submitWork = () => void (async () => {
+    if (displayOnlyContext) { setError(t("tianyi.readerContextBlocked")); return; }
     if (!providerReady) {
       setError(t("tianyi.providerUnavailable"));
       return;
@@ -196,8 +206,8 @@ export function TianyiSidebar(props: {
           projectId: project.id,
           sessionId,
           taskKind: "grounded-answer",
-          accessMode: "author",
-          subjectRef: null,
+          accessMode: roleContext ? "character" : "author",
+          subjectRef: roleContext?.subjectRef ?? null,
           sceneRef: null,
           explicitRefs: [],
           ...(contextRequest.eventRefs?.length ? { eventRefs: contextRequest.eventRefs } : {})
@@ -212,6 +222,7 @@ export function TianyiSidebar(props: {
     } finally { submitGate.leave(); setBusy(false); }
   })();
   const submitAgent = () => void (async () => {
+    if (roleContext || displayOnlyContext) { setError(t("tianyi.roleAgentBlocked")); return; }
     if (!providerReady) { setError(t("tianyi.providerUnavailable")); return; }
     if ((!props.runtime.pageAgentTaskDraft.trim() && !task) || !project || !contextRequest || !submitGate.tryEnter()) return;
     setBusy(true); setError("");
@@ -311,17 +322,17 @@ export function TianyiSidebar(props: {
       <div className="tianyi-simulation-controls"><label>{t("tianyi.simulation.scope")}<select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}><option value="nearby">{t("tianyi.simulation.scope.nearby")}</option><option value="line">{t("tianyi.simulation.scope.line")}</option><option value="selected">{t("tianyi.simulation.scope.selected")}</option></select></label><label>{t("tianyi.simulation.freedom")}<select value={freedom} onChange={(event) => setFreedom(event.target.value as typeof freedom)}><option value="strict">{t("tianyi.simulation.freedom.strict")}</option><option value="balanced">{t("tianyi.simulation.freedom.balanced")}</option><option value="free">{t("tianyi.simulation.freedom.free")}</option></select></label></div>
       {sourcesOpen && <div className="tianyi-simulation-source-drawer" aria-label={t("tianyi.sources")}><strong>{t("tianyi.simulation.snapshot")}</strong>{simulationPack ? <>{simulationPack.sources.map((source) => <article key={source.sourceId}><b>{source.sourceRole}</b><span>{source.displayTitle}</span><small>{t("tianyi.simulation.sent").replace("{authority}", source.authorityLevel)}</small></article>)}{simulationPack.omitted.map((source) => <article key={source.sourceId} data-source-omitted="true"><b>EXCLUDED</b><span>{source.sourceId}</span><small>{source.reason}</small></article>)}</> : <p>{t("tianyi.simulation.pendingSnapshot")}</p>}</div>}
     </section>
-    <TianyiSidebarComposer workspace={props.workspace} task={task} draft={props.runtime.pageAgentTaskDraft} modelLabel={modelLabel} permission={permission} disabled={busy || !project || !contextRequest || !providerReady} submit={submitAgent} onPermission={selectPermission} onDraft={props.runtime.setPageAgentTaskDraft} onTask={selectTask} context={runtimeContext} />
+      <TianyiSidebarComposer workspace={props.workspace} task={task} draft={props.runtime.pageAgentTaskDraft} modelLabel={modelLabel} permission={permission} disabled={busy || !project || !contextRequest || !providerReady || Boolean(roleContext) || Boolean(displayOnlyContext)} submit={submitAgent} onPermission={selectPermission} onDraft={props.runtime.setPageAgentTaskDraft} onTask={selectTask} context={runtimeContext} />
   </>;
   return <aside className="tianyi-sidebar" aria-label={t("panel.tianyiAgent")} role={props.overlay ? "dialog" : undefined} aria-modal={props.modal || undefined} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session" data-knowledge-observer={contextRequest?.knowledgeView?.observerId ?? "author"}>
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable} agentRunning={agentRunning} onMode={setMode} />
+      <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} />
       <button type="button" aria-label={t("panel.closeTianyiAgent")} title={t("panel.closeTianyiAgent")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
-      {contextRequest?.knowledgeView ? <p className="tianyi-knowledge-scope" data-testid="page-agent-knowledge-scope"><strong>{contextRequest.knowledgeView.observerLabel}</strong> · {t("tianyi.knowledgeScope")}{contextRequest.knowledgeView.hiddenEventCount ? `；${t("tianyi.knowledgeExcluded").replace("{count}", String(contextRequest.knowledgeView.hiddenEventCount))}` : ""}</p> : null}
-      {mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {contextRequest?.knowledgeView ? <p className="tianyi-knowledge-scope" data-testid="page-agent-knowledge-scope" data-context-access={contextRequest.knowledgeView.contextAccess}><strong>{contextRequest.knowledgeView.observerLabel}</strong> · {roleContext ? t("tianyi.characterContextScope") : displayOnlyContext ? t("tianyi.readerContextScope") : t("tianyi.knowledgeScope")}{contextRequest.knowledgeView.hiddenEventCount ? `；${t("tianyi.knowledgeExcluded").replace("{count}", String(contextRequest.knowledgeView.hiddenEventCount))}` : ""}</p> : null}
+      {mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady && !displayOnlyContext} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

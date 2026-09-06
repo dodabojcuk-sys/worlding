@@ -4,14 +4,16 @@ import test from "node:test";
 
 const source = (path: string) => readFileSync(path, "utf8");
 
-test("R3 only dismisses the directory when its own EventLine drawer would mask the canvas", () => {
+test("R4 supersedes R3 dismissal with temporary suppression while preserving author intent", () => {
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
   const workbench = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
-  assert.match(shell, /rightWorkSurface\.mode === "TIANYI" && focusLayout !== "wide"/u);
-  assert.match(shell, /rightWorkSurface\.mode === "TIANYI"\);/u);
+  assert.match(shell, /focusLayout !== "wide" && rightWorkSurface\.mode === "TIANYI"/u);
+  assert.match(shell, /directoryPreferredOpen/u);
+  assert.match(shell, /directoryPresented/u);
   assert.doesNotMatch(shell, /rightWorkSurface\.mode !== "NONE" && focusLayout !== "wide"/u);
   assert.match(workbench, /shouldCloseDirectoryForPageInspector/u);
   assert.match(workbench, /window\.matchMedia\("\(max-width: 76rem\)"\)/u);
+  assert.match(workbench, /story-studio-restore-project-directory/u);
   assert.doesNotMatch(workbench, /const openEvent = \(eventId: string\) => \{\s*if \(window\.matchMedia\("\(max-width: 80rem\)"\)/u);
 });
 

@@ -9,10 +9,11 @@ import { useProjectDirectoryProjection } from "./useProjectDirectoryProjection";
 import type { StoryIntakeReviewTarget } from "./pendingReviewAggregation";
 import { useI18n } from "../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
+import type { DirectoryWorkspaceState } from "./directoryWorkspaceState";
 
 export type ProjectDirectoryMode = "classified" | "pending";
 
-export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState; project: Parameters<typeof useProjectDirectoryProjection>[0]; mode: ProjectDirectoryMode; onClose(): void; onModeChange(mode: ProjectDirectoryMode): void; onOpenPendingReview(target: StoryIntakeReviewTarget | null): void; onOpenRelationReview(): void; onNavigate(node: ProjectDirectoryNode): void; onOpenReference(reference: ProjectDirectoryStableReference): void; selectedObjectId: string | null; onCreateProject(title: string): Promise<void> }) {
+export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState; project: Parameters<typeof useProjectDirectoryProjection>[0]; mode: ProjectDirectoryMode; directoryState: DirectoryWorkspaceState; onDirectoryState(state: DirectoryWorkspaceState): void; onClose(): void; onModeChange(mode: ProjectDirectoryMode): void; onOpenPendingReview(target: StoryIntakeReviewTarget | null): void; onOpenRelationReview(): void; onNavigate(node: ProjectDirectoryNode): void; onOpenReference(reference: ProjectDirectoryStableReference): void; selectedObjectId: string | null; onCreateProject(title: string): Promise<void> }) {
   const { t } = useI18n();
   const replace = (key: "directory.pendingBatchSummary" | "directory.pendingSourceBreakdown" | "directory.pendingOtherBreakdown" | "directory.pendingProcessedSummary", values: Record<string, number | string>) => Object.entries(values).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), t(key));
   const state = useProjectDirectoryProjection(props.project, t, props.runtime);
@@ -38,7 +39,7 @@ export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState
       <button type="button" role="tab" aria-selected={props.mode === "pending"} onClick={() => props.onModeChange("pending")}><span>{t("directory.pending")}</span><strong>{pendingReady ? state.projection?.pendingCount ?? 0 : pendingLoading ? "…" : "—"}</strong></button>
     </div>
     {props.mode === "classified" && <>
-      {state.projection && <ProjectDirectoryTree groups={state.projection.groups} selectedObjectId={props.selectedObjectId} onNavigate={props.onNavigate} onOpenReference={props.onOpenReference} />}
+      {state.projection && <ProjectDirectoryTree key={state.projection.projectId} groups={state.projection.groups} selectedObjectId={props.selectedObjectId} projectId={props.project?.id ?? null} workVersionId={props.runtime.workVersionId ?? null} initialState={props.directoryState} onStateChange={props.onDirectoryState} onNavigate={props.onNavigate} onOpenReference={props.onOpenReference} />}
       {props.runtime.connectionState === "ready" && !props.project && <div className="project-directory-empty-state" data-directory-empty-shell-actions="true"><p>{t("directory.noProjectHint")}</p><div><button type="button" onClick={() => void props.onCreateProject(t("directory.untitledProject")).catch(() => setEmptyActionError(t("directory.newProjectFailed")))}>{t("directory.newProject")}</button><button type="button" onClick={() => window.location.assign("/settings/storage#transfer")}>{t("directory.openImport")}</button></div>{emptyActionError && <p role="alert">{emptyActionError}</p>}</div>}
       {props.project && state.projection?.groups.length === 0 && <p className="project-directory-empty">{t("directory.empty")}</p>}
     </>}

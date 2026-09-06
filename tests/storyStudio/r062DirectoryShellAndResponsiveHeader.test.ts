@@ -29,7 +29,7 @@ test("CLASSIFIED_SHELL_PRESENT_WITH_NO_OPEN_WORK", () => {
   const projection = createEmptyProjectDirectoryProjection((key) => zhCN[key]);
   assertZeroDirectoryShell(projection);
   const panel = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx");
-  assert.match(panel, /<ProjectDirectoryTree groups=\{state\.projection\.groups\}/);
+  assert.match(panel, /<ProjectDirectoryTree[^>]*groups=\{state\.projection\.groups\}/);
   assert.match(panel, /data-directory-empty-shell-actions="true"/);
   assert.match(panel, /directory\.newProject/);
   assert.match(panel, /directory\.openImport/);

@@ -100,9 +100,11 @@ test("relation dependencies expose candidate inclusion, existing-object binding,
   assert.match(workSurface, /excludedRelationKeys/u);
 });
 
-test("1195-class layouts turn the directory into an overlay and close it when crossing the breakpoint", () => {
+test("1195-class layouts turn the directory into an overlay without erasing author intent at the breakpoint", () => {
   assert.match(responsive, /SHELL_DIRECTORY_OVERLAY_QUERY = "\(max-width: 76rem\)"/u);
-  assert.match(shell, /closeDirectoryWhenItBecomesOverlay/u);
+  assert.match(shell, /resolveDirectoryPresentation/u);
+  assert.match(shell, /directoryPreferredOpen/u);
+  assert.doesNotMatch(shell, /closeDirectoryWhenItBecomesOverlay/u);
 });
 
 test("local fake execution is never labelled as a real Pi success", () => {

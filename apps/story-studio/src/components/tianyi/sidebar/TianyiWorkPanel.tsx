@@ -7,6 +7,7 @@ import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 export function TianyiWorkPanel(props: {
   projectReady: boolean;
   providerReady: boolean;
+  agentAvailable: boolean;
   session: TianyiSessionMetadata | null;
   draft: string;
   busy: boolean;
@@ -33,7 +34,7 @@ export function TianyiWorkPanel(props: {
           : <div className="tianyi-sidebar-empty"><Sparkles aria-hidden="true" /><strong>{t("tianyi.workLane.title")}</strong><p>{t("tianyi.workLane.shared")}</p><small>{t("tianyi.workLane.candidateBoundary")}</small></div>}
     </section>
     {props.error ? <p className="tianyi-error" role="alert">{props.error}</p> : null}
-    {executionIntent ? <section className="tianyi-dialogue-agent-handoff" role="note"><strong>{t("tianyi.workLane.needsAgent")}</strong><p>{t("tianyi.workLane.needsAgentHint")}</p><button type="button" onClick={props.onSwitchToAgent}>{t("tianyi.workLane.toAgent")}<ArrowRight aria-hidden="true" /></button></section> : null}
+    {executionIntent && props.agentAvailable ? <section className="tianyi-dialogue-agent-handoff" role="note"><strong>{t("tianyi.workLane.needsAgent")}</strong><p>{t("tianyi.workLane.needsAgentHint")}</p><button type="button" onClick={props.onSwitchToAgent}>{t("tianyi.workLane.toAgent")}<ArrowRight aria-hidden="true" /></button></section> : null}
     <form className="tianyi-dialogue-composer" onSubmit={submit} data-agent-dispatch="forbidden">
       <label><span className="shell-visually-hidden">{t("tianyi.workLane.input")}</span><textarea rows={3} value={props.draft} disabled={props.busy || !props.projectReady || !props.providerReady} placeholder={t("tianyi.workLane.placeholder")} onKeyDown={keyDown} onChange={(event) => props.onDraft(event.target.value)} /></label>
       <button type="submit" aria-label={t("tianyi.workLane.send")} title={t("tianyi.workLane.send")} disabled={props.busy || !props.draft.trim() || !props.projectReady || !props.providerReady}><Send aria-hidden="true" /></button>

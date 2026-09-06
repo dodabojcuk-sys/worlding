@@ -131,7 +131,9 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
       streamFn: async (_selectedModel, context, options = {}) => {
         providerCalls += 1;
         const stream = new AssistantMessageEventStream();
-        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, async onResponseModel(value) { responseModelId = value; await emit({ type: "response-metadata", responseModelId: value }); }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
+        // A normal second model turn after a tool result is a tool-loop turn,
+        // not a retry.  Retry accounting is supplied explicitly by the host.
+        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry, signal: options.signal, model, onTrace(value) { traceId = value; }, async onResponseModel(value) { responseModelId = value; await emit({ type: "response-metadata", responseModelId: value }); }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
         return stream;
       }
     });

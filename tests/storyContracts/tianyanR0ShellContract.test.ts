@@ -171,9 +171,11 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
   assert.match(shell, /const openAccount = \(\) => \{/);
-  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*setDirectoryOpen\(false\)/);
+  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.doesNotMatch(shell, /const openAccount = \(\) => \{[\s\S]{0,240}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /const openSettings = \(\) => \{/);
-  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setAccountOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.doesNotMatch(shell, /const openSettings = \(\) => \{[\s\S]{0,280}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /data-settings-open=\{settingsOpen\}/);
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
   assert.match(shell, /accountOpen=\{accountOpen\}/);

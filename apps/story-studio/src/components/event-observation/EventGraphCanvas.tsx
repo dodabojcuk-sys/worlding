@@ -973,7 +973,7 @@ function buildFormalNarrativeGraph(input: {
     visiblePathGroups.set(placement.storyUnitId, list);
   }
   const focusY = mainY + Math.max(1, branchUnits.length) * 265 + 245;
-  for (const [objectIndex, object] of input.focusObjects.slice(0, 3).entries()) {
+  for (const [objectIndex, object] of input.focusObjects.slice(0, 5).entries()) {
     const laneY = focusY + objectIndex * 96;
     nodes.push({ id: `focus-label:${object.id}`, type: "narrativeTopology", position: { x: 18, y: laneY - 8 }, selectable: false, draggable: false, data: { kind: "topology", topology: "unit", label: object.label, detail: object.type === "character" ? "人物轨迹" : object.type === "location" ? "地点出现" : "物品流转" } });
     for (const pathPlacements of visiblePathGroups.values()) {

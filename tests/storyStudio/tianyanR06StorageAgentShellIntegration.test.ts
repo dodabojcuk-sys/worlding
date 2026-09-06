@@ -40,7 +40,7 @@ test("settings always uses the Shell workspace, including direct settings URLs",
   assert.match(settingsStyles, /overscroll-behavior: contain/);
   assert.match(shell, /onSettings=\{openSettings\}/);
   assert.match(shell, /settingsOpen=\{settingsOpen\}/);
-  assert.match(shell, /!settingsOpen && !accountOpen && directoryOpen/);
+  assert.match(shell, /!settingsOpen && !accountOpen && directoryPresented/);
   assert.doesNotMatch(shell, /SettingsStorageSection|SettingsTransferSection|AgentSettingsSection|getModelServiceStatus|getAgentPermissionState|setAgentPermissionProfile/);
   assert.match(shell, /requested === "collapsed" \|\| requested === "expanded" \? requested : "expanded"/);
 });

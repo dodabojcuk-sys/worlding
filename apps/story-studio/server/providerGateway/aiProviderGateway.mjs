@@ -179,21 +179,37 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
     async discoverModels(input = {}) {
       const adapter = adapterMap.get(input.providerId || "siliconflow");
       if (!adapter || typeof adapter.discoverModels !== "function") throw providerGatewayError("invalid-request");
-      // Catalog discovery is an explicit Settings action, not generation. It
-      // must remain available even when a prior generation authorization is
-      // exhausted; the route still enforces same-origin, credential ownership,
-      // response bounds and a hard timeout before this boundary.
-      return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
+      const reservation = adapter.status().configured === true
+        ? reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "setup", `model-catalog:${adapter.id}`)
+        : null;
+      try {
+        const result = await adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
+        if (reservation) budgetLedger.complete({ reservationId: reservation.reservation.reservationId, outcome: "success", traceId: result.traceId });
+        return result;
+      } catch (error) {
+        completeBudgetFailure(budgetLedger, reservation, error);
+        throw error;
+      }
     },
     async probeEmbedding(input = {}) {
       const adapter = adapterMap.get(input.providerId || "siliconflow");
       if (!adapter || typeof adapter.probeEmbedding !== "function") throw providerGatewayError("unavailable");
-      return adapter.probeEmbedding({
-        modelId: input.modelId,
-        syntheticText: EMBEDDING_PROBE_TEXT,
-        signal: input.signal,
-        timeoutMs: input.timeoutMs
-      });
+      const reservation = adapter.status().configured === true
+        ? reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "setup", `embedding-probe:${adapter.id}`)
+        : null;
+      try {
+        const result = await adapter.probeEmbedding({
+          modelId: input.modelId,
+          syntheticText: EMBEDDING_PROBE_TEXT,
+          signal: input.signal,
+          timeoutMs: input.timeoutMs
+        });
+        if (reservation) budgetLedger.complete({ reservationId: reservation.reservation.reservationId, outcome: "success", traceId: result.traceId });
+        return result;
+      } catch (error) {
+        completeBudgetFailure(budgetLedger, reservation, error);
+        throw error;
+      }
     },
     selectDiscoveredModel(modelIds, options = {}) {
       const modelId = selectStructuredChatModel(modelIds);

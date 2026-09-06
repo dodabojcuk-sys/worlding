@@ -8,9 +8,9 @@ import {
 
 const secret = "真正的航海图藏在雾灯匣夹层";
 const events = [
-  { id: "event.cross", title: "林昭在灯塔找到密信", status: "draft", revisionToken: "r1", tags: ["故事线：主故事线|人物线 · 林昭", "知情：林昭=已亲历", "知情：阿芜=未知", "知情：读者=已得知"], body: "交叉事件正文" },
-  { id: "event.secret", title: secret, status: "draft", revisionToken: "r2", tags: ["故事线：调查线 · 雾港", "作者秘密", "知情：林昭=未知", "知情：阿芜=相信", "读者未知"], body: `${secret}，不能越过知识边界。` },
-  { id: "event.misled", title: "阿芜相信潮汐来自外海", status: "draft", revisionToken: "r3", tags: ["故事线：人物线 · 林昭|调查线 · 雾港", "知情：阿芜=被误导", "知情：林昭=怀疑", "知情：读者=未知"], body: "错误信念不覆盖真实 Event。" }
+  { id: "event.cross", title: "林昭在灯塔找到密信", status: "draft", revisionToken: "r1", tags: ["故事线：主故事线|人物线 · 林昭", "知情：character.lin=已亲历", "知情：character.wu=未知", "知情：读者=已得知"], knowledgeSubjectIds: ["character.lin"], body: "交叉事件正文" },
+  { id: "event.secret", title: secret, status: "draft", revisionToken: "r2", tags: ["故事线：调查线 · 雾港", "作者秘密", "知情：character.lin=未知", "知情：character.wu=相信", "读者未知"], knowledgeSubjectIds: ["character.wu"], body: `${secret}，不能越过知识边界。` },
+  { id: "event.misled", title: "阿芜相信潮汐来自外海", status: "draft", revisionToken: "r3", tags: ["故事线：人物线 · 林昭|调查线 · 雾港", "知情：character.wu=被误导", "知情：character.lin=怀疑", "知情：读者=未知"], knowledgeSubjectIds: ["character.lin", "character.wu"], body: "错误信念不覆盖真实 Event。" }
 ];
 const characters = [{ id: "character.lin", label: "林昭", revisionToken: "c1" }, { id: "character.wu", label: "阿芜", revisionToken: "c2" }];
 
@@ -47,13 +47,35 @@ test("reader projection omits reader-hidden Event body and title", () => {
   assert.equal(JSON.stringify(projection).includes(secret), false);
 });
 
-test("comparison keeps different knowledge states side by side without carrying an Event hidden from either person", () => {
+test("author comparison keeps the union and marks each character's knowledge difference", () => {
   const projection = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "author", observerIds: ["character.lin", "character.wu"], events, characters });
   assert.equal(projection.mode, "compare");
   assert.deepEqual(projection.observers.map((observer) => observer.id), ["character.lin", "character.wu"]);
-  assert.equal(projection.visibleEvents.some((event) => event.eventId === "event.cross"), false, "阿芜未知的交叉事件 must not leak its title through a comparison row");
+  assert.equal(projection.audience, "author-comparison");
+  const cross = projection.visibleEvents.find((event) => event.eventId === "event.cross");
+  assert.ok(cross);
+  assert.deepEqual(cross.perspectives.map((item) => [item.observerLabel, item.state]), [["林昭", "experienced"], ["阿芜", "unknown"]]);
   const misled = projection.visibleEvents.find((event) => event.eventId === "event.misled");
   assert.ok(misled);
   assert.deepEqual(misled.perspectives.map((item) => [item.observerLabel, item.state]), [["林昭", "suspects"], ["阿芜", "misled"]]);
+  assert.equal(projection.visibleEvents.some((event) => event.eventId === "event.secret"), true);
+  assert.equal(projection.hiddenCount, 0);
+});
+
+test("role-facing single projection still discards another character's secret before API or ContextPack", () => {
+  const projection = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "character.lin", events, characters });
+  assert.equal(projection.audience, "role");
   assert.equal(JSON.stringify(projection).includes(secret), false);
+});
+
+test("same-name formal characters are isolated by stable id and labels never choose the first match", () => {
+  const duplicated = [{ id: "character.guard", label: "林昭", revisionToken: "g1" }, { id: "character.cartographer", label: "林昭", revisionToken: "c1" }];
+  const scoped = [{ id: "event.same-name", title: "只有守卫亲历", status: "draft", revisionToken: "e1", tags: ["知情：character.guard=已亲历", "知情：林昭=已亲历"], knowledgeSubjectIds: ["character.guard"], body: "同名消歧证据" }];
+  const guard = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "character.guard", events: scoped, characters: duplicated });
+  const cartographer = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "character.cartographer", events: scoped, characters: duplicated });
+  const ambiguous = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "林昭", events: scoped, characters: duplicated });
+  assert.equal(guard.visibleEvents[0]?.knowledgeState, "experienced");
+  assert.equal(cartographer.visibleEvents.length, 0);
+  assert.equal(ambiguous.observer.kind, "reader");
+  assert.equal(ambiguous.visibleEvents.length, 0);
 });

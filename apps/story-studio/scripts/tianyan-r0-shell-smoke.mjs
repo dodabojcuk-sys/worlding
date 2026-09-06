@@ -71,6 +71,7 @@ const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-fou
 const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
 const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
 const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
+const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -142,6 +143,10 @@ try {
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
     await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (r4CharacterObservationOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertCharacterObservationDragAndRecovery(page);
   } else if (shellFocusR22AOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -586,11 +591,13 @@ async function assertCharacterDirectoryAndInspector(page) {
   for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
     assert.ok(Math.abs(workspaceExpanded[key] - workspaceBefore.rect[key]) <= 0.5, `Expanding the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceExpanded[key]})`);
   }
-  await page.getByRole("button", { name: "多选", exact: true }).click();
-  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
-  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
   await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await page.locator(".character-directory-list input[type=checkbox]").first().waitFor();
+  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
+  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
 }
 
 async function assertCharacterCreationDurability(page) {
@@ -619,13 +626,16 @@ async function assertCharacterCreationDurability(page) {
   await page.getByTestId("character-inspector").waitFor();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("沈砚"));
   assert.match(page.url(), /directoryObject=character\./u, "The created object must be selected through its stable object ID in the URL");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
   const createdOption = page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" });
   await waitForCharacterDirectoryIdle(page);
   await createdOption.waitFor();
   assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Created category IDs must remain persistence-only values");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
@@ -652,6 +662,8 @@ async function assertCharacterCreationDurability(page) {
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
   assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
@@ -2284,6 +2296,7 @@ async function openStoryModelingTools(page) {
 
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
+  await assertCharacterObservationDragAndRecovery(page);
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await switchEventView(page, "关系图");
@@ -2473,6 +2486,50 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
 }
 
+async function assertCharacterObservationDragAndRecovery(page) {
+  const providerRequests = [];
+  const observe = (request) => {
+    if (request.method() === "POST" && /\/model-service\/(?:models|test|embedding-probe|minimal-inference)|\/tianyi-agent\/run/u.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observe);
+  try {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=perspective&directoryView=characters`);
+    const directory = page.getByTestId("character-directory");
+    const dropzone = page.getByTestId("character-observation-dropzone");
+    await directory.waitFor();
+    await dropzone.waitFor();
+    await waitForCharacterDirectoryIdle(page);
+    const source = page.getByRole("option", { name: /林昭；可拖入角色观察/u });
+    await source.dragTo(dropzone);
+    await dropzone.getByText("1/5 人", { exact: true }).waitFor();
+    assert.equal(await dropzone.getAttribute("data-provider-calls"), "0", "Dragging a formal character must be a zero-Provider operation.");
+    assert.match(page.url(), /eventFocus=character\./u, "The stable character selection must be recoverable from the URL.");
+    await reloadProduct(page);
+    await page.getByTestId("character-observation-dropzone").getByText("1/5 人", { exact: true }).waitFor();
+    const restoredDirectory = page.getByTestId("character-directory");
+    const multiButton = restoredDirectory.getByRole("button", { name: /多选/u });
+    await multiButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="character-directory"] [aria-multiselectable="true"]') !== null);
+    await restoredDirectory.getByRole("option", { name: /林昭；可拖入角色观察/u }).click();
+    const directoryStorageKey = `tianyan:directory-workspace:${fixtureProjectId}`;
+    await page.waitForFunction((key) => {
+      try { return JSON.parse(localStorage.getItem(key) || "null")?.character?.selectedIds?.includes("character.林昭"); }
+      catch { return false; }
+    }, directoryStorageKey);
+    await reloadProduct(page);
+    const selectedRole = page.getByTestId("character-directory").getByRole("option", { name: /林昭；可拖入角色观察/u });
+    assert.equal(await selectedRole.getAttribute("aria-selected"), "true", "Dedicated Character directory multi-selection must recover per project.");
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).selectOption("archived");
+    await reloadProduct(page);
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    assert.equal(await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).inputValue(), "archived", "Dedicated Character directory filters must recover per project.");
+    assert.deepEqual(providerRequests, [], "Drag, selection persistence, and refresh recovery must make no Provider request.");
+  } finally {
+    page.off("request", observe);
+  }
+}
+
 async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(timelineFixture, "The time graph must use an isolated fixture.");
   const output = founderEvidenceDirectory;
@@ -2624,8 +2681,12 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
   await closeGlobalTianyiIfOpen(page);
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
+  const persistedCharacterDirectory = page.getByTestId("character-directory");
+  if (await persistedCharacterDirectory.isVisible()) await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
   const projectDirectory = page.locator(".project-directory-panel");
-  if (!(await projectDirectory.isVisible())) await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  await projectDirectory.waitFor();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
   await rootBreadcrumb.click();

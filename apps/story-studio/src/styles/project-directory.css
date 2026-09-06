@@ -91,6 +91,9 @@
 .project-directory-entry { min-height: 2.75rem; margin-block-end: 2px; font-size: var(--font-size-sm); }
 .project-directory-reference { min-height: 2.5rem; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .project-directory-reference[data-selected] { color: var(--color-accent); background: var(--color-surface-muted); }
+.project-directory-reference[data-drag-selected] { color: var(--color-accent); background: var(--color-accent-soft); box-shadow: inset 2px 0 var(--color-accent); }
+.project-directory-drag-handle { cursor: grab; }
+.project-directory-reference:active .project-directory-drag-handle { cursor: grabbing; }
 .project-directory-reference em { color: var(--color-accent); font-size: var(--font-size-xs); font-style: normal; }
 .project-directory-empty { margin: var(--space-4); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .project-directory-empty-state,

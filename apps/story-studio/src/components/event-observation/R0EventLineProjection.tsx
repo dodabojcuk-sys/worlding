@@ -8,9 +8,10 @@ import type { StoryStudioEventReference } from "../../../../../src/storyContract
 import { useI18n } from "../../product-shell/i18n/I18nProvider";
 import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eventPerspectiveProjection.ts";
 import { TianyiEventLineCandidateTrajectory } from "../tianyi/workspace/TianyiEventLineCandidateTrajectory";
+import type { TianyiKnowledgeViewContext } from "../tianyi/sidebar/TianyiSidebar";
 
 /** Adapter for the established Event projection and Workspace write command. */
-export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number }): void; selectedEventId?: string | null }) {
+export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void; selectedEventId?: string | null }) {
   const { t } = useI18n();
   const navigationStartedAt = useRef(performance.now());
   const firstFeedbackAt = useRef(performance.now());
