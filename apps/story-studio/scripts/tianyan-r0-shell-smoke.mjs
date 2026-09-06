@@ -18,7 +18,11 @@ import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
-  for (const scope of ["full-shell", "agent-fake-stream"]) await runIsolatedE2eScope(scope);
+  // The high-density shell, prediction execution and cancellable stream each
+  // keep their full assertions, but receive independent fixture/API/browser
+  // lifecycles so one CPU-heavy scenario cannot starve another scenario's
+  // bounded product-state transition.
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -301,7 +305,6 @@ try {
     await setupTimelineFixture();
     await assertTimelineRelationshipGraph(page, consoleProblems);
     if (temporalProjectionRecordingDirectory) await recordTemporalProjectionOperation();
-    await assertMultiNodePredictionProductization(page, consoleProblems);
     await assertRightWorkSurfaceStateMachine(page, consoleProblems);
     if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
     if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
