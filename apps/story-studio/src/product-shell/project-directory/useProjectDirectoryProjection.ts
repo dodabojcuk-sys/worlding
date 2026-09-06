@@ -9,6 +9,7 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 export type DirectoryLoadState = { projectId: string | null; projection: ProjectDirectoryProjection | null; pending: PendingReviewAggregation | null; error: boolean; pendingStatus: "idle" | "loading" | "ready" | "failed" };
 const projectionCache = new Map<string, DirectoryLoadState>();
 const emptyCoreRetries = new Map<string, number>();
+const emptyCoreRetryDelays = [120, 240, 480, 960, 1_920, 3_840] as const;
 type DirectoryCoreRead = {
   library: Awaited<ReturnType<typeof getWorldLibrary>>;
   units: Awaited<ReturnType<typeof listStoryUnits>>;
@@ -61,18 +62,20 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
     setState(cached ? { ...cached, error: false, pendingStatus: "loading" } : { projectId, projection: createLoadingDirectoryProjection(projectId, translate.current), pending: null, error: false, pendingStatus: "loading" });
     void readDirectoryCore(projectId).then((core) => {
       if (!isCurrentProject() || core.library.project.id !== projectId) return;
-      // A newly active project can expose the directory while a just-completed
-      // local receipt is becoming visible to the read projection. Never turn
-      // that transient, fully empty snapshot into a durable empty directory.
-      // This is deliberately bounded: genuinely empty projects still render
-      // their empty state after two read-only retries.
+      // A newly active project can expose the directory before its local read
+      // projection has caught up. Never turn that transient, fully empty
+      // snapshot into a durable empty directory when the bootstrap says this
+      // project already has content. This remains bounded: a genuinely empty
+      // project is rendered immediately, and a populated project stops after
+      // a short, read-only backoff window.
       const emptyCore = core.library.objects.length === 0 && core.units.length === 0;
       const retries = emptyCoreRetries.get(projectId) ?? 0;
-      if (emptyCore && retries < 2) {
+      const projectExpectsContent = project.counts.objects > 0 || project.counts.chapters > 0 || project.counts.scenes > 0;
+      if (emptyCore && projectExpectsContent && retries < emptyCoreRetryDelays.length) {
         emptyCoreRetries.set(projectId, retries + 1);
         emptyCoreRetryTimer = window.setTimeout(() => {
           if (isCurrentProject()) setPendingRevision((revision) => revision + 1);
-        }, 150);
+        }, emptyCoreRetryDelays[retries]);
         return;
       }
       if (!emptyCore) emptyCoreRetries.delete(projectId);
