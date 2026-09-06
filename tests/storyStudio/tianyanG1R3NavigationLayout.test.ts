@@ -17,10 +17,13 @@ test("R4 supersedes R3 dismissal with temporary suppression while preserving aut
   assert.doesNotMatch(workbench, /const openEvent = \(eventId: string\) => \{\s*if \(window\.matchMedia\("\(max-width: 80rem\)"\)/u);
 });
 
-test("R3 stabilizes Tianyi's shared task frame at medium desktop widths", () => {
+test("R4-R2 keeps Tianyi's compact three-group task frame stable at medium desktop widths", () => {
   const styles = source("apps/story-studio/src/styles/tianyi-workspace.css");
-  assert.match(styles, /\.tianyi-task-header \{ min-height: 84px/u);
-  assert.match(styles, /\.tianyi-workspace-header \{ grid-template-columns: 92px minmax\(0, 1fr\) auto/u);
+  const workspace = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
+  assert.match(styles, /\.tianyi-task-header \{ min-height: 64px/u);
+  assert.match(styles, /\.tianyi-workspace-header \{ min-height: 64px/u);
+  assert.match(styles, /\.tianyi-header-actions \{/u);
+  assert.match(workspace, /className="tianyi-header-actions"/u);
   assert.doesNotMatch(styles, /data-active-lane="review"\] \.tianyi-workspace-header/u);
 });
 

@@ -169,7 +169,7 @@ export function StoryProgressionWorkspace(props: {
         <button type="button" aria-expanded={moreOpen} onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); }}><MoreHorizontal />更多</button>
       </div>
     </nav>
-    <CharacterObservationTray projectId={props.projectId} workVersionId={props.workVersionId} characters={formalCharacters} selectedIds={selectedCharacterIds} message={observationMessage} onMessage={setObservationMessage} onChange={props.onObservers} onOpenPicker={() => setCompareOpen(true)} />
+    <CharacterObservationTray projectId={props.projectId} workVersionId={props.workVersionId} characters={formalCharacters} selectedIds={selectedCharacterIds} message={observationMessage} onMessage={setObservationMessage} onChange={(ids) => { setObservationMessage(null); props.onObservers(ids); }} onOpenPicker={() => setCompareOpen(true)} />
     {(props.comparisonMode || props.observerId !== "author" || props.hiddenEventCount > 0 || props.selectedKnowledgeState) ? <div className="story-knowledge-boundary-status" data-testid="knowledge-boundary-status" data-observer-id={props.comparisonMode ? props.observerIds.join(",") : props.observerId} data-hidden-event-count={props.hiddenEventCount}><ShieldCheck /><span>{props.comparisonMode ? `联合对照：${props.observerIds.length} 位人物；展示至少一人可知的事件，并逐人标明差异` : `${props.observers.find((observer) => observer.id === props.observerId)?.label ?? "当前观察者"}：仅投影可知内容`}{props.hiddenEventCount ? `；${props.hiddenEventCount} 个所有已选人物均未知的位置未携带事实正文` : ""}</span>{props.selectedKnowledgeState ? <strong>{trajectoryKnowledgeLabel(props.selectedKnowledgeState)}</strong> : null}</div> : null}
     {compareOpen ? <div className="story-knowledge-compare-popover"><KnowledgeComparePicker observers={props.observers} selectedIds={props.observerIds} onChange={props.onObservers} /></div> : null}
     {props.selectedStorylineLabels.length ? <div className="story-crossing-selection" data-testid="story-crossing-selection"><GitBranch /><span>同一事件所属：</span>{props.selectedStorylineLabels.map((label) => <button type="button" key={label} onClick={() => { const line = props.storylines.find((item) => item.label === label); if (line) props.onStorylineScope(line.id); }}>{label}</button>)}{props.selectedKnowledgePerspectives.length ? <KnowledgeComparisonRows perspectives={props.selectedKnowledgePerspectives} /> : null}</div> : null}
@@ -230,7 +230,10 @@ function CharacterObservationTray(props: {
       available: props.characters.map((character) => ({ id: character.id, version: character.version ?? "unknown", type: character.type }))
     });
     if (!result.ok) { props.onMessage(result.message); return; }
-    props.onMessage(`已选择 ${result.ids.length} 位人物；切换只读投影，Provider 调用为 0。`);
+    // The selected chips are the durable author-facing acknowledgement. Keep the
+    // inline message for actionable errors only; it must not become stale after
+    // a later removal, reorder, or return to the author view.
+    props.onMessage(null);
     props.onChange(result.ids);
   };
   return <section className="story-character-observation" data-testid="character-observation-dropzone" data-provider-calls="0" onDragOver={(event) => { if (event.dataTransfer.types.includes(CHARACTER_OBSERVATION_MIME)) event.preventDefault(); }} onDrop={drop}>

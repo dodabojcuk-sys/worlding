@@ -72,6 +72,8 @@ const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event
 const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
 const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
+const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
+const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -147,6 +149,10 @@ try {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await assertCharacterObservationDragAndRecovery(page);
+  } else if (r4WorkspaceOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertR4GlobalWorkWorkspace(page, consoleProblems);
   } else if (shellFocusR22AOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -2504,9 +2510,38 @@ async function assertCharacterObservationDragAndRecovery(page) {
     const dropzone = page.getByTestId("character-observation-dropzone");
     await directory.waitFor();
     await dropzone.waitFor();
+    const geometry = async () => await page.evaluate(() => {
+      const tray = document.querySelector('[data-testid="character-observation-dropzone"]')?.getBoundingClientRect();
+      const workspace = document.querySelector('[data-testid="story-progression-workspace"]');
+      const workspaceBox = workspace?.getBoundingClientRect();
+      const style = workspace ? getComputedStyle(workspace) : null;
+      const canvasWidth = workspaceBox && style ? workspaceBox.width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd) : 0;
+      const canvasX = workspaceBox && style ? workspaceBox.x + parseFloat(style.paddingInlineStart) : 0;
+      return tray && workspaceBox ? { trayWidth: tray.width, canvasWidth, trayX: tray.x, canvasX } : null;
+    });
+    const initialGeometry = await geometry();
+    assert.ok(initialGeometry && Math.abs(initialGeometry.trayWidth - initialGeometry.canvasWidth) <= 1 && Math.abs(initialGeometry.trayX - initialGeometry.canvasX) <= 1, `0-person tray must span the canvas column=${JSON.stringify(initialGeometry)}`);
     await waitForCharacterDirectoryIdle(page);
     const source = page.getByRole("option", { name: /林昭；可拖入角色观察/u });
     await source.dragTo(dropzone);
+    await dropzone.getByText("1/5 人", { exact: true }).waitFor();
+    const oneGeometry = await geometry();
+    assert.ok(oneGeometry && Math.abs(oneGeometry.trayWidth - initialGeometry.trayWidth) <= 1 && Math.abs(oneGeometry.trayX - initialGeometry.trayX) <= 1, `1-person tray must not resize the workspace=${JSON.stringify({ initialGeometry, oneGeometry })}`);
+    await page.getByRole("button", { name: "选择人物", exact: true }).click();
+    const picker = page.getByTestId("knowledge-compare-picker");
+    for (const label of ["阿芜", "陆衍"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("3/5 人", { exact: true }).waitFor();
+    for (const label of ["顾澜", "程野"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("5/5 人", { exact: true }).waitFor();
+    const fiveGeometry = await geometry();
+    assert.ok(fiveGeometry && Math.abs(fiveGeometry.trayWidth - initialGeometry.trayWidth) <= 1 && Math.abs(fiveGeometry.trayX - initialGeometry.trayX) <= 1, `5-person tray must keep outer geometry stable=${JSON.stringify({ initialGeometry, fiveGeometry })}`);
+    for (const label of ["阿芜", "陆衍", "顾澜", "程野"]) await dropzone.getByRole("button", { name: `移除观察人物 ${label}`, exact: true }).click();
+    await dropzone.getByText("1/5 人", { exact: true }).waitFor();
+    await dropzone.getByRole("button", { name: "移除观察人物 林昭", exact: true }).click();
+    await dropzone.getByText("选择人物", { exact: true }).waitFor();
+    const finalGeometry = await geometry();
+    assert.ok(finalGeometry && Math.abs(finalGeometry.trayWidth - initialGeometry.trayWidth) <= 1 && Math.abs(finalGeometry.trayX - initialGeometry.trayX) <= 1, `0-person restored tray must keep outer geometry stable=${JSON.stringify({ initialGeometry, finalGeometry })}`);
+    await picker.getByLabel("林昭", { exact: true }).check();
     await dropzone.getByText("1/5 人", { exact: true }).waitFor();
     assert.equal(await dropzone.getAttribute("data-provider-calls"), "0", "Dragging a formal character must be a zero-Provider operation.");
     assert.match(page.url(), /eventFocus=character\./u, "The stable character selection must be recoverable from the URL.");
@@ -2534,6 +2569,60 @@ async function assertCharacterObservationDragAndRecovery(page) {
   } finally {
     page.off("request", observe);
   }
+}
+
+async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
+  const capture = async (name) => {
+    if (!r4R2EvidenceDirectory) return;
+    mkdirSync(r4R2EvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(r4R2EvidenceDirectory, name), fullPage: false });
+  };
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const assertVisibleComposer = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    const geometry = await page.evaluate(() => {
+      const textarea = document.querySelector('textarea[aria-label="工作模式草稿"]')?.getBoundingClientRect();
+      const send = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("发送到当前工作"))?.getBoundingClientRect();
+      return { textarea, send, viewport: { width: window.innerWidth, height: window.innerHeight }, scrollWidth: document.documentElement.scrollWidth };
+    });
+    assert.ok(geometry.textarea && geometry.textarea.top >= 0 && geometry.textarea.bottom <= geometry.viewport.height, `Work textarea must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.send && geometry.send.top >= 0 && geometry.send.bottom <= geometry.viewport.height, `Work send action must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scrollWidth <= geometry.viewport.width, `Work must not create body overflow at ${width}x${height}=${JSON.stringify(geometry)}`);
+  };
+
+  await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN&tianyiLane=work`);
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker summary")?.textContent?.includes("正在读取") !== true);
+  await assertVisibleComposer(1440, 900);
+  await capture("r4-r2-1440-global-work-composer.png");
+
+  const scope = page.locator(".tianyi-work-contract select");
+  await scope.selectOption("selected-events");
+  const context = page.locator(".tianyi-work-context-picker");
+  await context.locator("summary").click();
+  const eventChecks = context.locator('input[type="checkbox"]');
+  assert.ok(await eventChecks.count() >= 6, "R4 fixture must expose at least six formal Events for bounded context selection.");
+  for (let index = 0; index < 6; index += 1) await eventChecks.nth(index).check();
+  await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6);
+  assert.match(await context.innerText(), /已附加 6\/6 项/u, "Selecting six Events must expose the exact attached evidence count.");
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 6, "The displayed evidence list must match the six attached Event references.");
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("围绕已选事件检查角色动机与因果，但不写入正式故事。");
+  await assertVisibleComposer(1195, 900);
+  await capture("r4-r2-1195-six-event-work-context.png");
+  await assertVisibleComposer(1024, 768);
+  await capture("r4-r2-1024-global-work-composer.png");
+  await assertVisibleComposer(900, 740);
+  const groundedRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer"));
+  await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+  const groundedPayload = JSON.parse((await groundedRequest).postData() || "{}");
+  const selectedEventIds = await eventChecks.evaluateAll((checks) => checks.slice(0, 6).map((check) => check.getAttribute("data-event-id")));
+  assert.equal(groundedPayload.profileId, "local-fake-grounded-answer", "The local fixture must exercise grounded transport without selecting a paid Provider.");
+  assert.equal(groundedPayload.contextRequest.eventRefs?.length, 6, "The grounded request must preserve the author's six explicit Event references.");
+  assert.deepEqual(groundedPayload.contextRequest.eventRefs.map((reference) => reference.eventId), selectedEventIds, "The fake grounded request must contain exactly the six selected Event identities.");
+  await page.waitForFunction(() => !(document.querySelector('textarea[aria-label="工作模式草稿"]') instanceof HTMLTextAreaElement) || document.querySelector('textarea[aria-label="工作模式草稿"]').value === "", undefined, { timeout: 15_000 });
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "R4-R2 must not create fake attachment references.");
+  assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "R4-R2 must not create fake source references.");
+  assert.deepEqual(consoleProblems, [], "R4 global Work layout interactions must not add browser errors.");
 }
 
 async function assertTimelineRelationshipGraph(page, consoleProblems) {
@@ -2690,11 +2779,16 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
   if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   const persistedCharacterDirectory = page.getByTestId("character-directory");
-  if (await persistedCharacterDirectory.isVisible()) await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
+  if (await persistedCharacterDirectory.isVisible()) {
+    await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
+    await persistedCharacterDirectory.waitFor({ state: "hidden" });
+  }
   const projectDirectory = page.locator(".project-directory-panel");
   await projectDirectory.waitFor();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
+  await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
+  await rootBreadcrumb.waitFor({ state: "visible" });
   await rootBreadcrumb.click();
   assert.equal(await directoryTree.locator(".project-directory-reference").count(), 0, "The directory root must expose only second-level categories, never Event rows.");
   assert.deepEqual((await directoryTree.locator(".project-directory-entry").allTextContents()).map((value) => value.replace(/\d+$/u, "").trim()), ["故事结构", "信息资料", "设定", "来源", "创意"], "Directory root keeps the five high-level categories.");
@@ -3192,14 +3286,14 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
   assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
   assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
-  assert.equal(await page.getByRole("button", { name: "整理成三个候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "整理为故事候选", exact: true }).count(), 1);
   await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
-  await page.getByRole("button", { name: "附件", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The shell must not offer a fake attachment action without a bound upload route.");
   await capture("01-1195x720-TIANYI-creative-mode.png");
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
-  assert.equal(await page.getByRole("heading", { name: "选择一个候选继续" }).count(), 1);
+  assert.equal(await page.getByRole("heading", { name: "当前故事工作上下文" }).count(), 1);
   assert.equal(await page.getByLabel("工作模式草稿").getAttribute("placeholder"), "继续完善当前候选，准备进入影响预览……");
-  assert.equal(await page.getByRole("button", { name: "继续完善候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "发送到当前工作", exact: true }).count(), 1);
   await page.getByLabel("工作模式草稿").fill("只属于工作泳道的草稿");
   await page.getByLabel("工作范围").selectOption("selected-events");
   await capture("02-1195x720-TIANYI-work-mode.png");
@@ -3208,7 +3302,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
   assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
   assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
-  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 1, "Shared attachments must remain visible across lanes.");
+  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 0, "Global Work no longer creates an unbound demo attachment.");
   const before = await shellGeometry(page);
   assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
   await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
@@ -3349,8 +3443,8 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.getByLabel("天意统一会话").waitFor();
     assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
     await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
-    await page.getByRole("button", { name: "附件", exact: true }).click();
-    await page.getByRole("button", { name: "来源", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The composer must not create a fake attachment reference while no real binding route exists.");
+    assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "The composer must not label an unbound demo item as a source.");
     await capture("01-1440x900-TIANYI-creative-author-intent.png");
     await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
     await page.locator(".tianyi-candidate-grid article").first().waitFor();
@@ -3367,7 +3461,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
-    assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
+    assert.match(await page.getByLabel("当前视图").textContent(), /暂无共享引用/u);
     assert.match(await page.getByLabel("当前视图").textContent(), /3 个候选/u);
     await page.getByLabel("工作范围").selectOption("selected-events");
     await page.getByLabel("工作模式草稿").fill("只调整钥匙交接事件，不改变 Canon 或其他故事事实。");

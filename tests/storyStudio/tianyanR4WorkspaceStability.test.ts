@@ -107,6 +107,21 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(pending, /打开本批审阅/u);
 });
 
+test("R4-R2 reserves a visible global Work composer and reports bounded formal evidence honestly", () => {
+  const workspace = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
+  const styles = source("apps/story-studio/src/styles/tianyi-workspace.css");
+  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 6/u);
+  assert.match(workspace, /workContextState/u);
+  assert.match(workspace, /tianyi-global-work-scroll/u);
+  assert.match(workspace, /tianyi-work-context-events/u);
+  assert.match(workspace, /eventRefs: globalWorkEventRefs/u);
+  assert.match(workspace, /globalWorkEvents[\s\S]{0,360}\.slice\(0, MAX_GLOBAL_WORK_EVENT_REFS\)/u);
+  assert.doesNotMatch(workspace, /attachment:\$\{crypto\.randomUUID\(\)\}/u);
+  assert.doesNotMatch(workspace, /source:\$\{crypto\.randomUUID\(\)\}/u);
+  assert.match(styles, /data-global-work="true"\] \.tianyi-conversation-column \{ display: grid/u);
+  assert.match(styles, /grid-template-rows: minmax\(0, 1fr\) auto/u);
+});
+
 test("R4-R1 reserves 1195 canvas space for the preserved directory and checks geometry in the browser smoke", () => {
   const styles = source("apps/story-studio/src/styles/tianyan-r0-shell.css");
   const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");

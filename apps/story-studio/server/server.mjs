@@ -74,7 +74,7 @@ import {
   tianyiObjectContextRefKey
 } from "../../../src/storyContinuity/index.ts";
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
-import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
+import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
@@ -225,12 +225,30 @@ const providerBudgetLedger = createProviderRequestBudgetLedger({
 });
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
+// This adapter is test-process-only. It lets the browser exercise the exact
+// grounded-answer transport without configuring or invoking a paid Provider.
+const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
+const localFakeGroundedProfile = Object.freeze({
+  id: "local-fake-grounded-answer",
+  label: "本地假服务 · Grounded Answer",
+  purpose: "structured-story",
+  providerId: "local-fake",
+  modelId: "deterministic-grounded-fixture",
+  maxOutputTokens: 512,
+  temperature: 0,
+  timeoutMs: 5_000,
+  enableThinking: false
+});
 const providerGateway = createAiProviderGateway({
-  adapters: providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
-    instance,
-    apiKeyProvider: () => readProviderCredential(instance.provider),
-    baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
-  })),
+  adapters: [
+    ...providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
+      instance,
+      apiKeyProvider: () => readProviderCredential(instance.provider),
+      baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
+    })),
+    ...(agentFakeProviderStreamAllowed ? [createLocalFakeGroundedAdapter()] : [])
+  ],
+  ...(agentFakeProviderStreamAllowed ? { profiles: [...DEFAULT_MODEL_PROFILES, localFakeGroundedProfile] } : {}),
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
@@ -258,7 +276,6 @@ const tianyi = createStoryStudioTianyiOperations({
 });
 const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootPath, stateFilePath, agentId: tianyiAgentId, localControlToken: controlToken, tianyiOperations: tianyi });
 const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || process.env.TIANYAN_AGENT_DRAFT_FIXTURE_MODE === "1";
-const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
 const agentFakeStoryIntakeFailureOrdinal = process.env.NODE_ENV === "test"
   ? Math.max(0, Number(process.env.TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL || 0) || 0)
   : 0;
@@ -3097,6 +3114,56 @@ function readProviderProfileProjection() {
     },
     credentialRequired: preset?.credentialRequired !== false
   };
+}
+
+function createLocalFakeGroundedAdapter() {
+  return Object.freeze({
+    id: "local-fake",
+    label: "本地假服务",
+    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat"]) }]),
+    status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
+    async openChatStream(input) {
+      const system = input.messages.find((message) => message.role === "system")?.content || "";
+      const includedSources = readGroundedFixtureJson(system, "includedSources must equal exactly:", []);
+      const excludedSources = readGroundedFixtureJson(system, "excludedSources must equal exactly:", []);
+      const answer = includedSources.length
+        ? {
+            summary: "本地假服务已按当前明确选择读取正式事件；未写入故事事实。",
+            claims: [{ statement: "已附加事件仅作为本轮工作依据。", status: "fact", sourceRefs: includedSources, uncertaintyReason: null }],
+            status: "fact",
+            sourceRefs: includedSources,
+            uncertaintyReason: null,
+            includedSources,
+            excludedSources
+          }
+        : {
+            summary: "本地假服务未收到已授权依据，不能形成事实判断。",
+            claims: [],
+            status: "unknown",
+            sourceRefs: [],
+            uncertaintyReason: "当前工作范围没有可用的正式事件依据。",
+            includedSources,
+            excludedSources
+          };
+      return Object.freeze({
+        traceId: `trace.local-fake.grounded.${stableHash(JSON.stringify(input.messages)).slice(0, 16)}`,
+        events: (async function* () {
+          if (input.signal?.aborted) { const error = new Error("Local fake grounded stream aborted."); error.name = "AbortError"; throw error; }
+          yield { type: "chunk", text: JSON.stringify(answer), finishReason: "stop", usage: { promptTokens: 24, completionTokens: 36, totalTokens: 60 } };
+        })()
+      });
+    }
+  });
+}
+
+function readGroundedFixtureJson(source, prefix, fallback) {
+  const start = source.indexOf(prefix);
+  if (start < 0) return fallback;
+  const valueStart = source.indexOf("[", start + prefix.length);
+  if (valueStart < 0) return fallback;
+  const lineEnd = source.indexOf("\n", valueStart);
+  try { return JSON.parse(source.slice(valueStart, lineEnd < 0 ? source.length : lineEnd)); }
+  catch { return fallback; }
 }
 
 function syncProviderGatewayProfile(preferredModelId = null) {

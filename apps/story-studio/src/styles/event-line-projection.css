@@ -1894,7 +1894,7 @@
 .story-progression-tasks,
 .story-progression-actions { inline-size: 100%; }
 .story-progression-actions { padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
-.story-character-observation { flex: 0 0 auto; min-block-size: 2.65rem; max-inline-size: 100rem; display: flex; align-items: center; gap: .55rem; margin: 0 auto .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
+.story-character-observation { flex: 0 0 auto; inline-size: 100%; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
 .story-character-observation-label { flex: 0 0 auto; display: flex; align-items: center; gap: .42rem; color: var(--color-text-muted); }
 .story-character-observation-label > svg { inline-size: .95rem; color: var(--color-accent); }
 .story-character-observation-label > span { display: grid; gap: .05rem; }
@@ -1907,7 +1907,7 @@
 .story-character-observation-chips button { inline-size: 1.45rem; padding: 0; border: 0; }
 .story-character-observation button svg { inline-size: .7rem; }
 .story-character-observation button:disabled { opacity: .3; cursor: default; }
-.story-character-observation > p { max-inline-size: 22rem; margin: 0; overflow: hidden; color: var(--color-warning); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.story-character-observation > p { max-inline-size: 22rem; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
 .story-knowledge-boundary-status { flex: 0 0 auto; }
 .formal-narrative-workspace, .shell-workspace-event-line .temporal-workspace.is-task-surface { border-radius: .42rem; box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="overview"] .formal-narrative-card { box-shadow: none; }
