@@ -122,6 +122,7 @@ test("desktop topbar preserves every global control while keeping one search and
   assert.match(shell, /onOpenProject=\{props\.runtime\.openProject\}/);
   assert.match(runtime, /openProject\(projectId: string\): Promise<void>/);
   assert.match(runtime, /openProject\(projectId, token\)/);
+  assert.match(runtime, /getCreationSourcePortState\(\{ projectId: activeProject\.id \}\)[\s\S]*?\.catch\(\(\) => \{[\s\S]*?setWorkVersionLabel\(null\)[\s\S]*?setWorkVersionId\(null\)/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
   assert.match(topbar, /shell-topbar-overflow-menu/);
   assert.match(topbar, /aria-controls="shell-topbar-overflow-menu"/);
@@ -232,6 +233,8 @@ test("active R0 shell is split by responsibility and confines runtime transport 
   assert.match(eventLine, /EventLineWorkbench/);
   assert.match(eventLine, /getVerifiedCanonEventList/);
   assert.match(eventLine, /getWorldLibrary/);
+  assert.match(eventLine, /modelingRuns: \[\], logicReviews: \[\]/);
+  assert.match(eventLine, /setLoadState\("ready"\)[\s\S]*?listStoryModelingRuns[\s\S]*?listStoryLogicReviews/);
   assert.doesNotMatch(app, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.doesNotMatch([shell, navigation, topbar, workspace, directory, dock].join("\n"), /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.match(runtime, /localTransport/);

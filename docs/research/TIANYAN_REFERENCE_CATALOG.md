@@ -23,6 +23,9 @@
 | R17 | [vvd.world](https://vvd.world/) | 世界工具 | D | 世界资料、地图、图谱、时间线等多视图 | 只核对公开介绍，未进入账号实操 |
 | R18 | WinkNovel（用户原称） | 身份核实 | I | 同名阅读/短剧产品较多 | 保留原名，不采用未经核实的能力描述 |
 | R19 | [OpenWriter / travsteward](https://github.com/travsteward/openwriter) · [官网](https://openwriter.io/) | 新增重点 | C | MCP 协作文稿、候选修改、正文优先侧栏布局 | 源码与 MIT 许可证已读；独立于 R15 登记 |
+| R20 | [pm-skills / outcome-roadmap](https://github.com/phuryn/pm-skills/blob/18468a95b427e70e258b51389796367c6f684e7d/pm-execution/skills/outcome-roadmap/SKILL.md) | 路线图方法 | D | 用作者结果、依赖和可观察验收表达阶段 | 固定版本资料；只用于项目路线图，不伪造工期或市场数据 |
+| R21 | [pm-skills / test-scenarios](https://github.com/phuryn/pm-skills/blob/18468a95b427e70e258b51389796367c6f684e7d/pm-execution/skills/test-scenarios/SKILL.md) | 测试设计 | D | 自包含前置、动作、预期和实际证据 | 固定版本资料；不把模板膨胀成重复矩阵 |
+| R22 | [awesome-design-md](https://github.com/VoltAgent/awesome-design-md/tree/8147538b4226ae41e2487a9179e3bcc1f68e8554) | 设计约束表达 | D | 层级、间距、边界、状态和 token 的文档形式 | 固定版本资料；不把营销页或第三方品牌规则直接覆盖到天衍 |
 
 ## 当前采用的机制
 
@@ -32,5 +35,7 @@
 | AgentTrail / R14 | `0d5d1510e022817427c24cf519a25e0f6b2b033e` | 稳定语义空间与瞬时活动覆盖层分离 | 用画布坐标取代 Event / Arrangement 身份 |
 | DeterminFlow / R13 | `ceea31c932dea68b9fff73b39fb457a52f47a188` | 定义快照、执行尝试、暂停点和恢复分开 | 把流程分支合并等同于世界事实合并，或另起 Pi runtime |
 | AI-Novel / R01 | `25db3223709dec7f892cfc7b0ba82742636644c6` | 从作品状态指向范围明确的下一步 | 用其角色/章节模型替代天衍 Agent / Event 语义 |
+| PM / R20-R21 | `18468a95b427e70e258b51389796367c6f684e7d` | 结果—依赖—可观察验收、隔离场景与失败证据 | 将模板当作产品或测试框架替代品 |
+| DESIGN.md / R22 | `8147538b4226ae41e2487a9179e3bcc1f68e8554` | 可验证地记录层级、间距、状态和 token | 套用 Linear/Notion 等第三方品牌或营销页数值 |
 
 R4 没有复制外部实现。完整来源说明与历史研究结论保留在用户提供的本地保存文档；后续进入女娲或预测专题时，再按需要复核 R02、R06、R07、R11、R12。

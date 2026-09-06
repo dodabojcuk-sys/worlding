@@ -93,11 +93,20 @@ export function TianyanShellRuntime() {
       setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative")) ?? "");
       setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work")) ?? "");
       setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(activeProject.id)));
+      // A failed version read must not leave a previous project's label attached to
+      // the current project. The Shell can still become interactive because this is
+      // a read-only status projection, not the connection owner.
+      setWorkVersionLabel(null);
+      setWorkVersionId(null);
       void getCreationSourcePortState({ projectId: activeProject.id }).then((version) => {
         if (!active) return;
         const root = version.root;
         setWorkVersionLabel(root ? `${root.name} · r${root.revision}` : null);
         setWorkVersionId(root?.id ?? null);
+      }).catch(() => {
+        if (!active) return;
+        setWorkVersionLabel(null);
+        setWorkVersionId(null);
       });
       void withConnection(async (token) => Promise.all([
         getModelServiceStatus(token),

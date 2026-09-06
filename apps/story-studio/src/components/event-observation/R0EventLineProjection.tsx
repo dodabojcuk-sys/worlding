@@ -30,7 +30,10 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
         setLoadState("empty");
         return;
       }
-      const [library, list, units, relationList, relationTypes, modelingRuns, logicReviews, creationSource] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id), props.runtime.withConnection((token) => listStoryModelingRuns(project.id, token)), props.runtime.withConnection((token) => listStoryLogicReviews(project.id, token)), getCreationSourcePortState({ projectId: project.id })]);
+      // The Event workspace is still useful while optional modeling and logic
+      // history is loading. Do not make its read-only graph depend on either
+      // history projection or leave the author in an indeterminate shell.
+      const [library, list, units, relationList, relationTypes, creationSource] = await Promise.all([getWorldLibrary(project.id), getVerifiedCanonEventList(project.id), listStoryUnits(project.id), listRelations({ projectId: project.id }), listRelationTypes(project.id), getCreationSourcePortState({ projectId: project.id })]);
       // The workspace owner exposes both author drafts and verified Canon events.
       // Only Author Control may give an event the confirmed identity; the graph is
       // still a projection of these same stable Event objects.
@@ -46,9 +49,15 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
         ? await Promise.all(narrativeRoots.map((unit) => getNarrativeArrangement(project.id, creationSource.root!.id, unit.id)))
         : [];
       const narrative = narrativeRoot ? narratives.find((read) => read.projection.narrativePathId === narrativeRoot.id) ?? null : null;
-      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns, logicReviews, list, unit: narrativeRoot?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types, narrative, narratives });
+      setState({ projectId: project.id, title: project.title, events, storyUnits: units, perspectiveObjects, modelingRuns: [], logicReviews: [], list, unit: narrativeRoot?.title ?? null, relations: relationList.relations, relationTypes: relationTypes.types, narrative, narratives });
       setInteractiveAt(performance.now());
       setLoadState("ready");
+      void props.runtime.withConnection(async (token) => Promise.all([
+        listStoryModelingRuns(project.id, token),
+        listStoryLogicReviews(project.id, token)
+      ])).then(([modelingRuns, logicReviews]) => {
+        setState((current) => current.projectId === project.id ? { ...current, modelingRuns, logicReviews } : current);
+      }).catch(() => undefined);
     } catch (error) {
       setLoadState("error");
       throw error;

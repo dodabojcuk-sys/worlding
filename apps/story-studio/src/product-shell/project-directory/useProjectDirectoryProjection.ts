@@ -15,6 +15,7 @@ function createLoadingDirectoryProjection(projectId: string, t: (key: Translatio
 
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
 export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">): DirectoryLoadState {
+  const withConnection = runtime?.withConnection;
   const [state, setState] = useState<DirectoryLoadState>(() => project ? projectionCache.get(project.id) ?? { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: false, pendingStatus: "idle" } : { projectId: null, projection: createEmptyProjectDirectoryProjection(t), pending: null, error: false, pendingStatus: "idle" });
   const [pendingRevision, setPendingRevision] = useState(0);
   useEffect(() => {
@@ -55,10 +56,10 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
       void Promise.all([getCreationSourcePortState({ projectId: project.id }), listSourceImportReviews(project.id), getGoldenLoopCandidateReview(project.id), listRelations({ projectId: project.id, reviewState: "candidate" }), getVerifiedCanonEventList(project.id)]).then(([source, imports, review, relations, verifiedEvents]) => {
         if (!current) return;
         const enrichedInput = { workVersionId: source.root?.id ?? null, imports, review, relations: relations.relations, verifiedEventIds: verifiedEvents.status === "ready" ? verifiedEvents.eventIds : [], proposals: [], storyIntakeRuns: [] };
-        input = { ...enrichedInput, pendingStatus: runtime ? "loading" : "ready" };
+        input = { ...enrichedInput, pendingStatus: withConnection ? "loading" : "ready" };
         const enriched = render();
-        if (!runtime) return;
-        void Promise.all([runtime.withConnection((token) => listAgentRecognitionProposals(project.id, token)), enrichedInput.workVersionId ? runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId: project.id, workVersionId: enrichedInput.workVersionId!, token })) : Promise.resolve([])]).then(([proposals, storyIntakeRuns]) => {
+        if (!withConnection) return;
+        void Promise.all([withConnection((token) => listAgentRecognitionProposals(project.id, token)), enrichedInput.workVersionId ? withConnection((token) => getTianyiStoryIntakeRuns({ projectId: project.id, workVersionId: enrichedInput.workVersionId!, token })) : Promise.resolve([])]).then(([proposals, storyIntakeRuns]) => {
           if (!current) return;
           input = { ...enrichedInput, proposals, storyIntakeRuns, pendingStatus: "ready" };
           render();
@@ -66,6 +67,6 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
       }).catch(() => { if (current) { input = { ...input, error: true, pendingStatus: "failed" }; render(); } });
     }).catch(() => { if (current) setState(cached ? { ...cached, error: true, pendingStatus: "failed" } : { projectId: project.id, projection: createLoadingDirectoryProjection(project.id, t), pending: null, error: true, pendingStatus: "failed" }); });
     return () => { current = false; };
-  }, [pendingRevision, project?.id, runtime, t]);
+  }, [pendingRevision, project?.id, t, withConnection]);
   return state;
 }

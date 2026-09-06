@@ -74,6 +74,8 @@ const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
 const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
+const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
+const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -81,6 +83,8 @@ let r1CausalFixture = null;
 let server;
 let apiServer;
 let browser;
+let browserContext;
+let diagnosticTraceStarted = false;
 let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
@@ -126,9 +130,15 @@ try {
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
-  const page = recordingDirectory
-    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
-    : await browser.newPage({ viewport: { width: 1152, height: 720 } });
+  if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
+  browserContext = await browser.newContext(recordingDirectory
+    ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
+    : { viewport: { width: 1152, height: 720 } });
+  if (diagnosticEvidenceDirectory) {
+    await browserContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
+    diagnosticTraceStarted = true;
+  }
+  const page = await browserContext.newPage();
   const consoleProblems = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
@@ -279,6 +289,13 @@ try {
   console.error("tianyan R0 shell smoke FAILED:", error);
   throw error;
 } finally {
+  if (browserContext && diagnosticTraceStarted && diagnosticEvidenceDirectory) {
+    try {
+      await browserContext.tracing.stop({ path: path.join(diagnosticEvidenceDirectory, "trace.zip") });
+    } catch (error) {
+      console.error("tianyan R0 shell smoke diagnostic trace could not be saved:", error);
+    }
+  }
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
@@ -2290,16 +2307,62 @@ function eventViewButton(page, name) {
 }
 
 async function switchEventView(page, name) {
-  if (await page.locator(".event-observation-controls").filter({ visible: true }).count() === 0) {
-    const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
-    if (await more.count()) {
-      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
-      const entry = name === "故事脊柱" ? "故事结构" : "关系网络";
-      await page.getByRole("button", { name: entry, exact: true }).filter({ visible: true }).first().click();
-      if (name === "故事脊柱" || name === "关系图") return;
+  await waitForEventLineWorkspace(page, name);
+  const direct = eventViewButton(page, name);
+  if (await direct.count()) {
+    await direct.click();
+    return;
+  }
+  const menuEntry = ({ "故事脊柱": "故事结构", "关系图": "关系网络", "时间轴": "时间核对" })[name];
+  const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
+  if (menuEntry && await more.count()) {
+    if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+    const entry = page.getByRole("button", { name: menuEntry, exact: true }).filter({ visible: true }).first();
+    if (await entry.count()) {
+      await entry.click();
+      return;
     }
   }
-  await eventViewButton(page, name).click();
+  throw new Error(`Event view control is unavailable: ${JSON.stringify(await eventViewDiagnostic(page, name))}`);
+}
+
+async function waitForEventLineWorkspace(page, requestedView) {
+  try {
+    await page.getByTestId("event-line-workbench").waitFor({ state: "visible", timeout: 10_000 });
+  } catch (error) {
+    throw new Error(`Event workspace did not become interactive before switching ${requestedView}: ${JSON.stringify(await eventViewDiagnostic(page, requestedView))}`, { cause: error });
+  }
+}
+
+async function eventViewDiagnostic(page, requestedView) {
+  return page.evaluate(({ requestedView, runRevision }) => {
+    const describe = (element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        label: element.getAttribute("aria-label") || element.textContent?.trim() || "",
+        disabled: element instanceof HTMLButtonElement ? element.disabled : false,
+        visible: Boolean(element instanceof HTMLElement && element.offsetParent !== null),
+        rect: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
+        display: style.display,
+        visibility: style.visibility
+      };
+    };
+    const root = document.querySelector('[data-testid="event-line-workbench"]');
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return {
+      operation: `switch:${requestedView}`,
+      revision: runRevision,
+      url: window.location.pathname + window.location.search,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      shellConnection: shell?.getAttribute("data-connection-state") ?? null,
+      projectionMode: root?.getAttribute("data-projection-mode") ?? null,
+      renderer: root?.getAttribute("data-event-observation-renderer") ?? null,
+      task: document.querySelector('[data-testid="story-progression-workspace"]')?.getAttribute("data-event-task") ?? null,
+      controls: Array.from(document.querySelectorAll(".event-observation-controls, .event-graph-view-switch, .story-progression-controls")).map(describe),
+      buttons: Array.from(document.querySelectorAll("button")).filter((button) => /结构|叙事顺序|世界时间|关系网络|时间核对|更多/u.test(button.textContent ?? "")).map(describe)
+    };
+  }, { requestedView, runRevision });
 }
 
 async function openStoryModelingTools(page) {
