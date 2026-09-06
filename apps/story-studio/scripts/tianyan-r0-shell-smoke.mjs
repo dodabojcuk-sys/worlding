@@ -2770,12 +2770,17 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await closeGlobalTianyiIfOpen(page);
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
   if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
+  const projectDirectory = page.locator(".project-directory-panel");
   const persistedCharacterDirectory = page.getByTestId("character-directory");
+  await page.waitForFunction(() => {
+    const character = document.querySelector('[data-testid="character-directory"]');
+    const tree = document.querySelector(".project-directory-panel .project-directory-tree");
+    return Boolean((character instanceof HTMLElement && character.offsetParent !== null) || (tree instanceof HTMLElement && tree.offsetParent !== null));
+  });
   if (await persistedCharacterDirectory.isVisible()) {
     await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
     await persistedCharacterDirectory.waitFor({ state: "hidden" });
   }
-  const projectDirectory = page.locator(".project-directory-panel");
   await projectDirectory.waitFor();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
   await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
