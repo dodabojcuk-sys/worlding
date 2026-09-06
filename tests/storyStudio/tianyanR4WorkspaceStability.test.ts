@@ -21,12 +21,13 @@ test("R4 separates persistent directory intent from temporary presentation suppr
   assert.doesNotMatch(eventInspectorActions, /story-studio-close-project-directory/u, "1195px 事件检查器必须与目录协调，不能静默关闭作者入口");
 });
 
-test("R4 persists per-project directory path, search, selection, and scroll", () => {
+test("R4 persists per-project directory path, selection, and scroll without a duplicate local search state", () => {
   const tree = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryTree.tsx");
   assert.match(tree, /projectId/u);
   assert.match(tree, /initialState/u);
   assert.match(tree, /onStateChange/u);
   assert.match(tree, /scrollTop/u);
+  assert.doesNotMatch(tree, /type="search"|project-directory-search/u);
   const character = source("apps/story-studio/src/product-shell/project-directory/character/CharacterDirectoryPanel.tsx");
   assert.match(character, /directoryState\.character/u);
   assert.match(character, /selectedIds/u);

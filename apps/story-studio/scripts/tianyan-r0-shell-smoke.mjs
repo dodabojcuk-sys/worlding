@@ -525,7 +525,8 @@ async function assertSingleGlobalSearch(page) {
   await page.keyboard.press("ControlOrMeta+K");
   await dialog.waitFor();
   assert.equal(await dialog.getAttribute("data-search-scope"), "global", "Keyboard search opens the same global scope");
-  assert.equal(await page.locator("input[type='search']").count(), 1, "Only the open shared search dialog may render a search field");
+  const searchInputs = await page.locator("input[type='search']").evaluateAll((inputs) => inputs.map((input) => ({ id: input.id, className: input.className, visible: getComputedStyle(input).display !== "none" && getComputedStyle(input).visibility !== "hidden", parent: input.parentElement?.className ?? null })));
+  assert.equal(searchInputs.length, 1, `Only the open shared search dialog may render a search field; found ${JSON.stringify(searchInputs)}`);
   await dialog.locator("input[type='search']").focus();
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
@@ -2792,8 +2793,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     const directoryDebug = await projectDirectory.evaluate((element) => ({ text: element.innerText, tabs: Array.from(element.querySelectorAll('[role="tab"]')).map((tab) => ({ text: tab.textContent, selected: tab.getAttribute("aria-selected") })), connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") }));
     throw new Error(`Classified directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
   }
-  const directorySearch = directoryTree.locator('input[type="search"]');
-  if (await directorySearch.inputValue()) await directorySearch.fill("");
   await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
   await rootBreadcrumb.waitFor({ state: "visible" });
@@ -2805,8 +2804,10 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "单元" }).click();
   const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: /· 雾港/u });
   await unitEntry.click();
+  const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
+  await setPointEntry.waitFor({ state: "visible" });
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
-  assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" }).count(), 1, "A Set Point must remain an optional sibling collection.");
+  assert.equal(await setPointEntry.count(), 1, "A Set Point must remain an optional sibling collection.");
   await capture("B-1440x900-directory-unit-direct-and-set-point.png");
   await directoryTree.locator(".project-directory-entry").first().press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("data-directory-node")?.startsWith("unit:") === true);

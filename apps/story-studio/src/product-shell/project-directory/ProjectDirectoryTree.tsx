@@ -1,22 +1,19 @@
-import { ArrowLeft, ChevronRight, Folder, GripVertical, Search } from "lucide-react";
+import { ArrowLeft, ChevronRight, Folder, GripVertical } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 import { CHARACTER_OBSERVATION_MIME, createCharacterObservationDragPayload } from "../../../../../src/storyContracts/characterObservationSelection.ts";
 import { useI18n } from "../i18n/I18nProvider";
-import { flattenDirectoryReferences } from "./projectDirectoryViewModel";
 import type { DirectoryWorkspaceState } from "./directoryWorkspaceState";
 
 export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryNode[]; selectedObjectId: string | null; projectId: string | null; workVersionId: string | null; initialState: DirectoryWorkspaceState; onStateChange(state: DirectoryWorkspaceState): void; onNavigate(node: ProjectDirectoryNode): void; onOpenReference(reference: ProjectDirectoryStableReference): void }) {
   const { t } = useI18n();
   const [path, setPath] = useState<readonly string[]>(props.initialState.path);
-  const [query, setQuery] = useState(props.initialState.query);
   const [dragSelectionIds, setDragSelectionIds] = useState<string[]>([]);
   const restoreFocusId = useRef<string | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const trail = useMemo(() => resolveDirectoryTrail(props.groups, path), [path, props.groups]);
   const current = trail.at(-1) ?? null;
   const visible = current?.children ?? props.groups;
-  const searchResults = useMemo(() => query.trim() ? flattenDirectoryReferences(props.groups).filter((item) => item.searchText.includes(query.trim().toLocaleLowerCase())) : [], [props.groups, query]);
   useEffect(() => {
     if (trail.length !== path.length) setPath(trail.map((item) => item.id));
   }, [path, trail]);
@@ -32,9 +29,9 @@ export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryN
     return () => window.cancelAnimationFrame(frame);
   }, []);
   useEffect(() => {
-    props.onStateChange({ ...props.initialState, path: [...path], query, selectedObjectId: props.selectedObjectId, scrollTop: pageRef.current?.scrollTop ?? props.initialState.scrollTop });
-  }, [path, props.selectedObjectId, query]);
-  const references = useMemo(() => flattenDirectoryReferences(props.groups).flatMap((item) => item.node.reference ? [item.node.reference] : []), [props.groups]);
+    props.onStateChange({ ...props.initialState, path: [...path], query: "", selectedObjectId: props.selectedObjectId, scrollTop: pageRef.current?.scrollTop ?? props.initialState.scrollTop });
+  }, [path, props.selectedObjectId]);
+  const references = useMemo(() => collectDirectoryReferences(props.groups), [props.groups]);
   const toggleDragSelection = (node: ProjectDirectoryNode) => {
     if (!node.reference || node.reference.objectType !== "character") return;
     setDragSelectionIds((current) => current.includes(node.reference!.objectId) ? current.filter((id) => id !== node.reference!.objectId) : [...current, node.reference!.objectId]);
@@ -59,17 +56,20 @@ export function ProjectDirectoryTree(props: { groups: readonly ProjectDirectoryN
     setPath(path.slice(0, -1));
   };
   return <nav className="project-directory-tree" aria-label={t("directory.tree")} onKeyDown={(event) => {
-    if ((event.altKey && event.key === "ArrowLeft") || (event.key === "Escape" && !query && path.length)) { event.preventDefault(); goBack(); }
+    if ((event.altKey && event.key === "ArrowLeft") || (event.key === "Escape" && path.length)) { event.preventDefault(); goBack(); }
   }}>
-    <label className="project-directory-search"><Search aria-hidden="true" /><span className="sr-only">{t("directory.search")}</span><input type="search" value={query} placeholder={t("directory.searchPlaceholder")} onChange={(event) => setQuery(event.target.value)} /></label>
-    {!query && <div className="project-directory-breadcrumb" aria-label={t("directory.breadcrumb")}>
+    <div className="project-directory-breadcrumb" aria-label={t("directory.breadcrumb")}>
       {path.length > 0 && <button type="button" className="project-directory-back" aria-label={t("directory.back")} onClick={goBack}><ArrowLeft aria-hidden="true" /></button>}
       <button type="button" onClick={() => setPath([])}>{t("directory.label")}</button>{trail.map((node, index) => <span key={node.id}><ChevronRight aria-hidden="true" /><button type="button" aria-current={index === trail.length - 1 ? "page" : undefined} onClick={() => setPath(trail.slice(0, index + 1).map((item) => item.id))}>{node.label}</button></span>)}
-    </div>}
-    {query ? <div ref={pageRef} className="project-directory-search-results" aria-live="polite" onScroll={(event) => props.onStateChange({ ...props.initialState, path: [...path], query, selectedObjectId: props.selectedObjectId, scrollTop: event.currentTarget.scrollTop })}><p>{t("directory.searchResults")} · {searchResults.length}</p>{searchResults.map((result) => <button key={result.node.id} type="button" className="project-directory-reference" onClick={() => { setQuery(""); setPath(result.path.slice(0, -1).map((item) => item.id)); result.node.reference && props.onOpenReference(result.node.reference); }}><span>{result.node.label}<small>{result.path.map((item) => item.label).join(" / ")}</small></span></button>)}{!searchResults.length && <p>{t("directory.empty")}</p>}</div> : <div ref={pageRef} role="list" className="project-directory-page" data-directory-depth={path.length} onScroll={(event) => props.onStateChange({ ...props.initialState, path: [...path], query, selectedObjectId: props.selectedObjectId, scrollTop: event.currentTarget.scrollTop })}>
+    </div>
+    <div ref={pageRef} role="list" className="project-directory-page" data-directory-depth={path.length} onScroll={(event) => props.onStateChange({ ...props.initialState, path: [...path], query: "", selectedObjectId: props.selectedObjectId, scrollTop: event.currentTarget.scrollTop })}>
       {visible.map((node) => { const draggable = node.reference?.objectType === "character"; const dragSelected = Boolean(node.reference && dragSelectionIds.includes(node.reference.objectId)); return <button key={node.id} type="button" role="listitem" className={node.reference ? "project-directory-reference" : "project-directory-entry"} data-directory-node={node.id} data-selected={node.reference?.objectId === props.selectedObjectId || undefined} data-drag-selected={dragSelected || undefined} draggable={draggable} aria-pressed={draggable ? dragSelected : undefined} aria-current={node.reference?.objectId === props.selectedObjectId ? "page" : undefined} aria-label={`${node.label}${node.count === undefined ? "" : `，${node.count}`}${draggable ? "；可拖入角色观察" : ""}`} onDragStart={(event) => beginDrag(event, node)} onClick={(event) => { if (draggable && (event.metaKey || event.ctrlKey || event.shiftKey)) { toggleDragSelection(node); return; } enter(node); }}>{draggable && <GripVertical className="project-directory-drag-handle" aria-hidden="true" />} {!node.reference && <Folder aria-hidden="true" />}<span title={node.label}>{node.label}</span>{node.reference?.objectId === props.selectedObjectId ? <em>{t("directory.current")}</em> : node.count !== undefined ? <strong>{node.count}</strong> : null}{!node.reference && <ChevronRight aria-hidden="true" />}</button>; })}
-    </div>}
+    </div>
   </nav>;
+}
+
+function collectDirectoryReferences(nodes: readonly ProjectDirectoryNode[]): ProjectDirectoryStableReference[] {
+  return nodes.flatMap((node) => [...(node.reference ? [node.reference] : []), ...collectDirectoryReferences(node.children ?? [])]);
 }
 
 function resolveDirectoryTrail(groups: readonly ProjectDirectoryNode[], path: readonly string[]): ProjectDirectoryNode[] {
