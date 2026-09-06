@@ -759,6 +759,8 @@ export function EventLineWorkbench(props: {
     const historicalModelingRun = props.modelingRuns?.find((run) => run.status === "ready" && ["infer-temporal-position", "check-temporal-conflicts", "update-changed-scope"].includes(run.tool) && run.result) ?? null;
     const historicalTemporalRun = historicalModelingRun ? restoreTemporalProjectionFromModelingRun(historicalModelingRun, refs) : null;
     let cancelled = false;
+    let cacheTimedOut = false;
+    let cacheTimeout: number | null = null;
     const timer = window.setTimeout(() => {
       if (historicalTemporalRun) {
         setTemporalRun(historicalTemporalRun);
@@ -768,8 +770,16 @@ export function EventLineWorkbench(props: {
         setTemporalState("loading");
         setTemporalMessage("正在读取本图修订的本地缓存；不会启动 AI 分析。");
       }
-      void props.onReadTemporalProjectionCache!(refs).then((cache) => {
+      cacheTimeout = window.setTimeout(() => {
         if (cancelled) return;
+        cacheTimedOut = true;
+        setTemporalRun(null);
+        setTemporalState("missing");
+        setTemporalMessage("本地时间缓存读取超时；已回退到正式事件与关系生成的基础布局。没有启动 AI 分析，也没有写入时间事实。");
+      }, 4_000);
+      void props.onReadTemporalProjectionCache!(refs).then((cache) => {
+        if (cacheTimeout !== null) window.clearTimeout(cacheTimeout);
+        if (cancelled || cacheTimedOut) return;
         const modelingFallback = cache.status === "missing" ? historicalModelingRun : null;
         const run = cache.run ?? (modelingFallback ? restoreTemporalProjectionFromModelingRun(modelingFallback, refs) : null);
         const status = cache.status === "current" ? "ready" : cache.status === "missing" && run ? run.stale ? "stale" : "ready" : cache.status;
@@ -789,13 +799,14 @@ export function EventLineWorkbench(props: {
         host.__storyStudioTemporalProjectionRun = run;
         window.dispatchEvent(new CustomEvent("story-studio-temporal-projection-run", { detail: run }));
       }).catch((error) => {
-        if (cancelled) return;
+        if (cacheTimeout !== null) window.clearTimeout(cacheTimeout);
+        if (cancelled || cacheTimedOut) return;
         const reason = error instanceof Error ? error.message : "本地时间投影服务暂不可用。";
         setTemporalState(/provider|credential|model/iu.test(reason) ? "provider-unavailable" : "failed");
         setTemporalMessage(`缓存读取失败：${reason}当前仍可使用基础布局；没有启动 Provider，也没有写入时间事实。`);
       });
     }, 380);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => { cancelled = true; window.clearTimeout(timer); if (cacheTimeout !== null) window.clearTimeout(cacheTimeout); };
   }, [eventIds, projectionMode, props.modelingRuns, props.onReadTemporalProjectionCache, props.projectId]);
   useEffect(() => { setInvalidRecordWarningDismissed(false); }, [props.listState.status === "ready" ? props.listState.invalidRecordCount : 0, props.projectId]);
   const openCandidate = (candidateId: string) => {
