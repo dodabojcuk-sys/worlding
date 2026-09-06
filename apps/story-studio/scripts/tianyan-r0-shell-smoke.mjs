@@ -2786,7 +2786,12 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await classifiedDirectoryTab.waitFor({ state: "visible" });
   if (await classifiedDirectoryTab.getAttribute("aria-selected") !== "true") await classifiedDirectoryTab.click();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
-  await directoryTree.waitFor({ state: "visible" });
+  try {
+    await directoryTree.waitFor({ state: "visible" });
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({ text: element.innerText, tabs: Array.from(element.querySelectorAll('[role="tab"]')).map((tab) => ({ text: tab.textContent, selected: tab.getAttribute("aria-selected") })), connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") }));
+    throw new Error(`Classified directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
+  }
   const directorySearch = directoryTree.locator('input[type="search"]');
   if (await directorySearch.inputValue()) await directorySearch.fill("");
   await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
