@@ -2365,6 +2365,24 @@ async function eventViewDiagnostic(page, requestedView) {
   }, { requestedView, runRevision });
 }
 
+async function waitForTemporalState(page, expectedStates, operation, timeout = 30_000) {
+  try {
+    await page.waitForFunction((states) => states.includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""), expectedStates, { timeout });
+  } catch (error) {
+    const temporal = await page.evaluate(() => {
+      const canvas = document.querySelector("[data-temporal-state]");
+      const status = document.querySelector(".temporal-canvas-status");
+      return {
+        state: canvas?.getAttribute("data-temporal-state") ?? null,
+        projection: canvas?.getAttribute("data-temporal-projection") ?? null,
+        statusText: status?.textContent?.trim() ?? null,
+        statusClass: status?.className ?? null
+      };
+    });
+    throw new Error(`Temporal state did not settle for ${operation}: ${JSON.stringify({ expectedStates, temporal, view: await eventViewDiagnostic(page, "时间轴") })}`, { cause: error });
+  }
+}
+
 async function openStoryModelingTools(page) {
   const toggle = page.getByRole("button", { name: /AI 工具/u }).filter({ visible: true }).first();
   if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
@@ -2698,7 +2716,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await selectEventView("时间轴");
   const canvas = page.getByLabel("独立时间线工作区");
   await canvas.waitFor();
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "initial timeline open");
   assert.equal(await canvas.getAttribute("data-view-switch-provider-calls"), "0", "Opening the timeline is a zero-cost read path.");
   assert.equal(await canvas.getAttribute("data-view-switch-agent-runs"), "0", "Opening the timeline never creates an Agent Run.");
   const temporalRunsAfterSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
@@ -2721,7 +2739,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
   const completedResponse = await executionResponse;
   assert.equal(completedResponse.ok(), true, `Confirmed temporal modeling transport must finish successfully: HTTP ${completedResponse.status()}.`);
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'), undefined, { timeout: 10_000 }).catch(async () => {
+  await waitForTemporalState(page, ["ready"], "confirmed temporal modeling", 10_000).catch(async () => {
     const runs = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
@@ -2804,7 +2822,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   await reloadProduct(page);
   await selectEventView("时间轴");
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "timeline after refresh");
   const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh and view switching create no additional story-modeling Run.");
   assert.equal(await page.getByLabel("时间标尺").count(), 1, "The base coordinate system remains available after refresh.");
