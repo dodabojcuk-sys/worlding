@@ -2341,7 +2341,7 @@ async function switchEventView(page, name) {
   const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
   if (menuEntry && await more.count()) {
     if (await more.getAttribute("aria-expanded") !== "true") await more.click();
-    const entry = page.getByRole("button", { name: menuEntry, exact: true }).filter({ visible: true }).first();
+    const entry = page.getByRole("menuitem", { name: menuEntry, exact: true }).filter({ visible: true }).first();
     if (await entry.count()) {
       await entry.click();
       return;
@@ -2633,7 +2633,7 @@ async function assertCharacterObservationDragAndRecovery(page) {
     await dropzone.getByText("1/5 人", { exact: true }).waitFor();
     const oneGeometry = await geometry();
     assert.ok(oneGeometry && Math.abs(oneGeometry.trayWidth - oneGeometry.canvasWidth) <= 1 && Math.abs(oneGeometry.trayX - oneGeometry.canvasX) <= 1, `1-person tray must remain aligned with the canvas column=${JSON.stringify({ initialGeometry, oneGeometry })}`);
-    await page.getByRole("button", { name: "选择人物", exact: true }).click();
+    await dropzone.getByRole("button", { name: "1/5 人", exact: true }).click();
     const picker = page.getByTestId("knowledge-compare-picker");
     for (const label of ["阿芜", "陆衍"]) await picker.getByLabel(label, { exact: true }).check();
     await dropzone.getByText("3/5 人", { exact: true }).waitFor();

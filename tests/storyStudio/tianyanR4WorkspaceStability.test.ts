@@ -67,6 +67,21 @@ test("R4 keeps one compact event header and exposes the 1-5 person author compar
   assert.doesNotMatch(observationContract, /slice\(0, 3\)/u);
 });
 
+test("R4 closeout keeps the Event Line primary actions visible and moves secondary tools into an accessible More menu", () => {
+  const workspace = source("apps/story-studio/src/components/event-observation/StoryProgressionWorkspace.tsx");
+  const styles = source("apps/story-studio/src/styles/event-line-projection.css");
+  assert.match(workspace, /moreTriggerRef/u);
+  assert.match(workspace, /event-line-more-menu/u);
+  assert.match(workspace, /role="menu"/u);
+  assert.match(workspace, /event\.key !== "Escape"/u);
+  assert.match(workspace, /requestAnimationFrame\(\(\) => moreTriggerRef\.current\?\.focus\(\)\)/u);
+  assert.match(workspace, /onOpenPicker=\{\(\) => setCompareOpen\(true\)\}/u, "角色观察区保留唯一的选择人物入口");
+  assert.doesNotMatch(workspace, /aria-expanded=\{compareOpen\}[\s\S]{0,100}>.*选择人物/u, "顶栏不应复制角色观察区的人物选择入口");
+  assert.match(styles, /\.story-progression-more-menu/u);
+  assert.match(styles, /\.story-progression-actions \{[^}]*overflow: visible/u);
+  assert.doesNotMatch(styles, /\.story-progression-workspace \{[\s\S]{0,180}overflow: hidden/u);
+});
+
 test("R4 advanced perspective receives stable Owner evidence rather than display labels", () => {
   const workbench = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
   const contract = source("src/storyContracts/eventPerspectiveProjection.ts");

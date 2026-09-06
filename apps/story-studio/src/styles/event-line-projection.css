@@ -1874,7 +1874,7 @@
   flex-direction: column;
   block-size: 100%;
   min-block-size: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .story-knowledge-compare-popover { position: absolute; z-index: 9; inset-block-start: 6.9rem; inset-inline-end: clamp(1rem, 2.4vw, 2.2rem); inline-size: min(48rem, calc(100% - 2rem)); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; box-shadow: var(--shadow-panel); }
@@ -1890,10 +1890,15 @@
 .story-progression-heading p { overflow: hidden; max-inline-size: 48rem; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
 .story-progression-heading dl { padding: .45rem .65rem; border-radius: .35rem; }
 .story-progression-controls { margin-block-end: .48rem; border-radius: .38rem; box-shadow: none; backdrop-filter: none; }
-.story-progression-controls { align-items: stretch; flex-direction: column; gap: .32rem; }
+.story-progression-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .32rem .65rem; }
 .story-progression-tasks,
-.story-progression-actions { inline-size: 100%; }
-.story-progression-actions { padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
+.story-progression-actions { min-inline-size: 0; }
+.story-progression-tasks { flex-wrap: wrap; }
+.story-progression-actions { inline-size: auto; justify-content: flex-end; flex-wrap: wrap; padding-inline-start: .45rem; padding-block-start: 0; border-inline-start: 1px solid var(--color-border); border-block-start: 0; overflow: visible; }
+.story-progression-more { position: relative; flex: 0 0 auto; }
+.story-progression-more-menu { position: absolute; z-index: 12; inset-block-start: calc(100% + .35rem); inset-inline-end: 0; inline-size: min(18rem, calc(100vw - 2rem)); display: grid; gap: .18rem; padding: .4rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .4rem; box-shadow: var(--shadow-panel); }
+.story-progression-more-menu button { justify-content: flex-start; inline-size: 100%; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.story-progression-more-menu hr { inline-size: 100%; block-size: 1px; margin: .18rem 0; border: 0; background: var(--color-border); }
 .story-character-observation { align-self: stretch; flex: 0 0 auto; min-inline-size: 0; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
 .story-character-observation-label { flex: 0 0 auto; display: flex; align-items: center; gap: .42rem; color: var(--color-text-muted); }
 .story-character-observation-label > svg { inline-size: .95rem; color: var(--color-accent); }
@@ -1918,6 +1923,17 @@
 .story-progression-heading,
 .story-progression-controls,
 .story-progression-migration-notice { flex: 0 0 auto; }
+
+.event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr) auto; }
+.event-line-shell[data-page-dock-open="true"] .story-progression-actions { overflow: visible; }
+
+@media (max-width: 80rem) {
+  .story-progression-controls,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .story-progression-actions,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-actions { inline-size: 100%; justify-content: flex-start; padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
+  .story-progression-more { margin-inline-start: auto; }
+}
 
 .story-progression-scope {
   position: absolute;

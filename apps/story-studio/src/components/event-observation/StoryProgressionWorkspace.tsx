@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronLeft,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
@@ -111,12 +110,24 @@ export function StoryProgressionWorkspace(props: {
   const [candidateOverlayOpen, setCandidateOverlayOpen] = useState(Boolean(props.renderCandidateOverlay));
   const [observationMessage, setObservationMessage] = useState<string | null>(null);
   const previousCandidateAvailable = useRef(Boolean(props.renderCandidateOverlay));
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const available = Boolean(props.renderCandidateOverlay);
     if (available && !previousCandidateAvailable.current) setCandidateOverlayOpen(true);
     if (!available) setCandidateOverlayOpen(false);
     previousCandidateAvailable.current = available;
   }, [props.renderCandidateOverlay]);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeMore = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMoreOpen(false);
+      requestAnimationFrame(() => moreTriggerRef.current?.focus());
+    };
+    window.addEventListener("keydown", closeMore);
+    return () => window.removeEventListener("keydown", closeMore);
+  }, [moreOpen]);
   const eventById = useMemo(() => new Map(props.events.map((event) => [event.id, event])), [props.events]);
   const formalObjects = useMemo(() => props.objects.filter((object) => object.formal === true), [props.objects]);
   const formalCharacters = useMemo(() => formalObjects.filter((object) => object.type === "character"), [formalObjects]);
@@ -161,12 +172,20 @@ export function StoryProgressionWorkspace(props: {
       <div className="story-progression-actions">
         <label className="story-progression-coordinate"><span>故事线范围</span><select data-testid="storyline-scope-select" value={props.storylineScope} onChange={(event) => props.onStorylineScope(event.target.value)}><option value="all">全部故事线</option>{props.storylineScope !== "all" && !props.storylines.some((line) => line.id === props.storylineScope) ? <option value={props.storylineScope}>正在恢复故事线…</option> : null}{props.storylines.map((line) => <option key={line.id} value={line.id}>{line.label} · {line.eventIds.length}</option>)}</select></label>
         <label className="story-progression-coordinate"><span>观察者 / 知情视角</span><select data-testid="knowledge-observer-select" value={props.comparisonMode ? "author" : props.observerId} onChange={(event) => props.onObserver(event.target.value)}>{props.comparisonMode ? <option value="author">比较视角（{props.observerIds.length} 人）</option> : null}{props.observers.map((observer) => <option key={observer.id} value={observer.id}>{observer.label}</option>)}</select></label>
-        <button type="button" aria-expanded={scopeOpen} onClick={() => { setScopeOpen((open) => !open); setMoreOpen(false); }}><PanelTopOpen />范围：{props.currentUnitLabel ?? "全书"}<ChevronDown /></button>
-        <button type="button" className="focus-object-trigger" aria-expanded={focusPickerOpen} onClick={() => { setFocusPickerOpen((open) => !open); setMoreOpen(false); }}><UsersRound />焦点：{selectedFocus.length ? selectedFocus.map((object) => object.label).join("、") : "未选择"}<ChevronDown /></button>
         {props.onCreateEvent ? <button type="button" className="primary-action" onClick={props.onCreateEvent}><FilePlus2 />新增事件</button> : null}
-        <button type="button" disabled={!props.selectedEventId} onClick={props.onLocateCurrent}><LocateFixed />聚焦当前</button>
-        <button type="button" aria-expanded={compareOpen} onClick={() => { setCompareOpen((open) => !open); setMoreOpen(false); setScopeOpen(false); }}><UsersRound />选择人物</button>
-        <button type="button" aria-expanded={moreOpen} onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); }}><MoreHorizontal />更多</button>
+        <div className="story-progression-more">
+          <button ref={moreTriggerRef} type="button" aria-expanded={moreOpen} aria-controls="event-line-more-menu" onClick={() => { setMoreOpen((open) => !open); setScopeOpen(false); setFocusPickerOpen(false); }}><MoreHorizontal />更多</button>
+          {moreOpen ? <section id="event-line-more-menu" className="story-progression-more-menu" role="menu" aria-label="更多事件线操作">
+            <button type="button" role="menuitem" aria-expanded={scopeOpen} onClick={() => { setScopeOpen((open) => !open); setMoreOpen(false); }}><PanelTopOpen />当前范围：{props.currentUnitLabel ?? "全书"}</button>
+            <button type="button" role="menuitem" aria-expanded={focusPickerOpen} onClick={() => { setFocusPickerOpen((open) => !open); setMoreOpen(false); }}><UsersRound />焦点：{selectedFocus.length ? selectedFocus.map((object) => object.label).join("、") : "未选择"}</button>
+            <button type="button" role="menuitem" disabled={!props.selectedEventId} onClick={() => { props.onLocateCurrent(); setMoreOpen(false); }}><LocateFixed />聚焦当前</button>
+            <hr />
+            <button type="button" role="menuitem" onClick={() => { props.onTask("time"); setMoreOpen(false); }}><Clock3 />时间核对</button>
+            <button type="button" role="menuitem" onClick={() => { props.onTask("audit"); setMoreOpen(false); }}><ShieldCheck />证据审计</button>
+            <button type="button" role="menuitem" onClick={() => { props.onOpenAdvanced("spine"); setMoreOpen(false); }}><PanelTopOpen />故事结构</button>
+            <button type="button" role="menuitem" onClick={() => { props.onOpenAdvanced("graph"); setMoreOpen(false); }}><GitBranch />关系网络</button>
+          </section> : null}
+        </div>
       </div>
     </nav>
     <CharacterObservationTray projectId={props.projectId} workVersionId={props.workVersionId} characters={formalCharacters} selectedIds={selectedCharacterIds} message={observationMessage} onMessage={setObservationMessage} onChange={(ids) => { setObservationMessage(null); props.onObservers(ids); }} onOpenPicker={() => setCompareOpen(true)} />
@@ -176,7 +195,6 @@ export function StoryProgressionWorkspace(props: {
     {scopeOpen ? <ScopeOverview units={props.storyUnits} narratives={props.narratives} onClose={() => setScopeOpen(false)} /> : null}
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
     {candidateOverlayOpen && props.renderCandidateOverlay ? <aside className="story-progression-candidate-overlay" aria-label="候选审查叠层">{props.renderCandidateOverlay(() => setCandidateOverlayOpen(false))}</aside> : null}
-    {moreOpen ? <section className="story-progression-advanced" aria-label="更多事件线观察"><div><small>二级工具 · 仍在同一 /event-line</small><strong>观察、核对与候选说明</strong><p>候选轨迹区别于正式主故事脊；以下入口只改变只读投影，不创建第二套 Event 或叙事顺序。</p></div><button type="button" onClick={() => { props.onTask("time"); setMoreOpen(false); }}><Clock3 />时间核对</button><button type="button" onClick={() => { props.onTask("audit"); setMoreOpen(false); }}><ShieldCheck />证据审计</button><button type="button" onClick={() => { props.onOpenAdvanced("spine"); setMoreOpen(false); }}><PanelTopOpen />故事结构</button><button type="button" onClick={() => { props.onOpenAdvanced("graph"); setMoreOpen(false); }}><GitBranch />关系网络</button><span><Eye />角色视角、关系变化按需进入二级观察</span></section> : null}
     {props.task === "relationship"
       ? <UnavailableTask task={props.task} onBack={() => props.onTask("story")} />
       : props.task === "audit"
