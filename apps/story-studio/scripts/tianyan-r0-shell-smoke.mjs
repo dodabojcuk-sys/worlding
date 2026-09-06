@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
@@ -16,6 +17,10 @@ import { projectNarrativeArrangement } from "../../../src/storyContracts/narrati
 import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
 
 assertCanonicalRuntime();
+if (!process.env.TIANYAN_E2E_SCOPE) {
+  for (const scope of ["full-shell", "agent-fake-stream"]) await runIsolatedE2eScope(scope);
+  process.exit(0);
+}
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 // Smoke tests must not attach to a developer's already-running local app.
@@ -73,6 +78,7 @@ const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-fo
 const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
 const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
+const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
 const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
@@ -89,6 +95,21 @@ let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 const r062Captures = [];
+
+async function runIsolatedE2eScope(scope) {
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: { ...process.env, TIANYAN_E2E_SCOPE: scope }
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Tianyan E2E scope ${scope} failed (${signal || code}).`));
+    });
+  });
+}
 
 async function findAvailablePort(requestedPort, excludedPort) {
   const requested = Number(requestedPort || "0");
@@ -155,6 +176,10 @@ try {
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
     await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (agentFakeStreamOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertAgentFakeProviderStream(page);
   } else if (r4CharacterObservationOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -271,10 +296,6 @@ try {
       await gotoProduct(page, `${baseUrl}/world?locale=en-US&rail=expanded`);
       await assertExpandedLabels(page, "en-US");
     }
-    // Keep the fake-stream contract in the full gate, but execute it before the
-    // CPU-heavy event projections below. CI runners otherwise test accumulated
-    // fixture load instead of the stream's request -> delta -> projection path.
-    await assertAgentFakeProviderStream(page);
     if (eventGraphRecordingDirectory) await recordEventGraphOperation();
     await assertEventGraphWorkspace(page);
     await setupTimelineFixture();
