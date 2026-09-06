@@ -2848,6 +2848,12 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
+  // This scenario asserts fixture-owned Story Units. Earlier scenarios may
+  // legitimately exercise another project, so bind the browser to the same
+  // project that owns the selected Event graph before reading its directory.
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const activeProject = await getFixture(`${apiUrl}/__local/story-studio/bootstrap`);
+  assert.equal(activeProject.data.activeProject?.id, fixtureProjectId, "Multi-node directory must read the Event graph fixture project, never a previous empty project.");
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
   await closeGlobalTianyiIfOpen(page);
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
