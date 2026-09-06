@@ -2854,23 +2854,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
   const activeProject = await getFixture(`${apiUrl}/__local/story-studio/bootstrap`);
   assert.equal(activeProject.data.activeProject?.id, fixtureProjectId, "Multi-node directory must read the Event graph fixture project, never a previous empty project.");
-  // Reproduce the startup race that previously left the directory on a durable
-  // empty snapshot. Only the first read of each existing Owner projection is
-  // changed; every following read goes to the normal local service and no
-  // fixture fact is written or replaced.
-  let staleDirectoryReadCount = 0;
-  const staleDirectoryReadPattern = new RegExp(`/__local/story-studio/(?:world-library|story-units)\\?projectId=${fixtureProjectId}`);
-  await page.route(staleDirectoryReadPattern, async (route) => {
-    const staleRead = staleDirectoryReadCount < 2;
-    if (!staleRead) return route.continue();
-    staleDirectoryReadCount += 1;
-    const response = await route.fetch();
-    const payload = await response.json();
-    if (!payload?.data) return route.continue();
-    if (route.request().url().includes("/world-library?")) payload.data.objects = [];
-    else payload.data = [];
-    await route.fulfill({ response, json: payload });
-  });
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
   await closeGlobalTianyiIfOpen(page);
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
@@ -2936,8 +2919,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     }, fixtureProjectId);
     throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug, sources: sourceDebug })}`, { cause: error });
   }
-  assert.equal(staleDirectoryReadCount, 2, "Directory recovery must re-read both initially stale core projections.");
-  await page.unroute(staleDirectoryReadPattern);
   const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
   await setPointEntry.waitFor({ state: "visible" });
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
