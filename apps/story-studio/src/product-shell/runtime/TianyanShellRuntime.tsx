@@ -93,26 +93,23 @@ export function TianyanShellRuntime() {
       setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative")) ?? "");
       setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work")) ?? "");
       setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(activeProject.id)));
-      const [versionResult, runtimeResult] = await Promise.allSettled([
-        getCreationSourcePortState({ projectId: activeProject.id }),
-        withConnection(async (token) => Promise.all([
-          getModelServiceStatus(token),
-          getAgentPermissionState(activeProject.id)
-        ]))
-      ]);
-      if (!active) return;
-      if (versionResult.status === "fulfilled") {
-        const root = versionResult.value.root;
+      void getCreationSourcePortState({ projectId: activeProject.id }).then((version) => {
+        if (!active) return;
+        const root = version.root;
         setWorkVersionLabel(root ? `${root.name} · r${root.revision}` : null);
         setWorkVersionId(root?.id ?? null);
-      }
-      if (runtimeResult.status === "fulfilled") {
-        setModelStatus(runtimeResult.value[0]);
-        setPermissionState(runtimeResult.value[1]);
+      });
+      void withConnection(async (token) => Promise.all([
+        getModelServiceStatus(token),
+        getAgentPermissionState(activeProject.id)
+      ])).then((runtime) => {
+        if (!active) return;
+        setModelStatus(runtime[0]);
+        setPermissionState(runtime[1]);
         setConnectionState("ready");
-      } else {
-        setConnectionState("unavailable");
-      }
+      }).catch(() => {
+        if (active) setConnectionState("unavailable");
+      });
     }).catch(() => {
       if (active) setConnectionState("unavailable");
     });
