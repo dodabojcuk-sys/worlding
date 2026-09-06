@@ -35,7 +35,7 @@ function createLoadingDirectoryProjection(projectId: string, t: (key: Translatio
 }
 
 /** Read-only aggregation adapter. It deliberately has no write token or domain mutation. */
-export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">, refreshKey = ""): DirectoryLoadState {
+export function useProjectDirectoryProjection(project: StoryStudioProject | null, t: (key: TranslationKey) => string, runtime?: Pick<TianyanShellRuntimeState, "withConnection" | "tianyiConversationId">): DirectoryLoadState {
   const withConnection = runtime?.withConnection;
   const translate = useRef(t);
   const connection = useRef(withConnection);
@@ -110,11 +110,9 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
       cancelled = true;
       if (emptyCoreRetryTimer !== null) window.clearTimeout(emptyCoreRetryTimer);
     };
-  // Moving deeper in a directory is an explicit author request to inspect the
-  // next scope. Re-read the existing projection at that boundary: a startup
-  // snapshot may legitimately have been empty before an external local import
-  // or another author surface finished its receipt, but it must not remain the
-  // only snapshot used for a subsequent Unit drill-down.
-  }, [pendingRevision, project?.id, refreshKey]);
+  // Tree navigation is presentation state. It must not cancel a project-level
+  // read or its bounded empty-snapshot recovery while an author moves from
+  // the root into Story Units.
+  }, [pendingRevision, project?.id]);
   return state;
 }

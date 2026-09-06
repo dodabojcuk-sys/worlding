@@ -16,7 +16,7 @@ export type ProjectDirectoryMode = "classified" | "pending";
 export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState; project: Parameters<typeof useProjectDirectoryProjection>[0]; mode: ProjectDirectoryMode; directoryState: DirectoryWorkspaceState; onDirectoryState(state: DirectoryWorkspaceState): void; onClose(): void; onModeChange(mode: ProjectDirectoryMode): void; onOpenPendingReview(target: StoryIntakeReviewTarget | null): void; onOpenRelationReview(): void; onNavigate(node: ProjectDirectoryNode): void; onOpenReference(reference: ProjectDirectoryStableReference): void; selectedObjectId: string | null; onCreateProject(title: string): Promise<void> }) {
   const { t } = useI18n();
   const replace = (key: "directory.pendingBatchSummary" | "directory.pendingSourceBreakdown" | "directory.pendingOtherBreakdown" | "directory.pendingProcessedSummary", values: Record<string, number | string>) => Object.entries(values).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), t(key));
-  const state = useProjectDirectoryProjection(props.project, t, props.runtime, props.directoryState.path.join("\u0001"));
+  const state = useProjectDirectoryProjection(props.project, t, props.runtime);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
   const storyIntakeBatches = Array.from(new Map((state.pending?.items ?? [])
     .filter((item) => item.storyIntakeTarget)
