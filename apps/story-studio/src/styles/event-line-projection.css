@@ -210,7 +210,7 @@
 
 /* R12 — the default author surface. NarrativeArrangement is the only source of
  * horizontal order; the styles below never imply order for the unplaced tray. */
-.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; background: var(--color-surface-muted); }
+.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; overflow-y: auto; scrollbar-gutter: stable; background: var(--color-surface-muted); }
 .story-progression-workspace { min-inline-size: 0; min-block-size: 100%; padding: 1.35rem clamp(1rem, 2.4vw, 2.2rem) 2.5rem; color: var(--color-text); background: var(--color-surface-muted); }
 .story-progression-workspace button,
 .story-progression-workspace select { font: inherit; }
@@ -1894,7 +1894,7 @@
 .story-progression-tasks,
 .story-progression-actions { inline-size: 100%; }
 .story-progression-actions { padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
-.story-character-observation { flex: 0 0 auto; inline-size: 100%; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
+.story-character-observation { align-self: stretch; flex: 0 0 auto; min-inline-size: 0; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
 .story-character-observation-label { flex: 0 0 auto; display: flex; align-items: center; gap: .42rem; color: var(--color-text-muted); }
 .story-character-observation-label > svg { inline-size: .95rem; color: var(--color-accent); }
 .story-character-observation-label > span { display: grid; gap: .05rem; }
