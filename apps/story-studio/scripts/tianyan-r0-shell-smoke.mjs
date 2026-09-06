@@ -2900,7 +2900,24 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       pendingStatus: element.querySelector("[data-pending-status]")?.getAttribute("data-pending-status"),
       connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state")
     }));
-    throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
+    const sourceDebug = await page.evaluate(async (projectId) => {
+      const read = async (path) => {
+        const response = await fetch(path);
+        const body = await response.json().catch(() => null);
+        return { status: response.status, body };
+      };
+      const [bootstrap, library, units] = await Promise.all([
+        read("/__local/story-studio/bootstrap"),
+        read(`/__local/story-studio/world-library?projectId=${encodeURIComponent(projectId)}`),
+        read(`/__local/story-studio/story-units?projectId=${encodeURIComponent(projectId)}`)
+      ]);
+      return {
+        bootstrap: bootstrap.body?.data?.activeProject?.id ?? null,
+        library: { status: library.status, project: library.body?.data?.project?.id ?? null, objectCount: library.body?.data?.objects?.length ?? null },
+        units: { status: units.status, count: units.body?.data?.length ?? null, titles: units.body?.data?.map((unit) => unit.title) ?? null }
+      };
+    }, fixtureProjectId);
+    throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug, sources: sourceDebug })}`, { cause: error });
   }
   const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
   await setPointEntry.waitFor({ state: "visible" });
