@@ -64,14 +64,13 @@ export function useProjectDirectoryProjection(project: StoryStudioProject | null
       if (!isCurrentProject() || core.library.project.id !== projectId) return;
       // A newly active project can expose the directory before its local read
       // projection has caught up. Never turn that transient, fully empty
-      // snapshot into a durable empty directory when the bootstrap says this
-      // project already has content. This remains bounded: a genuinely empty
-      // project is rendered immediately, and a populated project stops after
-      // a short, read-only backoff window.
+      // snapshot into a durable empty directory. The bootstrap's summary can
+      // be just as stale as this first projection, so it must not decide
+      // whether recovery is allowed. This remains bounded: a genuinely empty
+      // project settles after the same short, read-only backoff window.
       const emptyCore = core.library.objects.length === 0 && core.units.length === 0;
       const retries = emptyCoreRetries.get(projectId) ?? 0;
-      const projectExpectsContent = project.counts.objects > 0 || project.counts.chapters > 0 || project.counts.scenes > 0;
-      if (emptyCore && projectExpectsContent && retries < emptyCoreRetryDelays.length) {
+      if (emptyCore && retries < emptyCoreRetryDelays.length) {
         emptyCoreRetries.set(projectId, retries + 1);
         emptyCoreRetryTimer = window.setTimeout(() => {
           if (isCurrentProject()) setPendingRevision((revision) => revision + 1);
