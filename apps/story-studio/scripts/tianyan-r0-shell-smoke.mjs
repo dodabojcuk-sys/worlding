@@ -2780,9 +2780,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   if (await persistedCharacterDirectory.isVisible()) {
     await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
     await persistedCharacterDirectory.waitFor({ state: "hidden" });
-    await reloadProduct(page);
-    await closeGlobalTianyiIfOpen(page);
-    if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   }
   await projectDirectory.waitFor();
   const classifiedDirectoryTab = projectDirectory.locator('[role="tab"]').first();
