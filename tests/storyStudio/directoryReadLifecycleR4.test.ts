@@ -46,6 +46,34 @@ test("R4 directory times out a hung shared read, aborts it, and permits recovery
   assert.equal(await reads.read("project.a/story-units", () => Promise.resolve(["recovered"])).promise.then((items) => items[0]), "recovered");
 });
 
+test("R4 directory reuses only a bounded fresh snapshot and invalidates it on writes", async () => {
+  const reads = new InFlightReadRegistry(100, 20);
+  let starts = 0;
+  const start = () => {
+    starts += 1;
+    return Promise.resolve(starts);
+  };
+
+  assert.equal(await reads.read("project.a/story-units", start).promise, 1);
+  const fresh = reads.read("project.a/story-units", start);
+  assert.equal(fresh.reused, true);
+  assert.equal(fresh.fresh, true);
+  assert.equal(await fresh.promise, 1);
+  assert.equal(starts, 1);
+
+  reads.invalidateSettled();
+  assert.equal(await reads.read("project.a/story-units", start).promise, 2, "a business write must force a new owner read");
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(await reads.read("project.a/story-units", start).promise, 3, "the freshness window must expire without a write");
+
+  let resolveInFlight!: (value: number) => void;
+  const inFlight = reads.read("project.a/world-library", () => new Promise<number>((resolve) => { resolveInFlight = resolve; }));
+  reads.invalidateSettled();
+  assert.equal(reads.has("project.a/world-library"), true, "an unrelated write must not abort a valid in-flight owner read");
+  resolveInFlight(30);
+  assert.equal(await inFlight.promise, 30);
+});
+
 test("R4 directory distinguishes legitimate empty, project mismatch, cleanup, and ready data", () => {
   assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.a", cancelled: false, objectCount: 0, unitCount: 0 }), { kind: "commit", outcome: "empty" });
   assert.deepEqual(decideDirectoryCoreDisposition({ requestedProjectId: "project.a", responseProjectId: "project.a", cancelled: false, objectCount: 30, unitCount: 2 }), { kind: "commit", outcome: "ready" });

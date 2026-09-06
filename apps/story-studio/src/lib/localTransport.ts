@@ -3093,14 +3093,14 @@ async function intelligenceBridgeRequest<T>(route: string, token: string, body: 
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
 }
 
-const projectProjectionReads = new InFlightReadRegistry(15_000);
+const projectProjectionReads = new InFlightReadRegistry(15_000, 2_000);
 
 async function readProjectProjection<T>(url: string): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
   const projectId = parsedUrl.searchParams.get("projectId");
   const endpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" as const : "story-units" as const;
   const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
-  if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: "loading" });
+  if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: read.fresh ? "ready" : "loading", reason: read.fresh ? "fresh-snapshot" : "in-flight" });
   try {
     return await read.promise;
   } catch (error) {
@@ -3121,6 +3121,7 @@ async function request<T>(
   const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
   const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
   if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
+  if (input.method === "POST") projectProjectionReads.invalidateSettled();
   let response: Response;
   try {
     response = await fetch(url, {
