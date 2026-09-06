@@ -187,6 +187,19 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   }, []);
   const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
 
+  // The graph owns the visible relation inspector. Route recovery can also
+  // restore the parent event-detail dock in the same commit, so keep the Shell
+  // coordinator aligned with the inspector that is actually on screen. This
+  // is a state repair, not a second relation owner: selection and review data
+  // remain in the existing Event/Relation projections.
+  useEffect(() => {
+    if ((selection?.kind === "relation" || selection?.kind === "smart-relation")
+      && rightWorkSurface.ownerId === "event-line"
+      && rightWorkSurface.mode !== "RELATION_REVIEW") {
+      openInspector("RELATION_REVIEW");
+    }
+  }, [openInspector, rightWorkSurface.mode, rightWorkSurface.ownerId, selection?.kind]);
+
   useEffect(() => {
     if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;
     const relation = graphRelations.find((item) => item.reviewState === "candidate" && item.relationTypeResolution === "unresolved")

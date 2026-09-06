@@ -101,15 +101,29 @@ test("R4 directory does not retain a read that started while a write was still p
   const duringWrite = deferred<number>();
   let starts = 0;
 
-  reads.invalidateSettled(); // POST begins.
+  const finishWrite = reads.beginInvalidationBoundary(); // POST begins.
   const pendingDuringWrite = reads.read("project.a/world-library", () => duringWrite.promise);
   duringWrite.resolve(7); // The endpoint may still return the old revision before POST commits.
   assert.equal(await pendingDuringWrite.promise, 7);
 
-  reads.invalidateSettled(); // POST succeeds.
+  finishWrite(); // POST succeeds without evicting a newer post-write read.
   const afterWrite = reads.read("project.a/world-library", () => Promise.resolve(++starts + 7));
   assert.equal(afterWrite.reused, false, "a GET started during POST cannot refill the post-write cache");
   assert.equal(await afterWrite.promise, 8);
+});
+
+test("R4 directory closing a write boundary preserves a read that began after the write", async () => {
+  const reads = new InFlightReadRegistry(100, 5_000);
+  const finishWrite = reads.beginInvalidationBoundary();
+  finishWrite();
+
+  let starts = 0;
+  const first = reads.read("project.a/world-library", () => Promise.resolve(++starts));
+  assert.equal(await first.promise, 1);
+  const reused = reads.read("project.a/world-library", () => Promise.resolve(++starts));
+  assert.equal(reused.reused, true, "write completion must not invalidate a newer projection read twice");
+  assert.equal(await reused.promise, 1);
+  assert.equal(starts, 1);
 });
 
 test("R4 directory distinguishes legitimate empty, project mismatch, cleanup, and ready data", () => {

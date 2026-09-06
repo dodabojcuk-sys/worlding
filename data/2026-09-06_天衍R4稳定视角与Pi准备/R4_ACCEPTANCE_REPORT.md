@@ -32,6 +32,8 @@ R4 在不更换 Owner、不扩建完整女娲、不迁移或清空原有数据�
 | 单选林昭后打开天意，再切到作者联合/读者视图 | 角色只获得自己的 SubjectRef；其他视图不获得该上下文 | 角色 API/ContextPack 没有契约性连接 | `characterKnowledgeHandoffR4` 与浏览器 `data-context-access=character` 通过；可见秘钥泄漏为 0 |
 | Pi 在正常工具回合继续第二轮 | 记为同一次 generation/tool-loop，只有显式重试记 retry | 第二轮被自动记为 retry | `piAgentTextAdapter` 断言 retry flags 为 `[false,false]` |
 | R4 状态留在人物目录后进入旧目录根 E2E | 通过产品动作建立根目录前置 | 旧脚本假定页面永远从目录根开始 | 脚本点击“返回工程目录”，不删除持久状态；完整 E2E 通过 |
+| 完整 Shell 先进入事件详情，再从待确认打开关系审阅 | 可见关系检查器与 Shell 唯一 Dock 状态均为 `RELATION_REVIEW` | 本地追踪图显示关系检查器已打开，但 Shell 仍标记 `EVENT_DETAILS` | 图形选择为关系时校正唯一 Dock 协调器；原 full-shell 路径通过 |
+| PR #4 的 full-shell 在关系审阅阶段同时报两条 15 秒目录读取超时 | 写前/写中旧读不能进入新快照，写后新读只扫描一次并提交页面状态 | POST 开始和成功各做一次全局失效，结束信号会误清写后新读，远程两个独立作业均复现 | 改为单一写入边界：写中读可返回原调用方但不缓存，关闭边界不二次清除更新读；7 条竞态回归与原 full-shell 通过 |
 
 ## 验收状态
 

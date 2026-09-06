@@ -16,10 +16,11 @@ export class InFlightReadTimeoutError extends Error {
  * response can reach its original caller but never refill that snapshot.
  */
 export class InFlightReadRegistry {
-  readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; generation: number; releaseTimer?: ReturnType<typeof setTimeout> }>();
+  readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; generation: number; cacheEligible: boolean; releaseTimer?: ReturnType<typeof setTimeout> }>();
   readonly #timeoutMs: number;
   readonly #freshForMs: number;
   #generation = 0;
+  #activeInvalidationBoundaries = 0;
 
   constructor(timeoutMs: number, freshForMs = 0) {
     this.#timeoutMs = timeoutMs;
@@ -27,7 +28,7 @@ export class InFlightReadRegistry {
   }
 
   read<T>(key: string, start: (signal: AbortSignal) => Promise<T>): { promise: Promise<T>; reused: boolean; fresh: boolean } {
-    const existing = this.#reads.get(key) as { promise: Promise<T>; controller: AbortController; settledAt: number | null; generation: number; releaseTimer?: ReturnType<typeof setTimeout> } | undefined;
+    const existing = this.#reads.get(key) as { promise: Promise<T>; controller: AbortController; settledAt: number | null; generation: number; cacheEligible: boolean; releaseTimer?: ReturnType<typeof setTimeout> } | undefined;
     if (existing && (existing.settledAt === null || Date.now() - existing.settledAt <= this.#freshForMs)) {
       return { promise: existing.promise, reused: true, fresh: existing.settledAt !== null };
     }
@@ -41,11 +42,11 @@ export class InFlightReadRegistry {
         controller.abort();
       }, this.#timeoutMs);
     });
-    const entry = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, settledAt: null as number | null, generation: this.#generation, releaseTimer: undefined as ReturnType<typeof setTimeout> | undefined };
+    const entry = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, settledAt: null as number | null, generation: this.#generation, cacheEligible: this.#activeInvalidationBoundaries === 0, releaseTimer: undefined as ReturnType<typeof setTimeout> | undefined };
     const promise = Promise.race([start(controller.signal), timeout])
       .then((value) => {
         entry.settledAt = Date.now();
-        if (entry.generation !== this.#generation || this.#freshForMs === 0) this.#release(key, entry);
+        if (!entry.cacheEligible || entry.generation !== this.#generation || this.#freshForMs === 0) this.#release(key, entry);
         else entry.releaseTimer = setTimeout(() => this.#release(key, entry), this.#freshForMs);
         return value;
       }, (error) => {
@@ -78,6 +79,23 @@ export class InFlightReadRegistry {
     for (const [key, entry] of this.#reads) {
       if (entry.settledAt !== null) this.#release(key, entry);
     }
+  }
+
+  /**
+   * Opens one write boundary. Reads that began before it cannot refill the
+   * snapshot because the generation advances; reads that begin while it is
+   * open remain valid for their caller but are never cached. Closing the
+   * boundary does not invalidate a newer post-write read a second time.
+   */
+  beginInvalidationBoundary(): () => void {
+    this.invalidateSettled();
+    this.#activeInvalidationBoundaries += 1;
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      this.#activeInvalidationBoundaries = Math.max(0, this.#activeInvalidationBoundaries - 1);
+    };
   }
 
   #release(key: string, entry: { promise: Promise<unknown>; releaseTimer?: ReturnType<typeof setTimeout> }): void {

@@ -3121,7 +3121,7 @@ async function request<T>(
   const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
   const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
   if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
-  if (input.method === "POST") projectProjectionReads.invalidateSettled();
+  const closeProjectionWriteBoundary = input.method === "POST" ? projectProjectionReads.beginInvalidationBoundary() : null;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -3135,32 +3135,36 @@ async function request<T>(
       signal: input.signal
     });
   } catch (cause) {
+    closeProjectionWriteBoundary?.();
     if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-failed", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: cause instanceof DOMException && cause.name === "AbortError" ? "cancelled" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw new LocalTransportError("操作已取消；没有新的内容被写入。", 499);
     }
     throw new LocalTransportError("本地服务暂时未连接。当前页面会保留；需要读取或保存时请重新连接。", 0);
   }
-  if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
-  const source = await response.text();
-  let payload: { data?: T; error?: string };
   try {
-    payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
-  } catch {
-    throw new LocalTransportError(
-      response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
-      response.status
-    );
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
+    const source = await response.text();
+    let payload: { data?: T; error?: string };
+    try {
+      payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
+    } catch {
+      throw new LocalTransportError(
+        response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
+        response.status
+      );
+    }
+    if (!response.ok || payload.data === undefined) {
+      const fallback = response.status >= 500
+        ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
+        : "本地项目操作失败。";
+      throw new LocalTransportError(payload.error || fallback, response.status);
+    }
+    return payload.data;
+  } finally {
+    // A read begun while the write was pending was marked non-cacheable when
+    // it entered the registry. Closing the boundary therefore cannot evict a
+    // newer post-write read or trigger a second full projection scan.
+    closeProjectionWriteBoundary?.();
   }
-  if (!response.ok || payload.data === undefined) {
-    const fallback = response.status >= 500
-      ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
-      : "本地项目操作失败。";
-    throw new LocalTransportError(payload.error || fallback, response.status);
-  }
-  // The POST-start invalidation protects reads already in flight. This second
-  // boundary also makes reads begun during the write ineligible once the owner
-  // has committed its new revision.
-  if (input.method === "POST") projectProjectionReads.invalidateSettled();
-  return payload.data;
 }
