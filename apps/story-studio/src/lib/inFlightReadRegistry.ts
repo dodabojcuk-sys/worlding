@@ -17,12 +17,12 @@ export class InFlightReadTimeoutError extends Error {
  */
 export class InFlightReadRegistry {
   readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; generation: number; cacheEligible: boolean; releaseTimer?: ReturnType<typeof setTimeout> }>();
-  readonly #timeoutMs: number;
+  readonly #timeoutMs: number | null;
   readonly #freshForMs: number;
   #generation = 0;
   #activeInvalidationBoundaries = 0;
 
-  constructor(timeoutMs: number, freshForMs = 0) {
+  constructor(timeoutMs: number | null, freshForMs = 0) {
     this.#timeoutMs = timeoutMs;
     this.#freshForMs = freshForMs;
   }
@@ -36,14 +36,16 @@ export class InFlightReadRegistry {
 
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
+    const source = start(controller.signal);
+    const timeoutMs = this.#timeoutMs;
+    const pending = timeoutMs === null ? source : Promise.race([source, new Promise<never>((_resolve, reject) => {
       timeoutId = setTimeout(() => {
-        reject(new InFlightReadTimeoutError(key, this.#timeoutMs));
+        reject(new InFlightReadTimeoutError(key, timeoutMs));
         controller.abort();
-      }, this.#timeoutMs);
-    });
+      }, timeoutMs);
+    })]);
     const entry = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, settledAt: null as number | null, generation: this.#generation, cacheEligible: this.#activeInvalidationBoundaries === 0, releaseTimer: undefined as ReturnType<typeof setTimeout> | undefined };
-    const promise = Promise.race([start(controller.signal), timeout])
+    const promise = pending
       .then((value) => {
         entry.settledAt = Date.now();
         if (!entry.cacheEligible || entry.generation !== this.#generation || this.#freshForMs === 0) this.#release(key, entry);

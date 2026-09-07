@@ -51,6 +51,24 @@ test("R4 directory times out a hung shared read, aborts it, and permits recovery
   assert.equal(await reads.read("project.a/story-units", () => Promise.resolve(["recovered"])).promise.then((items) => items[0]), "recovered");
 });
 
+test("R4 response-driven reads do not turn a busy local owner into a false timeout", async () => {
+  const reads = new InFlightReadRegistry(null, 20);
+  let aborted = false;
+  const pending = reads.read("project.a/world-library", (signal) => new Promise<number>((_resolve, reject) => {
+    signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(new DOMException("aborted", "AbortError"));
+    });
+  }));
+
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(reads.has("project.a/world-library"), true, "elapsed time alone must not convert a live local read into a transport failure");
+  assert.equal(aborted, false);
+  reads.invalidateAll();
+  await assert.rejects(pending.promise, (error) => error instanceof DOMException && error.name === "AbortError");
+  assert.equal(aborted, true, "an explicit owner invalidation still aborts the obsolete read");
+});
+
 test("R4 directory reuses only a bounded fresh snapshot and invalidates it on writes", async () => {
   const reads = new InFlightReadRegistry(100, 20);
   let starts = 0;

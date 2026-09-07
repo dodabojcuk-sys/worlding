@@ -3093,7 +3093,11 @@ async function intelligenceBridgeRequest<T>(route: string, token: string, body: 
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
 }
 
-const projectProjectionReads = new InFlightReadRegistry(15_000, 5_000);
+// Same-origin local projection reads are response-driven. A fixed browser
+// deadline misclassifies a busy single-threaded local owner as disconnected
+// and aborts a request that is still progressing. Network/process failures
+// still reject fetch; project changes can explicitly invalidate and abort.
+const projectProjectionReads = new InFlightReadRegistry(null, 5_000);
 
 async function readProjectProjection<T>(url: string): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
