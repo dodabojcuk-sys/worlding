@@ -15,6 +15,15 @@ export function predictionViewStateFromPersistence(input: {
   return "task";
 }
 
+/** A retained draft receipt is historical evidence, not permission to reopen a terminal Run. */
+export function predictionViewStateFromDraftedReceiptRecovery(input: {
+  runStatus: PredictionRunStatus | null;
+  hasDraftedReceipt: boolean;
+}): "receipt" | null {
+  if (!input.hasDraftedReceipt || input.runStatus === "abandoned" || input.runStatus === "stale") return null;
+  return "receipt";
+}
+
 export function predictionStageForView(view: TianyiPredictionViewState): TianyiPredictionStage {
   if (view === "running") return "running";
   if (view === "overview" || view === "focus") return "candidates";
