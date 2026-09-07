@@ -1,31 +1,43 @@
 import { useEffect, useState } from "react";
 import { Download, FilePlus2, GitBranch, RefreshCw, ShieldCheck } from "lucide-react";
 
-import { getCreationSourcePortState, runCreationSourcePortAction, type CreationSourcePortAction, type CreationSourcePortState } from "../../lib/localTransport";
+import { getCreationSourcePortState, listStoryUnits, runCreationSourcePortAction, type CreationSourcePortAction, type CreationSourcePortState, type StoryUnit } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
 /** Renders the existing WorkVersion/OutputArtifact source projection; it owns neither. */
 export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
   const [state, setState] = useState<CreationSourcePortState | null>(null);
+  const [storyUnits, setStoryUnits] = useState<readonly StoryUnit[]>([]);
+  const [storyUnitId, setStoryUnitId] = useState<string | null>(null);
+  const [eventIds, setEventIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const refresh = async () => {
+  const refresh = async (scope: { storyUnitId?: string; eventIds?: string[] } = {}) => {
     if (!projectId) return;
     setError("");
-    try { setState(await getCreationSourcePortState({ projectId })); }
+    try {
+      const next = await getCreationSourcePortState({ projectId, storyUnitId: scope.storyUnitId ?? storyUnitId ?? undefined, eventIds: scope.eventIds ?? eventIds });
+      setState(next);
+      setStoryUnitId(next.storyUnit?.id ?? null);
+      if (!scope.eventIds || !scope.eventIds.length) setEventIds(next.events.map((event) => event.id));
+      else setEventIds(scope.eventIds);
+    }
     catch (reason) { setError(messageFor(reason)); }
   };
   useEffect(() => {
     setState(null); setError("");
-    if (projectId) void refresh();
+    if (projectId) {
+      void listStoryUnits(projectId).then((items) => setStoryUnits(items.filter((item) => item.lifecycle !== "archived"))).catch(() => setStoryUnits([]));
+      void refresh({ eventIds: [] });
+    }
     // The selected project's identity is the read boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
   const act = (action: CreationSourcePortAction) => {
     if (!projectId) return;
     setBusy(true); setError("");
-    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId, action, token }))
+    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId, action, storyUnitId: storyUnitId ?? undefined, eventIds, token }))
       .then(setState).catch((reason: unknown) => setError(messageFor(reason))).finally(() => setBusy(false));
   };
   const download = () => {
@@ -46,6 +58,11 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
       <article><GitBranch /><div><small>主故事版本</small><strong>{state.root ? `${state.root.name} · r${state.root.revision}` : "尚未建立"}</strong><span>{state.root ? "版本来源可追溯" : "建立后才可生成正式创作稿"}</span></div></article>
       <article><ShieldCheck /><div><small>当前范围</small><strong>{state.storyUnit?.title ?? "尚无可用故事单元"}</strong><span>{state.events.length ? `${state.events.length} 个已确认事件` : "尚无可验证的已确认事件"}</span></div></article>
       <article><FilePlus2 /><div><small>创作稿</small><strong>{state.artifact?.title ?? "尚未建立"}</strong><span>{state.artifact ? `已绑定 ${state.artifact.provenance.workVersionSource?.neutralStoryPackageId ?? "来源包"}` : "建立操作会留下 OutputArtifact 回执"}</span></div></article>
+    </section>
+    <section className="creation-source-scope" aria-label="创作范围">
+      <label><span>作品版本</span><strong>{state.root ? `${state.root.name} · r${state.root.revision}` : "尚未建立主版本"}</strong><small>此切片只允许当前正式主版本，派生版本和候选不会被静默混入。</small></label>
+      <label><span>故事单元</span><select aria-label="故事单元" value={storyUnitId ?? ""} disabled={busy || !storyUnits.length} onChange={(event) => { const next = event.target.value; setStoryUnitId(next); setEventIds([]); void refresh({ storyUnitId: next, eventIds: [] }); }}><option value="">选择故事单元</option>{storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title} · {unit.lifecycle}</option>)}</select></label>
+      <fieldset><legend>已确认事件（至少一项）</legend>{state.events.map((event) => <label key={event.id}><input type="checkbox" checked={eventIds.includes(event.id)} onChange={() => { const next = eventIds.includes(event.id) ? eventIds.filter((id) => id !== event.id) : [...eventIds, event.id]; if (!next.length) { setError("创作范围至少保留一个已确认事件。"); return; } setEventIds(next); void refresh({ storyUnitId: storyUnitId ?? undefined, eventIds: next }); }} />{event.title} · {event.revision}</label>)}<small>候选事件与作者意图不会进入默认包；需要时必须在独立候选附录流程中明确确认。</small></fieldset>
     </section>
     {!state.root ? <button type="button" className="primary-action" disabled={busy || Boolean(sourceRequestBlocker)} onClick={() => act("create-root")}><GitBranch />建立主故事版本</button> : !state.artifact ? <button type="button" className="primary-action" disabled={busy || !state.package} onClick={() => act("create-artifact")}><FilePlus2 />建立受版本约束的创作稿</button> : null}
     {state.package ? <section className="creation-source-package" aria-label="中性故事包"><header><div><small>中性故事包</small><h2>{state.package.scope.label}</h2><p><code>{state.package.id}</code> · <code>{state.package.digest}</code></p></div><button type="button" className="primary-action" onClick={download}><Download />下载 Markdown</button></header>{state.package.warnings.length ? <p className="creation-source-message">{state.package.warnings.join("；")}</p> : null}<p>下载文件包含包标识、内容摘要与来源回执索引；完整 provenance 和只读投影由已绑定的创作稿保留。</p><pre>{state.package.storyMarkdown}</pre></section> : <p className="creation-source-message">{state.root ? "当前主版本还缺少可验证的故事单元或已确认事件，暂不能导出。" : "建立主故事版本后将显示中性故事包预览。"}</p>}
