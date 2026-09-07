@@ -117,6 +117,30 @@ test("gateway persists budget, envelope and dispatch before local fake transport
   assert.equal(ledger.snapshot().counts.totalCalls, 1);
 });
 
+test("Gateway rejection is reserved evidence, not an N1 model send", async () => {
+  const root = freshRoot("gateway-rejected-before-transport");
+  const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: zeroProviderBudgetBaseline(), now: clock() });
+  const lifecycle: Array<{ phase: string; requestKey: string; reservationId: string | null }> = [];
+  const gateway = createAiProviderGateway({
+    budgetLedger: ledger,
+    adapters: [{
+      id: "siliconflow",
+      models: [{ id: PROFILE.modelId, label: "Rejecting local host", capabilities: ["streaming", "json"] }],
+      status: () => ({ configured: true }),
+      async openChatStream() { const error = new Error("loopback refused before transport"); error.code = "local-preflight-rejected"; throw error; }
+    }]
+  });
+  await assert.rejects(gateway.openChatStream({
+    profileId: PROFILE.id,
+    messages: [{ role: "user", content: "fixture" }],
+    idempotencyKey: "gateway.n1.rejected.1",
+    onProviderLifecycle(event: { phase: string; requestKey: string; reservationId: string | null }) { lifecycle.push(event); }
+  }), /loopback refused/u);
+  assert.deepEqual(lifecycle.map((event) => event.phase), ["reserved", "failed"]);
+  assert.equal(lifecycle.some((event) => event.phase === "dispatched"), false);
+  assert.equal(ledger.snapshot().counts.generationCalls, 1, "Gateway conservatively retains the pre-transport reservation");
+});
+
 test("historical 3/6/9 Provider incident remains immutable and unrelated to local replay fixtures", () => {
   const root = freshRoot("historical");
   const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: HISTORICAL_PROVIDER_INCIDENT_R0 });

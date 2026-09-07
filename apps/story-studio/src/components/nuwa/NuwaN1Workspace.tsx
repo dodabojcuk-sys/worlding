@@ -181,7 +181,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
-        <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · {run.run.dispatches} / 12 次模拟 dispatch</small> : <small>最多 6 个已提交步骤</small>}</div>
+        <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalDispatches(run.run)}</small> : <small>最多 6 个已提交步骤</small>}</div>
         {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
         {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "running" ? <><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />单步</button><button type="button" disabled={interrupting} onClick={() => runAction("pause")}><CirclePause />暂停</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
@@ -242,7 +242,11 @@ function LogInspector(props: { run: NuwaN1ReadModel | null }) {
   const receipts = props.run?.receipts ?? [];
   const attempts = props.run?.run?.attempts ?? [];
   if (!receipts.length && !attempts.length) return <section className="nuwa-n1-inspector-empty"><History /><p>开始排演后，这里会显示关键状态、工具和回执；不会记录每次输入或角色不可见原文。</p></section>;
-  return <ol className="nuwa-n1-log">{attempts.map((attempt) => <li key={attempt.attemptId}><small>角色回合</small><p>{attemptOutcomeLabel(attempt.outcome)} · {attempt.dispatches.length} 次 dispatch · 工具{toolStatusLabel(attempt.tool.status)}</p><time>{formatTime(attempt.updatedAt)}</time></li>)}{receipts.map((receipt) => <li key={receipt.operationId}><small>{receipt.kind}</small><p>{receiptLabel(receipt.kind)} · 修订 {receipt.revision}</p><time>{formatTime(receipt.recordedAt)}</time></li>)}</ol>;
+  return <ol className="nuwa-n1-log">{attempts.map((attempt) => {
+    const provider = attempt.dispatches.filter((dispatch) => dispatch.phase === "provider");
+    const internal = attempt.dispatches.filter((dispatch) => dispatch.phase !== "provider");
+    return <li key={attempt.attemptId}><small>角色回合</small><p>{attemptOutcomeLabel(attempt.outcome)} · 模型发送 {provider.length} 次（{provider.map((dispatch) => providerDispatchStatusLabel(dispatch.status)).join("、") || "无"}）· 内部工具回合 {internal.length} 次 · 工具{toolStatusLabel(attempt.tool.status)}</p><time>{formatTime(attempt.updatedAt)}</time></li>;
+  })}{receipts.map((receipt) => <li key={receipt.operationId}><small>{receipt.kind}</small><p>{receiptLabel(receipt.kind)} · 修订 {receipt.revision}</p><time>{formatTime(receipt.recordedAt)}</time></li>)}</ol>;
 }
 
 function NuwaUnavailable(props: { title: string; detail: string; loading?: boolean }) {
@@ -258,4 +262,6 @@ function newOperationId() { return `nuwa-n1.${crypto.randomUUID()}`; }
 function receiptLabel(kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff") { return ({ create: "建立排演", start: "开始排演", step: "完成一步", pause: "暂停排演", resume: "恢复排演", cancel: "停止排演", cue: "加入作者提示", handoff: "送入待确认" } as const)[kind]; }
 function attemptOutcomeLabel(outcome: NuwaN1Run["attempts"][number]["outcome"]) { return ({ pending: "执行中", committed: "已提交", failed: "执行失败", cancelled: "已取消", blocked: "预算阻断" } as const)[outcome]; }
 function toolStatusLabel(status: NuwaN1Run["attempts"][number]["tool"]["status"]) { return ({ pending: "等待中", completed: "已完成", failed: "失败", cancelled: "已取消" } as const)[status]; }
+function providerDispatchStatusLabel(status: NuwaN1Run["attempts"][number]["dispatches"][number]["status"]) { return ({ reserved: "已预留", dispatched: "已进入发送", completed: "已完成", failed: "发送前失败", cancelled: "已取消", unknown: "结果未知" } as const)[status]; }
+function internalDispatches(run: NuwaN1Run) { return run.attempts.flatMap((attempt) => attempt.dispatches).filter((dispatch) => dispatch.phase !== "provider").length; }
 function formatTime(value: string) { return new Date(value).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" }); }

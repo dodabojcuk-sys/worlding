@@ -9,8 +9,10 @@ import {
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderReservation,
   readLatestNuwaRun,
   readNuwaN1Run,
+  resolveNuwaN1ProviderDispatch,
   resumeNuwaN1Run,
   startNuwaN1Run
 } from "../../../src/storyIntelligence/index.ts";
@@ -26,6 +28,9 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * existing AuthorControl review owner.
  */
 export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+  /** Exactly one executable actor step may own a Run.  The entry owns its
+   * cancellation handle and promise; duplicate delivery returns that promise
+   * instead of replacing the handle. */
   const activePiExecutions = new Map();
   function availability() {
     return fakeProviderAllowed
@@ -128,14 +133,19 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     const workspace = workspacePath(input.projectId);
     let current = requireRun(workspace, input.runId);
     const expectedRevision = revision(input.expectedRevision);
-    if (current.lifecycle === "ready") {
-      current = startNuwaN1Run({ workspacePath: workspace, runId: current.runId, expectedRevision, operationId: `${operation(input.operationId)}.start`, now: now() });
-    }
     const operationId = operation(input.operationId);
-    const adapter = fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity, operationId);
     const activeKey = `${input.projectId}\u0000${current.runId}`;
-    if (typeof adapter.cancel === "function") activePiExecutions.set(activeKey, adapter);
-    try {
+    const active = activePiExecutions.get(activeKey);
+    if (active) {
+      if (active.operationId === operationId) return active.promise;
+      throw failure("当前女娲 Run 已有执行中的角色回合；请等待、停止或恢复同一操作。", 409);
+    }
+    if (current.lifecycle === "ready") {
+      current = startNuwaN1Run({ workspacePath: workspace, runId: current.runId, expectedRevision, operationId: `${operationId}.start`, now: now() });
+    }
+    const adapter = fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity, operationId);
+    const execution = { operationId, adapter, promise: null };
+    const promise = (async () => {
       const next = await advanceNuwaN1Run({
         workspacePath: workspace,
         runId: current.runId,
@@ -145,9 +155,11 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         now: now()
       });
       return present(input.projectId, next);
-    } finally {
-      if (activePiExecutions.get(activeKey) === adapter) activePiExecutions.delete(activeKey);
-    }
+    })();
+    execution.promise = promise;
+    activePiExecutions.set(activeKey, execution);
+    try { return await promise; }
+    finally { if (activePiExecutions.get(activeKey) === execution) activePiExecutions.delete(activeKey); }
   }
 
   function pause(input) {
@@ -159,8 +171,11 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
   }
 
   function stop(input) {
-    activePiExecutions.get(`${input.projectId}\u0000${input.runId}`)?.cancel?.();
-    return present(input.projectId, cancelNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(input.reason ? { reason: requiredText(input.reason, "停止原因", 240) } : {}), now: now() }));
+    // Validate and durably cancel first.  An invalid Stop must never abort a
+    // valid live stream merely because it named the same Run.
+    const next = cancelNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(input.reason ? { reason: requiredText(input.reason, "停止原因", 240) } : {}), now: now() });
+    activePiExecutions.get(`${input.projectId}\u0000${input.runId}`)?.adapter?.cancel?.();
+    return present(input.projectId, next);
   }
 
   function cue(input) {
@@ -220,7 +235,30 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
         providerDispatches: run.providerDispatches,
-        attempts: run.attempts.map((attempt) => ({ attemptId: attempt.attemptId, actorId: attempt.actor.id, requestId: attempt.requestId, dispatches: attempt.dispatches.map((dispatch) => ({ phase: dispatch.phase, status: dispatch.status, recordedAt: dispatch.recordedAt, detail: dispatch.detail })), tool: attempt.tool, usage: attempt.usage, outcome: attempt.outcome, recordedAt: attempt.recordedAt, updatedAt: attempt.updatedAt })),
+        providerDispatchEvidence: run.providerDispatchEvidence,
+        attempts: run.attempts.map((attempt) => ({
+          attemptId: attempt.attemptId,
+          actorId: attempt.actor.id,
+          requestId: attempt.requestId,
+          dispatches: attempt.dispatches.map((dispatch) => ({
+            phase: dispatch.phase,
+            status: dispatch.status,
+            recordedAt: dispatch.recordedAt,
+            detail: dispatch.detail,
+            ...(dispatch.phase === "provider" ? {
+              providerCall: dispatch.providerCall ?? null,
+              requestKey: dispatch.requestKey ?? null,
+              reservationId: dispatch.reservationId ?? null,
+              receiptEnvelopeId: dispatch.receiptEnvelopeId ?? null,
+              provider: dispatch.provider ?? null
+            } : {})
+          })),
+          tool: attempt.tool,
+          usage: attempt.usage,
+          outcome: attempt.outcome,
+          recordedAt: attempt.recordedAt,
+          updatedAt: attempt.updatedAt
+        })),
         provider: { ...availability(), projectId: project.id },
         blocker: run.blocker
       },
@@ -302,8 +340,23 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       projectId,
       runId,
       sourceIdentity,
-      beforeProviderDispatch({ providerCall }) {
-        recordNuwaN1ProviderDispatch({ workspacePath: workspacePath(projectId), runId, operationId, providerCall, now: now() });
+      onProviderLifecycle(event) {
+        const base = { workspacePath: workspacePath(projectId), runId, operationId, requestKey: event.requestKey, now: now() };
+        if (event.phase === "reserved") {
+          recordNuwaN1ProviderReservation({
+            ...base,
+            providerCall: event.providerCall,
+            reservationId: event.reservationId,
+            receiptEnvelopeId: event.receiptEnvelopeId,
+            provider: event.provider
+          });
+          return;
+        }
+        if (event.phase === "dispatched") {
+          recordNuwaN1ProviderDispatch(base);
+          return;
+        }
+        resolveNuwaN1ProviderDispatch({ ...base, status: event.phase, ...(event.detail ? { detail: event.detail } : {}) });
       }
     });
     if (!adapter) throw failure("女娲 N1 当前没有获授权的 Pi 执行器；未自动回退为假对话。", 503);
@@ -357,9 +410,16 @@ function candidateReviewResult(project, run, handoff) {
       adapterId: attempt.adapterId,
       status: dispatch.status,
       recordedAt: dispatch.recordedAt,
-      detail: dispatch.detail
+      detail: dispatch.detail,
+      requestKey: dispatch.requestKey ?? null,
+      reservationId: dispatch.reservationId ?? null,
+      receiptEnvelopeId: dispatch.receiptEnvelopeId ?? null,
+      provider: dispatch.provider ?? null
     })));
   const executionAdapters = [...new Set(run.attempts.map((attempt) => attempt.adapterId))];
+  const providerProfiles = [...new Map(providerCalls
+    .filter((call) => call.provider?.profileId)
+    .map((call) => [call.provider.profileId, call.provider])).values()];
   const executionSummary = providerCalls.length
     ? `本次 Run 记录了 ${providerCalls.length} 次模型边界发送；候选仍须作者采纳。`
     : "本次 Run 没有模型边界发送记录；候选仍须作者采纳。";
@@ -400,7 +460,14 @@ function candidateReviewResult(project, run, handoff) {
       simulationTask: { goal: "审阅女娲 N1 候选。", mustPreserve: ["唯一 Owner", "候选不自动写事实"], questions: [] }
     },
     nuwa: { version: "tianyan-nuwa-simulation/v1", knownFacts: [], assumptions: [`执行器：${executionAdapters.join(", ") || "未记录"}`, `模型边界发送：${providerCalls.length}`], causalSteps: candidates.flatMap((candidate) => candidate.causes), actorResponses: [], conflicts: [], unknowns: ["候选尚未采纳。"], candidates },
-    provider: { profileId: providerCalls.length ? `recorded-run:${executionAdapters.join(",")}` : null, calls: providerCalls }
+    // Preserve the execution identity saved with each dispatch.  An adapter
+    // name is not a Provider profile and current settings must not be used to
+    // guess what an historical Run used.
+    provider: {
+      profileId: providerProfiles.length === 1 ? providerProfiles[0].profileId : null,
+      profiles: providerProfiles,
+      calls: providerCalls
+    }
   };
 }
 

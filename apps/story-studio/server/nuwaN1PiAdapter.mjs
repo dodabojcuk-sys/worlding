@@ -6,7 +6,7 @@ const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
  * product tool is a frozen, role-scoped context read; this adapter has no
  * filesystem, Canon, Event, World, Relation, or character-write capability.
  */
-export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, beforeProviderDispatch = null, now = () => new Date().toISOString() }) {
+export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, onProviderLifecycle = null, now = () => new Date().toISOString() }) {
   if (!runtime || typeof runtime.run !== "function") throw new Error("Nuwa N1 Pi adapter requires an active Agent Runtime.");
   if (!provider?.providerId || !provider?.profileId || !provider?.modelId) throw new Error("Nuwa N1 Pi adapter requires an explicit Provider profile.");
   if (!sourceIdentity?.workVersionId || !sourceIdentity?.revision || !sourceIdentity?.kind) throw new Error("Nuwa N1 Pi adapter requires an explicit versioned or unversioned source identity.");
@@ -62,8 +62,20 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sou
             : { allowed: false, reason: "Nuwa N1 only permits its frozen role-context tool." };
         },
         async openProviderStream(providerInput) {
-          if (beforeProviderDispatch) await beforeProviderDispatch({ attemptId: context.attemptId, providerCall: providerInput.providerCall });
-          return openProviderStream(providerInput);
+          return openProviderStream({
+            ...providerInput,
+            // This callback is deliberately handed to the Gateway rather than
+            // invoked here: an N1 record must follow Gateway reservation and
+            // transport lifecycle, not merely Pi's intent to send.
+            onProviderLifecycle: onProviderLifecycle
+              ? (event) => onProviderLifecycle({
+                ...event,
+                attemptId: context.attemptId,
+                providerCall: providerInput.providerCall,
+                provider: { providerId: provider.providerId, profileId: provider.profileId, modelId: provider.modelId }
+              })
+              : null
+          });
         },
         onEvent() { /* RunPack stores the resulting bounded turn, not model-chain text. */ }
       });

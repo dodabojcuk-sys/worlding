@@ -87,6 +87,7 @@ export type NuwaN1Step = {
   committedAt: string;
 };
 export type NuwaN1Receipt = { operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string; payloadHash?: string };
+export type NuwaN1ProviderDispatchStatus = "reserved" | "dispatched" | "completed" | "failed" | "cancelled" | "unknown";
 export type NuwaN1Attempt = {
   operationId: string;
   attemptId: string;
@@ -94,7 +95,19 @@ export type NuwaN1Attempt = {
   actor: NuwaN1StableRef;
   contextHash: string;
   requestId: string | null;
-  dispatches: Array<{ phase: "request" | "continue-after-tool" | "provider"; status: "dispatched" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null }>;
+  dispatches: Array<{
+    phase: "request" | "continue-after-tool" | "provider";
+    status: "dispatched" | "completed" | "failed" | "cancelled" | "reserved" | "unknown";
+    recordedAt: string;
+    detail: string | null;
+    /** Provider entries bind the N1 projection to the Gateway's existing
+     * reservation and replay-safe receipt identities. */
+    providerCall?: number;
+    requestKey?: string;
+    reservationId?: string | null;
+    receiptEnvelopeId?: string | null;
+    provider?: { providerId: string; profileId: string; modelId: string };
+  }>;
   tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
   usage: NuwaN1Usage | null;
   outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
@@ -115,6 +128,9 @@ export type NuwaN1Run = {
   /** Actual model-boundary sends.  This is deliberately separate from the
    * local tool-round-trip bookkeeping in `dispatches`. */
   providerDispatches: number;
+  /** Older RunPacks may have no model-boundary history at all.  Such a Run
+   * remains readable, but cannot silently resume with a fresh budget. */
+  providerDispatchEvidence: "complete" | "unknown";
   dispatches: number;
   steps: NuwaN1Step[];
   pendingCue: { operationId: string; instruction: string } | null;
@@ -146,7 +162,7 @@ export function createNuwaN1Run(input: { workspacePath: string; runId: string; s
   }
   const now = input.now || new Date().toISOString();
   const run: NuwaN1Run = {
-    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, dispatches: 0, steps: [], pendingCue: null, blocker: null,
+    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, providerDispatchEvidence: "complete", dispatches: 0, steps: [], pendingCue: null, blocker: null,
     receipts: [{ operationId: safeOperation(input.operationId), kind: "create", revision: 1, recordedAt: now }], attempts: [], createdAt: now, updatedAt: now
   };
   writeAtomically(input.workspacePath, input.runId, run);
@@ -213,6 +229,11 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   if (initial.receipts.some((receipt) => receipt.operationId === input.operationId) || initial.attempts.some((attempt) => attempt.operationId === input.operationId)) return initial;
   if (initial.revision !== input.expectedRevision) throw new Error("Nuwa N1 revision conflict.");
   if (initial.lifecycle !== "running") throw new Error("Nuwa N1 Run is not running.");
+  if (initial.providerDispatchEvidence === "unknown") return persist(input, initial, "step", {
+    ...initial,
+    lifecycle: "blocked",
+    blocker: "这份历史 Run 缺少可恢复的模型发送记录；为避免把未知发送当作零并重新取得预算，已阻止继续执行。"
+  });
   if (initial.steps.length >= NUWA_N1_MAX_COMMITTED_STEPS) return persist(input, initial, "step", { ...initial, lifecycle: "completed", blocker: null });
   if (initial.providerDispatches >= NUWA_N1_MAX_DISPATCHES) return persist(input, initial, "step", { ...initial, lifecycle: "blocked", blocker: "实际 Provider 发送预算已用尽；请结束或新建一次排演。" });
   const actor = initial.actors[initial.steps.length % initial.actors.length]!;
@@ -253,6 +274,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     return finishAttempt(input, current, attemptId, "failed", `request failed: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色上下文工具请求失败；本次排演已阻塞。" });
   }
   current = afterAwait(input, current, attemptId);
+  if (hasNewerAuthorCue(initial, current)) return preserveNewerAuthorCue(input, current, attemptId);
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after request dispatch");
   if (current.lifecycle !== "running") return finishAttempt(input, current, attemptId, "failed", `run is ${current.lifecycle} after request dispatch`);
   let toolResult: NuwaN1ToolResult;
@@ -263,6 +285,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     return finishAttempt(input, current, attemptId, "failed", `tool failed: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色上下文工具执行失败；本次排演已阻塞。" }, "tool");
   }
   current = afterAwait(input, current, attemptId);
+  if (hasNewerAuthorCue(initial, current)) return preserveNewerAuthorCue(input, current, attemptId);
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after tool execution", undefined, "tool");
   if (current.lifecycle !== "running") return finishAttempt(input, current, attemptId, "failed", `run is ${current.lifecycle} after tool execution`, undefined, "tool");
   current = updateAttempt(input, current, attemptId, (attempt) => ({ ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, dispatches: [...attempt.dispatches, { phase: "continue-after-tool", status: "dispatched", recordedAt: recordedAt(input), detail: null }], updatedAt: recordedAt(input) }), 1);
@@ -276,7 +299,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     return finishAttempt(input, current, attemptId, current.lifecycle === "cancelled" ? "cancelled" : "failed", `continue-after-tool failed: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色回合执行失败；本次排演已阻塞。" });
   }
   current = afterAwait(input, current, attemptId);
-  current = completeProviderDispatches(input, current, attemptId);
+  if (hasNewerAuthorCue(initial, current)) return preserveNewerAuthorCue(input, current, attemptId);
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after continue-after-tool dispatch");
   if (current.lifecycle !== "running") return finishAttempt(input, current, attemptId, "failed", `run is ${current.lifecycle} after continue-after-tool dispatch`);
   const usage = resolveUsage(context, result);
@@ -288,7 +311,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     stepId: `nuwa-n1-step.${stableHash({ runId: current.runId, sequence, operationId: input.operationId }).slice(0, 20)}`,
     operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech: result.speech == null ? null : text(result.speech, "speech", 1_200), action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId: context.attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
   };
-  const next: NuwaN1Run = { ...current, steps: [...current.steps, step], pendingCue: null, lifecycle: sequence >= NUWA_N1_MAX_COMMITTED_STEPS ? "completed" : "running", blocker: null, attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => ({ ...dispatch, status: "completed" })), updatedAt: recordedAt(input) } : attempt) };
+  const next: NuwaN1Run = { ...current, steps: [...current.steps, step], pendingCue: null, lifecycle: sequence >= NUWA_N1_MAX_COMMITTED_STEPS ? "completed" : "running", blocker: null, attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt) };
   return persist(input, current, "step", next);
 }
 
@@ -303,17 +326,69 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
 }
 
 /** Called by the Pi bridge immediately before every model-boundary send. */
-export function recordNuwaN1ProviderDispatch(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; now?: string }): NuwaN1Run {
+export function recordNuwaN1ProviderReservation(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; requestKey: string; reservationId: string | null; receiptEnvelopeId: string | null; provider: { providerId: string; profileId: string; modelId: string }; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const attemptId = safeOperation(input.operationId);
+  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
+  if (current.providerDispatches >= NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 actual Provider dispatch budget is exhausted before transport.");
+  if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
+  const requestKey = safeRequestKey(input.requestKey);
+  const found = current.attempts.find((attempt) => attempt.operationId === attemptId);
+  const prior = found?.dispatches.find((dispatch) => dispatch.phase === "provider" && dispatch.requestKey === requestKey);
+  if (prior) return current;
+  return updateAttempt(input, current, attemptId, (attempt) => ({
+    ...attempt,
+    dispatches: [...attempt.dispatches, {
+      phase: "provider", status: "reserved", recordedAt: recordedAt(input), detail: null,
+      providerCall: input.providerCall, requestKey,
+      reservationId: input.reservationId == null ? null : safeId(input.reservationId),
+      receiptEnvelopeId: input.receiptEnvelopeId == null ? null : safeId(input.receiptEnvelopeId),
+      provider: normalizeProviderIdentity(input.provider)
+    }],
+    updatedAt: recordedAt(input)
+  }));
+}
+
+/** The Gateway calls this only after its transport has accepted the request.
+ * A reservation alone deliberately does not consume N1's actual-send count. */
+export function recordNuwaN1ProviderDispatch(input: { workspacePath: string; runId: string; operationId: string; requestKey: string; now?: string }): NuwaN1Run {
   const current = requireRun(input.workspacePath, input.runId);
   const attemptId = safeOperation(input.operationId);
   if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
   if (current.providerDispatches >= NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 actual Provider dispatch budget is exhausted.");
-  if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
-  return updateAttempt(input, current, attemptId, (attempt) => ({
-    ...attempt,
-    dispatches: [...attempt.dispatches, { phase: "provider", status: "dispatched", recordedAt: recordedAt(input), detail: `provider-call:${input.providerCall}` }],
+  const requestKey = safeRequestKey(input.requestKey);
+  const attempt = current.attempts.find((candidate) => candidate.operationId === attemptId);
+  const dispatch = attempt?.dispatches.find((candidate) => candidate.phase === "provider" && candidate.requestKey === requestKey);
+  if (!dispatch) throw new Error("Nuwa N1 Provider dispatch has no matching Gateway reservation.");
+  if (dispatch.status !== "reserved") return current;
+  return updateAttempt(input, current, attemptId, (candidate) => ({
+    ...candidate,
+    dispatches: candidate.dispatches.map((item) => item.phase === "provider" && item.requestKey === requestKey
+      ? { ...item, status: "dispatched", recordedAt: recordedAt(input) }
+      : item),
     updatedAt: recordedAt(input)
   }), 0, 1);
+}
+
+/** Gateway stream completion is per request, so a later failed tool turn
+ * cannot rewrite an earlier successful request in the same actor attempt. */
+export function resolveNuwaN1ProviderDispatch(input: { workspacePath: string; runId: string; operationId: string; requestKey: string; status: Exclude<NuwaN1ProviderDispatchStatus, "reserved" | "dispatched">; detail?: string | null; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const attemptId = safeOperation(input.operationId);
+  const requestKey = safeRequestKey(input.requestKey);
+  const allowed = new Set(["completed", "failed", "cancelled", "unknown"]);
+  if (!allowed.has(input.status)) throw new Error("Nuwa N1 Provider terminal status is invalid.");
+  const attempt = current.attempts.find((candidate) => candidate.operationId === attemptId);
+  const dispatch = attempt?.dispatches.find((candidate) => candidate.phase === "provider" && candidate.requestKey === requestKey);
+  if (!dispatch) throw new Error("Nuwa N1 Provider result has no matching Gateway reservation.");
+  if (["completed", "failed", "cancelled", "unknown"].includes(dispatch.status)) return current;
+  return updateAttempt(input, current, attemptId, (candidate) => ({
+    ...candidate,
+    dispatches: candidate.dispatches.map((item) => item.phase === "provider" && item.requestKey === requestKey
+      ? { ...item, status: input.status, detail: input.detail == null ? item.detail : text(input.detail, "Provider diagnostic", 240), recordedAt: recordedAt(input) }
+      : item),
+    updatedAt: recordedAt(input)
+  }));
 }
 
 export function prepareNuwaN1CandidateHandoff(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; selectedStepIds: string[]; now?: string }): { run: NuwaN1Run; handoff: NuwaN1CandidateHandoff } {
@@ -376,39 +451,50 @@ function writeAttempt(input: { workspacePath: string; runId: string; now?: strin
 function afterAwait(input: { workspacePath: string; runId: string }, before: NuwaN1Run, attemptId: string): NuwaN1Run {
   const current = requireRun(input.workspacePath, input.runId);
   if (!current.attempts.some((attempt) => attempt.operationId === attemptId)) throw new Error("Nuwa N1 dispatch attempt is missing after adapter await.");
-  if (current.lifecycle !== "cancelled" && current.lifecycle !== "paused" && current.revision !== before.revision && !onlyOwnProviderDispatchesChanged(before, current, attemptId)) throw new Error("Nuwa N1 revision changed while the adapter was running.");
+  if (current.lifecycle !== "cancelled" && current.lifecycle !== "paused" && current.revision !== before.revision && !onlyOwnProviderDispatchesChanged(before, current, attemptId, { allowPendingCueChange: true })) throw new Error("Nuwa N1 revision changed while the adapter was running.");
   return current;
 }
 
-function onlyOwnProviderDispatchesChanged(before: NuwaN1Run, current: NuwaN1Run, attemptId: string): boolean {
+function onlyOwnProviderDispatchesChanged(before: NuwaN1Run, current: NuwaN1Run, attemptId: string, options: { allowPendingCueChange?: boolean } = {}): boolean {
   if (current.lifecycle !== before.lifecycle || current.steps.length !== before.steps.length || current.attempts.length !== before.attempts.length || current.providerDispatches < before.providerDispatches) return false;
+  const topLevel = (run: NuwaN1Run) => ({ ...run, revision: 0, updatedAt: "", providerDispatches: 0, attempts: [], ...(options.allowPendingCueChange ? { pendingCue: null } : {}) });
+  if (stableJson(topLevel(before)) !== stableJson(topLevel(current))) return false;
   const previous = before.attempts.find((attempt) => attempt.operationId === attemptId);
   const next = current.attempts.find((attempt) => attempt.operationId === attemptId);
   if (!previous || !next || next.dispatches.length < previous.dispatches.length) return false;
-  return current.attempts.every((attempt) => attempt.operationId === attemptId || JSON.stringify(attempt) === JSON.stringify(before.attempts.find((candidate) => candidate.operationId === attempt.operationId)));
+  const comparableAttempt = (attempt: NuwaN1Attempt) => ({ ...attempt, dispatches: [], updatedAt: "" });
+  if (stableJson(comparableAttempt(previous)) !== stableJson(comparableAttempt(next))) return false;
+  const previousNonProvider = previous.dispatches.filter((dispatch) => dispatch.phase !== "provider");
+  const nextNonProvider = next.dispatches.filter((dispatch) => dispatch.phase !== "provider");
+  if (stableJson(previousNonProvider) !== stableJson(nextNonProvider)) return false;
+  return current.attempts.every((attempt) => attempt.operationId === attemptId || stableJson(attempt) === stableJson(before.attempts.find((candidate) => candidate.operationId === attempt.operationId)));
+}
+
+function hasNewerAuthorCue(before: NuwaN1Run, current: NuwaN1Run): boolean {
+  return stableJson(before.pendingCue) !== stableJson(current.pendingCue);
+}
+
+function preserveNewerAuthorCue(input: { workspacePath: string; runId: string; now?: string }, current: NuwaN1Run, attemptId: string): NuwaN1Run {
+  return finishAttempt(
+    input,
+    current,
+    attemptId,
+    "blocked",
+    "作者在本回合执行期间加入了新的提示；本回合不会冒称已使用该提示，提示将保留给下一步。"
+  );
 }
 
 function finishAttempt(input: { workspacePath: string; runId: string; now?: string }, current: NuwaN1Run, attemptId: string, outcome: "failed" | "cancelled" | "blocked", detail: string, terminal?: Pick<NuwaN1Run, "lifecycle" | "blocker">, target: "dispatch" | "tool" = "dispatch", usage: NuwaN1Usage | null = null): NuwaN1Run {
   const updated = updateAttempt(input, current, attemptId, (attempt) => ({
     ...attempt,
     tool: target === "tool" ? { status: outcome === "cancelled" ? "cancelled" : "failed", recordedAt: recordedAt(input), detail } : attempt.tool,
-    dispatches: target === "dispatch" ? attempt.dispatches.map((dispatch, index) => dispatch.phase === "provider" && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : index === attempt.dispatches.length - 1 && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : dispatch) : attempt.dispatches,
+    dispatches: target === "dispatch" ? attempt.dispatches.map((dispatch, index) => dispatch.phase === "provider" && dispatch.status === "reserved" ? { ...dispatch, status: "failed", detail, recordedAt: recordedAt(input) } : dispatch.phase === "provider" && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "unknown", detail, recordedAt: recordedAt(input) } : index === attempt.dispatches.length - 1 && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : dispatch) : attempt.dispatches,
     usage: usage ?? attempt.usage,
     outcome,
     updatedAt: recordedAt(input)
   }));
   if (updated.lifecycle === "cancelled" || !terminal) return updated;
   return applyAttemptTerminal(input, updated, terminal);
-}
-
-function completeProviderDispatches(input: { workspacePath: string; runId: string; now?: string }, current: NuwaN1Run, attemptId: string): NuwaN1Run {
-  const attempt = current.attempts.find((item) => item.operationId === attemptId);
-  if (!attempt?.dispatches.some((dispatch) => dispatch.phase === "provider" && dispatch.status === "dispatched")) return current;
-  return updateAttempt(input, current, attemptId, (item) => ({
-    ...item,
-    dispatches: item.dispatches.map((dispatch) => dispatch.phase === "provider" && dispatch.status === "dispatched" ? { ...dispatch, status: "completed", recordedAt: recordedAt(input) } : dispatch),
-    updatedAt: recordedAt(input)
-  }));
 }
 
 function applyAttemptTerminal(input: { workspacePath: string; runId: string; now?: string }, current: NuwaN1Run, terminal: Pick<NuwaN1Run, "lifecycle" | "blocker">): NuwaN1Run {
@@ -418,6 +504,18 @@ function applyAttemptTerminal(input: { workspacePath: string; runId: string; now
 function normalizeAttempt(value: NuwaN1Attempt): NuwaN1Attempt {
   if (!value || typeof value !== "object" || !safeOperation(value.operationId) || !safeOperation(value.attemptId) || !Array.isArray(value.dispatches)) throw new Error("Nuwa N1 attempt receipt is invalid.");
   return structuredClone(value);
+}
+
+function safeRequestKey(value: string): string {
+  return text(value, "Provider request key", 240);
+}
+
+function normalizeProviderIdentity(value: { providerId: string; profileId: string; modelId: string }) {
+  return {
+    providerId: text(value?.providerId, "Provider identity", 160),
+    profileId: text(value?.profileId, "Provider profile identity", 160),
+    modelId: text(value?.modelId, "Provider model identity", 240)
+  };
 }
 
 function validateToolResult(result: NuwaN1ToolResult, request: NuwaN1ToolRequest, context: NuwaN1Context, actor: NuwaN1Actor): void {
@@ -448,8 +546,13 @@ function normalizeRun(value: unknown): NuwaN1Run {
   if (!Array.isArray(run.actors) || run.actors.length < 2 || run.actors.length > 3 || !Array.isArray(run.steps) || run.steps.length > NUWA_N1_MAX_COMMITTED_STEPS || !Number.isSafeInteger(run.dispatches) || run.dispatches < 0 || run.dispatches > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 state bounds are invalid.");
   // v1 persisted local tool-round-trip dispatches only.  Keep old Runs
   // readable and explicitly report that no model-boundary send was recorded.
-  if (run.providerDispatches == null) run.providerDispatches = 0;
+  if (run.providerDispatches == null) {
+    run.providerDispatches = 0;
+    run.providerDispatchEvidence = "unknown";
+  }
   if (!Number.isSafeInteger(run.providerDispatches) || run.providerDispatches < 0 || run.providerDispatches > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch bounds are invalid.");
+  if (run.providerDispatchEvidence == null) run.providerDispatchEvidence = "complete";
+  if (run.providerDispatchEvidence !== "complete" && run.providerDispatchEvidence !== "unknown") throw new Error("Nuwa N1 Provider dispatch evidence is invalid.");
   if (!["ready", "running", "paused", "completed", "cancelled", "blocked"].includes(run.lifecycle)) throw new Error("Nuwa N1 lifecycle is invalid.");
   if (!Array.isArray(run.attempts)) run.attempts = [];
   run.sourceIdentity = normalizeSourceIdentity(run.sourceIdentity);

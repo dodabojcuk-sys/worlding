@@ -2244,12 +2244,25 @@ export type NuwaN1Run = {
   participants: NuwaN1Participant[];
   goal: string;
   steps: NuwaN1Step[];
+  /** Actual model-boundary sends; never inferred from local tool bookkeeping. */
+  providerDispatches: number;
+  providerDispatchEvidence: "complete" | "unknown";
   dispatches: number;
   attempts: Array<{
     attemptId: string;
     actorId: string;
     requestId: string | null;
-    dispatches: Array<{ phase: "request" | "continue-after-tool"; status: "dispatched" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null }>;
+    dispatches: Array<{
+      phase: "request" | "continue-after-tool" | "provider";
+      status: "reserved" | "dispatched" | "completed" | "failed" | "cancelled" | "unknown";
+      recordedAt: string;
+      detail: string | null;
+      providerCall?: number | null;
+      requestKey?: string | null;
+      reservationId?: string | null;
+      receiptEnvelopeId?: string | null;
+      provider?: { providerId: string; profileId: string; modelId: string } | null;
+    }>;
     tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
     usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" } | null;
     outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";

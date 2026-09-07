@@ -175,7 +175,7 @@ const nuwaN1Port = createNuwaN1Port({
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
   piAdapterFactory: {
     availability() { return nuwaN1PiAvailability(); },
-    create({ projectId, runId, sourceIdentity, beforeProviderDispatch }) {
+    create({ projectId, runId, sourceIdentity, onProviderLifecycle }) {
       const availability = nuwaN1PiAvailability();
       if (!availability || !agentRuntimePluginResolution.runtime) return null;
       const profile = nuwaN1LocalHostUrl
@@ -187,8 +187,9 @@ const nuwaN1Port = createNuwaN1Port({
         runId,
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
         sourceIdentity,
-        beforeProviderDispatch,
+        onProviderLifecycle,
         openProviderStream(providerInput) {
+          const requestKey = `nuwa-n1.${projectId}.${runId}.${providerInput.agentRunId}.${providerInput.providerCall}`;
           return providerGateway.openChatStream({
             profileId: profile.id,
             messages: providerInput.messages,
@@ -199,10 +200,24 @@ const nuwaN1Port = createNuwaN1Port({
             // Pi restarts its providerCall ordinal for every actor attempt.
             // agentRunId contains the durable N1 attempt identity, so a retry
             // reuses its key while another actor gets an independent key.
-            idempotencyKey: `nuwa-n1.${projectId}.${runId}.${providerInput.agentRunId}.${providerInput.providerCall}`,
+            idempotencyKey: requestKey,
             budgetScope: `nuwa-n1:${projectId}`,
             toolLoopTurn: providerInput.providerCall > 1,
-            retry: providerInput.retry
+            retry: providerInput.retry,
+            // The envelope carries only durable identities and no prompt,
+            // credentials, or raw model response.  It is linked to the
+            // existing replay-safe Gateway owner, not a second N1 ledger.
+            receiptEnvelopeContext: {
+              projectId,
+              projectVersion: sourceIdentity.revision,
+              sessionId: runId,
+              archiveRecordId: `nuwa-runpack.${runId}`,
+              sourceAnchorIds: [sourceIdentity.workVersionId],
+              sourceRevision: sourceIdentity.revision,
+              operationId: requestKey,
+              providerProfileRevision: sourceIdentity.revision
+            },
+            onProviderLifecycle: providerInput.onProviderLifecycle
           });
         }
       });

@@ -95,6 +95,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const toolChoice = validateToolChoice(input?.toolChoice, tools);
       const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
+      const onProviderLifecycle = typeof input?.onProviderLifecycle === "function" ? input.onProviderLifecycle : null;
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
@@ -102,9 +103,16 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       });
       const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
+      let enteredTransport = false;
       try {
         receipt = beginReceiptEnvelope(receiptEnvelopeStore, reservation, input, profile);
         markReceiptDispatched(receiptEnvelopeStore, receipt);
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "reserved",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null
+        });
         const stream = await adapter.openChatStream({
           modelId: profile.modelId,
           messages,
@@ -116,15 +124,33 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           enableThinking: profile.enableThinking,
           ...(tools.length ? { tools, toolChoice } : {})
         });
+        enteredTransport = true;
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "dispatched",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null
+        });
         if (!reservation && !receipt) return stream;
         return Object.freeze({
           traceId: stream.traceId,
           ...(receipt ? { receiptEnvelopeId: receipt.envelopeId } : {}),
-          events: budgetedEvents(stream.events, budgetLedger, reservation?.reservation?.reservationId ?? null, stream.traceId, receiptEnvelopeStore, receipt)
+          events: budgetedEvents(stream.events, budgetLedger, reservation?.reservation?.reservationId ?? null, stream.traceId, receiptEnvelopeStore, receipt, onProviderLifecycle, {
+            requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+            reservationId: reservation?.reservation?.reservationId ?? null,
+            receiptEnvelopeId: receipt?.envelopeId ?? null
+          })
         });
       } catch (error) {
         completeBudgetFailure(budgetLedger, reservation, error);
         persistReceiptFailure(receiptEnvelopeStore, receipt, error);
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: enteredTransport ? lifecycleFailureStatus(error) : "failed",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null,
+          detail: lifecycleDiagnostic(error)
+        });
         throw error;
       }
     },
@@ -253,7 +279,7 @@ function reserveBudget(ledger, input, kind, scope) {
   return reservation;
 }
 
-async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEnvelopeStore = null, receipt = null) {
+async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEnvelopeStore = null, receipt = null, onProviderLifecycle = null, lifecycleIdentity = null) {
   let completed = false;
   let responseBody = "";
   let usage = null;
@@ -270,18 +296,39 @@ async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEn
     }
     freezeReceiptResponse(receiptEnvelopeStore, receipt, { responseBody, traceId, usage, finishReason });
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: "success", traceId });
+    await notifyProviderLifecycle(onProviderLifecycle, { phase: "completed", ...lifecycleIdentity });
     completed = true;
   } catch (error) {
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: budgetOutcome(error), traceId });
     persistReceiptFailure(receiptEnvelopeStore, receipt, error);
+    await notifyProviderLifecycle(onProviderLifecycle, { phase: lifecycleFailureStatus(error), ...lifecycleIdentity, detail: lifecycleDiagnostic(error) });
     completed = true;
     throw error;
   } finally {
     if (!completed) {
       if (ledger && reservationId) ledger.complete({ reservationId, outcome: "cancelled-after-dispatch", traceId });
       persistReceiptFailure(receiptEnvelopeStore, receipt, { code: "cancelled" });
+      await notifyProviderLifecycle(onProviderLifecycle, { phase: "cancelled", ...lifecycleIdentity, detail: "stream-consumption-cancelled" });
     }
   }
+}
+
+async function notifyProviderLifecycle(callback, event) {
+  if (typeof callback !== "function") return;
+  if (typeof event?.requestKey !== "string" || !event.requestKey.trim()) return;
+  await callback(Object.freeze({ ...event }));
+}
+
+function lifecycleFailureStatus(error) {
+  if (error?.code === "cancelled" || error?.name === "AbortError") return "cancelled";
+  // Once transport has accepted a request, a network error cannot prove the
+  // upstream did not receive it.  Preserve that conservative unknown state.
+  return "unknown";
+}
+
+function lifecycleDiagnostic(error) {
+  const value = String(error instanceof Error ? error.message : error || "transport-failed").trim();
+  return value.slice(0, 240) || "transport-failed";
 }
 
 function beginReceiptEnvelope(store, reservation, input, profile) {
