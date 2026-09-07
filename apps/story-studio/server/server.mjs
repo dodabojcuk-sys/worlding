@@ -175,7 +175,7 @@ const nuwaN1Port = createNuwaN1Port({
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
   piAdapterFactory: {
     availability() { return nuwaN1PiAvailability(); },
-    create({ projectId, runId, sourceIdentity }) {
+    create({ projectId, runId, sourceIdentity, beforeProviderDispatch }) {
       const availability = nuwaN1PiAvailability();
       if (!availability || !agentRuntimePluginResolution.runtime) return null;
       const profile = nuwaN1LocalHostUrl
@@ -187,6 +187,7 @@ const nuwaN1Port = createNuwaN1Port({
         runId,
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
         sourceIdentity,
+        beforeProviderDispatch,
         openProviderStream(providerInput) {
           return providerGateway.openChatStream({
             profileId: profile.id,
@@ -263,17 +264,23 @@ const providerCredential = createSessionCredentialController({
     clear() { readActiveCredentialBackend().clear(); }
   }
 });
-const providerBudgetLedger = createProviderRequestBudgetLedger({
-  appDataRoot: providerAppDataRoot,
-  initialSnapshot: shouldInstallHistoricalProviderIncident() ? HISTORICAL_PROVIDER_INCIDENT_R0 : zeroProviderBudgetBaseline()
-});
-const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
 // Test-only host mode exercises the same Gateway -> HTTP/SSE -> Pi boundary
-// without a credential, paid Provider, or production switch.
+// without a credential, paid Provider, or production switch.  Its ledger
+// lives below the test app-data root, so it cannot consume or reset a real
+// Provider history.
 const nuwaN1LocalHostUrl = process.env.NODE_ENV === "test" && /^http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?$/u.test(process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL || "")
   ? process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL
   : null;
+const providerBudgetLedger = createProviderRequestBudgetLedger({
+  appDataRoot: providerAppDataRoot,
+  initialSnapshot: nuwaN1LocalHostUrl
+    ? localNuwaN1HostBudgetBaseline()
+    : shouldInstallHistoricalProviderIncident()
+      ? HISTORICAL_PROVIDER_INCIDENT_R0
+      : zeroProviderBudgetBaseline()
+});
+const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const nuwaN1LocalHostProfile = Object.freeze({
   id: "local-nuwa-n1-http-sse",
   label: "本地 N1 HTTP/SSE 宿主",
@@ -3261,16 +3268,25 @@ function createNuwaN1LocalHostAdapter(baseUrl) {
     modelDiscovery: null,
     traceHeader: "x-request-id"
   });
-  // The Gateway still validates messages/tools and owns the transport call,
-  // but this isolated loopback fixture is intentionally outside the paid
-  // Provider ledger. N1 itself continues to cap every run at 12 dispatches.
+  // This remains a loopback-only, credential-free test fixture, but it must
+  // use the Gateway's reservation, receipt, and stream-completion path.  The
+  // server gives this mode a separate 12-call ledger above; it never opens a
+  // production Provider or changes the paid-Provider ledger.
   return Object.freeze({
     id: transport.id,
     label: transport.label,
     get models() { return transport.models; },
-    status() { return { ...transport.status(), configured: false, reason: "loopback-http-sse-test-host" }; },
+    status() { return { ...transport.status(), configured: true, reason: "loopback-http-sse-test-host" }; },
     openChatStream(input) { return transport.openChatStream(input); }
   });
+}
+
+function localNuwaN1HostBudgetBaseline() {
+  return {
+    ...zeroProviderBudgetBaseline(),
+    authorizedGenerationCap: 12,
+    authorizedTotalCap: 12
+  };
 }
 
 function readGroundedFixtureJson(source, prefix, fallback) {

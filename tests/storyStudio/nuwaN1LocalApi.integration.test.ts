@@ -138,14 +138,49 @@ test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for altern
   }
   assert.equal(model.run.steps.length, 3);
   assert.deepEqual(model.run.steps.map((step) => step.actorId), [value.characters[0].id, value.characters[1].id, value.characters[0].id]);
+  assert.equal(model.run.providerDispatches, 6, "only actual HTTP/SSE model sends consume the N1 Provider dispatch budget");
   assert.equal(host.requests.length, 6, "each durable N1 step performs exactly the required tool call and one result call through HTTP/SSE");
   assert.deepEqual(host.requests.map((request) => request.toolLoopTurn), [false, true, false, true, false, true]);
   assert.equal(host.requests.every((request) => request.messages.length > 0), true, "every HTTP/SSE call receives the Pi-built Gateway transcript");
   assert.equal(JSON.stringify(host.requests).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
+  const modelStatus = await getJson(running.baseUrl, "/__local/story-studio/model-service/status");
+  assert.equal(modelStatus.status, 200);
+  const budgetLedger = (modelStatus.payload.data as { budgetLedger: { counts: { generationCalls: number; totalCalls: number; toolLoopTurns: number }; limits: { generationCalls: number; totalCalls: number }; reservationCount: number } }).budgetLedger;
+  assert.deepEqual(budgetLedger.counts, { setupCalls: 0, generationCalls: 6, toolLoopTurns: 3, retryCalls: 0, totalCalls: 6 });
+  assert.deepEqual(budgetLedger.limits, { generationCalls: 12, totalCalls: 12 });
+  assert.equal(budgetLedger.reservationCount, host.requests.length, "every loopback send is reserved by the isolated Gateway ledger");
+});
+
+test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-up tool result", async (t) => {
+  const value = fixture();
+  const host = await startSseHost({ holdFirstResponse: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    await new Promise<void>((resolve, reject) => host.server.close((error) => error ? reject(error) : resolve()));
+    rmSync(value.root, { recursive: true, force: true });
+  });
+
+  const running = await start(value, false, host.baseUrl);
+  child = running.child;
+  const created = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("http-sse-cancel-create"));
+  let model = created.payload.data as NuwaReadModel;
+  const stepping = postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cancel-step" });
+  await host.firstRequestSeen;
+  const stopped = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cancel-stop" });
+  assert.equal(stopped.status, 200);
+  model = stopped.payload.data as NuwaReadModel;
+  assert.equal(model.run.status, "cancelled");
+  const stepResult = await stepping;
+  assert.equal(stepResult.status, 200, JSON.stringify(stepResult.payload));
+  assert.equal((stepResult.payload.data as NuwaReadModel).run.status, "cancelled");
+  await host.firstResponseClosed;
+  assert.equal(host.requests.length, 1, "cancellation reaches the active HTTP/SSE stream before a tool-result turn can be sent");
+  assert.equal((stepResult.payload.data as NuwaReadModel).run.steps.length, 0, "a late stream result cannot commit a scene step after cancellation");
 });
 
 type NuwaReadModel = {
-  run: { runId: string; status: string; revision: number; dispatches: number; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
+  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
   contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
@@ -258,8 +293,12 @@ async function waitForServer(baseUrl: string, child: ChildProcess) {
 
 function delay(milliseconds: number) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-async function startSseHost(): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> }> {
+async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }>; firstRequestSeen: Promise<void>; firstResponseClosed: Promise<void> }> {
   const requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> = [];
+  let resolveFirstRequestSeen: (() => void) | null = null;
+  const firstRequestSeen = new Promise<void>((resolve) => { resolveFirstRequestSeen = resolve; });
+  let resolveFirstResponseClosed: (() => void) | null = null;
+  const firstResponseClosed = new Promise<void>((resolve) => { resolveFirstResponseClosed = resolve; });
   const server = createHttpServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/chat/completions") { response.statusCode = 404; response.end(); return; }
     const chunks: Buffer[] = [];
@@ -267,7 +306,13 @@ async function startSseHost(): Promise<{ baseUrl: string; server: HttpServer; re
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { messages?: unknown[]; tool_choice?: unknown };
     const toolLoopTurn = Array.isArray(payload.messages) && payload.messages.some((message) => (message as { role?: string }).role === "tool");
     requests.push({ idempotencyKey: request.headers["idempotency-key"]?.toString() || null, toolLoopTurn, messages: payload.messages || [] });
+    if (requests.length === 1) resolveFirstRequestSeen?.();
     response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-request-id": `local-sse-${requests.length}` });
+    if (options.holdFirstResponse && requests.length === 1) {
+      response.once("close", () => resolveFirstResponseClosed?.());
+      response.write("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n");
+      return;
+    }
     if (!toolLoopTurn) {
       response.write(`data: ${JSON.stringify({ model: "nuwa-n1-sse-fixture", choices: [{ delta: { tool_calls: [{ index: 0, id: `tool.${requests.length}`, type: "function", function: { name: "read_role_context", arguments: "{}" } }] }, finish_reason: "tool_calls" }] })}\n\n`);
     } else {
@@ -279,5 +324,5 @@ async function startSseHost(): Promise<{ baseUrl: string; server: HttpServer; re
   await new Promise<void>((resolve, reject) => server.listen(0, "127.0.0.1", (error?: Error) => error ? reject(error) : resolve()));
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests, firstRequestSeen, firstResponseClosed };
 }

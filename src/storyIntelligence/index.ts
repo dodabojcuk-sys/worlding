@@ -167,6 +167,7 @@ export {
   cueNuwaN1Run,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderDispatch,
   readNuwaN1Run,
   resumeNuwaN1Run,
   startNuwaN1Run

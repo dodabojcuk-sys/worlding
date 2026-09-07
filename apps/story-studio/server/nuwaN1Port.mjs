@@ -8,6 +8,7 @@ import {
   cueNuwaN1Run,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderDispatch,
   readLatestNuwaRun,
   readNuwaN1Run,
   resumeNuwaN1Run,
@@ -25,6 +26,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * existing AuthorControl review owner.
  */
 export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+  const activePiExecutions = new Map();
   function availability() {
     return fakeProviderAllowed
       ? { kind: "local-fake", label: "本地工程演练 · 0 Provider", adapterId: FAKE_ADAPTER_ID, providerCalls: 0 }
@@ -129,15 +131,23 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     if (current.lifecycle === "ready") {
       current = startNuwaN1Run({ workspacePath: workspace, runId: current.runId, expectedRevision, operationId: `${operation(input.operationId)}.start`, now: now() });
     }
-    const next = await advanceNuwaN1Run({
-      workspacePath: workspace,
-      runId: current.runId,
-      expectedRevision: current.revision,
-      operationId: operation(input.operationId),
-      adapter: fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity),
-      now: now()
-    });
-    return present(input.projectId, next);
+    const operationId = operation(input.operationId);
+    const adapter = fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity, operationId);
+    const activeKey = `${input.projectId}\u0000${current.runId}`;
+    if (typeof adapter.cancel === "function") activePiExecutions.set(activeKey, adapter);
+    try {
+      const next = await advanceNuwaN1Run({
+        workspacePath: workspace,
+        runId: current.runId,
+        expectedRevision: current.revision,
+        operationId,
+        adapter,
+        now: now()
+      });
+      return present(input.projectId, next);
+    } finally {
+      if (activePiExecutions.get(activeKey) === adapter) activePiExecutions.delete(activeKey);
+    }
   }
 
   function pause(input) {
@@ -149,6 +159,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
   }
 
   function stop(input) {
+    activePiExecutions.get(`${input.projectId}\u0000${input.runId}`)?.cancel?.();
     return present(input.projectId, cancelNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(input.reason ? { reason: requiredText(input.reason, "停止原因", 240) } : {}), now: now() }));
   }
 
@@ -208,6 +219,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         goal: run.authorGoal,
         steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
+        providerDispatches: run.providerDispatches,
         attempts: run.attempts.map((attempt) => ({ attemptId: attempt.attemptId, actorId: attempt.actor.id, requestId: attempt.requestId, dispatches: attempt.dispatches.map((dispatch) => ({ phase: dispatch.phase, status: dispatch.status, recordedAt: dispatch.recordedAt, detail: dispatch.detail })), tool: attempt.tool, usage: attempt.usage, outcome: attempt.outcome, recordedAt: attempt.recordedAt, updatedAt: attempt.updatedAt })),
         provider: { ...availability(), projectId: project.id },
         blocker: run.blocker
@@ -284,9 +296,16 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     if (!fakeProviderAllowed && !piAdapterFactory?.availability?.()) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
   }
 
-  function createPiAdapter(projectId, runId, sourceIdentity) {
+  function createPiAdapter(projectId, runId, sourceIdentity, operationId) {
     if (!sourceIdentity) throw failure("这份排演缺少创建时冻结的作品版本身份；为避免使用新版本执行，已阻止继续。", 409);
-    const adapter = piAdapterFactory?.create?.({ projectId, runId, sourceIdentity });
+    const adapter = piAdapterFactory?.create?.({
+      projectId,
+      runId,
+      sourceIdentity,
+      beforeProviderDispatch({ providerCall }) {
+        recordNuwaN1ProviderDispatch({ workspacePath: workspacePath(projectId), runId, operationId, providerCall, now: now() });
+      }
+    });
     if (!adapter) throw failure("女娲 N1 当前没有获授权的 Pi 执行器；未自动回退为假对话。", 503);
     return adapter;
   }
@@ -331,6 +350,19 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
 }
 
 function candidateReviewResult(project, run, handoff) {
+  const providerCalls = run.attempts.flatMap((attempt) => attempt.dispatches
+    .filter((dispatch) => dispatch.phase === "provider")
+    .map((dispatch) => ({
+      attemptId: attempt.attemptId,
+      adapterId: attempt.adapterId,
+      status: dispatch.status,
+      recordedAt: dispatch.recordedAt,
+      detail: dispatch.detail
+    })));
+  const executionAdapters = [...new Set(run.attempts.map((attempt) => attempt.adapterId))];
+  const executionSummary = providerCalls.length
+    ? `本次 Run 记录了 ${providerCalls.length} 次模型边界发送；候选仍须作者采纳。`
+    : "本次 Run 没有模型边界发送记录；候选仍须作者采纳。";
   const candidates = handoff.candidates.map((candidate) => ({
     id: candidate.candidateId,
     title: candidate.title,
@@ -362,13 +394,13 @@ function candidateReviewResult(project, run, handoff) {
     tianyi: {
       version: "tianyan-tianyi-alignment/v1",
       facts: [],
-      inferences: ["本地工程演练经受限工具往返生成，Provider 调用为 0。"],
+      inferences: [executionSummary],
       unknowns: ["候选尚未经过作者采纳。"],
       suggestions: candidates.map((candidate) => candidate.title),
       simulationTask: { goal: "审阅女娲 N1 候选。", mustPreserve: ["唯一 Owner", "候选不自动写事实"], questions: [] }
     },
-    nuwa: { version: "tianyan-nuwa-simulation/v1", knownFacts: [], assumptions: ["本地工程演练 · 0 Provider"], causalSteps: candidates.flatMap((candidate) => candidate.causes), actorResponses: [], conflicts: [], unknowns: ["候选尚未采纳。"], candidates },
-    provider: { profileId: "local-n1-tool-roundtrip-fake", calls: [] }
+    nuwa: { version: "tianyan-nuwa-simulation/v1", knownFacts: [], assumptions: [`执行器：${executionAdapters.join(", ") || "未记录"}`, `模型边界发送：${providerCalls.length}`], causalSteps: candidates.flatMap((candidate) => candidate.causes), actorResponses: [], conflicts: [], unknowns: ["候选尚未采纳。"], candidates },
+    provider: { profileId: providerCalls.length ? `recorded-run:${executionAdapters.join(",")}` : null, calls: providerCalls }
   };
 }
 

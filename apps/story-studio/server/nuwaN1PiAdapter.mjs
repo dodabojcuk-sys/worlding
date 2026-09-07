@@ -6,14 +6,20 @@ const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
  * product tool is a frozen, role-scoped context read; this adapter has no
  * filesystem, Canon, Event, World, Relation, or character-write capability.
  */
-export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, now = () => new Date().toISOString() }) {
+export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, beforeProviderDispatch = null, now = () => new Date().toISOString() }) {
   if (!runtime || typeof runtime.run !== "function") throw new Error("Nuwa N1 Pi adapter requires an active Agent Runtime.");
   if (!provider?.providerId || !provider?.profileId || !provider?.modelId) throw new Error("Nuwa N1 Pi adapter requires an explicit Provider profile.");
   if (!sourceIdentity?.workVersionId || !sourceIdentity?.revision || !sourceIdentity?.kind) throw new Error("Nuwa N1 Pi adapter requires an explicit versioned or unversioned source identity.");
   if (typeof openProviderStream !== "function") throw new Error("Nuwa N1 Pi adapter requires the host Provider bridge.");
   const contextTool = "read_role_context";
+  let activeAgentRunId = null;
   return Object.freeze({
     adapterId: ADAPTER_ID,
+    cancel() {
+      return activeAgentRunId && typeof runtime.cancel === "function"
+        ? runtime.cancel({ projectId, workVersionId: sourceIdentity.workVersionId, sessionId: runId, runId: activeAgentRunId })
+        : false;
+    },
     async request(context) {
       return { type: "tool-request", toolName: contextTool, requestId: toolRequestId(context), actor: structuredClone(context.actor) };
     },
@@ -23,8 +29,10 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sou
     },
     async continueAfterTool({ context, toolResult }) {
       if (toolResult.toolName !== contextTool || toolResult.requestId !== toolRequestId(context) || !sameRef(toolResult.actor, context.actor) || !sameRef(toolResult.context.actor, context.actor)) throw new Error("Pi N1 context tool result is outside the frozen actor scope.");
+      activeAgentRunId = `${runId}.${context.attemptId}`;
+      try {
       const result = await runtime.run({
-        runId: `${runId}.${context.attemptId}`,
+        runId: activeAgentRunId,
         projectId,
         // A rehearsal has to name the actual version contract it read.  An
         // unversioned draft is explicit; a fabricated constant is not.
@@ -53,10 +61,16 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sou
             ? { allowed: true, approvalReceiptId: `nuwa-n1-role-context:${context.attemptId}` }
             : { allowed: false, reason: "Nuwa N1 only permits its frozen role-context tool." };
         },
-        openProviderStream,
+        async openProviderStream(providerInput) {
+          if (beforeProviderDispatch) await beforeProviderDispatch({ attemptId: context.attemptId, providerCall: providerInput.providerCall });
+          return openProviderStream(providerInput);
+        },
         onEvent() { /* RunPack stores the resulting bounded turn, not model-chain text. */ }
       });
       return parseActorResult(result.text, context, result.usage);
+      } finally {
+        activeAgentRunId = null;
+      }
     }
   });
 }
