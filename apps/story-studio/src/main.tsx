@@ -10,6 +10,7 @@ import "./styles/right-dock.css";
 import "./styles/tianyi-sidebar.css";
 import "./styles/tianyi-workspace.css";
 import "./styles/event-line-projection.css";
+import "./styles/nuwa-n1.css";
 import "./styles/settings.css";
 import "@xyflow/react/dist/style.css";
 

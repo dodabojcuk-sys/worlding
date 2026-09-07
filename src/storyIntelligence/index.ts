@@ -156,6 +156,38 @@ export {
   validateBoundedSnapshot,
   writeNuwaBoundedRun
 } from "./nuwaBoundedScenarioRuntime.ts";
+export {
+  NUWA_N1_MAX_COMMITTED_STEPS,
+  NUWA_N1_MAX_DISPATCHES,
+  NUWA_N1_RUNTIME_VERSION,
+  advanceNuwaN1Run,
+  cancelNuwaN1Run,
+  compileNuwaN1Context,
+  createNuwaN1Run,
+  cueNuwaN1Run,
+  pauseNuwaN1Run,
+  prepareNuwaN1CandidateHandoff,
+  readNuwaN1Run,
+  resumeNuwaN1Run,
+  startNuwaN1Run
+} from "./nuwaN1Runtime.ts";
+export type {
+  NuwaN1Actor,
+  NuwaN1ActorResult,
+  NuwaN1Belief,
+  NuwaN1CandidateHandoff,
+  NuwaN1Context,
+  NuwaN1ExecutionAdapter,
+  NuwaN1KnownFact,
+  NuwaN1Lifecycle,
+  NuwaN1Receipt,
+  NuwaN1Run,
+  NuwaN1Scene,
+  NuwaN1StableRef,
+  NuwaN1Step,
+  NuwaN1ToolRequest,
+  NuwaN1ToolResult
+} from "./nuwaN1Runtime.ts";
 export type {
   BoundedCharacterKnowledge,
   BoundedKnowledgeClaim,
