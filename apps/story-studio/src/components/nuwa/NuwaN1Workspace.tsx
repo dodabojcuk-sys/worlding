@@ -47,11 +47,15 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (!active) return;
       setBootstrap(nextBootstrap);
       setRun(latest.run ? latest : null);
-      setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? []);
+      const requestedParticipantId = window.sessionStorage.getItem(`tianyan-nuwa-n1-preselect:${projectId}`);
+      const requestedParticipant = !latest.run && requestedParticipantId && nextBootstrap.participants.some((participant) => participant.id === requestedParticipantId) ? requestedParticipantId : null;
+      if (requestedParticipantId) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
+      setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? (requestedParticipant ? [requestedParticipant] : []));
       setStoryUnitId(nextBootstrap.storyUnits[0]?.id ?? "");
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
       setSelectedStepIds(latest.run?.steps.slice(-1).map((step) => step.stepId) ?? []);
       setSelectedStepId(latest.run?.steps.at(-1)?.stepId ?? null);
+      if (requestedParticipant) setNotice(`已从角色档案加入 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；再选择 1–2 位正式角色即可开始。`);
     }).catch((reason: unknown) => {
       if (active) setError(messageFor(reason, "女娲工作面未能读取本地作品；现有作品没有被修改。"));
     });

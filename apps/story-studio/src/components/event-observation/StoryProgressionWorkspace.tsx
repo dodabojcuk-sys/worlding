@@ -30,8 +30,11 @@ import type {
   NarrativePlacement,
   NarrativePlacementRole,
   NarrativePositionIntent,
+  RelationReceipt,
   StoryUnit
 } from "../../lib/localTransport";
+import { readRelation } from "../../lib/localTransport";
+import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import {
   buildEventParticipationProjection,
   type EventTaskPreset
@@ -73,6 +76,7 @@ export function StoryProgressionWorkspace(props: {
   currentUnitLabel: string | null;
   events: readonly EventLineEventSummary[];
   storyUnits: readonly StoryUnit[];
+  relations: readonly RelationReadProjectionR0[];
   objects: readonly PerspectiveObjectRef[];
   narratives: readonly NarrativeArrangementRead[];
   focusObjectIds: readonly string[];
@@ -166,6 +170,7 @@ export function StoryProgressionWorkspace(props: {
         <TaskButton active={props.task === "story"} icon={<ArrowRight />} label="事件线" onClick={() => props.onTask("story")} />
         <TaskButton active={props.task === "time"} icon={<Clock3 />} label="时间线" onClick={() => props.onTask("time")} />
         <TaskButton active={props.task === "perspective"} icon={<Eye />} label="角色观察" onClick={() => props.onTask("perspective")} />
+        <TaskButton active={props.task === "relationship"} icon={<GitBranch />} label="关系变化" onClick={() => props.onTask("relationship")} />
         {props.renderCandidateOverlay ? <TaskButton active={candidateOverlayOpen} icon={<GitBranch />} label="候选审查" onClick={() => { setCandidateOverlayOpen((open) => !open); setMoreOpen(false); setScopeOpen(false); }} /> : null}
         <TaskButton active={stagingOpen} icon={<AlertTriangle />} label="待编排与冲突" onClick={() => { props.onTask("story"); setStagingOpen((open) => !open); }} />
       </div>
@@ -196,7 +201,7 @@ export function StoryProgressionWorkspace(props: {
     {focusPickerOpen ? <FocusObjectPicker objects={formalObjects} selectedIds={focusObjectIds} onChange={props.onFocusObjectIds} onClose={() => setFocusPickerOpen(false)} /> : null}
     {candidateOverlayOpen && props.renderCandidateOverlay ? <aside className="story-progression-candidate-overlay" aria-label="候选审查叠层">{props.renderCandidateOverlay(() => setCandidateOverlayOpen(false))}</aside> : null}
     {props.task === "relationship"
-      ? <UnavailableTask task={props.task} onBack={() => props.onTask("story")} />
+      ? <RelationshipReader projectId={props.projectId} relations={props.relations} objects={formalObjects} events={props.events} onOpenGraph={() => props.onOpenAdvanced("graph")} />
       : props.task === "audit"
         ? <EvidenceAuditMatrix events={auditEvents(placed, props.events)} objects={selectedFocus} selectedEventId={props.selectedEventId} onSelectEvent={props.onSelectEvent} />
         : props.task === "time"
@@ -356,6 +361,43 @@ export function NarrativeArrangementInspector(props: {
 function UnavailableTask(props: { task: "perspective" | "relationship"; onBack(): void }) {
   return <section className="story-progression-unavailable"><span>{props.task === "perspective" ? <Eye /> : <GitBranch />}</span><small>同一事件线工作区 · 能力未开放</small><h2>{props.task === "perspective" ? "角色视角需要正式知情与信念合同" : "关系变化需要版本化 Relation 状态"}</h2><p>{props.task === "perspective" ? "当前参与、见证和听闻证据仍可在事件线与证据审计中核对，但不会被包装成人物内心。" : "当前可以查看正式关系证据，但轨迹靠近、相交或并行都不会自动产生 Relation。"}</p><button type="button" onClick={props.onBack}><ArrowLeft />返回事件线</button></section>;
 }
+
+function RelationshipReader(props: { projectId?: string; relations: readonly RelationReadProjectionR0[]; objects: readonly PerspectiveObjectRef[]; events: readonly EventLineEventSummary[]; onOpenGraph(): void }) {
+  const [status, setStatus] = useState<"all" | RelationReadProjectionR0["reviewState"]>("all");
+  const [direction, setDirection] = useState<"all" | RelationReadProjectionR0["direction"]>("all");
+  const [type, setType] = useState("all");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const types = useMemo(() => [...new Map(props.relations.map((relation) => [relation.relationTypeId, relation.currentTypeLabel ?? relation.relationLabelSnapshot])).entries()].sort((left, right) => left[1].localeCompare(right[1], "zh-CN")), [props.relations]);
+  const visible = useMemo(() => props.relations.filter((relation) => (status === "all" || relation.reviewState === status) && (direction === "all" || relation.direction === direction) && (type === "all" || relation.relationTypeId === type)), [direction, props.relations, status, type]);
+  const selected = visible.find((relation) => relation.relationId === selectedId) ?? visible[0] ?? null;
+  const labels = new Map([...props.objects.map((object) => [object.id, object.label] as const), ...props.events.map((event) => [event.id, event.title] as const)]);
+  return <section className="relation-reader" data-testid="relation-reader" data-provider-calls="0">
+    <header><div><small>关系 R1 · Relation Owner 只读投影</small><h2>关系变化</h2><p>筛选不写入关系；没有有效时间或历史依据时保持“未确定”，不会由当前状态倒推。</p></div><button type="button" onClick={props.onOpenGraph}><GitBranch />打开局部关系图</button></header>
+    <div className="relation-reader-filters" aria-label="关系筛选"><label>状态<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">全部</option><option value="confirmed">正式</option><option value="candidate">待确认</option><option value="rejected">已拒绝</option></select></label><label>方向<select value={direction} onChange={(event) => setDirection(event.target.value as typeof direction)}><option value="all">全部</option><option value="forward">单向</option><option value="reverse">反向</option><option value="both">双向</option><option value="none">未确定</option></select></label><label>类型<select value={type} onChange={(event) => setType(event.target.value)}><option value="all">全部类型</option>{types.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
+    <div className="relation-reader-body"><ol aria-label="当前范围关系">{visible.map((relation) => <li key={relation.relationId}><button type="button" aria-pressed={selected?.relationId === relation.relationId} onClick={() => setSelectedId(relation.relationId)}><strong>{labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} {relationArrow(relation.direction)} {labels.get(relation.targetObjectId) ?? relation.targetObjectId}</strong><span>{relation.currentTypeLabel ?? relation.relationLabelSnapshot} · {relationStatus(relation.reviewState)}</span></button></li>)}{!visible.length ? <li className="relation-reader-empty">当前筛选没有关系。系统不会从人物共现或文本相似度补造边。</li> : null}</ol>{selected ? <RelationDetail projectId={props.projectId} relation={selected} labels={labels} /> : <section className="relation-reader-empty"><p>选择一条关系后查看其类型、证据、有效时间与回执。</p></section>}</div>
+  </section>;
+}
+
+function RelationDetail(props: { projectId?: string; relation: RelationReadProjectionR0; labels: ReadonlyMap<string, string> }) {
+  const relation = props.relation;
+  const temporal = relation.temporal;
+  const [receipts, setReceipts] = useState<readonly RelationReceipt[] | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  useEffect(() => {
+    let current = true;
+    setReceipts(null); setHistoryError(null);
+    if (!props.projectId) return;
+    void readRelation(props.projectId, relation.relationId).then((read) => {
+      if (current) setReceipts(read.receipts);
+    }).catch(() => { if (current) setHistoryError("回执历史暂不可读；当前关系详情保持不变。"); });
+    return () => { current = false; };
+  }, [props.projectId, relation.relationId]);
+  return <aside className="relation-reader-detail" aria-label="关系详情"><header><small>{relation.reviewState === "confirmed" ? "正式关系" : relation.reviewState === "candidate" ? "待确认关系" : "已拒绝关系"}</small><h3>{props.labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} {relationArrow(relation.direction)} {props.labels.get(relation.targetObjectId) ?? relation.targetObjectId}</h3></header><dl><div><dt>关系类型</dt><dd>{relation.currentTypeLabel ?? "待绑定"}{relation.relationTypeResolution === "unresolved" ? " · 未解析" : ""}</dd></div><div><dt>方向</dt><dd>{directionLabel(relation.direction)}</dd></div><div><dt>故事有效时间</dt><dd>{temporal ? `${temporal.validFrom ?? "未确定"} — ${temporal.validTo ?? "未确定"} · ${temporal.confidence}` : "未提供；不能从记录时间推断"}</dd></div><div><dt>来源依据</dt><dd>{relation.evidenceRefs.length ? relation.evidenceRefs.map((reference) => reference.kind).join("；") : "暂无可读依据"}</dd></div><div><dt>依据状态</dt><dd>{relation.evidenceWarnings.length ? relation.evidenceWarnings.map((warning) => warning.message).join("；") : "当前可用"}</dd></div><div><dt>变更回执</dt><dd>{relation.decisionReceipt ? `${relation.decisionReceipt.action} · ${relation.decisionReceipt.timestamp}` : "该阶段尚未采集决策回执"}</dd></div></dl><section className="relation-reader-history" aria-label="关系回执历史"><h4>回执历史</h4>{historyError ? <p role="status">{historyError}</p> : receipts === null ? <p>正在读取 Relation Owner 回执…</p> : receipts.length ? <ol>{receipts.map((receipt) => <li key={receipt.receiptId}><strong>{receipt.action}</strong><span>{receipt.timestamp} · r{receipt.resultRevision}</span></li>)}</ol> : <p>Relation Owner 未返回该关系的历史回执。</p>}</section><p>关系的记录时间只用于审计；角色的怀疑或误解仍属于人物知情/信念投影，不会自动改变本关系。</p></aside>;
+}
+
+function relationArrow(direction: RelationReadProjectionR0["direction"]) { return direction === "forward" ? "→" : direction === "reverse" ? "←" : direction === "both" ? "↔" : "—"; }
+function relationStatus(status: RelationReadProjectionR0["reviewState"]) { return status === "confirmed" ? "正式" : status === "candidate" ? "待确认" : "已拒绝"; }
+function directionLabel(direction: RelationReadProjectionR0["direction"]) { return direction === "forward" ? "从来源指向目标" : direction === "reverse" ? "从目标指向来源" : direction === "both" ? "双向" : "未确定"; }
 
 function auditEvents(placements: readonly DisplayPlacement[], events: readonly EventLineEventSummary[]): EventLineEventSummary[] {
   const result: EventLineEventSummary[] = [];

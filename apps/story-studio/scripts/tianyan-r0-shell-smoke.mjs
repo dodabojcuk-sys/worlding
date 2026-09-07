@@ -22,7 +22,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -86,6 +86,8 @@ const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-charact
 const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
 const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
 const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
+const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
+const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
 const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
@@ -193,6 +195,12 @@ try {
     await setupObservationFixture();
     await setupNarrativeFixture();
     await assertNuwaN1BoundedLoop(page, consoleProblems);
+  } else if (relationReaderOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertRelationshipReaderR1(page, consoleProblems);
   } else if (r4CharacterObservationOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -1272,6 +1280,48 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /[1-9]\d* \/ 12 次模拟 dispatch/u, "An in-flight request remains in the dispatch ledger after stop wins.");
   assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
   assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");
+}
+
+async function assertRelationshipReaderR1(page, consoleProblems) {
+  if (relationReaderEvidenceDirectory) mkdirSync(relationReaderEvidenceDirectory, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const linId = characterFixture?.["林昭"]?.id;
+  assert.ok(linId, "R5 character handoff needs the stable 林昭 fixture identity.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  const inspector = page.getByTestId("character-inspector");
+  await inspector.waitFor();
+  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  const knowledge = page.getByTestId("character-knowledge-preview");
+  await knowledge.waitFor();
+  assert.equal(await knowledge.getAttribute("data-provider-calls"), "0", "Character knowledge reads the established zero-Provider projection.");
+  assert.match(await knowledge.innerText(), /可见依据[\s\S]*已排除/u);
+  assert.doesNotMatch(await knowledge.innerText(), /R2_SECRET_CLAIM/u, "Author-only secret prose never reaches the character panel.");
+  if (relationReaderEvidenceDirectory) await page.screenshot({ path: path.join(relationReaderEvidenceDirectory, "00-1440-character-knowledge.png"), fullPage: false });
+  await inspector.getByRole("button", { name: "加入女娲", exact: true }).click();
+  const nuwa = page.getByTestId("nuwa-n1-workspace");
+  await nuwa.waitFor();
+  assert.equal(await nuwa.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").isChecked(), true, "Joining Nuwa carries the stable character identity as a one-time setup choice.");
+  assert.match(await nuwa.innerText(), /已从角色档案加入 林昭/u);
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship`);
+  await closeGlobalTianyiIfOpen(page);
+  const reader = page.getByTestId("relation-reader");
+  await reader.waitFor();
+  assert.equal(await reader.getAttribute("data-provider-calls"), "0", "Relation Reader opens without any Provider call.");
+  assert.match(await reader.innerText(), /Relation Owner 只读投影/u);
+  const relationButtons = reader.locator(".relation-reader-body > ol button");
+  assert.ok(await relationButtons.count() >= 5, "The isolated R1 fixture exposes confirmed relation neighborhoods.");
+  await relationButtons.first().click();
+  const detail = reader.getByLabel("关系详情");
+  await detail.waitFor();
+  await detail.getByLabel("关系回执历史").getByText(/回执历史/u).waitFor();
+  assert.match(await detail.innerText(), /关系类型[\s\S]*方向[\s\S]*故事有效时间[\s\S]*来源依据/u, "A selected relation exposes type, direction, temporal honesty and evidence.");
+  await reader.getByLabel("关系筛选").getByLabel("状态").selectOption("candidate");
+  assert.equal(await relationButtons.count(), 1, "Candidate filtering preserves the one unconfirmed Relation Owner record.");
+  assert.match(await reader.innerText(), /待确认关系/u);
+  await reader.getByLabel("关系筛选").getByLabel("状态").selectOption("confirmed");
+  assert.ok(await relationButtons.count() >= 5, "Returning to confirmed relations restores the same read-only neighborhood.");
+  if (relationReaderEvidenceDirectory) await page.screenshot({ path: path.join(relationReaderEvidenceDirectory, "01-1440-relation-reader-r1.png"), fullPage: false });
+  assert.deepEqual(consoleProblems, [], "Relation Reader must not produce browser warnings or errors.");
 }
 
 async function setupCharacterFixture() {
