@@ -2230,13 +2230,13 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname.startsWith("/__local/story-studio/creation/source/")) {
     requireToken(request);
     const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
-    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "title", "text", "selectedDifferenceIds", "expectedRootRevision"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "title", "text", "selectedDifferenceIds", "expectedRootRevision", "creationKey"]);
     const action = pathname.slice("/__local/story-studio/creation/source/".length);
     const scope = { workVersionId: body.workVersionId, storyUnitId: body.storyUnitId, eventIds: body.eventIds };
     const operation = action === "create-root"
       ? () => creationSourceSelectionPort.createRoot(body.projectId)
       : action === "create-artifact"
-        ? () => creationSourceSelectionPort.createArtifact(body.projectId, { ...scope, title: body.title })
+        ? () => creationSourceSelectionPort.createArtifact(body.projectId, { ...scope, title: body.title, creationKey: body.creationKey })
         : action === "save-artifact"
           ? () => creationSourceSelectionPort.saveArtifact(body.projectId, body.text)
           : action === "reconcile-source"
@@ -2249,8 +2249,11 @@ async function handleProductRequest(request, response, url) {
               : null;
     if (!operation) throw productError("Creation source action does not exist.", 404);
     recordAuthorInitiatedAction(body.projectId, "draft-write", `creation-source-${action}`, [String(body.projectId)], "author");
-    await runAsyncProductOperation(operation);
-    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(body.projectId, scope)) });
+    const result = await runAsyncProductOperation(operation);
+    const responseScope = action === "create-artifact" && result?.id
+      ? { ...scope, view: "pinned", artifactId: result.id }
+      : scope;
+    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(body.projectId, responseScope)) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/creation/source-e2e/advance-root") {

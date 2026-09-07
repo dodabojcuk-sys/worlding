@@ -159,12 +159,13 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (!root) throw new Error("Create the root WorkVersion explicitly before creating an artifact.");
     assertRequestedRoot(versionAuthority, root, input.workVersionId);
     if (root.identity.status !== "active") throw new Error("Archived WorkVersion cannot create an OutputArtifact.");
-    const existing = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource?.creationOperationReceipt.idempotencyKey === `${CREATE_IDEMPOTENCY_KEY}:${projectId}`);
+    const creationKey = normalizedCreationKey(input.creationKey);
+    const idempotencyKey = `${CREATE_IDEMPOTENCY_KEY}:${projectId}:${creationKey}`;
+    const existing = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource?.creationOperationReceipt.idempotencyKey === idempotencyKey);
     if (existing) {
-      reconcile(projectId);
+      reconcile(projectId, existing.id);
       return existing;
     }
-    if (root.identity.currentRevision !== 1) throw new Error("新建创作稿必须明确使用当前作品主线的初始版本。");
     const { storyUnit, events } = selectedScope(projectId, input);
     const packageValue = await packageForRoot(projectId, root, input);
     // Synthetic formal-event export records are a read projection, not Story
@@ -177,8 +178,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       neutralStoryPackageDigest: packageValue.contentHash,
       writeBack: "none"
     };
-    const operationId = `${CREATE_ACTION_ID}:${projectId}`;
-    const idempotencyKey = `${CREATE_IDEMPOTENCY_KEY}:${projectId}`;
+    const operationId = `${CREATE_ACTION_ID}:${projectId}:${creationKey}`;
     const sourceOwnerReceiptRefs = root.manifest.ownerSnapshotRefs
       .filter((item) => ["story-structure", "event-hierarchy", "source-anchors"].includes(item.ownerKind))
       .flatMap((item) => item.provenanceReceiptIds)
@@ -203,12 +203,16 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       createdAt: operationTime(resolveActiveProject(projectId), 10)
     };
     const title = String(input.title || `${resolveActiveProject(projectId).title} · 创作稿`).normalize("NFC").trim();
-    const structure = createNovelDocumentStructure({ artifactId: outputArtifactId("novel", title), title, createdAt: operationTime(resolveActiveProject(projectId), 10) });
-    const payloadDigest = creationPayloadDigest({ type: "novel", title, sourceUnits, generationBrief, content: "", structure, workVersionSource: bindingBase });
+    const keySuffix = sha256(creationKey).slice(0, 10);
+    const artifactTitle = input.title ? title : `${title} · ${keySuffix}`;
+    const artifactId = outputArtifactId("novel", `${artifactTitle}-${keySuffix}`);
+    const structure = createNovelDocumentStructure({ artifactId, title: artifactTitle, createdAt: operationTime(resolveActiveProject(projectId), 10) });
+    const payloadDigest = creationPayloadDigest({ type: "novel", title: artifactTitle, sourceUnits, generationBrief, content: "", structure, workVersionSource: bindingBase });
     const artifact = operations.createOutputArtifact({
       projectId,
+      artifactId,
       type: "novel",
-      title,
+      title: artifactTitle,
       sourceUnits,
       generationBrief,
       content: "",
@@ -217,14 +221,14 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       createdAt: operationTime(resolveActiveProject(projectId), 10)
     });
     faultInjector("after-artifact-save", { projectId, artifactId: artifact.id });
-    reconcile(projectId);
+    reconcile(projectId, artifact.id);
     return artifact;
   }
 
-  function reconcile(projectId) {
+  function reconcile(projectId, artifactId = null) {
     const versionAuthority = authority(projectId);
     const root = versionAuthority.listVersions().find((item) => item.identity.kind === "root");
-    const artifact = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource?.creationOperationReceipt.idempotencyKey === `${CREATE_IDEMPOTENCY_KEY}:${projectId}`);
+    const artifact = artifactId ? requireBoundArtifact(projectId, artifactId) : operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource);
     if (!root || !artifact) return { reconciled: false, reason: "nothing-to-reconcile" };
     if (root.identity.currentRevision === 1) {
       const binding = artifact.provenance.workVersionSource;
@@ -475,45 +479,74 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const root = versions.find((item) => item.identity.kind === "root") || null;
     const sourceRequestBlocker = root ? requestedSourceBlocker(versionAuthority, root, options.workVersionId) : null;
     const derived = versions.filter((item) => item.identity.kind === "derived");
+    const artifacts = operations.listOutputArtifacts({ projectId, includeArchived: true }).filter((item) => item.provenance.workVersionSource);
+    // A pinned artifact is independently readable. Resolve its saved snapshot
+    // before consulting today's Story Unit/Event projection: the latter may
+    // legitimately have been archived or changed after the artifact was made.
+    const wantsPinnedArtifact = options.view !== "current";
+    let artifact = null;
+    let binding = null;
+    if (options.artifactId || wantsPinnedArtifact) {
+      try {
+        artifact = selectBoundArtifact(projectId, options.artifactId);
+        binding = artifact?.provenance.workVersionSource || null;
+      } catch (error) {
+        return blockedReadProjection({ project, root, derivedVersionCount: derived.length, artifacts, sourceRequestBlocker: { kind: "artifact-selection", authorMessage: String(error?.message || error) } });
+      }
+    }
+    const packageMode = binding && wantsPinnedArtifact ? "pinned-artifact" : "current-selection";
     let storyUnit;
     let events;
     let availableEvents;
-    let artifact;
+    let packageValue = null;
     try {
-      artifact = selectBoundArtifact(projectId, options.artifactId);
-      ({ storyUnit, events, availableEvents } = selectedScope(projectId, options));
+      if (packageMode === "pinned-artifact" && binding) {
+        if (!binding.pinnedPackageSnapshot) {
+          return blockedReadProjection({
+            project,
+            root,
+            derivedVersionCount: derived.length,
+            artifacts,
+            sourceRequestBlocker: { kind: "pinned-source-unavailable", authorMessage: "这份固定创作稿缺少当时的来源快照；为避免以旧版本标签导出新正文，已阻止导出。请显式选择当前来源并建立新的创作稿。" }
+          });
+        }
+        const snapshot = binding.pinnedPackageSnapshot;
+        packageValue = {
+          packageId: snapshot.packageId,
+          contentHash: snapshot.contentHash,
+          scope: snapshot.scope,
+          manifest: { sourceAnchors: snapshot.sourceAnchors },
+          warnings: snapshot.warnings,
+          storyMarkdown: snapshot.storyMarkdown
+        };
+        const unitRef = binding.selectedStoryUnitRefs[0] || null;
+        const retainedUnit = unitRef ? operations.listStoryUnits({ projectId }).find((item) => item.id === unitRef.unitId) : null;
+        storyUnit = retainedUnit || {
+          id: unitRef?.unitId || snapshot.scope.unitIds[0] || "pinned-source",
+          title: snapshot.scope.label,
+          version: unitRef?.unitVersion || "pinned",
+          summary: "",
+          items: [],
+          lifecycle: "archived"
+        };
+        const eventById = new Map(operations.listWorldObjects({ projectId, type: "event" }).map((event) => [event.id, event]));
+        events = binding.selectedEventRefs.map((ref) => eventById.get(ref.eventId) || { id: ref.eventId, title: `已固定事件 · ${ref.eventId}`, revisionToken: ref.eventRevision, status: "archived" });
+        availableEvents = events;
+      } else {
+        ({ storyUnit, events, availableEvents } = selectedScope(projectId, options));
+      }
     } catch (error) {
       return blockedReadProjection({
         project,
         root,
         derivedVersionCount: derived.length,
+        artifacts,
         sourceRequestBlocker: { kind: "missing-source", authorMessage: String(error?.message || error) }
       });
     }
     const legacyArtifact = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => !item.provenance.workVersionSource) || null;
-    const binding = artifact?.provenance.workVersionSource || null;
-    const packageMode = binding && options.view !== "current" ? "pinned-artifact" : "current-selection";
     let sourceValidation = null;
-    let packageValue = null;
-    if (packageMode === "pinned-artifact" && binding) {
-      if (!binding.pinnedPackageSnapshot) {
-        return blockedReadProjection({
-          project,
-          root,
-          derivedVersionCount: derived.length,
-          sourceRequestBlocker: { kind: "pinned-source-unavailable", authorMessage: "这份固定创作稿缺少当时的来源快照；为避免以旧版本标签导出新正文，已阻止导出。请显式选择当前来源并建立新的创作稿。" }
-        });
-      }
-      const snapshot = binding.pinnedPackageSnapshot;
-      packageValue = {
-        packageId: snapshot.packageId,
-        contentHash: snapshot.contentHash,
-        scope: snapshot.scope,
-        manifest: { sourceAnchors: snapshot.sourceAnchors },
-        warnings: snapshot.warnings,
-        storyMarkdown: snapshot.storyMarkdown
-      };
-    } else if (root) {
+    if (packageMode === "current-selection" && root) {
       packageValue = await packageForRoot(projectId, root, options);
     }
     if (root && binding) {
@@ -556,6 +589,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       packageMode,
       package: packageValue ? { id: packageValue.packageId, digest: packageValue.contentHash, scope: packageValue.scope, sourceAnchors: packageValue.manifest.sourceAnchors, warnings: packageValue.warnings, storyMarkdown: packageValue.storyMarkdown } : null,
       artifact,
+      artifacts,
       authorText,
       legacyArtifact,
       revisionHistory,
@@ -573,7 +607,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     };
   }
 
-  function blockedReadProjection({ project, root, derivedVersionCount, sourceRequestBlocker }) {
+  function blockedReadProjection({ project, root, derivedVersionCount, artifacts = [], sourceRequestBlocker }) {
     return {
       version: "tianyan-project-scoped-creation-source-port/r0",
       project: { id: project.id, title: project.title },
@@ -587,6 +621,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       packageMode: "blocked",
       package: null,
       artifact: null,
+      artifacts,
       authorText: "",
       legacyArtifact: null,
       revisionHistory: null,
@@ -780,6 +815,13 @@ function creationPayloadDigest(input) {
 function outputArtifactId(type, title) {
   const segment = title.normalize("NFC").trim().replace(/\s+/gu, "-").replace(/[^\p{L}\p{N}._-]/gu, "-").replace(/-+/gu, "-").slice(0, 96) || "untitled";
   return `${type}.${segment}`;
+}
+
+function normalizedCreationKey(value) {
+  if (value === undefined || value === null || value === "") return "initial";
+  const key = String(value).normalize("NFC").trim();
+  if (!/^[a-zA-Z0-9._-]{8,120}$/u.test(key)) throw new Error("新建固定创作稿必须携带有效的作者操作标识。");
+  return key;
 }
 
 function sha256(value) {

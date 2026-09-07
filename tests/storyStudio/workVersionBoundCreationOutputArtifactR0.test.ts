@@ -98,6 +98,32 @@ test("pinned artifact export keeps the exact saved package after its Story Unit 
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("multiple fixed artifacts require an explicit selection while current and archived-source reads keep their boundaries", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const first = await value.adapter.createArtifact(value.projectId, { creationKey: "author-fixed-one" });
+    const firstPinned = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    const second = await value.adapter.createArtifact(value.projectId, { creationKey: "author-fixed-two" });
+    assert.notEqual(first.id, second.id, "each explicit author action owns one independently addressable fixed artifact");
+
+    const ambiguous = await value.adapter.read(value.projectId);
+    assert.equal(ambiguous.packageMode, "blocked");
+    assert.equal(ambiguous.artifacts.length, 2);
+    assert.match(ambiguous.sourceRequestBlocker?.authorMessage || "", /必须指定 artifactId/u);
+
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.equal(current.packageMode, "current-selection", "a current preview is never blocked by the existence of several historical artifacts");
+
+    const archived = value.operations.archiveStoryUnit({ projectId: value.projectId, unitId: value.storyUnit.id, expectedVersion: value.storyUnit.version });
+    assert.equal(archived.conflict, false);
+    const pinnedAfterArchive = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    assert.equal(pinnedAfterArchive.packageMode, "pinned-artifact");
+    assert.equal(pinnedAfterArchive.package?.storyMarkdown, firstPinned.package?.storyMarkdown, "the saved package remains the source even after its live Story Unit is archived");
+    assert.equal(pinnedAfterArchive.package?.scope.label, firstPinned.package?.scope.label);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("current selection excludes author intent and mixed selected/unselected Event fragments", async () => {
   const value = fixture();
   try {

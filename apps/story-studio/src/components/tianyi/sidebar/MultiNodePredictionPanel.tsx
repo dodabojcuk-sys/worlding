@@ -274,16 +274,20 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     setBusy(true); setError("");
     try {
       const response = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
-      // The mutation response is not allowed to compete with a cached history
-      // snapshot. Read the owner once after the command and only expose the
-      // terminal state it durably recorded.
-      const history = await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token));
-      const persisted = history.find((candidate) => candidate.runId === response.runId) ?? response;
-      if (persisted.status !== "abandoned") throw new Error("放弃命令尚未在作品记录中收敛；候选视图保持不变。");
-      const abandoned = persisted;
+      // The command response is the persisted Owner receipt. A slow history
+      // refresh must never hold the author-facing terminal state hostage.
+      if (response.status !== "abandoned") throw new Error("放弃命令尚未在作品记录中收敛；候选视图保持不变。");
+      const abandoned = response;
       const observed = setObservedRun(abandoned) ?? abandoned;
-      setRuns(history.map((candidate) => candidate.runId === observed.runId ? observed : candidate));
+      setRuns((current) => [observed, ...current.filter((candidate) => candidate.runId !== observed.runId)]);
       setReceipt(null); setPhase("idle"); setViewState("task"); announceRun(observed);
+      // History is a non-authoritative, bounded refresh after the terminal
+      // fence has already been committed. Late ready snapshots stay fenced.
+      void props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)).then((history) => {
+        const persisted = history.find((candidate) => candidate.runId === observed.runId);
+        if (persisted?.status && persisted.status !== "abandoned") return;
+        setRuns(history.map((candidate) => candidate.runId === observed.runId ? observed : candidate));
+      }).catch(() => undefined);
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
     finally { setBusy(false); }
