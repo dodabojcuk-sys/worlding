@@ -46,7 +46,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (!active) return;
       setBootstrap(nextBootstrap);
       setRun(latest.run ? latest : null);
-      setParticipantIds(nextBootstrap.participants.slice(0, MIN_PARTICIPANTS).map((participant) => participant.id));
+      setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? []);
       setStoryUnitId(nextBootstrap.storyUnits[0]?.id ?? "");
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
       setSelectedStepIds(latest.run?.steps.slice(-1).map((step) => step.stepId) ?? []);
@@ -61,14 +61,13 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const selectedStep = run?.run?.steps.find((step) => step.stepId === selectedStepId) ?? null;
   const actorContext = useMemo(() => {
     if (run?.contextInspector && run.run) {
-      const actor = run.run.participants.find((participant) => participant.id === run.contextInspector?.actorId);
-      return [{
-        actorId: run.contextInspector.actorId,
-        actorLabel: actor?.title ?? "当前角色",
-        knowledgeSubjects: run.contextInspector.knowledgeSubjects,
-        evidenceRefs: run.contextInspector.evidenceRefs.map((reference) => reference.id),
-        excludedCount: run.contextInspector.excludedCount
-      }];
+      return run.contextInspector.actors.map((context) => ({
+        actorId: context.actorId,
+        actorLabel: run.run!.participants.find((participant) => participant.id === context.actorId)?.title ?? "当前角色",
+        knowledgeSubjects: context.knowledgeSubjects,
+        evidenceRefs: context.evidenceRefs.map((reference) => reference.id),
+        excludedCount: context.excludedCount
+      }));
     }
     return setup?.setup.contextPreview.map((actor) => ({
       ...actor,
@@ -168,6 +167,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button> : null}
       </section>
 
+      <div className="nuwa-n1-body">
+        <div className="nuwa-n1-primary">
       {!run ? <section className="nuwa-n1-setup" aria-label="女娲排演准备">
         <div className="nuwa-n1-setup-copy"><small>正式角色 · 稳定身份</small><h2>选择参与者</h2><p>角色只会获得自己的可知范围；角色档案、作者目标与其他角色秘密不会自动进入其上下文。</p></div>
         <fieldset><legend>选择 2–3 位正式角色</legend><div className="nuwa-n1-participant-options">{bootstrap?.participants.map((participant) => {
@@ -177,6 +178,9 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <footer><span>{participantIds.length < MIN_PARTICIPANTS ? `还需要选择 ${MIN_PARTICIPANTS - participantIds.length} 位角色。` : "范围准备就绪；可先检查上下文。"}</span><button type="button" disabled={!canPrepare || busy} onClick={prepare}><ShieldCheck />查看上下文</button></footer>
       </section> : run?.run ? <NuwaRunReader run={run} selectedStepId={selectedStepId} selectedStepIds={selectedStepIds} onSelectStep={(step) => { setSelectedStepId(step.stepId); setInspectorOpen(true); setInspectorTab("step"); }} onToggleCandidate={(stepId) => setSelectedStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId])} /> : null}
 
+      {!run && setup ? <section className="nuwa-n1-context-preview"><ShieldCheck /><div><strong>已核对角色上下文</strong><p>{setup.setup.contextPreview.map((actor) => `${bootstrap?.participants.find((item) => item.id === actor.actorId)?.title ?? "角色"}：${actor.knowledgeSubjects.length} 项可知内容`).join("；")}</p></div></section> : null}
+        </div>
+
       <aside className={`nuwa-n1-inspector ${inspectorOpen ? "is-open" : ""}`} aria-label="女娲上下文检查器">
         <header><div><PanelRight /><span><small>按需展开</small><strong>上下文检查器</strong></span></div><button type="button" aria-label={inspectorOpen ? "收起上下文检查器" : "展开上下文检查器"} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen((open) => !open)}><PanelRight /></button></header>
         {inspectorOpen ? <><nav aria-label="检查器内容"><button type="button" aria-pressed={inspectorTab === "context"} onClick={() => setInspectorTab("context")}>角色知情</button><button type="button" aria-pressed={inspectorTab === "step"} onClick={() => setInspectorTab("step")}>步骤结果</button><button type="button" aria-pressed={inspectorTab === "log"} onClick={() => setInspectorTab("log")}>运行记录</button></nav>
@@ -185,8 +189,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           {inspectorTab === "log" ? <LogInspector run={run} /> : null}
         </> : null}
       </aside>
-
-      {!run && setup ? <section className="nuwa-n1-context-preview"><ShieldCheck /><div><strong>已核对角色上下文</strong><p>{setup.setup.contextPreview.map((actor) => `${bootstrap?.participants.find((item) => item.id === actor.actorId)?.title ?? "角色"}：${actor.knowledgeSubjects.length} 项可知内容`).join("；")}</p></div></section> : null}
+      </div>
       {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><label><span>给当前排演的提示</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder="例如：让下一步先确认钟楼内的声音来源。" /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !["running", "paused"].includes(run.run.status)}><Send />加入后续步骤</button></form><div><span>{selectedStepIds.length ? `已选择 ${selectedStepIds.length} 个结果` : "选择步骤后可送入待确认"}</span><button type="button" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={sendCandidate}><FilePlus2 />送入待确认</button></div></footer> : null}
       {run?.run ? <details className="nuwa-n1-technical"><summary>技术详情</summary><dl><div><dt>Run</dt><dd>{run.run.runId}</dd></div><div><dt>修订</dt><dd>{run.run.revision}</dd></div><div><dt>Provider</dt><dd>{run.run.provider.label} · {run.run.provider.providerCalls} calls</dd></div></dl></details> : null}
     </section>

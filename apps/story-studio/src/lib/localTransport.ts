@@ -2248,10 +2248,12 @@ export type NuwaN1Run = {
   blocker?: string | null;
 };
 export type NuwaN1ContextInspector = {
-  actorId: string;
-  evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
-  knowledgeSubjects: string[];
-  excludedCount: number;
+  actors: Array<{
+    actorId: string;
+    evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
+    knowledgeSubjects: string[];
+    excludedCount: number;
+  }>;
 };
 export type NuwaN1ReadModel = {
   version: string;

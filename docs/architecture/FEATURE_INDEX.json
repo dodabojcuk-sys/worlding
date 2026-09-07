@@ -117,14 +117,14 @@
       "status": "PARTIAL",
       "maturity": "immutable-unit-revision-domain-contract",
       "entrypoints": ["src/storyIntelligence/nuwaRunPack.ts"],
-      "sourceFiles": ["src/storyIntelligence/nuwaRehearsalContract.ts", "src/storyIntelligence/tianyiNuwaBridgeRepository.ts"],
+      "sourceFiles": ["src/storyIntelligence/nuwaRehearsalContract.ts", "src/storyIntelligence/tianyiNuwaBridgeRepository.ts", "src/storyIntelligence/nuwaN1Runtime.ts"],
       "domainOwners": ["src/storyIntelligence/nuwaRunPack.ts"],
       "stateOwners": ["src/storyIntelligence/nuwaRunPack.ts"],
       "persistenceOwner": "Existing Nuwa RunPack stores immutable rehearsal revisions; unit identity remains the bound Exploration",
       "providerDependency": "existing Nuwa Provider path only; this contract strictly parses injected structured results and makes no Provider call",
-      "tests": ["tests/storyIntelligence/nuwaRehearsalContract.test.ts", "tests/storyIntelligence/storyIntelligence.test.ts"],
+      "tests": ["tests/storyIntelligence/nuwaRehearsalContract.test.ts", "tests/storyIntelligence/storyIntelligence.test.ts", "tests/storyIntelligence/nuwaN1Runtime.test.ts"],
       "legacyProvenance": ["existing Exploration, Execution Brief binding, and Nuwa RunPack owners"],
-      "remainingGap": "The domain contract is complete for formal character rosters and unit-scoped rehearsal data; official Nuwa UI and production Provider result adaptation are separate follow-up integration"
+      "remainingGap": "The N1 domain and /nuwa local engineering surface are connected for formal-character and unit-scoped rehearsal data; production Provider result adaptation and real-model acceptance remain separate"
     },
     {
       "id": "agent-recognition-proposals",
@@ -143,16 +143,16 @@
     {
       "id": "nuwa-primary-workspace",
       "status": "PRODUCTION_CONNECTED",
-      "maturity": "approved-unit-rehearsal-stream-with-page-owned-tools",
-      "entrypoints": ["src/storyIntelligence/nuwaRunPack.ts"],
-      "sourceFiles": ["src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
+      "maturity": "bounded-n1-local-tool-loop-real-provider-pending",
+      "entrypoints": ["apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "src/storyIntelligence/nuwaRunPack.ts"],
+      "sourceFiles": ["src/storyIntelligence/nuwaN1Runtime.ts", "src/storyIntelligence/nuwaRunPack.ts", "apps/story-studio/server/nuwaN1Port.mjs", "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
       "domainOwners": ["src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
       "stateOwners": ["src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
-      "persistenceOwner": "Nuwa RunPack plus Candidate Review; React stores only selected presentation surface, filters, and drawer state",
-      "providerDependency": "provider-runtime for new real simulation; recovery and review are local",
-      "tests": ["tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyControlSurface/storyStudioAuthorControl.test.ts"],
+      "persistenceOwner": "Nuwa RunPack owns the bounded N1 lifecycle and receipts; existing Candidate Review owns selected-result review; React stores only transient setup, inspector and selection state",
+      "providerDependency": "local fake tool round trip is test/development only and visibly zero-Provider; production Provider adapter and real-model acceptance remain unconnected",
+      "tests": ["tests/storyIntelligence/nuwaN1Runtime.test.ts", "tests/storyStudio/nuwaN1LocalApi.integration.test.ts", "tests/storyStudio/nuwaN1WorkspaceSource.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyControlSurface/storyStudioAuthorControl.test.ts"],
       "legacyProvenance": ["17efb1a Nuwa five-stage focus workspace superseded by approved rehearsal IA", "997c5e7 contextual shell focus grammar"],
-      "remainingGap": "The five business capabilities remain distributed across unit context, rehearsal stream, and page-owned Observation, Branch, Review, and Control tools. Accepted-memory relevance and stale-source replacement remain partial"
+      "remainingGap": "N1 locally connects two or three formal characters, one Story Unit, isolated role context, bounded steps, pause/reload/resume/stop/replay and candidate-only handoff. A production Provider adapter, precise tokenizer accounting, accepted-memory relevance and Founder manual acceptance remain separate work"
     },
     {
       "id": "nuwa-contextual-handoff",

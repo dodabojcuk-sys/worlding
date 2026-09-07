@@ -54,3 +54,25 @@ R4 不扩建完整女娲。N1 只允许 2–3 个当前作品的正式角色、�
 | 结果融入 | 已有候选/Owner 边界 | 需证明局部结果可在事件线回放、比较、选择性融入且副作用重放幂等 |
 
 N1 的本地工程闭环不再以真实 Pi 为前置：先用走同一产品路径和工具往返的本地假执行器验证角色 ID、分支、观察时点、知情隔离、请求预算和 checkpoint 恢复。真实 Pi 仍是独立验收项，本轮未授权调用；假执行器成功不得写成真实对话成功。
+
+## Nuwa-N1 本地工程接入表
+
+| 环节 | 生产入口与唯一 Owner | 本轮已接通行为 | 安全边界/观测 |
+| --- | --- | --- | --- |
+| 范围选择 | \`/nuwa\` 读取当前 Project 的 World Object/Story Unit Owner | 选择 2–3 位正式角色、1 个 Story Unit 和 1 个局部目标；按中文稳定 ID 与 revision 校验 | 不复制角色/事件/单元；跨项目同名角色返回冲突 |
+| 上下文编译 | \`nuwaN1Port.mjs\` 读取既有正式 Event 与 \`knowledgeSubjects\` | 按角色分开 known facts/unknown IDs/来源 revision；页面同时展示两个不同知情范围 | 角色正文、其他角色秘密、作者未来意图不进入 adapter 请求 |
+| 角色回合 | \`nuwaN1Runtime.ts\` 在既有 Nuwa RunPack 内拥有 N1 生命周期 | 角色轮换；先请求 \`read_role_context\`，再以同一 actor ref 继续；下一角色只获得已发生台词，不获得前一角色私有信念 | 每 Run 最多 6 个已提交步骤/12 个模拟 dispatch；每次输入预算 4096 tokens、输出 1024 tokens |
+| 运行状态 | RunPack 内 \`nuwa-n1.json\` 原子替换 | ready/running/paused/completed/cancelled/blocked，CAS revision、operation idempotency、暂停/刷新/恢复/停止/回放 | 每个 await 后重读；停止赢过晚到 adapter 结果；回放不重新 dispatch |
+| 作者提示 | 当前 Run 的 future-only cue | sticky 输入进入后续步骤，不改写已提交步骤 | 最多 800 字；回执只记关键状态，不记每次鼠标操作或大量原文 |
+| 结果交接 | 既有 \`storyStudioAuthorControl\` Candidate Review | 仅将作者勾选的步骤送入统一待确认 | \`formalWrites=0\`；正式事实仍需既有影响预览、Owner、版本校验、回执与撤销 |
+| 执行器 | 可替换 adapter；本轮仅 \`local-n1-tool-roundtrip-fake/v1\` | 只在 \`NODE_ENV != production\` 且 \`TIANYAN_NUWA_N1_FAKE_PROVIDER=1\` 时可用，页面明示“本地工程演练 · 0 Provider” | 生产/未授权状态返回 503，不自动回退为假对话；本轮真实 Provider dispatch = 0 |
+
+## Nuwa-N1 真实 Provider 独立验证申请（未授权）
+
+下一次若获授权，建议使用一张独立回执，不与上文 R4 C/D/E 的 4 次建议混用。先记录 Provider instance ID、实际返回 model ID、协议、报价快照时间和计费币种，再开始 dispatch；未能从运行响应核对模型身份时立即停止。
+
+1. 场景固定为同一作品的 2 位中文正式角色和 1 个 Story Unit；预置一条只对角色 A 可见的事件、一条只对角色 B 可见的事件、一条作者私密未来信息。
+2. 一次 Run 授权上限为 **12 次实际 Provider dispatch**；连接/模型诊断、首轮、工具继续、明确重试和修复后复验全部计入总数，自动重试为 0。每次序列化输入上限 4096 tokens，输出上限 1024 tokens。
+3. 最小成功标准是 2 个角色各完成至少 1 步，每步有实际 \`read_role_context\` 往返、结构化意图/台词/动作/可观察结果，且秘密 canary 不进入另一角色请求或响应。
+4. 立即停止条件：身份不明、知情泄漏、越过工具白名单、revision 冲突后仍 dispatch、停止后还提交步骤、任一级预算到顶或出现未授权自动重试。
+5. 历史调用对账以 Provider dispatch 为准；既有 R4 账本的 setup/generation/tool-loop/retry/total 原样保留，Nuwa-N1 单独列出每步的请求 ID、工具请求 ID、输入/输出 tokens、结束原因和累计成本。费用上限只能使用授权时的实际模型报价计算，本文不预填金额。

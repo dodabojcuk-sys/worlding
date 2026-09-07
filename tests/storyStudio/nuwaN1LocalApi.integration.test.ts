@@ -59,6 +59,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps.length, 1);
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
+  assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeSubjects.length]), [[value.characters[0].id, 1], [value.characters[1].id, 0]], "the author inspector keeps both formal roles visibly distinct after the Run starts");
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
 
@@ -107,6 +108,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
 
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; steps: Array<{ stepId: string; tool: { name: string } }>; provider: { providerCalls: number } };
+  contextInspector: { actors: Array<{ actorId: string; knowledgeSubjects: string[] }> };
   candidate: { formalWrites: number };
   review: { status: string };
 };

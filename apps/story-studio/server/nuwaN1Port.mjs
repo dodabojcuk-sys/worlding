@@ -193,7 +193,6 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
 
   function present(projectId, run) {
     const project = requireProject(projectId);
-    const actor = run.actors[0] ?? null;
     return {
       version: VERSION,
       availability: availability(),
@@ -209,12 +208,14 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         provider: { ...availability(), projectId: project.id },
         blocker: run.blocker
       },
-      contextInspector: actor ? {
-        actorId: actor.character.id,
-        evidenceRefs: actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, revision: fact.sourceRef.revision, visibility: fact.visibility })),
-        knowledgeSubjects: actor.knownFacts.map((fact) => fact.factId),
-        excludedCount: actor.unknownFactIds.length
-      } : null,
+      contextInspector: {
+        actors: run.actors.map((actor) => ({
+          actorId: actor.character.id,
+          evidenceRefs: actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, revision: fact.sourceRef.revision, visibility: fact.visibility })),
+          knowledgeSubjects: actor.knownFacts.map((fact) => fact.factId),
+          excludedCount: actor.unknownFactIds.length
+        }))
+      },
       receipts: run.receipts
     };
   }
