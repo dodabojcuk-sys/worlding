@@ -20,8 +20,9 @@ export function EngineeringLogPanel(props: { projectId: string | null }) {
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    if (!props.projectId) { setEntries([]); setLoading(false); return; }
-    setLoading(true); setError("");
+    if (!props.projectId) { setEntries([]); setExpandedId(null); setLoading(false); return; }
+    // A receipt from project A must not stay exportable while project B loads.
+    setEntries([]); setExpandedId(null); setLoading(true); setError("");
     void getAgentPermissionState(props.projectId).then((state) => {
       if (!active) return;
       setEntries([...state.receipts].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt)));

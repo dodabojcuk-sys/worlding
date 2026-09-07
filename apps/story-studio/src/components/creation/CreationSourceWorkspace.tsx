@@ -15,6 +15,8 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const [error, setError] = useState("");
   const requestGeneration = useRef(0);
   const activeProjectId = useRef<string | null>(projectId);
+  // Render-time identity closes the tiny A→B window before effects have run.
+  activeProjectId.current = projectId;
   const refresh = async (scope: { storyUnitId?: string; eventIds?: string[] } = {}) => {
     const requestedProjectId = projectId;
     if (!requestedProjectId) return;
