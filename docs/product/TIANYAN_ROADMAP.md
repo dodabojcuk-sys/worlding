@@ -11,16 +11,16 @@
 | ID | 作者目标 | 现有入口与 Owner | 当前层级 | 下个切片与验收例 |
 | --- | --- | --- | --- | --- |
 | STAB-R4 | 冷启动、目录与世界时间切换可恢复，失败可定位 | Shell runtime、工程目录、EventLine 只读投影 | 本地全量通过；PR #4 远端待精确 SHA 核对；作者待验 | 取消为终态；写入代次阻止旧读回填；已接收的同源本地投影读取由响应/连接错误收敛，不在 15 秒边界伪造断线；工具栏收尾后冻结天意/事件线新功能 |
-| OBS-1 | 从一次动作查到结果、失败与既有回执 | `EngineeringLogPanel`、Agent Run、关系回执、continuity receipt | 计划中 | 只读聚合、按作品/对象/任务/失败过滤、容量与脱敏；成功采纳、范围失败、取消各一例 |
+| OBS-1 | 从一次动作查到结果、失败与既有回执 | `EngineeringLogPanel`、Agent Run、关系回执、continuity receipt | 本地通过；作者待验 | 当前作品只读回执投影已支持操作/结果/对象/关键词筛选、逐条安全详情和脱敏导出；连续隔离链覆盖女娲开始、单步、暂停、恢复、停止与候选回执。硬保护或范围失败仍保留 `requires-author`/`blocked` 原状态，不伪装成执行失败。 |
 | TIAN-YI-R1 | 在同一会话的创意/工作泳道中持续整理、审阅与采纳 | `TianyiConversation`、Story Intake Envelope、batch adapter | 本地通过；真实模型待验；作者待验 | 验证真实 Provider 前先保留来源、范围、回执、撤销和跨项目隔离；不得把假服务称为真实 Pi |
-| REL-R1 | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 已有基础 | 比较两个时点、区分信念与客观关系、稳定 ID 与补偿撤销；不重建关系库 |
+| REL-R1 | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 本地通过；作者待验 | 事件线“关系变化”已读 Relation Owner 列表、状态/方向/类型筛选、详情、证据、故事有效时间和回执历史；人物知情/误解不自动改写关系。下一切片才是显式双时点比较与补偿撤销。 |
 | MAP-M1 | 回答地点由谁控制、谁与此有关、发生过什么、依据是什么 | 世界入口、现有地点/Relation/Event 投影与 `storyStudioLocationTopology.ts` | 已规划；本轮暂不建模 | N1 后再做“雾港断桥”二维示意/自定义底图、地点—势力—人物—事件与来源往返；布局坐标不写事实，目击不等于现居 |
 | MEM-A1 | 长会话知道当前任务范围、来源和不知道什么 | `storyContinuity`、ContextPack、停止点和回执 | 已有基础 | 版本/权限/时点感知检索与摘要；比较事实命中、泄密、未来信息与恢复一致性 |
-| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、既有 Candidate Review | 本地工程闭环已接通并完成独立审阅修补；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、真实工具边界、精确或保守 token 门、6 步/12 dispatch 上限、暂停/刷新/恢复/停止/回放/新建与选定结果送入待确认；下一步是独立预算的生产 Provider 适配验证 |
+| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 dispatch 上限、暂停/刷新/恢复/停止/回放/新建与选定结果送入待确认。Pi adapter 仅在产品 Provider 路径、显式 N1 开关和已配置活动 Profile 三者同时满足时可用；本轮只以内存假 Pi 与本地 N1 fake 验证，真实调用为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
 | PRED-P1 | 比较平淡、意外、深远后果等候选路径 | 多节点预测、Story Unit、NarrativeArrangement | 本地通过；作者待验 | 明示依据、代价、冲突和后果；创作探索不伪装统计概率 |
 | MULTI-B1 | 对照 IF/改版/女娲结果并选择范围融入 | WorkVersion、候选/影响/回执边界 | 已有基础 | 差异、冲突、合并回执与撤销；区分普通支线和版本分支 |
 | FATE-F1 | 解释角色规划、实际和候选轨迹 | `characterFateProjection`（进入前核对现状） | 计划中 | 先确定作者维度与事件依据，不能用单分数冒充命运事实 |
-| CREATE-C1 | 从选中版本导出可追溯的 Markdown/文本 | storyCreation、来源与输出回执 | 已有基础 | 先完成可追溯文本交付，再接可替换媒体插件 |
+| CREATE-C1 | 从选中版本导出可追溯的 Markdown/文本 | storyCreation、来源与输出回执 | 本地通过；作者待验 | 创作工作面已显示当前正式主版本、可选 Story Unit、已确认 Event 范围、中性包摘要和来源回执索引；建立 OutputArtifact 后可下载 Markdown。候选与作者意图仍不进入默认包，候选附录须走显式的独立确认流程。 |
 | ADAPT-L1 | 保真翻译、本土化或改编保持来源对照 | 派生版本与输出边界 | 计划中 | 语言、文化、名称、背景、情节改写分轴；生成派生版本而非覆盖原文 |
 
 ## 本轮 OBS-0 范围
@@ -30,6 +30,14 @@
 3. **证据：**失败时只保存隔离 fixture 的操作名、耗时、相对 URL、源码修订、视口、项目/任务状态、相关请求结果、页面异常与目标几何；可选 trace 由 `directoryTrace=1` 显式开启、最多 300 条、不自动上传，不含正文、请求体、凭据或附件。
 4. **恢复合同：**World Library 与 Story Unit 合并同 URL 在途读，并允许重复挂载在 5 秒内复用刚完成的快照；写入边界让边界前/中启动的读不得进入新快照。已被本地 Owner 接收的产品读取由真实响应或连接错误收敛；项目 Owner 显式失效仍会 abort 旧读，不依靠增加等待/重试通过验收。
 5. **首屏身份：**Story Unit 自身的 `linkedEntityIds`、items 和 collection points 是正式成员读来源；不再等待较慢的 Canon enrichment 才显示直接节点与集点，也不因此接纳未确认 draft。
+
+## R5 连续开发检查点
+
+1. **M0：**多节点预测的终态屏障已阻止延迟 execute/retry 返回覆盖已取消或已完成状态；隔离 E2E 已通过。
+2. **M1：**工程日志是既有 Author Action Permission Owner 的只读投影，按当前项目隔离。它不复制 Event、Canon 或 World 事实，也不触发 Provider。
+3. **M2/M4：**角色档案新增安全“知情”投影和一次性“加入女娲”交接；关系读取留在 Relation Owner，显示类型、方向、证据、故事有效时间与回执历史。
+4. **M3：**新增受控 Pi N1 adapter，唯一工具是冻结的 `read_role_context`；适配器拒绝越权 JSON 行动。真实 Provider 没有被调用。
+5. **M5/M6：**同一隔离故事已完成两名命名角色的女娲连续排演、候选交接、Relation Owner 读取、正式版本来源包和 OutputArtifact Markdown 下载；第二项目回执不可从当前项目日志检出。截图与连续视频位于 `data/2026-09-07_天衍R5_M6连续交互证据/`。
 
 ## 设计与研究边界
 

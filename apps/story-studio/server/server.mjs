@@ -111,6 +111,7 @@ import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpact
 import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
 import { createNuwaN1Port } from "./nuwaN1Port.mjs";
+import { NUWA_N1_PI_ADAPTER_ID, createNuwaN1PiAdapter } from "./nuwaN1PiAdapter.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
@@ -169,7 +170,35 @@ const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
-  fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0
+  fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
+  piAdapterFactory: {
+    availability() { return nuwaN1PiAvailability(); },
+    create({ projectId, runId }) {
+      const availability = nuwaN1PiAvailability();
+      if (!availability || !agentRuntimePluginResolution.runtime) return null;
+      const profile = readActiveProviderProfile();
+      return createNuwaN1PiAdapter({
+        runtime: agentRuntimePluginResolution.runtime,
+        projectId,
+        runId,
+        provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
+        openProviderStream(providerInput) {
+          return providerGateway.openChatStream({
+            profileId: profile.id,
+            messages: providerInput.messages,
+            tools: providerInput.tools,
+            toolChoice: providerInput.toolChoice,
+            maxOutputTokens: 512,
+            signal: providerInput.signal,
+            idempotencyKey: `nuwa-n1.${projectId}.${runId}.${providerInput.providerCall}`,
+            budgetScope: `nuwa-n1:${projectId}`,
+            toolLoopTurn: providerInput.providerCall > 1,
+            retry: providerInput.retry
+          });
+        }
+      });
+    }
+  }
 });
 const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
 const relationOperations = createStoryStudioRelationOperations({
@@ -3108,6 +3137,19 @@ function shouldInstallHistoricalProviderIncident() {
 
 function readActiveProviderProfile() {
   return providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId) || null;
+}
+
+/** N1 only exposes the production Pi adapter after three explicit host gates:
+ * the product Provider path, the N1 adapter switch, and a configured active
+ * profile. Normal development and every local fixture remain unavailable (or
+ * use the separately labelled zero-Provider fake), never an implicit live
+ * fallback. */
+function nuwaN1PiAvailability() {
+  if (process.env.TIANYAN_NUWA_N1_PI_ADAPTER !== "1" || !productPathRealProviderAllowed || !agentRuntimePluginResolution.runtime) return null;
+  const profile = readActiveProviderProfile();
+  const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
+  if (!profile || profile.enabled === false || !provider?.configured || !providerCredential.configured()) return null;
+  return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
 }
 
 function readProviderProfileProjection() {

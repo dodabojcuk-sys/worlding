@@ -24,11 +24,11 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, now = () => new Date().toISOString() }) {
   function availability() {
     return fakeProviderAllowed
       ? { kind: "local-fake", label: "本地工程演练 · 0 Provider", adapterId: FAKE_ADAPTER_ID, providerCalls: 0 }
-      : { kind: "unavailable", label: "未配置可执行的女娲 Provider；本轮不会自动回退为假对话。", adapterId: null, providerCalls: 0 };
+      : piAdapterFactory?.availability?.() ?? { kind: "unavailable", label: "未配置可执行的女娲 Provider；本轮不会自动回退为假对话。", adapterId: null, providerCalls: 0 };
   }
 
   function workspacePath(projectId) {
@@ -133,7 +133,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       runId: current.runId,
       expectedRevision: current.revision,
       operationId: operation(input.operationId),
-      adapter: createLocalFakeAdapter(input.projectId, current.runId),
+      adapter: fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId),
       now: now()
     });
     return present(input.projectId, next);
@@ -280,7 +280,13 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
   }
 
   function requireExecutionAvailability() {
-    if (!fakeProviderAllowed) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
+    if (!fakeProviderAllowed && !piAdapterFactory?.availability?.()) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
+  }
+
+  function createPiAdapter(projectId, runId) {
+    const adapter = piAdapterFactory?.create?.({ projectId, runId });
+    if (!adapter) throw failure("女娲 N1 当前没有获授权的 Pi 执行器；未自动回退为假对话。", 503);
+    return adapter;
   }
 
   function createLocalFakeAdapter(projectId, runId) {
