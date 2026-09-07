@@ -169,11 +169,12 @@ const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ ope
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
+  sourceIdentityForProject: nuwaN1SourceIdentity,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
   piAdapterFactory: {
     availability() { return nuwaN1PiAvailability(); },
-    create({ projectId, runId }) {
+    create({ projectId, runId, sourceIdentity }) {
       const availability = nuwaN1PiAvailability();
       if (!availability || !agentRuntimePluginResolution.runtime) return null;
       const profile = readActiveProviderProfile();
@@ -182,7 +183,7 @@ const nuwaN1Port = createNuwaN1Port({
         projectId,
         runId,
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
-        sourceIdentity: nuwaN1SourceIdentity(projectId),
+        sourceIdentity,
         openProviderStream(providerInput) {
           return providerGateway.openChatStream({
             profileId: profile.id,

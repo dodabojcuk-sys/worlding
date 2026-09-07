@@ -105,6 +105,8 @@ export type NuwaN1Run = {
   version: typeof NUWA_N1_RUNTIME_VERSION;
   runId: string;
   sourceSnapshotHash: string;
+  /** Frozen at author create time; execution must not re-read the current root. */
+  sourceIdentity: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null;
   scene: NuwaN1Scene;
   authorGoal: string;
   actors: NuwaN1Actor[];
@@ -131,7 +133,7 @@ export type NuwaN1CandidateHandoff = {
   formalWrites: 0;
 };
 
-export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
+export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
   assertRunPack(input.workspacePath, input.runId, input.sourceSnapshotHash);
   assertSetup(input);
   if (readNuwaN1Run(input.workspacePath, input.runId)) {
@@ -141,7 +143,7 @@ export function createNuwaN1Run(input: { workspacePath: string; runId: string; s
   }
   const now = input.now || new Date().toISOString();
   const run: NuwaN1Run = {
-    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), scene: cloneScene(input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, dispatches: 0, steps: [], pendingCue: null, blocker: null,
+    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, dispatches: 0, steps: [], pendingCue: null, blocker: null,
     receipts: [{ operationId: safeOperation(input.operationId), kind: "create", revision: 1, recordedAt: now }], attempts: [], createdAt: now, updatedAt: now
   };
   writeAtomically(input.workspacePath, input.runId, run);
@@ -409,9 +411,18 @@ function normalizeRun(value: unknown): NuwaN1Run {
   if (!Array.isArray(run.actors) || run.actors.length < 2 || run.actors.length > 3 || !Array.isArray(run.steps) || run.steps.length > NUWA_N1_MAX_COMMITTED_STEPS || !Number.isSafeInteger(run.dispatches) || run.dispatches < 0 || run.dispatches > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 state bounds are invalid.");
   if (!["ready", "running", "paused", "completed", "cancelled", "blocked"].includes(run.lifecycle)) throw new Error("Nuwa N1 lifecycle is invalid.");
   if (!Array.isArray(run.attempts)) run.attempts = [];
+  run.sourceIdentity = normalizeSourceIdentity(run.sourceIdentity);
   run.actors = run.actors.map(normalizeActor);
   run.attempts = run.attempts.map(normalizeAttempt);
   return structuredClone(run);
+}
+
+function normalizeSourceIdentity(value: unknown): NuwaN1Run["sourceIdentity"] {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 source identity is invalid.");
+  const identity = value as Record<string, unknown>;
+  if (identity.kind !== "root" && identity.kind !== "unversioned-draft") throw new Error("Nuwa N1 source identity kind is invalid.");
+  return { kind: identity.kind, workVersionId: safeId(String(identity.workVersionId || "")), revision: text(String(identity.revision || ""), "sourceIdentity revision", 180) };
 }
 
 function assertSetup(input: { sourceSnapshotHash: string; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[] }): void {

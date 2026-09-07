@@ -24,7 +24,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   function availability() {
     return fakeProviderAllowed
       ? { kind: "local-fake", label: "本地工程演练 · 0 Provider", adapterId: FAKE_ADAPTER_ID, providerCalls: 0 }
@@ -108,6 +108,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       workspacePath: workspace,
       runId: plan.runId,
       sourceSnapshotHash: snapshot.snapshotHash,
+      sourceIdentity: sourceIdentityForProject(input.projectId),
       scene: {
         ...resolveScene(input.projectId, input.storyUnit),
         observedAt: now()
@@ -133,7 +134,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       runId: current.runId,
       expectedRevision: current.revision,
       operationId: operation(input.operationId),
-      adapter: fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId),
+      adapter: fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity),
       now: now()
     });
     return present(input.projectId, next);
@@ -283,8 +284,9 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     if (!fakeProviderAllowed && !piAdapterFactory?.availability?.()) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
   }
 
-  function createPiAdapter(projectId, runId) {
-    const adapter = piAdapterFactory?.create?.({ projectId, runId });
+  function createPiAdapter(projectId, runId, sourceIdentity) {
+    if (!sourceIdentity) throw failure("这份排演缺少创建时冻结的作品版本身份；为避免使用新版本执行，已阻止继续。", 409);
+    const adapter = piAdapterFactory?.create?.({ projectId, runId, sourceIdentity });
     if (!adapter) throw failure("女娲 N1 当前没有获授权的 Pi 执行器；未自动回退为假对话。", 503);
     return adapter;
   }
