@@ -1,5 +1,17 @@
 # 天衍 R4：Pi 零调用准备与 Nuwa-N1 交接
 
+## 2026-09-07 收尾现场（唯一当前状态入口）
+
+本节覆盖本文其余历史实施记录。远端事实必须以 `git fetch --prune origin` 后的 ref 为准，而不是本地 `main`、旧截图或旧报告。
+
+| 范围 | 已审阅实现基线 / 精确 SHA | PR / 合并状态 | 当前验证结论 |
+| --- | --- | --- | --- |
+| R4 | `origin/codex/r4-r1-review` / `61e21c589b0abc93350337057893b0f5dbbe55b1` | [PR #4](https://github.com/dodabojcuk-sys/worlding/pull/4)，Open，目标 `main`；**未合并** | 本地该 SHA 的 `npm run verify` 通过记录存在；远端 `verify` 仍为失败，唯一失败步骤是 `npm run test:e2e` 的 multi-node-prediction：放弃推演后未见终态提示。见 [run 34077660945](https://github.com/dodabojcuk-sys/worlding/actions/runs/34077660945/job/101606837429)。工程验收：**未通过（远端 CI）**。 |
+| Nuwa N1 | `codex/nuwa-n1-review` 的已审阅代码基线 / `4e3f8662e860a647236468ae7242cf5af1e0adfe` | [PR #5](https://github.com/dodabojcuk-sys/worlding/pull/5)，Open，叠加目标 `codex/r4-r1-review`；**未合并** | 本地专项、浏览器和完整 gate 的通过记录对应历史 SHA；远端两个 `verify` 都在 `npm run test:e2e` 的同一 multi-node-prediction 终态提示处失败。见 [run 34077981705](https://github.com/dodabojcuk-sys/worlding/actions/runs/34077981705/job/101607721304) 与 [run 34077979095](https://github.com/dodabojcuk-sys/worlding/actions/runs/34077979095/job/101607713444)。工程验收：**未通过（远端 CI）**。 |
+| 远端主线 | `origin/main` / `c43d0472acc19dc25f3ff48ab689a154fa096bd8` | 无 R4/N1 合并提交 | **R4 和 N1 都未落到远端 main。** |
+
+本轮只保存交接事实，不新增功能、不改 CI 断言、不扩大超时、不重跑完整 gate，也不调用真实 Provider。此前“未 push”只适用于 2026-09-06 的本地验收时点；R4 与 N1 审阅分支现已推送。此前“R4 只完成 N1 合同”只描述 R4 的原始范围；N1 本地工程闭环已在 PR #5 实现，但不等于真实 Provider 成功或 Founder 体验通过。
+
 ## 当前结论
 
 - R4 目录及完整页面流程已经通过；最新 CI 红灯的准确分类是假 Provider 流取消终态，不再是目录恢复。取消后的缓冲完成与恢复响应均不得使 Run 重回可执行状态。

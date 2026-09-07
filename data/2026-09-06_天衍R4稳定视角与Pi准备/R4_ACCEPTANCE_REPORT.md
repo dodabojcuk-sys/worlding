@@ -2,6 +2,8 @@
 
 日期：2026-09-06
 
+> 历史范围说明（2026-09-07 更新）：本报告保存的是 R4 本地验收证据，不能替代远端 CI 状态。唯一当前交接入口为 `docs/implementation/TIANYAN_R4_PI_ZERO_CALL_AND_NUWA_N1.md`：R4 已推送至 PR #4 但未合并 `origin/main`；Nuwa N1 已在叠加 PR #5 实现本地工程闭环，仍未通过远端 CI、未获真实 Provider 或 Founder 体验验收。
+
 当前产品入口：`http://127.0.0.1:4193/event-line?locale=zh-CN&eventTask=perspective`
 
 隔离 R4 故事证据入口：`http://127.0.0.1:4195/event-line?locale=zh-CN&eventTask=perspective&eventView=spine&eventFocus=character.%E6%9E%97%E6%98%AD%2Ccharacter.%E9%98%BF%E8%8A%9C%2Ccharacter.%E9%A1%BE%E6%BE%9C&eventObservers=character.%E6%9E%97%E6%98%AD%2Ccharacter.%E9%98%BF%E8%8A%9C%2Ccharacter.%E9%A1%BE%E6%BE%9C&directoryView=characters`
@@ -19,7 +21,7 @@ R4 在不更换 Owner、不扩建完整女娲、不迁移或清空原有数据�
 - 角色视角按事件参与、显式知情证据和已审核 AI 匹配投影；任意关系不再被推断为“已知”，同名人物不再按标签串联。
 - 单角色视角可交接一个稳定 `SubjectRef` 给天意依据问答；作者联合视图、读者视图不能偷渡为角色 ContextPack，角色/读者视图不运行作者 Agent 任务。
 - Pi 模型目录诊断与 Embedding probe 已进入 setup 预留和总调用上限；正常工具循环不再误记为 retry。
-- Nuwa 只完成 N1 交接合同与现有基础差距表，未新建女娲页面或第二事实仓。
+- 在本报告的 R4 原始范围内，Nuwa 只完成 N1 交接合同与基础差距表，未新建完整女娲或第二事实仓；后续 N1 本地工程闭环的当前状态以上述唯一交接入口为准。
 
 ## 缺陷复现与修补记录
 
@@ -71,7 +73,7 @@ R4 在不更换 Owner、不扩建完整女娲、不迁移或清空原有数据�
 1. 应用内浏览器的 `Ctrl + +` 在当前自动化会话中没有改变字面缩放；598×450 只是 CSS 视口等价压缩，不能冒充字面 200% 证据。
 2. 真实 Pi C 结构化工具往返、D 产品样本、E 故障/重启路径尚未运行；本地假服务测试不替代这些结论。
 3. 角色参与与知情证据已接入投影，但真实故事中仍需继续补全相对时间、误解和作者未来意图的正式 Owner 证据。
-4. Nuwa N1 只有合同与差距表，没有真实 Pi 多角色回合，本轮也未扩建完整女娲。
+4. 本报告时点的 Nuwa N1 只有合同与差距表；后续 PR #5 已实现本地工程闭环，但仍没有真实 Pi 多角色回合，也未扩建完整女娲。
 5. 本地构建警告主 JS chunk 约 1.06 MB（gzip 约 306 KB）；不影响本轮功能验收，但是后续性能分包项。
 
 ## 约 5 分钟作者验收路线
@@ -84,4 +86,4 @@ R4 在不更换 Owner、不扩建完整女娲、不迁移或清空原有数据�
 
 ## 回滚与数据边界
 
-本轮未 push、未部署、未迁移或清空正式项目数据。R4 浏览器证据使用 `/tmp` 隔离数据根；`4193` 仅服务当前本地构建。正式事件、关系、Story Unit、NarrativeArrangement 和人物状态仍由现有 Owner 维护。
+本报告记录的原始本地验收未 push、未部署、未迁移或清空正式项目数据；随后 R4 已推送到审阅分支 PR #4，但仍未合并 main。本轮没有部署、迁移或清空正式项目数据。R4 浏览器证据使用 `/tmp` 隔离数据根；`4193` 仅服务当前本地构建。正式事件、关系、Story Unit、NarrativeArrangement 和人物状态仍由现有 Owner 维护。
