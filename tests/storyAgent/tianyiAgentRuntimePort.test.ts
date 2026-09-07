@@ -263,6 +263,56 @@ test("a successful cancel remains terminal when a buffered Provider completion a
   assert.equal(fixture.events.at(-1)?.projection.executionIdentity.runId, started.runId);
 });
 
+test("cancel waits for an in-progress owner append instead of losing to a same-run write conflict", async () => {
+  const events: TianyiAgentRuntimeEvent[] = [];
+  let releaseStreamAppend: (() => void) | null = null;
+  let streamAppendEntered: (() => void) | null = null;
+  let releaseProvider: (() => void) | null = null;
+  const streamAppendGate = new Promise<void>((resolve) => { releaseStreamAppend = resolve; });
+  const streamAppendStarted = new Promise<void>((resolve) => { streamAppendEntered = resolve; });
+  const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+  let ownerBusy = false;
+  const adapter = createTianyiAgentRuntimePort({
+    persistence: {
+      async appendEvent(event) {
+        if (ownerBusy) throw new Error("Agent 运行回执写入冲突；请重新读取后再试。");
+        ownerBusy = true;
+        try {
+          if (event.kind === "stream") {
+            streamAppendEntered?.();
+            await streamAppendGate;
+          }
+          events.push(event);
+          return { alreadyCompleted: false, receiptId: event.projection.receipts.at(-1)?.receiptId || "receipt.fixture" };
+        } finally {
+          ownerBusy = false;
+        }
+      },
+      async readEvents(input) { return events.filter((event) => event.runId === input.runId); }
+    },
+    async buildContextManifest(input) { return manifest(input.sessionId, input.workVersionId); },
+    async runProvider(input) {
+      await input.onExecutionIdentity({ providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model" });
+      await input.onEvent({ type: "text-delta", delta: "正在写入可见分段", sequence: 1, recordedAt: "2026-09-07T00:00:00.000Z" });
+      await providerGate;
+      return { providerId: "fixture", profileId: "fixture-profile", modelId: "fixture-model", responseModelId: "fixture-model", text: "晚到结果", providerCalls: 1, traceId: "trace.owner-overlap", latencyMs: 8, usage: { promptTokens: 2, completionTokens: 3, totalTokens: 5 } };
+    },
+    async cancelProvider() { return true; }
+  });
+  const started = await adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.owner-overlap", task: "取消与写入重叠", currentPage: "/tianyi", operationId: "operation.owner-overlap.start" });
+  await adapter.approveStep({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, stepId: started.plan[0]!.stepId, operationId: "operation.owner-overlap.context" });
+  const inFlight = adapter.continueRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, operationId: "operation.owner-overlap.stream" });
+  await streamAppendStarted;
+  const cancelling = adapter.cancelRun({ projectId: started.projectId, workVersionId: started.workVersionId, sessionId: started.sessionId, runId: started.runId, reason: "作者停止运行", operationId: "operation.owner-overlap.cancel" });
+  releaseStreamAppend?.();
+  const cancelled = await cancelling;
+  assert.equal(cancelled.status, "cancelled", "the author cancel is serialized after the accepted stream append");
+  releaseProvider?.();
+  const late = await inFlight;
+  assert.equal(late.status, "cancelled");
+  assert.equal(events.at(-1)?.projection.status, "cancelled", "the existing Session owner keeps cancellation as the final projection");
+});
+
 test("a cancel that arrives after durable completion reports completion, while a failed cancel is never optimistic", async () => {
   const completedFixture = fixtureAdapter();
   const started = await completedFixture.adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.completed-before-cancel", task: "完成优先", currentPage: "/tianyi", operationId: "operation.completed-before-cancel.start" });
