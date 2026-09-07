@@ -27,10 +27,10 @@ export function EngineeringLogPanel(props: { projectId: string | null }) {
   const actions = useMemo(() => [...new Set(entries.map((entry) => entry.action))], [entries]);
   const visible = filter === "all" ? entries : entries.filter((entry) => entry.action === filter);
   const exportLog = () => {
-    const safe = visible.map((entry) => ({ time: entry.recordedAt, action: entry.action, result: entry.outcome, objectType: entry.targetType, objectCount: entry.targets.length, receiptId: entry.id, providerCalls: entry.estimatedProviderCost }));
+    const safe = visible.map((entry) => ({ time: entry.recordedAt, action: entry.action, result: entry.outcome, objectType: entry.targetType, objectCount: entry.targets.length, receiptId: entry.id, estimatedProviderCost: entry.estimatedProviderCost }));
     const blob = new Blob([JSON.stringify({ version: "tianyan-author-operation-log-export/v1", projectId: props.projectId, entries: safe }, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
-    anchor.href = url; anchor.download = "tianyan-operation-log.json"; anchor.click(); URL.revokeObjectURL(url);
+    anchor.href = url; anchor.download = "tianyan-operation-log.json"; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
   return <section className="engineering-log-panel" aria-label={t("log.label")} data-receipt-projection="author-action-receipts">
     <div className="page-tool-filter-row">
