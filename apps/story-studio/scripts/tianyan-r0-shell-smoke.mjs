@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { fileURLToPath } from "node:url";
@@ -1383,6 +1383,11 @@ async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
   assert.match(await packagePanel.innerText(), /来源回执索引/u, "The creation package exposes its source receipt index.");
   const [download] = await Promise.all([page.waitForEvent("download"), packagePanel.getByRole("button", { name: "下载 Markdown", exact: true }).click()]);
   assert.equal(download.suggestedFilename(), "tianyan-story-package.md");
+  const downloadedPath = await download.path();
+  assert.ok(downloadedPath, "Creation export must materialize a file, not merely a suggested filename.");
+  const downloadedMarkdown = readFileSync(downloadedPath, "utf8");
+  assert.match(downloadedMarkdown, /钟声后的作者确认事件/u, "The selected confirmed Event must be present in the downloaded Markdown.");
+  assert.doesNotMatch(downloadedMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "An unselected author secret must not enter the downloaded Markdown.");
   if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-1440-creation-scope-package.png"), fullPage: false });
 
   // A second project receives a distinct receipt through the same owner. The
