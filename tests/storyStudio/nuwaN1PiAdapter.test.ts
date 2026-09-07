@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createNuwaN1PiAdapter } from "../../apps/story-studio/server/nuwaN1PiAdapter.mjs";
+import { createPiTextAgentAdapter, type PiTextProviderEvent } from "../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 
 const context = {
   version: "tianyan-nuwa-n1-role-context/v1",
@@ -69,3 +70,41 @@ test("Nuwa N1 Pi adapter rejects a model result that tries to exceed the role ac
   const tool = await adapter.executeTool({ context, request });
   await assert.rejects(adapter.continueAfterTool({ context, toolResult: tool }), /outside this role's allowed read-only turn/u);
 });
+
+test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without reusing Provider keys", async () => {
+  const providerCalls: Array<{ agentRunId: string; providerCall: number; messages: unknown[] }> = [];
+  const runtime = createPiTextAgentAdapter();
+  const adapter = createNuwaN1PiAdapter({
+    runtime,
+    projectId: "project.test",
+    runId: context.runId,
+    provider: { providerId: "local-provider", profileId: "local-profile", modelId: "local-model" },
+    sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
+    async openProviderStream(input) {
+      providerCalls.push({ agentRunId: input.agentRunId, providerCall: input.providerCall, messages: structuredClone(input.messages) });
+      if (input.providerCall === 1) {
+        const args = "{}";
+        return { traceId: `trace.${input.agentRunId}.1`, events: stream([
+          { type: "tool-call-start", id: `tool.${input.agentRunId}`, name: "read_role_context", index: 0 },
+          { type: "tool-call-delta", id: `tool.${input.agentRunId}`, name: "read_role_context", index: 0, argumentsDelta: args },
+          { type: "tool-call-end", id: `tool.${input.agentRunId}`, name: "read_role_context", index: 0, argumentsJson: args, arguments: {} },
+          { type: "done" }
+        ]) };
+      }
+      return { traceId: `trace.${input.agentRunId}.2`, events: stream([{ type: "chunk", text: JSON.stringify({ intent: "只按角色可知信息观察", speech: null, action: { action: "observe", targetId: null }, observableResult: "完成受限观察。" }), finishReason: "stop", usage: { promptTokens: 32, completionTokens: 18, totalTokens: 50 } }, { type: "done" }]) };
+    }
+  });
+  const firstRequest = await adapter.request(context);
+  const first = await adapter.continueAfterTool({ context, toolResult: await adapter.executeTool({ context, request: firstRequest }) });
+  const secondContext = { ...context, attemptId: "attempt.second", step: 2, actor: { id: "character.awu", revision: "r1" } };
+  const secondRequest = await adapter.request(secondContext);
+  const second = await adapter.continueAfterTool({ context: secondContext, toolResult: await adapter.executeTool({ context: secondContext, request: secondRequest }) });
+
+  assert.equal(first.action.action, "observe");
+  assert.equal(second.actor.id, "character.awu");
+  assert.deepEqual(providerCalls.map((call) => call.providerCall), [1, 2, 1, 2]);
+  assert.notEqual(providerCalls[0]?.agentRunId, providerCalls[2]?.agentRunId, "each durable N1 attempt supplies a distinct Agent Run identity to the Provider bridge");
+  assert.equal(JSON.stringify(providerCalls).includes("event.secret"), false, "the actual second Provider turn never receives excluded IDs");
+});
+
+async function* stream(values: PiTextProviderEvent[]): AsyncGenerator<PiTextProviderEvent> { for (const value of values) yield value; }
