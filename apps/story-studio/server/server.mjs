@@ -78,6 +78,7 @@ import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGatew
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
+import { createOpenAiCompatibleAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
 import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
 import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
@@ -177,7 +178,9 @@ const nuwaN1Port = createNuwaN1Port({
     create({ projectId, runId, sourceIdentity }) {
       const availability = nuwaN1PiAvailability();
       if (!availability || !agentRuntimePluginResolution.runtime) return null;
-      const profile = readActiveProviderProfile();
+      const profile = nuwaN1LocalHostUrl
+        ? { provider: nuwaN1LocalHostProfile.providerId, id: nuwaN1LocalHostProfile.id, modelId: nuwaN1LocalHostProfile.modelId }
+        : readActiveProviderProfile();
       return createNuwaN1PiAdapter({
         runtime: agentRuntimePluginResolution.runtime,
         projectId,
@@ -266,6 +269,22 @@ const providerBudgetLedger = createProviderRequestBudgetLedger({
 });
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
 const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
+// Test-only host mode exercises the same Gateway -> HTTP/SSE -> Pi boundary
+// without a credential, paid Provider, or production switch.
+const nuwaN1LocalHostUrl = process.env.NODE_ENV === "test" && /^http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?$/u.test(process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL || "")
+  ? process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL
+  : null;
+const nuwaN1LocalHostProfile = Object.freeze({
+  id: "local-nuwa-n1-http-sse",
+  label: "本地 N1 HTTP/SSE 宿主",
+  purpose: "structured-story",
+  providerId: "local-nuwa-n1-host",
+  modelId: "nuwa-n1-sse-fixture",
+  maxOutputTokens: 512,
+  temperature: 0,
+  timeoutMs: 5_000,
+  enableThinking: false
+});
 // This adapter is test-process-only. It lets the browser exercise the exact
 // grounded-answer transport without configuring or invoking a paid Provider.
 const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
@@ -287,9 +306,10 @@ const providerGateway = createAiProviderGateway({
       apiKeyProvider: () => readProviderCredential(instance.provider),
       baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
     })),
-    ...(agentFakeProviderStreamAllowed ? [createLocalFakeGroundedAdapter()] : [])
+    ...(agentFakeProviderStreamAllowed ? [createLocalFakeGroundedAdapter()] : []),
+    ...(nuwaN1LocalHostUrl ? [createNuwaN1LocalHostAdapter(nuwaN1LocalHostUrl)] : [])
   ],
-  ...(agentFakeProviderStreamAllowed ? { profiles: [...DEFAULT_MODEL_PROFILES, localFakeGroundedProfile] } : {}),
+  ...(agentFakeProviderStreamAllowed || nuwaN1LocalHostUrl ? { profiles: [...DEFAULT_MODEL_PROFILES, ...(agentFakeProviderStreamAllowed ? [localFakeGroundedProfile] : []), ...(nuwaN1LocalHostUrl ? [nuwaN1LocalHostProfile] : [])] } : {}),
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
@@ -297,7 +317,8 @@ const providerGateway = createAiProviderGateway({
     maxOutputTokensCap: 2_048
   } : {})
 });
-syncProviderGatewayProfile();
+if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
+else syncProviderGatewayProfile();
 const multiNodePredictionGateway = productPathRealProviderAllowed
   ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
   : null;
@@ -3156,6 +3177,9 @@ function readActiveProviderProfile() {
  * use the separately labelled zero-Provider fake), never an implicit live
  * fallback. */
 function nuwaN1PiAvailability() {
+  if (nuwaN1LocalHostUrl && agentRuntimePluginResolution.runtime) {
+    return { kind: "local-pi-host", label: "本地 HTTP/SSE Pi 宿主已配置；不调用真实 Provider", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
+  }
   if (process.env.TIANYAN_NUWA_N1_PI_ADAPTER !== "1" || !productPathRealProviderAllowed || !agentRuntimePluginResolution.runtime) return null;
   const profile = readActiveProviderProfile();
   const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
@@ -3224,6 +3248,28 @@ function createLocalFakeGroundedAdapter() {
         })()
       });
     }
+  });
+}
+
+function createNuwaN1LocalHostAdapter(baseUrl) {
+  const transport = createOpenAiCompatibleAdapter({
+    id: nuwaN1LocalHostProfile.providerId,
+    label: nuwaN1LocalHostProfile.label,
+    defaultBaseUrl: baseUrl,
+    modelMetadata: [{ id: nuwaN1LocalHostProfile.modelId, label: nuwaN1LocalHostProfile.label, capabilities: ["chat", "streaming", "tool-calls"] }],
+    credentialRequired: false,
+    modelDiscovery: null,
+    traceHeader: "x-request-id"
+  });
+  // The Gateway still validates messages/tools and owns the transport call,
+  // but this isolated loopback fixture is intentionally outside the paid
+  // Provider ledger. N1 itself continues to cap every run at 12 dispatches.
+  return Object.freeze({
+    id: transport.id,
+    label: transport.label,
+    get models() { return transport.models; },
+    status() { return { ...transport.status(), configured: false, reason: "loopback-http-sse-test-host" }; },
+    openChatStream(input) { return transport.openChatStream(input); }
   });
 }
 

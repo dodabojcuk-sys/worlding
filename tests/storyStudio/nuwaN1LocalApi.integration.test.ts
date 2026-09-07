@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -114,8 +115,37 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(value.authorControl.listCandidateReviews({ projectId: value.project.id }).length, 1);
 });
 
+test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {
+  const value = fixture();
+  const host = await startSseHost();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    await new Promise<void>((resolve, reject) => host.server.close((error) => error ? reject(error) : resolve()));
+    rmSync(value.root, { recursive: true, force: true });
+  });
+
+  const running = await start(value, false, host.baseUrl);
+  child = running.child;
+  const created = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("http-sse-create"));
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel;
+  assert.equal(model.run.provider.kind, "local-pi-host");
+  for (let step = 1; step <= 3; step += 1) {
+    const response = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: `http-sse-step-${step}` });
+    assert.equal(response.status, 200, JSON.stringify(response.payload));
+    model = response.payload.data as NuwaReadModel;
+  }
+  assert.equal(model.run.steps.length, 3);
+  assert.deepEqual(model.run.steps.map((step) => step.actorId), [value.characters[0].id, value.characters[1].id, value.characters[0].id]);
+  assert.equal(host.requests.length, 6, "each durable N1 step performs exactly the required tool call and one result call through HTTP/SSE");
+  assert.deepEqual(host.requests.map((request) => request.toolLoopTurn), [false, true, false, true, false, true]);
+  assert.equal(host.requests.every((request) => request.messages.length > 0), true, "every HTTP/SSE call receives the Pi-built Gateway transcript");
+  assert.equal(JSON.stringify(host.requests).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
+});
+
 type NuwaReadModel = {
-  run: { runId: string; status: string; revision: number; dispatches: number; steps: Array<{ stepId: string; tool: { name: string } }>; provider: { providerCalls: number } };
+  run: { runId: string; status: string; revision: number; dispatches: number; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
   contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
@@ -173,7 +203,7 @@ function findNoteById(root: string, id: string): string | null {
   return null;
 }
 
-async function start(value: ReturnType<typeof fixture>, fake: boolean) {
+async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHostUrl?: string) {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
@@ -189,6 +219,7 @@ async function start(value: ReturnType<typeof fixture>, fake: boolean) {
       TIANYAN_PROVIDER_APP_DATA_ROOT: path.join(value.root, "provider-app"),
       TIANYAN_PROVIDER_PROFILE_DEV_MODE: "1",
       ...(fake ? { TIANYAN_NUWA_N1_FAKE_PROVIDER: "1" } : {})
+      , ...(localPiHostUrl ? { TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL: localPiHostUrl, TIANYAN_PROVIDER_BUDGET_TEST_MODE: "1" } : {})
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -226,3 +257,27 @@ async function waitForServer(baseUrl: string, child: ChildProcess) {
 }
 
 function delay(milliseconds: number) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
+
+async function startSseHost(): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> }> {
+  const requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> = [];
+  const server = createHttpServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/chat/completions") { response.statusCode = 404; response.end(); return; }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { messages?: unknown[]; tool_choice?: unknown };
+    const toolLoopTurn = Array.isArray(payload.messages) && payload.messages.some((message) => (message as { role?: string }).role === "tool");
+    requests.push({ idempotencyKey: request.headers["idempotency-key"]?.toString() || null, toolLoopTurn, messages: payload.messages || [] });
+    response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-request-id": `local-sse-${requests.length}` });
+    if (!toolLoopTurn) {
+      response.write(`data: ${JSON.stringify({ model: "nuwa-n1-sse-fixture", choices: [{ delta: { tool_calls: [{ index: 0, id: `tool.${requests.length}`, type: "function", function: { name: "read_role_context", arguments: "{}" } }] }, finish_reason: "tool_calls" }] })}\n\n`);
+    } else {
+      const result = JSON.stringify({ intent: "只依据本角色工具上下文观察", speech: null, action: { action: "observe", targetId: null }, observableResult: "完成一项受限观察。" });
+      response.write(`data: ${JSON.stringify({ model: "nuwa-n1-sse-fixture", choices: [{ delta: { content: result }, finish_reason: "stop" }], usage: { prompt_tokens: 24, completion_tokens: 16, total_tokens: 40 } })}\n\n`);
+    }
+    response.end("data: [DONE]\n\n");
+  });
+  await new Promise<void>((resolve, reject) => server.listen(0, "127.0.0.1", (error?: Error) => error ? reject(error) : resolve()));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests };
+}
