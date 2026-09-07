@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   predictionSourceSummary,
   predictionStageForView,
+  predictionRunStatusAfterTerminalFence,
   shouldApplyPredictionRunSnapshot,
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
@@ -43,7 +44,18 @@ test("an older non-terminal Run snapshot cannot overwrite a terminal owner state
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "ready" }), false);
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "stale", incomingStatus: "ready" }), false);
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "abandoned" }), true);
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "stale", incomingStatus: "abandoned" }), true);
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: null, incomingStatus: "ready" }), true);
+});
+
+test("a terminal prediction fence survives a panel remount and projects an older ready replay as terminal", () => {
+  const projectId = "project.remount-terminal-fence";
+  const runId = "prediction-run.remount-terminal-fence";
+  assert.equal(predictionRunStatusAfterTerminalFence({ projectId, runId, incomingStatus: "abandoned" }), "abandoned");
+  // A new panel instance has no local refs. Its replay/history reader must still
+  // see the author-terminal projection rather than reactivate the ready bundle.
+  assert.equal(predictionRunStatusAfterTerminalFence({ projectId, runId, incomingStatus: "ready" }), "abandoned");
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "abandoned" }), true);
 });
 
 test("the drafted receipt recovery effect invalidates stale responses after a terminal Run update", () => {
@@ -51,7 +63,9 @@ test("the drafted receipt recovery effect invalidates stale responses after a te
   assert.match(panel, /predictionViewStateFromDraftedReceiptRecovery\(\{ runStatus: run\.status/u);
   assert.match(panel, /receiptRecoveryGeneration\.current !== generation/u);
   assert.match(panel, /setObservedRun\(abandoned\)/u);
-  assert.match(panel, /shouldApplyPredictionRunSnapshot\(\{ terminalStatus, incomingStatus: next\.status \}\)/u);
+  assert.match(panel, /shouldApplyPredictionRunSnapshot\(\{ terminalStatus, incomingStatus: observed\.status \}\)/u);
+  assert.match(panel, /predictionRunStatusAfterTerminalFence\(\{ projectId: project\.id, runId: next\.runId, incomingStatus: next\.status \}\)/u);
+  assert.match(panel, /const status = predictionRunStatusAfterTerminalFence\(\{ projectId, runId: replay\.runId, incomingStatus: replay\.status \}\)/u);
   assert.match(panel, /historyLoadGeneration\.current \+= 1/u);
   assert.match(panel, /runRecoveryGeneration\.current \+= 1/u);
   assert.match(panel, /if \(!run \|\| \["abandoned", "stale"\]\.includes\(run\.status\) \|\| detail\?\.origin !== "canvas"/u);

@@ -4,6 +4,36 @@ export type TianyiPredictionViewState = "task" | "running" | "overview" | "focus
 export type TianyiPredictionStage = "task" | "running" | "candidates" | "review";
 export type TianyiPredictionTerminalRunStatus = Extract<PredictionRunStatus, "abandoned" | "stale">;
 
+// Component refs disappear whenever the shell remounts. Keep this UI-only,
+// browser-lifetime fence separate from the persisted Run owner so a response
+// captured before an author-terminal update cannot revive that Run afterwards.
+const terminalPredictionRunStatuses = new Map<string, TianyiPredictionTerminalRunStatus>();
+
+function terminalPredictionRunKey(projectId: string, runId: string): string {
+  return `${projectId}:${runId}`;
+}
+
+export function predictionRunStatusAfterTerminalFence(input: {
+  projectId: string;
+  runId: string;
+  incomingStatus: PredictionRunStatus;
+}): PredictionRunStatus {
+  const key = terminalPredictionRunKey(input.projectId, input.runId);
+  const remembered = terminalPredictionRunStatuses.get(key) ?? null;
+  // Explicit abandonment is the author decision that supersedes a stale
+  // projection, matching the persisted Run owner's stale -> abandoned rule.
+  if (input.incomingStatus === "abandoned") {
+    terminalPredictionRunStatuses.set(key, "abandoned");
+    return "abandoned";
+  }
+  if (remembered === "abandoned") return "abandoned";
+  if (input.incomingStatus === "stale") {
+    terminalPredictionRunStatuses.set(key, "stale");
+    return "stale";
+  }
+  return remembered ?? input.incomingStatus;
+}
+
 export function predictionViewStateFromPersistence(input: {
   runStatus: PredictionRunStatus | null;
   hasBundle: boolean;
@@ -31,7 +61,9 @@ export function shouldApplyPredictionRunSnapshot(input: {
   terminalStatus: TianyiPredictionTerminalRunStatus | null;
   incomingStatus: PredictionRunStatus;
 }): boolean {
-  return input.terminalStatus === null || input.terminalStatus === input.incomingStatus;
+  return input.terminalStatus === null
+    || input.terminalStatus === input.incomingStatus
+    || (input.terminalStatus === "stale" && input.incomingStatus === "abandoned");
 }
 
 export function predictionStageForView(view: TianyiPredictionViewState): TianyiPredictionStage {
