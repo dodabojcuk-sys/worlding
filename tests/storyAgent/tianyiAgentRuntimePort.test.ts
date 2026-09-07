@@ -265,6 +265,7 @@ test("a successful cancel remains terminal when a buffered Provider completion a
 
 test("cancel waits for an in-progress owner append instead of losing to a same-run write conflict", async () => {
   const events: TianyiAgentRuntimeEvent[] = [];
+  let acceptedStreamProjection: TianyiAgentRuntimeEvent["projection"] | null = null;
   let releaseStreamAppend: (() => void) | null = null;
   let streamAppendEntered: (() => void) | null = null;
   let releaseProvider: (() => void) | null = null;
@@ -281,6 +282,7 @@ test("cancel waits for an in-progress owner append instead of losing to a same-r
           if (event.kind === "stream") {
             streamAppendEntered?.();
             await streamAppendGate;
+            acceptedStreamProjection = structuredClone(event.projection);
           }
           events.push(event);
           return { alreadyCompleted: false, receiptId: event.projection.receipts.at(-1)?.receiptId || "receipt.fixture" };
@@ -307,10 +309,63 @@ test("cancel waits for an in-progress owner append instead of losing to a same-r
   releaseStreamAppend?.();
   const cancelled = await cancelling;
   assert.equal(cancelled.status, "cancelled", "the author cancel is serialized after the accepted stream append");
+  assert.equal(cancelled.revision, (acceptedStreamProjection?.revision ?? 0) + 1, "cancellation advances from the queued stream projection instead of reusing its stale revision");
+  assert.equal(cancelled.observability.streamEventCount, 1, "cancellation preserves the already accepted stream count");
+  assert.ok(cancelled.receipts.some((receipt) => receipt.operationId === "operation.owner-overlap.stream.stream.1"), "cancellation retains the accepted stream receipt");
   releaseProvider?.();
   const late = await inFlight;
   assert.equal(late.status, "cancelled");
   assert.equal(events.at(-1)?.projection.status, "cancelled", "the existing Session owner keeps cancellation as the final projection");
+});
+
+test("same-Session runs serialize their owner writes without sharing or losing their projections", async () => {
+  const events: TianyiAgentRuntimeEvent[] = [];
+  let ownerBusy = false;
+  let releaseOwnerWrite: (() => void) | null = null;
+  let firstOwnerWriteEntered: (() => void) | null = null;
+  const ownerWriteGate = new Promise<void>((resolve) => { releaseOwnerWrite = resolve; });
+  const firstOwnerWrite = new Promise<void>((resolve) => { firstOwnerWriteEntered = resolve; });
+  let holdConcurrentWrites = false;
+  let ownerCollisionCount = 0;
+  const adapter = createTianyiAgentRuntimePort({
+    persistence: {
+      async appendEvent(event) {
+        if (ownerBusy) {
+          ownerCollisionCount += 1;
+          throw new Error("Agent 运行回执写入冲突；请重新读取后再试。");
+        }
+        ownerBusy = true;
+        try {
+          if (holdConcurrentWrites) {
+            firstOwnerWriteEntered?.();
+            await ownerWriteGate;
+          }
+          events.push(event);
+          return { alreadyCompleted: false, receiptId: event.projection.receipts.at(-1)?.receiptId || "receipt.fixture" };
+        } finally {
+          ownerBusy = false;
+        }
+      },
+      async readEvents(input) { return events.filter((event) => event.runId === input.runId); }
+    },
+    async buildContextManifest(input) { return manifest(input.sessionId, input.workVersionId); }
+  });
+  const first = await adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.shared-owner", task: "第一条并行 Run", currentPage: "/tianyi", operationId: "operation.shared.first.start" });
+  const second = await adapter.startRun({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.shared-owner", task: "第二条并行 Run", currentPage: "/tianyi", operationId: "operation.shared.second.start" });
+  holdConcurrentWrites = true;
+  const firstSteering = adapter.steerRun({ projectId: first.projectId, workVersionId: first.workVersionId, sessionId: first.sessionId, runId: first.runId, instruction: "第一条纠正", operationId: "operation.shared.first.steer" });
+  await firstOwnerWrite;
+  const secondSteering = adapter.steerRun({ projectId: second.projectId, workVersionId: second.workVersionId, sessionId: second.sessionId, runId: second.runId, instruction: "第二条纠正", operationId: "operation.shared.second.steer" });
+  void secondSteering.catch(() => undefined);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(ownerCollisionCount, 0, "same-Session Run writes wait for the shared owner lane instead of racing its CAS");
+  releaseOwnerWrite?.();
+  const [firstUpdated, secondUpdated] = await Promise.all([firstSteering, secondSteering]);
+  assert.equal(firstUpdated.steering[0]?.instruction, "第一条纠正");
+  assert.equal(secondUpdated.steering[0]?.instruction, "第二条纠正");
+  assert.ok(firstUpdated.revision > first.revision);
+  assert.ok(secondUpdated.revision > second.revision);
+  assert.equal(events.filter((event) => event.operationId.endsWith(".steer")).length, 2, "both Run projections persist through the one Session owner");
 });
 
 test("a cancel that arrives after durable completion reports completion, while a failed cancel is never optimistic", async () => {
