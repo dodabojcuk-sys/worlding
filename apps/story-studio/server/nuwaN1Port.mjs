@@ -13,6 +13,7 @@ import {
   resumeNuwaN1Run,
   startNuwaN1Run
 } from "../../../src/storyIntelligence/index.ts";
+import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 
 const VERSION = "tianyan-nuwa-n1-port/v1";
 const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
@@ -23,7 +24,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, now = () => new Date().toISOString() }) {
   function availability() {
     return fakeProviderAllowed
       ? { kind: "local-fake", label: "本地工程演练 · 0 Provider", adapterId: FAKE_ADAPTER_ID, providerCalls: 0 }
@@ -71,8 +72,9 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         goal,
         contextPreview: actors.map((actor) => ({
           actorId: actor.character.id,
-          evidenceRefs: actor.knownFacts.map((fact) => fact.sourceRef.id),
-          knowledgeSubjects: actor.knownFacts.map((fact) => fact.factId),
+          evidenceRefs: [...actor.knownFacts.map((fact) => fact.sourceRef.id), ...actor.beliefs.map((belief) => belief.sourceRef.id)],
+          knowledgeItems: actor.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
+          beliefItems: actor.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
           excludedCount: actor.unknownFactIds.length
         }))
       }
@@ -131,7 +133,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       runId: current.runId,
       expectedRevision: current.revision,
       operationId: operation(input.operationId),
-      adapter: createLocalFakeAdapter(),
+      adapter: createLocalFakeAdapter(input.projectId, current.runId),
       now: now()
     });
     return present(input.projectId, next);
@@ -205,14 +207,19 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         goal: run.authorGoal,
         steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
+        attempts: run.attempts.map((attempt) => ({ attemptId: attempt.attemptId, actorId: attempt.actor.id, requestId: attempt.requestId, dispatches: attempt.dispatches.map((dispatch) => ({ phase: dispatch.phase, status: dispatch.status, recordedAt: dispatch.recordedAt, detail: dispatch.detail })), tool: attempt.tool, usage: attempt.usage, outcome: attempt.outcome, recordedAt: attempt.recordedAt, updatedAt: attempt.updatedAt })),
         provider: { ...availability(), projectId: project.id },
         blocker: run.blocker
       },
       contextInspector: {
         actors: run.actors.map((actor) => ({
           actorId: actor.character.id,
-          evidenceRefs: actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, revision: fact.sourceRef.revision, visibility: fact.visibility })),
-          knowledgeSubjects: actor.knownFacts.map((fact) => fact.factId),
+          evidenceRefs: [
+            ...actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, revision: fact.sourceRef.revision, visibility: fact.visibility })),
+            ...actor.beliefs.map((belief) => ({ id: belief.sourceRef.id, revision: belief.sourceRef.revision, visibility: belief.stance }))
+          ],
+          knowledgeItems: actor.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
+          beliefItems: actor.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
           excludedCount: actor.unknownFactIds.length
         }))
       },
@@ -233,22 +240,39 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     const sceneEvidence = operations.listWorldObjects({ projectId, type: "event" })
       .filter((item) => item.status !== "archived" && scene.storyUnit.id && operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds.includes(item.id))
       .map((item) => operations.readWorldObject({ projectId, objectId: item.id }));
+    const formalCharacters = operations.listWorldObjects({ projectId, type: "character" })
+      .filter((item) => item.status !== "archived")
+      .map((item) => ({ id: item.id, label: item.title, revisionToken: item.revisionToken }));
     return refs.map((ref) => {
       if (!ref || typeof ref.id !== "string" || seen.has(ref.id)) throw failure("角色必须使用不同的稳定身份。", 400);
       seen.add(ref.id);
       const summary = operations.listWorldObjects({ projectId, type: "character" }).find((item) => item.id === ref.id && item.status !== "archived");
       if (!summary || summary.revisionToken !== ref.revision) throw failure("角色不存在、已归档或版本已变更。", 409);
-      const knownFacts = sceneEvidence
-        .filter((event) => event.knowledgeSubjects.includes(summary.id))
-        .map((event) => ({ factId: `event.${event.id}`, summary: `已确认事件：${event.title}`, sourceRef: { id: event.id, revision: event.revisionToken }, visibility: "experienced" }));
-      const unknownFactIds = sceneEvidence.filter((event) => !event.knowledgeSubjects.includes(summary.id)).map((event) => `event.${event.id}`);
+      const projection = buildEventStoryCrossingKnowledgeProjection({
+        projectId,
+        observerId: summary.id,
+        characters: formalCharacters,
+        events: sceneEvidence.map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, knowledgeSubjectIds: event.knowledgeSubjects }))
+      });
+      const knownFacts = projection.visibleEvents
+        .filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState))
+        .map((event) => ({ factId: event.eventId, summary: `${event.knowledgeLabel}：${event.title}`, sourceRef: { id: event.eventId, revision: event.revisionToken }, visibility: event.knowledgeState }));
+      const beliefs = projection.visibleEvents
+        .filter((event) => ["believes", "suspects", "misled", "denied", "contradicted"].includes(event.knowledgeState))
+        .map((event) => ({
+          beliefId: `belief.${event.eventId}`,
+          summary: `${event.knowledgeLabel}：${event.title}`,
+          stance: event.knowledgeState === "misled" ? "misunderstood" : event.knowledgeState === "suspects" || event.knowledgeState === "contradicted" ? "suspected" : "believed",
+          sourceRef: { id: event.eventId, revision: event.revisionToken }
+        }));
+      const unknownFactIds = projection.hiddenEventIds;
       return {
         character: { id: summary.id, revision: summary.revisionToken },
         displayName: summary.title,
         coreSummary: `正式角色 ${summary.title}；本轮只可使用角色稳定身份及已授权证据。`,
         localGoal: `围绕“${scene.label}”回应当前可观察的变化。`,
         knownFacts,
-        beliefs: [],
+        beliefs,
         unknownFactIds,
         allowedActions: ["speak", "observe", "ask"]
       };
@@ -259,7 +283,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     if (!fakeProviderAllowed) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
   }
 
-  function createLocalFakeAdapter() {
+  function createLocalFakeAdapter(projectId, runId) {
     return {
       adapterId: FAKE_ADAPTER_ID,
       async request(context) {
@@ -269,8 +293,17 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         const actorToken = Buffer.from(context.actor.id, "utf8").toString("hex").slice(0, 48);
         return { type: "tool-request", toolName: "read_role_context", requestId: `n1-tool.${context.runId}.${context.step}.${actorToken}`, actor: context.actor };
       },
+      async executeTool({ context, request }) {
+        const current = requireRun(workspacePath(projectId), runId);
+        const actor = current.actors.find((candidate) => candidate.character.id === request.actor.id && candidate.character.revision === request.actor.revision);
+        if (request.toolName !== "read_role_context" || request.actor.id !== context.actor.id || request.actor.revision !== context.actor.revision || context.runId !== current.runId || !actor) {
+          throw new Error("角色上下文工具拒绝了越界或过期的请求。");
+        }
+        return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: request.actor, context: structuredClone(context) };
+      },
       async continueAfterTool({ context, toolResult }) {
         if (toolResult.context.actor.id !== context.actor.id) throw new Error("本地工程演练工具结果越过角色范围。");
+        if (fakeStepDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fakeStepDelayMs));
         const heard = context.recentDialogue.at(-1)?.text || null;
         const evidence = context.knownFacts[0]?.summary || "当前没有额外可知事件；保持未知。";
         return {

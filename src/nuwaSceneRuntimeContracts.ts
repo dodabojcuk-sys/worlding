@@ -14,6 +14,7 @@ export type {
 export type {
   NuwaN1Actor,
   NuwaN1ActorResult,
+  NuwaN1Attempt,
   NuwaN1Belief,
   NuwaN1CandidateHandoff,
   NuwaN1Context,
@@ -26,5 +27,6 @@ export type {
   NuwaN1StableRef,
   NuwaN1Step,
   NuwaN1ToolRequest,
-  NuwaN1ToolResult
+  NuwaN1ToolResult,
+  NuwaN1Usage
 } from "./storyIntelligence/nuwaN1Runtime.ts";

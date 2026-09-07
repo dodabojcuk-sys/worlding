@@ -2231,7 +2231,7 @@ export type NuwaN1Step = {
   action: { action: string; targetId: string | null } | null;
   observableResult: string;
   tool: { name: "read_role_context"; requestId: string };
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
   committedAt: string;
 };
 export type NuwaN1Run = {
@@ -2243,6 +2243,17 @@ export type NuwaN1Run = {
   goal: string;
   steps: NuwaN1Step[];
   dispatches: number;
+  attempts: Array<{
+    attemptId: string;
+    actorId: string;
+    requestId: string | null;
+    dispatches: Array<{ phase: "request" | "continue-after-tool"; status: "dispatched" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null }>;
+    tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
+    usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" } | null;
+    outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
+    recordedAt: string;
+    updatedAt: string;
+  }>;
   provider: NuwaN1Availability;
   stoppedAt?: string | null;
   blocker?: string | null;
@@ -2251,7 +2262,8 @@ export type NuwaN1ContextInspector = {
   actors: Array<{
     actorId: string;
     evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
-    knowledgeSubjects: string[];
+    knowledgeItems: Array<{ id: string; summary: string; visibility: string }>;
+    beliefItems: Array<{ id: string; summary: string; stance: string }>;
     excludedCount: number;
   }>;
 };
@@ -2275,7 +2287,7 @@ export type NuwaN1Setup = {
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
     goal: string;
-    contextPreview: Array<{ actorId: string; knowledgeSubjects: string[]; evidenceRefs: string[]; excludedCount: number }>;
+    contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
   };
 };
 export type NuwaN1CandidateResult = NuwaN1ReadModel & {

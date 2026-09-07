@@ -168,7 +168,8 @@ const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ ope
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
-  fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1"
+  fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
+  fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0
 });
 const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
 const relationOperations = createStoryStudioRelationOperations({

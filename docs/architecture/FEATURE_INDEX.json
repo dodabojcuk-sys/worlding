@@ -142,7 +142,7 @@
     },
     {
       "id": "nuwa-primary-workspace",
-      "status": "PRODUCTION_CONNECTED",
+      "status": "LOCAL_REVIEW",
       "maturity": "bounded-n1-local-tool-loop-real-provider-pending",
       "entrypoints": ["apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "src/storyIntelligence/nuwaRunPack.ts"],
       "sourceFiles": ["src/storyIntelligence/nuwaN1Runtime.ts", "src/storyIntelligence/nuwaRunPack.ts", "apps/story-studio/server/nuwaN1Port.mjs", "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
@@ -152,7 +152,7 @@
       "providerDependency": "local fake tool round trip is test/development only and visibly zero-Provider; production Provider adapter and real-model acceptance remain unconnected",
       "tests": ["tests/storyIntelligence/nuwaN1Runtime.test.ts", "tests/storyStudio/nuwaN1LocalApi.integration.test.ts", "tests/storyStudio/nuwaN1WorkspaceSource.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyControlSurface/storyStudioAuthorControl.test.ts"],
       "legacyProvenance": ["17efb1a Nuwa five-stage focus workspace superseded by approved rehearsal IA", "997c5e7 contextual shell focus grammar"],
-      "remainingGap": "N1 locally connects two or three formal characters, one Story Unit, isolated role context, bounded steps, pause/reload/resume/stop/replay and candidate-only handoff. A production Provider adapter, precise tokenizer accounting, accepted-memory relevance and Founder manual acceptance remain separate work"
+      "remainingGap": "N1 locally connects two or three formal characters, one Story Unit, fact-versus-belief role context, explicit tool execution, exact-or-conservative token gates, durable attempt receipts, pause/reload/resume/stop/replay/new-run and candidate-only handoff. A production Provider adapter, matching tokenizer, accepted-memory relevance, real-model evidence and Founder manual acceptance remain separate work"
     },
     {
       "id": "nuwa-contextual-handoff",

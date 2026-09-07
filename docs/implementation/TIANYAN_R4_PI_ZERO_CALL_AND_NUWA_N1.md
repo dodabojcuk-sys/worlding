@@ -10,6 +10,7 @@
 - 权威预算账本记录到 R4 开始前为：setup `3`、generation `16`、tool-loop `3`、retry `1`、total `19`。R4 在原 synthetic-only 回执下实际执行了 1 次模型目录连接验证与 1 次最小推理：A、B 均通过，B 返回 `finishReason=stop`、总计 10 tokens；这不是故事对话或工具调用成功。该回执的六次实际 Provider dispatch 已用尽，C/D/E 未运行。
 - A 暴露了旧实现缺口：`discoverModels` 的真实 setup dispatch 没有写入账本，所以账本当前只显示 generation `17` / total `20`。R4 已把未来模型目录诊断与 Embedding probe 纳入 setup 预留、dispatch 前校验和完成回执；不迁移或伪改这次既有账本，而是在 R4 证据中把 A 单独记为实际调用。
 - 请求计数以 Provider dispatch 为唯一边界。连接/模型诊断、正常 generation、Pi 工具回合、显式重试和修复后验证全部计入总数；自动重试上限为 0。`StoryIntakeEnvelope.providerCalls` 只记录单次产品 Run，不能替代总账本。
+- N1 已在独立叠加分支接成 2–3 个正式角色、一个 Story Unit 的本地工程闭环；专项合同/API/浏览器流程通过，真实 Provider 仍未调用，最终全量 gate 与远端精确 SHA 状态以 PR 更新为准。
 
 支持矩阵的可执行定义位于 `src/storyAgent/piR4ValidationContract.ts`，预先固定的三组真实故事结构合成样本位于 `tests/fixtures/pi-r4-perspective-cases.json`。其中世界规则、组织、作者未来意图当前只能保留为 `unresolved` 或作者私密约束；不得因为 Provider 能说出这些词就宣称已有正式 Writer。
 
@@ -43,15 +44,15 @@ R4 不扩建完整女娲。N1 只允许 2–3 个当前作品的正式角色、�
 
 输入先按身份、分支、时点和可见性过滤，再检索排序，最后在实际序列化请求处计量或保守估算 token。输出分为结构化动作/状态变化和作者可读场景；漂亮文本不能冒充已执行的多角色互动。到达预算、上下文不足、不可解冲突或硬约束阻断时必须暂停并返回决策点。
 
-### 现有差距
+### N1 本地闭环与剩余边界
 
-| 项目 | 已有基础 | N1 缺口 |
+| 项目 | 本轮接通 | 仍需单列验收 |
 | --- | --- | --- |
-| Run / 暂停 / 回放 | `nuwaBoundedScenarioRuntime.ts` 有确定性演练、checkpoint 与回放核验 | 仍是本地确定性路径，未接任意作品真实 Pi 角色回合 |
-| 人物状态 | `characterStateProjection.ts` 区分状态、知识、信念、分支与观察位置 | 真实作品角色状态尚未完整序列化到 Nuwa Provider 请求 |
-| 来源范围 | `nuwaAttentionContext.ts`、`nuwaTaskContextPack.ts` 有引用裁剪 | `maxTokens × 4` 字符预算不是中文精确 token 计量；需在请求序列化处闭合 |
-| 调度与成本 | 有 bounded run / step 概念 | 尚缺每角色、每步、整 Run 的真实 Provider 账本与无关角色休眠证据 |
-| 结果融入 | 已有候选/Owner 边界 | 需证明局部结果可在事件线回放、比较、选择性融入且副作用重放幂等 |
+| Run / 暂停 / 回放 | N1 生命周期写入既有 RunPack 的 `run.json`；刷新、暂停、恢复、停止、新建与回放复用同一 Owner | 真实 Provider 发出后断线/恢复尚未授权验证 |
+| 人物知情 | 以正式角色稳定 ID 读取既有 Event 知情投影；事实、怀疑和误导分开，来源 revision 可查 | 长期记忆相关性与更多信念变化留给后续切片 |
+| 工具与预算 | 每回合必须经过显式 `read_role_context` 执行边界；精确 usage 或 UTF-8 字节保守估算均在提交前校验 4096/1024 上限 | 生产 Provider adapter 和匹配 tokenizer 尚未接入 |
+| 调度与取消 | 最多 6 个提交步骤/12 次 dispatch；attempt 在 dispatch 时持久化，暂停/停止赢过晚到结果且费用证据不归零 | 真实计费与模型身份只可在新预算回执下验证 |
+| 结果融入 | 只把作者勾选的步骤送入既有 Candidate Review；重复 operationId 绑定相同选择 payload，正式写入保持 0 | 正式确认仍沿既有 Owner/影响预览/撤销链，本轮不绕过待确认 |
 
 N1 的本地工程闭环不再以真实 Pi 为前置：先用走同一产品路径和工具往返的本地假执行器验证角色 ID、分支、观察时点、知情隔离、请求预算和 checkpoint 恢复。真实 Pi 仍是独立验收项，本轮未授权调用；假执行器成功不得写成真实对话成功。
 
@@ -60,12 +61,16 @@ N1 的本地工程闭环不再以真实 Pi 为前置：先用走同一产品路�
 | 环节 | 生产入口与唯一 Owner | 本轮已接通行为 | 安全边界/观测 |
 | --- | --- | --- | --- |
 | 范围选择 | \`/nuwa\` 读取当前 Project 的 World Object/Story Unit Owner | 选择 2–3 位正式角色、1 个 Story Unit 和 1 个局部目标；按中文稳定 ID 与 revision 校验 | 不复制角色/事件/单元；跨项目同名角色返回冲突 |
-| 上下文编译 | \`nuwaN1Port.mjs\` 读取既有正式 Event 与 \`knowledgeSubjects\` | 按角色分开 known facts/unknown IDs/来源 revision；页面同时展示两个不同知情范围 | 角色正文、其他角色秘密、作者未来意图不进入 adapter 请求 |
-| 角色回合 | \`nuwaN1Runtime.ts\` 在既有 Nuwa RunPack 内拥有 N1 生命周期 | 角色轮换；先请求 \`read_role_context\`，再以同一 actor ref 继续；下一角色只获得已发生台词，不获得前一角色私有信念 | 每 Run 最多 6 个已提交步骤/12 个模拟 dispatch；每次输入预算 4096 tokens、输出 1024 tokens |
-| 运行状态 | RunPack 内 \`nuwa-n1.json\` 原子替换 | ready/running/paused/completed/cancelled/blocked，CAS revision、operation idempotency、暂停/刷新/恢复/停止/回放 | 每个 await 后重读；停止赢过晚到 adapter 结果；回放不重新 dispatch |
+| 上下文编译 | \`nuwaN1Port.mjs\` 读取既有 Event 知情投影与正式角色引用 | 按角色分开事实、信念/误解、未知项和来源 revision；页面以自然中文同时展示两个不同知情范围 | 只把与当前 Story Unit 相连且该稳定角色可知的 Event 放入角色上下文；作者秘密和其他角色私有信念不进入请求 |
+| 角色回合 | \`nuwaN1Runtime.ts\` 在既有 Nuwa RunPack 内拥有 N1 生命周期 | 角色轮换；adapter 先提出 \`read_role_context\`，运行时校验并执行工具，再以同一 actor ref 继续；下一角色只获得已发生台词 | 每 Run 最多 6 个已提交步骤/12 次模拟 dispatch；每次输入上限 4096、输出上限 1024，缺少计量时使用并标记保守估算 |
+| 运行状态 | RunPack 的 \`run.json\` 内嵌 \`nuwaN1\` 并原子替换；旧 \`nuwa-n1.json\` 只作一次兼容读取 | ready/running/paused/completed/cancelled/blocked，CAS revision、operation idempotency、暂停/刷新/恢复/停止/新建/回放 | dispatch attempt 在请求前持久化；每个 await 后重读；暂停/停止赢过晚到 adapter 结果；回放不重新 dispatch |
 | 作者提示 | 当前 Run 的 future-only cue | sticky 输入进入后续步骤，不改写已提交步骤 | 最多 800 字；回执只记关键状态，不记每次鼠标操作或大量原文 |
 | 结果交接 | 既有 \`storyStudioAuthorControl\` Candidate Review | 仅将作者勾选的步骤送入统一待确认 | \`formalWrites=0\`；正式事实仍需既有影响预览、Owner、版本校验、回执与撤销 |
-| 执行器 | 可替换 adapter；本轮仅 \`local-n1-tool-roundtrip-fake/v1\` | 只在 \`NODE_ENV != production\` 且 \`TIANYAN_NUWA_N1_FAKE_PROVIDER=1\` 时可用，页面明示“本地工程演练 · 0 Provider” | 生产/未授权状态返回 503，不自动回退为假对话；本轮真实 Provider dispatch = 0 |
+| 执行器 | 可替换 adapter；本轮仅 \`local-n1-tool-roundtrip-fake/v1\` | 只在测试/开发显式开关下可用，工具结果由 adapter 的 \`executeTool\` 往返返回，页面明示“本地工程演练 · 0 Provider” | 生产/未授权状态返回 503，不自动回退为假对话；本轮真实 Provider dispatch = 0 |
+
+## 独立审阅与修补
+
+未参与核心实现的 Sol High 子任务在旧基线 `d98b7a5` 上给出 `HOLD`，共记录 9 项可复现问题：R4 同 Session 并发保存、N1 取消后 dispatch 归零、忙碌态不可停止、误解提升为事实、token 上限未执行、RunPack 顶层状态分裂、handoff 幂等键未绑定选择范围、终态无新建入口、假工具由 runtime 自回填。主负责人逐项修补后，专项类型检查、12 项 N1 runtime、API/源码合同及 1440/1195 浏览器闭环已通过；完整记录见 `data/2026-09-07_天衍女娲N1小闭环/ACCEPTANCE_REPORT.md`。这仍不是 Founder 体验验收，也不是 Pi 真实模型验收。
 
 ## Nuwa-N1 真实 Provider 独立验证申请（未授权）
 

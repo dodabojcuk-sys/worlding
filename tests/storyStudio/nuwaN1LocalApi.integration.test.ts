@@ -9,6 +9,7 @@ import test from "node:test";
 
 import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
 
 const TOKEN = "nuwa-n1-local-test-token";
 
@@ -30,7 +31,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal((bootstrap.payload.data as { availability: { kind: string } }).availability.kind, "unavailable");
   const unavailableSetup = await postJson(unavailable.baseUrl, "/__local/story-studio/nuwa-n1/setup", value.request("setup-unavailable"));
   assert.equal(unavailableSetup.status, 200);
-  assert.equal((unavailableSetup.payload.data as { setup: { contextPreview: Array<{ knowledgeSubjects: string[] }> } }).setup.contextPreview[0]?.knowledgeSubjects.length, 1);
+  assert.equal((unavailableSetup.payload.data as { setup: { contextPreview: Array<{ knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } }).setup.contextPreview[0]?.knowledgeItems.length, 1);
   const unavailableCreate = await postJson(unavailable.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("create-unavailable"));
   assert.equal(unavailableCreate.status, 503);
   child.kill("SIGTERM");
@@ -40,13 +41,16 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   child = enabled.child;
   const setup = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", value.request("setup-fake"));
   assert.equal(setup.status, 200);
-  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; knowledgeSubjects: string[] }> } });
+  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } });
   assert.equal(preview.availability.kind, "local-fake");
   assert.match(preview.availability.label, /本地工程演练/u);
   assert.equal(preview.availability.providerCalls, 0);
-  assert.deepEqual(preview.setup.contextPreview.map((item) => item.knowledgeSubjects.length), [1, 0], "only the formal knowledge subject receives the selected event evidence");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => item.knowledgeItems.length), [1, 0], "only the formal knowledge subject receives the selected event evidence");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => item.beliefItems.length), [0, 1], "suspected or misled evidence remains a belief instead of becoming a confirmed fact");
 
   const objectsBefore = value.operations.listWorldObjects({ projectId: value.project.id }).length;
+  const formalSnapshotBefore = buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash;
+  const storyUnitVersionBefore = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).version;
   const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("create-fake"));
   assert.equal(created.status, 201, JSON.stringify(created.payload));
   let model = created.payload.data as NuwaReadModel;
@@ -59,7 +63,9 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps.length, 1);
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
-  assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeSubjects.length]), [[value.characters[0].id, 1], [value.characters[1].id, 0]], "the author inspector keeps both formal roles visibly distinct after the Run starts");
+  assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 0]], "the author inspector keeps both formal roles visibly distinct after the Run starts");
+  assert.equal(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary, "已亲历：钟声在桥上消失");
+  assert.equal(model.contextInspector.actors[1]?.beliefItems[0]?.summary, "被误导：潮声来自废塔");
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
 
@@ -69,6 +75,8 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.candidate.formalWrites, 0);
   assert.equal(model.review.status, "awaiting");
   assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectsBefore, "candidate handoff cannot create a formal world object");
+  assert.equal(buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash, formalSnapshotBefore, "candidate handoff cannot mutate formal Event, World, Canon, or narrative source content");
+  assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).version, storyUnitVersionBefore, "candidate handoff cannot mutate the formal Story Unit or arrangement binding");
 
   const pause = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/pause", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "pause-first" });
   assert.equal(pause.status, 200);
@@ -108,7 +116,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
 
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; steps: Array<{ stepId: string; tool: { name: string } }>; provider: { providerCalls: number } };
-  contextInspector: { actors: Array<{ actorId: string; knowledgeSubjects: string[] }> };
+  contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
 };
@@ -127,7 +135,9 @@ function fixture() {
   ];
   const knownEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。" });
   setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), knownEvent.id, characters[0]!.id);
-  const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id] });
+  const misledEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "潮声来自废塔", tags: [`知情：${characters[1]!.id}=被误导`], body: "误导内容不是世界真相，但属于阿芜当前持有的信念。" });
+  setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), misledEvent.id, characters[1]!.id);
+  const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id, misledEvent.id] });
   const otherCharacters = [
     operations.createWorldObject({ projectId: otherProject.id, type: "character", title: "林昭", body: "同名但属于另一个项目。" }),
     operations.createWorldObject({ projectId: otherProject.id, type: "character", title: "阿芜", body: "同名但属于另一个项目。" })

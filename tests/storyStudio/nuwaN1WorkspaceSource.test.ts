@@ -18,6 +18,8 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(workspace, /送入待确认/u);
   assert.match(workspace, /加入后续步骤/u);
   assert.match(workspace, /开始第一步/u, "a newly-created ready Run has a reachable first transition");
+  assert.match(workspace, /新建排演/u, "a terminal Run can be preserved while the author starts another bounded rehearsal");
+  assert.match(workspace, /disabled=\{interrupting\}[^>]*onClick=\{\(\) => runAction\("stop"\)\}/u, "stop remains reachable while a long step request is busy");
   assert.match(workspace, /技术详情/u, "稳定 Run identity only appears in progressive disclosure");
   assert.match(workspace, /props\.runtime\.withConnection/u);
   assert.doesNotMatch(workspace, /fetch\(|Provider Gateway|apiKey|Authorization/u);
