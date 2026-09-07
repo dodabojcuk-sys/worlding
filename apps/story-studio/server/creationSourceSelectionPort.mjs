@@ -237,7 +237,11 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
         workVersionId: root.identity.workVersionId,
         expectedRevision: 1,
         authorActionId: APPEND_ACTION_ID,
-        idempotencyKey: `creation-source-r0:root-r2:${projectId}:${binding.creationOperationReceipt.operationId}`,
+        // The creation action already contains project and author-key data.
+        // Hash that nested identifier so the WorkVersion receipt remains under
+        // its 180-character contract for real project IDs and UI-generated
+        // fixed-artifact keys.
+        idempotencyKey: `creation-source-r0:root-r2:${sha256(binding.creationOperationReceipt.operationId).slice(0, 40)}`,
         createdAt: operationTime(resolveActiveProject(projectId), 11),
         ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: 1 }),
         optionalNuwaProvenanceRefs: [],

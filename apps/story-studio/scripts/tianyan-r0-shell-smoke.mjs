@@ -1286,7 +1286,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await page.waitForTimeout(75);
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
-  assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /[1-9]\d* \/ 12 次模拟 dispatch/u, "An in-flight request remains in the dispatch ledger after stop wins.");
+  assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /本地\/网络模型发送 0 \/ 12 · 内部工具回合 [1-9]\d*/u, "A stopped local-tool turn must remain visible without being mislabelled as a model send.");
   assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
   assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");
 }
@@ -1341,17 +1341,35 @@ async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
   await assertRelationshipReaderR1(page, consoleProblems);
   await assertNuwaN1BoundedLoop(page, consoleProblems);
 
-  // The R1 relation fixture is intentionally read-only. Create one separately
-  // author-confirmed Event in the same Story Unit before asking Creation for a
-  // formal source package; candidates alone remain ineligible by design.
-  const creationCandidate = await postFixture(`${apiUrl}/__local/story-studio/event-line/normal-creation/create-candidate`, {
-    projectId: fixtureProjectId,
-    storyUnitId: narrativeFixture.unit.id,
-    title: "钟声后的作者确认事件",
-    body: "只用于 R5 连续验收的同故事正式创作来源。"
-  });
-  await postFixture(`${apiUrl}/__local/story-studio/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: narrativeFixture.unit.id, planningEventId: creationCandidate.data.result.planning.id });
-  await postFixture(`${apiUrl}/__local/story-studio/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: narrativeFixture.unit.id, planningEventId: creationCandidate.data.result.planning.id });
+  // Continue from the exact N1 handoff above.  This intentionally uses the
+  // central UI rather than a fixture API to substitute an unrelated Event.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator(".shell-pending-entry").click();
+  const adoption = page.getByTestId("golden-candidate-adoption");
+  await adoption.waitFor();
+  const selectedCandidateTitle = await adoption.locator("xpath=ancestor::article").locator("header strong").innerText();
+  assert.match(await adoption.innerText(), /女娲来源：Run/u, "Central Candidate Review must retain the selected Nuwa Run identity.");
+  await adoption.getByRole("button", { name: "确认候选并打开影响预览", exact: true }).click();
+  await adoption.getByText(/影响预览：尚待作者选择路径/u).waitFor();
+  await adoption.getByRole("button", { name: "选择采纳路径", exact: true }).click();
+  await adoption.getByRole("button", { name: "生成作者变更集", exact: true }).click();
+  await adoption.getByRole("button", { name: "确认写入正式 Event", exact: true }).click();
+  await adoption.getByText(/已由 Author Change Set 写入正式 Event/u).waitFor();
+  const adoptedFormalEventId = await adoption.getAttribute("data-applied-event-id");
+  assert.ok(adoptedFormalEventId, "The adoption UI must expose the Author Change Set's applied Event identity for source traceability.");
+  await adoption.getByLabel("纳入故事单元").selectOption(narrativeFixture.unit.id);
+  await adoption.getByRole("button", { name: "确认故事单元映射", exact: true }).click();
+  await page.waitForFunction((unitId) => {
+    const select = document.querySelector('select[aria-label="纳入故事单元"]');
+    return select?.value === unitId;
+  }, narrativeFixture.unit.id);
+  const formalAfterNuwaAdoption = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const adoptedFormalEvent = formalAfterNuwaAdoption.data.objects.find((item) => item.type === "event" && item.status === "committed" && item.id === adoptedFormalEventId);
+  assert.ok(adoptedFormalEvent, "The Event used by Creation must be written through the selected Nuwa Candidate Review chain.");
+  assert.notEqual(adoptedFormalEvent.title, "", `The candidate “${selectedCandidateTitle}” must resolve to a named formal Event.`);
+  const mappedUnit = (await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.find((unit) => unit.id === narrativeFixture.unit.id);
+  assert.equal(mappedUnit?.linkedEntityIds.includes(adoptedFormalEvent.id), true, "The author-confirmed Nuwa Event must be explicitly mapped into the chosen Story Unit.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-1440-nuwa-candidate-adoption.png"), fullPage: false });
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/creation?locale=zh-CN`);
@@ -1366,18 +1384,16 @@ async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
     await createRoot.click();
     await creation.getByText(/当前作品主线/u).first().waitFor();
   }
-  const createArtifact = creation.getByRole("button", { name: "建立受版本约束的创作稿", exact: true });
-  if (await createArtifact.count()) {
-    if (!await createArtifact.isEnabled()) {
-      if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-creation-scope-blocked.png"), fullPage: false });
-      throw new Error(`R5 creation package is unavailable after scope selection: ${await creation.innerText()}`);
-    }
-    const artifactResponse = page.waitForResponse((response) => response.url().endsWith("/__local/story-studio/creation/source/create-artifact") && response.request().method() === "POST");
-    await createArtifact.click();
-    const response = await artifactResponse;
-    assert.equal(response.status(), 200, `Creation artifact write must succeed: ${await response.text()}`);
-    await createArtifact.waitFor({ state: "detached" });
-  }
+  const createArtifact = creation.getByRole("button", { name: "建立新的固定创作稿", exact: true });
+  assert.equal(await createArtifact.isEnabled(), true, `R5 creation package is unavailable after same-source adoption: ${await creation.innerText()}`);
+  const artifactRequest = page.waitForRequest((request) => request.url().endsWith("/__local/story-studio/creation/source/create-artifact") && request.method() === "POST");
+  const artifactResponse = page.waitForResponse((response) => response.url().endsWith("/__local/story-studio/creation/source/create-artifact") && response.request().method() === "POST");
+  await createArtifact.click();
+  const request = await artifactRequest;
+  assert.match(request.postData() || "", /"creationKey":"[A-Za-z0-9._-]{8,120}"/u, `Creation must send a durable owner-compatible idempotency key: ${request.postData()}`);
+  const response = await artifactResponse;
+  assert.equal(response.status(), 200, `Creation artifact write must succeed: ${await response.text()}`);
+  await createArtifact.waitFor({ state: "detached" });
   const packagePanel = creation.getByLabel("中性故事包");
   await packagePanel.waitFor();
   assert.match(await packagePanel.innerText(), /来源回执索引/u, "The creation package exposes its source receipt index.");
@@ -1386,7 +1402,7 @@ async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
   const downloadedPath = await download.path();
   assert.ok(downloadedPath, "Creation export must materialize a file, not merely a suggested filename.");
   const downloadedMarkdown = readFileSync(downloadedPath, "utf8");
-  assert.match(downloadedMarkdown, /钟声后的作者确认事件/u, "The selected confirmed Event must be present in the downloaded Markdown.");
+  assert.match(downloadedMarkdown, new RegExp(adoptedFormalEvent.title, "u"), "The downloaded Markdown must contain the Event adopted from the selected Nuwa Run.");
   assert.doesNotMatch(downloadedMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "An unselected author secret must not enter the downloaded Markdown.");
   if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-1440-creation-scope-package.png"), fullPage: false });
 

@@ -79,7 +79,11 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     // receipt remains valid, but an earlier GET must not repaint over it.
     readGeneration.current += 1;
     setWriteOperation({ projectId: requestedProjectId, visit: visit.generation, id: operationId }); setError("");
-    const creationKey = action === "create-artifact" ? `author-creation-${crypto.randomUUID()}` : undefined;
+    // Keep the browser-generated idempotency key within the server's portable
+    // ASCII contract. Some embedded WebViews expose UUID formatting that the
+    // durable owner intentionally rejects, so use an equally unique, bounded
+    // author-action token instead of coupling this write to that platform API.
+    const creationKey = action === "create-artifact" ? `author-creation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` : undefined;
     void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId: requestedProjectId, action, storyUnitId: selectedStoryUnitId, eventIds: selectedEventIds, creationKey, token }))
       .then((next) => {
         if (!matchesVisit(visit) || activeProjectId.current !== requestedProjectId || next.project.id !== requestedProjectId) return;
