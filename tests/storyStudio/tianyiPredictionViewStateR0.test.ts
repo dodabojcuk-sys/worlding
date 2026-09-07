@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   predictionSourceSummary,
   predictionStageForView,
+  shouldApplyPredictionRunSnapshot,
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
   predictionViewStateFromDraftedReceiptRecovery,
@@ -36,11 +37,21 @@ test("drafted receipt recovery never reopens a terminal abandoned or stale Run",
   assert.equal(predictionViewStateFromDraftedReceiptRecovery({ runStatus: "ready", hasDraftedReceipt: false }), null);
 });
 
+test("an older non-terminal Run snapshot cannot overwrite a terminal owner state", () => {
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "ready" }), false);
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "stale", incomingStatus: "ready" }), false);
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "abandoned" }), true);
+  assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: null, incomingStatus: "ready" }), true);
+});
+
 test("the drafted receipt recovery effect invalidates stale responses after a terminal Run update", () => {
   const panel = readFileSync("apps/story-studio/src/components/tianyi/sidebar/MultiNodePredictionPanel.tsx", "utf8");
   assert.match(panel, /predictionViewStateFromDraftedReceiptRecovery\(\{ runStatus: run\.status/u);
   assert.match(panel, /receiptRecoveryGeneration\.current !== generation/u);
   assert.match(panel, /setObservedRun\(abandoned\)/u);
+  assert.match(panel, /shouldApplyPredictionRunSnapshot\(\{ terminalStatus, incomingStatus: next\.status \}\)/u);
+  assert.match(panel, /historyLoadGeneration\.current \+= 1/u);
+  assert.match(panel, /runRecoveryGeneration\.current \+= 1/u);
 });
 
 test("the four author stages remain stable across detailed candidate views", () => {
