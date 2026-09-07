@@ -110,6 +110,7 @@ import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin }
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
 import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
+import { createNuwaN1Port } from "./nuwaN1Port.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
@@ -164,6 +165,12 @@ const agentProposalOperations = createStoryStudioAgentProposalOperations({ rootP
 const authorControl = createStoryStudioAuthorControl({ rootPath, stateFilePath });
 const characterStateImpactFixture = createCharacterStateImpactFixtureAdapter({ operations, authorControl });
 const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ operations, authorControl });
+const nuwaN1Port = createNuwaN1Port({
+  operations,
+  authorControl,
+  fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
+  fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0
+});
 const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
 const relationOperations = createStoryStudioRelationOperations({
   workspaceOperations: operations,
@@ -2135,6 +2142,10 @@ async function handleProductRequest(request, response, url) {
     await handleNuwaDirectorR1Request(request, response, url);
     return;
   }
+  if (pathname.startsWith("/__local/story-studio/nuwa-n1")) {
+    await handleNuwaN1Request(request, response, url);
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/intelligence-overlay") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: runProductOperation(() => authorControl.readIntelligenceOverlay({ projectId })) });
@@ -3332,6 +3343,78 @@ function receiptMachineSelectionId(value) {
     : null;
 }
 
+async function handleNuwaN1Request(request, response, url) {
+  const prefix = "/__local/story-studio/nuwa-n1";
+  requireSameOrigin(request);
+  const route = url.pathname.slice(prefix.length).replace(/^\//u, "");
+  if (request.method === "GET") {
+    if (route === "bootstrap") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.bootstrap(requireQueryValue(url, "projectId"))) });
+      return;
+    }
+    if (route === "latest") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.latest(requireQueryValue(url, "projectId"))) });
+      return;
+    }
+    if (route === "read") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.read(requireQueryValue(url, "projectId"), requireQueryValue(url, "runId"))) });
+      return;
+    }
+    throw productError("女娲 N1 读取操作不存在。", 404);
+  }
+  if (request.method !== "POST") throw productError("女娲 N1 只接受本地 GET/POST 请求。", 405);
+  requireToken(request);
+  const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+  if (route === "setup" || route === "create") {
+    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "operationId"]);
+    const result = runProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
+    if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
+    sendJson(response, route === "create" ? 201 : 200, { data: result });
+    return;
+  }
+  if (route === "step") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.step(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-step", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "pause" || route === "stop") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "reason"]);
+    const result = runProductOperation(() => route === "pause" ? nuwaN1Port.pause(body) : nuwaN1Port.stop(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", `nuwa-n1-${route}`, [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "resume") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = runProductOperation(() => nuwaN1Port.resume(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-resume", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "replay") {
+    requireAllowedKeys(body, ["projectId", "runId"]);
+    sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.replay(body)) });
+    return;
+  }
+  if (route === "cue") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "instruction"]);
+    const result = runProductOperation(() => nuwaN1Port.cue(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-cue", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "candidate") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
+    const result = runProductOperation(() => nuwaN1Port.candidate(body));
+    recordAuthorInitiatedAction(body.projectId, "candidate-review", "nuwa-n1-candidate", [body.runId, ...body.selectedStepIds], "author");
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  throw productError("女娲 N1 操作不存在。", 404);
+}
+
 async function handleNuwaDirectorR1Request(request, response, url) {
   const prefix = "/__local/story-studio/author-control/exploration/director-r1";
   requireSameOrigin(request);
@@ -4070,7 +4153,7 @@ function runProductOperation(operation) {
   try {
     return operation();
   } catch (error) {
-    throw productError(error instanceof Error ? error.message : "项目操作无法完成。", 400);
+    throw productError(error instanceof Error ? error.message : "项目操作无法完成。", Number(error?.statusCode || 400));
   }
 }
 
@@ -4078,7 +4161,7 @@ async function runAsyncProductOperation(operation) {
   try {
     return await operation();
   } catch (error) {
-    throw productError(error instanceof Error ? error.message : "天意连续性操作无法完成。", 400);
+    throw productError(error instanceof Error ? error.message : "天意连续性操作无法完成。", Number(error?.statusCode || 400));
   }
 }
 

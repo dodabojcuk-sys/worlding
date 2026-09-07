@@ -26,7 +26,12 @@ export type NuwaOrchestrationIdentity = typeof NUWA_ORCHESTRATION_IDENTITY;
 
 export type NuwaRunStatus =
   | "planned"
+  | "ready"
   | "running"
+  | "paused"
+  | "completed"
+  | "cancelled"
+  | "blocked"
   | "awaiting-results"
   | "synthesizing"
   | "ready-for-author-review"

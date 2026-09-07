@@ -10,6 +10,7 @@ import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/TianyiConversationWorkspace";
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
+import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -43,6 +44,10 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "tianyi") {
     return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "nuwa") {
+    return <NuwaN1Workspace runtime={props.runtime} />;
   }
 
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">

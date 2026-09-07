@@ -22,7 +22,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -60,6 +60,8 @@ const founderCloseoutR21EvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_1_
 const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
 const shellFocusR22AEvidenceDirectory = process.env.TIANYAN_SHELL_R22A_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
+const nuwaN1EvidenceDirectory = process.env.TIANYAN_NUWA_N1_EVIDENCE_DIR || null;
+const nuwaN1EvidenceDwellMs = Math.max(0, Number(process.env.TIANYAN_NUWA_N1_EVIDENCE_DWELL_MS || "5500") || 0);
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const authorEventReloadOnly = process.env.TIANYAN_E2E_SCOPE === "author-event-reload";
@@ -83,6 +85,7 @@ const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
 const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
 const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
 const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
+const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
 const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
@@ -90,6 +93,7 @@ let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
 let r1CausalFixture = null;
+let characterFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -134,7 +138,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -154,7 +158,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -184,6 +188,11 @@ try {
     await setupCharacterFixture();
     await setupEventGraphFixture();
     await assertAgentFakeProviderStream(page);
+  } else if (nuwaN1Only) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertNuwaN1BoundedLoop(page, consoleProblems);
   } else if (r4CharacterObservationOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -1162,12 +1171,118 @@ async function assertDevelopmentRuntimeMode() {
   }, null, 2));
 }
 
+async function assertNuwaN1BoundedLoop(page, consoleProblems) {
+  if (nuwaN1EvidenceDirectory) mkdirSync(nuwaN1EvidenceDirectory, { recursive: true });
+  const evidenceDwell = async () => {
+    if (nuwaN1EvidenceDirectory) await page.waitForTimeout(nuwaN1EvidenceDwellMs);
+  };
+  const providerRequests = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && /\/__local\/story-studio\/(?:provider|model-service)|\/api\/provider|\/(?:chat\/)?completions/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  });
+  const objectsBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  const workspace = page.getByTestId("nuwa-n1-workspace");
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-provider-calls"), "0", "The N1 fixture is visibly zero-Provider.");
+  await workspace.getByText("本地工程演练 · 0 Provider", { exact: true }).first().waitFor();
+
+  const selectedPeople = workspace.locator('.nuwa-n1-participant-options input[type="checkbox"]:checked');
+  assert.equal(await selectedPeople.count(), 0, "N1 does not silently choose formal characters for the author.");
+  assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /林昭/u);
+  assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /阿芜/u);
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-controlbar select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-goal input").fill("在旧桥钟声中核对彼此知情，不得把未知内容当成事实。");
+  await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
+  await workspace.getByText("已核对角色上下文", { exact: true }).waitFor();
+  const contextCards = workspace.locator(".nuwa-n1-context-list article");
+  assert.equal(await contextCards.count(), 2, "The inspector shows both isolated role contexts before execution.");
+  const visibleContexts = await contextCards.allTextContents();
+  assert.equal(visibleContexts[0] !== visibleContexts[1], true, `The two roles must expose distinct knowledge ranges: ${JSON.stringify(visibleContexts)}`);
+  if (nuwaN1EvidenceDirectory) await page.screenshot({ path: path.join(nuwaN1EvidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  assert.equal(await workspace.getByRole("button", { name: "停止", exact: true }).isEnabled(), true, "Stop stays reachable while the first long step request is in flight.");
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  assert.equal(await workspace.getByRole("button", { name: "暂停", exact: true }).isEnabled(), true, "Pause stays reachable while a later long step request is in flight.");
+  assert.equal(await workspace.getByRole("button", { name: "停止", exact: true }).isEnabled(), true, "Stop stays reachable while a later long step request is in flight.");
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
+  const steps = workspace.locator(".nuwa-n1-reader li");
+  const stepActors = await steps.locator("article > header strong").allTextContents();
+  assert.deepEqual(new Set(stepActors), new Set(["林昭", "阿芜"]), `The first two turns keep the two selected formal identities: ${JSON.stringify(stepActors)}`);
+  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "The second actor receives actual prior dialogue, not a fixed isolated monologue.");
+  assert.equal(await contextCards.count(), 2, "Both knowledge boundaries remain inspectable after steps commit.");
+  if (nuwaN1EvidenceDirectory) await page.screenshot({ path: path.join(nuwaN1EvidenceDirectory, "02-1440-two-role-steps.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.locator(".nuwa-n1-composer textarea").fill("下一步先核对钟楼内的声音来源。");
+  await workspace.getByRole("button", { name: "加入后续步骤", exact: true }).click();
+  await workspace.getByText(/作者提示已进入/u).waitFor();
+  await workspace.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "paused");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-status"), "paused", "Refresh restores the paused Run rather than silently restarting it.");
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 2, "Refresh restores the committed steps without replay dispatch.");
+  await page.setViewportSize({ width: 1195, height: 792 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const compactGeometry = await workspace.evaluate((node) => {
+    const composer = node.querySelector(".nuwa-n1-composer")?.getBoundingClientRect();
+    const inspector = node.querySelector(".nuwa-n1-inspector")?.getBoundingClientRect();
+    const rail = document.querySelector(".shell-tool-rail")?.getBoundingClientRect();
+    return { overflow: document.documentElement.scrollWidth > window.innerWidth, composerRight: composer?.right ?? 0, inspectorRight: inspector?.right ?? 0, railLeft: rail?.left ?? window.innerWidth };
+  });
+  assert.equal(compactGeometry.overflow, false, `N1 must not hide overflow at 1195: ${JSON.stringify(compactGeometry)}`);
+  assert.ok(compactGeometry.composerRight <= compactGeometry.railLeft && compactGeometry.inspectorRight <= compactGeometry.railLeft, `Composer and inspector stay clear of the retained right rail: ${JSON.stringify(compactGeometry)}`);
+  if (nuwaN1EvidenceDirectory) await page.screenshot({ path: path.join(nuwaN1EvidenceDirectory, "03-1195-paused-refresh.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.getByRole("button", { name: "恢复", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "running");
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 3);
+  await workspace.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  await workspace.getByRole("button", { name: "送入待确认", exact: true }).click();
+  await workspace.getByText(/送入待确认；尚未写入正式故事/u).waitFor();
+  const reviews = await getFixture(`${apiUrl}/__local/story-studio/author-control/candidate-reviews?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(reviews.data.length, 1, "The selected N1 result reaches the existing pending-review owner.");
+  assert.equal(reviews.data[0]?.status, "awaiting");
+  const objectsAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(objectsAfter.data.objects.length, objectsBefore.data.objects.length, "N1 candidate handoff must not create a formal World object.");
+  if (nuwaN1EvidenceDirectory) await page.screenshot({ path: path.join(nuwaN1EvidenceDirectory, "04-1195-stopped-candidate.png"), fullPage: false });
+  await evidenceDwell();
+  await workspace.getByRole("button", { name: "回放", exact: true }).click();
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 3, "Replay reads the recorded steps without dispatching again.");
+  await workspace.getByRole("button", { name: "新建排演", exact: true }).click();
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  await page.waitForTimeout(75);
+  await workspace.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /[1-9]\d* \/ 12 次模拟 dispatch/u, "An in-flight request remains in the dispatch ledger after stop wins.");
+  assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
+  assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");
+}
+
 async function setupCharacterFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: fixtureProjectId });
+  const created = [];
   for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }, { title: "顾澜", subtype: "配角" }, { title: "程野", subtype: "次要角色" }, { title: "苏弦", subtype: "次要角色" }]) {
-    await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype });
+    const result = await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype });
+    created.push({ ...character, ...result.data.object });
   }
+  characterFixture = Object.fromEntries(created.map((character) => [character.title, character]));
   await postFixture(`${base}/agent-recognition/drafts/create`, {
     projectId: fixtureProjectId,
     operationId: `operation.${fixture.fixtureId}.visual-pending`,
@@ -1185,6 +1300,9 @@ async function setupCharacterFixture() {
 
 async function setupObservationFixture() {
   const base = `${apiUrl}/__local/story-studio`;
+  assert.ok(characterFixture?.["林昭"]?.id && characterFixture?.["阿芜"]?.id, "N1 observation fixture requires stable formal character IDs.");
+  const linId = characterFixture["林昭"].id;
+  const awuId = characterFixture["阿芜"].id;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", tags: ["港区"] });
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "雾灯匣", status: "active", tags: ["关键物品"] });
   const definitions = [
@@ -1195,12 +1313,12 @@ async function setupObservationFixture() {
     { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "人物：程野", "地点：雾港"] },
     { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02 00:00 – 2026-09-03 00:00", "人物：顾澜", "物品：雾灯匣"] },
     { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "目击：苏弦", "地点：雾港"] },
-    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", "知情：读者=未知", "物品：雾灯匣"] },
+    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", `知情：${linId}=已得知`, "知情：读者=未知", "物品：雾灯匣"] },
     { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "故事线：主故事线|调查线 · 雾港", "时间：2026-09-03 18:00", "人物：陆衍", "知情：林昭=已得知", "知情：阿芜=未知", "知情：读者=已得知", "地点：雾港", "时间冲突：港务钟与灯塔记录相差两小时"] },
     { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-03", "人物：林昭", "知情：阿芜=未知", "知情：读者=未知", "地点：雾港"] },
     { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
     { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
-    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", "知情：读者=未知", "推测：苏弦"] },
+    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", `知情：${awuId}=被误导`, "知情：读者=未知", "推测：苏弦"] },
     { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "故事线：主故事线|灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
     { key: "confrontation", title: "六人在旧码头对峙", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：林昭,阿芜,陆衍,顾澜,程野,苏弦", "地点：雾港"] },
     { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "故事线：调查线 · 雾港", "作者秘密", "时间：2026-09-05", "人物：顾澜", "知情：林昭=未知", "知情：阿芜=未知", "知情：读者=未知", "物品：雾灯匣"] },

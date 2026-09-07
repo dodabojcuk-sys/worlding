@@ -2214,6 +2214,135 @@ export async function getNuwaDirectorStateR1(projectId: string, runId: string): 
   return request<NuwaDirectorStateR1>(`${basePath}/author-control/exploration/director-r1?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
+/**
+ * Browser DTOs for the bounded Nuwa N1 author surface.  These are projections
+ * owned by the Nuwa RunPack/AuthorControl server path; the browser only keeps
+ * the currently rendered projection and never becomes a Run or candidate owner.
+ */
+export type NuwaN1Availability = { kind: "unavailable" | "local-fake"; label: string; providerCalls: 0; adapterId?: string | null };
+export type NuwaN1Participant = { id: string; title: string; revision: string };
+export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
+export type NuwaN1Step = {
+  stepId: string;
+  sequence: number;
+  actorId: string;
+  intent: string;
+  speech: string | null;
+  action: { action: string; targetId: string | null } | null;
+  observableResult: string;
+  tool: { name: "read_role_context"; requestId: string };
+  usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
+  committedAt: string;
+};
+export type NuwaN1Run = {
+  runId: string;
+  status: "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
+  revision: number;
+  scene: { storyUnitId: string; label: string; observedAt: string };
+  participants: NuwaN1Participant[];
+  goal: string;
+  steps: NuwaN1Step[];
+  dispatches: number;
+  attempts: Array<{
+    attemptId: string;
+    actorId: string;
+    requestId: string | null;
+    dispatches: Array<{ phase: "request" | "continue-after-tool"; status: "dispatched" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null }>;
+    tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
+    usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" } | null;
+    outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
+    recordedAt: string;
+    updatedAt: string;
+  }>;
+  provider: NuwaN1Availability;
+  stoppedAt?: string | null;
+  blocker?: string | null;
+};
+export type NuwaN1ContextInspector = {
+  actors: Array<{
+    actorId: string;
+    evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
+    knowledgeItems: Array<{ id: string; summary: string; visibility: string }>;
+    beliefItems: Array<{ id: string; summary: string; stance: string }>;
+    excludedCount: number;
+  }>;
+};
+export type NuwaN1ReadModel = {
+  version: string;
+  availability: NuwaN1Availability;
+  run: NuwaN1Run | null;
+  contextInspector: NuwaN1ContextInspector | null;
+  receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string }>;
+};
+export type NuwaN1Bootstrap = {
+  version: "story-studio-nuwa-n1-bootstrap/v1";
+  availability: NuwaN1Availability;
+  participants: NuwaN1Participant[];
+  storyUnits: NuwaN1StoryUnit[];
+  latestRunId: string | null;
+};
+export type NuwaN1Setup = {
+  setup: {
+    projectId: string;
+    participants: NuwaN1Participant[];
+    storyUnit: NuwaN1StoryUnit;
+    goal: string;
+    contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
+  };
+};
+export type NuwaN1CandidateResult = NuwaN1ReadModel & {
+  candidate: {
+    handoffId: string;
+    runId: string;
+    sourceSnapshotHash: string;
+    selectedStepIds: string[];
+    status: "candidate";
+    candidates: Array<{ candidateId: string; title: string; summary: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
+    formalWrites: 0;
+  };
+  review: { reviewId: string; status: string };
+};
+
+export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Bootstrap> {
+  return request<NuwaN1Bootstrap>(`${basePath}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function getNuwaN1Latest(projectId: string): Promise<NuwaN1ReadModel> {
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/latest?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; operationId: string; token: string }): Promise<NuwaN1Setup> {
+  const { token, ...body } = input;
+  return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
+}
+
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
+}
+
+export type NuwaN1RunAction = "step" | "pause" | "resume" | "stop" | "replay";
+export async function runNuwaN1Action(input: { projectId: string; runId: string; expectedRevision: number; action: Exclude<NuwaN1RunAction, "replay">; operationId: string; token: string; reason?: string }): Promise<NuwaN1ReadModel> {
+  const { token, action, ...body } = input;
+  const requestBody = action === "pause" || action === "stop" ? { ...body, reason: input.reason ?? (action === "stop" ? "作者停止本地排演。" : "作者暂停本地排演。") } : body;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/${action}`, { method: "POST", token, body: requestBody });
+}
+
+export async function replayNuwaN1Run(input: { projectId: string; runId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/replay`, { method: "POST", token, body });
+}
+
+export async function cueNuwaN1Run(input: { projectId: string; runId: string; expectedRevision: number; instruction: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/cue`, { method: "POST", token, body });
+}
+
+export async function createNuwaN1Candidate(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1CandidateResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1CandidateResult>(`${basePath}/nuwa-n1/candidate`, { method: "POST", token, body });
+}
+
 export type NuwaDirectorActionR1 =
   | { action: "set-permission"; kind: NuwaDirectorPermissionKindR1; granted: boolean; reason: string }
   | { action: "create-temporary-agent"; displayName: string; purpose: string }
