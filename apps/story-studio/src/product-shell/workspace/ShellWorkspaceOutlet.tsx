@@ -6,11 +6,10 @@ import { SettingsStorageRoute } from "../../settings/storage/SettingsStorageRout
 import { AccountCenterWorkspace } from "./AccountCenterWorkspace";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference.ts";
-import { Sparkles } from "lucide-react";
-import { useState } from "react";
 import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/TianyiConversationWorkspace";
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
+import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -37,9 +36,7 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "writing") {
-    return <main className="shell-workspace shell-workspace-writing" aria-label={t(props.destination.labelKey as TranslationKey)}>
-      <CreationSimulationEntry onOpenTianyi={props.onOpenTianyi} t={t} />
-    </main>;
+    return <CreationSourceWorkspace runtime={props.runtime} />;
   }
 
   if (!props.shellLab && props.destination.id === "tianyi") {
@@ -61,17 +58,4 @@ export function ShellWorkspaceOutlet(props: {
         <p className="shell-workspace-note">{note}</p></>}
     </section>
   </main>;
-}
-
-function CreationSimulationEntry(props: { onOpenTianyi(reference?: StoryStudioEventReference, initialDraft?: string): void; t(key: TranslationKey): string }) {
-  const [draft, setDraft] = useState("");
-  return <section className="shell-workspace-stage shell-workspace-simulation-entry">
-    <p className="shell-workspace-eyebrow">{props.t("simulation.creation.eyebrow")}</p>
-    <h1>{props.t("simulation.creation.title")}</h1>
-    <p className="shell-workspace-summary">{props.t("simulation.creation.summary")}</p>
-    <form onSubmit={(event) => { event.preventDefault(); props.onOpenTianyi(undefined, draft.trim()); setDraft(""); }}>
-      <label><span>{props.t("simulation.creation.label")}</span><textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={8} maxLength={6000} placeholder={props.t("simulation.creation.placeholder")} /></label>
-      <button type="submit" className="primary-action" disabled={!draft.trim()}><Sparkles />{props.t("simulation.creation.submit")}</button>
-    </form>
-  </section>;
 }
