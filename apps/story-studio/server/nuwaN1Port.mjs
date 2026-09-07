@@ -236,6 +236,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
         dispatches: run.dispatches,
         providerDispatches: run.providerDispatches,
         providerDispatchEvidence: run.providerDispatchEvidence,
+        pendingCue: run.pendingCue ? { operationId: run.pendingCue.operationId, instruction: run.pendingCue.instruction } : null,
         attempts: run.attempts.map((attempt) => ({
           attemptId: attempt.attemptId,
           actorId: attempt.actor.id,

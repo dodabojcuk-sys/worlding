@@ -167,20 +167,61 @@ test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-
   let model = created.payload.data as NuwaReadModel;
   const stepping = postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cancel-step" });
   await host.firstRequestSeen;
+  const duplicate = postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cancel-step" });
+  const conflicting = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-conflicting-step" });
+  assert.equal(conflicting.status, 409, "a different operation cannot replace the active Run execution");
+  const invalidStop = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: model.run.runId, expectedRevision: 0, operationId: "http-sse-invalid-stop" });
+  assert.equal(invalidStop.status, 400, "an invalid Stop is rejected before it can abort the live stream");
   const stopped = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cancel-stop" });
   assert.equal(stopped.status, 200);
   model = stopped.payload.data as NuwaReadModel;
   assert.equal(model.run.status, "cancelled");
   const stepResult = await stepping;
+  const duplicateResult = await duplicate;
   assert.equal(stepResult.status, 200, JSON.stringify(stepResult.payload));
+  assert.equal(duplicateResult.status, 200, JSON.stringify(duplicateResult.payload));
+  assert.deepEqual(duplicateResult.payload, stepResult.payload, "same-operation delivery joins the original executor instead of replacing its cancel handle");
   assert.equal((stepResult.payload.data as NuwaReadModel).run.status, "cancelled");
   await host.firstResponseClosed;
   assert.equal(host.requests.length, 1, "cancellation reaches the active HTTP/SSE stream before a tool-result turn can be sent");
   assert.equal((stepResult.payload.data as NuwaReadModel).run.steps.length, 0, "a late stream result cannot commit a scene step after cancellation");
 });
 
+test("Nuwa N1 preserves an in-flight author cue for the next bounded step", async (t) => {
+  const value = fixture();
+  const host = await startSseHost({ holdFirstResponse: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    await new Promise<void>((resolve, reject) => host.server.close((error) => error ? reject(error) : resolve()));
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const running = await start(value, false, host.baseUrl);
+  child = running.child;
+  const created = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("http-sse-cue-create"));
+  let model = created.payload.data as NuwaReadModel;
+  const inFlight = postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cue-step-one" });
+  await host.firstRequestSeen;
+  const live = await getJson(running.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${model.run.runId}`);
+  assert.equal(live.status, 200);
+  model = live.payload.data as NuwaReadModel;
+  const cue = "CANARY_IN_FLIGHT_AUTHOR_CUE";
+  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cue-author", instruction: cue });
+  assert.equal(cued.status, 200, JSON.stringify(cued.payload));
+  host.releaseFirstResponse();
+  const firstResult = await inFlight;
+  assert.equal(firstResult.status, 200, JSON.stringify(firstResult.payload));
+  model = firstResult.payload.data as NuwaReadModel;
+  assert.equal(model.run.steps.length, 0, "a cue that arrived after context construction is not falsely consumed by that turn");
+  assert.equal(model.run.pendingCue?.instruction, cue, "the newer author cue remains durable for a later step");
+  const next = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cue-step-two" });
+  assert.equal(next.status, 200, JSON.stringify(next.payload));
+  assert.equal((next.payload.data as NuwaReadModel).run.steps.length, 1);
+  assert.equal(JSON.stringify(host.requests.slice(2)).includes(cue), true, "the next turn receives the preserved cue through its frozen role context");
+});
+
 type NuwaReadModel = {
-  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
+  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
   contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
@@ -293,12 +334,14 @@ async function waitForServer(baseUrl: string, child: ChildProcess) {
 
 function delay(milliseconds: number) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }>; firstRequestSeen: Promise<void>; firstResponseClosed: Promise<void> }> {
+async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }>; firstRequestSeen: Promise<void>; firstResponseClosed: Promise<void>; releaseFirstResponse(): void }> {
   const requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> = [];
   let resolveFirstRequestSeen: (() => void) | null = null;
   const firstRequestSeen = new Promise<void>((resolve) => { resolveFirstRequestSeen = resolve; });
   let resolveFirstResponseClosed: (() => void) | null = null;
   const firstResponseClosed = new Promise<void>((resolve) => { resolveFirstResponseClosed = resolve; });
+  let releaseFirstResponse: (() => void) | null = null;
+  const heldFirstResponse = new Promise<void>((resolve) => { releaseFirstResponse = resolve; });
   const server = createHttpServer(async (request, response) => {
     if (request.method !== "POST" || request.url !== "/chat/completions") { response.statusCode = 404; response.end(); return; }
     const chunks: Buffer[] = [];
@@ -310,8 +353,8 @@ async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Prom
     response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-request-id": `local-sse-${requests.length}` });
     if (options.holdFirstResponse && requests.length === 1) {
       response.once("close", () => resolveFirstResponseClosed?.());
-      response.write("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n");
-      return;
+      await heldFirstResponse;
+      if (response.destroyed) return;
     }
     if (!toolLoopTurn) {
       response.write(`data: ${JSON.stringify({ model: "nuwa-n1-sse-fixture", choices: [{ delta: { tool_calls: [{ index: 0, id: `tool.${requests.length}`, type: "function", function: { name: "read_role_context", arguments: "{}" } }] }, finish_reason: "tool_calls" }] })}\n\n`);
@@ -324,5 +367,5 @@ async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Prom
   await new Promise<void>((resolve, reject) => server.listen(0, "127.0.0.1", (error?: Error) => error ? reject(error) : resolve()));
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests, firstRequestSeen, firstResponseClosed };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests, firstRequestSeen, firstResponseClosed, releaseFirstResponse() { releaseFirstResponse?.(); } };
 }

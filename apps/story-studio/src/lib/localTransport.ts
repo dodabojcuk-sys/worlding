@@ -2247,6 +2247,7 @@ export type NuwaN1Run = {
   /** Actual model-boundary sends; never inferred from local tool bookkeeping. */
   providerDispatches: number;
   providerDispatchEvidence: "complete" | "unknown";
+  pendingCue: { operationId: string; instruction: string } | null;
   dispatches: number;
   attempts: Array<{
     attemptId: string;

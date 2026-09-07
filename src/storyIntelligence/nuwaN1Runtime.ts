@@ -457,7 +457,8 @@ function afterAwait(input: { workspacePath: string; runId: string }, before: Nuw
 
 function onlyOwnProviderDispatchesChanged(before: NuwaN1Run, current: NuwaN1Run, attemptId: string, options: { allowPendingCueChange?: boolean } = {}): boolean {
   if (current.lifecycle !== before.lifecycle || current.steps.length !== before.steps.length || current.attempts.length !== before.attempts.length || current.providerDispatches < before.providerDispatches) return false;
-  const topLevel = (run: NuwaN1Run) => ({ ...run, revision: 0, updatedAt: "", providerDispatches: 0, attempts: [], ...(options.allowPendingCueChange ? { pendingCue: null } : {}) });
+  if (options.allowPendingCueChange && !onlyCueReceiptChanged(before, current)) return false;
+  const topLevel = (run: NuwaN1Run) => ({ ...run, revision: 0, updatedAt: "", providerDispatches: 0, attempts: [], ...(options.allowPendingCueChange ? { pendingCue: null, receipts: [] } : {}) });
   if (stableJson(topLevel(before)) !== stableJson(topLevel(current))) return false;
   const previous = before.attempts.find((attempt) => attempt.operationId === attemptId);
   const next = current.attempts.find((attempt) => attempt.operationId === attemptId);
@@ -468,6 +469,12 @@ function onlyOwnProviderDispatchesChanged(before: NuwaN1Run, current: NuwaN1Run,
   const nextNonProvider = next.dispatches.filter((dispatch) => dispatch.phase !== "provider");
   if (stableJson(previousNonProvider) !== stableJson(nextNonProvider)) return false;
   return current.attempts.every((attempt) => attempt.operationId === attemptId || stableJson(attempt) === stableJson(before.attempts.find((candidate) => candidate.operationId === attempt.operationId)));
+}
+
+function onlyCueReceiptChanged(before: NuwaN1Run, current: NuwaN1Run): boolean {
+  if (current.receipts.length < before.receipts.length) return false;
+  if (stableJson(current.receipts.slice(0, before.receipts.length)) !== stableJson(before.receipts)) return false;
+  return current.receipts.slice(before.receipts.length).every((receipt) => receipt.kind === "cue");
 }
 
 function hasNewerAuthorCue(before: NuwaN1Run, current: NuwaN1Run): boolean {
