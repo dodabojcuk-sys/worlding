@@ -62,6 +62,41 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     return { storyUnit, events, availableEvents };
   }
 
+  function scopedUnitForEvents(storyUnit, events) {
+    const selectedIds = new Set(events.map((event) => event.id));
+    const isSelectedFormalEventRef = (ref) => ref.sourceKind === "event-line" && selectedIds.has(ref.entityId);
+    // A mixed fragment cannot be safely split at export time. Keep only a
+    // fully formal item whose every source is one of this exact selection;
+    // candidates, author intent, and a second unselected Event never hitch a
+    // ride merely because one selected Event was mentioned.
+    const includedItems = storyUnit.items.filter((item) => (
+      item.authority === "canon" && item.sourceRefs.length > 0 && item.sourceRefs.every(isSelectedFormalEventRef)
+    ));
+    const eventItems = events.map((event) => ({
+      id: `formal-event:${event.id}`,
+      kind: "confirmed-event",
+      authority: "canon",
+      content: { title: event.title },
+      sourceRefs: [{
+        sourceKind: "event-line",
+        ownerId: "story-studio-event-owner",
+        entityId: event.id,
+        entityVersion: event.revisionToken,
+        capturedAt: event.updatedAt || event.createdAt || new Date(0).toISOString(),
+        staleState: "fresh"
+      }],
+      createdBy: "system"
+    }));
+    return {
+      ...storyUnit,
+      // Story Unit summaries can be author plans or candidate notes. They are
+      // not an event-content authority, so they are intentionally not prose.
+      summary: "",
+      sourceRefs: storyUnit.sourceRefs.filter(isSelectedFormalEventRef),
+      items: [...eventItems, ...includedItems]
+    };
+  }
+
   function createRoot(projectId) {
     const project = resolveActiveProject(projectId);
     const current = authority(projectId).listVersions();
@@ -81,11 +116,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   async function packageForRoot(projectId, root, scopeInput = {}) {
     const project = resolveActiveProject(projectId);
     const { storyUnit, events } = selectedScope(projectId, scopeInput);
-    const selectedIds = new Set(events.map((event) => event.id));
-    const scopedUnit = {
-      ...storyUnit,
-      items: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId)))
-    };
+    const scopedUnit = scopedUnitForEvents(storyUnit, events);
     return buildNeutralStoryPackage({
       projectRef: { projectId: root.identity.projectId, title: project.title },
       scope: { kind: "unit", unitIds: [storyUnit.id], label: `${storyUnit.title} · ${events.length} 个已确认事件` },
@@ -109,6 +140,17 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     });
   }
 
+  function pinnedPackageSnapshot(packageValue) {
+    return {
+      packageId: packageValue.packageId,
+      contentHash: packageValue.contentHash,
+      scope: packageValue.scope,
+      sourceAnchors: packageValue.manifest.sourceAnchors,
+      warnings: packageValue.warnings,
+      storyMarkdown: packageValue.storyMarkdown
+    };
+  }
+
   async function createArtifact(projectId, input = {}) {
     const versionAuthority = authority(projectId);
     const versions = versionAuthority.listVersions();
@@ -125,8 +167,10 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (root.identity.currentRevision !== 1) throw new Error("新建创作稿必须明确使用当前作品主线的初始版本。");
     const { storyUnit, events } = selectedScope(projectId, input);
     const packageValue = await packageForRoot(projectId, root, input);
-    const selectedIds = new Set(events.map((event) => event.id));
-    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId))).map((item) => item.id) }];
+    // Synthetic formal-event export records are a read projection, not Story
+    // Unit items. Only persisted, canon-authorized items may be referenced by
+    // the OutputArtifact's source-unit ownership record.
+    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: scopedUnitForEvents(storyUnit, events).items.filter((item) => !item.id.startsWith("formal-event:")).map((item) => item.id) }];
     const generationBrief = {
       sourceKind: "work-version",
       neutralStoryPackageId: packageValue.packageId,
@@ -153,6 +197,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       sourceAnchorRefs: packageValue.manifest.sourceAnchors.map((anchor) => anchor.anchorId),
       neutralStoryPackageId: packageValue.packageId,
       neutralStoryPackageDigest: packageValue.contentHash,
+      pinnedPackageSnapshot: pinnedPackageSnapshot(packageValue),
       sourceOwnerReceiptRefs,
       creationOperationReceipt: { operationId, idempotencyKey },
       createdAt: operationTime(resolveActiveProject(projectId), 10)
@@ -324,6 +369,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       sourceAnchorRefs: packageValue.manifest.sourceAnchors.map((anchor) => anchor.anchorId),
       neutralStoryPackageId: packageValue.packageId,
       neutralStoryPackageDigest: packageValue.contentHash,
+      pinnedPackageSnapshot: pinnedPackageSnapshot(packageValue),
       sourceOwnerReceiptRefs,
       sourceReconciliationReceipt: {
         schemaVersion: "tianyan-creation-source-reconciliation-receipt/r0",
@@ -431,15 +477,11 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const derived = versions.filter((item) => item.identity.kind === "derived");
     let storyUnit;
     let events;
+    let availableEvents;
+    let artifact;
     try {
-      // Existing artifacts are pinned products. Their package must be rebuilt
-      // from their recorded selection, not the caller's current UI choices.
-      const bindingForScope = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource)?.provenance.workVersionSource || null;
-      const pinnedScope = bindingForScope ? {
-        storyUnitId: bindingForScope.selectedStoryUnitRefs[0]?.unitId,
-        eventIds: bindingForScope.selectedEventRefs.map((ref) => ref.eventId)
-      } : options;
-      ({ storyUnit, events } = selectedScope(projectId, pinnedScope));
+      artifact = selectBoundArtifact(projectId, options.artifactId);
+      ({ storyUnit, events, availableEvents } = selectedScope(projectId, options));
     } catch (error) {
       return blockedReadProjection({
         project,
@@ -448,19 +490,32 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
         sourceRequestBlocker: { kind: "missing-source", authorMessage: String(error?.message || error) }
       });
     }
-    const artifact = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource) || null;
     const legacyArtifact = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => !item.provenance.workVersionSource) || null;
     const binding = artifact?.provenance.workVersionSource || null;
+    const packageMode = binding && options.view !== "current" ? "pinned-artifact" : "current-selection";
     let sourceValidation = null;
     let packageValue = null;
-    let pinnedPackageCreatedAt = operationTime(project, 0);
-    if (binding) {
-      try { pinnedPackageCreatedAt = versionAuthority.getSnapshotManifest(binding.manifestId).createdAt; }
-      catch { /* Integrity validation below owns the author-facing missing/corrupt state. */ }
+    if (packageMode === "pinned-artifact" && binding) {
+      if (!binding.pinnedPackageSnapshot) {
+        return blockedReadProjection({
+          project,
+          root,
+          derivedVersionCount: derived.length,
+          sourceRequestBlocker: { kind: "pinned-source-unavailable", authorMessage: "这份固定创作稿缺少当时的来源快照；为避免以旧版本标签导出新正文，已阻止导出。请显式选择当前来源并建立新的创作稿。" }
+        });
+      }
+      const snapshot = binding.pinnedPackageSnapshot;
+      packageValue = {
+        packageId: snapshot.packageId,
+        contentHash: snapshot.contentHash,
+        scope: snapshot.scope,
+        manifest: { sourceAnchors: snapshot.sourceAnchors },
+        warnings: snapshot.warnings,
+        storyMarkdown: snapshot.storyMarkdown
+      };
+    } else if (root) {
+      packageValue = await packageForRoot(projectId, root, options);
     }
-    if (root) packageValue = binding
-      ? await packageForPinnedBinding(binding, storyUnit, events, project.title, pinnedPackageCreatedAt)
-      : await packageForRoot(projectId, root, options);
     if (root && binding) {
       let integrity = "verified";
       let pinnedManifest = null;
@@ -496,6 +551,9 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       derivedVersionCount: derived.length,
       storyUnit: { id: storyUnit.id, title: storyUnit.title, version: storyUnit.version, summary: storyUnit.summary, itemCount: storyUnit.items.length },
       events: events.map((event) => ({ id: event.id, title: event.title, revision: event.revisionToken, status: event.status })),
+      availableEvents: availableEvents.map((event) => ({ id: event.id, title: event.title, revision: event.revisionToken, status: event.status })),
+      selectedEventIds: packageMode === "pinned-artifact" ? binding.selectedEventRefs.map((ref) => ref.eventId) : events.map((event) => event.id),
+      packageMode,
       package: packageValue ? { id: packageValue.packageId, digest: packageValue.contentHash, scope: packageValue.scope, sourceAnchors: packageValue.manifest.sourceAnchors, warnings: packageValue.warnings, storyMarkdown: packageValue.storyMarkdown } : null,
       artifact,
       authorText,
@@ -524,6 +582,9 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       derivedVersionCount,
       storyUnit: null,
       events: [],
+      availableEvents: [],
+      selectedEventIds: [],
+      packageMode: "blocked",
       package: null,
       artifact: null,
       authorText: "",
@@ -538,8 +599,19 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     };
   }
 
-  function requireBoundArtifact(projectId) {
-    const artifact = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource);
+  function selectBoundArtifact(projectId, artifactId = null) {
+    const artifacts = operations.listOutputArtifacts({ projectId, includeArchived: true }).filter((item) => item.provenance.workVersionSource);
+    if (artifactId) {
+      const selected = artifacts.find((item) => item.id === artifactId);
+      if (!selected) throw new Error("指定的固定创作稿不存在或不属于当前作品。");
+      return selected;
+    }
+    if (artifacts.length > 1) throw new Error("当前作品存在多份固定创作稿；必须指定 artifactId，不能按列表顺序猜测来源范围。");
+    return artifacts[0] || null;
+  }
+
+  function requireBoundArtifact(projectId, artifactId = null) {
+    const artifact = selectBoundArtifact(projectId, artifactId);
     if (!artifact) throw new Error("WorkVersion-bound OutputArtifact does not exist.");
     return artifact;
   }
@@ -579,7 +651,13 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const relationsRead = relationOperations?.listRelations({ projectId, includeArchived: true }) ?? { repositoryVersion: "unavailable", repositoryRevision: 0, relations: [] };
     const relations = relationsRead.relations;
     const outputs = operations.listOutputArtifacts({ projectId, includeArchived: true });
-    const anchors = storyUnits.flatMap((unit) => unit.sourceRefs.concat(unit.items.flatMap((item) => item.sourceRefs))).map(sourceAnchorId);
+    // A confirmed Event is an exportable formal authority in its own right.
+    // Record its stable source anchor in the WorkVersion snapshot even when a
+    // Story Unit deliberately contains no prose fragment for that Event.
+    const anchors = [
+      ...storyUnits.flatMap((unit) => unit.sourceRefs.concat(unit.items.flatMap((item) => item.sourceRefs))),
+      ...events.map((event) => ({ sourceKind: "event-line", ownerId: "story-studio-event-owner", entityId: event.id, entityVersion: event.revisionToken }))
+    ].map(sourceAnchorId);
     const salt = projectionSalt({ projectId, sourceGeneration });
     const slices = {
       project: projectionSlice("project", [`project:${project.id}`], { projectId: project.id, title: project.title }),
@@ -687,25 +765,6 @@ function manifestProjection(manifest) {
 function sourceSlicesMatch(pinned, current) {
   const currentByKind = new Map(current.map((item) => [item.ownerKind, item]));
   return pinned.filter((item) => item.ownerKind !== "creation-output").every((item) => currentByKind.get(item.ownerKind)?.canonicalDigest === item.canonicalDigest);
-}
-
-async function packageForPinnedBinding(binding, storyUnit, events, projectTitle, createdAt) {
-  const selectedIds = new Set(events.map((event) => event.id));
-  const scopedUnit = { ...storyUnit, items: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId))) };
-  return buildNeutralStoryPackage({
-    projectRef: { projectId: binding.projectId, title: projectTitle },
-    scope: { kind: "unit", unitIds: [storyUnit.id], label: `${storyUnit.title} · ${events.length} 个已确认事件` },
-    sourceRevision: {
-      revisionId: `${binding.workVersionId}:r${binding.pinnedRevision}`,
-      revisionHash: binding.manifestDigest,
-      capturedAt: createdAt,
-      sourceOwners: ["story-unit", "event", "source-anchor"],
-      workVersion: { projectId: binding.projectId, workVersionId: binding.workVersionId, kind: "root", pinnedRevision: binding.pinnedRevision, manifestId: binding.manifestId, manifestDigest: binding.manifestDigest }
-    },
-    storyUnits: [scopedUnit],
-    selectedUnitIds: [storyUnit.id],
-    createdAt
-  });
 }
 
 function operationTime(project, minuteOffset) {

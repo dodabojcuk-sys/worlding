@@ -2220,7 +2220,10 @@ async function handleProductRequest(request, response, url) {
     const storyUnitId = String(url.searchParams.get("storyUnitId") || "").trim() || undefined;
     const eventIds = url.searchParams.getAll("eventId").map((value) => value.trim()).filter(Boolean);
     const workVersionId = String(url.searchParams.get("workVersionId") || "").trim() || undefined;
-    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(projectId, { storyUnitId, eventIds, workVersionId })) });
+    const artifactId = String(url.searchParams.get("artifactId") || "").trim() || undefined;
+    const requestedView = String(url.searchParams.get("view") || "").trim();
+    if (requestedView && requestedView !== "current" && requestedView !== "pinned") throw productError("Creation source view is invalid.", 400);
+    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(projectId, { storyUnitId, eventIds, workVersionId, artifactId, view: requestedView || undefined })) });
     return;
   }
   if (request.method === "POST" && pathname.startsWith("/__local/story-studio/creation/source/")) {

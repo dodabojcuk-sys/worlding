@@ -30,6 +30,21 @@ export type WorkVersionOutputArtifactSourceStatus =
   | "unverifiable_missing"
   | "unverifiable_corrupt";
 
+/**
+ * The rendered export is part of the OutputArtifact provenance, rather than a
+ * projection rebuilt from whatever the Story Unit happens to contain today.
+ * This is deliberately a compact, read-only export record: it is not another
+ * Story/Canon store and it contains no editable source model.
+ */
+export type WorkVersionOutputArtifactPackageSnapshotR0 = {
+  packageId: string;
+  contentHash: `sha256:${string}`;
+  scope: { kind: "unit"; unitIds: string[]; label: string };
+  sourceAnchors: Array<{ anchorId: string; sourceKind: string; ownerId: string; entityId: string; entityVersion: string | null; capturedAt: string; staleState: string }>;
+  warnings: string[];
+  storyMarkdown: string;
+};
+
 export type WorkVersionOutputArtifactSourceR0 = {
   schemaVersion: typeof WORK_VERSION_OUTPUT_ARTIFACT_SOURCE_SCHEMA;
   sourceKind: "work-version";
@@ -44,6 +59,7 @@ export type WorkVersionOutputArtifactSourceR0 = {
   sourceAnchorRefs: string[];
   neutralStoryPackageId: string;
   neutralStoryPackageDigest: `sha256:${string}`;
+  pinnedPackageSnapshot?: WorkVersionOutputArtifactPackageSnapshotR0;
   sourceOwnerReceiptRefs: string[];
   creationOperationReceipt: {
     operationId: string;
@@ -90,9 +106,9 @@ export function normalizeWorkVersionOutputArtifactSource(value: unknown): WorkVe
     "schemaVersion", "sourceKind", "projectId", "workVersionId", "workVersionKind",
     "pinnedRevision", "manifestId", "manifestDigest", "selectedStoryUnitRefs",
     "selectedEventRefs", "sourceAnchorRefs", "neutralStoryPackageId",
-    "neutralStoryPackageDigest", "sourceOwnerReceiptRefs", "creationOperationReceipt",
+    "neutralStoryPackageDigest", "pinnedPackageSnapshot", "sourceOwnerReceiptRefs", "creationOperationReceipt",
     "createdAt", "sourceReconciliationReceipt"
-  ], "WorkVersion OutputArtifact source", ["sourceReconciliationReceipt"]);
+  ], "WorkVersion OutputArtifact source", ["sourceReconciliationReceipt", "pinnedPackageSnapshot"]);
   if (source.schemaVersion !== WORK_VERSION_OUTPUT_ARTIFACT_SOURCE_SCHEMA) throw new Error("OutputArtifact WorkVersion source schema is unsupported.");
   if (source.sourceKind !== "work-version") throw new Error("OutputArtifact source kind must be work-version.");
   if (source.workVersionKind !== "root") throw new Error("This Creation slice accepts only the root WorkVersion as source.");
@@ -107,9 +123,15 @@ export function normalizeWorkVersionOutputArtifactSource(value: unknown): WorkVe
   }));
   if (selectedEventRefs.length === 0) throw new Error("At least one Event source reference is required.");
   const operation = exactRecord(source.creationOperationReceipt, ["operationId", "idempotencyKey", "payloadDigest"], "Creation operation receipt");
+  const pinnedPackageSnapshot = source.pinnedPackageSnapshot == null ? undefined : normalizePinnedPackageSnapshot(source.pinnedPackageSnapshot);
   const sourceReconciliationReceipt = source.sourceReconciliationReceipt == null
     ? undefined
     : normalizeCreationSourceReconciliationReceipt(source.sourceReconciliationReceipt);
+  const neutralStoryPackageId = requireText(source.neutralStoryPackageId, "Neutral Story Package identifier", 180);
+  const neutralStoryPackageDigest = requirePrefixedDigest(source.neutralStoryPackageDigest, "Neutral Story Package digest");
+  if (pinnedPackageSnapshot && (pinnedPackageSnapshot.packageId !== neutralStoryPackageId || pinnedPackageSnapshot.contentHash !== neutralStoryPackageDigest)) {
+    throw new Error("Pinned Neutral Story Package snapshot does not match its source binding.");
+  }
   return {
     schemaVersion: WORK_VERSION_OUTPUT_ARTIFACT_SOURCE_SCHEMA,
     sourceKind: "work-version",
@@ -122,8 +144,9 @@ export function normalizeWorkVersionOutputArtifactSource(value: unknown): WorkVe
     selectedStoryUnitRefs,
     selectedEventRefs,
     sourceAnchorRefs: requireTextList(source.sourceAnchorRefs, "Source anchor reference", true),
-    neutralStoryPackageId: requireText(source.neutralStoryPackageId, "Neutral Story Package identifier", 180),
-    neutralStoryPackageDigest: requirePrefixedDigest(source.neutralStoryPackageDigest, "Neutral Story Package digest"),
+    neutralStoryPackageId,
+    neutralStoryPackageDigest,
+    ...(pinnedPackageSnapshot ? { pinnedPackageSnapshot } : {}),
     sourceOwnerReceiptRefs: requireTextList(source.sourceOwnerReceiptRefs, "Source owner receipt", true),
     creationOperationReceipt: {
       operationId: requireText(operation.operationId, "Creation operation identifier", 180),
@@ -132,6 +155,30 @@ export function normalizeWorkVersionOutputArtifactSource(value: unknown): WorkVe
     },
     ...(sourceReconciliationReceipt ? { sourceReconciliationReceipt } : {}),
     createdAt: requireTimestamp(source.createdAt)
+  };
+}
+
+function normalizePinnedPackageSnapshot(value: unknown): WorkVersionOutputArtifactPackageSnapshotR0 {
+  const snapshot = exactRecord(value, ["packageId", "contentHash", "scope", "sourceAnchors", "warnings", "storyMarkdown"], "Pinned Neutral Story Package snapshot");
+  const scope = exactRecord(snapshot.scope, ["kind", "unitIds", "label"], "Pinned Neutral Story Package scope");
+  if (scope.kind !== "unit") throw new Error("Pinned Neutral Story Package scope must be a Story Unit.");
+  const unitIds = requireTextList(scope.unitIds, "Pinned Neutral Story Package unit", true);
+  const sourceAnchors = requireReferenceList(snapshot.sourceAnchors, ["anchorId", "sourceKind", "ownerId", "entityId", "entityVersion", "capturedAt", "staleState"], "Pinned Neutral Story Package source anchor", (entry) => ({
+    anchorId: requireText(entry.anchorId, "Pinned source anchor identifier", 240),
+    sourceKind: requireText(entry.sourceKind, "Pinned source anchor kind", 120),
+    ownerId: requireText(entry.ownerId, "Pinned source anchor owner", 240),
+    entityId: requireText(entry.entityId, "Pinned source anchor entity", 240),
+    entityVersion: entry.entityVersion == null ? null : requireText(entry.entityVersion, "Pinned source anchor version", 240),
+    capturedAt: requireTimestamp(entry.capturedAt),
+    staleState: requireText(entry.staleState, "Pinned source anchor state", 32)
+  }));
+  return {
+    packageId: requireText(snapshot.packageId, "Pinned Neutral Story Package identifier", 180),
+    contentHash: requirePrefixedDigest(snapshot.contentHash, "Pinned Neutral Story Package digest"),
+    scope: { kind: "unit", unitIds, label: requireText(scope.label, "Pinned Neutral Story Package label", 240) },
+    sourceAnchors,
+    warnings: requireTextList(snapshot.warnings, "Pinned Neutral Story Package warning", false),
+    storyMarkdown: requireMarkdown(snapshot.storyMarkdown)
   };
 }
 
@@ -239,6 +286,12 @@ function requireTextList(value: unknown, label: string, requireOne: boolean): st
 function requireText(value: unknown, label: string, maxLength: number): string {
   const text = String(value ?? "").normalize("NFC").trim();
   if (!text || text.length > maxLength || /[\u0000-\u001f]/u.test(text)) throw new Error(`${label} is invalid.`);
+  return text;
+}
+
+function requireMarkdown(value: unknown): string {
+  const text = String(value ?? "").normalize("NFC");
+  if (!text.trim() || text.length > 1_000_000 || /\u0000/u.test(text)) throw new Error("Pinned Neutral Story Package markdown is invalid.");
   return text;
 }
 

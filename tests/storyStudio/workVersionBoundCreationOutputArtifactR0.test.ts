@@ -74,6 +74,58 @@ test("Path A binds one existing OutputArtifact to root r1 and appends root r2 ex
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("pinned artifact export keeps the exact saved package after its Story Unit changes", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    await value.adapter.createArtifact(value.projectId);
+    const before = await value.adapter.read(value.projectId);
+    const changed = value.operations.updateStoryUnit({
+      projectId: value.projectId,
+      unitId: value.storyUnit.id,
+      expectedVersion: value.storyUnit.version,
+      summary: "R5R1_CURRENT_CANARY must never appear under the older package digest."
+    });
+    assert.equal(changed.conflict, false);
+    const pinned = await value.adapter.read(value.projectId);
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.equal(pinned.packageMode, "pinned-artifact");
+    assert.equal(pinned.package?.digest, before.package?.digest);
+    assert.equal(pinned.package?.storyMarkdown, before.package?.storyMarkdown);
+    assert.doesNotMatch(pinned.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u);
+    assert.equal(current.packageMode, "current-selection");
+    assert.doesNotMatch(current.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u, "Story Unit summary is not an exportable Event-content authority.");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("current selection excludes author intent and mixed selected/unselected Event fragments", async () => {
+  const value = fixture();
+  try {
+    const other = value.operations.createWorldObject({ projectId: value.projectId, type: "event", title: "未选正式事件", status: "planned" });
+    const selectedRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: value.event.id, entityVersion: value.event.revisionToken, capturedAt: "2026-08-24T09:40:00.000Z", staleState: "fresh" as const };
+    const unselectedRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: other.id, entityVersion: other.revisionToken, capturedAt: "2026-08-24T09:40:00.000Z", staleState: "fresh" as const };
+    const updated = value.operations.updateStoryUnit({
+      projectId: value.projectId,
+      unitId: value.storyUnit.id,
+      expectedVersion: value.storyUnit.version,
+      summary: "R5R1_AUTHOR_SUMMARY_CANARY",
+      linkedEntityIds: [value.event.id, other.id],
+      items: [
+        { id: "author-intent-canary", kind: "note", authority: "author-intent", content: { title: "R5R1_AUTHOR_INTENT_CANARY" }, sourceRefs: [selectedRef], createdBy: "author" },
+        { id: "mixed-canary", kind: "note", authority: "canon", content: { title: "R5R1_MIXED_UNSELECTED_CANARY" }, sourceRefs: [selectedRef, unselectedRef], createdBy: "system" },
+        { id: "selected-canon", kind: "note", authority: "canon", content: { title: "R5R1_SELECTED_FORMAL" }, sourceRefs: [selectedRef], createdBy: "system" }
+      ]
+    });
+    assert.equal(updated.conflict, false);
+    value.adapter.createRoot(value.projectId);
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.match(current.package?.storyMarkdown || "", /R5R1_SELECTED_FORMAL/u);
+    assert.doesNotMatch(current.package?.storyMarkdown || "", /R5R1_AUTHOR_SUMMARY_CANARY|R5R1_AUTHOR_INTENT_CANARY|R5R1_MIXED_UNSELECTED_CANARY/u);
+    assert.ok(current.availableEvents.some((event) => event.id === other.id), "available events remain visible after the current selection excludes one of them");
+    assert.deepEqual(current.selectedEventIds, [value.event.id]);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("artifact save uses optimistic concurrency and duplicate operation creates no second revision", async () => {
   const value = fixture();
   try {
