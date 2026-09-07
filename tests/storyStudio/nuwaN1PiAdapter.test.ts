@@ -29,7 +29,9 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
         assert.equal(input.requiredToolName, "read_role_context");
         assert.equal(input.tools.length, 1);
         toolContext = await input.tools[0].execute({ toolCallId: "tool.pi", arguments: {}, approvalReceiptId: "receipt" });
-        assert.deepEqual((toolContext as { context: { unknownFactIds: string[] } }).context.unknownFactIds, ["event.secret"]);
+        const providerContext = (toolContext as { context: Record<string, unknown> }).context;
+        assert.equal("unknownFactIds" in providerContext, false);
+        assert.deepEqual(providerContext.excluded, { count: 1, reasonCodes: ["not-known-by-actor"] });
         return { text: JSON.stringify({ intent: "依据钟声继续观察", speech: "我只确认自己听到的钟声。", action: { action: "observe", targetId: null }, observableResult: "林昭记录了一次受限观察。" }), providerCalls: 2, traceId: "trace.fake", responseModelId: "fake", usage: { promptTokens: 12, completionTokens: 18, totalTokens: 30 }, latencyMs: 1 };
       },
       cancel() { return false; }
@@ -37,6 +39,7 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
     projectId: "project.test",
     runId: context.runId,
     provider: { providerId: "fake", profileId: "fake-profile", modelId: "fake-model" },
+    sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
     async openProviderStream() { throw new Error("The in-memory Pi runtime owns this local fake test."); }
   });
   const request = await adapter.request(context);
@@ -59,6 +62,7 @@ test("Nuwa N1 Pi adapter rejects a model result that tries to exceed the role ac
     projectId: "project.test",
     runId: context.runId,
     provider: { providerId: "fake", profileId: "fake-profile", modelId: "fake-model" },
+    sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
     async openProviderStream() { throw new Error("not reached"); }
   });
   const request = await adapter.request(context);

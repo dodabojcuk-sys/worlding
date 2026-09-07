@@ -44,7 +44,7 @@ export function EngineeringLogPanel(props: { projectId: string | null }) {
   return <section className="engineering-log-panel" aria-label={t("log.label")} data-receipt-projection="author-action-receipts" data-provider-calls="0">
     <div className="page-tool-filter-row">
       <label><span className="sr-only">操作类型</span><select aria-label="操作类型" value={filter} onChange={(event) => setFilter(event.target.value as LogFilter)}><option value="all">{t("log.allTypes")}</option>{actions.map((action) => <option key={action} value={action}>{actionLabel(action)}</option>)}</select></label>
-      <label><span className="sr-only">结果</span><select aria-label="结果" value={outcome} onChange={(event) => setOutcome(event.target.value as OutcomeFilter)}><option value="all">全部结果</option><option value="allowed">已完成</option><option value="requires-author">等待作者</option><option value="blocked">已阻止</option></select></label>
+      <label><span className="sr-only">结果</span><select aria-label="结果" value={outcome} onChange={(event) => setOutcome(event.target.value as OutcomeFilter)}><option value="all">全部结果</option><option value="allowed">已获准</option><option value="requires-author">等待作者</option><option value="blocked">已阻止</option></select></label>
       <label><span className="sr-only">对象类型</span><select aria-label="对象类型" value={targetType} onChange={(event) => setTargetType(event.target.value)}><option value="all">全部对象</option>{targetTypes.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
       <label><span className="sr-only">检索回执</span><input aria-label="检索回执" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="对象、运行或回执 ID" /></label>
       <button type="button" disabled={!visible.length} onClick={exportLog}>导出脱敏日志</button>
@@ -55,7 +55,7 @@ export function EngineeringLogPanel(props: { projectId: string | null }) {
         <div><strong>{actionLabel(entry.action)}</strong><span>{entry.targetType} · {entry.targets.length ? `${entry.targets.length} 个关联对象` : "当前作品"}</span></div>
         <em data-status={entry.outcome === "allowed" ? "complete" : entry.outcome === "blocked" ? "pending" : "hint"}>{outcomeLabel(entry.outcome)}</em>
         <button type="button" className="engineering-log-detail-toggle" aria-expanded={expandedId === entry.id} onClick={() => setExpandedId((current) => current === entry.id ? null : entry.id)}>{expandedId === entry.id ? "收起回执" : "查看回执"}</button>
-        {expandedId === entry.id ? <dl className="engineering-log-receipt" aria-label="操作回执详情"><div><dt>回执 ID</dt><dd><code>{entry.id}</code></dd></div><div><dt>执行者</dt><dd>{entry.actor}</dd></div><div><dt>目标</dt><dd>{entry.targets.length ? entry.targets.join("、") : "当前作品"}</dd></div><div><dt>检查点</dt><dd>{entry.checkpointId ?? "未指定"}</dd></div><div><dt>理由</dt><dd>{entry.reason}</dd></div><div><dt>可逆性</dt><dd>{entry.reversible ? "可逆" : "不可逆或需额外确认"}</dd></div><div><dt>预估 Provider 成本</dt><dd>{entry.estimatedProviderCost === 0 ? "0（本地或未调用）" : String(entry.estimatedProviderCost)}</dd></div></dl> : null}
+        {expandedId === entry.id ? <dl className="engineering-log-receipt" aria-label="操作回执详情"><div><dt>回执 ID</dt><dd><code>{entry.id}</code></dd></div><div><dt>执行者</dt><dd>{entry.actor}</dd></div><div><dt>目标</dt><dd>{entry.targets.length ? entry.targets.join("、") : "当前作品"}</dd></div><div><dt>检查点</dt><dd>{entry.checkpointId ?? "未指定"}</dd></div><div><dt>理由</dt><dd>{entry.reason}</dd></div><div><dt>可逆性</dt><dd>{entry.reversible ? "可逆" : "不可逆或需额外确认"}</dd></div><div><dt>预估 Provider 成本</dt><dd>{entry.estimatedProviderCost === 0 ? "未记录（许可回执不代表调用或费用）" : String(entry.estimatedProviderCost)}</dd></div></dl> : null}
       </li>)}
     </ol>}
   </section>;
@@ -64,4 +64,4 @@ export function EngineeringLogPanel(props: { projectId: string | null }) {
 function actionLabel(action: AgentActivityReceipt["action"]): string {
   return ({ "read-context": "读取上下文", "draft-write": "保存草稿", "library-write": "建立候选资料", "temporary-character": "创建临时角色", "rehearsal-run": "运行女娲排演", "event-impact-review": "查看影响", "confirmed-event": "确认正式事件", "permanent-delete": "永久删除", "branch-merge": "合并分支", "external-action": "外部操作", "review-write": "提交审查", "candidate-review": "候选审查", "rehearsal-intervention": "排演干预", "rehearsal-branch": "排演分支" } as Record<string, string>)[action] ?? action;
 }
-function outcomeLabel(outcome: AgentActivityReceipt["outcome"]): string { return outcome === "allowed" ? "已完成" : outcome === "blocked" ? "已阻止" : "等待作者"; }
+function outcomeLabel(outcome: AgentActivityReceipt["outcome"]): string { return outcome === "allowed" ? "已获准" : outcome === "blocked" ? "已阻止" : "等待作者"; }

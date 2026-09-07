@@ -46,11 +46,20 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (verified?.status === "error") throw new Error(verified.error.message);
     const allowedEventIds = verified?.status === "ready" ? new Set(verified.eventIds) : null;
     const verifiedEvents = allowedEventIds ? allEvents.filter((item) => allowedEventIds.has(item.id)) : allEvents;
+    // The unit is the first scope boundary. Do not let an empty checkbox set
+    // silently borrow an arbitrary confirmed Event from another unit.
+    const linkedIds = new Set([
+      ...(storyUnit.linkedEntityIds || []),
+      ...storyUnit.items.flatMap((item) => item.sourceRefs.map((ref) => ref.entityId))
+    ]);
+    const availableEvents = verifiedEvents.filter((item) => linkedIds.has(item.id));
     const requestedEventIds = Array.isArray(input.eventIds) ? [...new Set(input.eventIds.map(String))] : [];
-    const events = requestedEventIds.length ? requestedEventIds.map((id) => verifiedEvents.find((item) => item.id === id)).filter(Boolean) : verifiedEvents.slice(0, 1);
-    if (!events.length) throw new Error("当前作品还没有可验证的已确认事件，请先完成作者确认。");
-    if (requestedEventIds.length && requestedEventIds.length !== events.length) throw new Error("选择的事件已缺失或未通过作者确认链验证。");
-    return { storyUnit, events };
+    // Empty means the complete available scope for this unit, never an
+    // undocumented first-item fallback. The UI keeps a non-empty selected set.
+    const events = requestedEventIds.length ? requestedEventIds.map((id) => availableEvents.find((item) => item.id === id)).filter(Boolean) : availableEvents;
+    if (!availableEvents.length) throw new Error("当前故事单元还没有可验证的已确认事件，请先完成作者确认和单元编排。");
+    if (requestedEventIds.length && requestedEventIds.length !== events.length) throw new Error("选择的事件不属于当前故事单元，或尚未通过作者确认链验证。");
+    return { storyUnit, events, availableEvents };
   }
 
   function createRoot(projectId) {
@@ -71,10 +80,15 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
 
   async function packageForRoot(projectId, root, scopeInput = {}) {
     const project = resolveActiveProject(projectId);
-    const { storyUnit } = selectedScope(projectId, scopeInput);
+    const { storyUnit, events } = selectedScope(projectId, scopeInput);
+    const selectedIds = new Set(events.map((event) => event.id));
+    const scopedUnit = {
+      ...storyUnit,
+      items: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId)))
+    };
     return buildNeutralStoryPackage({
       projectRef: { projectId: root.identity.projectId, title: project.title },
-      scope: { kind: "unit", unitIds: [storyUnit.id], label: storyUnit.title },
+      scope: { kind: "unit", unitIds: [storyUnit.id], label: `${storyUnit.title} · ${events.length} 个已确认事件` },
       sourceRevision: {
         revisionId: `${root.identity.workVersionId}:r${root.identity.currentRevision}`,
         revisionHash: root.manifest.canonicalDigest,
@@ -89,7 +103,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
           manifestDigest: root.manifest.canonicalDigest
         }
       },
-      storyUnits: [storyUnit],
+      storyUnits: [scopedUnit],
       selectedUnitIds: [storyUnit.id],
       createdAt: root.revision.createdAt
     });
@@ -111,7 +125,8 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (root.identity.currentRevision !== 1) throw new Error("新建创作稿必须明确使用当前作品主线的初始版本。");
     const { storyUnit, events } = selectedScope(projectId, input);
     const packageValue = await packageForRoot(projectId, root, input);
-    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: storyUnit.items.map((item) => item.id) }];
+    const selectedIds = new Set(events.map((event) => event.id));
+    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId))).map((item) => item.id) }];
     const generationBrief = {
       sourceKind: "work-version",
       neutralStoryPackageId: packageValue.packageId,
@@ -417,7 +432,14 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     let storyUnit;
     let events;
     try {
-      ({ storyUnit, events } = selectedScope(projectId, options));
+      // Existing artifacts are pinned products. Their package must be rebuilt
+      // from their recorded selection, not the caller's current UI choices.
+      const bindingForScope = operations.listOutputArtifacts({ projectId, includeArchived: true }).find((item) => item.provenance.workVersionSource)?.provenance.workVersionSource || null;
+      const pinnedScope = bindingForScope ? {
+        storyUnitId: bindingForScope.selectedStoryUnitRefs[0]?.unitId,
+        eventIds: bindingForScope.selectedEventRefs.map((ref) => ref.eventId)
+      } : options;
+      ({ storyUnit, events } = selectedScope(projectId, pinnedScope));
     } catch (error) {
       return blockedReadProjection({
         project,
@@ -437,7 +459,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       catch { /* Integrity validation below owns the author-facing missing/corrupt state. */ }
     }
     if (root) packageValue = binding
-      ? await packageForPinnedBinding(binding, storyUnit, project.title, pinnedPackageCreatedAt)
+      ? await packageForPinnedBinding(binding, storyUnit, events, project.title, pinnedPackageCreatedAt)
       : await packageForRoot(projectId, root, options);
     if (root && binding) {
       let integrity = "verified";
@@ -667,10 +689,12 @@ function sourceSlicesMatch(pinned, current) {
   return pinned.filter((item) => item.ownerKind !== "creation-output").every((item) => currentByKind.get(item.ownerKind)?.canonicalDigest === item.canonicalDigest);
 }
 
-async function packageForPinnedBinding(binding, storyUnit, projectTitle, createdAt) {
+async function packageForPinnedBinding(binding, storyUnit, events, projectTitle, createdAt) {
+  const selectedIds = new Set(events.map((event) => event.id));
+  const scopedUnit = { ...storyUnit, items: storyUnit.items.filter((item) => item.sourceRefs.some((ref) => selectedIds.has(ref.entityId))) };
   return buildNeutralStoryPackage({
     projectRef: { projectId: binding.projectId, title: projectTitle },
-    scope: { kind: "unit", unitIds: [storyUnit.id], label: storyUnit.title },
+    scope: { kind: "unit", unitIds: [storyUnit.id], label: `${storyUnit.title} · ${events.length} 个已确认事件` },
     sourceRevision: {
       revisionId: `${binding.workVersionId}:r${binding.pinnedRevision}`,
       revisionHash: binding.manifestDigest,
@@ -678,7 +702,7 @@ async function packageForPinnedBinding(binding, storyUnit, projectTitle, created
       sourceOwners: ["story-unit", "event", "source-anchor"],
       workVersion: { projectId: binding.projectId, workVersionId: binding.workVersionId, kind: "root", pinnedRevision: binding.pinnedRevision, manifestId: binding.manifestId, manifestDigest: binding.manifestDigest }
     },
-    storyUnits: [storyUnit],
+    storyUnits: [scopedUnit],
     selectedUnitIds: [storyUnit.id],
     createdAt
   });

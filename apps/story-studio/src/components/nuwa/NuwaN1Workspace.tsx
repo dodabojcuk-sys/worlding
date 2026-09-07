@@ -164,12 +164,15 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
 
   const availability = bootstrap?.availability;
   const localFake = availability?.kind === "local-fake";
+  // Availability says whether this explicitly configured executor can start a
+  // bounded Run.  It is not a synonym for the zero-call fixture executor.
+  const executable = Boolean(availability && availability.kind !== "unavailable");
   const status = run?.run?.status ?? "ready";
   return <main className="shell-workspace shell-workspace-nuwa" aria-label="女娲">
     <section className="nuwa-n1-workspace" data-testid="nuwa-n1-workspace" data-run-status={status} data-provider-calls={availability?.providerCalls ?? 0}>
       <header className="nuwa-n1-header">
         <div><small>有界排演 · 当前作品</small><h1>女娲</h1><p>{run?.run ? `围绕“${run.run.scene.label}”继续读取 Run 内变化；结果仍需送入待确认。` : "先选定一个故事单元与 2–3 位正式角色，建立可恢复的局部排演。"}</p></div>
-        <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
+        <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : executable ? "已配置执行器；开始排演才会发送明确授权的请求。" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
       </header>
 
       {error ? <p className="nuwa-n1-message is-error" role="alert"><AlertTriangle />{error}</p> : null}
@@ -179,7 +182,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
         <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · {run.run.dispatches} / 12 次模拟 dispatch</small> : <small>最多 6 个已提交步骤</small>}</div>
-        {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !localFake} onClick={create}><Play />开始排演</button> : null}
+        {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
         {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "running" ? <><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />单步</button><button type="button" disabled={interrupting} onClick={() => runAction("pause")}><CirclePause />暂停</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "paused" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("resume")}><CirclePlay />恢复</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}

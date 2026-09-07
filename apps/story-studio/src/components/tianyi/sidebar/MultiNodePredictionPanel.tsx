@@ -272,7 +272,19 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const abandon = () => void (async () => {
     if (!project || !run || busy || run.status === "abandoned") return;
     setBusy(true); setError("");
-    try { const abandoned = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token })); const observed = setObservedRun(abandoned) ?? abandoned; setRuns((current) => current.map((item) => item.runId === observed.runId ? observed : item)); setReceipt(null); setPhase("idle"); setViewState("task"); announceRun(observed); }
+    try {
+      const response = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
+      // The mutation response is not allowed to compete with a cached history
+      // snapshot. Read the owner once after the command and only expose the
+      // terminal state it durably recorded.
+      const history = await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token));
+      const persisted = history.find((candidate) => candidate.runId === response.runId) ?? response;
+      if (persisted.status !== "abandoned") throw new Error("放弃命令尚未在作品记录中收敛；候选视图保持不变。");
+      const abandoned = persisted;
+      const observed = setObservedRun(abandoned) ?? abandoned;
+      setRuns(history.map((candidate) => candidate.runId === observed.runId ? observed : candidate));
+      setReceipt(null); setPhase("idle"); setViewState("task"); announceRun(observed);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
     finally { setBusy(false); }
   })();

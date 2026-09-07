@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, FilePlus2, GitBranch, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { getCreationSourcePortState, listStoryUnits, runCreationSourcePortAction, type CreationSourcePortAction, type CreationSourcePortState, type StoryUnit } from "../../lib/localTransport";
@@ -13,35 +13,56 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const [eventIds, setEventIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const requestGeneration = useRef(0);
+  const activeProjectId = useRef<string | null>(projectId);
   const refresh = async (scope: { storyUnitId?: string; eventIds?: string[] } = {}) => {
-    if (!projectId) return;
+    const requestedProjectId = projectId;
+    if (!requestedProjectId) return;
+    const generation = ++requestGeneration.current;
     setError("");
     try {
-      const next = await getCreationSourcePortState({ projectId, storyUnitId: scope.storyUnitId ?? storyUnitId ?? undefined, eventIds: scope.eventIds ?? eventIds });
+      const next = await getCreationSourcePortState({ projectId: requestedProjectId, storyUnitId: scope.storyUnitId ?? storyUnitId ?? undefined, eventIds: scope.eventIds ?? eventIds });
+      if (activeProjectId.current !== requestedProjectId || requestGeneration.current !== generation || next.project.id !== requestedProjectId) return;
       setState(next);
       setStoryUnitId(next.storyUnit?.id ?? null);
       if (!scope.eventIds || !scope.eventIds.length) setEventIds(next.events.map((event) => event.id));
       else setEventIds(scope.eventIds);
     }
-    catch (reason) { setError(messageFor(reason)); }
+    catch (reason) { if (activeProjectId.current === requestedProjectId && requestGeneration.current === generation) setError(messageFor(reason)); }
   };
   useEffect(() => {
-    setState(null); setError("");
+    activeProjectId.current = projectId;
+    requestGeneration.current += 1;
+    setState(null); setStoryUnits([]); setStoryUnitId(null); setEventIds([]); setError("");
     if (projectId) {
-      void listStoryUnits(projectId).then((items) => setStoryUnits(items.filter((item) => item.lifecycle !== "archived"))).catch(() => setStoryUnits([]));
+      const requestedProjectId = projectId;
+      void listStoryUnits(requestedProjectId).then((items) => {
+        if (activeProjectId.current === requestedProjectId) setStoryUnits(items.filter((item) => item.lifecycle !== "archived"));
+      }).catch(() => {
+        if (activeProjectId.current === requestedProjectId) setStoryUnits([]);
+      });
       void refresh({ eventIds: [] });
     }
     // The selected project's identity is the read boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
   const act = (action: CreationSourcePortAction) => {
-    if (!projectId) return;
+    const requestedProjectId = projectId;
+    if (!requestedProjectId) return;
+    const generation = ++requestGeneration.current;
     setBusy(true); setError("");
-    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId, action, storyUnitId: storyUnitId ?? undefined, eventIds, token }))
-      .then(setState).catch((reason: unknown) => setError(messageFor(reason))).finally(() => setBusy(false));
+    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId: requestedProjectId, action, storyUnitId: storyUnitId ?? undefined, eventIds, token }))
+      .then((next) => {
+        if (activeProjectId.current !== requestedProjectId || requestGeneration.current !== generation || next.project.id !== requestedProjectId) return;
+        setState(next);
+      }).catch((reason: unknown) => {
+        if (activeProjectId.current === requestedProjectId && requestGeneration.current === generation) setError(messageFor(reason));
+      }).finally(() => {
+        if (activeProjectId.current === requestedProjectId && requestGeneration.current === generation) setBusy(false);
+      });
   };
   const download = () => {
-    if (!state?.package) return;
+    if (!state?.package || !projectId || state.project.id !== projectId) return;
     const sourceNote = `\n<!-- tianyan-neutral-story-package: ${state.package.id}\ncontent-hash: ${state.package.digest}\nsource-receipts: ${state.package.sourceAnchors.map((item) => item.anchorId).join(", ") || "none"}\n-->\n`;
     const blob = new Blob([state.package.storyMarkdown.trimEnd(), sourceNote], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob); const anchor = document.createElement("a");

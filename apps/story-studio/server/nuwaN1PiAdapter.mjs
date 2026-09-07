@@ -6,9 +6,10 @@ const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
  * product tool is a frozen, role-scoped context read; this adapter has no
  * filesystem, Canon, Event, World, Relation, or character-write capability.
  */
-export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, openProviderStream, now = () => new Date().toISOString() }) {
+export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, now = () => new Date().toISOString() }) {
   if (!runtime || typeof runtime.run !== "function") throw new Error("Nuwa N1 Pi adapter requires an active Agent Runtime.");
   if (!provider?.providerId || !provider?.profileId || !provider?.modelId) throw new Error("Nuwa N1 Pi adapter requires an explicit Provider profile.");
+  if (!sourceIdentity?.workVersionId || !sourceIdentity?.revision || !sourceIdentity?.kind) throw new Error("Nuwa N1 Pi adapter requires an explicit versioned or unversioned source identity.");
   if (typeof openProviderStream !== "function") throw new Error("Nuwa N1 Pi adapter requires the host Provider bridge.");
   const contextTool = "read_role_context";
   return Object.freeze({
@@ -25,7 +26,9 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, ope
       const result = await runtime.run({
         runId: `${runId}.${context.attemptId}`,
         projectId,
-        workVersionId: "work-version.nuwa-n1",
+        // A rehearsal has to name the actual version contract it read.  An
+        // unversioned draft is explicit; a fabricated constant is not.
+        workVersionId: sourceIdentity.workVersionId,
         sessionId: runId,
         prompt: promptFor(context),
         systemPrompt: "你是女娲 N1 的受控 Pi 回合适配器。只能使用 read_role_context 返回的冻结角色范围。不得访问文件、Shell、网络以外的产品工具、凭据、其他作品或隐藏角色信息；不得写入 Canon、World、Event、Relation、人物资料或记忆。只输出严格 JSON，不要解释过程。",
@@ -73,7 +76,9 @@ function safeContextForProvider(context) {
     coreSummary: context.coreSummary,
     knownFacts: context.knownFacts,
     beliefs: context.beliefs,
-    unknownFactIds: context.unknownFactIds,
+    // Excluded identities can themselves disclose a future secret. The role
+    // gets only an auditable count/reason; the author inspector retains IDs.
+    excluded: { count: context.unknownFactIds.length, reasonCodes: context.unknownFactIds.length ? ["not-known-by-actor"] : [] },
     recentDialogue: context.recentDialogue,
     allowedActions: context.allowedActions,
     remaining: context.remaining,

@@ -182,6 +182,7 @@ const nuwaN1Port = createNuwaN1Port({
         projectId,
         runId,
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
+        sourceIdentity: nuwaN1SourceIdentity(projectId),
         openProviderStream(providerInput) {
           return providerGateway.openChatStream({
             profileId: profile.id,
@@ -190,7 +191,10 @@ const nuwaN1Port = createNuwaN1Port({
             toolChoice: providerInput.toolChoice,
             maxOutputTokens: 512,
             signal: providerInput.signal,
-            idempotencyKey: `nuwa-n1.${projectId}.${runId}.${providerInput.providerCall}`,
+            // Pi restarts its providerCall ordinal for every actor attempt.
+            // agentRunId contains the durable N1 attempt identity, so a retry
+            // reuses its key while another actor gets an independent key.
+            idempotencyKey: `nuwa-n1.${projectId}.${runId}.${providerInput.agentRunId}.${providerInput.providerCall}`,
             budgetScope: `nuwa-n1:${projectId}`,
             toolLoopTurn: providerInput.providerCall > 1,
             retry: providerInput.retry
@@ -3150,6 +3154,13 @@ function nuwaN1PiAvailability() {
   const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
   if (!profile || profile.enabled === false || !provider?.configured || !providerCredential.configured()) return null;
   return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
+}
+
+function nuwaN1SourceIdentity(projectId) {
+  const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId);
+  return root
+    ? { kind: "root", workVersionId: root.identity.workVersionId, revision: String(root.identity.currentRevision) }
+    : { kind: "unversioned-draft", workVersionId: `work-version.unversioned.${projectId}`, revision: "unversioned" };
 }
 
 function readProviderProfileProjection() {

@@ -2219,7 +2219,7 @@ export async function getNuwaDirectorStateR1(projectId: string, runId: string): 
  * owned by the Nuwa RunPack/AuthorControl server path; the browser only keeps
  * the currently rendered projection and never becomes a Run or candidate owner.
  */
-export type NuwaN1Availability = { kind: "unavailable" | "local-fake"; label: string; providerCalls: 0; adapterId?: string | null };
+export type NuwaN1Availability = { kind: "unavailable" | "local-fake" | "pi-agent"; label: string; providerCalls: 0; adapterId?: string | null };
 export type NuwaN1Participant = { id: string; title: string; revision: string };
 export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
 export type NuwaN1Step = {
