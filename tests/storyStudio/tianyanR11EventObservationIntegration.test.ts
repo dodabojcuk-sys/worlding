@@ -29,7 +29,10 @@ test("R12 exposes one EventLine task workspace and renders order only from Narra
   assert.match(progression, /renderCandidateOverlay/u);
   assert.match(progression, /候选审查/u);
   assert.match(progression, /label="待编排与冲突"/u);
-  assert.doesNotMatch(progression, /label="角色视角"|label="关系变化"/u);
+  assert.match(progression, /label="角色观察"/u);
+  assert.match(progression, /label="关系变化"/u);
+  assert.match(progression, /Relation Owner 只读投影/u);
+  assert.match(progression, /关系回执历史/u);
   assert.match(progression, /MAX_FOCUS_OBJECTS = 5/u);
   assert.doesNotMatch(progression, /NarrativeSpineBoard/u);
   assert.match(graph, /data-narrative-order-owner="NarrativeArrangementProjection"/u);
