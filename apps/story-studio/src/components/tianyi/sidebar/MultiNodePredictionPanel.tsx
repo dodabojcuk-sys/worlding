@@ -171,14 +171,20 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       const created = await props.runtime.withConnection((token) => createMultiNodePredictionRun({ request: { projectId: project.id, sourceEventRefs: props.eventRefs, authorGoal: goal.trim(), predictionMode: "forward-development", operationId: `prediction-request.${crypto.randomUUID()}` }, runId, token }));
       props.runtime.setActivePageAgentRunId(created.runId);
       announceAgentState(true, created.runId);
-      setRun(created); announceRun(created); setPhase("validating");
+      const observedCreated = setObservedRun(created) ?? created;
+      announceRun(observedCreated); setPhase("validating");
       beginExecutionPolling(created.runId);
       beginRunRecoveryPolling(created.runId);
       const ready = await props.runtime.withConnection((token) => executeMultiNodePredictionRun({ projectId: project.id, runId: created.runId, token }));
       historyLoadGeneration.current += 1;
-      setRun(ready); setRuns((current) => [ready, ...current.filter((item) => item.runId !== ready.runId)]); announceRun(ready);
-      setBusy(false); setPhase("reviewing");
-      setViewState("overview");
+      // The execute response may have been captured before an author-terminal
+      // update. It must pass through the same fence as poll/recovery reads
+      // before it can change either the Run or its visible work surface.
+      const observedReady = setObservedRun(ready) ?? ready;
+      setRuns((current) => [observedReady, ...current.filter((item) => item.runId !== observedReady.runId)]); announceRun(observedReady);
+      setBusy(false);
+      setPhase(observedReady.status === "ready" ? "reviewing" : observedReady.status === "stopped" ? "stopped" : observedReady.status === "failed" ? "failed" : "idle");
+      setViewState(predictionViewStateFromPersistence({ runStatus: observedReady.status, hasBundle: Boolean(observedReady.bundle), selectedPathId: null, hasReceipt: false }));
       void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token })).then((projection) => {
         if (projection) { setExecution(projection); announceExecution(projection); }
       }).catch(() => undefined);
@@ -275,7 +281,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     stopRequested.current = true; setError("");
     try {
       const stopped = await props.runtime.withConnection((token) => stopMultiNodePredictionRun({ projectId: project.id, runId: run.runId, reason: "作者停止了本次推演。", token }));
-      setRun(stopped); setPhase("stopped"); setViewState("task"); announceRun(stopped);
+      const observed = setObservedRun(stopped) ?? stopped;
+      setPhase(observed.status === "stopped" ? "stopped" : "idle"); setViewState(predictionViewStateFromPersistence({ runStatus: observed.status, hasBundle: Boolean(observed.bundle), selectedPathId: null, hasReceipt: false })); announceRun(observed);
       const projection = await props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: run.runId, token }));
       if (projection) { setExecution(projection); announceExecution(projection); }
     } catch (cause) { stopRequested.current = false; setError(cause instanceof Error ? cause.message : "未能停止本次推演。"); }
@@ -285,9 +292,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     setBusy(true); setError(""); setReceipt(null); setPhase("generating"); setViewState("running"); stopRequested.current = false; announceAgentState(true, run.runId); beginExecutionPolling(run.runId); beginRunRecoveryPolling(run.runId);
     try {
       const ready = await props.runtime.withConnection((token) => retryMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
-      setRun(ready); setRuns((current) => current.map((item) => item.runId === ready.runId ? ready : item)); announceRun(ready);
-      setBusy(false); setPhase("reviewing");
-      setViewState("overview");
+      const observedReady = setObservedRun(ready) ?? ready;
+      setRuns((current) => current.map((item) => item.runId === observedReady.runId ? observedReady : item)); announceRun(observedReady);
+      setBusy(false); setPhase(observedReady.status === "ready" ? "reviewing" : observedReady.status === "stopped" ? "stopped" : observedReady.status === "failed" ? "failed" : "idle");
+      setViewState(predictionViewStateFromPersistence({ runStatus: observedReady.status, hasBundle: Boolean(observedReady.bundle), selectedPathId: null, hasReceipt: false }));
       void props.runtime.withConnection((token) => getMultiNodePredictionExecution({ projectId: project.id, runId: ready.runId, token })).then((projection) => {
         if (projection) { setExecution(projection); announceExecution(projection); }
       }).catch(() => undefined);
