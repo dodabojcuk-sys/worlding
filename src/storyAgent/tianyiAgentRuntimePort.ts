@@ -343,6 +343,7 @@ export type AgentRuntimePort = TianyiAgentRuntimePort;
 export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDependencies): AgentRuntimePort & { readonly runtimeId: "tianyi.agent-runtime"; readonly runtimeVersion: "r0.6"; handoffCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> } {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const cache = new Map<string, TianyiAgentRunProjection>();
+  const saveQueues = new Map<string, Promise<void>>();
 
   async function load(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null> {
     const key = runKey(input.projectId, input.workVersionId, input.sessionId, input.runId);
@@ -382,6 +383,19 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
   }
 
   async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
+    const key = runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId);
+    const previous = saveQueues.get(key) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(() => saveUnlocked(projection, operationId, kind, streamEvent));
+    const tail = task.then(() => undefined, () => undefined);
+    saveQueues.set(key, tail);
+    try {
+      return await task;
+    } finally {
+      if (saveQueues.get(key) === tail) saveQueues.delete(key);
+    }
+  }
+
+  async function saveUnlocked(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"], streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
     const key = runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId);
     const current = cache.get(key);
     // A run can receive a buffered stream completion after the author has
