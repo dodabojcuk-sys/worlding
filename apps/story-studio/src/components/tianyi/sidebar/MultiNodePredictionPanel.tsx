@@ -97,6 +97,15 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     if (run) announceRun(run);
   }, [run?.runId]);
 
+  // A terminal owner state is not merely a disabled receipt: it returns the
+  // author to the task surface. Any delayed canvas/replay callback must not
+  // leave a candidate or receipt surface visible for that terminal Run.
+  useEffect(() => {
+    if (!run || !["abandoned", "stale"].includes(run.status)) return;
+    setReceipt(null);
+    if (viewState !== "task") setViewState("task");
+  }, [run?.status, viewState]);
+
   useEffect(() => {
     if (!project || !run) return;
     let active = true;
@@ -115,7 +124,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   useEffect(() => {
     const receive = (event: Event) => {
       const detail = (event as CustomEvent<PredictionSelectionDetail>).detail;
-      if (!run || detail?.origin !== "canvas" || detail.runId !== run.runId) return;
+      if (!run || ["abandoned", "stale"].includes(run.status) || detail?.origin !== "canvas" || detail.runId !== run.runId) return;
       setPathId(detail.pathId); setSelectedNodeIds(detail.selectedCandidateNodeIds); setReceipt(null);
       setViewState(predictionViewAfterPathSelection(detail.pathId));
     };

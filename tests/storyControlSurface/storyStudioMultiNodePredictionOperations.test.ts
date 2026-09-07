@@ -59,6 +59,8 @@ test("Pi-stub Tianyi prediction runs persist independently without Event, Relati
     const changedSource = workspace.readWorldObject({ projectId, objectId: sources[0]!.id });
     workspace.updateWorldObject({ projectId, objectId: changedSource.id, expectedHash: changedSource.revisionToken, title: changedSource.title, status: changedSource.status, tags: changedSource.tags, aliases: changedSource.aliases, body: `${changedSource.body}\n来源版本已改变。` });
     assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.status, "stale", "a changed source immediately disables a previously ready Run");
+    assert.equal(operations.abandonPredictionRun({ projectId, runId: created.runId }).status, "abandoned", "an explicit author abandon records that decision even when the retained prediction was already stale");
+    assert.equal(operations.readPredictionRun({ projectId, runId: created.runId })?.status, "abandoned", "the persisted owner status remains the author terminal decision");
   } finally { await rm(rootPath, { recursive: true, force: true }); }
 });
 

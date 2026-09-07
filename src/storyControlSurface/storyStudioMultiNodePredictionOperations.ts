@@ -97,7 +97,7 @@ export function createStoryStudioMultiNodePredictionOperations(options: { rootPa
     listPredictionRuns(input: { projectId: string }) { return list(input.projectId).map((run) => structuredClone(markStaleIfSourceChanged(run))); },
     abandonPredictionRun(input: { projectId: string; runId: string }) {
       const run = requireRun(input.projectId, input.runId);
-      if (["abandoned", "stale"].includes(run.status)) return structuredClone(run);
+      if (run.status === "abandoned") return structuredClone(run);
       return structuredClone(replace({ ...run, status: "abandoned" }));
     },
     markPredictionRunStale(input: { projectId: string; runId: string }) { const run = requireRun(input.projectId, input.runId); return structuredClone(replace({ ...run, status: "stale" })); }

@@ -19,6 +19,8 @@ test("persistent Run state maps to a view without inventing domain progress", ()
   assert.equal(predictionViewStateFromPersistence({ runStatus: "ready", hasBundle: true, selectedPathId: null, hasReceipt: false }), "overview");
   assert.equal(predictionViewStateFromPersistence({ runStatus: "ready", hasBundle: true, selectedPathId: "prediction-path.one", hasReceipt: false }), "focus");
   assert.equal(predictionViewStateFromPersistence({ runStatus: "ready", hasBundle: true, selectedPathId: "prediction-path.one", hasReceipt: true }), "receipt");
+  assert.equal(predictionViewStateFromPersistence({ runStatus: "abandoned", hasBundle: true, selectedPathId: "prediction-path.one", hasReceipt: true }), "task");
+  assert.equal(predictionViewStateFromPersistence({ runStatus: "stale", hasBundle: true, selectedPathId: "prediction-path.one", hasReceipt: true }), "task");
   assert.equal(predictionViewStateFromPersistence({ runStatus: "failed", hasBundle: false, selectedPathId: null, hasReceipt: false }), "task");
 });
 
@@ -52,6 +54,8 @@ test("the drafted receipt recovery effect invalidates stale responses after a te
   assert.match(panel, /shouldApplyPredictionRunSnapshot\(\{ terminalStatus, incomingStatus: next\.status \}\)/u);
   assert.match(panel, /historyLoadGeneration\.current \+= 1/u);
   assert.match(panel, /runRecoveryGeneration\.current \+= 1/u);
+  assert.match(panel, /if \(!run \|\| \["abandoned", "stale"\]\.includes\(run\.status\) \|\| detail\?\.origin !== "canvas"/u);
+  assert.match(panel, /if \(!run \|\| !\["abandoned", "stale"\]\.includes\(run\.status\)\) return;/u);
 });
 
 test("the four author stages remain stable across detailed candidate views", () => {
