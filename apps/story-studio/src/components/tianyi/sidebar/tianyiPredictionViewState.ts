@@ -2,6 +2,7 @@ import type { PredictionRunStatus } from "../../../../../../src/storyContracts/m
 
 export type TianyiPredictionViewState = "task" | "running" | "overview" | "focus" | "review" | "receipt";
 export type TianyiPredictionStage = "task" | "running" | "candidates" | "review";
+export type TianyiPredictionTerminalRunStatus = Extract<PredictionRunStatus, "abandoned" | "stale">;
 
 export function predictionViewStateFromPersistence(input: {
   runStatus: PredictionRunStatus | null;
@@ -22,6 +23,14 @@ export function predictionViewStateFromDraftedReceiptRecovery(input: {
 }): "receipt" | null {
   if (!input.hasDraftedReceipt || input.runStatus === "abandoned" || input.runStatus === "stale") return null;
   return "receipt";
+}
+
+/** Owner-terminal Runs are monotonic: a delayed pre-terminal read cannot reactivate them. */
+export function shouldApplyPredictionRunSnapshot(input: {
+  terminalStatus: TianyiPredictionTerminalRunStatus | null;
+  incomingStatus: PredictionRunStatus;
+}): boolean {
+  return input.terminalStatus === null || input.terminalStatus === input.incomingStatus;
 }
 
 export function predictionStageForView(view: TianyiPredictionViewState): TianyiPredictionStage {
