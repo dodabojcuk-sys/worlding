@@ -10,6 +10,7 @@ export function predictionViewStateFromPersistence(input: {
   selectedPathId: string | null;
   hasReceipt: boolean;
 }): TianyiPredictionViewState {
+  if (input.runStatus === "abandoned" || input.runStatus === "stale") return "task";
   if (input.hasReceipt) return "receipt";
   if (input.runStatus === "generating" || input.runStatus === "validating") return "running";
   if (input.runStatus === "ready" && input.hasBundle) return input.selectedPathId ? "focus" : "overview";
