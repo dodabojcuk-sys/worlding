@@ -777,6 +777,15 @@ input:focus-visible {
   }
 }
 
+/* 1195-class focused canvases keep the directory open without letting its
+   fixed panel cover the author’s event surface. Narrow layouts remain an
+   intentional overlay because they do not have room for two working columns. */
+@media (min-width: 64.0625rem) and (max-width: 76rem) {
+  .tianyan-r0-shell[data-directory-visible="true"] {
+    --directory-current: var(--directory-width);
+  }
+}
+
 @media (max-width: 50rem) {
   :root {
     --directory-width: 0rem;

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
@@ -16,6 +17,14 @@ import { projectNarrativeArrangement } from "../../../src/storyContracts/narrati
 import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
 
 assertCanonicalRuntime();
+if (!process.env.TIANYAN_E2E_SCOPE) {
+  // The high-density shell, prediction execution and cancellable stream each
+  // keep their full assertions, but receive independent fixture/API/browser
+  // lifecycles so one CPU-heavy scenario cannot starve another scenario's
+  // bounded product-state transition.
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream"]) await runIsolatedE2eScope(scope);
+  process.exit(0);
+}
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 // Smoke tests must not attach to a developer's already-running local app.
@@ -71,6 +80,12 @@ const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-fou
 const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
 const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
 const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
+const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
+const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
+const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
+const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
+const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
+const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
@@ -78,10 +93,27 @@ let r1CausalFixture = null;
 let server;
 let apiServer;
 let browser;
+let browserContext;
+let diagnosticTraceStarted = false;
 let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 const r062Captures = [];
+
+async function runIsolatedE2eScope(scope) {
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: { ...process.env, TIANYAN_E2E_SCOPE: scope }
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Tianyan E2E scope ${scope} failed (${signal || code}).`));
+    });
+  });
+}
 
 async function findAvailablePort(requestedPort, excludedPort) {
   const requested = Number(requestedPort || "0");
@@ -123,9 +155,15 @@ try {
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
   const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
-  const page = recordingDirectory
-    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
-    : await browser.newPage({ viewport: { width: 1152, height: 720 } });
+  if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
+  browserContext = await browser.newContext(recordingDirectory
+    ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
+    : { viewport: { width: 1152, height: 720 } });
+  if (diagnosticEvidenceDirectory) {
+    await browserContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
+    diagnosticTraceStarted = true;
+  }
+  const page = await browserContext.newPage();
   const consoleProblems = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
@@ -142,6 +180,18 @@ try {
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
     await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (agentFakeStreamOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertAgentFakeProviderStream(page);
+  } else if (r4CharacterObservationOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertCharacterObservationDragAndRecovery(page);
+  } else if (r4WorkspaceOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertR4GlobalWorkWorkspace(page, consoleProblems);
   } else if (shellFocusR22AOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -255,12 +305,10 @@ try {
     await setupTimelineFixture();
     await assertTimelineRelationshipGraph(page, consoleProblems);
     if (temporalProjectionRecordingDirectory) await recordTemporalProjectionOperation();
-    await assertMultiNodePredictionProductization(page, consoleProblems);
     await assertRightWorkSurfaceStateMachine(page, consoleProblems);
     if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
     if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
     await assertAuthorEventCreation(page, consoleProblems);
-    await assertAgentFakeProviderStream(page);
   }
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -268,6 +316,13 @@ try {
   console.error("tianyan R0 shell smoke FAILED:", error);
   throw error;
 } finally {
+  if (browserContext && diagnosticTraceStarted && diagnosticEvidenceDirectory) {
+    try {
+      await browserContext.tracing.stop({ path: path.join(diagnosticEvidenceDirectory, "trace.zip") });
+    } catch (error) {
+      console.error("tianyan R0 shell smoke diagnostic trace could not be saved:", error);
+    }
+  }
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
@@ -514,7 +569,8 @@ async function assertSingleGlobalSearch(page) {
   await page.keyboard.press("ControlOrMeta+K");
   await dialog.waitFor();
   assert.equal(await dialog.getAttribute("data-search-scope"), "global", "Keyboard search opens the same global scope");
-  assert.equal(await page.locator("input[type='search']").count(), 1, "Only the open shared search dialog may render a search field");
+  const searchInputs = await page.locator("input[type='search']").evaluateAll((inputs) => inputs.map((input) => ({ id: input.id, className: input.className, visible: getComputedStyle(input).display !== "none" && getComputedStyle(input).visibility !== "hidden", parent: input.parentElement?.className ?? null })));
+  assert.equal(searchInputs.length, 1, `Only the open shared search dialog may render a search field; found ${JSON.stringify(searchInputs)}`);
   await dialog.locator("input[type='search']").focus();
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
@@ -586,11 +642,13 @@ async function assertCharacterDirectoryAndInspector(page) {
   for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
     assert.ok(Math.abs(workspaceExpanded[key] - workspaceBefore.rect[key]) <= 0.5, `Expanding the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceExpanded[key]})`);
   }
-  await page.getByRole("button", { name: "多选", exact: true }).click();
-  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
-  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
   await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await page.locator(".character-directory-list input[type=checkbox]").first().waitFor();
+  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
+  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
 }
 
 async function assertCharacterCreationDurability(page) {
@@ -619,13 +677,16 @@ async function assertCharacterCreationDurability(page) {
   await page.getByTestId("character-inspector").waitFor();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("沈砚"));
   assert.match(page.url(), /directoryObject=character\./u, "The created object must be selected through its stable object ID in the URL");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
   const createdOption = page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" });
   await waitForCharacterDirectoryIdle(page);
   await createdOption.waitFor();
   assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Created category IDs must remain persistence-only values");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
@@ -652,6 +713,8 @@ async function assertCharacterCreationDurability(page) {
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
   assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
@@ -1849,17 +1912,23 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   await page.waitForTimeout(320);
   await capture("03-1440-three-focus.png");
 
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1195, height: 800 });
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   await graph.getByRole("button", { name: "全书位置", exact: true }).click();
   await page.waitForTimeout(320);
   await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
   await page.locator(".page-context-dock-panel").waitFor();
   await page.waitForTimeout(220);
-  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "Opening details at 1280px collapses the project directory first.");
-  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 360, "The graph retains usable context beside the 1280px details Dock.");
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "true", "Opening details at 1195px preserves the author’s open project directory.");
+  const directoryBox = await page.locator(".project-directory-panel").boundingBox();
+  const flowBox = await graph.locator(".formal-narrative-flow").boundingBox();
+  assert.ok(directoryBox && flowBox, "The directory and narrative canvas must both be measurable at 1195px.");
+  assert.ok(flowBox.width >= 360, "The graph retains usable context beside the 1195px details Dock.");
+  assert.ok(directoryBox.x + directoryBox.width <= flowBox.x || flowBox.x + flowBox.width <= directoryBox.x, "The preserved directory must not cover the narrative canvas at 1195px.");
   assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  await capture("07-1280-detail.png");
+  await capture("07-1195-directory-and-detail.png");
   await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
@@ -2265,16 +2334,80 @@ function eventViewButton(page, name) {
 }
 
 async function switchEventView(page, name) {
-  if (await page.locator(".event-observation-controls").filter({ visible: true }).count() === 0) {
-    const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
-    if (await more.count()) {
-      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
-      const entry = name === "故事脊柱" ? "故事结构" : "关系网络";
-      await page.getByRole("button", { name: entry, exact: true }).filter({ visible: true }).first().click();
-      if (name === "故事脊柱" || name === "关系图") return;
+  await waitForEventLineWorkspace(page, name);
+  const direct = eventViewButton(page, name);
+  if (await direct.count()) {
+    await direct.click();
+    return;
+  }
+  const menuEntry = ({ "故事脊柱": "故事结构", "关系图": "关系网络", "时间轴": "时间核对" })[name];
+  const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
+  if (menuEntry && await more.count()) {
+    if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+    const entry = page.getByRole("menuitem", { name: menuEntry, exact: true }).filter({ visible: true }).first();
+    if (await entry.count()) {
+      await entry.click();
+      return;
     }
   }
-  await eventViewButton(page, name).click();
+  throw new Error(`Event view control is unavailable: ${JSON.stringify(await eventViewDiagnostic(page, name))}`);
+}
+
+async function waitForEventLineWorkspace(page, requestedView) {
+  try {
+    await page.getByTestId("event-line-workbench").waitFor({ state: "visible", timeout: 10_000 });
+  } catch (error) {
+    throw new Error(`Event workspace did not become interactive before switching ${requestedView}: ${JSON.stringify(await eventViewDiagnostic(page, requestedView))}`, { cause: error });
+  }
+}
+
+async function eventViewDiagnostic(page, requestedView) {
+  return page.evaluate(({ requestedView, runRevision }) => {
+    const describe = (element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        label: element.getAttribute("aria-label") || element.textContent?.trim() || "",
+        disabled: element instanceof HTMLButtonElement ? element.disabled : false,
+        visible: Boolean(element instanceof HTMLElement && element.offsetParent !== null),
+        rect: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
+        display: style.display,
+        visibility: style.visibility
+      };
+    };
+    const root = document.querySelector('[data-testid="event-line-workbench"]');
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return {
+      operation: `switch:${requestedView}`,
+      revision: runRevision,
+      url: window.location.pathname + window.location.search,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      shellConnection: shell?.getAttribute("data-connection-state") ?? null,
+      projectionMode: root?.getAttribute("data-projection-mode") ?? null,
+      renderer: root?.getAttribute("data-event-observation-renderer") ?? null,
+      task: document.querySelector('[data-testid="story-progression-workspace"]')?.getAttribute("data-event-task") ?? null,
+      controls: Array.from(document.querySelectorAll(".event-observation-controls, .event-graph-view-switch, .story-progression-controls")).map(describe),
+      buttons: Array.from(document.querySelectorAll("button")).filter((button) => /结构|叙事顺序|世界时间|关系网络|时间核对|更多/u.test(button.textContent ?? "")).map(describe)
+    };
+  }, { requestedView, runRevision });
+}
+
+async function waitForTemporalState(page, expectedStates, operation, timeout = 30_000) {
+  try {
+    await page.waitForFunction((states) => states.includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""), expectedStates, { timeout });
+  } catch (error) {
+    const temporal = await page.evaluate(() => {
+      const canvas = document.querySelector("[data-temporal-state]");
+      const status = document.querySelector(".temporal-canvas-status");
+      return {
+        state: canvas?.getAttribute("data-temporal-state") ?? null,
+        projection: canvas?.getAttribute("data-temporal-projection") ?? null,
+        statusText: status?.textContent?.trim() ?? null,
+        statusClass: status?.className ?? null
+      };
+    });
+    throw new Error(`Temporal state did not settle for ${operation}: ${JSON.stringify({ expectedStates, temporal, view: await eventViewDiagnostic(page, "时间轴") })}`, { cause: error });
+  }
 }
 
 async function openStoryModelingTools(page) {
@@ -2284,6 +2417,7 @@ async function openStoryModelingTools(page) {
 
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
+  await assertCharacterObservationDragAndRecovery(page);
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await switchEventView(page, "关系图");
@@ -2473,6 +2607,125 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
 }
 
+async function assertCharacterObservationDragAndRecovery(page) {
+  const providerRequests = [];
+  const observe = (request) => {
+    if (request.method() === "POST" && /\/model-service\/(?:models|test|embedding-probe|minimal-inference)|\/tianyi-agent\/run/u.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observe);
+  try {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=perspective&directoryView=characters`);
+    const directory = page.getByTestId("character-directory");
+    const dropzone = page.getByTestId("character-observation-dropzone");
+    await directory.waitFor();
+    await dropzone.waitFor();
+    const geometry = async () => await page.evaluate(() => {
+      const tray = document.querySelector('[data-testid="character-observation-dropzone"]')?.getBoundingClientRect();
+      const workspace = document.querySelector('[data-testid="story-progression-workspace"]');
+      const workspaceBox = workspace?.getBoundingClientRect();
+      const style = workspace ? getComputedStyle(workspace) : null;
+      const canvasWidth = workspaceBox && style ? workspaceBox.width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd) : 0;
+      const canvasX = workspaceBox && style ? workspaceBox.x + parseFloat(style.paddingInlineStart) : 0;
+      return tray && workspaceBox ? { trayWidth: tray.width, canvasWidth, trayX: tray.x, canvasX } : null;
+    });
+    const initialGeometry = await geometry();
+    assert.ok(initialGeometry && Math.abs(initialGeometry.trayWidth - initialGeometry.canvasWidth) <= 1 && Math.abs(initialGeometry.trayX - initialGeometry.canvasX) <= 1, `0-person tray must span the canvas column=${JSON.stringify(initialGeometry)}`);
+    await waitForCharacterDirectoryIdle(page);
+    const source = page.getByRole("option", { name: /林昭；可拖入角色观察/u });
+    await source.dragTo(dropzone);
+    await dropzone.getByText("1/5 人", { exact: true }).waitFor();
+    const oneGeometry = await geometry();
+    assert.ok(oneGeometry && Math.abs(oneGeometry.trayWidth - oneGeometry.canvasWidth) <= 1 && Math.abs(oneGeometry.trayX - oneGeometry.canvasX) <= 1, `1-person tray must remain aligned with the canvas column=${JSON.stringify({ initialGeometry, oneGeometry })}`);
+    await dropzone.getByRole("button", { name: "1/5 人", exact: true }).click();
+    const picker = page.getByTestId("knowledge-compare-picker");
+    for (const label of ["阿芜", "陆衍"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("3/5 人", { exact: true }).waitFor();
+    for (const label of ["顾澜", "程野"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("5/5 人", { exact: true }).waitFor();
+    const fiveGeometry = await geometry();
+    assert.ok(fiveGeometry && Math.abs(fiveGeometry.trayWidth - fiveGeometry.canvasWidth) <= 1 && Math.abs(fiveGeometry.trayX - fiveGeometry.canvasX) <= 1, `5-person tray must remain aligned with the canvas column=${JSON.stringify({ initialGeometry, fiveGeometry })}`);
+    assert.equal(await dropzone.getAttribute("data-provider-calls"), "0", "Dragging a formal character must be a zero-Provider operation.");
+    assert.match(page.url(), /eventFocus=character\./u, "The stable character selection must be recoverable from the URL.");
+    await reloadProduct(page);
+    await page.getByTestId("character-observation-dropzone").getByText("5/5 人", { exact: true }).waitFor();
+    const restoredDirectory = page.getByTestId("character-directory");
+    const multiButton = restoredDirectory.getByRole("button", { name: /多选/u });
+    await multiButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="character-directory"] [aria-multiselectable="true"]') !== null);
+    await restoredDirectory.getByRole("option", { name: /林昭；可拖入角色观察/u }).click();
+    const directoryStorageKey = `tianyan:directory-workspace:${fixtureProjectId}`;
+    await page.waitForFunction((key) => {
+      try { return JSON.parse(localStorage.getItem(key) || "null")?.character?.selectedIds?.includes("character.林昭"); }
+      catch { return false; }
+    }, directoryStorageKey);
+    await reloadProduct(page);
+    const selectedRole = page.getByTestId("character-directory").getByRole("option", { name: /林昭；可拖入角色观察/u });
+    assert.equal(await selectedRole.getAttribute("aria-selected"), "true", "Dedicated Character directory multi-selection must recover per project.");
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).selectOption("archived");
+    await reloadProduct(page);
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    assert.equal(await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).inputValue(), "archived", "Dedicated Character directory filters must recover per project.");
+    assert.deepEqual(providerRequests, [], "Drag, selection persistence, and refresh recovery must make no Provider request.");
+  } finally {
+    page.off("request", observe);
+  }
+}
+
+async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
+  const capture = async (name) => {
+    if (!r4R2EvidenceDirectory) return;
+    mkdirSync(r4R2EvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(r4R2EvidenceDirectory, name), fullPage: false });
+  };
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const assertVisibleComposer = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    const geometry = await page.evaluate(() => {
+      const textarea = document.querySelector('textarea[aria-label="工作模式草稿"]')?.getBoundingClientRect();
+      const send = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("发送到当前工作"))?.getBoundingClientRect();
+      return { textarea, send, viewport: { width: window.innerWidth, height: window.innerHeight }, scrollWidth: document.documentElement.scrollWidth };
+    });
+    assert.ok(geometry.textarea && geometry.textarea.top >= 0 && geometry.textarea.bottom <= geometry.viewport.height, `Work textarea must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.send && geometry.send.top >= 0 && geometry.send.bottom <= geometry.viewport.height, `Work send action must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scrollWidth <= geometry.viewport.width, `Work must not create body overflow at ${width}x${height}=${JSON.stringify(geometry)}`);
+  };
+
+  await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN&tianyiLane=work`);
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker summary")?.textContent?.includes("正在读取") !== true);
+  await assertVisibleComposer(1440, 900);
+  await capture("r4-r2-1440-global-work-composer.png");
+
+  const scope = page.locator(".tianyi-work-contract select");
+  await scope.selectOption("selected-events");
+  const context = page.locator(".tianyi-work-context-picker");
+  await context.locator("summary").click();
+  const eventChecks = context.locator('input[type="checkbox"]');
+  assert.ok(await eventChecks.count() >= 6, "R4 fixture must expose at least six formal Events for bounded context selection.");
+  for (let index = 0; index < 6; index += 1) await eventChecks.nth(index).check();
+  await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6);
+  assert.match(await context.innerText(), /已附加 6\/6 项/u, "Selecting six Events must expose the exact attached evidence count.");
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 6, "The displayed evidence list must match the six attached Event references.");
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("围绕已选事件检查角色动机与因果，但不写入正式故事。");
+  await assertVisibleComposer(1195, 900);
+  await capture("r4-r2-1195-six-event-work-context.png");
+  await assertVisibleComposer(1024, 768);
+  await capture("r4-r2-1024-global-work-composer.png");
+  await assertVisibleComposer(900, 740);
+  const groundedRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer"));
+  await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+  const groundedPayload = JSON.parse((await groundedRequest).postData() || "{}");
+  const selectedEventIds = await eventChecks.evaluateAll((checks) => checks.slice(0, 6).map((check) => check.getAttribute("data-event-id")));
+  assert.equal(groundedPayload.profileId, "local-fake-grounded-answer", "The local fixture must exercise grounded transport without selecting a paid Provider.");
+  assert.equal(groundedPayload.contextRequest.eventRefs?.length, 6, "The grounded request must preserve the author's six explicit Event references.");
+  assert.deepEqual(groundedPayload.contextRequest.eventRefs.map((reference) => reference.eventId), selectedEventIds, "The fake grounded request must contain exactly the six selected Event identities.");
+  await page.waitForFunction(() => !(document.querySelector('textarea[aria-label="工作模式草稿"]') instanceof HTMLTextAreaElement) || document.querySelector('textarea[aria-label="工作模式草稿"]').value === "", undefined, { timeout: 15_000 });
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "R4-R2 must not create fake attachment references.");
+  assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "R4-R2 must not create fake source references.");
+  assert.deepEqual(consoleProblems, [], "R4 global Work layout interactions must not add browser errors.");
+}
+
 async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(timelineFixture, "The time graph must use an isolated fixture.");
   const output = founderEvidenceDirectory;
@@ -2490,7 +2743,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await selectEventView("时间轴");
   const canvas = page.getByLabel("独立时间线工作区");
   await canvas.waitFor();
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "initial timeline open");
   assert.equal(await canvas.getAttribute("data-view-switch-provider-calls"), "0", "Opening the timeline is a zero-cost read path.");
   assert.equal(await canvas.getAttribute("data-view-switch-agent-runs"), "0", "Opening the timeline never creates an Agent Run.");
   const temporalRunsAfterSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
@@ -2513,7 +2766,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
   const completedResponse = await executionResponse;
   assert.equal(completedResponse.ok(), true, `Confirmed temporal modeling transport must finish successfully: HTTP ${completedResponse.status()}.`);
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'), undefined, { timeout: 10_000 }).catch(async () => {
+  await waitForTemporalState(page, ["ready"], "confirmed temporal modeling", 10_000).catch(async () => {
     const runs = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
@@ -2596,7 +2849,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   await reloadProduct(page);
   await selectEventView("时间轴");
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "timeline after refresh");
   const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh and view switching create no additional story-modeling Run.");
   assert.equal(await page.getByLabel("时间标尺").count(), 1, "The base coordinate system remains available after refresh.");
@@ -2622,12 +2875,41 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
+  // This scenario asserts fixture-owned Story Units. Earlier scenarios may
+  // legitimately exercise another project, so bind the browser to the same
+  // project that owns the selected Event graph before reading its directory.
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const activeProject = await getFixture(`${apiUrl}/__local/story-studio/bootstrap`);
+  assert.equal(activeProject.data.activeProject?.id, fixtureProjectId, "Multi-node directory must read the Event graph fixture project, never a previous empty project.");
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded&directoryTrace=1`);
   await closeGlobalTianyiIfOpen(page);
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   const projectDirectory = page.locator(".project-directory-panel");
-  if (!(await projectDirectory.isVisible())) await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  const persistedCharacterDirectory = page.getByTestId("character-directory");
+  await page.waitForFunction(() => {
+    const character = document.querySelector('[data-testid="character-directory"]');
+    const tree = document.querySelector(".project-directory-panel .project-directory-tree");
+    return Boolean((character instanceof HTMLElement && character.offsetParent !== null) || (tree instanceof HTMLElement && tree.offsetParent !== null));
+  });
+  if (await persistedCharacterDirectory.isVisible()) {
+    await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
+    await persistedCharacterDirectory.waitFor({ state: "hidden" });
+  }
+  await projectDirectory.waitFor();
+  const classifiedDirectoryTab = projectDirectory.locator('[role="tab"]').first();
+  await classifiedDirectoryTab.waitFor({ state: "visible" });
+  if (await classifiedDirectoryTab.getAttribute("aria-selected") !== "true") await classifiedDirectoryTab.click();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
+  try {
+    await directoryTree.waitFor({ state: "visible" });
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({ text: element.innerText, tabs: Array.from(element.querySelectorAll('[role="tab"]')).map((tab) => ({ text: tab.textContent, selected: tab.getAttribute("aria-selected") })), connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") }));
+    throw new Error(`Classified directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
+  }
+  await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
+  await rootBreadcrumb.waitFor({ state: "visible" });
   await rootBreadcrumb.click();
   assert.equal(await directoryTree.locator(".project-directory-reference").count(), 0, "The directory root must expose only second-level categories, never Event rows.");
   assert.deepEqual((await directoryTree.locator(".project-directory-entry").allTextContents()).map((value) => value.replace(/\d+$/u, "").trim()), ["故事结构", "信息资料", "设定", "来源", "创意"], "Directory root keeps the five high-level categories.");
@@ -2635,9 +2917,40 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "故事结构" }).click();
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "单元" }).click();
   const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: /· 雾港/u });
-  await unitEntry.click();
+  try {
+    await unitEntry.click();
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({
+      text: element.innerText,
+      path: element.querySelector(".project-directory-page")?.getAttribute("data-directory-depth"),
+      entries: Array.from(element.querySelectorAll(".project-directory-entry")).map((entry) => entry.textContent?.trim()),
+      pendingStatus: element.querySelector("[data-pending-status]")?.getAttribute("data-pending-status"),
+      connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state")
+    }));
+    const sourceDebug = await page.evaluate(async (projectId) => {
+      const read = async (path) => {
+        const response = await fetch(path);
+        const body = await response.json().catch(() => null);
+        return { status: response.status, body };
+      };
+      const [bootstrap, library, units] = await Promise.all([
+        read("/__local/story-studio/bootstrap"),
+        read(`/__local/story-studio/world-library?projectId=${encodeURIComponent(projectId)}`),
+        read(`/__local/story-studio/story-units?projectId=${encodeURIComponent(projectId)}`)
+      ]);
+      return {
+        bootstrap: bootstrap.body?.data?.activeProject?.id ?? null,
+        library: { status: library.status, project: library.body?.data?.project?.id ?? null, objectCount: library.body?.data?.objects?.length ?? null },
+        units: { status: units.status, count: units.body?.data?.length ?? null, titles: units.body?.data?.map((unit) => unit.title) ?? null },
+        directoryTrace: window.__tianyanDirectoryReadTrace ?? []
+      };
+    }, fixtureProjectId);
+    throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug, sources: sourceDebug })}`, { cause: error });
+  }
+  const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
+  await setPointEntry.waitFor({ state: "visible" });
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
-  assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" }).count(), 1, "A Set Point must remain an optional sibling collection.");
+  assert.equal(await setPointEntry.count(), 1, "A Set Point must remain an optional sibling collection.");
   await capture("B-1440x900-directory-unit-direct-and-set-point.png");
   await directoryTree.locator(".project-directory-entry").first().press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("data-directory-node")?.startsWith("unit:") === true);
@@ -2718,7 +3031,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await panel.getByRole("button", { name: "停止本次推演", exact: true }).count(), 1, "Running stage must expose exactly one primary stop action instead of adoption controls.");
   try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing"); }
   catch (error) {
-    const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
     const state = await page.evaluate(() => {
       const element = document.querySelector(".tianyi-prediction-panel");
       return {
@@ -2729,7 +3041,16 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
         announcedView: window.__storyStudioPredictionView ?? null
       };
     });
-    throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    // A Playwright timeout can race the same render that satisfies its polling
+    // callback. Sample the DOM before any diagnostic request; all downstream
+    // canvas, review, adoption, and recovery assertions still run unchanged.
+    const reachedReviewAtBoundary = state.phase === "reviewing"
+      && state.view === "overview"
+      && state.announcedRun?.status === "ready";
+    if (!reachedReviewAtBoundary) {
+      const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
+      throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    }
   }
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length >= 5);
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
@@ -3125,14 +3446,14 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
   assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
   assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
-  assert.equal(await page.getByRole("button", { name: "整理成三个候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "整理为故事候选", exact: true }).count(), 1);
   await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
-  await page.getByRole("button", { name: "附件", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The shell must not offer a fake attachment action without a bound upload route.");
   await capture("01-1195x720-TIANYI-creative-mode.png");
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
-  assert.equal(await page.getByRole("heading", { name: "选择一个候选继续" }).count(), 1);
+  assert.equal(await page.getByRole("heading", { name: "当前故事工作上下文" }).count(), 1);
   assert.equal(await page.getByLabel("工作模式草稿").getAttribute("placeholder"), "继续完善当前候选，准备进入影响预览……");
-  assert.equal(await page.getByRole("button", { name: "继续完善候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "发送到当前工作", exact: true }).count(), 1);
   await page.getByLabel("工作模式草稿").fill("只属于工作泳道的草稿");
   await page.getByLabel("工作范围").selectOption("selected-events");
   await capture("02-1195x720-TIANYI-work-mode.png");
@@ -3141,7 +3462,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
   assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
   assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
-  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 1, "Shared attachments must remain visible across lanes.");
+  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 0, "Global Work no longer creates an unbound demo attachment.");
   const before = await shellGeometry(page);
   assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
   await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
@@ -3282,8 +3603,8 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.getByLabel("天意统一会话").waitFor();
     assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
     await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
-    await page.getByRole("button", { name: "附件", exact: true }).click();
-    await page.getByRole("button", { name: "来源", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The composer must not create a fake attachment reference while no real binding route exists.");
+    assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "The composer must not label an unbound demo item as a source.");
     await capture("01-1440x900-TIANYI-creative-author-intent.png");
     await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
     await page.locator(".tianyi-candidate-grid article").first().waitFor();
@@ -3300,7 +3621,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
-    assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
+    assert.match(await page.getByLabel("当前视图").textContent(), /暂无共享引用/u);
     assert.match(await page.getByLabel("当前视图").textContent(), /3 个候选/u);
     await page.getByLabel("工作范围").selectOption("selected-events");
     await page.getByLabel("工作模式草稿").fill("只调整钥匙交接事件，不改变 Canon 或其他故事事实。");

@@ -44,7 +44,16 @@ export function createProjectDirectoryViewModel(t: (key: TranslationKey) => stri
   const objects = data.library.objects;
   const objectNodes = (type: string) => objects.filter((item) => item.type === type).map((item) => reference(item, data.library.project.id, data.workVersionId));
   const verifiedEventIds = new Set(data.verifiedEventIds);
-  const eventObjects = objects.filter((item) => item.type === "event" && (verifiedEventIds.has(item.id) || (item.status === "draft" && item.tags.includes("作者草稿"))));
+  const unitEventIds = new Set(data.units.flatMap((unit) => [
+    ...unit.linkedEntityIds,
+    ...unit.items.map((item) => item.subjectRef).filter((value): value is string => Boolean(value)),
+    ...(unit.collectionPoints ?? []).flatMap((point) => point.eventIds)
+  ]));
+  const eventObjects = objects.filter((item) => item.type === "event" && (
+    verifiedEventIds.has(item.id)
+    || (unitEventIds.has(item.id) && item.status !== "draft")
+    || (item.status === "draft" && item.tags.includes("作者草稿"))
+  ));
   const eventById = new Map(eventObjects.map((event) => [event.id, event]));
   const claimedEventIds = new Set<string>();
   const unitNodes: ProjectDirectoryNode[] = [];

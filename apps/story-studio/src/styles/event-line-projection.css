@@ -210,7 +210,7 @@
 
 /* R12 — the default author surface. NarrativeArrangement is the only source of
  * horizontal order; the styles below never imply order for the unplaced tray. */
-.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; background: var(--color-surface-muted); }
+.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; overflow-y: auto; scrollbar-gutter: stable; background: var(--color-surface-muted); }
 .story-progression-workspace { min-inline-size: 0; min-block-size: 100%; padding: 1.35rem clamp(1rem, 2.4vw, 2.2rem) 2.5rem; color: var(--color-text); background: var(--color-surface-muted); }
 .story-progression-workspace button,
 .story-progression-workspace select { font: inherit; }
@@ -1874,7 +1874,7 @@
   flex-direction: column;
   block-size: 100%;
   min-block-size: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .story-knowledge-compare-popover { position: absolute; z-index: 9; inset-block-start: 6.9rem; inset-inline-end: clamp(1rem, 2.4vw, 2.2rem); inline-size: min(48rem, calc(100% - 2rem)); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; box-shadow: var(--shadow-panel); }
@@ -1890,6 +1890,30 @@
 .story-progression-heading p { overflow: hidden; max-inline-size: 48rem; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
 .story-progression-heading dl { padding: .45rem .65rem; border-radius: .35rem; }
 .story-progression-controls { margin-block-end: .48rem; border-radius: .38rem; box-shadow: none; backdrop-filter: none; }
+.story-progression-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .32rem .65rem; }
+.story-progression-tasks,
+.story-progression-actions { min-inline-size: 0; }
+.story-progression-tasks { flex-wrap: wrap; }
+.story-progression-actions { inline-size: auto; justify-content: flex-end; flex-wrap: wrap; padding-inline-start: .45rem; padding-block-start: 0; border-inline-start: 1px solid var(--color-border); border-block-start: 0; overflow: visible; }
+.story-progression-more { position: relative; flex: 0 0 auto; }
+.story-progression-more-menu { position: absolute; z-index: 12; inset-block-start: calc(100% + .35rem); inset-inline-end: 0; inline-size: min(18rem, calc(100vw - 2rem)); display: grid; gap: .18rem; padding: .4rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .4rem; box-shadow: var(--shadow-panel); }
+.story-progression-more-menu button { justify-content: flex-start; inline-size: 100%; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.story-progression-more-menu hr { inline-size: 100%; block-size: 1px; margin: .18rem 0; border: 0; background: var(--color-border); }
+.story-character-observation { align-self: stretch; flex: 0 0 auto; min-inline-size: 0; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
+.story-character-observation-label { flex: 0 0 auto; display: flex; align-items: center; gap: .42rem; color: var(--color-text-muted); }
+.story-character-observation-label > svg { inline-size: .95rem; color: var(--color-accent); }
+.story-character-observation-label > span { display: grid; gap: .05rem; }
+.story-character-observation-label strong { color: var(--color-text); font-size: .72rem; }
+.story-character-observation-label small { font-size: .62rem; white-space: nowrap; }
+.story-character-observation-chips { min-inline-size: 0; flex: 1 1 auto; display: flex; align-items: center; gap: .3rem; overflow-x: auto; }
+.story-character-observation-chips > span { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .1rem; min-block-size: 1.8rem; padding: 0 .18rem; color: var(--color-accent); background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border)); border-radius: .3rem; }
+.story-character-observation-chips strong { padding-inline: .2rem; font-size: .68rem; }
+.story-character-observation button { min-block-size: 1.8rem; display: inline-grid; place-items: center; padding-inline: .48rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: .28rem; font-size: .68rem; white-space: nowrap; }
+.story-character-observation-chips button { inline-size: 1.45rem; padding: 0; border: 0; }
+.story-character-observation button svg { inline-size: .7rem; }
+.story-character-observation button:disabled { opacity: .3; cursor: default; }
+.story-character-observation > p { max-inline-size: 22rem; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.story-knowledge-boundary-status { flex: 0 0 auto; }
 .formal-narrative-workspace, .shell-workspace-event-line .temporal-workspace.is-task-surface { border-radius: .42rem; box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="overview"] .formal-narrative-card { box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="reading"] .formal-narrative-card.is-selected { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent); }
@@ -1899,6 +1923,17 @@
 .story-progression-heading,
 .story-progression-controls,
 .story-progression-migration-notice { flex: 0 0 auto; }
+
+.event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr) auto; }
+.event-line-shell[data-page-dock-open="true"] .story-progression-actions { overflow: visible; }
+
+@media (max-width: 80rem) {
+  .story-progression-controls,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .story-progression-actions,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-actions { inline-size: 100%; justify-content: flex-start; padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
+  .story-progression-more { margin-inline-start: auto; }
+}
 
 .story-progression-scope {
   position: absolute;

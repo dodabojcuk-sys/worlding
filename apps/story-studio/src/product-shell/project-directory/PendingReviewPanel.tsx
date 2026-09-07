@@ -6,6 +6,7 @@ import {
   confirmRelationCandidate,
   editAgentRecognitionProposal,
   getGoldenLoopCandidateReview,
+  getTianyiStoryIntakeRuns,
   ignoreAgentRecognitionProposal,
   listRelations,
   listAgentRecognitionProposals,
@@ -17,12 +18,13 @@ import {
 } from "../../lib/localTransport";
 import type { ProjectDirectoryStableReference } from "../../../../../src/storyContracts/projectDirectoryContract.ts";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import type { StoryIntakeReviewTarget } from "./pendingReviewAggregation";
 import { useI18n } from "../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 
 type PendingItem = {
   id: string;
-  kind: "source" | "golden" | "agent" | "relation";
+  kind: "source" | "golden" | "agent" | "relation" | "story-intake";
   title: string;
   summary: string;
   source: string;
@@ -31,6 +33,7 @@ type PendingItem = {
   candidateId?: string;
   proposal?: AgentRecognitionProposal;
   relation?: RelationReadProjectionR0;
+  storyIntakeTarget?: StoryIntakeReviewTarget;
 };
 
 function AgentProposalEditor(props: { proposal: AgentRecognitionProposal; busy: boolean; onSave(name: string, uncertainties: string[]): Promise<void> }) {
@@ -73,6 +76,7 @@ function RelationCandidateEditor(props: { relation: RelationReadProjectionR0; bu
 export function PendingReviewPanel(props: {
   runtime: TianyanShellRuntimeState;
   onOpenSource(reference: ProjectDirectoryStableReference): void;
+  onOpenStoryIntakeReview(target: StoryIntakeReviewTarget): void;
 }) {
   const { t } = useI18n();
   const [items, setItems] = useState<PendingItem[]>([]);
@@ -85,11 +89,12 @@ export function PendingReviewPanel(props: {
     setLoading(true);
     try {
       const projectId = props.runtime.project.id;
-      const [imports, golden, proposals, relations] = await Promise.all([
+      const [imports, golden, proposals, relations, storyIntakeRuns] = await Promise.all([
         listSourceImportReviews(projectId),
         getGoldenLoopCandidateReview(projectId),
         props.runtime.withConnection((token) => listAgentRecognitionProposals(projectId, token)),
-        listRelations({ projectId, reviewState: "candidate" })
+        listRelations({ projectId, reviewState: "candidate" }),
+        props.runtime.workVersionId ? props.runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId: props.runtime.workVersionId!, token })) : Promise.resolve([])
       ]);
       const sourceItems = imports.flatMap((document) => document.candidates
         .filter((candidate) => candidate.status === "pending")
@@ -112,7 +117,19 @@ export function PendingReviewPanel(props: {
         duplicateTargetId: null,
         candidateId: candidate.id
       }));
-      const agentItems = proposals.filter((proposal) => proposal.status === "pending" || proposal.status === "edited").map((proposal): PendingItem => {
+      const hasAuthoritativeStoryIntake = storyIntakeRuns.some((run) => {
+        const envelope = run.storyIntakeEnvelope;
+        return Boolean(envelope)
+          && run.projectId === projectId
+          && run.workVersionId === props.runtime.workVersionId
+          && envelope!.projectId === projectId
+          && envelope!.baseVersion.workVersionId === props.runtime.workVersionId
+          && envelope!.sessionId === run.sessionId
+          && envelope!.runId === run.runId;
+      });
+      const agentItems = proposals
+        .filter((proposal) => (proposal.status === "pending" || proposal.status === "edited") && !(hasAuthoritativeStoryIntake && proposal.sourceWorkspace === "tianyi-story-intake"))
+        .map((proposal): PendingItem => {
         const base: PendingItem = {
           id: `agent:${proposal.proposalId}`,
           kind: "agent",
@@ -133,7 +150,22 @@ export function PendingReviewPanel(props: {
         duplicateTargetId: null,
         relation
       }));
-      setItems([...sourceItems, ...goldenItems, ...agentItems, ...relationItems]);
+      const storyIntakeItems = storyIntakeRuns.flatMap((run) => {
+        const envelope = run.storyIntakeEnvelope;
+        if (!envelope || envelope.projectId !== projectId || envelope.baseVersion.workVersionId !== run.workVersionId || envelope.sessionId !== run.sessionId || envelope.runId !== run.runId) return [];
+        return envelope.candidates
+          .filter((candidate) => candidate.lifecycleStatus === "pending-review" || candidate.lifecycleStatus === "deferred" || candidate.lifecycleStatus === "pending-archive")
+          .map((candidate): PendingItem => ({
+            id: `story-intake:${envelope.envelopeId}:${candidate.candidateId}`,
+            kind: "story-intake",
+            title: candidate.proposedName ?? candidate.proposedTitle ?? "未命名故事候选",
+            summary: candidate.summary,
+            source: "天意 Story Intake",
+            duplicateTargetId: null,
+            storyIntakeTarget: { projectId, workVersionId: run.workVersionId, sessionId: run.sessionId, runId: run.runId, envelopeId: envelope.envelopeId, candidateId: candidate.candidateId }
+          }));
+      });
+      setItems([...storyIntakeItems, ...sourceItems, ...goldenItems, ...agentItems, ...relationItems]);
     } catch {
       setNotice(t("directory.unavailable"));
     } finally { setLoading(false); }
@@ -181,6 +213,7 @@ export function PendingReviewPanel(props: {
         await props.runtime.withConnection((token) => updateRelationCandidate({ projectId: props.runtime.project!.id, relationId: relation.relationId, expectedRelationRevision: relation.revision, direction, operationId: `directory-edit-relation-${relation.relationId}-${relation.revision}`, token }));
       })} />}
       <footer>
+        {item.kind === "story-intake" && item.storyIntakeTarget && <button type="button" onClick={() => props.onOpenStoryIntakeReview(item.storyIntakeTarget!)}><Eye aria-hidden="true" />打开本批审阅</button>}
         {item.kind === "source" && <button type="button" onClick={() => openSource(item)}><Eye aria-hidden="true" />{t("pending.viewSource")}</button>}
         {item.kind === "source" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => decideSourceImportCandidate({ projectId: props.runtime.project!.id, sourceDocumentId: item.sourceDocumentId!, candidateId: item.candidateId!, decision: "accepted", token })); })}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
         {item.kind === "source" && item.duplicateTargetId && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { await props.runtime.withConnection((token) => decideSourceImportCandidate({ projectId: props.runtime.project!.id, sourceDocumentId: item.sourceDocumentId!, candidateId: item.candidateId!, decision: "merged", targetObjectId: item.duplicateTargetId, token })); })}><GitMerge aria-hidden="true" />{t("pending.merge")}</button>}
@@ -190,14 +223,14 @@ export function PendingReviewPanel(props: {
         {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, () => approveRelation(item))}><Check aria-hidden="true" />{t("pending.approveSave")}</button>}
         {item.kind === "relation" && <button type="button" disabled={busy === item.id} onClick={() => void perform(item.id, async () => { const relation = item.relation!; await props.runtime.withConnection((token) => rejectRelationCandidate({ projectId: props.runtime.project!.id, relationId: relation.relationId, expectedRelationRevision: relation.revision, operationId: `directory-reject-relation-${relation.relationId}-${relation.revision}`, token })); })}><X aria-hidden="true" />{t("pending.reject")}</button>}
         {item.kind === "golden" && <small>{t("pending.goldenNeedsReview")}</small>}
-        <button type="button" disabled={busy === item.id} onClick={() => setNotice(t("pending.deferred"))}><Pause aria-hidden="true" />{t("pending.defer")}</button>
+        {item.kind !== "story-intake" && <button type="button" disabled={busy === item.id} onClick={() => setNotice(t("pending.deferred"))}><Pause aria-hidden="true" />{t("pending.defer")}</button>}
       </footer>
     </article>)}
   </section>;
 }
 
 /** Central presentation only; decisions still flow through the original ports. */
-export function PendingReviewWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenSource(reference: ProjectDirectoryStableReference): void; onClose(): void }) {
+export function PendingReviewWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenSource(reference: ProjectDirectoryStableReference): void; onOpenStoryIntakeReview(target: StoryIntakeReviewTarget): void; onClose(): void }) {
   const { t } = useI18n();
   const projectLabel = props.runtime.project?.title ?? t("directory.pendingWorkspaceUnopened");
   const versionLabel = props.runtime.workVersionLabel ?? t("directory.pendingWorkspaceCurrentVersion");
@@ -207,6 +240,6 @@ export function PendingReviewWorkspace(props: { runtime: TianyanShellRuntimeStat
       <button type="button" onClick={props.onClose}>{t("directory.pendingWorkspaceBack")}</button>
     </header>
     <p className="pending-review-workspace-note">{t("directory.pendingWorkspaceNote")}</p>
-    <PendingReviewPanel runtime={props.runtime} onOpenSource={props.onOpenSource} />
+    <PendingReviewPanel runtime={props.runtime} onOpenSource={props.onOpenSource} onOpenStoryIntakeReview={props.onOpenStoryIntakeReview} />
   </main>;
 }

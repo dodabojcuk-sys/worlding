@@ -4,7 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import test from "node:test";
 
-import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, tianyiAgentRunStorageKey } from "../../apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts";
+import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, shouldCommitTianyiAgentRunProjection, tianyiAgentRunStorageKey } from "../../apps/story-studio/src/components/tianyi/tianyiAgentRunViewModel.ts";
 import { tianyiComposerDraftStorageKey, tianyiConversationStorageKey } from "../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts";
 import { createActionPermissionBroker } from "../../src/storyControlSurface/actionPermissionBroker.ts";
 
@@ -33,6 +33,17 @@ test("R0.3 maps only broker-backed permission intents and preserves author-confi
   assert.equal(agentPermissionProfileForIntent("authorized-edit"), null);
   assert.deepEqual(currentTianyiAgentStep({ plan: [{ stepId: "step-1", status: "awaiting_author" }] } as never), { stepId: "step-1", status: "awaiting_author" });
   assert.equal(currentTianyiAgentStep({ plan: [{ stepId: "step-1", status: "completed" }] } as never), null);
+});
+
+test("R4 browser recovery cannot replace a terminal cancelled projection with an older stream snapshot", () => {
+  const cancelled = { runId: "run.same", revision: 8, status: "cancelled" } as never;
+  const staleRecovery = { runId: "run.same", revision: 7, status: "awaiting_author" } as never;
+  const lateCompletion = { runId: "run.same", revision: 9, status: "completed" } as never;
+  const newerCancelled = { runId: "run.same", revision: 9, status: "cancelled" } as never;
+  assert.equal(shouldCommitTianyiAgentRunProjection(cancelled, staleRecovery), false);
+  assert.equal(shouldCommitTianyiAgentRunProjection(cancelled, lateCompletion), false);
+  assert.equal(shouldCommitTianyiAgentRunProjection(cancelled, newerCancelled), true);
+  assert.equal(shouldCommitTianyiAgentRunProjection(cancelled, { runId: "run.new", revision: 1, status: "awaiting_author" } as never), true);
 });
 
 test("R0.3 permission intent reaches the existing broker without a Provider call", () => {

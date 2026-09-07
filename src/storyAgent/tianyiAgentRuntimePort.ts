@@ -343,6 +343,10 @@ export type AgentRuntimePort = TianyiAgentRuntimePort;
 export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDependencies): AgentRuntimePort & { readonly runtimeId: "tianyi.agent-runtime"; readonly runtimeVersion: "r0.6"; handoffCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> } {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const cache = new Map<string, TianyiAgentRunProjection>();
+  // The durable owner is a Tianyi Session/Archive, not an individual Agent
+  // Run.  Runs in one Session therefore share one local serialization lane so
+  // their owner-CAS writes cannot race each other.
+  const saveQueues = new Map<string, Promise<void>>();
 
   async function load(input: { projectId: string; workVersionId: string; sessionId: string; runId: string }): Promise<TianyiAgentRunProjection | null> {
     const key = runKey(input.projectId, input.workVersionId, input.sessionId, input.runId);
@@ -381,14 +385,42 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
     return projections.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || `${right.sessionId}:${right.runId}`.localeCompare(`${left.sessionId}:${left.runId}`));
   }
 
-  async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent): Promise<TianyiAgentRunProjection> {
+  async function save(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"] = "snapshot", streamEvent?: TianyiAgentStreamEvent, rebase?: (latest: TianyiAgentRunProjection | null) => TianyiAgentRunProjection | null): Promise<TianyiAgentRunProjection> {
+    const queueKey = sessionKey(projection.projectId, projection.sessionId);
+    const previous = saveQueues.get(queueKey) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(() => saveUnlocked(projection, operationId, kind, streamEvent, rebase));
+    const tail = task.then(() => undefined, () => undefined);
+    saveQueues.set(queueKey, tail);
+    try {
+      return await task;
+    } finally {
+      if (saveQueues.get(queueKey) === tail) saveQueues.delete(queueKey);
+    }
+  }
+
+  async function saveUnlocked(projection: TianyiAgentRunProjection, operationId: string, kind: TianyiAgentRuntimeEvent["kind"], streamEvent?: TianyiAgentStreamEvent, rebase?: (latest: TianyiAgentRunProjection | null) => TianyiAgentRunProjection | null): Promise<TianyiAgentRunProjection> {
+    const key = runKey(projection.projectId, projection.workVersionId, projection.sessionId, projection.runId);
+    const current = cache.get(key);
+    const rebased = rebase?.(current ? structuredClone(current) : null);
+    if (rebased === null) {
+      if (!current) throw new Error("Agent 运行尚未开始。");
+      return structuredClone(current);
+    }
+    const source = rebased ?? projection;
+    // A run can receive a buffered stream completion after the author has
+    // successfully cancelled it.  The stream was started from an older
+    // projection, so appending that projection would otherwise resurrect the
+    // run as awaiting_author/completed.  Cancellation is terminal for this
+    // attempt; a new attempt must use the explicit resume/retry route and a
+    // new persisted transition instead.
+    if (current?.status === "cancelled" && source.status !== "cancelled") return structuredClone(current);
     const recordedAt = now();
-    const receiptId = deterministicId("receipt.tianyi-agent-runtime", projection.runId, operationId, String(projection.revision + 1));
+    const receiptId = deterministicId("receipt.tianyi-agent-runtime", source.runId, operationId, String(source.revision + 1));
     const next = structuredClone({
-      ...projection,
-      revision: projection.revision + 1,
+      ...source,
+      revision: source.revision + 1,
       updatedAt: recordedAt,
-      receipts: [...projection.receipts, {
+      receipts: [...source.receipts, {
         receiptId,
         kind: "runtime" as const,
         label: kind === "snapshot" ? "运行状态回执" : kind === "stream" ? "流式事件回执" : kind === "tool-call" ? "工具回执" : kind === "approval" ? "审批回执" : kind === "steering" ? "纠正回执" : "运行回执",
@@ -401,7 +433,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       const existing = await load({ projectId: next.projectId, workVersionId: next.workVersionId, sessionId: next.sessionId, runId: next.runId });
       if (existing) return existing;
     }
-    cache.set(runKey(next.projectId, next.workVersionId, next.sessionId, next.runId), next);
+    cache.set(key, next);
     return structuredClone(next);
   }
 
@@ -639,9 +671,19 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
 
   async function cancelRun(input: Parameters<TianyiAgentRuntimePort["cancelRun"]>[0]): Promise<TianyiAgentRunProjection> {
     const run = await requireRun(input);
-    if (run.status === "cancelled") return run;
+    // A completion that is already durable wins a late cancel request.  This
+    // is distinct from the in-flight cancellation path, which must become a
+    // terminal cancelled projection.
+    if (run.status === "completed" || run.status === "cancelled") return run;
     await dependencies.cancelProvider?.({ projectId: input.projectId, workVersionId: input.workVersionId, sessionId: input.sessionId, runId: input.runId });
-    return save({ ...run, status: "cancelled", stopReason: input.reason || "作者取消了运行。", error: { category: "cancelled", code: "cancelled", message: input.reason || "作者取消了运行。", retryable: false, retryBoundary: "none" } }, input.operationId);
+    // Stream callbacks may already be queued when the author cancels. Rebase
+    // within the Session queue so the terminal transition preserves every
+    // accepted stream receipt/count and advances from its latest revision.
+    return save(run, input.operationId, "snapshot", undefined, (latest) => {
+      const base = latest ?? run;
+      if (base.status === "completed" || base.status === "cancelled") return null;
+      return { ...base, status: "cancelled", stopReason: input.reason || "作者取消了运行。", error: { category: "cancelled", code: "cancelled", message: input.reason || "作者取消了运行。", retryable: false, retryBoundary: "none" } };
+    });
   }
 
   async function handoffCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string }): Promise<TianyiAgentRunProjection> {
@@ -693,6 +735,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
 }
 
 function runKey(projectId: string, workVersionId: string, sessionId: string, runId: string): string { return `${projectId}:${workVersionId}:${sessionId}:${runId}`; }
+function sessionKey(projectId: string, sessionId: string): string { return `${projectId}:${sessionId}`; }
 function normalizeTask(value: unknown): string { const text = typeof value === "string" ? value.trim() : ""; if (!text || text.length > 4_000) throw new Error("Agent 任务不能为空或过长。"); return text; }
 function normalizeWorkVersionId(value: unknown): string { const text = typeof value === "string" ? value.trim() : ""; if (!text || text.length > 160 || !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/iu.test(text)) throw new Error("Agent 工作版本无效。"); return text; }
 function normalizeCurrentPage(value: unknown): string { const page = typeof value === "string" && value.trim() ? value.trim() : "/tianyi"; if (!/^\/(?:tianyi|world|event-line|library|creation|nuwa)(?:[/?#]|$)/u.test(page)) throw new Error("Agent 当前页面不在受控工作区内。"); return page.slice(0, 240); }

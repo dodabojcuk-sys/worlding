@@ -21,6 +21,8 @@ import type {
   RelationTypeDefinitionR0,
   RelationTypeMutationResultR0
 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
+import { InFlightReadRegistry, InFlightReadTimeoutError } from "./inFlightReadRegistry";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -1482,7 +1484,7 @@ export async function openProject(projectId: string, token: string): Promise<Sto
 }
 
 export async function getWorldLibrary(projectId: string): Promise<WorldLibraryBootstrap> {
-  return request<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
+  return readProjectProjection<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
 }
 
 export async function getObjectCatalog(projectId: string, workVersionId: string): Promise<ObjectCatalogState> {
@@ -1794,7 +1796,7 @@ export async function recordAgentActivity(input: { projectId: string; actor: Age
 }
 
 export async function listStoryUnits(projectId: string, includeArchived = false): Promise<StoryUnit[]> {
-  return request<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
+  return readProjectProjection<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
 }
 
 export async function getStoryUnit(projectId: string, unitId: string): Promise<StoryUnit> {
@@ -3091,10 +3093,39 @@ async function intelligenceBridgeRequest<T>(route: string, token: string, body: 
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
 }
 
+// Same-origin local projection reads are response-driven. A fixed browser
+// deadline misclassifies a busy single-threaded local owner as disconnected
+// and aborts a request that is still progressing. Network/process failures
+// still reject fetch; project changes can explicitly invalidate and abort.
+const projectProjectionReads = new InFlightReadRegistry(null, 5_000);
+
+async function readProjectProjection<T>(url: string): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const projectId = parsedUrl.searchParams.get("projectId");
+  const endpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" as const : "story-units" as const;
+  const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
+  if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: read.fresh ? "ready" : "loading", reason: read.fresh ? "fresh-snapshot" : "in-flight" });
+  try {
+    return await read.promise;
+  } catch (error) {
+    if (error instanceof InFlightReadTimeoutError) {
+      recordDirectoryReadDiagnostic({ phase: "transport-timeout", endpoint, projectId, outcome: "failed", reason: "read-timeout", durationMs: error.timeoutMs });
+      throw new LocalTransportError("本地作品读取超时；请重新连接。现有作品没有被修改。", 504);
+    }
+    throw error;
+  }
+}
+
 async function request<T>(
   url: string,
   input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;
+  const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
+  const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
+  if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
+  const closeProjectionWriteBoundary = input.method === "POST" ? projectProjectionReads.beginInvalidationBoundary() : null;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -3108,26 +3139,36 @@ async function request<T>(
       signal: input.signal
     });
   } catch (cause) {
+    closeProjectionWriteBoundary?.();
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-failed", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: cause instanceof DOMException && cause.name === "AbortError" ? "cancelled" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw new LocalTransportError("操作已取消；没有新的内容被写入。", 499);
     }
     throw new LocalTransportError("本地服务暂时未连接。当前页面会保留；需要读取或保存时请重新连接。", 0);
   }
-  const source = await response.text();
-  let payload: { data?: T; error?: string };
   try {
-    payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
-  } catch {
-    throw new LocalTransportError(
-      response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
-      response.status
-    );
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
+    const source = await response.text();
+    let payload: { data?: T; error?: string };
+    try {
+      payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
+    } catch {
+      throw new LocalTransportError(
+        response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
+        response.status
+      );
+    }
+    if (!response.ok || payload.data === undefined) {
+      const fallback = response.status >= 500
+        ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
+        : "本地项目操作失败。";
+      throw new LocalTransportError(payload.error || fallback, response.status);
+    }
+    return payload.data;
+  } finally {
+    // A read begun while the write was pending was marked non-cacheable when
+    // it entered the registry. Closing the boundary therefore cannot evict a
+    // newer post-write read or trigger a second full projection scan.
+    closeProjectionWriteBoundary?.();
   }
-  if (!response.ok || payload.data === undefined) {
-    const fallback = response.status >= 500
-      ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
-      : "本地项目操作失败。";
-    throw new LocalTransportError(payload.error || fallback, response.status);
-  }
-  return payload.data;
 }

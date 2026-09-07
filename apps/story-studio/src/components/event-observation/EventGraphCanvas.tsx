@@ -187,6 +187,19 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   }, []);
   const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
 
+  // The graph owns the visible relation inspector. Route recovery can also
+  // restore the parent event-detail dock in the same commit, so keep the Shell
+  // coordinator aligned with the inspector that is actually on screen. This
+  // is a state repair, not a second relation owner: selection and review data
+  // remain in the existing Event/Relation projections.
+  useEffect(() => {
+    if ((selection?.kind === "relation" || selection?.kind === "smart-relation")
+      && rightWorkSurface.ownerId === "event-line"
+      && rightWorkSurface.mode !== "RELATION_REVIEW") {
+      openInspector("RELATION_REVIEW");
+    }
+  }, [openInspector, rightWorkSurface.mode, rightWorkSurface.ownerId, selection?.kind]);
+
   useEffect(() => {
     if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;
     const relation = graphRelations.find((item) => item.reviewState === "candidate" && item.relationTypeResolution === "unresolved")
@@ -973,7 +986,7 @@ function buildFormalNarrativeGraph(input: {
     visiblePathGroups.set(placement.storyUnitId, list);
   }
   const focusY = mainY + Math.max(1, branchUnits.length) * 265 + 245;
-  for (const [objectIndex, object] of input.focusObjects.slice(0, 3).entries()) {
+  for (const [objectIndex, object] of input.focusObjects.slice(0, 5).entries()) {
     const laneY = focusY + objectIndex * 96;
     nodes.push({ id: `focus-label:${object.id}`, type: "narrativeTopology", position: { x: 18, y: laneY - 8 }, selectable: false, draggable: false, data: { kind: "topology", topology: "unit", label: object.label, detail: object.type === "character" ? "人物轨迹" : object.type === "location" ? "地点出现" : "物品流转" } });
     for (const pathPlacements of visiblePathGroups.values()) {
@@ -1454,7 +1467,10 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
   // the workspace inspector or local directory is layered over the canvas.
   void flow.fitView({
     nodes: nodes.map((node) => ({ id: node.id })),
-    padding: drawerOpen ? .18 : .08,
+    // Cards render taller than React Flow's provisional node measurements.
+    // Reserve that live-card margin so the remote context clusters remain
+    // inside the clipped canvas after the inspector narrows the workspace.
+    padding: drawerOpen ? .22 : .16,
     minZoom: .25,
     maxZoom: 1.05,
     duration: 0
