@@ -83,11 +83,14 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       availability: availability(),
       setup: {
         projectId: project.id,
-        participants: actors.map((actor) => ({ id: actor.character.id, title: actor.displayName, revision: actor.character.revision })),
+        participants: actors.map((actor) => ({ id: actor.character.id, title: actor.displayName, revision: actor.character.revision, localGoal: actor.localGoal })),
         storyUnit: { id: scene.storyUnit.id, title: scene.label, revision: scene.storyUnit.revision },
         goal,
         contextPreview: actors.map((actor) => ({
           actorId: actor.character.id,
+          localGoal: actor.localGoal,
+          coreSummary: actor.coreSummary,
+          profileBasis: actor.profileBasis,
           evidenceRefs: [...actor.knownFacts.map((fact) => fact.sourceRef.id), ...actor.beliefs.map((belief) => belief.sourceRef.id)],
           knowledgeItems: actor.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
           beliefItems: actor.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
@@ -696,7 +699,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         status: run.lifecycle,
         revision: run.revision,
         scene: { storyUnitId: run.scene.storyUnit.id, label: run.scene.label, observedAt: run.scene.observedAt },
-        participants: run.actors.map((item) => ({ id: item.character.id, title: item.displayName, revision: item.character.revision })),
+        participants: run.actors.map((item) => ({ id: item.character.id, title: item.displayName, revision: item.character.revision, localGoal: item.localGoal })),
         goal: run.authorGoal,
         steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, heardStatements: step.heardStatements, contextEvidenceRefs: step.contextEvidenceRefs, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
@@ -734,6 +737,9 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
           const context = compileNuwaN1Context(run, actor, `nuwa-n1.inspect.${createHash("sha256").update(`${run.runId}:${run.revision}:${actor.character.id}`).digest("hex").slice(0, 32)}`);
           return {
             actorId: actor.character.id,
+            localGoal: context.localGoal,
+            coreSummary: context.coreSummary,
+            profileBasis: context.profileBasis,
             evidenceRefs: [
               ...context.knownFacts.map((fact) => ({ id: fact.sourceId, revision: fact.sourceRevision, visibility: fact.visibility })),
               ...context.beliefs.map((belief) => ({ id: belief.sourceId, revision: belief.sourceRevision, visibility: belief.stance }))
@@ -788,6 +794,9 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       seen.add(ref.id);
       const summary = operations.listWorldObjects({ projectId, type: "character" }).find((item) => item.id === ref.id && item.status !== "archived");
       if (!summary || summary.revisionToken !== ref.revision) throw failure("角色不存在、已归档或版本已变更。", 409);
+      const character = operations.readWorldObject({ projectId, objectId: summary.id });
+      if (character.type !== "character" || character.revisionToken !== summary.revisionToken) throw failure("角色版本已在准备期间变化，请刷新后重试。", 409);
+      const profileBasis = resolveCharacterProfileBasis(character);
       const projection = buildEventStoryCrossingKnowledgeProjection({
         projectId,
         observerId: summary.id,
@@ -809,14 +818,30 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       return {
         character: { id: summary.id, revision: summary.revisionToken },
         displayName: summary.title,
-        coreSummary: `正式角色 ${summary.title}；本轮只可使用角色稳定身份及已授权证据。`,
-        localGoal: `围绕“${scene.label}”回应当前可观察的变化。`,
+        coreSummary: `角色核心：${profileBasis.core ?? "未设置"}；底线：${profileBasis.boundaries ?? "未设置"}。`,
+        localGoal: optionalText(ref.localGoal, "角色本场目标", 800) ?? `围绕“${scene.label}”回应当前可观察的变化（作者未单独设置本场目标）。`,
+        profileBasis,
         knownFacts,
         beliefs,
         unknownFactIds,
         allowedActions: ["speak", "observe", "ask"]
       };
     });
+  }
+
+  function resolveCharacterProfileBasis(character) {
+    const profile = character.profile?.objectType === "character" && character.profile.authorConfirmed === true ? character.profile : null;
+    const core = authorProfileText(profile?.fields?.character_core, "角色核心");
+    const boundaries = authorProfileText(profile?.fields?.boundaries, "角色底线");
+    return {
+      core,
+      boundaries,
+      sourceRevision: character.revisionToken,
+      sources: [
+        ...(core ? [{ field: "character_core", source: "author-profile" }] : []),
+        ...(boundaries ? [{ field: "boundaries", source: "author-profile" }] : [])
+      ]
+    };
   }
 
   function requireExecutionAvailability() {
@@ -973,6 +998,16 @@ function requireRun(workspacePath, runId) {
 function requiredText(value, label, maximum) {
   if (typeof value !== "string" || !value.trim() || value.trim().length > maximum || /\0/u.test(value)) throw failure(`${label}无效。`, 400);
   return value.trim();
+}
+
+function optionalText(value, label, maximum) {
+  if (value == null || value === "") return null;
+  return requiredText(value, label, maximum);
+}
+
+function authorProfileText(field, label) {
+  if (!field || field.source !== "author" || typeof field.value !== "string") return null;
+  return optionalText(field.value, label, 1_000);
 }
 
 function requiredIds(value, label) {

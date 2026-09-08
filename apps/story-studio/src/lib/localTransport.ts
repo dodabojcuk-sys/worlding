@@ -2223,7 +2223,13 @@ export async function getNuwaDirectorStateR1(projectId: string, runId: string): 
  * the currently rendered projection and never becomes a Run or candidate owner.
  */
 export type NuwaN1Availability = { kind: "unavailable" | "local-fake" | "pi-agent"; label: string; providerCalls: 0; adapterId?: string | null };
-export type NuwaN1Participant = { id: string; title: string; revision: string };
+export type NuwaN1Participant = { id: string; title: string; revision: string; localGoal?: string };
+export type NuwaN1ProfileBasis = {
+  core: string | null;
+  boundaries: string | null;
+  sourceRevision: string;
+  sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
+};
 export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
 export type NuwaN1Step = {
   stepId: string;
@@ -2280,6 +2286,9 @@ export type NuwaN1Run = {
 export type NuwaN1ContextInspector = {
   actors: Array<{
     actorId: string;
+    localGoal: string;
+    coreSummary: string;
+    profileBasis: NuwaN1ProfileBasis;
     evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
     knowledgeItems: Array<{ id: string; summary: string; visibility: string; sourceId: string; sourceRevision: string }>;
     beliefItems: Array<{ id: string; summary: string; stance: string; sourceId: string; sourceRevision: string }>;
@@ -2321,7 +2330,7 @@ export type NuwaN1Setup = {
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
     goal: string;
-    contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
+    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
   };
 };
 export type NuwaN1CandidateResult = NuwaN1ReadModel & {

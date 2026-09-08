@@ -44,12 +44,14 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   child = enabled.child;
   const setup = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", value.request("setup-fake"));
   assert.equal(setup.status, 200);
-  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } });
+  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } });
   assert.equal(preview.availability.kind, "local-fake");
   assert.match(preview.availability.label, /本地工程演练/u);
   assert.equal(preview.availability.providerCalls, 0);
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.knowledgeItems.length), [1, 0], "only the formal knowledge subject receives the selected event evidence");
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.beliefItems.length), [0, 1], "suspected or misled evidence remains a belief instead of becoming a confirmed fact");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => item.localGoal), ["核实钟声是否来自桥下", "确保退路不被切断"], "each actor receives the author's distinct scene goal");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => [item.profileBasis.core, item.profileBasis.boundaries]), [["先求证再行动", "不拿同伴冒险换取线索"], ["先保全退路", "不独自追击未知目标"]]);
   assert.equal(JSON.stringify(preview).includes("未经 Canon 验证的规划线索"), false, "a linked draft Event cannot enter a role Provider context");
 
   const objectsBefore = value.operations.listWorldObjects({ projectId: value.project.id }).length;
@@ -65,6 +67,9 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.authorization?.status, "active");
   assert.equal(model.authorization?.storyUnitId, value.unit.id);
   assert.deepEqual(model.authorization?.actorIds, value.characters.map((character) => character.id));
+  const frozenFirstBasis = model.contextInspector.actors[0]!.profileBasis;
+  const editedCharacter = value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[0]!.id });
+  value.operations.updateWorldObject({ projectId: value.project.id, objectId: editedCharacter.id, expectedHash: editedCharacter.revisionToken, title: editedCharacter.title, status: editedCharacter.status, tags: editedCharacter.tags, aliases: editedCharacter.aliases, body: editedCharacter.body, subtype: editedCharacter.subtype, typedProperties: editedCharacter.typedProperties, profile: characterProfile("改为先行动后核实", "不得回头", "CANARY_AUTHOR_PROFILE_SECRET_EDITED"), card: editedCharacter.card });
 
   const firstStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "step-first" });
   assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
@@ -72,11 +77,13 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps.length, 1, JSON.stringify(model));
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
+  assert.deepEqual(model.contextInspector.actors[0]!.profileBasis, frozenFirstBasis, "editing the character after Run creation cannot rewrite the frozen actor basis");
   assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 1]], "the recipient sees the explicitly delivered statement through the same context compiler used by the tool loop");
   assert.match(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary ?? "", /^已得知：钟声在桥上消失/u);
   assert.match(model.contextInspector.actors[1]?.beliefItems[0]?.summary ?? "", /^被误导：潮声来自废塔/u);
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
+  assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_PROFILE_SECRET"), false);
 
   const candidate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/candidate", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "candidate-first", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(candidate.status, 201, JSON.stringify(candidate.payload));
@@ -580,7 +587,7 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
 
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
-  contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }> }> };
+  contextInspector: { actors: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
   authorization?: { id: string; status: string; storyUnitId: string; actorIds: string[] } | null;
@@ -595,8 +602,8 @@ function fixture(options: { threeActors?: boolean } = {}) {
   const project = operations.createProject({ title: "女娲 N1 本地接口", folderSlug: "nuwa-n1-local-api", genre: "mystery", ambience: "rain" });
   const otherProject = operations.createProject({ title: "女娲 N1 同名隔离", folderSlug: "nuwa-n1-other", genre: "mystery", ambience: "rain" });
   const characters = [
-    operations.createWorldObject({ projectId: project.id, type: "character", title: "林昭", body: "CANARY_AUTHOR_FUTURE\n林昭只知道亲眼看见的事。" }),
-    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。" }),
+    operations.createWorldObject({ projectId: project.id, type: "character", title: "林昭", body: "CANARY_AUTHOR_FUTURE\n林昭只知道亲眼看见的事。", profile: characterProfile("先求证再行动", "不拿同伴冒险换取线索", "CANARY_AUTHOR_PROFILE_SECRET") }),
+    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。", profile: characterProfile("先保全退路", "不独自追击未知目标", "CANARY_OTHER_PROFILE_SECRET") }),
     ...(options.threeActors ? [operations.createWorldObject({ projectId: project.id, type: "character", title: "丙", body: "丙没有听到桥上的私下谈话。" })] : [])
   ];
   const knownEvent = createVerifiedCanonEvent(operations, authorControl, project.id, { title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。", tags: [] });
@@ -622,8 +629,21 @@ function fixture(options: { threeActors?: boolean } = {}) {
     request(operationId: string) {
       const current = characters.map((character) => operations.readWorldObject({ projectId: project.id, objectId: character.id }));
       const currentUnit = operations.readStoryUnit({ projectId: project.id, unitId: unit.id });
-      return { projectId: project.id, participants: current.map((character) => ({ id: character.id, revision: character.revisionToken })), storyUnit: { id: currentUnit.id, revision: currentUnit.version }, goal: "在旧桥前辨认钟声来源，但不得把传闻当成事实。", operationId };
+      const localGoals = ["核实钟声是否来自桥下", "确保退路不被切断", "确认自己是否听到对话"];
+      return { projectId: project.id, participants: current.map((character, index) => ({ id: character.id, revision: character.revisionToken, localGoal: localGoals[index] })), storyUnit: { id: currentUnit.id, revision: currentUnit.version }, goal: "在旧桥前辨认钟声来源，但不得把传闻当成事实。", operationId };
     }
+  };
+}
+
+function characterProfile(core: string, boundaries: string, secret: string) {
+  return {
+    objectType: "character" as const,
+    fields: {
+      character_core: { label: "角色核心", value: core, source: "author" as const, confidence: "high" as const, sourceAnchors: [] },
+      boundaries: { label: "底线", value: boundaries, source: "author" as const, confidence: "high" as const, sourceAnchors: [] },
+      private_notes: { label: "作者秘密", value: secret, source: "author" as const, confidence: "high" as const, sourceAnchors: [] }
+    },
+    authorConfirmed: true
   };
 }
 

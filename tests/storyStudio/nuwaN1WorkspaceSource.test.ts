@@ -62,3 +62,19 @@ test("Nuwa N1 keeps a role handoff queued until the author starts a new run", ()
   assert.match(workspace, /setParticipantIds\(\[queuedParticipantId\]\)/u);
   assert.match(workspace, /window\.sessionStorage\.removeItem\(`tianyan-nuwa-n1-preselect:/u, "the one-shot handoff is consumed only after it is applied to a setup");
 });
+
+test("Nuwa N2A exposes author-owned character basis and per-character scene goals without a second profile store", () => {
+  const editor = source("apps/story-studio/src/product-shell/project-directory/character/CharacterProfileEditor.tsx");
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+  const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
+  const adapter = source("apps/story-studio/server/nuwaN1PiAdapter.mjs");
+
+  assert.match(editor, /profile: characterProfileWithAuthorBasis\(object\.profile/u, "the existing WorldObject update remains the only character-profile write");
+  assert.match(editor, /character_core/u);
+  assert.match(editor, /boundaries/u);
+  assert.match(workspace, /逐角色本场目标/u);
+  assert.match(workspace, /participantIds\.every\(\(id\) => Boolean\(participantGoals\[id\]\?\.trim\(\)\)\)/u);
+  assert.match(runtime, /profileBasis: structuredClone\(canonicalActor\.profileBasis\)/u, "the frozen Run actor is the role-context source");
+  assert.match(adapter, /profileBasis: context\.profileBasis/u, "the inspected basis crosses the actual Provider tool boundary");
+  assert.doesNotMatch(adapter, /private_notes|profile\.fields/u, "the adapter cannot inspect unrelated author profile fields");
+});

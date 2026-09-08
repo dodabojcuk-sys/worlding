@@ -1212,6 +1212,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /阿芜/u);
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("核实钟声是否来自桥下");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("确保退路不被切断");
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("在旧桥钟声中核对彼此知情，不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
@@ -1220,6 +1222,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await contextCards.count(), 2, "The inspector shows both isolated role contexts before execution.");
   const visibleContexts = await contextCards.allTextContents();
   assert.equal(visibleContexts[0] !== visibleContexts[1], true, `The two roles must expose distinct knowledge ranges: ${JSON.stringify(visibleContexts)}`);
+  assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /核实钟声是否来自桥下/u, "The inspector shows Lin Zhao's actual actor goal independent of directory order.");
+  assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
 
@@ -1280,6 +1284,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.getByRole("button", { name: "回放", exact: true }).click();
   assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 3, "Replay reads the recorded steps without dispatching again.");
   await workspace.getByRole("button", { name: "新建排演", exact: true }).click();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在新 Run 中重新核实钟声");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("在新 Run 中重新确认退路");
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
   await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
@@ -1451,6 +1457,9 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("只向阿芜核实钟声线索");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("听清线索并保护退路");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "陆衍" }).locator("input").fill("保持观察且不接收私下谈话");
   const relationType = workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "自动关系类型" }).locator("select");
   assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
   await relationType.selectOption({ index: 1 });

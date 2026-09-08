@@ -102,6 +102,7 @@ function safeContextForProvider(context) {
     scene: context.scene,
     localGoal: context.localGoal,
     coreSummary: context.coreSummary,
+    profileBasis: context.profileBasis,
     knownFacts: context.knownFacts,
     beliefs: context.beliefs,
     // Excluded identities can themselves disclose a future secret. The role

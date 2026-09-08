@@ -129,6 +129,20 @@
 .character-profile-editor h2 { margin: 0; font-family: var(--font-display); font-size: var(--font-size-lg); }
 .character-profile-editor label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .character-profile-editor input, .character-profile-editor select, .character-profile-editor textarea { width: 100%; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); }
+.character-profile-agent-basis { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-profile-agent-basis legend { padding: 0 var(--space-1); color: var(--color-text); font-size: var(--font-size-sm); font-weight: 650; }
+.character-profile-agent-basis > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.character-inspector-agent-basis { display: grid; gap: var(--space-2); margin: var(--space-3) 0; padding: var(--space-3); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-inspector-agent-basis > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--space-2); }
+.character-inspector-agent-basis dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.character-inspector-agent-basis dd { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.character-profile-agent-basis { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-profile-agent-basis legend { padding-inline: var(--space-1); color: var(--color-text); font-size: var(--font-size-sm); font-weight: 650; }
+.character-profile-agent-basis > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.character-inspector-agent-basis { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); padding: var(--space-3); background: color-mix(in srgb, var(--color-accent-soft) 38%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-inspector-agent-basis > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--space-2); }
+.character-inspector-agent-basis dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.character-inspector-agent-basis dd { min-width: 0; margin: 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .character-profile-editor input, .character-profile-editor select { min-height: 2.35rem; padding-inline: var(--space-2); }
 .character-profile-editor textarea { padding: var(--space-2); resize: vertical; }
 .character-profile-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }

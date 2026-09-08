@@ -43,6 +43,10 @@
 .nuwa-n1-participant-options span { min-inline-size: 0; display: grid; gap: .06rem; }
 .nuwa-n1-participant-options strong { overflow: hidden; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .nuwa-n1-participant-options small { color: var(--color-text-muted); font-size: .65rem; }
+.nuwa-n1-participant-goals { grid-column: 1 / -1; }
+.nuwa-n1-participant-goals label { display: grid; grid-template-columns: minmax(6rem, .28fr) minmax(0, 1fr); align-items: center; gap: .5rem; }
+.nuwa-n1-participant-goals label > span { color: var(--color-text); font-size: .72rem; font-weight: 650; }
+.nuwa-n1-participant-goals input { min-inline-size: 0; min-block-size: 2.1rem; padding-inline: .5rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .28rem; font-size: .74rem; }
 .nuwa-n1-setup footer { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding-block-start: .15rem; color: var(--color-text-muted); font-size: .72rem; }
 .nuwa-n1-body { min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr) 18rem; align-items: start; gap: 1rem; }
 .nuwa-n1-primary { min-inline-size: 0; }
@@ -71,6 +75,10 @@
 .nuwa-n1-step-observation > svg { inline-size: .9rem; margin-block-start: .15rem; color: var(--color-accent); }
 .nuwa-n1-reader article > footer { display: flex; flex-wrap: wrap; gap: .28rem; padding: .45rem .65rem; border-block-start: 1px solid var(--color-border); }
 .nuwa-n1-reader article > footer span { padding: .14rem .32rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; font-size: .6rem; }
+.nuwa-n1-context-basis { display: grid; gap: .32rem; margin: .45rem 0; }
+.nuwa-n1-context-basis > div { display: grid; grid-template-columns: 4.4rem minmax(0, 1fr); gap: .4rem; }
+.nuwa-n1-context-basis dt { color: var(--color-text-muted); font-size: .63rem; }
+.nuwa-n1-context-basis dd { min-width: 0; margin: 0; font-size: .7rem; line-height: 1.45; overflow-wrap: anywhere; }
 .nuwa-n1-reader article > footer span[data-kind="tool"] { color: var(--color-accent); }
 .nuwa-n1-empty-run { min-block-size: 18rem; display: grid; place-content: center; justify-items: center; gap: .35rem; padding: 1rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed var(--color-border); text-align: center; }
 .nuwa-n1-empty-run svg { inline-size: 1.5rem; color: var(--color-accent); }

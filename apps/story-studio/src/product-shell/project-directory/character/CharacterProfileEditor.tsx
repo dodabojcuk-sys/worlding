@@ -2,6 +2,7 @@ import { Save, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { readWorldObject, updateWorldObject, type WorldObject } from "../../../lib/localTransport";
+import type { StoryStudioObjectProfile, StoryStudioProfileField } from "../../../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../../runtime/TianyanShellRuntime";
 
@@ -49,7 +50,7 @@ export function CharacterProfileEditor(props: { runtime: TianyanShellRuntimeStat
         aliases: String(data.get("aliases") || "").split(/[,，]/u).map((value) => value.trim()).filter(Boolean),
         body: String(data.get("body") || ""),
         typedProperties: object.typedProperties,
-        profile: object.profile,
+        profile: characterProfileWithAuthorBasis(object.profile, String(data.get("characterCore") || ""), String(data.get("boundaries") || "")),
         card: object.card,
         token
       }));
@@ -67,9 +68,39 @@ export function CharacterProfileEditor(props: { runtime: TianyanShellRuntimeStat
       <div className="character-profile-editor-grid"><label><span>{t("character.roleLevel")}</span><input name="subtype" defaultValue={object.subtype ?? ""} /></label><label><span>{t("character.volumeState")}</span><select name="status" defaultValue={object.status}><option value="active">{t("character.confirmed")}</option><option value="archived">{t("character.archived")}</option></select></label></div>
       <label><span>{t("character.aliases")}</span><input name="aliases" defaultValue={object.aliases.join("，")} /></label>
       <label><span>{t("character.tag")}</span><input name="tags" defaultValue={object.tags.join(", ")} /></label>
+      <fieldset className="character-profile-agent-basis"><legend>角色驱动依据</legend><p>这两项由作者确认后，女娲会在创建 Run 时按人物修订冻结；角色正文中的秘密不会自动进入排演。</p><label><span>角色核心</span><textarea name="characterCore" rows={3} maxLength={1000} defaultValue={authorProfileValue(object.profile, "character_core")} placeholder="例如：谨慎求证，不把猜测当作事实。" /></label><label><span>底线</span><textarea name="boundaries" rows={3} maxLength={1000} defaultValue={authorProfileValue(object.profile, "boundaries")} placeholder="例如：不得以同伴安全换取线索。" /></label></fieldset>
       <label><span>{t("character.profileBody")}</span><textarea name="body" rows={14} defaultValue={object.body} /></label>
       {error && <p className="character-create-error" role="alert">{error}</p>}
       <footer><button type="button" disabled={saving} onClick={props.onClose}>{t("character.cancel")}</button><button type="submit" disabled={saving}><Save aria-hidden="true" />{saving ? t("character.saving") : t("character.save")}</button></footer>
     </form>
   </div>;
+}
+
+function authorProfileValue(profile: StoryStudioObjectProfile | null, key: "character_core" | "boundaries"): string {
+  const field = profile?.authorConfirmed === true ? profile.fields[key] : null;
+  return field?.source === "author" && typeof field.value === "string" ? field.value : "";
+}
+
+function characterProfileWithAuthorBasis(profile: StoryStudioObjectProfile | null, coreInput: string, boundariesInput: string): StoryStudioObjectProfile | null {
+  const fields = { ...(profile?.fields ?? {}) };
+  writeAuthorField(fields, "character_core", "角色核心", coreInput);
+  writeAuthorField(fields, "boundaries", "底线", boundariesInput);
+  if (!profile && !Object.keys(fields).length) return null;
+  return {
+    version: "story-studio-object-profile/v1",
+    objectType: "character",
+    fields,
+    unresolvedQuestions: profile?.unresolvedQuestions ?? [],
+    warnings: profile?.warnings ?? [],
+    authorConfirmed: true
+  };
+}
+
+function writeAuthorField(fields: Record<string, StoryStudioProfileField>, key: "character_core" | "boundaries", label: string, input: string): void {
+  const value = input.normalize("NFC").trim();
+  if (!value) {
+    delete fields[key];
+    return;
+  }
+  fields[key] = { label, value, source: "author", confidence: "high", sourceAnchors: [] };
 }

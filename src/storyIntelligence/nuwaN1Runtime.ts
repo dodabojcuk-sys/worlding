@@ -19,11 +19,19 @@ export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: Nuwa
 /** A belief remains role-local, but its evidence provenance must stay visible
  * so that a suspicion is never silently upgraded to a shared story fact. */
 export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef };
+export type NuwaN1ProfileBasis = {
+  core: string | null;
+  boundaries: string | null;
+  sourceRevision: string;
+  sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
+};
 export type NuwaN1Actor = {
   character: NuwaN1StableRef;
   displayName: string;
   coreSummary: string;
   localGoal: string;
+  /** Author-confirmed character basis frozen when the Run is created. */
+  profileBasis: NuwaN1ProfileBasis;
   knownFacts: NuwaN1KnownFact[];
   beliefs: NuwaN1Belief[];
   unknownFactIds: string[];
@@ -39,6 +47,7 @@ export type NuwaN1Context = {
   scene: NuwaN1Scene;
   localGoal: string;
   coreSummary: string;
+  profileBasis: NuwaN1ProfileBasis;
   knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"] }>;
   beliefs: Array<NuwaN1Belief & { sourceId: string; sourceRevision: string }>;
   unknownFactIds: string[];
@@ -342,7 +351,7 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   if (!canonicalActor) throw new Error("Nuwa N1 actor is outside the frozen Run scope.");
   const dialogue = run.steps.flatMap((step) => step.speech && (step.actor.id === actor.character.id || step.heardByActorIds.includes(actor.character.id)) ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
   return {
-    version: "tianyan-nuwa-n1-role-context/v1", runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary,
+    version: "tianyan-nuwa-n1-role-context/v1", runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis),
     knownFacts: [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility })), ...heardStatements(run, actor.character.id)], beliefs: canonicalActor.beliefs.map((belief) => ({ ...structuredClone(belief), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision })), unknownFactIds: [...canonicalActor.unknownFactIds], recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining: { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096, outputTokenBudget: 1024 }, authorCue: run.pendingCue?.instruction ?? null
   };
 }
@@ -645,7 +654,19 @@ function normalizeActor(actor: NuwaN1Actor): NuwaN1Actor {
   const knownFacts = actor.knownFacts.map((fact) => ({ factId: stableObjectId(fact.factId), summary: text(fact.summary, "known fact", 800), sourceRef: cloneRef(fact.sourceRef), visibility: fact.visibility }));
   const beliefs = actor.beliefs.map((belief) => ({ beliefId: stableObjectId(belief.beliefId), summary: text(belief.summary, "belief", 800), stance: belief.stance, sourceRef: cloneRef(belief.sourceRef) }));
   if (!Array.isArray(actor.allowedActions) || !actor.allowedActions.length) throw new Error("Nuwa N1 actor must have allowed actions.");
-  return { character, displayName: text(actor.displayName, "displayName", 160), coreSummary: text(actor.coreSummary, "coreSummary", 1_000), localGoal: text(actor.localGoal, "localGoal", 800), knownFacts, beliefs, unknownFactIds: actor.unknownFactIds.map(stableObjectId), allowedActions: actor.allowedActions.map((action) => text(action, "allowed action", 120)) };
+  const profileBasis = normalizeProfileBasis(actor.profileBasis, character.revision);
+  return { character, displayName: text(actor.displayName, "displayName", 160), coreSummary: text(actor.coreSummary, "coreSummary", 1_000), localGoal: text(actor.localGoal, "localGoal", 800), profileBasis, knownFacts, beliefs, unknownFactIds: actor.unknownFactIds.map(stableObjectId), allowedActions: actor.allowedActions.map((action) => text(action, "allowed action", 120)) };
+}
+function normalizeProfileBasis(value: NuwaN1ProfileBasis | undefined, fallbackRevision: string): NuwaN1ProfileBasis {
+  if (value == null) return { core: null, boundaries: null, sourceRevision: fallbackRevision, sources: [] };
+  if (!value || typeof value !== "object" || !Array.isArray(value.sources)) throw new Error("Nuwa N1 character profile basis is invalid.");
+  const core = value.core == null ? null : text(value.core, "character core", 1_000);
+  const boundaries = value.boundaries == null ? null : text(value.boundaries, "character boundaries", 1_000);
+  const sources = value.sources.map((item) => {
+    if (!item || !["character_core", "boundaries"].includes(item.field) || item.source !== "author-profile") throw new Error("Nuwa N1 character profile source is invalid.");
+    return { field: item.field, source: item.source };
+  });
+  return { core, boundaries, sourceRevision: text(value.sourceRevision, "character profile revision", 180), sources };
 }
 function validateToolRequest(request: NuwaN1ToolRequest, actor: NuwaN1Actor): void {
   if (request.type !== "tool-request" || request.toolName !== "read_role_context" || !safeId(request.requestId) || !sameRef(request.actor, actor.character)) throw new Error("Nuwa N1 adapter requested an unsupported or cross-character tool.");

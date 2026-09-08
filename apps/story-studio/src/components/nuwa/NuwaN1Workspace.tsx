@@ -34,6 +34,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [run, setRun] = useState<NuwaN1ReadModel | null>(null);
   const [setup, setSetup] = useState<NuwaN1Setup | null>(null);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [participantGoals, setParticipantGoals] = useState<Record<string, string>>({});
   const [storyUnitId, setStoryUnitId] = useState("");
   const [relationTypeId, setRelationTypeId] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
@@ -51,7 +52,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
     if (!projectId) return () => { active = false; };
     void Promise.all([getNuwaN1Bootstrap(projectId), getNuwaN1Latest(projectId)]).then(([nextBootstrap, latest]) => {
       if (!active) return;
@@ -63,6 +64,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       setQueuedParticipantId(queuedParticipant);
       if (requestedParticipantId && (!requestedParticipant || !latest.run)) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? (requestedParticipant ? [requestedParticipant] : []));
+      setParticipantGoals(Object.fromEntries(latest.run?.participants.map((participant) => [participant.id, participant.localGoal ?? ""]) ?? []));
       setStoryUnitId(nextBootstrap.storyUnits[0]?.id ?? "");
       setRelationTypeId(nextBootstrap.relationTypes.length === 1 ? nextBootstrap.relationTypes[0]!.id : null);
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
@@ -77,13 +79,16 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     return () => { active = false; };
   }, [projectId]);
 
-  const canPrepare = participantIds.length >= MIN_PARTICIPANTS && Boolean(storyUnitId) && Boolean(goal.trim());
+  const canPrepare = participantIds.length >= MIN_PARTICIPANTS && Boolean(storyUnitId) && Boolean(goal.trim()) && participantIds.every((id) => Boolean(participantGoals[id]?.trim()));
   const selectedStep = run?.run?.steps.find((step) => step.stepId === selectedStepId) ?? null;
   const actorContext = useMemo(() => {
     if (run?.contextInspector && run.run) {
       return run.contextInspector.actors.map((context) => ({
         actorId: context.actorId,
         actorLabel: run.run!.participants.find((participant) => participant.id === context.actorId)?.title ?? "当前角色",
+        localGoal: context.localGoal,
+        coreSummary: context.coreSummary,
+        profileBasis: context.profileBasis,
         knowledgeItems: context.knowledgeItems,
         beliefItems: context.beliefItems,
         evidenceRefs: context.evidenceRefs.map((reference) => reference.id),
@@ -129,7 +134,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     try {
-      const participants = selectedParticipants(bootstrap, participantIds);
+      const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
       const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
       if (!storyUnit) throw new Error("当前故事单元已不可用，请重新选择后再准备。");
       const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, goal: goal.trim(), operationId: newOperationId(), token }));
@@ -140,7 +145,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const create = () => {
     if (!projectId || !canPrepare) return;
-    const participants = selectedParticipants(bootstrap, participantIds);
+    const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
     const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
     if (!storyUnit) return;
     void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), relationTypeId, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
@@ -175,7 +180,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     );
   };
   const beginAnotherRun = () => {
-    setRun(null); setSetup(null); setSelectedStepIds([]); setSelectedStepId(null); setCue(""); setError(null);
+    setRun(null); setSetup(null); setSelectedStepIds([]); setSelectedStepId(null); setCue(""); setParticipantGoals({}); setError(null);
     if (queuedParticipantId && projectId) {
       setParticipantIds([queuedParticipantId]);
       window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
@@ -288,7 +293,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           const checked = participantIds.includes(participant.id);
           return <label key={participant.id}><input type="checkbox" checked={checked} disabled={busy || (!checked && participantIds.length >= MAX_PARTICIPANTS)} onChange={() => { setParticipantIds((current) => checked ? current.filter((id) => id !== participant.id) : [...current, participant.id]); setSetup(null); }} /><span><strong>{participant.title}</strong><small>正式角色</small></span></label>;
         })}</div></fieldset>
-        <footer><span>{participantIds.length < MIN_PARTICIPANTS ? `还需要选择 ${MIN_PARTICIPANTS - participantIds.length} 位角色。` : "范围准备就绪；可先检查上下文。"}</span><button type="button" disabled={!canPrepare || busy} onClick={prepare}><ShieldCheck />查看上下文</button></footer>
+        {participantIds.length ? <fieldset className="nuwa-n1-participant-goals"><legend>逐角色本场目标</legend>{participantIds.map((participantId) => { const participant = bootstrap?.participants.find((item) => item.id === participantId); return <label key={participantId}><span>{participant?.title ?? "角色"}</span><input value={participantGoals[participantId] ?? ""} disabled={busy} maxLength={800} required onChange={(event) => { setParticipantGoals((current) => ({ ...current, [participantId]: event.target.value })); setSetup(null); }} placeholder="本场只属于这个角色的目标" /></label>; })}</fieldset> : null}
+        <footer><span>{participantIds.length < MIN_PARTICIPANTS ? `还需要选择 ${MIN_PARTICIPANTS - participantIds.length} 位角色。` : participantIds.some((id) => !participantGoals[id]?.trim()) ? "请为每位角色填写本场目标。" : "范围准备就绪；可先检查上下文。"}</span><button type="button" disabled={!canPrepare || busy} onClick={prepare}><ShieldCheck />查看上下文</button></footer>
       </section> : run?.run ? <NuwaRunReader run={run} selectedStepId={selectedStepId} selectedStepIds={selectedStepIds} onSelectStep={(step) => { setSelectedStepId(step.stepId); setInspectorOpen(true); setInspectorTab("step"); }} onToggleCandidate={(stepId) => setSelectedStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId])} /> : null}
 
       {!run && setup ? <section className="nuwa-n1-context-preview"><ShieldCheck /><div><strong>已核对角色上下文</strong><p>{setup.setup.contextPreview.map((actor) => `${bootstrap?.participants.find((item) => item.id === actor.actorId)?.title ?? "角色"}：${actor.knowledgeItems.length} 项已知、${actor.beliefItems.length} 项信念`).join("；")}</p></div></section> : null}
@@ -319,9 +325,9 @@ function NuwaRunReader(props: { run: NuwaN1ReadModel; selectedStepId: string | n
   })}</ol></section>;
 }
 
-function ContextInspector(props: { actors: Array<{ actorId: string; actorLabel: string; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }> }) {
+function ContextInspector(props: { actors: Array<{ actorId: string; actorLabel: string; localGoal: string; coreSummary: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }> }) {
   if (!props.actors.length) return <section className="nuwa-n1-inspector-empty"><UsersRound /><p>选择参与者后可查看各自允许的上下文；未选择的人物不会收到这些材料。</p></section>;
-  return <section className="nuwa-n1-context-list">{props.actors.map((actor) => <article key={actor.actorId}><header><strong>{actor.actorLabel}</strong><small>角色可知范围</small></header><p>{actor.knowledgeItems.length ? actor.knowledgeItems.map((item) => item.summary).join("；") : "当前没有可安全提供的已知内容。"}</p>{actor.beliefItems.length ? <p><small>信念与误解</small><br />{actor.beliefItems.map((item) => item.summary).join("；")}</p> : null}<footer><span>{actor.evidenceRefs.length} 条来源依据</span>{actor.excludedCount ? <span>{actor.excludedCount} 项已排除</span> : null}</footer></article>)}</section>;
+  return <section className="nuwa-n1-context-list">{props.actors.map((actor) => <article key={actor.actorId}><header><strong>{actor.actorLabel}</strong><small>实际发送上下文</small></header><dl className="nuwa-n1-context-basis"><div><dt>本场目标</dt><dd>{actor.localGoal}</dd></div><div><dt>角色核心</dt><dd>{actor.profileBasis.core ?? "未设置"}</dd></div><div><dt>底线</dt><dd>{actor.profileBasis.boundaries ?? "未设置"}</dd></div><div><dt>人物修订</dt><dd>{actor.profileBasis.sourceRevision}</dd></div></dl><p>{actor.knowledgeItems.length ? actor.knowledgeItems.map((item) => item.summary).join("；") : "当前没有可安全提供的已知内容。"}</p>{actor.beliefItems.length ? <p><small>信念与误解</small><br />{actor.beliefItems.map((item) => item.summary).join("；")}</p> : null}<footer><span>{actor.evidenceRefs.length} 条来源依据</span>{actor.excludedCount ? <span>{actor.excludedCount} 项已排除</span> : null}</footer></article>)}</section>;
 }
 
 function StepInspector(props: { step: NuwaN1Step | null }) {
@@ -347,7 +353,7 @@ function NuwaUnavailable(props: { title: string; detail: string; loading?: boole
 function statusLabel(status: NuwaN1Run["status"] | "ready") { return ({ ready: "准备中", running: "排演中", paused: "已暂停", completed: "已完成", cancelled: "已停止", blocked: "需要处理" } as const)[status]; }
 function messageFor(reason: unknown, fallback: string) { return reason instanceof Error && reason.message ? reason.message : fallback; }
 function EyeIcon() { return <CheckCircle2 aria-hidden="true" />; }
-function selectedParticipants(bootstrap: NuwaN1Bootstrap | null, ids: string[]) { return bootstrap?.participants.filter((participant) => ids.includes(participant.id)) ?? []; }
+function selectedParticipants(bootstrap: NuwaN1Bootstrap | null, ids: string[], goals: Record<string, string>) { return bootstrap?.participants.filter((participant) => ids.includes(participant.id)).map((participant) => ({ ...participant, localGoal: goals[participant.id]?.normalize("NFC").trim() })) ?? []; }
 function selectedStoryUnit(bootstrap: NuwaN1Bootstrap | null, id: string) { return bootstrap?.storyUnits.find((unit) => unit.id === id) ?? null; }
 function newOperationId() { return `nuwa-n1.${crypto.randomUUID()}`; }
 function receiptLabel(kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff") { return ({ create: "建立排演", start: "开始排演", step: "完成一步", pause: "暂停排演", resume: "恢复排演", cancel: "停止排演", cue: "加入作者提示", handoff: "送入待确认" } as const)[kind]; }

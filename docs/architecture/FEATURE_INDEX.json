@@ -143,16 +143,16 @@
     {
       "id": "nuwa-primary-workspace",
       "status": "LOCAL_REVIEW",
-      "maturity": "bounded-n1-local-tool-loop-real-provider-pending",
+      "maturity": "bounded-n2a-frozen-character-basis-local-verified",
       "entrypoints": ["apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "src/storyIntelligence/nuwaRunPack.ts"],
-      "sourceFiles": ["src/storyIntelligence/nuwaN1Runtime.ts", "src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/actionPermissionBroker.ts", "apps/story-studio/server/nuwaN1Port.mjs", "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
+      "sourceFiles": ["src/storyIntelligence/nuwaN1Runtime.ts", "src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/actionPermissionBroker.ts", "apps/story-studio/server/nuwaN1Port.mjs", "apps/story-studio/server/nuwaN1PiAdapter.mjs", "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterProfileEditor.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterInspectorCard.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
       "domainOwners": ["src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/actionPermissionBroker.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
       "stateOwners": ["src/storyIntelligence/nuwaRunPack.ts", "src/storyControlSurface/actionPermissionBroker.ts", "src/storyControlSurface/storyStudioAuthorControl.ts"],
       "persistenceOwner": "Nuwa RunPack owns the bounded N1 lifecycle and receipts; Action Permission Broker owns server-validated high-permission Run scopes; existing Candidate Review owns ordinary selected-result review; React stores only transient setup, inspector and selection state",
-      "providerDependency": "local fake tool round trip is test/development only and visibly zero-Provider; production Provider adapter and real-model acceptance remain unconnected",
+      "providerDependency": "the production Pi adapter receives the same frozen profile basis, per-character scene goal and role-safe evidence shown by the inspector; tests use only local fake/in-memory Provider boundaries and real-model acceptance remains not run",
       "tests": ["tests/storyIntelligence/nuwaN1Runtime.test.ts", "tests/storyStudio/nuwaN1LocalApi.integration.test.ts", "tests/storyStudio/nuwaN1WorkspaceSource.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "tests/storyStudio/goldenLoopOperation.test.ts", "tests/storyControlSurface/storyStudioAuthorControl.test.ts"],
       "legacyProvenance": ["17efb1a Nuwa five-stage focus workspace superseded by approved rehearsal IA", "997c5e7 contextual shell focus grammar"],
-      "remainingGap": "N1 locally connects two or three formal characters, one Story Unit, fact-versus-belief role context, explicit tool execution, exact-or-conservative token gates, durable attempt receipts, pause/reload/resume/stop/replay/new-run and ordinary candidate-only handoff. Full access now creates a target-bound, revocable server scope at Run start but automatic Event/Relation/object/placement application remains to be connected through existing Owners. A production Provider adapter, matching tokenizer, accepted-memory relevance, real-model evidence and Founder manual acceptance remain separate work"
+      "remainingGap": "N2A locally freezes author-confirmed character core, boundaries, character revision and a distinct per-character scene goal into each Run actor. The existing WorldObject/Profile path remains the only character-profile writer; old Runs do not drift after profile edits, unrelated private profile/body fields stay excluded, and the inspector is compiled from the same Run-local context sent through the Pi adapter. N2B attention selection, N2C cross-scene continuity memory, real-model evidence and Founder manual acceptance remain separate work"
     },
     {
       "id": "nuwa-contextual-handoff",
