@@ -171,11 +171,24 @@ const relationOperations = createStoryStudioRelationOperations({
   workspaceOperations: operations,
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
 });
+const nuwaN1AutoApplicationFaultInjector = process.env.NODE_ENV === "test" && process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1"
+  ? (() => {
+      let fired = false;
+      return (event) => {
+        if (!fired && event.phase === "before-relation-confirm") {
+          fired = true;
+          throw new Error("Injected Nuwa relation confirmation interruption.");
+        }
+      };
+    })()
+  : null;
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
   actionPermissionBroker,
   relationOperations,
+  creationSourceSelectionPort: () => creationSourceSelectionPort,
+  autoApplicationFaultInjector: nuwaN1AutoApplicationFaultInjector,
   sourceIdentityForProject: nuwaN1SourceIdentity,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,

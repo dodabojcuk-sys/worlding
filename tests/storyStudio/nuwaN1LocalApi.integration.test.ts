@@ -11,6 +11,7 @@ import test from "node:test";
 import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioRelationOperations } from "../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
 
 const TOKEN = "nuwa-n1-local-test-token";
@@ -206,6 +207,56 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   assert.equal(relation.relation.evidenceWarnings.every((warning) => warning.eligible), true, "the formal relation remains backed by the same committed Event");
   const permissions = await getJson(enabled.baseUrl, `/__local/story-studio/agent-permissions?projectId=${encodeURIComponent(value.project.id)}`);
   assert.equal((permissions.payload.data as { receipts: Array<{ decisionSource: string; authorizationId: string | null }> }).receipts.some((receipt) => receipt.decisionSource === "nuwa-scope-authorization" && receipt.authorizationId === result.automaticApplication.authorizationId), true);
+  const objectCount = value.operations.listWorldObjects({ projectId: value.project.id }).length;
+  const replayed = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-result", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(replayed.status, 201, JSON.stringify(replayed.payload));
+  const replayedResult = replayed.payload.data as NuwaReadModel & { automaticApplication: { receiptId: string; eventId: string; materialObjectId: string; narrativePlacementIds: string[] } };
+  assert.equal(replayedResult.automaticApplication.eventId, result.automaticApplication.eventId, "a lost response retry returns the original Event");
+  assert.equal(replayedResult.automaticApplication.materialObjectId, result.automaticApplication.materialObjectId, "a lost response retry returns the original material");
+  assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectCount, "same operation replay creates no new world objects");
+  const mismatched = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-result", selectedStepIds: ["different-step"] });
+  assert.equal(mismatched.status, 409, "the same operation identity cannot be rebound to different content");
+});
+
+test("Nuwa N1 blocks a changed Story Unit before formal application writes", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("version-drift-create"));
+  let model = created.payload.data as NuwaReadModel;
+  model = (await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "version-drift-step" })).payload.data as NuwaReadModel;
+  const before = value.operations.listWorldObjects({ projectId: value.project.id }).length;
+  const currentUnit = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id });
+  value.operations.updateStoryUnit({ projectId: value.project.id, unitId: currentUnit.id, expectedVersion: currentUnit.version, summary: "作者已在开始后更新故事单元。" });
+  const blocked = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "version-drift-apply", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(blocked.status, 409);
+  assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, before, "a preflight version conflict creates no Event, material, or planning object");
+});
+
+test("Nuwa N1 resumes a persisted automatic application after relation confirmation fails", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true, undefined, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("relation-recovery-create"));
+  let model = created.payload.data as NuwaReadModel;
+  model = (await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "relation-recovery-step" })).payload.data as NuwaReadModel;
+  const request = { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "relation-recovery-apply", selectedStepIds: [model.run.steps[0]!.stepId] };
+  const interrupted = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", request);
+  assert.equal(interrupted.status, 409, "the injected relation interruption leaves a recovery receipt instead of claiming no write");
+  const objectsAfterFailure = value.operations.listWorldObjects({ projectId: value.project.id }).length;
+  assert.equal(value.relations.listRelations({ projectId: value.project.id }).relations.length, 0);
+  const recovered = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", request);
+  assert.equal(recovered.status, 201, JSON.stringify(recovered.payload));
+  const result = recovered.payload.data as NuwaReadModel & { automaticApplication: { status: string; eventId: string; relationId: string; narrativePlacementIds: string[]; resultVersion: { revision: number } } };
+  assert.equal(result.automaticApplication.status, "applied");
+  assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectsAfterFailure, "recovery resumes existing Event and material instead of duplicating them");
+  assert.equal(value.relations.listRelations({ projectId: value.project.id }).relations.length, 1);
+  assert.equal(result.automaticApplication.narrativePlacementIds.length, 1);
+  assert.equal(result.automaticApplication.resultVersion.revision, 2, "the immutable source version advances only after the complete receipt");
 });
 
 test("Nuwa N1 respects an explicit no-relation scope even when one active type exists", async (t) => {
@@ -343,6 +394,7 @@ function fixture() {
   const misledEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "潮声来自废塔", tags: [`知情：${characters[1]!.id}=被误导`], body: "误导内容不是世界真相，但属于阿芜当前持有的信念。" });
   setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), misledEvent.id, characters[1]!.id);
   const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id, misledEvent.id] });
+  createCreationSourceSelectionPort({ operations }).createRoot(project.id);
   const relations = createStoryStudioRelationOperations({
     workspaceOperations: operations,
     verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
@@ -383,7 +435,7 @@ function findNoteById(root: string, id: string): string | null {
   return null;
 }
 
-async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHostUrl?: string) {
+async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHostUrl?: string, failRelationOnce = false) {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
@@ -400,6 +452,7 @@ async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHo
       TIANYAN_PROVIDER_PROFILE_DEV_MODE: "1",
       ...(fake ? { TIANYAN_NUWA_N1_FAKE_PROVIDER: "1" } : {})
       , ...(localPiHostUrl ? { TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL: localPiHostUrl, TIANYAN_PROVIDER_BUDGET_TEST_MODE: "1" } : {})
+      , ...(failRelationOnce ? { TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE: "1" } : {})
     },
     stdio: ["ignore", "pipe", "pipe"]
   });

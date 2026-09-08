@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
 import {
   advanceNuwaN1Run,
   buildStorySnapshot,
@@ -20,6 +24,7 @@ import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyCo
 
 const VERSION = "tianyan-nuwa-n1-port/v1";
 const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
+const AUTO_APPLICATION_RECEIPT_VERSION = "tianyan-nuwa-n1-auto-application/v1";
 
 /**
  * Server-side bridge for the N1 author surface.  The RunPack and N1 runtime
@@ -27,7 +32,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, relationOperations = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, relationOperations = null, creationSourceSelectionPort = null, autoApplicationFaultInjector = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   /** Exactly one executable actor step may own a Run.  The entry owns its
    * cancellation handle and promise; duplicate delivery returns that promise
    * instead of replacing the handle. */
@@ -267,106 +272,196 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function autoApply(input) {
     const project = requireProject(input.projectId);
     const current = requireRun(workspacePath(project.id), input.runId);
+    const operationId = operation(input.operationId);
+    const selectedStepIds = requiredIds(input.selectedStepIds, "候选步骤");
+    const receiptId = autoApplicationReceiptId(operationId);
+    const inputHash = digest({ projectId: project.id, runId: current.runId, expectedRevision: revision(input.expectedRevision), operationId, selectedStepIds });
+    let receipt = readAutoApplicationReceipt(project.id, receiptId);
+    if (receipt) {
+      if (receipt.inputHash !== inputHash) throw failure("同一自动应用操作键已绑定不同内容；已拒绝重放。", 409);
+      if (receipt.status === "active") return presentAutoApplication(project.id, current, receipt);
+    } else {
+      const prepared = prepareAutoApplication(project, current, input, selectedStepIds);
+      receipt = {
+        version: AUTO_APPLICATION_RECEIPT_VERSION,
+        receiptId,
+        inputHash,
+        projectId: project.id,
+        runId: current.runId,
+        sourceSnapshotHash: current.sourceSnapshotHash,
+        sourceIdentity: current.sourceIdentity,
+        selectedStepIds,
+        authorizationId: prepared.authorization.id,
+        storyUnitId: prepared.storyUnit.id,
+        storyUnitVersion: prepared.storyUnit.version,
+        relationTypeId: prepared.relationType?.relationTypeId ?? null,
+        relationTypeRevision: prepared.relationType?.typeRevision ?? null,
+        status: "applying",
+        application: { permissionReceiptId: null, impactPermissionReceiptId: null, candidate: null, review: null, planningEventId: null, impactReviewId: null, changeSetId: null, eventId: null, storyUnitLinkedVersion: null, narrativePlacementIds: [], materialObjectId: null, relationId: null, workVersionReceiptId: null, resultVersion: null },
+        failure: null,
+        recordedAt: now(),
+        updatedAt: now()
+      };
+      writeAutoApplicationReceipt(receipt);
+    }
+    try {
+      return continueAutoApplication(project, current, input, receipt);
+    } catch (cause) {
+      receipt.status = "recovery-required";
+      receipt.failure = safeMessage(cause);
+      receipt.updatedAt = now();
+      writeAutoApplicationReceipt(receipt);
+      throw failure(`自动应用未完整结束；已保留可恢复回执 ${receipt.receiptId}。${receipt.failure}`, errorStatus(cause));
+    }
+  }
+
+  function prepareAutoApplication(project, current, input, selectedStepIds, recoveredStoryUnitVersion = null) {
+    if (new Set(selectedStepIds).size !== selectedStepIds.length || selectedStepIds.some((id) => !current.steps.some((step) => step.stepId === id))) throw failure("选定步骤已过期或不属于当前女娲 Run。", 409);
     const authorization = actionPermissionBroker?.read(project.id).nuwaAuthorizations.find((item) => item.runId === current.runId && item.status === "active") ?? null;
     if (!authorization || authorization.storyUnitId !== current.scene.storyUnit.id || authorization.storyUnitRevision !== current.scene.storyUnit.revision || authorization.actorIds.length !== current.actors.length || authorization.actorIds.some((id) => !current.actors.some((actor) => actor.character.id === id))) {
       throw failure("当前女娲 Run 没有有效的高权限范围授权；结果仍可送入待确认。", 403);
     }
-    const targets = [current.runId, authorization.storyUnitId, ...authorization.actorIds];
-    const relationType = authorization.relationTypeId
-      ? relationOperations?.resolveRelationType({ projectId: project.id, relationTypeId: authorization.relationTypeId })
-      : null;
-    if (authorization.relationTypeId && (!relationType || relationType.lifecycle !== "active" || relationType.typeRevision !== authorization.relationTypeRevision)) {
-      throw failure("已授权的关系类型已变更或停用；已阻止本次自动关系写入。", 409);
-    }
-    const permission = actionPermissionBroker.record(project.id, {
-      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run", targets, authorizationId: authorization.id, checkpointId: current.runId
-    });
-    if (permission.outcome !== "allowed") throw failure(permission.reason, 403);
-    const handoff = candidate(input);
-    const selected = handoff.candidate.candidates;
-    if (!selected.length) throw failure("选定步骤没有形成可应用的女娲变化。", 409);
-    const sourceStepIds = selected.map((item) => item.sourceStepId);
-    const sourceSummary = selected.map((item) => `## ${item.title}\n\n${item.summary}\n\n${item.observedResult}\n\n- 来源步骤：${item.sourceStepId}`).join("\n\n");
-    const primary = selected[0];
-    const planning = operations.createPlanningEvent({
-      projectId: project.id,
-      title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`,
-      body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${authorization.id}\n- 决策来源：作者开始 Run 时的范围授权\n`,
-      tags: ["女娲自动执行", current.runId]
-    });
-    const impactPermission = actionPermissionBroker.record(project.id, {
-      actor: "nuwa", action: "event-impact-review", targetType: "nuwa-run", targets, authorizationId: authorization.id, checkpointId: current.runId
-    });
-    if (impactPermission.outcome !== "allowed") throw failure(impactPermission.reason, 403);
-    const impact = authorControl.createPlanningEventImpactReview({ projectId: project.id, planningEventId: planning.id });
-    const option = impact.options[0];
-    if (!option) throw failure("女娲变化没有可应用的影响路径。", 409);
-    const resolved = authorControl.chooseImpactRoute({ projectId: project.id, reviewId: impact.id, optionId: option.id, action: "adopt" });
-    const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: resolved.id, decisionSource: "nuwa-scope-authorization", authorizationId: authorization.id });
-    const applied = authorControl.applyAuthorChangeSet({ projectId: project.id, changeSetId: changeSet.id });
-    const eventId = applied.application.appliedEventId;
-    if (!eventId) throw failure("正式 Event 未产生可验证回执。", 409);
     const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: authorization.storyUnitId });
-    if (storyUnit.version !== authorization.storyUnitRevision) throw failure("目标故事单元已变化；已阻止自动归属。", 409);
-    const linkedEntityIds = [...new Set([...storyUnit.linkedEntityIds, eventId])];
-    const linked = linkedEntityIds.length === storyUnit.linkedEntityIds.length
-      ? storyUnit
-      : operations.updateStoryUnit({ projectId: project.id, unitId: storyUnit.id, expectedVersion: storyUnit.version, linkedEntityIds });
-    if (linked.conflict) throw failure("正式 Event 已创建，但故事单元刚刚变化；请刷新后处理归属冲突。", 409);
-    const material = operations.createWorldObject({
-      projectId: project.id,
-      type: "location",
-      title: `场景：${current.scene.label}`,
-      tags: ["女娲自动执行", current.runId],
-      body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${sourceStepIds.join("、")}\n- 授权：${authorization.id}\n- 结果：${selected.map((item) => item.observedResult).join("；")}\n`
-    });
-    let relation = null;
-    if (relationType) {
-      const event = operations.readWorldObject({ projectId: project.id, objectId: eventId });
-      const relationCandidate = relationOperations.createRelationCandidate({
-        projectId: project.id,
-        relationId: `nuwa-relation.${current.runId}.${primary.sourceStepId}`,
-        sourceObjectId: eventId,
-        targetObjectId: material.id,
-        relationTypeId: relationType.relationTypeId,
-        relationLabelSnapshot: relationType.label,
-        direction: "forward",
-        actor: "nuwa",
-        sourceRevision: current.sourceSnapshotHash,
-        sourceRef: `nuwa-n1:${current.runId}:${primary.sourceStepId}`,
-        operationId: `${input.operationId}.relation-candidate`,
-        evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }],
-        now: now()
-      });
-      relation = relationOperations.confirmRelationCandidate({
-        projectId: project.id,
-        relationId: relationCandidate.relation.relationId,
-        expectedRelationRevision: relationCandidate.relation.revision,
-        operationId: `${input.operationId}.relation-confirm`,
-        actor: "nuwa",
-        now: now()
-      });
+    if (!storyUnit || storyUnit.version !== (recoveredStoryUnitVersion || authorization.storyUnitRevision)) throw failure("目标故事单元已变化；没有执行任何正式写入。", 409);
+    const sourceSelection = creationSourcePort();
+    if (!current.sourceIdentity || current.sourceIdentity.kind !== "root" || !Number.isSafeInteger(Number(current.sourceIdentity.revision)) || !sourceSelection) {
+      throw failure("本次排演缺少可验证的主故事版本；没有执行任何正式写入。", 409);
     }
-    return {
-      ...read(project.id, current.runId),
-      candidate: handoff.candidate,
-      review: handoff.review,
-      automaticApplication: {
-        status: "applied",
-        decisionSource: "nuwa-scope-authorization",
-        authorizationId: authorization.id,
-        permissionReceiptId: permission.id,
-        planningEventId: planning.id,
-        impactReviewId: resolved.id,
-        changeSetId: applied.id,
-        eventId,
-        storyUnitId: storyUnit.id,
-        materialObjectId: material.id,
-        relationId: relation?.relation.relationId ?? null,
-        relationStatus: relation ? "confirmed" : "not-configured"
-      }
-    };
+    const root = sourceSelection.resolveRootWorkVersion(project.id);
+    if (!root || root.identity.workVersionId !== current.sourceIdentity.workVersionId || root.identity.currentRevision !== Number(current.sourceIdentity.revision)) {
+      throw failure("排演来源版本已变化；没有执行任何正式写入。", 409);
+    }
+    const relationType = authorization.relationTypeId ? relationOperations?.resolveRelationType({ projectId: project.id, relationTypeId: authorization.relationTypeId }) : null;
+    if (authorization.relationTypeId && (!relationType || relationType.lifecycle !== "active" || relationType.typeRevision !== authorization.relationTypeRevision)) throw failure("已授权的关系类型已变更或停用；已阻止本次自动关系写入。", 409);
+    return { authorization, storyUnit, relationType };
   }
+
+  function continueAutoApplication(project, current, input, receipt) {
+    const selectedStepIds = receipt.selectedStepIds;
+    const prepared = prepareAutoApplication(project, current, input, selectedStepIds, receipt.application.storyUnitLinkedVersion);
+    if (prepared.authorization.id !== receipt.authorizationId || prepared.storyUnit.version !== (receipt.application.storyUnitLinkedVersion || receipt.storyUnitVersion) || (prepared.relationType?.relationTypeId ?? null) !== receipt.relationTypeId || (prepared.relationType?.typeRevision ?? null) !== receipt.relationTypeRevision) {
+      throw failure("持久化自动应用范围已与当前授权或目标版本不一致；已停止恢复。", 409);
+    }
+    const application = receipt.application;
+    const targets = [current.runId, receipt.storyUnitId, ...prepared.authorization.actorIds];
+    if (!application.permissionReceiptId) {
+      const permission = actionPermissionBroker.record(project.id, { actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run", targets, authorizationId: prepared.authorization.id, checkpointId: current.runId });
+      if (permission.outcome !== "allowed") throw failure(permission.reason, 403);
+      application.permissionReceiptId = permission.id;
+      persistAutoApplication(receipt);
+    }
+    if (!application.candidate) {
+      const handoff = candidate({ ...input, operationId: `${input.operationId}.candidate`, selectedStepIds });
+      application.candidate = handoff.candidate;
+      application.review = handoff.review;
+      persistAutoApplication(receipt);
+    }
+    const selected = application.candidate.candidates;
+    if (!selected.length || selected.some((item) => !selectedStepIds.includes(item.sourceStepId))) throw failure("持久化候选与选定步骤不一致；已停止恢复。", 409);
+    const sourceStepIds = selected.map((item) => item.sourceStepId);
+    const primary = selected[0];
+    const receiptTag = `nuwa-auto-application:${receipt.receiptId}`;
+    if (!application.planningEventId) {
+      const existing = operations.listWorldObjects({ projectId: project.id, type: "event" }).find((item) => item.tags.includes(receiptTag));
+      const sourceSummary = selected.map((item) => `## ${item.title}\n\n${item.summary}\n\n${item.observedResult}\n\n- 来源步骤：${item.sourceStepId}`).join("\n\n");
+      const planning = existing || operations.createPlanningEvent({ projectId: project.id, title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`, body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 决策来源：作者开始 Run 时的范围授权\n`, tags: ["女娲自动执行", current.runId, receiptTag] });
+      application.planningEventId = planning.id;
+      persistAutoApplication(receipt);
+    }
+    if (!application.impactPermissionReceiptId) {
+      const permission = actionPermissionBroker.record(project.id, { actor: "nuwa", action: "event-impact-review", targetType: "nuwa-run", targets, authorizationId: prepared.authorization.id, checkpointId: current.runId });
+      if (permission.outcome !== "allowed") throw failure(permission.reason, 403);
+      application.impactPermissionReceiptId = permission.id;
+      persistAutoApplication(receipt);
+    }
+    if (!application.eventId) {
+      let impact = application.impactReviewId ? authorControl.readImpactReview({ projectId: project.id, reviewId: application.impactReviewId }) : null;
+      if (!impact) {
+        impact = authorControl.createPlanningEventImpactReview({ projectId: project.id, planningEventId: application.planningEventId });
+        application.impactReviewId = impact.id;
+        persistAutoApplication(receipt);
+      }
+      if (impact.status === "pending") {
+        const option = impact.options[0];
+        if (!option) throw failure("女娲变化没有可应用的影响路径。", 409);
+        impact = authorControl.chooseImpactRoute({ projectId: project.id, reviewId: impact.id, optionId: option.id, action: "adopt" });
+      }
+      if (impact.status !== "selected") throw failure("自动影响审查没有形成可写入的路线。", 409);
+      if (!application.changeSetId) {
+        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, decisionSource: "nuwa-scope-authorization", authorizationId: prepared.authorization.id });
+        application.changeSetId = changeSet.id;
+        persistAutoApplication(receipt);
+      }
+      const applied = authorControl.applyAuthorChangeSet({ projectId: project.id, changeSetId: application.changeSetId });
+      if (!applied.application.appliedEventId) throw failure("正式 Event 未产生可验证回执。", 409);
+      application.eventId = applied.application.appliedEventId;
+      persistAutoApplication(receipt);
+    }
+    let storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: receipt.storyUnitId });
+    if (!storyUnit || (application.storyUnitLinkedVersion == null && storyUnit.version !== receipt.storyUnitVersion)) throw failure("正式 Event 已创建，但故事单元版本已变化；回执保留为待恢复状态。", 409);
+    if (application.storyUnitLinkedVersion == null) {
+      const linkedEntityIds = [...new Set([...storyUnit.linkedEntityIds, application.eventId])];
+      const linked = linkedEntityIds.length === storyUnit.linkedEntityIds.length
+        ? { conflict: false, unit: storyUnit }
+        : operations.updateStoryUnit({ projectId: project.id, unitId: storyUnit.id, expectedVersion: storyUnit.version, linkedEntityIds });
+      if (linked.conflict) throw failure("正式 Event 已创建，但故事单元刚刚变化；回执保留为待恢复状态。", 409);
+      application.storyUnitLinkedVersion = linked.unit.version;
+      persistAutoApplication(receipt);
+      storyUnit = linked.unit;
+    }
+    if (!application.narrativePlacementIds.length) {
+      let arrangement = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, narrativePathId: storyUnit.id });
+      if (!arrangement.arrangement) {
+        const created = operations.createNarrativeArrangement({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, narrativePathId: storyUnit.id, ownerStoryUnitId: storyUnit.id, expectedOwnerVersion: storyUnit.version, expectedRevision: 0, operationId: `${receipt.receiptId}.arrangement.create`, authorActionId: `${receipt.receiptId}.author.arrangement.create`, createdAt: now() });
+        if (created.conflict) throw failure(`NarrativePlacement 创建冲突：${created.code}`, 409);
+        arrangement = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, narrativePathId: storyUnit.id });
+        application.storyUnitLinkedVersion = arrangement.ownerVersion;
+        persistAutoApplication(receipt);
+      }
+      const inserted = operations.insertNarrativePlacement({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, narrativePathId: storyUnit.id, expectedOwnerVersion: arrangement.ownerVersion, expectedRevision: arrangement.arrangement.currentRevision, operationId: `${receipt.receiptId}.arrangement.insert`, authorActionId: `${receipt.receiptId}.author.arrangement.insert`, sourceKind: "author-action", sourceRef: `nuwa-n1:${current.runId}:${receipt.receiptId}`, createdAt: now(), eventId: application.eventId, storyUnitId: storyUnit.id, role: "primary", position: { kind: "end" } });
+      if (inserted.conflict || !inserted.receipt) throw failure(`NarrativePlacement 写入冲突：${inserted.code}`, 409);
+      application.narrativePlacementIds = inserted.receipt.afterPlacementIds;
+      application.storyUnitLinkedVersion = inserted.ownerVersion;
+      persistAutoApplication(receipt);
+    }
+    if (!application.materialObjectId) {
+      const existing = operations.listWorldObjects({ projectId: project.id, type: "location" }).find((item) => item.tags.includes(receiptTag));
+      const material = existing || operations.createWorldObject({ projectId: project.id, type: "location", title: `场景：${current.scene.label}`, tags: ["女娲自动执行", current.runId, receiptTag], body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${sourceStepIds.join("、")}\n- 授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 结果：${selected.map((item) => item.observedResult).join("；")}\n` });
+      application.materialObjectId = material.id;
+      persistAutoApplication(receipt);
+    }
+    if (receipt.relationTypeId && !application.relationId) {
+      const event = operations.readWorldObject({ projectId: project.id, objectId: application.eventId });
+      const relationId = `nuwa-relation.${digest({ receiptId: receipt.receiptId, eventId: application.eventId, materialObjectId: application.materialObjectId })}`;
+      autoApplicationFaultInjector?.({ phase: "before-relation-confirm", receiptId: receipt.receiptId, projectId: project.id, runId: current.runId });
+      const relationCandidate = relationOperations.createRelationCandidate({ projectId: project.id, relationId, sourceObjectId: application.eventId, targetObjectId: application.materialObjectId, relationTypeId: prepared.relationType.relationTypeId, relationLabelSnapshot: prepared.relationType.label, direction: "forward", actor: "nuwa", sourceRevision: current.sourceSnapshotHash, sourceRef: `nuwa-n1:${current.runId}:${receipt.receiptId}`, operationId: `${receipt.receiptId}.relation.candidate`, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId: application.eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }], now: now() });
+      const relation = relationOperations.confirmRelationCandidate({ projectId: project.id, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `${receipt.receiptId}.relation.confirm`, actor: "nuwa", now: now() });
+      application.relationId = relation.relation.relationId;
+      persistAutoApplication(receipt);
+    }
+    if (!application.workVersionReceiptId) {
+      const result = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: Number(current.sourceIdentity.revision), authorActionId: `${receipt.receiptId}.author`, idempotencyKey: `${receipt.receiptId}.result-version`, createdAt: now(), semanticDeltaRefs: [`nuwa-run:${current.runId}`, `changeset:${application.changeSetId}`, `event:${application.eventId}`, `narrative-placement:${application.narrativePlacementIds.join(",")}`, `material:${application.materialObjectId}`, ...(application.relationId ? [`relation:${application.relationId}`] : [])] });
+      application.workVersionReceiptId = result.receipt.receiptId;
+      application.resultVersion = { workVersionId: result.identity.workVersionId, revision: result.identity.currentRevision };
+      persistAutoApplication(receipt);
+    }
+    receipt.status = "active";
+    receipt.failure = null;
+    persistAutoApplication(receipt);
+    return presentAutoApplication(project.id, current, receipt);
+  }
+
+  function presentAutoApplication(projectId, current, receipt) {
+    const application = receipt.application;
+    return { ...read(projectId, current.runId), candidate: application.candidate, review: application.review, automaticApplication: { status: receipt.status === "active" ? "applied" : "recovery-required", decisionSource: "nuwa-scope-authorization", receiptId: receipt.receiptId, authorizationId: receipt.authorizationId, permissionReceiptId: application.permissionReceiptId, planningEventId: application.planningEventId, impactReviewId: application.impactReviewId, changeSetId: application.changeSetId, eventId: application.eventId, storyUnitId: receipt.storyUnitId, storyUnitVersion: application.storyUnitLinkedVersion, narrativePlacementIds: application.narrativePlacementIds, materialObjectId: application.materialObjectId, relationId: application.relationId, relationStatus: receipt.relationTypeId ? (application.relationId ? "confirmed" : "recovery-required") : "not-configured", workVersionReceiptId: application.workVersionReceiptId, resultVersion: application.resultVersion, sourceSnapshotHash: receipt.sourceSnapshotHash } };
+  }
+
+  function autoApplicationReceiptPath(projectId, receiptId) { return path.join(workspacePath(projectId), ".world-os", "workspace", "nuwa-n1-auto-applications", `${receiptId}.json`); }
+  function creationSourcePort() { return typeof creationSourceSelectionPort === "function" ? creationSourceSelectionPort() : creationSourceSelectionPort; }
+  function autoApplicationReceiptId(operationId) { return `nuwa-n1-auto-application.${digest(operationId)}`; }
+  function readAutoApplicationReceipt(projectId, receiptId) { const target = autoApplicationReceiptPath(projectId, receiptId); return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : null; }
+  function writeAutoApplicationReceipt(receipt) { const target = autoApplicationReceiptPath(receipt.projectId, receipt.receiptId); mkdirSync(path.dirname(target), { recursive: true }); const temporary = `${target}.${process.pid}.tmp`; writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); renameSync(temporary, target); }
+  function persistAutoApplication(receipt) { receipt.updatedAt = now(); writeAutoApplicationReceipt(receipt); }
 
   function read(projectId, runId) {
     requireProject(projectId);
@@ -685,4 +780,16 @@ function failure(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function digest(value) {
+  return createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex").slice(0, 32);
+}
+
+function safeMessage(cause) {
+  return cause instanceof Error ? cause.message : String(cause || "未知错误");
+}
+
+function errorStatus(cause) {
+  return Number.isSafeInteger(cause?.statusCode) && cause.statusCode >= 400 && cause.statusCode < 600 ? cause.statusCode : 409;
 }
