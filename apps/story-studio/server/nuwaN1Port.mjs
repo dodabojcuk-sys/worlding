@@ -94,7 +94,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function create(input) {
     requireExecutionAvailability();
     const prepared = setup(input);
-    const relationType = resolveRelationType(input.projectId, input.relationTypeId);
+    const relationType = resolveRelationType(input.projectId, input);
     const workspace = workspacePath(input.projectId);
     const snapshot = buildStorySnapshot({ workspacePath: workspace });
     const operationId = operation(input.operationId);
@@ -450,9 +450,14 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     return { storyUnit: { id: unit.id, revision: unit.version }, sceneRef: { id: unit.id, revision: unit.version }, observedAt: now(), label: unit.title };
   }
 
-  function resolveRelationType(projectId, relationTypeId) {
+  function resolveRelationType(projectId, input) {
     if (!relationOperations) return null;
     const active = relationOperations.listRelationTypes({ projectId }).types.filter((item) => item.lifecycle === "active");
+    // Omitted is a backward-compatible default; a supplied null is the
+    // author's explicit "do not write a Relation" decision and must never be
+    // converted into the only available type.
+    if (Object.hasOwn(input, "relationTypeId") && input.relationTypeId == null) return null;
+    const relationTypeId = input.relationTypeId;
     if (relationTypeId != null) {
       const selected = active.find((item) => item.relationTypeId === relationTypeId);
       if (!selected) throw failure("所选关系类型不存在或已停用；请刷新后重新开始女娲 Run。", 409);

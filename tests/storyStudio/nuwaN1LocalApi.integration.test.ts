@@ -208,6 +208,25 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   assert.equal((permissions.payload.data as { receipts: Array<{ decisionSource: string; authorizationId: string | null }> }).receipts.some((receipt) => receipt.decisionSource === "nuwa-scope-authorization" && receipt.authorizationId === result.automaticApplication.authorizationId), true);
 });
 
+test("Nuwa N1 respects an explicit no-relation scope even when one active type exists", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", { ...value.request("no-relation-create"), relationTypeId: null });
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel;
+  const stepped = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "no-relation-step" });
+  model = stepped.payload.data as NuwaReadModel;
+  const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "no-relation-apply", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(applied.status, 201, JSON.stringify(applied.payload));
+  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { relationId: string | null; relationStatus: string } };
+  assert.equal(result.automaticApplication.relationId, null);
+  assert.equal(result.automaticApplication.relationStatus, "not-configured");
+  assert.equal(value.relations.listRelations({ projectId: value.project.id }).relations.length, 0);
+});
+
 test("Nuwa N1 continuous endpoint advances on the server and applies the completed high-permission Run without browser step polling", async (t) => {
   const value = fixture();
   let child: ChildProcess | null = null;

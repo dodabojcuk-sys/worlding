@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import test from "node:test";
 
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
@@ -13,7 +14,7 @@ test("Tianyi Creative Golden Loop preserves source, reviews candidates, and reco
   const stateFilePath = path.join(rootPath, "state.json");
   const projectId = "tianyi-creative-golden-fixture";
   const token = "tianyi-creative-golden-token";
-  const port = 48_000 + (process.pid % 1_000);
+  const port = await reservePort();
   const workspace = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
   workspace.createProject({ title: "天意创意 Golden Loop 夹具", folderSlug: projectId });
   const existingCharacter = workspace.createWorldObject({
@@ -32,7 +33,14 @@ test("Tianyi Creative Golden Loop preserves source, reviews candidates, and reco
     WORLD_OS_STORY_STUDIO_STATE_FILE: stateFilePath,
     WORLD_OS_LOCAL_CONTROL_TOKEN: token
   };
-  let server = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], { cwd: process.cwd(), env, stdio: "ignore" });
+  let serverOutput = "";
+  const startServer = () => {
+    const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], { cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout?.on("data", (chunk) => { serverOutput = (serverOutput + String(chunk)).slice(-8_000); });
+    child.stderr?.on("data", (chunk) => { serverOutput = (serverOutput + String(chunk)).slice(-8_000); });
+    return child;
+  };
+  let server = startServer();
   const origin = `http://127.0.0.1:${port}`;
   const base = `${origin}/__local/story-studio`;
   const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin };
@@ -56,7 +64,7 @@ test("Tianyi Creative Golden Loop preserves source, reviews candidates, and reco
   };
 
   try {
-    await waitForServer(origin);
+    await waitForServer(origin, server, () => serverOutput);
 
     const identity = await post(`${base}/tianyi/identity`, { projectId }, headers);
     assert.equal(identity.status, 200);
@@ -194,8 +202,9 @@ test("Tianyi Creative Golden Loop preserves source, reviews candidates, and reco
     assert.equal((await readJson<{ data: { projection: CreativeProjection } }>(paused)).data.projection.lifecycle, "paused");
 
     await terminateChildProcess(server, { label: "Tianyi Creative Golden Loop server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
-    server = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], { cwd: process.cwd(), env, stdio: "ignore" });
-    await waitForServer(origin);
+    serverOutput = "";
+    server = startServer();
+    await waitForServer(origin, server, () => serverOutput);
 
     const recovered = await post(`${base}/tianyi/creative/recover`, { projectId, sessionId, operationId: "creative-golden-recover" }, headers);
     assert.equal(recovered.status, 200);
@@ -265,13 +274,23 @@ async function readJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function waitForServer(origin: string) {
+async function waitForServer(origin: string, server: ReturnType<typeof spawn>, output: () => string) {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
     try {
       if ((await fetch(`${origin}/__local/story-studio/bootstrap`)).ok) return;
     } catch { /* retry until the bounded deadline */ }
+    if (server.exitCode !== null) throw new Error(`Tianyi Creative Golden Loop server exited before readiness (code ${server.exitCode}).\n${output()}`);
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  throw new Error("Tianyi Creative Golden Loop server did not start.");
+  throw new Error(`Tianyi Creative Golden Loop server did not start within the bounded readiness window.\n${output()}`);
+}
+
+async function reservePort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolve, reject) => { probe.once("error", reject); probe.listen(0, "127.0.0.1", () => resolve()); });
+  const address = probe.address();
+  assert.ok(address && typeof address === "object");
+  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  return address.port;
 }
