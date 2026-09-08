@@ -6,10 +6,12 @@ const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
  * product tool is a frozen, role-scoped context read; this adapter has no
  * filesystem, Canon, Event, World, Relation, or character-write capability.
  */
-export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sourceIdentity, openProviderStream, onProviderLifecycle = null, now = () => new Date().toISOString() }) {
+export function createNuwaN1PiAdapter({ runtime, projectId, runId, actorIds, provider, sourceIdentity, openProviderStream, onProviderLifecycle = null, now = () => new Date().toISOString() }) {
   if (!runtime || typeof runtime.run !== "function") throw new Error("Nuwa N1 Pi adapter requires an active Agent Runtime.");
   if (!provider?.providerId || !provider?.profileId || !provider?.modelId) throw new Error("Nuwa N1 Pi adapter requires an explicit Provider profile.");
   if (!sourceIdentity?.workVersionId || !sourceIdentity?.revision || !sourceIdentity?.kind) throw new Error("Nuwa N1 Pi adapter requires an explicit versioned or unversioned source identity.");
+  const scopedActorIds = [...new Set((Array.isArray(actorIds) ? actorIds : []).map((actorId) => typeof actorId === "string" ? actorId.normalize("NFC").trim() : "").filter(Boolean))];
+  if (scopedActorIds.length < 2 || scopedActorIds.length > 3) throw new Error("Nuwa N1 Pi adapter requires two or three stable Run actor IDs.");
   if (typeof openProviderStream !== "function") throw new Error("Nuwa N1 Pi adapter requires the host Provider bridge.");
   const contextTool = "read_role_context";
   let activeAgentRunId = null;
@@ -38,7 +40,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sou
         // unversioned draft is explicit; a fabricated constant is not.
         workVersionId: sourceIdentity.workVersionId,
         sessionId: runId,
-        prompt: promptFor(context),
+        prompt: promptFor(context, scopedActorIds),
         systemPrompt: "你是女娲 N1 的受控 Pi 回合适配器。只能使用 read_role_context 返回的冻结角色范围。不得访问文件、Shell、网络以外的产品工具、凭据、其他作品或隐藏角色信息；不得写入 Canon、World、Event、Relation、人物资料或记忆。只输出严格 JSON，不要解释过程。",
         providerId: provider.providerId,
         profileId: provider.profileId,
@@ -79,7 +81,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, provider, sou
         },
         onEvent() { /* RunPack stores the resulting bounded turn, not model-chain text. */ }
       });
-      return parseActorResult(result.text, context, result.usage);
+      return parseActorResult(result.text, context, result.usage, scopedActorIds);
       } finally {
         activeAgentRunId = null;
       }
@@ -111,15 +113,17 @@ function safeContextForProvider(context) {
     authorCue: context.authorCue
   };
 }
-function promptFor(context) {
+function promptFor(context, actorIds) {
+  const eligibleHearerActorIds = [...new Set((Array.isArray(actorIds) ? actorIds : []).filter((actorId) => typeof actorId === "string" && actorId !== context.actor.id))].slice(0, 2);
   return [
     "先调用 read_role_context；之后只根据该工具结果输出一个角色回合。",
-    "输出严格 JSON：{\"intent\":string,\"speech\":string|null,\"action\":{\"action\":\"speak\"|\"observe\"|\"ask\",\"targetId\":null},\"observableResult\":string}。",
+    "输出严格 JSON：{\"intent\":string,\"speech\":string|null,\"heardByActorIds\":string[],\"action\":{\"action\":\"speak\"|\"observe\"|\"ask\",\"targetId\":null},\"observableResult\":string}。",
+    `heardByActorIds 只能取这些当前 Run 稳定角色 ID：${JSON.stringify(eligibleHearerActorIds)}；speech 为 null 时必须为 []。`,
     "未知、怀疑和误解不得提升为事实；不可引用工具结果之外的内容。",
     `当前回合：${context.step}；角色：${context.actor.id}；场景：${context.scene.label}`
   ].join("\n");
 }
-function parseActorResult(text, context, usage) {
+function parseActorResult(text, context, usage, actorIds) {
   let value;
   try { value = JSON.parse(String(text).trim()); }
   catch { throw new Error("Pi N1 response must be one strict JSON actor result."); }
@@ -127,6 +131,9 @@ function parseActorResult(text, context, usage) {
   if (typeof value.intent !== "string" || !value.intent.trim() || typeof value.observableResult !== "string" || !value.observableResult.trim()) throw new Error("Pi N1 response lacks a bounded intent or observable result.");
   if (value.speech !== null && typeof value.speech !== "string") throw new Error("Pi N1 speech must be string or null.");
   if (value.heardByActorIds != null && (!Array.isArray(value.heardByActorIds) || value.heardByActorIds.some((id) => typeof id !== "string"))) throw new Error("Pi N1 statement recipients must be stable IDs.");
+  const eligibleHearerActorIds = new Set((Array.isArray(actorIds) ? actorIds : []).filter((actorId) => typeof actorId === "string" && actorId !== context.actor.id));
+  if (value.heardByActorIds?.some((id) => !eligibleHearerActorIds.has(id.normalize("NFC")))) throw new Error("Pi N1 statement recipients are outside the current Run scope.");
+  if (value.speech === null && value.heardByActorIds?.length) throw new Error("Pi N1 silent turns cannot name statement recipients.");
   if (!value.action || typeof value.action !== "object" || Array.isArray(value.action) || Object.keys(value.action).some((key) => !["action", "targetId"].includes(key)) || !context.allowedActions.includes(value.action.action) || value.action.targetId !== null) throw new Error("Pi N1 action is outside this role's allowed read-only turn.");
   return {
     type: "actor-result",

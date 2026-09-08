@@ -119,6 +119,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const existing = readNuwaN1Run(workspace, plan.runId);
     if (existing) {
       if (!existing.receipts.some((receipt) => receipt.operationId === operationId)) throw failure("当前女娲 Run 已由其他操作建立，请刷新后继续。", 409);
+      ensureFullAccessAuthorization(input.projectId, plan.runId, prepared, relationType, operationId);
       return read(input.projectId, plan.runId);
     }
     createNuwaN1Run({
@@ -138,21 +139,29 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     // Starting a Run is the one explicit author action that can establish a
     // high-permission scope.  The server derives every target from validated
     // project objects; the browser and model never submit an authorization id.
-    if (actionPermissionBroker?.read(input.projectId).profile === "full-access") {
-      actionPermissionBroker.grantNuwaFullAccess({
-        projectId: input.projectId,
-        runId: plan.runId,
-        storyUnitId: prepared.setup.storyUnit.id,
-        storyUnitRevision: prepared.setup.storyUnit.revision,
-        actorIds: prepared.setup.participants.map((actor) => actor.id),
-        relationTypeId: relationType?.relationTypeId ?? null,
-        relationTypeRevision: relationType?.typeRevision ?? null,
-        sourceOperationId: operationId,
-        maxSteps: 6,
-        maxProviderDispatches: 12
-      });
-    }
+    ensureFullAccessAuthorization(input.projectId, plan.runId, prepared, relationType, operationId);
     return read(input.projectId, plan.runId);
+  }
+
+  function ensureFullAccessAuthorization(projectId, runId, prepared, relationType, operationId) {
+    if (actionPermissionBroker?.read(projectId).profile !== "full-access") return;
+    const expectedActorIds = prepared.setup.participants.map((actor) => actor.id);
+    const authorization = actionPermissionBroker.grantNuwaFullAccess({
+      projectId,
+      runId,
+      storyUnitId: prepared.setup.storyUnit.id,
+      storyUnitRevision: prepared.setup.storyUnit.revision,
+      actorIds: expectedActorIds,
+      relationTypeId: relationType?.relationTypeId ?? null,
+      relationTypeRevision: relationType?.typeRevision ?? null,
+      sourceOperationId: operationId,
+      maxSteps: 6,
+      maxProviderDispatches: 12
+    });
+    const sameActors = authorization.actorIds.length === expectedActorIds.length && expectedActorIds.every((actorId) => authorization.actorIds.includes(actorId));
+    if (authorization.runId !== runId || authorization.storyUnitId !== prepared.setup.storyUnit.id || authorization.storyUnitRevision !== prepared.setup.storyUnit.revision || authorization.relationTypeId !== (relationType?.relationTypeId ?? null) || authorization.relationTypeRevision !== (relationType?.typeRevision ?? null) || !sameActors) {
+      throw failure("已有女娲范围授权与这次启动的稳定目标不一致；已拒绝重用。", 409);
+    }
   }
 
   async function step(input) {
@@ -756,8 +765,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function resolveActors(projectId, refs, scene) {
     if (!Array.isArray(refs) || refs.length < 2 || refs.length > 3) throw failure("女娲 N1 需要选择两到三个正式角色。", 400);
     const seen = new Set();
+    const linkedEntityIds = new Set(operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds);
+    const verifiedEventIds = new Set(authorControl.listVerifiedCanonEventIds({ projectId }));
     const sceneEvidence = operations.listWorldObjects({ projectId, type: "event" })
-      .filter((item) => item.status !== "archived" && scene.storyUnit.id && operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds.includes(item.id))
+      .filter((item) => item.status !== "archived" && linkedEntityIds.has(item.id) && verifiedEventIds.has(item.id))
       .map((item) => operations.readWorldObject({ projectId, objectId: item.id }));
     const formalCharacters = operations.listWorldObjects({ projectId, type: "character" })
       .filter((item) => item.status !== "archived")
@@ -804,10 +815,12 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
 
   function createPiAdapter(projectId, runId, sourceIdentity, operationId) {
     if (!sourceIdentity) throw failure("这份排演缺少创建时冻结的作品版本身份；为避免使用新版本执行，已阻止继续。", 409);
+    const actorIds = requireRun(workspacePath(projectId), runId).actors.map((actor) => actor.character.id);
     const adapter = piAdapterFactory?.create?.({
       projectId,
       runId,
       sourceIdentity,
+      actorIds,
       onProviderLifecycle(event) {
         const base = { workspacePath: workspacePath(projectId), runId, operationId, requestKey: event.requestKey, now: now() };
         if (event.phase === "reserved") {

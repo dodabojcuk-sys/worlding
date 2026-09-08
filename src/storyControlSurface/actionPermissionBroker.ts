@@ -105,13 +105,13 @@ export function createActionPermissionBroker(input: { resolveProjectPath(project
     return state;
   }
 
-  function record(projectId: string, request: { actor: ActionPermissionReceipt["actor"]; action: AgentActionKind; targets?: string[]; targetType?: string; checkpointId?: string | null; estimatedProviderCost?: number; authorConfirmed?: boolean; authorizationId?: string | null }): ActionPermissionReceipt {
+  function record(projectId: string, request: { actor: ActionPermissionReceipt["actor"]; action: AgentActionKind; targets?: string[]; targetType?: string; checkpointId?: string | null; estimatedProviderCost?: number; authorConfirmed?: boolean; authorConfirmationChannel?: "trusted-server-route"; authorizationId?: string | null }): ActionPermissionReceipt {
     const current = read(projectId);
     const authorization = request.authorizationId ? activeAuthorization(current, request.authorizationId, now()) : null;
     const decision = decide(current.profile, request.action, request.actor, authorization, request.targets || [], request.targetType || "project");
     const actionClass = classify(request.action);
     const requiresConfirmation = decision.outcome === "requires-author";
-    const authorAction = requiresConfirmation && request.authorConfirmed === true && request.actor === "author";
+    const authorAction = requiresConfirmation && request.authorConfirmed === true && (request.actor === "author" || request.authorConfirmationChannel === "trusted-server-route");
     const receipt: ActionPermissionReceipt = {
       id: `activity-${createHash("sha256").update(`${projectId}:${request.actor}:${request.action}:${now()}:${randomUUID()}`).digest("hex").slice(0, 20)}`,
       recordedAt: now(), actor: request.actor, action: request.action,

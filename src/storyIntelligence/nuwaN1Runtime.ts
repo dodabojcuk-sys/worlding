@@ -313,19 +313,25 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   if (usage.inputTokens > 4096 || usage.outputTokens > 1024) {
     return finishAttempt(input, current, attemptId, "blocked", "reported token usage exceeds N1 per-turn budget", { lifecycle: "blocked", blocker: "角色回合的精确 Token 用量超过 N1 上限；未提交场景步骤。" }, undefined, usage);
   }
-  const sequence = current.steps.length + 1;
-  const stepId = `nuwa-n1-step.${stableHash({ runId: current.runId, sequence, operationId: input.operationId }).slice(0, 20)}`;
-  const speech = result.speech == null ? null : text(result.speech, "speech", 1_200);
-  const heardByActorIds = normalizeHearers(result.heardByActorIds, actor.character.id, current.actors);
-  if (heardByActorIds.length && !speech) throw new Error("Nuwa N1 statement delivery requires a completed spoken statement.");
-  const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
-  const step: NuwaN1Step = {
-    stepId,
-    operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
-    contextEvidenceRefs: contextEvidenceRefs(context),
-    heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
-    toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
-  };
+  let sequence: number;
+  let step: NuwaN1Step;
+  try {
+    sequence = current.steps.length + 1;
+    const stepId = `nuwa-n1-step.${stableHash({ runId: current.runId, sequence, operationId: input.operationId }).slice(0, 20)}`;
+    const speech = result.speech == null ? null : text(result.speech, "speech", 1_200);
+    const heardByActorIds = normalizeHearers(result.heardByActorIds, actor.character.id, current.actors);
+    if (heardByActorIds.length && !speech) throw new Error("Nuwa N1 statement delivery requires a completed spoken statement.");
+    const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
+    step = {
+      stepId,
+      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
+      contextEvidenceRefs: contextEvidenceRefs(context),
+      heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
+      toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
+    };
+  } catch (error) {
+    return finishAttempt(input, current, attemptId, "failed", `actor result rejected: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色回合结果不符合 N1 边界；未提交场景步骤。" }, undefined, usage);
+  }
   const next: NuwaN1Run = { ...current, steps: [...current.steps, step], pendingCue: null, lifecycle: sequence >= NUWA_N1_MAX_COMMITTED_STEPS ? "completed" : "running", blocker: null, attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt) };
   return persist(input, current, "step", next);
 }

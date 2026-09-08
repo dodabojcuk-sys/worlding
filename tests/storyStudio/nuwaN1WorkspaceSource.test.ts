@@ -44,3 +44,12 @@ test("Nuwa N1 follow-up derives completion copy from returned state and revalida
   assert.doesNotMatch(port, /decisionSource: "nuwa-scope-rollback"/u);
   assert.match(port, /rollbackTag = `nuwa-auto-rollback:/u);
 });
+
+test("Nuwa N1 discards operation completions after the active project scope changes", () => {
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+
+  assert.match(workspace, /const projectIdRef = useRef\(projectId\)/u);
+  assert.match(workspace, /operationGeneration\.current \+= 1/u);
+  assert.match(workspace, /if \(!isCurrentOperation\(scope\)\) return/u);
+  assert.match(workspace, /if \(isCurrentOperation\(scope\)\) setBusy\(false\)/u);
+});

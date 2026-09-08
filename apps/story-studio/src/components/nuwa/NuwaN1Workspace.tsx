@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, Bot, CheckCircle2, CirclePause, CirclePlay, FileClock, FilePlus2, History, MessageSquarePlus, OctagonX, PanelRight, Play, RefreshCw, Send, ShieldCheck, Sparkles, UsersRound } from "lucide-react";
 
 import {
@@ -27,6 +27,9 @@ const MIN_PARTICIPANTS = 2;
 
 export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
+  const projectIdRef = useRef(projectId);
+  const operationGeneration = useRef(0);
+  projectIdRef.current = projectId;
   const [bootstrap, setBootstrap] = useState<NuwaN1Bootstrap | null>(null);
   const [run, setRun] = useState<NuwaN1ReadModel | null>(null);
   const [setup, setSetup] = useState<NuwaN1Setup | null>(null);
@@ -45,8 +48,9 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
+    operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setError(null); setNotice(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null);
     if (!projectId) return () => { active = false; };
     void Promise.all([getNuwaN1Bootstrap(projectId), getNuwaN1Latest(projectId)]).then(([nextBootstrap, latest]) => {
       if (!active) return;
@@ -101,27 +105,33 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       setSelectedStepIds((current) => current.length ? current.filter((id) => nextSteps.some((step) => step.stepId === id)) : [latestStep.stepId]);
     }
   };
+  const beginOperation = () => ({ projectId: projectIdRef.current, generation: operationGeneration.current });
+  const isCurrentOperation = (scope: ReturnType<typeof beginOperation>) => scope.projectId === projectIdRef.current && scope.generation === operationGeneration.current;
   const act = async (operation: () => Promise<NuwaN1ReadModel>, message?: string | ((next: NuwaN1ReadModel) => string)) => {
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     try {
       const next = await operation();
+      if (!isCurrentOperation(scope)) return;
       updateRun(next);
       if (message) setNotice(typeof message === "function" ? message(next) : message);
     }
-    catch (reason) { setError(messageFor(reason, "本次女娲操作没有完成；未写入正式故事。")); }
-    finally { setBusy(false); }
+    catch (reason) { if (isCurrentOperation(scope)) setError(messageFor(reason, "本次女娲操作没有完成；未写入正式故事。")); }
+    finally { if (isCurrentOperation(scope)) setBusy(false); }
   };
   const prepare = async () => {
     if (!projectId || !canPrepare) return;
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     try {
       const participants = selectedParticipants(bootstrap, participantIds);
       const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
       if (!storyUnit) throw new Error("当前故事单元已不可用，请重新选择后再准备。");
       const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, goal: goal.trim(), operationId: newOperationId(), token }));
+      if (!isCurrentOperation(scope)) return;
       setSetup(next); setNotice("上下文预览已生成；角色只会收到各自允许的依据。"); setInspectorOpen(true); setInspectorTab("context");
-    } catch (reason) { setError(messageFor(reason, "准备上下文失败；没有启动排演。")); }
-    finally { setBusy(false); }
+    } catch (reason) { if (isCurrentOperation(scope)) setError(messageFor(reason, "准备上下文失败；没有启动排演。")); }
+    finally { if (isCurrentOperation(scope)) setBusy(false); }
   };
   const create = () => {
     if (!projectId || !canPrepare) return;
@@ -138,11 +148,12 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     }
     if (action === "pause" || action === "stop") {
       const current = run.run!;
+      const scope = beginOperation();
       setInterrupting(true); setError(null); setNotice(null);
       void props.runtime.withConnection((token) => runNuwaN1Action({ projectId, runId: current.runId, expectedRevision: current.revision, action, operationId: newOperationId(), token }))
-        .then(updateRun)
-        .catch((reason: unknown) => setError(messageFor(reason, action === "stop" ? "停止请求没有完成；请刷新后核对 Run 状态。" : "暂停请求没有完成；请刷新后核对 Run 状态。")))
-        .finally(() => setInterrupting(false));
+        .then((next) => { if (isCurrentOperation(scope)) updateRun(next); })
+        .catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, action === "stop" ? "停止请求没有完成；请刷新后核对 Run 状态。" : "暂停请求没有完成；请刷新后核对 Run 状态。")); })
+        .finally(() => { if (isCurrentOperation(scope)) setInterrupting(false); });
       return;
     }
     void act(() => props.runtime.withConnection((token) => runNuwaN1Action({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, action, operationId: newOperationId(), token })), undefined);
@@ -174,37 +185,45 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const sendCandidate = () => {
     if (!projectId || !run || !selectedStepIds.length) return;
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     void props.runtime.withConnection((token) => createNuwaN1Candidate({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, selectedStepIds, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
       updateRun(result); setNotice(`已将“${result.candidate.candidates[0]?.title ?? "选定结果"}”送入待确认；尚未写入正式故事。`);
-    }).catch((reason: unknown) => setError(messageFor(reason, "候选未能送入待确认；正式故事没有变化。"))).finally(() => setBusy(false));
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, "候选未能送入待确认；正式故事没有变化。")); }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
   };
   const autoApply = () => {
     if (!projectId || !run || !selectedStepIds.length || run.authorization?.status !== "active") return;
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     void props.runtime.withConnection((token) => autoApplyNuwaN1Result({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, selectedStepIds, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
       updateRun(result);
       setNotice(`已按高权限范围自动写入正式 Event 并纳入当前故事单元（${result.automaticApplication.eventId}）；来源 Run、授权、影响审查与变更集均可追溯。`);
-    }).catch((reason: unknown) => setError(messageFor(reason, "自动应用未完成；请刷新核对已保存回执，系统不会把未完成状态显示为已写入。"))).finally(() => setBusy(false));
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, "自动应用未完成；请刷新核对已保存回执，系统不会把未完成状态显示为已写入。")); }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
   };
   const freezeDraft = () => {
     const application = run?.automaticApplication;
     if (!projectId || !run?.run || !application) return;
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     void props.runtime.withConnection((token) => freezeNuwaN1AutomaticDraft({ projectId, runId: run.run!.runId, receiptId: application.receiptId, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
       updateRun(result);
       setNotice(`已固定 ${result.automaticApplication.fixedDraft?.artifactId ?? "当前版本"}；之后回溯不会改写这份稿。`);
-    }).catch((reason: unknown) => setError(messageFor(reason, "固定稿未能建立；当前故事没有被改写。"))).finally(() => setBusy(false));
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, "固定稿未能建立；当前故事没有被改写。")); }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
   };
   const rollbackApplication = () => {
     const application = run?.automaticApplication;
     if (!projectId || !run?.run || !application) return;
     const operationId = application.rollback?.status === "recovery-required" ? application.rollback.operationId : newOperationId();
+    const scope = beginOperation();
     setBusy(true); setError(null); setNotice(null);
     void props.runtime.withConnection((token) => rollbackNuwaN1AutomaticApplication({ projectId, runId: run.run!.runId, receiptId: application.receiptId, operationId, token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
       updateRun(result);
       setNotice(`已完成补偿回溯；新的正式版本为 r${result.automaticApplication.rollback?.resultVersion?.revision ?? "?"}，Run 与 heard 历史仍保留。`);
-    }).catch((reason: unknown) => setError(messageFor(reason, "回溯未完整结束；请在本页恢复同一回执，系统不会显示为已全部回溯。"))).finally(() => setBusy(false));
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, "回溯未完整结束；请在本页恢复同一回执，系统不会显示为已全部回溯。")); }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
   };
   const openFixedDraft = () => {
     const artifactId = run?.automaticApplication?.fixedDraft?.artifactId;

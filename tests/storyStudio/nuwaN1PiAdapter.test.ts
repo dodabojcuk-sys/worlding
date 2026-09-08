@@ -29,6 +29,8 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
       async run(input: any) {
         assert.equal(input.requiredToolName, "read_role_context");
         assert.equal(input.tools.length, 1);
+        assert.match(input.prompt, /"heardByActorIds":string\[\]/u);
+        assert.match(input.prompt, /character\.awu/u);
         toolContext = await input.tools[0].execute({ toolCallId: "tool.pi", arguments: {}, approvalReceiptId: "receipt" });
         const providerContext = (toolContext as { context: Record<string, unknown> }).context;
         assert.equal("unknownFactIds" in providerContext, false);
@@ -39,6 +41,7 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
     },
     projectId: "project.test",
     runId: context.runId,
+    actorIds: ["character.lin", "character.awu"],
     provider: { providerId: "fake", profileId: "fake-profile", modelId: "fake-model" },
     sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
     async openProviderStream() { throw new Error("The in-memory Pi runtime owns this local fake test."); }
@@ -62,6 +65,7 @@ test("Nuwa N1 Pi adapter rejects a model result that tries to exceed the role ac
     },
     projectId: "project.test",
     runId: context.runId,
+    actorIds: ["character.lin", "character.awu"],
     provider: { providerId: "fake", profileId: "fake-profile", modelId: "fake-model" },
     sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
     async openProviderStream() { throw new Error("not reached"); }
@@ -78,6 +82,7 @@ test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without 
     runtime,
     projectId: "project.test",
     runId: context.runId,
+    actorIds: ["character.lin", "character.awu"],
     provider: { providerId: "local-provider", profileId: "local-profile", modelId: "local-model" },
     sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
     async openProviderStream(input) {
@@ -105,6 +110,24 @@ test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without 
   assert.deepEqual(providerCalls.map((call) => call.providerCall), [1, 2, 1, 2]);
   assert.notEqual(providerCalls[0]?.agentRunId, providerCalls[2]?.agentRunId, "each durable N1 attempt supplies a distinct Agent Run identity to the Provider bridge");
   assert.equal(JSON.stringify(providerCalls).includes("event.secret"), false, "the actual second Provider turn never receives excluded IDs");
+});
+
+test("Nuwa N1 Pi adapter rejects statement recipients outside the current Run", async () => {
+  const adapter = createNuwaN1PiAdapter({
+    runtime: {
+      async run() { return { text: JSON.stringify({ intent: "越界传递", speech: "不应送出", heardByActorIds: ["character.outside"], action: { action: "speak", targetId: null }, observableResult: "不应提交" }), providerCalls: 1, traceId: null, responseModelId: null, usage: null, latencyMs: 1 }; },
+      cancel() { return false; }
+    },
+    projectId: "project.test",
+    runId: context.runId,
+    actorIds: ["character.lin", "character.awu"],
+    provider: { providerId: "fake", profileId: "fake-profile", modelId: "fake-model" },
+    sourceIdentity: { kind: "unversioned-draft", workVersionId: "work-version.unversioned.project.test", revision: "unversioned" },
+    async openProviderStream() { throw new Error("not reached"); }
+  });
+  const request = await adapter.request(context);
+  const tool = await adapter.executeTool({ context, request });
+  await assert.rejects(adapter.continueAfterTool({ context, toolResult: tool }), /outside the current Run scope/u);
 });
 
 async function* stream(values: PiTextProviderEvent[]): AsyncGenerator<PiTextProviderEvent> { for (const value of values) yield value; }

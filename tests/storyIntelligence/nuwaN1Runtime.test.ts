@@ -229,6 +229,24 @@ test("N1 records cross-character tools as failed attempts and stops at the six-s
   });
 });
 
+test("N1 records an invalid post-result delivery contract as a terminal failed attempt", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start.invalid-result" });
+    const invalidDelivery: NuwaN1ExecutionAdapter = {
+      adapterId: "local-fake.invalid-delivery",
+      async request(context) { return { type: "tool-request", toolName: "read_role_context", requestId: "tool.invalid-delivery", actor: context.actor }; },
+      async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
+      async continueAfterTool({ context }) { return { type: "actor-result", actor: context.actor, intent: "静默", speech: null, heardByActorIds: ["character.阿芜"], action: { action: "observe", targetId: null }, observableResult: "不应提交。", usage: { inputTokens: 20, outputTokens: 20 } }; }
+    };
+    const blocked = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n1.invalid-result", adapter: invalidDelivery });
+    assert.equal(blocked.lifecycle, "blocked");
+    assert.equal(blocked.steps.length, 0);
+    assert.equal(blocked.attempts[0]?.outcome, "failed");
+    assert.notEqual(blocked.attempts[0]?.outcome, "pending");
+    assert.deepEqual(blocked.attempts[0]?.usage, { inputTokens: 20, outputTokens: 20, source: "reported" });
+  });
+});
+
 test("N1 pause wins over an in-flight continuation from its pre-dispatch revision", async () => {
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });

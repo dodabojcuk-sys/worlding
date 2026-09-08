@@ -196,7 +196,7 @@ const nuwaN1Port = createNuwaN1Port({
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
   piAdapterFactory: {
     availability() { return nuwaN1PiAvailability(); },
-    create({ projectId, runId, sourceIdentity, onProviderLifecycle }) {
+    create({ projectId, runId, sourceIdentity, actorIds, onProviderLifecycle }) {
       const availability = nuwaN1PiAvailability();
       if (!availability || !agentRuntimePluginResolution.runtime) return null;
       const profile = nuwaN1LocalHostUrl
@@ -206,6 +206,7 @@ const nuwaN1Port = createNuwaN1Port({
         runtime: agentRuntimePluginResolution.runtime,
         projectId,
         runId,
+        actorIds,
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
         sourceIdentity,
         onProviderLifecycle,
@@ -854,7 +855,7 @@ server.listen(port, "127.0.0.1", () => {
  * action envelope so a future autonomous caller cannot silently reuse this
  * route without an explicit confirmation boundary. */
 function recordAuthorInitiatedAction(projectId, action, targetType, targets, actor = "author") {
-  const receipt = actionPermissionBroker.record(projectId, { actor, action, targetType, targets, authorConfirmed: true, estimatedProviderCost: 0 });
+  const receipt = actionPermissionBroker.record(projectId, { actor, action, targetType, targets, authorConfirmed: true, authorConfirmationChannel: "trusted-server-route", estimatedProviderCost: 0 });
   if (receipt.outcome !== "allowed") throw productError(receipt.reason, 403);
   return receipt;
 }

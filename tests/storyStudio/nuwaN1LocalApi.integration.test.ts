@@ -50,6 +50,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(preview.availability.providerCalls, 0);
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.knowledgeItems.length), [1, 0], "only the formal knowledge subject receives the selected event evidence");
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.beliefItems.length), [0, 1], "suspected or misled evidence remains a belief instead of becoming a confirmed fact");
+  assert.equal(JSON.stringify(preview).includes("未经 Canon 验证的规划线索"), false, "a linked draft Event cannot enter a role Provider context");
 
   const objectsBefore = value.operations.listWorldObjects({ projectId: value.project.id }).length;
   const formalSnapshotBefore = buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash;
@@ -72,8 +73,8 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
   assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 1]], "the recipient sees the explicitly delivered statement through the same context compiler used by the tool loop");
-  assert.equal(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary, "已得知：钟声在桥上消失");
-  assert.equal(model.contextInspector.actors[1]?.beliefItems[0]?.summary, "被误导：潮声来自废塔");
+  assert.match(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary ?? "", /^已得知：钟声在桥上消失/u);
+  assert.match(model.contextInspector.actors[1]?.beliefItems[0]?.summary ?? "", /^被误导：潮声来自废塔/u);
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
 
@@ -131,6 +132,27 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(((recovered.payload.data as NuwaReadModel).run?.runId), model.run.runId);
   assert.equal((recovered.payload.data as NuwaReadModel).run?.status, "cancelled");
   assert.equal(value.authorControl.listCandidateReviews({ projectId: value.project.id }).length, 1);
+});
+
+test("Nuwa N1 idempotent create reconciles a missing full-access authorization", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const enabled = await start(value, true);
+  child = enabled.child;
+  const request = value.request("create-reconcile-authorization");
+  assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "general" })).status, 200);
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", request);
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  assert.equal((created.payload.data as NuwaReadModel).authorization, null);
+  assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
+  const replayed = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", request);
+  assert.equal(replayed.status, 201, JSON.stringify(replayed.payload));
+  assert.equal((replayed.payload.data as NuwaReadModel).authorization?.status, "active");
+  assert.deepEqual((replayed.payload.data as NuwaReadModel).authorization?.actorIds, value.characters.map((character) => character.id));
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {
@@ -550,11 +572,13 @@ function fixture(options: { threeActors?: boolean } = {}) {
     operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。" }),
     ...(options.threeActors ? [operations.createWorldObject({ projectId: project.id, type: "character", title: "丙", body: "丙没有听到桥上的私下谈话。" })] : [])
   ];
-  const knownEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。" });
+  const knownEvent = createVerifiedCanonEvent(operations, authorControl, project.id, { title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。", tags: [] });
   setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), knownEvent.id, characters[0]!.id);
-  const misledEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "潮声来自废塔", tags: [`知情：${characters[1]!.id}=被误导`], body: "误导内容不是世界真相，但属于阿芜当前持有的信念。" });
-  setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), misledEvent.id, characters[1]!.id);
-  const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id, misledEvent.id] });
+  const misledEvent = createVerifiedCanonEvent(operations, authorControl, project.id, { title: "潮声来自废塔", tags: [`知情：${characters[1]!.id}=被误导`], body: "误导内容不是世界真相，但属于阿芜当前持有的信念。" });
+  setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), misledEvent.id, characters[1]!.id, `知情：${characters[1]!.id}=被误导`);
+  const draftEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "未经 Canon 验证的规划线索", status: "planned", body: "这份草案不得进入角色 Provider 上下文。" });
+  setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), draftEvent.id, characters[0]!.id);
+  const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id, misledEvent.id, draftEvent.id] });
   createCreationSourceSelectionPort({ operations }).createRoot(project.id);
   const relations = createStoryStudioRelationOperations({
     workspaceOperations: operations,
@@ -576,11 +600,30 @@ function fixture(options: { threeActors?: boolean } = {}) {
   };
 }
 
-function setKnowledgeSubject(workspacePath: string, eventId: string, subjectId: string) {
+function createVerifiedCanonEvent(operations: ReturnType<typeof createStoryStudioWorkspaceOperations>, authorControl: ReturnType<typeof createStoryStudioAuthorControl>, projectId: string, input: { title: string; body: string; tags: string[] }) {
+  const planning = operations.createWorldObject({ projectId, type: "event", title: input.title, body: input.body, tags: [...input.tags, "作者规划"], status: "planned" });
+  const review = authorControl.createPlanningEventImpactReview({ projectId, planningEventId: planning.id });
+  const option = review.options[0]!;
+  authorControl.chooseImpactRoute({ projectId, reviewId: review.id, optionId: option.id, action: "adopt" });
+  const changeSet = authorControl.createAuthorChangeSet({ projectId, reviewId: review.id });
+  authorControl.applyAuthorChangeSet({ projectId, changeSetId: changeSet.id });
+  const canon = operations.listWorldObjects({ projectId, type: "event" })
+    .map((event) => operations.readWorldObject({ projectId, objectId: event.id }))
+    .find((event) => event.properties.source_change_set_id === changeSet.id);
+  if (!canon) throw new Error(`Could not create verified Canon Event for ${input.title}.`);
+  return canon;
+}
+
+function setKnowledgeSubject(workspacePath: string, eventId: string, subjectId: string, explicitStateTag?: string) {
   const target = findNoteById(workspacePath, eventId);
   if (!target) throw new Error(`Could not find workspace note ${eventId}.`);
   const source = readFileSync(target, "utf8");
-  writeFileSync(target, source.replace(/^---\n([\s\S]*?)\n---/u, (_match, frontmatter) => `---\n${frontmatter}\nknowledge_subjects:\n  - ${subjectId}\n---`), "utf8");
+  writeFileSync(target, source.replace(/^---\n([\s\S]*?)\n---/u, (_match, originalFrontmatter) => {
+    const frontmatter = explicitStateTag
+      ? originalFrontmatter.replace(/(^tags:\n(?:  - .*\n)*)/mu, (tags) => `${tags}  - ${explicitStateTag}\n`)
+      : originalFrontmatter;
+    return `---\n${frontmatter}\nknowledge_subjects:\n  - ${subjectId}\n---`;
+  }), "utf8");
 }
 
 function findNoteById(root: string, id: string): string | null {

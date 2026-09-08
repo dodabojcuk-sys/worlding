@@ -96,6 +96,14 @@ test("Nuwa full access is a server-created, target-bound scope rather than a for
     });
     assert.equal(browserSpoof.outcome, "requires-author");
     assert.equal(browserSpoof.decisionSource, "policy", "a Nuwa request cannot forge an author confirmation");
+    const trustedServerRoute = broker.record("project-a", {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
+      targets: ["run.a", "unit.other", "character.lin", "character.wu"], authorConfirmed: true,
+      authorConfirmationChannel: "trusted-server-route"
+    });
+    assert.equal(trustedServerRoute.outcome, "allowed");
+    assert.equal(trustedServerRoute.actor, "nuwa", "the receipt preserves the actual execution actor");
+    assert.equal(trustedServerRoute.decisionSource, "author-action");
     broker.revokeNuwaFullAccess({ projectId: "project-a", authorizationId: authorization.id, reason: "作者停止自动执行。" });
     const revoked = broker.record("project-a", {
       actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
