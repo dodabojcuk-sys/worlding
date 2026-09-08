@@ -3789,7 +3789,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.route("**/prediction/abandon", async (route) => {
     // Persist the author action first, then hold only its response while the
     // Agent panel remounts. The new instance must recover the exact Owner Run.
-    const response = await route.fetch();
+    const response = await route.fetch({ timeout: 0 });
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     await route.fulfill({ response });
   }, { times: 1 });
