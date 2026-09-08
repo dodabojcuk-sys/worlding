@@ -64,7 +64,7 @@ function adapter(observed: { contexts: unknown[]; calls: number[] }): NuwaN1Exec
     async continueAfterTool({ context, toolResult }) {
       assert.equal(toolResult.context.actor.id, context.actor.id, "tool result must remain in the same actor scope");
       observed.calls.push(3);
-      return { type: "actor-result", actor: context.actor, intent: "先核对可见线索，再决定是否同行。", speech: context.actor.id === "character.林昭" ? "我亲眼看见钟不见了，先别靠近塔门。" : "我只听说钟不见了；我愿意先观察。", action: { action: "speak", targetId: null }, observableResult: "在场角色都能听到这句谨慎的提醒。", usage: { inputTokens: 120, outputTokens: 44 } };
+      return { type: "actor-result", actor: context.actor, intent: "先核对可见线索，再决定是否同行。", speech: context.actor.id === "character.林昭" ? "我亲眼看见钟不见了，先别靠近塔门。" : "我只听说钟不见了；我愿意先观察。", heardByActorIds: context.actor.id === "character.林昭" ? ["character.阿芜"] : [], action: { action: "speak", targetId: null }, observableResult: "在场角色都能听到这句谨慎的提醒。", usage: { inputTokens: 120, outputTokens: 44 } };
     }
   };
 }
