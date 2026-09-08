@@ -369,6 +369,34 @@ test("Nuwa N1 preserves an in-flight author cue for the next bounded step", asyn
   assert.equal(JSON.stringify(host.requests.slice(2)).includes(cue), true, "the next turn receives the preserved cue through its frozen role context");
 });
 
+test("Nuwa N1 continuous execution gives an in-flight cue a new durable step identity instead of replaying a zero-progress turn", async (t) => {
+  const value = fixture();
+  const host = await startSseHost({ holdFirstResponse: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    await new Promise<void>((resolve, reject) => host.server.close((error) => error ? reject(error) : resolve()));
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const running = await start(value, false, host.baseUrl); child = running.child;
+  const created = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("continuous-cue-create"));
+  const initial = created.payload.data as NuwaReadModel;
+  const completing = postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/continuous", { projectId: value.project.id, runId: initial.run.runId, expectedRevision: initial.run.revision, operationId: "continuous-cue-run" });
+  await host.firstRequestSeen;
+  const live = await getJson(running.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${initial.run.runId}`);
+  const cue = "CANARY_CONTINUOUS_CUE";
+  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: initial.run.runId, expectedRevision: (live.payload.data as NuwaReadModel).run.revision, operationId: "continuous-cue-author", instruction: cue });
+  assert.equal(cued.status, 200, JSON.stringify(cued.payload));
+  host.releaseFirstResponse();
+  const completed = await completing;
+  assert.equal(completed.status, 200, JSON.stringify(completed.payload));
+  const result = completed.payload.data as NuwaReadModel;
+  assert.equal(result.run.status, "blocked", "the deliberately consumed in-flight Provider request remains counted instead of being silently erased");
+  assert.equal(result.run.steps.length, 5, "the remaining transport budget is used by fresh post-cue turns, not a replay loop");
+  assert.equal(JSON.stringify(host.requests.slice(2)).includes(cue), true, "the post-cue continuous attempt receives the author instruction");
+  assert.equal(host.requests.length, 12, "the cue interruption consumes one accounted send and the following five turns consume the remaining eleven sends");
+});
+
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
   contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };

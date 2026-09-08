@@ -192,10 +192,18 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const initial = requireRun(workspacePath(input.projectId), input.runId);
     const baseOperationId = operation(input.operationId);
     let expectedRevision = revision(input.expectedRevision);
-    let current = await step({ ...input, expectedRevision, operationId: `${baseOperationId}.step.${initial.steps.length + 1}` });
+    let current = await step({ ...input, expectedRevision, operationId: continuousStepOperation(baseOperationId, initial.steps.length + 1, expectedRevision) });
     while (current.run && current.run.status === "running") {
+      const previousStepCount = current.run.steps.length;
       expectedRevision = current.run.revision;
-      current = await step({ ...input, expectedRevision, operationId: `${baseOperationId}.step.${current.run.steps.length + 1}` });
+      current = await step({ ...input, expectedRevision, operationId: continuousStepOperation(baseOperationId, previousStepCount + 1, expectedRevision) });
+      // A cue arriving while Pi was using an earlier frozen context deliberately
+      // leaves that attempt without a committed step.  Its Run revision changes,
+      // so the next loop must use a new durable operation identity rather than
+      // replaying the completed no-progress attempt forever.
+      if (current.run?.status === "running" && current.run.steps.length === previousStepCount && current.run.revision === expectedRevision) {
+        throw failure("连续女娲回合没有提交步骤或推进版本；已停止循环，作者可查看后继续。", 409);
+      }
     }
     if (current.run?.status === "completed" && current.authorization?.status === "active") {
       return autoApply({
@@ -457,6 +465,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   }
 
   function autoApplicationReceiptPath(projectId, receiptId) { return path.join(workspacePath(projectId), ".world-os", "workspace", "nuwa-n1-auto-applications", `${receiptId}.json`); }
+  function continuousStepOperation(baseOperationId, sequence, expectedRevision) { return `${baseOperationId}.step.${sequence}.r${expectedRevision}`; }
   function creationSourcePort() { return typeof creationSourceSelectionPort === "function" ? creationSourceSelectionPort() : creationSourceSelectionPort; }
   function autoApplicationReceiptId(operationId) { return `nuwa-n1-auto-application.${digest(operationId)}`; }
   function readAutoApplicationReceipt(projectId, receiptId) { const target = autoApplicationReceiptPath(projectId, receiptId); return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : null; }
