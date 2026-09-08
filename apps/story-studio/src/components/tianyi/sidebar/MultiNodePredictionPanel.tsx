@@ -11,6 +11,7 @@ import {
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
   predictionRunStatusAfterTerminalFence,
+  resolvePredictionAbandonment,
   predictionViewStateFromDraftedReceiptRecovery,
   predictionViewStateFromPersistence,
   shouldApplyPredictionRunSnapshot,
@@ -276,9 +277,18 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const selectRun = (runId: string) => { const selected = setObservedRun(runs.find((item) => item.runId === runId) ?? null); setPhase(selected?.status === "ready" ? "reviewing" : selected?.status === "stopped" ? "stopped" : selected?.status === "failed" ? "failed" : "idle"); setViewState(predictionViewStateFromPersistence({ runStatus: selected?.status ?? null, hasBundle: Boolean(selected?.bundle), selectedPathId: null, hasReceipt: false })); };
   const abandon = () => void (async () => {
     if (!project || !run || busy || run.status === "abandoned") return;
+    const targetRunId = run.runId;
+    const recoveryGeneration = ++runRecoveryGeneration.current;
     setBusy(true); setError("");
     try {
-      const response = await props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: run.runId, token }));
+      const command = props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: targetRunId, token }));
+      const response = await resolvePredictionAbandonment({
+        runId: targetRunId,
+        command,
+        readOwner: async () => (await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token))).find((candidate) => candidate.runId === targetRunId) ?? null,
+        wait: () => new Promise((resolve) => window.setTimeout(resolve, 120)),
+        isActive: () => runRecoveryGeneration.current === recoveryGeneration
+      });
       // The command response is the persisted Owner receipt. A slow history
       // refresh must never hold the author-facing terminal state hostage.
       if (response.status !== "abandoned") throw new Error("放弃命令尚未在作品记录中收敛；候选视图保持不变。");
@@ -295,7 +305,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       }).catch(() => undefined);
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
-    finally { setBusy(false); }
+    finally { if (runRecoveryGeneration.current === recoveryGeneration) runRecoveryGeneration.current += 1; setBusy(false); }
   })();
   const stop = () => void (async () => {
     if (!project || !run || !busy || stopRequested.current) return;

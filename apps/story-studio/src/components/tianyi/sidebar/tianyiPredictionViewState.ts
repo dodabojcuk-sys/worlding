@@ -66,6 +66,37 @@ export function shouldApplyPredictionRunSnapshot(input: {
     || (input.terminalStatus === "stale" && input.incomingStatus === "abandoned");
 }
 
+/**
+ * A local POST can persist the Owner write before its HTTP response reaches
+ * the browser. Recover only the exact terminal Run; never infer success from
+ * elapsed time or from a different history entry.
+ */
+export async function resolvePredictionAbandonment<T extends { runId: string; status: PredictionRunStatus }>(input: {
+  runId: string;
+  command: Promise<T>;
+  readOwner: () => Promise<T | null>;
+  wait: () => Promise<void>;
+  isActive: () => boolean;
+}): Promise<T> {
+  const recover = async (): Promise<T> => {
+    while (input.isActive()) {
+      try {
+        const persisted = await input.readOwner();
+        if (persisted?.runId === input.runId && persisted.status === "abandoned") return persisted;
+      } catch { /* a transient read cannot replace the command outcome */ }
+      await input.wait();
+    }
+    return await new Promise<T>(() => undefined);
+  };
+  try {
+    return await Promise.race([input.command, recover()]);
+  } catch (error) {
+    const persisted = await input.readOwner().catch(() => null);
+    if (persisted?.runId === input.runId && persisted.status === "abandoned") return persisted;
+    throw error;
+  }
+}
+
 export function predictionStageForView(view: TianyiPredictionViewState): TianyiPredictionStage {
   if (view === "running") return "running";
   if (view === "overview" || view === "focus") return "candidates";

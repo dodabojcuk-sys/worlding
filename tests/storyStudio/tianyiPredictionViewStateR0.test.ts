@@ -6,6 +6,7 @@ import {
   predictionSourceSummary,
   predictionStageForView,
   predictionRunStatusAfterTerminalFence,
+  resolvePredictionAbandonment,
   shouldApplyPredictionRunSnapshot,
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
@@ -46,6 +47,24 @@ test("an older non-terminal Run snapshot cannot overwrite a terminal owner state
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "abandoned", incomingStatus: "abandoned" }), true);
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: "stale", incomingStatus: "abandoned" }), true);
   assert.equal(shouldApplyPredictionRunSnapshot({ terminalStatus: null, incomingStatus: "ready" }), true);
+});
+
+test("a persisted abandonment recovers the exact Run while its command response is still pending", async () => {
+  const runId = "prediction-run.response-lost";
+  let reads = 0;
+  const never = new Promise<never>(() => undefined);
+  const recovered = await resolvePredictionAbandonment({
+    runId,
+    command: never,
+    async readOwner() {
+      reads += 1;
+      return { runId, status: reads === 1 ? "ready" as const : "abandoned" as const };
+    },
+    async wait() { /* advance the deterministic test loop without wall-clock delay */ },
+    isActive: () => true
+  });
+  assert.equal(reads, 2);
+  assert.deepEqual(recovered, { runId, status: "abandoned" });
 });
 
 test("a terminal prediction fence survives a panel remount and projects an older ready replay as terminal", () => {
