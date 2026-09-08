@@ -155,7 +155,7 @@ export type NuwaN1CandidateHandoff = {
   sourceSnapshotHash: string;
   selectedStepIds: string[];
   status: "candidate";
-  candidates: Array<{ candidateId: string; title: string; summary: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
+  candidates: Array<{ candidateId: string; title: string; summary: string; speech: string | null; action: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
   formalWrites: 0;
 };
 
@@ -424,7 +424,7 @@ export function prepareNuwaN1CandidateHandoff(input: { workspacePath: string; ru
 function buildHandoff(run: NuwaN1Run, selectedStepIds: string[]): NuwaN1CandidateHandoff {
   const selected = run.steps.filter((step) => selectedStepIds.includes(step.stepId));
   if (!selected.length || selected.length !== new Set(selectedStepIds).size) throw new Error("Nuwa N1 selected steps must belong to this Run.");
-  return { version: "tianyan-nuwa-n1-candidate-handoff/v1", handoffId: `nuwa-n1-handoff.${stableHash({ runId: run.runId, selectedStepIds: selected.map((step) => step.stepId) }).slice(0, 20)}`, runId: run.runId, sourceSnapshotHash: run.sourceSnapshotHash, selectedStepIds: selected.map((step) => step.stepId), status: "candidate", candidates: selected.map((step) => ({ candidateId: `nuwa-n1-candidate.${step.stepId}`, title: `${run.actors.find((actor) => sameRef(actor.character, step.actor))?.displayName || "角色"}的场景行动`, summary: step.intent, sourceStepId: step.stepId, affectedCharacterIds: [step.actor.id], observedResult: step.observableResult })), formalWrites: 0 };
+  return { version: "tianyan-nuwa-n1-candidate-handoff/v1", handoffId: `nuwa-n1-handoff.${stableHash({ runId: run.runId, selectedStepIds: selected.map((step) => step.stepId) }).slice(0, 20)}`, runId: run.runId, sourceSnapshotHash: run.sourceSnapshotHash, selectedStepIds: selected.map((step) => step.stepId), status: "candidate", candidates: selected.map((step) => ({ candidateId: `nuwa-n1-candidate.${step.stepId}`, title: `${run.actors.find((actor) => sameRef(actor.character, step.actor))?.displayName || "角色"}的场景行动`, summary: step.intent, speech: step.speech, action: step.action.action, sourceStepId: step.stepId, affectedCharacterIds: [step.actor.id], observedResult: step.observableResult })), formalWrites: 0 };
 }
 
 function transition(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; now?: string }, kind: NuwaN1Receipt["kind"], mutate: (run: NuwaN1Run) => NuwaN1Run): NuwaN1Run {

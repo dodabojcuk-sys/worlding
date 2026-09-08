@@ -198,6 +198,8 @@ test("N1 cold reads replay no dispatch and selected steps build candidate-only h
     const { run: handed, handoff } = prepareNuwaN1CandidateHandoff({ workspacePath: workspace, runId: run.runId, expectedRevision: stepped.revision, operationId: "operation.n1.handoff", selectedStepIds: [stepped.steps[0]!.stepId] });
     assert.equal(handoff.formalWrites, 0);
     assert.equal(handoff.status, "candidate");
+    assert.equal(handoff.candidates[0]?.speech, stepped.steps[0]?.speech, "A selected handoff retains the actual dialogue rather than reducing it to an intent summary.");
+    assert.equal(handoff.candidates[0]?.action, stepped.steps[0]?.action.action, "A selected handoff retains the actual action for the downstream formal source.");
     assert.equal(handed.receipts.at(-1)?.kind, "handoff");
   });
 });

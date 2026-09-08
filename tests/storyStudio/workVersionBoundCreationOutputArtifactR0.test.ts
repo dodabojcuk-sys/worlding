@@ -18,7 +18,7 @@ function fixture(faultInjector?: (boundary: string) => void) {
   const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
   operations.createProject({ title: "潮痕来信 · 创作来源隔离演示", folderSlug: projectId });
   operations.createWorldObject({ projectId, type: "character", title: "沈砚" });
-  const event = operations.createWorldObject({ projectId, type: "event", title: "沈砚在灯下核对守夜记录", status: "planned", tags: ["Fixture"] });
+  const event = operations.createWorldObject({ projectId, type: "event", title: "沈砚在灯下核对守夜记录", body: "沈砚说：钟声只告诉守夜人。随后他把残页压在灯下，确认线索仍待核对。", status: "planned", tags: ["Fixture"] });
   const capturedAt = "2026-08-24T09:40:00.000Z";
   const sourceRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: event.id, entityVersion: event.revisionToken, capturedAt, staleState: "fresh" as const };
   const storyUnit = operations.createStoryUnit({
@@ -98,6 +98,18 @@ test("pinned artifact export keeps the exact saved package after its Story Unit 
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("selected formal Event prose is frozen into the source-bound Markdown without borrowing unit summaries", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const artifact = await value.adapter.createArtifact(value.projectId, { storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    const pinned = await value.adapter.read(value.projectId, { view: "pinned", artifactId: artifact.id });
+    assert.match(pinned.package?.storyMarkdown || "", /钟声只告诉守夜人/u);
+    assert.match(pinned.package?.storyMarkdown || "", /把残页压在灯下/u);
+    assert.doesNotMatch(pinned.package?.storyMarkdown || "", /寄信人和精确时间仍未知/u, "Story Unit summary remains an index, not selected Event prose.");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("multiple fixed artifacts require an explicit selection while current and archived-source reads keep their boundaries", async () => {
   const value = fixture();
   try {
@@ -114,6 +126,14 @@ test("multiple fixed artifacts require an explicit selection while current and a
 
     const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
     assert.equal(current.packageMode, "current-selection", "a current preview is never blocked by the existence of several historical artifacts");
+
+    value.adapter.advanceRoot(value.projectId);
+    const firstHistorical = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    const secondHistorical = await value.adapter.read(value.projectId, { view: "pinned", artifactId: second.id });
+    assert.equal(firstHistorical.artifact?.id, first.id, "the nested drift read keeps the explicitly selected first artifact identity");
+    assert.equal(secondHistorical.artifact?.id, second.id, "the nested drift read keeps the explicitly selected second artifact identity");
+    assert.ok(firstHistorical.sourceCompare, "the first selected artifact receives its own historical-source comparison");
+    assert.ok(secondHistorical.sourceCompare, "the second selected artifact receives its own historical-source comparison");
 
     const archived = value.operations.archiveStoryUnit({ projectId: value.projectId, unitId: value.storyUnit.id, expectedVersion: value.storyUnit.version });
     assert.equal(archived.conflict, false);

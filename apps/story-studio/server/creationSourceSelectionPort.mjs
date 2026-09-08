@@ -62,7 +62,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     return { storyUnit, events, availableEvents };
   }
 
-  function scopedUnitForEvents(storyUnit, events) {
+  function scopedUnitForEvents(projectId, storyUnit, events) {
     const selectedIds = new Set(events.map((event) => event.id));
     const isSelectedFormalEventRef = (ref) => ref.sourceKind === "event-line" && selectedIds.has(ref.entityId);
     // A mixed fragment cannot be safely split at export time. Keep only a
@@ -72,21 +72,43 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const includedItems = storyUnit.items.filter((item) => (
       item.authority === "canon" && item.sourceRefs.length > 0 && item.sourceRefs.every(isSelectedFormalEventRef)
     ));
-    const eventItems = events.map((event) => ({
-      id: `formal-event:${event.id}`,
-      kind: "confirmed-event",
-      authority: "canon",
-      content: { title: event.title },
-      sourceRefs: [{
-        sourceKind: "event-line",
-        ownerId: "story-studio-event-owner",
-        entityId: event.id,
-        entityVersion: event.revisionToken,
-        capturedAt: event.updatedAt || event.createdAt || new Date(0).toISOString(),
-        staleState: "fresh"
-      }],
-      createdBy: "system"
-    }));
+    const eventItems = events.map((event) => {
+      // List projections intentionally omit body text. Read the selected,
+      // canon-authorized Event by stable identity so the package contains the
+      // actual frozen narrative rather than a title-only directory row.
+      const sourceEvent = operations.readWorldObject({ projectId, objectId: event.id });
+      if (!sourceEvent || sourceEvent.status === "archived") throw new Error("选择的正式事件在建立创作稿前已不可读取。");
+      // A protected Author Change Set may carry a canon Event's selected
+      // source prose in its immutable planning-event provenance. It is not a
+      // second scope: it is reachable only through this exact formal Event's
+      // `planned_from` identity, and remains excluded for every other Event.
+      const plannedFrom = typeof sourceEvent.properties?.planned_from === "string" ? sourceEvent.properties.planned_from : null;
+      const planningSource = plannedFrom ? operations.readWorldObject({ projectId, objectId: plannedFrom }) : null;
+      const content = {
+        title: event.title,
+        ...(sourceEvent.body ? { body: sourceEvent.body } : {}),
+        ...(planningSource?.type === "event" && planningSource.status !== "archived" && planningSource.body ? { selectedSourceBody: planningSource.body } : {})
+      };
+      return {
+        id: `formal-event:${event.id}`,
+        kind: "confirmed-event",
+        authority: "canon",
+        // A formal Event title alone is only an index entry.  The selected
+        // Event body is the canon-owned narrative material, so include its
+        // frozen current text in the source package rather than rebuilding a
+        // draft from a later Story Unit summary.
+        content,
+        sourceRefs: [{
+          sourceKind: "event-line",
+          ownerId: "story-studio-event-owner",
+          entityId: event.id,
+          entityVersion: event.revisionToken,
+          capturedAt: event.updatedAt || event.createdAt || new Date(0).toISOString(),
+          staleState: "fresh"
+        }],
+        createdBy: "system"
+      };
+    });
     return {
       ...storyUnit,
       // Story Unit summaries can be author plans or candidate notes. They are
@@ -116,7 +138,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   async function packageForRoot(projectId, root, scopeInput = {}) {
     const project = resolveActiveProject(projectId);
     const { storyUnit, events } = selectedScope(projectId, scopeInput);
-    const scopedUnit = scopedUnitForEvents(storyUnit, events);
+    const scopedUnit = scopedUnitForEvents(projectId, storyUnit, events);
     return buildNeutralStoryPackage({
       projectRef: { projectId: root.identity.projectId, title: project.title },
       scope: { kind: "unit", unitIds: [storyUnit.id], label: `${storyUnit.title} · ${events.length} 个已确认事件` },
@@ -171,7 +193,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     // Synthetic formal-event export records are a read projection, not Story
     // Unit items. Only persisted, canon-authorized items may be referenced by
     // the OutputArtifact's source-unit ownership record.
-    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: scopedUnitForEvents(storyUnit, events).items.filter((item) => !item.id.startsWith("formal-event:")).map((item) => item.id) }];
+    const sourceUnits = [{ unitId: storyUnit.id, unitVersion: storyUnit.version, role: "primary", includedItemIds: scopedUnitForEvents(projectId, storyUnit, events).items.filter((item) => !item.id.startsWith("formal-event:")).map((item) => item.id) }];
     const generationBrief = {
       sourceKind: "work-version",
       neutralStoryPackageId: packageValue.packageId,
@@ -319,7 +341,10 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   async function sourceDriftCompare(projectId, options = {}) {
     const versionAuthority = authority(projectId);
     const root = versionAuthority.listVersions().find((item) => item.identity.kind === "root");
-    const artifact = requireBoundArtifact(projectId);
+    // The read path may be inspecting one exact historical artifact while
+    // several fixed drafts coexist. Keep that identity through the nested
+    // drift comparison instead of falling back to the single-artifact path.
+    const artifact = requireBoundArtifact(projectId, options.artifactId);
     const binding = artifact.provenance.workVersionSource;
     if (!root || !binding) throw new Error("Creation source compare requires one bound root WorkVersion artifact.");
     if (root.identity.kind !== "root") throw new Error("Creation source compare accepts only a root WorkVersion.");

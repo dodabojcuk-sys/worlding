@@ -1427,7 +1427,192 @@ async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
   await log.getByLabel("检索回执").fill("only-other-project-target");
   assert.equal(await log.locator(".engineering-log-stream li").count(), 0, "Searching this project's log cannot reveal a different project's receipt.");
   if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "08-1440-operation-log-isolation.png"), fullPage: false });
+  await assertR5R2AutomaticApplicationCloseout(page, consoleProblems);
   assert.deepEqual(consoleProblems, [], "The R5 continuous author loop must not produce browser warnings or errors.");
+}
+
+async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
+  // Fixture setup establishes the author's project-wide high-permission
+  // profile.  Every Run, pause/recovery, automatic write, draft and rollback
+  // below is then performed through the browser-facing product routes.
+  await postFixture(`${apiUrl}/__local/story-studio/agent-permissions/profile`, { projectId: fixtureProjectId, profile: "full-access" });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  const workspace = page.getByTestId("nuwa-n1-workspace");
+  await workspace.waitFor();
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="nuwa-n1-workspace"]');
+    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("新建排演")));
+  });
+  const newRun = workspace.getByRole("button", { name: "新建排演", exact: true });
+  if (await newRun.count()) await newRun.click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="nuwa-n1-workspace"] .nuwa-n1-participant-options label').length >= 3);
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
+  const relationType = workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "自动关系类型" }).locator("select");
+  assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
+  await relationType.selectOption({ index: 1 });
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-goal input").fill("林昭只向阿芜说出钟声线索；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByTestId("nuwa-n1-authorization").waitFor();
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
+  const steps = workspace.locator(".nuwa-n1-reader li");
+  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "阿芜的第二次实际工具输入 receives only 林昭定向递送的说法。");
+  await workspace.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "paused");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-status"), "paused", "The high-permission Run remains paused after browser refresh.");
+  await workspace.getByRole("button", { name: "恢复", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "running");
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 3);
+  assert.match(await steps.nth(2).innerText(), /我只依据当前可知信息继续观察/u, "陆衍的实际工具输入 excludes 林昭只递给阿芜的说法。");
+  await workspace.getByRole("button", { name: "连续运行", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "completed");
+  await workspace.getByRole("button", { name: "固定稿", exact: true }).waitFor();
+  const completed = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const automatic = completed.data.automaticApplication;
+  assert.equal(automatic.status, "applied", "A completed high-permission Run is applied through the formal owner chain.");
+  assert.ok(automatic.eventId && automatic.relationId && automatic.narrativePlacementIds.length, "The UI-triggered receipt records Event, Relation and NarrativePlacement identities.");
+  const formalEvent = (await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.objects.find((item) => item.id === automatic.eventId);
+  assert.equal(formalEvent?.status, "committed", "The browser-triggered automatic application creates a committed formal Event.");
+  const relation = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(automatic.relationId)}`);
+  assert.equal(relation.data.relation.reviewState, "confirmed", "The same receipt creates a confirmed formal Relation.");
+  const arrangementBefore = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(automatic.resultVersion.workVersionId)}&narrativePathId=${encodeURIComponent(automatic.storyUnitId)}`);
+  const currentBefore = arrangementBefore.data.arrangement.revisions.find((revision) => revision.revision === arrangementBefore.data.arrangement.currentRevision);
+  assert.equal(currentBefore.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), true, "The formal Event is placed in the Story Unit narrative order, not only linked to it.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09-1440-nuwa-auto-applied.png"), fullPage: false });
+
+  await workspace.getByRole("button", { name: "固定稿", exact: true }).click();
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).waitFor();
+  const fixedArtifactId = (await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.automaticApplication.fixedDraft?.artifactId;
+  assert.ok(fixedArtifactId, "The automatic receipt records the fixed OutputArtifact identity before navigation.");
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).click();
+  await page.waitForURL(/\/creation/u);
+  const creation = page.getByTestId("creation-source-workspace");
+  await creation.waitFor();
+  await creation.getByLabel("固定创作稿").selectOption(fixedArtifactId);
+  await page.waitForFunction((artifactId) => document.querySelector('select[aria-label="固定创作稿"]')?.value === artifactId && Boolean(document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id")), fixedArtifactId);
+  const packagePanel = creation.getByLabel("中性故事包");
+  await packagePanel.waitFor();
+  const firstDownloadButton = packagePanel.getByRole("button", { name: "下载 Markdown", exact: true });
+  assert.equal(await firstDownloadButton.isEnabled(), true, "The frozen package is downloadable from the normal Creation UI.");
+  const [firstDownload] = await Promise.all([page.waitForEvent("download"), firstDownloadButton.click()]);
+  const firstDownloadPath = await firstDownload.path();
+  assert.ok(firstDownloadPath, "The fixed draft must produce an actual browser download.");
+  const firstMarkdown = readFileSync(firstDownloadPath, "utf8");
+  assert.match(firstMarkdown, /我只把钟声的线索告诉你。/u, "The downloaded fixed Markdown contains the selected Run dialogue.");
+  assert.match(firstMarkdown, /角色完成一次受限观察/u, "The downloaded fixed Markdown contains the selected Run action outcome.");
+  assert.doesNotMatch(firstMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "The fixed browser download excludes unselected and unauthorized material.");
+  if (r5ContinuousEvidenceDirectory) copyFileSync(firstDownloadPath, path.join(r5ContinuousEvidenceDirectory, "09-nuwa-auto-fixed-before-rollback.md"));
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "10-1440-nuwa-fixed-draft.png"), fullPage: false });
+
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  await workspace.waitFor();
+  await workspace.getByRole("button", { name: "回溯本批", exact: true }).click();
+  await workspace.getByText(/已完成补偿回溯/u).waitFor();
+  await reloadProduct(page);
+  await workspace.waitFor();
+  const rolledBack = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(rolledBack.data.automaticApplication.status, "rolled-back", "Refresh restores the durable compensation receipt instead of claiming the Run was undone.");
+  const unitAfter = (await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.find((unit) => unit.id === automatic.storyUnitId);
+  assert.equal(unitAfter.linkedEntityIds.includes(automatic.eventId), false, "The current Story Unit no longer links the compensated Event.");
+  const relationAfter = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(automatic.relationId)}`);
+  assert.equal(relationAfter.data.relation.archived, true, "The current Relation view records the compensation as archived history.");
+  const arrangementAfter = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(automatic.resultVersion.workVersionId)}&narrativePathId=${encodeURIComponent(automatic.storyUnitId)}`);
+  const currentAfter = arrangementAfter.data.arrangement.revisions.find((revision) => revision.revision === arrangementAfter.data.arrangement.currentRevision);
+  assert.equal(currentAfter.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), false, "Compensation removes the batch from current narrative order without deleting its historical Event.");
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).click();
+  await page.waitForURL(/\/creation/u);
+  assert.equal(new URL(page.url()).searchParams.get("artifactId"), fixedArtifactId, "The fixed-draft entry keeps its exact artifact identity in the route after rollback.");
+  await creation.waitFor();
+  const secondArtifactSelect = creation.getByLabel("固定创作稿");
+  await secondArtifactSelect.waitFor();
+  await secondArtifactSelect.selectOption(fixedArtifactId);
+  await page.waitForFunction((artifactId) => document.querySelector('select[aria-label="固定创作稿"]')?.value === artifactId && Boolean(document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id")), fixedArtifactId);
+  const secondDownloadButton = creation.getByLabel("中性故事包").getByRole("button", { name: "下载 Markdown", exact: true });
+  assert.equal(await secondDownloadButton.isEnabled(), true, "The old pinned package remains downloadable after compensation.");
+  const [secondDownload] = await Promise.all([page.waitForEvent("download"), secondDownloadButton.click()]);
+  const secondDownloadPath = await secondDownload.path();
+  assert.ok(secondDownloadPath, "The original fixed draft remains downloadable after compensation.");
+  const secondMarkdown = readFileSync(secondDownloadPath, "utf8");
+  assert.equal(secondMarkdown, firstMarkdown, "The old fixed Markdown remains byte-for-byte frozen after rollback.");
+
+  const ambiguous = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(ambiguous.data.packageMode, "blocked", "A multi-draft read without an explicit target remains blocked.");
+  assert.equal(ambiguous.data.artifact, null, "A multi-draft read without an explicit target does not pick an arbitrary artifact.");
+  assert.match(ambiguous.data.sourceRequestBlocker?.authorMessage || "", /必须指定 artifactId/u);
+
+  const artifactOptions = await secondArtifactSelect.locator("option").evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent || "" })));
+  const otherArtifact = artifactOptions.find((option) => option.value && option.value !== fixedArtifactId);
+  assert.ok(otherArtifact?.value, "The existing Creation flow supplies a distinct fixed draft B for identity switching.");
+  const otherProjection = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}&view=pinned&artifactId=${encodeURIComponent(otherArtifact.value)}`);
+  assert.equal(otherProjection.data.artifact?.id, otherArtifact.value, "The server resolves fixed draft B by its explicit identity.");
+  await secondArtifactSelect.selectOption(otherArtifact.value);
+  await page.waitForFunction((packageId) => document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id") === packageId, otherProjection.data.package.id);
+  const bDownloadButton = creation.getByLabel("中性故事包").getByRole("button", { name: "下载 Markdown", exact: true });
+  const [bDownload] = await Promise.all([page.waitForEvent("download"), bDownloadButton.click()]);
+  const bDownloadPath = await bDownload.path();
+  assert.ok(bDownloadPath, "Switching to fixed draft B produces an actual browser download.");
+  const bMarkdown = readFileSync(bDownloadPath, "utf8");
+  assert.notEqual(bMarkdown, firstMarkdown, "Fixed draft B remains distinct from the selected Nuwa fixed draft A.");
+
+  const delayOldA = async (mode) => {
+    let releaseRequest;
+    let markRequestSeen;
+    const requestSeen = new Promise((resolve) => { markRequestSeen = resolve; });
+    const release = new Promise((resolve) => { releaseRequest = resolve; });
+    const handler = async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.get("view") !== "pinned" || requestUrl.searchParams.get("artifactId") !== fixedArtifactId) {
+        await route.continue();
+        return;
+      }
+      markRequestSeen();
+      await release;
+      if (mode === "success") await route.continue();
+      else await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "fixture late A failure" }) });
+    };
+    await page.route("**/__local/story-studio/creation/source?**", handler);
+    await secondArtifactSelect.selectOption(fixedArtifactId);
+    await requestSeen;
+    await secondArtifactSelect.selectOption(otherArtifact.value);
+    await page.waitForFunction((packageId) => document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id") === packageId, otherProjection.data.package.id);
+    const response = page.waitForResponse((candidate) => {
+      const candidateUrl = new URL(candidate.url());
+      return candidateUrl.pathname.endsWith("/__local/story-studio/creation/source") && candidateUrl.searchParams.get("view") === "pinned" && candidateUrl.searchParams.get("artifactId") === fixedArtifactId;
+    });
+    releaseRequest();
+    await response;
+    await page.unroute("**/__local/story-studio/creation/source?**", handler);
+    assert.equal(await secondArtifactSelect.inputValue(), otherArtifact.value, `A late ${mode} response cannot replace the user's selected fixed draft B.`);
+    assert.equal(await creation.getAttribute("data-package-id"), otherProjection.data.package.id, `A late ${mode} response cannot repaint A's package over B.`);
+    assert.equal(await creation.getByRole("alert").count(), 0, `A late ${mode} response cannot surface A's obsolete error on B.`);
+  };
+  await delayOldA("success");
+  const consoleProblemCountBeforeLateError = consoleProblems.length;
+  await delayOldA("error");
+  const inducedLateErrorProblems = consoleProblems.splice(consoleProblemCountBeforeLateError);
+  assert.ok(inducedLateErrorProblems.some((problem) => /HTTP 400:.*creation\/source/u.test(problem)), "The diagnostic run observes the induced late A error instead of silently ignoring its existence.");
+
+  const [bDownloadAfterLateA] = await Promise.all([page.waitForEvent("download"), bDownloadButton.click()]);
+  const bDownloadAfterLateAPath = await bDownloadAfterLateA.path();
+  assert.ok(bDownloadAfterLateAPath, "Fixed draft B remains downloadable after both late A responses.");
+  assert.equal(readFileSync(bDownloadAfterLateAPath, "utf8"), bMarkdown, "The actual B download remains byte-for-byte B after late A success and error responses.");
+  if (r5ContinuousEvidenceDirectory) {
+    copyFileSync(secondDownloadPath, path.join(r5ContinuousEvidenceDirectory, "10-nuwa-auto-fixed-after-rollback.md"));
+    copyFileSync(bDownloadAfterLateAPath, path.join(r5ContinuousEvidenceDirectory, "11-creation-fixed-b-after-late-a.md"));
+    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "11-1440-nuwa-fixed-after-rollback.png"), fullPage: false });
+  }
+  assert.deepEqual(consoleProblems, [], "The high-permission UI closeout must not produce browser warnings or errors.");
 }
 
 async function setupCharacterFixture() {

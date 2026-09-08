@@ -372,7 +372,14 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const receiptTag = `nuwa-auto-application:${receipt.receiptId}`;
     if (!application.planningEventId) {
       const existing = operations.listWorldObjects({ projectId: project.id, type: "event" }).find((item) => item.tags.includes(receiptTag));
-      const sourceSummary = selected.map((item) => `## ${item.title}\n\n${item.summary}\n\n${item.observedResult}\n\n- 来源步骤：${item.sourceStepId}`).join("\n\n");
+      const sourceSummary = selected.map((item) => [
+        `## ${item.title}`,
+        item.summary,
+        item.speech ? `台词：${item.speech}` : null,
+        item.action ? `行动：${item.action}` : null,
+        `结果：${item.observedResult}`,
+        `- 来源步骤：${item.sourceStepId}`
+      ].filter(Boolean).join("\n\n")).join("\n\n");
       const planning = existing || operations.createPlanningEvent({ projectId: project.id, title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`, body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 决策来源：作者开始 Run 时的范围授权\n`, tags: ["女娲自动执行", current.runId, receiptTag] });
       application.planningEventId = planning.id;
       persistAutoApplication(receipt);

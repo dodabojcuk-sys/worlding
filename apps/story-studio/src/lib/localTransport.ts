@@ -2330,7 +2330,7 @@ export type NuwaN1CandidateResult = NuwaN1ReadModel & {
     sourceSnapshotHash: string;
     selectedStepIds: string[];
     status: "candidate";
-    candidates: Array<{ candidateId: string; title: string; summary: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
+    candidates: Array<{ candidateId: string; title: string; summary: string; speech: string | null; action: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
     formalWrites: 0;
   };
   review: { reviewId: string; status: string };

@@ -200,7 +200,10 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const artifactId = run?.automaticApplication?.fixedDraft?.artifactId;
     if (!projectId || !artifactId) return;
     window.sessionStorage.setItem(`tianyan-creation-source-artifact:${projectId}`, artifactId);
-    window.location.assign("/creation");
+    // Keep the exact pinned identity in the route as well as the one-shot
+    // handoff.  A Creation mount may otherwise see several historical drafts
+    // after a refresh and correctly refuse to guess which one to open.
+    window.location.assign(`/creation?artifactId=${encodeURIComponent(artifactId)}`);
   };
 
   if (!projectId) return <NuwaUnavailable title="先打开一个作品" detail="女娲排演必须绑定当前作品、正式角色和故事单元；这里不会创建独立的故事副本或角色仓库。" />;

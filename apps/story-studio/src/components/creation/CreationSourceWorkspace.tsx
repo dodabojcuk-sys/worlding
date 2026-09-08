@@ -8,6 +8,7 @@ import { isCurrentCreationSourceViewVisit, nextCreationSourceViewVisit, sameCrea
 /** Renders the existing WorkVersion/OutputArtifact source projection; it owns neither. */
 export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
+  const routeArtifactId = new URL(window.location.href).searchParams.get("artifactId");
   const [state, setState] = useState<CreationSourcePortState | null>(null);
   const [storyUnits, setStoryUnits] = useState<readonly StoryUnit[]>([]);
   const [storyUnitId, setStoryUnitId] = useState<string | null>(null);
@@ -17,6 +18,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const [writeOperation, setWriteOperation] = useState<{ projectId: string; visit: number; id: number } | null>(null);
   const [error, setError] = useState("");
   const readGeneration = useRef(0);
+  const activeReadIdentity = useRef("");
   const listGeneration = useRef(0);
   const operationGeneration = useRef(0);
   const activeProjectId = useRef<string | null>(projectId);
@@ -33,12 +35,16 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const busy = writeOperation?.projectId === projectId && writeOperation.visit === currentVisit().generation;
   const refresh = async (requestedProjectId: string, scope: { storyUnitId?: string; eventIds?: string[]; view?: "current" | "pinned"; artifactId?: string } = {}) => {
     if (!requestedProjectId) return;
+    const requestedView = scope.view ?? view;
+    const requestedArtifactId = scope.artifactId ?? (scope.view === "current" ? undefined : artifactId ?? undefined);
+    const requestIdentity = creationReadIdentity({ projectId: requestedProjectId, storyUnitId: scope.storyUnitId, eventIds: scope.eventIds, view: requestedView, artifactId: requestedArtifactId });
+    activeReadIdentity.current = requestIdentity;
     const generation = ++readGeneration.current;
     const visit = currentVisit();
     setError("");
     try {
-      const next = await getCreationSourcePortState({ projectId: requestedProjectId, storyUnitId: scope.storyUnitId, eventIds: scope.eventIds, view: scope.view ?? view, artifactId: scope.artifactId ?? (scope.view === "current" ? undefined : artifactId ?? undefined) });
-      if (!matchesVisit(visit) || activeProjectId.current !== requestedProjectId || readGeneration.current !== generation || next.project.id !== requestedProjectId) return;
+      const next = await getCreationSourcePortState({ projectId: requestedProjectId, storyUnitId: scope.storyUnitId, eventIds: scope.eventIds, view: requestedView, artifactId: requestedArtifactId });
+      if (!matchesVisit(visit) || activeProjectId.current !== requestedProjectId || readGeneration.current !== generation || activeReadIdentity.current !== requestIdentity || next.project.id !== requestedProjectId) return;
       setState(next);
       setView(next.packageMode === "pinned-artifact" ? "pinned" : "current");
       if (next.packageMode === "pinned-artifact") setArtifactId(next.artifact?.id ?? scope.artifactId ?? null);
@@ -47,17 +53,19 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
         setEventIds(next.selectedEventIds);
       }
     }
-    catch (reason) { if (matchesVisit(visit) && activeProjectId.current === requestedProjectId && readGeneration.current === generation) setError(messageFor(reason)); }
+    catch (reason) { if (matchesVisit(visit) && activeProjectId.current === requestedProjectId && readGeneration.current === generation && activeReadIdentity.current === requestIdentity) setError(messageFor(reason)); }
   };
   useEffect(() => {
     activeProjectId.current = projectId;
     readGeneration.current += 1;
     listGeneration.current += 1;
-    setState(null); setStoryUnits([]); setStoryUnitId(null); setEventIds([]); setView("current"); setArtifactId(null); setWriteOperation(null); setError("");
+    const handoffArtifactId = projectId ? window.sessionStorage.getItem(`tianyan-creation-source-artifact:${projectId}`) : null;
+    const requestedArtifactId = handoffArtifactId || routeArtifactId;
+    if (handoffArtifactId && projectId) window.sessionStorage.removeItem(`tianyan-creation-source-artifact:${projectId}`);
+    activeReadIdentity.current = creationReadIdentity({ projectId, view: requestedArtifactId ? "pinned" : "current", artifactId: requestedArtifactId ?? undefined });
+    setState(null); setStoryUnits([]); setStoryUnitId(null); setEventIds([]); setView(requestedArtifactId ? "pinned" : "current"); setArtifactId(requestedArtifactId); setWriteOperation(null); setError("");
     if (projectId) {
       const requestedProjectId = projectId;
-      const requestedArtifactId = window.sessionStorage.getItem(`tianyan-creation-source-artifact:${requestedProjectId}`);
-      if (requestedArtifactId) window.sessionStorage.removeItem(`tianyan-creation-source-artifact:${requestedProjectId}`);
       const generation = ++listGeneration.current;
       void listStoryUnits(requestedProjectId).then((items) => {
         if (activeProjectId.current === requestedProjectId && listGeneration.current === generation) setStoryUnits(items.filter((item) => item.lifecycle !== "archived"));
@@ -70,7 +78,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     }
     // The selected project's identity is the read boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, routeArtifactId]);
   const act = (action: CreationSourcePortAction) => {
     const requestedProjectId = projectId;
     if (!requestedProjectId) return;
@@ -132,3 +140,6 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
   </section></main>;
 }
 function messageFor(reason: unknown) { return reason instanceof Error && reason.message ? reason.message : "创作来源操作没有完成；现有作品未被改写。"; }
+function creationReadIdentity(input: { projectId: string | null; storyUnitId?: string; eventIds?: string[]; view: "current" | "pinned"; artifactId?: string }) {
+  return JSON.stringify({ projectId: input.projectId, storyUnitId: input.storyUnitId ?? null, eventIds: [...(input.eventIds ?? [])].sort(), view: input.view, artifactId: input.artifactId ?? null });
+}
