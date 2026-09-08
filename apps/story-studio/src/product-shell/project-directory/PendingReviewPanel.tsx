@@ -1,5 +1,5 @@
 import { Check, Eye, GitMerge, Pause, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   decideSourceImportCandidate,
@@ -183,19 +183,23 @@ export function PendingReviewPanel(props: {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const reloadSequence = useRef(0);
 
   const reload = useCallback(async () => {
+    const loadId = ++reloadSequence.current;
     if (!props.runtime.project) { setItems([]); setLoading(false); return; }
     setLoading(true);
     try {
       const projectId = props.runtime.project.id;
+      const workVersionId = props.runtime.workVersionId;
       const [imports, golden, proposals, relations, storyIntakeRuns] = await Promise.all([
         listSourceImportReviews(projectId),
         getGoldenLoopCandidateReview(projectId),
         props.runtime.withConnection((token) => listAgentRecognitionProposals(projectId, token)),
         listRelations({ projectId, reviewState: "candidate" }),
-        props.runtime.workVersionId ? props.runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId: props.runtime.workVersionId!, token })) : Promise.resolve([])
+        workVersionId ? props.runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId, token })) : Promise.resolve([])
       ]);
+      if (loadId !== reloadSequence.current) return;
       const sourceItems = imports.flatMap((document) => document.candidates
         .filter((candidate) => candidate.status === "pending")
         .map((candidate): PendingItem => ({
@@ -225,9 +229,9 @@ export function PendingReviewPanel(props: {
         const envelope = run.storyIntakeEnvelope;
         return Boolean(envelope)
           && run.projectId === projectId
-          && run.workVersionId === props.runtime.workVersionId
+          && run.workVersionId === workVersionId
           && envelope!.projectId === projectId
-          && envelope!.baseVersion.workVersionId === props.runtime.workVersionId
+          && envelope!.baseVersion.workVersionId === workVersionId
           && envelope!.sessionId === run.sessionId
           && envelope!.runId === run.runId;
       });
@@ -271,8 +275,10 @@ export function PendingReviewPanel(props: {
       });
       setItems([...storyIntakeItems, ...sourceItems, ...goldenItems, ...agentItems, ...relationItems]);
     } catch {
-      setNotice(t("directory.unavailable"));
-    } finally { setLoading(false); }
+      if (loadId === reloadSequence.current) setNotice(t("directory.unavailable"));
+    } finally {
+      if (loadId === reloadSequence.current) setLoading(false);
+    }
   }, [props.runtime, t]);
 
   useEffect(() => { void reload(); }, [reload]);

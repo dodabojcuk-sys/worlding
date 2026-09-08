@@ -327,7 +327,9 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function prepareAutoApplication(project, current, input, selectedStepIds, recoveredStoryUnitVersion = null) {
     if (new Set(selectedStepIds).size !== selectedStepIds.length || selectedStepIds.some((id) => !current.steps.some((step) => step.stepId === id))) throw failure("选定步骤已过期或不属于当前女娲 Run。", 409);
     const authorization = actionPermissionBroker?.read(project.id).nuwaAuthorizations.find((item) => item.runId === current.runId && item.status === "active") ?? null;
-    if (!authorization || authorization.storyUnitId !== current.scene.storyUnit.id || authorization.storyUnitRevision !== current.scene.storyUnit.revision || authorization.actorIds.length !== current.actors.length || authorization.actorIds.some((id) => !current.actors.some((actor) => actor.character.id === id))) {
+    const expiresAt = authorization?.expiresAt ? Date.parse(authorization.expiresAt) : null;
+    const authorizationExpired = expiresAt !== null && (!Number.isFinite(expiresAt) || expiresAt <= Date.parse(now()));
+    if (!authorization || authorizationExpired || authorization.storyUnitId !== current.scene.storyUnit.id || authorization.storyUnitRevision !== current.scene.storyUnit.revision || authorization.actorIds.length !== current.actors.length || authorization.actorIds.some((id) => !current.actors.some((actor) => actor.character.id === id))) {
       throw failure("当前女娲 Run 没有有效的高权限范围授权；结果仍可送入待确认。", 403);
     }
     const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: authorization.storyUnitId });
@@ -604,7 +606,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
           impact = authorControl.chooseImpactRoute({ projectId: project.id, reviewId: impact.id, optionId: option.id, action: "adopt" });
         }
         if (impact.status !== "selected") throw failure("回溯补偿没有形成可写入的路线。", 409);
-        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, decisionSource: "nuwa-scope-rollback", authorizationId: receipt.authorizationId });
+        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, decisionSource: "nuwa-scope-authorization", authorizationId: receipt.authorizationId });
         const applied = authorControl.applyAuthorChangeSet({ projectId: project.id, changeSetId: changeSet.id });
         rollback.compensation = { planningEventId: planning.id, impactReviewId: impact.id, changeSetId: changeSet.id, eventId: applied.application.appliedEventId };
         persistAutoApplication(receipt);

@@ -32,3 +32,15 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(styles, /\.nuwa-n1-composer \{ position: sticky/u);
   assert.match(styles, /@media \(max-width: 84rem\)/u);
 });
+
+test("Nuwa N1 follow-up derives completion copy from returned state and revalidates durable authorization", () => {
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+  const port = source("apps/story-studio/server/nuwaN1Port.mjs");
+
+  assert.match(workspace, /next\.run\?\.status !== "completed"/u);
+  assert.match(workspace, /next\.automaticApplication\?\.status === "applied"/u);
+  assert.match(port, /authorizationExpired/u);
+  assert.match(port, /expiresAt <= Date\.parse\(now\(\)\)/u);
+  assert.doesNotMatch(port, /decisionSource: "nuwa-scope-rollback"/u);
+  assert.match(port, /rollbackTag = `nuwa-auto-rollback:/u);
+});

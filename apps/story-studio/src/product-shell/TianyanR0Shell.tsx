@@ -39,12 +39,10 @@ import { useWorkspaceDockSlot, workspaceDockCoordinator } from "./WorkspaceDockC
 import { cssLength, resolveShellFocusLayout, type ShellFocusLayout } from "./layout/shellFocusLayout";
 import { tianyiStoryIntakeRunStorageKey } from "./runtime/tianyiShellSessionRecovery";
 import {
-  readDirectoryWorkspaceState,
   resolveDirectoryPresentation,
-  writeDirectoryWorkspaceState,
-  type DirectoryWorkspaceState,
   type DirectoryTemporarySurface
 } from "./project-directory/directoryWorkspaceState";
+import { useDirectoryWorkspaceState } from "./project-directory/useDirectoryWorkspaceState";
 
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
@@ -71,8 +69,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const requestedByStableUrl = ["directoryView", "directoryObject", "directorySource", "directoryReview"].some((key) => params.has(key));
     return requestedByStableUrl || resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches);
   })();
-  const [directoryState, setDirectoryState] = useState<DirectoryWorkspaceState>(() => readDirectoryWorkspaceState(props.runtime.project?.id ?? null, initialDirectoryOpen));
-  const directoryStateProjectId = useRef<string | null>(props.runtime.project?.id ?? null);
+  const directory = useDirectoryWorkspaceState(props.runtime.project?.id ?? null, initialDirectoryOpen);
+  const directoryState = directory.state;
   const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
@@ -102,14 +100,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
               ? "right-inspector"
               : "none";
   const directoryPreferredOpen = directoryState.preferredOpen;
-  const directoryStateReady = directoryStateProjectId.current === (props.runtime.project?.id ?? null);
+  const directoryStateReady = directory.stateReady;
   const directoryPresented = resolveDirectoryPresentation({ preferredOpen: directoryPreferredOpen, temporarySurface: temporaryDirectorySurface });
-
-  const updateDirectoryState = (next: DirectoryWorkspaceState) => {
-    setDirectoryState(next);
-    writeDirectoryWorkspaceState(props.runtime.project?.id ?? null, next);
-  };
-  const setDirectoryPreferredOpen = (preferredOpen: boolean) => updateDirectoryState({ ...directoryState, preferredOpen });
+  const updateDirectoryState = directory.updateState;
+  const setDirectoryPreferredOpen = directory.setPreferredOpen;
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -150,11 +144,6 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, []);
 
   useEffect(() => {
-    const nextProjectId = props.runtime.project?.id ?? null;
-    if (directoryStateProjectId.current === nextProjectId) return;
-    writeDirectoryWorkspaceState(directoryStateProjectId.current, directoryState);
-    directoryStateProjectId.current = nextProjectId;
-    setDirectoryState(readDirectoryWorkspaceState(nextProjectId, initialDirectoryOpen));
     setWorkspaceDirectorySuppressed(false);
   }, [props.runtime.project?.id]);
 
@@ -306,6 +295,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const route = storyStudioWorkspaceRoute(destination);
     window.history.pushState({}, "", route);
     setActiveId(destination);
+    if (destination === "event-line" && focusLayout !== "wide") setWorkspaceDirectorySuppressed(true);
   };
   const selectCharacter = (objectId: string) => { updateDirectoryState({ ...directoryState, path: ["characters"], selectedObjectId: objectId }); const params = new URLSearchParams(window.location.search); params.set("directoryView", "characters"); params.set("directoryObject", objectId); params.set("directoryType", "character"); window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`); setLocationRevision((value) => value + 1); };
   const closeCharacterInspector = () => { const params = new URLSearchParams(window.location.search); params.delete("directoryObject"); params.delete("directoryType"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); };
@@ -330,6 +320,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       : new URLSearchParams({ directoryObject: reference.objectId, directoryProject: reference.projectId, directoryVersion: reference.version, directoryType: reference.objectType });
     window.history.pushState({}, "", `${storyStudioWorkspaceRoute(destination)}?${params.toString()}`);
     setActiveId(destination);
+    if (destination === "event-line" && focusLayout !== "wide") setWorkspaceDirectorySuppressed(true);
   };
   const openPendingReview = (target: StoryIntakeReviewTarget | null) => {
     const params = target

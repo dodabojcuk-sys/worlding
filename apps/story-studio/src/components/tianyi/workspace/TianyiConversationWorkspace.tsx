@@ -70,11 +70,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const workContextVisit = useRef(0);
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
 
   useEffect(() => {
+    workContextVisit.current += 1;
     intakeAbort.current?.abort();
     setProjection(null);
     setMetadata(null);
@@ -115,9 +117,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
 
   const refreshWorkContext = useCallback(async () => {
     if (!project) return;
+    const projectId = project.id;
+    const visit = ++workContextVisit.current;
     setWorkContextState("loading");
     try {
-      const [library, units] = await Promise.all([getWorldLibrary(project.id), listStoryUnits(project.id)]);
+      const [library, units] = await Promise.all([getWorldLibrary(projectId), listStoryUnits(projectId)]);
+      if (visit !== workContextVisit.current || library.project.id !== projectId) return;
       const events = library.objects.filter((item) => item.type === "event" && (item.status === "draft" || item.status === "planned" || item.status === "committed")) as WorldObject[];
       setWorkContextEvents(events);
       setWorkContextUnits(units);
@@ -125,16 +130,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setSelectedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)).slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
       setWorkContextState("ready");
     } catch {
-      setWorkContextState("failed");
+      if (visit === workContextVisit.current) setWorkContextState("failed");
     }
-  }, [project]);
+  }, [project?.id]);
 
   useEffect(() => {
     if (!project) return;
-    let active = true;
-    void refreshWorkContext().then(() => { if (!active) return; }).catch(() => undefined);
-    return () => { active = false; };
-  }, [project, refreshWorkContext]);
+    void refreshWorkContext();
+  }, [project?.id, refreshWorkContext]);
 
   useEffect(() => {
     const restoreRequestedLane = () => {

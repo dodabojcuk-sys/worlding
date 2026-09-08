@@ -101,9 +101,13 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       setSelectedStepIds((current) => current.length ? current.filter((id) => nextSteps.some((step) => step.stepId === id)) : [latestStep.stepId]);
     }
   };
-  const act = async (operation: () => Promise<NuwaN1ReadModel>, message?: string) => {
+  const act = async (operation: () => Promise<NuwaN1ReadModel>, message?: string | ((next: NuwaN1ReadModel) => string)) => {
     setBusy(true); setError(null); setNotice(null);
-    try { updateRun(await operation()); if (message) setNotice(message); }
+    try {
+      const next = await operation();
+      updateRun(next);
+      if (message) setNotice(typeof message === "function" ? message(next) : message);
+    }
     catch (reason) { setError(messageFor(reason, "本次女娲操作没有完成；未写入正式故事。")); }
     finally { setBusy(false); }
   };
@@ -145,7 +149,13 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const runContinuously = () => {
     if (!projectId || !run?.run) return;
-    void act(() => props.runtime.withConnection((token) => runNuwaN1Continuously({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, operationId: newOperationId(), token })), run.authorization?.status === "active" ? "连续排演已完成，并已按范围授权自动应用正式结果。" : "连续排演已完成；普通权限结果仍停留在 Run 中等待选择。"
+    void act(
+      () => props.runtime.withConnection((token) => runNuwaN1Continuously({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, operationId: newOperationId(), token })),
+      (next) => next.run?.status !== "completed"
+        ? `连续排演已停止于“${next.run?.status ?? "未知"}”；未显示为完成或已自动应用。`
+        : next.automaticApplication?.status === "applied"
+          ? "连续排演已完成，并已按范围授权自动应用正式结果。"
+          : "连续排演已完成；结果仍停留在 Run 中等待选择。"
     );
   };
   const beginAnotherRun = () => {

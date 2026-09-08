@@ -79,3 +79,13 @@ test("same-name formal characters are isolated by stable id and labels never cho
   assert.equal(ambiguous.observer.kind, "reader");
   assert.equal(ambiguous.visibleEvents.length, 0);
 });
+
+test("knowledge subject access without explicit evidence is informed, not experienced", () => {
+  const projection = buildEventStoryCrossingKnowledgeProjection({
+    projectId: "project.knowledge-access",
+    observerId: "character.guard",
+    events: [{ id: "event.report", title: "守卫收到报告", status: "committed", revisionToken: "e1", knowledgeSubjectIds: ["character.guard"], body: "报告正文" }],
+    characters: [{ id: "character.guard", label: "守卫", revisionToken: "c1" }]
+  });
+  assert.equal(projection.visibleEvents[0]?.knowledgeState, "informed");
+});

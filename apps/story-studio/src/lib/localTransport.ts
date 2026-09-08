@@ -3308,16 +3308,21 @@ async function readProjectProjection<T>(url: string): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
   const projectId = parsedUrl.searchParams.get("projectId");
   const endpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" as const : "story-units" as const;
-  const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
-  if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: read.fresh ? "ready" : "loading", reason: read.fresh ? "fresh-snapshot" : "in-flight" });
-  try {
-    return await read.promise;
-  } catch (error) {
-    if (error instanceof InFlightReadTimeoutError) {
-      recordDirectoryReadDiagnostic({ phase: "transport-timeout", endpoint, projectId, outcome: "failed", reason: "read-timeout", durationMs: error.timeoutMs });
-      throw new LocalTransportError("本地作品读取超时；请重新连接。现有作品没有被修改。", 504);
+  for (;;) {
+    const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
+    if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: read.fresh ? "ready" : "loading", reason: read.fresh ? "fresh-snapshot" : "in-flight" });
+    try {
+      const value = await read.promise;
+      if (read.isCurrent()) return value;
+      recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: "discarded", reason: "pre-write-generation" });
+      await projectProjectionReads.whenStable();
+    } catch (error) {
+      if (error instanceof InFlightReadTimeoutError) {
+        recordDirectoryReadDiagnostic({ phase: "transport-timeout", endpoint, projectId, outcome: "failed", reason: "read-timeout", durationMs: error.timeoutMs });
+        throw new LocalTransportError("本地作品读取超时；请重新连接。现有作品没有被修改。", 504);
+      }
+      throw error;
     }
-    throw error;
   }
 }
 

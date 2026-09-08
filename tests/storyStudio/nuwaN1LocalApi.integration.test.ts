@@ -72,7 +72,7 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
   assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 1]], "the recipient sees the explicitly delivered statement through the same context compiler used by the tool loop");
-  assert.equal(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary, "已亲历：钟声在桥上消失");
+  assert.equal(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary, "已得知：钟声在桥上消失");
   assert.equal(model.contextInspector.actors[1]?.beliefItems[0]?.summary, "被误导：潮声来自废塔");
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
@@ -243,9 +243,12 @@ test("Nuwa N1 freezes a same-Run draft then recovers one durable automatic-batch
   assert.equal(interrupted.status, 409, "an interrupted rollback reports recovery instead of claiming the batch is fully reverted");
   const recovered = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", rollbackRequest);
   assert.equal(recovered.status, 200, JSON.stringify(recovered.payload));
-  const result = recovered.payload.data as NuwaReadModel & { automaticApplication: { status: string; rollback: { resultVersion: { revision: number } }; eventId: string } };
+  const result = recovered.payload.data as NuwaReadModel & { automaticApplication: { status: string; rollback: { compensation: { changeSetId: string }; resultVersion: { revision: number } }; eventId: string; authorizationId: string } };
   assert.equal(result.automaticApplication.status, "rolled-back");
   assert.equal(result.automaticApplication.rollback.resultVersion.revision, automatic.resultVersion.revision + 1);
+  const compensation = value.authorControl.readAuthorChangeSet({ projectId: value.project.id, changeSetId: result.automaticApplication.rollback.compensation.changeSetId });
+  assert.equal(compensation?.authorDecision.source, "nuwa-scope-authorization");
+  assert.equal(compensation?.authorDecision.authorizationId, result.automaticApplication.authorizationId, "rollback retains the scope authorization it compensates");
   assert.equal(value.relations.readRelation({ projectId: value.project.id, relationId: automatic.relationId }).relation.archived, true);
   assert.equal(value.operations.readWorldObject({ projectId: value.project.id, objectId: automatic.materialObjectId }).status, "archived");
   assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).linkedEntityIds.includes(automatic.eventId), false);
@@ -339,6 +342,25 @@ test("Nuwa N1 respects an explicit no-relation scope even when one active type e
   assert.equal(result.automaticApplication.relationId, null);
   assert.equal(result.automaticApplication.relationStatus, "not-configured");
   assert.equal(value.relations.listRelations({ projectId: value.project.id }).relations.length, 0);
+});
+
+test("Nuwa N1 rejects an expired high-permission scope before automatic application", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("expired-scope-create"));
+  let model = created.payload.data as NuwaReadModel;
+  model = (await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "expired-scope-step" })).payload.data as NuwaReadModel;
+  const permissionPath = path.join(value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }), ".world-os", "author-control", "action-permissions.json");
+  const permissionState = JSON.parse(readFileSync(permissionPath, "utf8")) as { nuwaAuthorizations: Array<{ expiresAt: string | null }> };
+  permissionState.nuwaAuthorizations[0]!.expiresAt = "2000-01-01T00:00:00.000Z";
+  writeFileSync(permissionPath, JSON.stringify(permissionState, null, 2) + "\n", "utf8");
+  const objectCount = value.operations.listWorldObjects({ projectId: value.project.id }).length;
+  const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "expired-scope-apply", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(applied.status, 403, JSON.stringify(applied.payload));
+  assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectCount, "expired authorization cannot create formal objects");
 });
 
 test("Nuwa N1 continuous endpoint advances on the server and applies the completed high-permission Run without browser step polling", async (t) => {

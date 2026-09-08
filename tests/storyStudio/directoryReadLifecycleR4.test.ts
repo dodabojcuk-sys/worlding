@@ -106,6 +106,7 @@ test("R4 directory does not refill a fresh snapshot from a read that began befor
   reads.invalidateSettled(); // POST begins: retain the in-flight GET but invalidate its cache generation.
   oldRead.resolve(1);
   assert.equal(await pendingOld.promise, 1, "the original caller may still receive its own old response");
+  assert.equal(pendingOld.isCurrent(), false, "the original caller must fence a response from the pre-write generation");
 
   // The write has now committed. Its pre-write read must already have been
   // barred from refilling the freshness window, even though it completed late.
@@ -123,6 +124,7 @@ test("R4 directory does not retain a read that started while a write was still p
   const pendingDuringWrite = reads.read("project.a/world-library", () => duringWrite.promise);
   duringWrite.resolve(7); // The endpoint may still return the old revision before POST commits.
   assert.equal(await pendingDuringWrite.promise, 7);
+  assert.equal(pendingDuringWrite.isCurrent(), false, "a read started inside a write boundary can never update the visible projection");
 
   finishWrite(); // POST succeeds without evicting a newer post-write read.
   const afterWrite = reads.read("project.a/world-library", () => Promise.resolve(++starts + 7));
@@ -142,6 +144,18 @@ test("R4 directory closing a write boundary preserves a read that began after th
   assert.equal(reused.reused, true, "write completion must not invalidate a newer projection read twice");
   assert.equal(await reused.promise, 1);
   assert.equal(starts, 1);
+});
+
+test("R4 directory exposes write-boundary completion before a fenced caller retries", async () => {
+  const reads = new InFlightReadRegistry(100, 5_000);
+  const finishWrite = reads.beginInvalidationBoundary();
+  let settled = false;
+  const stable = reads.whenStable().then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  finishWrite();
+  await stable;
+  assert.equal(settled, true);
 });
 
 test("R4 directory distinguishes legitimate empty, project mismatch, cleanup, and ready data", () => {

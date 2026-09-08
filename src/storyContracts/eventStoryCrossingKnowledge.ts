@@ -243,7 +243,9 @@ function resolveObserver(observerId: string, characters: StoryCrossingKnowledgeI
 function knowledgeStateForEvent(event: StoryCrossingEventInput, observer: KnowledgeObserver, characters: StoryCrossingKnowledgeInput["characters"]): EventKnowledgeState {
   if (observer.kind === "character" && event.knowledgeSubjectIds?.includes(observer.id)) {
     const explicit = (event.tags ?? []).map((tag) => parseExplicitKnowledge(tag, [observer.id])).find((state) => state !== null) ?? null;
-    return explicit ?? "experienced";
+    // Membership in knowledge_subjects grants visibility; it is not evidence
+    // that the character participated in or directly experienced the Event.
+    return explicit ?? "informed";
   }
   return knowledgeState(event.tags ?? [], observer);
 }

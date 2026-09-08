@@ -13,7 +13,8 @@ export class InFlightReadTimeoutError extends Error {
 /**
  * Coalesces idempotent reads and can retain a short current snapshot. A write
  * advances the generation without aborting existing readers, so their late
- * response can reach its original caller but never refill that snapshot.
+ * response can settle without refilling that snapshot. Callers must check
+ * isCurrent before exposing the value and retry after the write boundary.
  */
 export class InFlightReadRegistry {
   readonly #reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; settledAt: number | null; generation: number; cacheEligible: boolean; releaseTimer?: ReturnType<typeof setTimeout> }>();
@@ -21,16 +22,17 @@ export class InFlightReadRegistry {
   readonly #freshForMs: number;
   #generation = 0;
   #activeInvalidationBoundaries = 0;
+  #stableWaiters: Array<() => void> = [];
 
   constructor(timeoutMs: number | null, freshForMs = 0) {
     this.#timeoutMs = timeoutMs;
     this.#freshForMs = freshForMs;
   }
 
-  read<T>(key: string, start: (signal: AbortSignal) => Promise<T>): { promise: Promise<T>; reused: boolean; fresh: boolean } {
+  read<T>(key: string, start: (signal: AbortSignal) => Promise<T>): { promise: Promise<T>; reused: boolean; fresh: boolean; isCurrent: () => boolean } {
     const existing = this.#reads.get(key) as { promise: Promise<T>; controller: AbortController; settledAt: number | null; generation: number; cacheEligible: boolean; releaseTimer?: ReturnType<typeof setTimeout> } | undefined;
     if (existing && (existing.settledAt === null || Date.now() - existing.settledAt <= this.#freshForMs)) {
-      return { promise: existing.promise, reused: true, fresh: existing.settledAt !== null };
+      return { promise: existing.promise, reused: true, fresh: existing.settledAt !== null, isCurrent: () => existing.cacheEligible && existing.generation === this.#generation && this.#activeInvalidationBoundaries === 0 };
     }
     if (existing) this.#release(key, existing);
 
@@ -60,7 +62,7 @@ export class InFlightReadRegistry {
       });
     entry.promise = promise;
     this.#reads.set(key, entry);
-    return { promise, reused: false, fresh: false };
+    return { promise, reused: false, fresh: false, isCurrent: () => entry.cacheEligible && entry.generation === this.#generation && this.#activeInvalidationBoundaries === 0 };
   }
 
   has(key: string): boolean {
@@ -97,7 +99,13 @@ export class InFlightReadRegistry {
       if (closed) return;
       closed = true;
       this.#activeInvalidationBoundaries = Math.max(0, this.#activeInvalidationBoundaries - 1);
+      if (this.#activeInvalidationBoundaries === 0) this.#stableWaiters.splice(0).forEach((resolve) => resolve());
     };
+  }
+
+  whenStable(): Promise<void> {
+    if (this.#activeInvalidationBoundaries === 0) return Promise.resolve();
+    return new Promise((resolve) => this.#stableWaiters.push(resolve));
   }
 
   #release(key: string, entry: { promise: Promise<unknown>; releaseTimer?: ReturnType<typeof setTimeout> }): void {

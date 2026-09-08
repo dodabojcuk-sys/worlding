@@ -21,6 +21,27 @@ test("R4 separates persistent directory intent from temporary presentation suppr
   assert.doesNotMatch(eventInspectorActions, /story-studio-close-project-directory/u, "1195px 事件检查器必须与目录协调，不能静默关闭作者入口");
 });
 
+test("R4 review follow-up keeps directory ownership and async project fences in their responsible surfaces", () => {
+  const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
+  const directoryOwner = source("apps/story-studio/src/product-shell/project-directory/useDirectoryWorkspaceState.ts");
+  const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx");
+  const tianyi = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
+  const eventLine = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
+
+  assert.match(shell, /useDirectoryWorkspaceState/u);
+  assert.doesNotMatch(shell, /writeDirectoryWorkspaceState|readDirectoryWorkspaceState/u);
+  assert.match(directoryOwner, /projectIdRef/u);
+  assert.match(directoryOwner, /writeDirectoryWorkspaceState/u);
+  assert.doesNotMatch(directoryOwner, /workspaceSuppressed/u);
+  assert.match(shell, /destination === "event-line" && focusLayout !== "wide"\) setWorkspaceDirectorySuppressed\(true\)/u);
+  assert.match(pending, /reloadSequence/u);
+  assert.match(pending, /loadId !== reloadSequence\.current/u);
+  assert.match(tianyi, /workContextVisit/u);
+  assert.match(tianyi, /library\.project\.id !== projectId/u);
+  assert.match(eventLine, /eventRevisionKey/u);
+  assert.match(eventLine, /loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey/u);
+});
+
 test("R4 persists per-project directory path, selection, and scroll without a duplicate local search state", () => {
   const tree = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryTree.tsx");
   assert.match(tree, /projectId/u);
@@ -106,7 +127,7 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(workspace, /data-global-work=\{lane === "work" && !activeIntakeCandidate/u);
   assert.match(workspace, /发送到当前工作/u);
   assert.match(workspace, /不会因没有候选而中断/u);
-  assert.match(workspace, /getWorldLibrary\(project\.id\)/u, "全局 Work 必须读取既有正式 Event 投影，而不是凭空构造上下文");
+  assert.match(workspace, /getWorldLibrary\(projectId\)/u, "全局 Work 必须读取既有正式 Event 投影，而不是凭空构造上下文");
   assert.match(workspace, /createStoryStudioEventReference/u);
   assert.match(workspace, /globalWorkEventRefs/u);
   assert.match(workspace, /eventRefs: globalWorkEventRefs/u, "明确发送时必须把选择的版本化 Event 引用交给 grounded context");

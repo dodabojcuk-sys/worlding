@@ -161,10 +161,15 @@ export function EventLineWorkbench(props: {
   const [knowledgeObserverId, setKnowledgeObserverId] = useState(initialKnowledgeObserver);
   const [knowledgeObserverIds, setKnowledgeObserverIds] = useState<string[]>(initialKnowledgeObserverIds);
   const [storylineScope, setStorylineScope] = useState(initialStorylineScope);
-  const [knowledgeProjection, setKnowledgeProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
-  const [knowledgeProjectionState, setKnowledgeProjectionState] = useState<"loading" | "ready" | "failed">("loading");
+  const [loadedKnowledgeProjection, setLoadedKnowledgeProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
+  const [loadedKnowledgeProjectionKey, setLoadedKnowledgeProjectionKey] = useState("");
+  const [loadedKnowledgeProjectionState, setLoadedKnowledgeProjectionState] = useState<"loading" | "ready" | "failed">("loading");
   const [perspectiveOwnerProjection, setPerspectiveOwnerProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const eventIds = props.events.map((event) => event.id).join("\u0000");
+  const eventRevisionKey = props.events.map((event) => `${event.id}:${event.revisionToken}`).join("\u0000");
+  const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
+  const knowledgeProjection = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjection : null;
+  const knowledgeProjectionState = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjectionState : "loading";
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(() => props.selectedEventId ?? selectedEventIdFromRoute());
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailsById, setDetailsById] = useState<Record<string, EventLineEventDetail>>({});
@@ -258,7 +263,7 @@ export function EventLineWorkbench(props: {
       if (!cancelled) setPerspectiveOwnerProjection(null);
     });
     return () => { cancelled = true; };
-  }, [advancedView, eventIds, projectionMode, props.projectId]);
+  }, [advancedView, eventRevisionKey, projectionMode, props.projectId]);
   const setSelectedEventId = (eventId: string | null) => {
     if (props.selectedEventId === undefined) {
       setLocalSelectedEventId(eventId);
@@ -269,19 +274,24 @@ export function EventLineWorkbench(props: {
 
   useEffect(() => {
     let cancelled = false;
-    setKnowledgeProjectionState("loading");
+    setLoadedKnowledgeProjectionState("loading");
     void getEventStoryCrossingKnowledgeProjection(props.projectId, knowledgeObserverId, knowledgeObserverIds)
       .then((projection) => {
         if (cancelled) return;
-        setKnowledgeProjection(projection);
-        setKnowledgeProjectionState("ready");
+        setLoadedKnowledgeProjection(projection);
+        setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+        setLoadedKnowledgeProjectionState("ready");
       })
       .catch(() => {
-        if (!cancelled) setKnowledgeProjectionState("failed");
+        if (!cancelled) {
+          setLoadedKnowledgeProjection(null);
+          setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+          setLoadedKnowledgeProjectionState("failed");
+        }
       });
     persistKnowledgeCoordinates(knowledgeObserverId, knowledgeObserverIds, storylineScope);
     return () => { cancelled = true; };
-  }, [eventIds, knowledgeObserverId, knowledgeObserverIds.join("\u0000"), props.projectId]);
+  }, [requestedKnowledgeProjectionKey]);
 
   useEffect(() => {
     persistKnowledgeCoordinates(knowledgeObserverId, knowledgeObserverIds, storylineScope);
