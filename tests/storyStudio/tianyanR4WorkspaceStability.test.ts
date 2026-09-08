@@ -23,6 +23,7 @@ test("R4 separates persistent directory intent from temporary presentation suppr
 
 test("R4 review follow-up keeps directory ownership and async project fences in their responsible surfaces", () => {
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
+  const outlet = source("apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx");
   const directoryOwner = source("apps/story-studio/src/product-shell/project-directory/useDirectoryWorkspaceState.ts");
   const pending = source("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx");
   const tianyi = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
@@ -40,6 +41,8 @@ test("R4 review follow-up keeps directory ownership and async project fences in 
   assert.match(tianyi, /library\.project\.id !== projectId/u);
   assert.match(eventLine, /eventRevisionKey/u);
   assert.match(eventLine, /loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey/u);
+  assert.match(shell, /locationRevision=\{locationRevision\}/u);
+  assert.match(outlet, /key=\{`event-line:\$\{props\.locationRevision\}`\}/u, "same-route character knowledge navigation must remount the route-owned Event workspace");
 });
 
 test("R4 persists per-project directory path, selection, and scroll without a duplicate local search state", () => {

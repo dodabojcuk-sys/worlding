@@ -83,6 +83,9 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   useEffect(() => {
     if (!project || !props.eventRefs.length) { setRun(null); return; }
     let active = true;
+    // A project/source change owns a new recovery generation. Exact reads
+    // started by the previous panel identity may finish, but cannot publish.
+    runRecoveryGeneration.current += 1;
     const generation = ++historyLoadGeneration.current;
     setPhase("reading");
     const pendingRunId = props.runtime.activePageAgentRunId;
@@ -272,6 +275,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       while (runRecoveryGeneration.current === generation) {
         try {
           const current = await props.runtime.withConnection((token) => getMultiNodePredictionRun({ projectId: project.id, runId, token }));
+          if (runRecoveryGeneration.current !== generation) return;
           if (current && ["abandoned", "stale"].includes(current.status)) {
             const observed = setObservedRun(current); if (!observed) return;
             setRuns((history) => [observed, ...history.filter((candidate) => candidate.runId !== observed.runId)]);

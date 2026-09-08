@@ -447,7 +447,9 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       }
       const inserted = operations.insertNarrativePlacement({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, narrativePathId: storyUnit.id, expectedOwnerVersion: arrangement.ownerVersion, expectedRevision: arrangement.arrangement.currentRevision, operationId: `${receipt.receiptId}.arrangement.insert`, authorActionId: `${receipt.receiptId}.author.arrangement.insert`, sourceKind: "author-action", sourceRef: `nuwa-n1:${current.runId}:${receipt.receiptId}`, createdAt: now(), eventId: application.eventId, storyUnitId: storyUnit.id, role: "primary", position: { kind: "end" } });
       if (inserted.conflict || !inserted.receipt) throw failure(`NarrativePlacement 写入冲突：${inserted.code}`, 409);
-      application.narrativePlacementIds = inserted.receipt.afterPlacementIds;
+      const previousPlacementIds = new Set(inserted.receipt.beforePlacementIds);
+      application.narrativePlacementIds = inserted.receipt.afterPlacementIds.filter((placementId) => !previousPlacementIds.has(placementId));
+      if (!application.narrativePlacementIds.length) throw failure("本批 NarrativePlacement 回执未记录新增项。", 409);
       application.storyUnitLinkedVersion = inserted.ownerVersion;
       persistAutoApplication(receipt);
     }

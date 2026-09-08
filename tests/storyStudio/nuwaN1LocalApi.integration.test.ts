@@ -193,6 +193,16 @@ test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for altern
 
 test("Nuwa N1 full access automatically applies one selected Run result through the existing formal Event chain", async (t) => {
   const value = fixture();
+  const rootVersion = createCreationSourceSelectionPort({ operations: value.operations }).resolveRootWorkVersion(value.project.id);
+  assert.ok(rootVersion);
+  const unitBeforeArrangement = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id });
+  const createdArrangement = value.operations.createNarrativeArrangement({ projectId: value.project.id, workVersionId: rootVersion.identity.workVersionId, narrativePathId: value.unit.id, ownerStoryUnitId: value.unit.id, expectedOwnerVersion: unitBeforeArrangement.version, expectedRevision: 0, operationId: "fixture.arrangement.create", authorActionId: "fixture.arrangement.create", createdAt: "2026-09-08T00:00:00.000Z" });
+  assert.equal(createdArrangement.conflict, false);
+  assert.ok(createdArrangement.arrangement);
+  const seededPlacement = value.operations.insertNarrativePlacement({ projectId: value.project.id, workVersionId: rootVersion.identity.workVersionId, narrativePathId: value.unit.id, expectedOwnerVersion: createdArrangement.ownerVersion, expectedRevision: createdArrangement.arrangement.currentRevision, operationId: "fixture.arrangement.insert", authorActionId: "fixture.arrangement.insert", sourceKind: "author-action", sourceRef: "fixture-existing-placement", createdAt: "2026-09-08T00:00:01.000Z", eventId: unitBeforeArrangement.linkedEntityIds[0]!, storyUnitId: value.unit.id, role: "primary", position: { kind: "end" } });
+  assert.equal(seededPlacement.conflict, false);
+  const existingPlacementId = seededPlacement.receipt!.afterPlacementIds.find((placementId) => !seededPlacement.receipt!.beforePlacementIds.includes(placementId));
+  assert.ok(existingPlacementId);
   let child: ChildProcess | null = null;
   t.after(async () => {
     if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
@@ -209,9 +219,11 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   model = stepped.payload.data as NuwaReadModel;
   const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-result", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(applied.status, 201, JSON.stringify(applied.payload));
-  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { decisionSource: string; authorizationId: string; eventId: string; storyUnitId: string; materialObjectId: string; relationId: string; relationStatus: string } };
+  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { decisionSource: string; authorizationId: string; eventId: string; storyUnitId: string; materialObjectId: string; relationId: string; relationStatus: string; narrativePlacementIds: string[] } };
   assert.equal(result.automaticApplication.decisionSource, "nuwa-scope-authorization");
   assert.equal(result.automaticApplication.storyUnitId, value.unit.id);
+  assert.equal(result.automaticApplication.narrativePlacementIds.length, 1, "the application receipt records only this batch's inserted placement");
+  assert.equal(result.automaticApplication.narrativePlacementIds.includes(existingPlacementId), false, "pre-existing author placements do not enter the Nuwa batch receipt");
   const event = value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.eventId });
   assert.equal(event.status, "committed");
   assert.equal(event.properties?.planned_from, result.automaticApplication.planningEventId);

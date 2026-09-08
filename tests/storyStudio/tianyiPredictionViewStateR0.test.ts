@@ -127,6 +127,8 @@ test("the drafted receipt recovery effect invalidates stale responses after a te
   assert.match(panel, /const observedReady = setObservedRun\(ready\) \?\? ready;/u);
   assert.match(panel, /predictionViewStateFromPersistence\(\{ runStatus: observedReady\.status, hasBundle: Boolean\(observedReady\.bundle\), selectedPathId: null, hasReceipt: false \}\)/u);
   assert.match(panel, /getMultiNodePredictionRun\(\{ projectId: project\.id, runId, token \}\)/u);
+  assert.match(panel, /runRecoveryGeneration\.current \+= 1;\s*const generation = \+\+historyLoadGeneration\.current/u);
+  assert.match(panel, /const current = await props\.runtime\.withConnection[\s\S]{0,240}if \(runRecoveryGeneration\.current !== generation\) return;/u);
   assert.match(panel, /isPredictionAbandonmentPending\(projectId, replay\.runId\)/u);
 });
 

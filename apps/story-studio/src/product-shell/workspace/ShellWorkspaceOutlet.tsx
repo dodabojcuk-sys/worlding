@@ -20,6 +20,7 @@ export function ShellWorkspaceOutlet(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
   onOpenPendingReview(): void;
   directoryObjectId: string | null;
+  locationRevision: number;
 }) {
   const { t } = useI18n();
   const label = props.shellLab ? t("shellLab.label") : t(props.destination.labelKey as TranslationKey);
@@ -31,7 +32,7 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "event-line") {
     return <main className="shell-workspace shell-workspace-event-line" aria-label={t(props.destination.labelKey as TranslationKey)}>
-      <R0EventLineProjection runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} selectedEventId={props.directoryObjectId} />
+      <R0EventLineProjection key={`event-line:${props.locationRevision}`} runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} selectedEventId={props.directoryObjectId} />
     </main>;
   }
 

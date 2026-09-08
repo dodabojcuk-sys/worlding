@@ -23,6 +23,7 @@ import type {
 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
 import { InFlightReadRegistry, InFlightReadTimeoutError } from "./inFlightReadRegistry";
+import { projectProjectionInvalidationMode } from "./projectProjectionInvalidation";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -3335,7 +3336,8 @@ async function request<T>(
   const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
   const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
   if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
-  const closeProjectionWriteBoundary = input.method === "POST" ? projectProjectionReads.beginInvalidationBoundary() : null;
+  const projectionInvalidationMode = projectProjectionInvalidationMode(parsedUrl.pathname, input.method || "GET");
+  const closeProjectionWriteBoundary = projectionInvalidationMode === "boundary" ? projectProjectionReads.beginInvalidationBoundary() : null;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -3350,6 +3352,7 @@ async function request<T>(
     });
   } catch (cause) {
     closeProjectionWriteBoundary?.();
+    if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
     if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-failed", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: cause instanceof DOMException && cause.name === "AbortError" ? "cancelled" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw new LocalTransportError("操作已取消；没有新的内容被写入。", 499);
@@ -3380,5 +3383,6 @@ async function request<T>(
     // it entered the registry. Closing the boundary therefore cannot evict a
     // newer post-write read or trigger a second full projection scan.
     closeProjectionWriteBoundary?.();
+    if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
   }
 }
