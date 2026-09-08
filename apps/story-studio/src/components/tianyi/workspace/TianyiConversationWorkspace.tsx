@@ -48,7 +48,12 @@ import {
 } from "./storyIntakeWorkspaceState";
 
 type Lane = "creative" | "review" | "work";
+type ConversationProjectVisit = { projectId: string | null; generation: number };
 const MAX_GLOBAL_WORK_EVENT_REFS = 6;
+
+function sameConversationProjectVisit(current: ConversationProjectVisit, expected: ConversationProjectVisit) {
+  return current.projectId === expected.projectId && current.generation === expected.generation;
+}
 
 export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenPendingReview(): void }) {
   const { runtime } = props;
@@ -71,6 +76,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const workContextVisit = useRef(0);
+  const conversationProjectVisit = useRef({ projectId: project?.id ?? null, generation: 0 });
+  if (conversationProjectVisit.current.projectId !== (project?.id ?? null)) {
+    conversationProjectVisit.current = { projectId: project?.id ?? null, generation: conversationProjectVisit.current.generation + 1 };
+  }
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
@@ -88,6 +97,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setWorkContextUnits([]);
     setSelectedWorkUnitId(null);
     setSelectedWorkEventIds([]);
+    setBusy(false);
     setError("");
   }, [project?.id]);
 
@@ -193,25 +203,31 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (ref) window.sessionStorage.setItem(key, serializeActiveStoryIntakeCandidateRef(ref));
     else window.sessionStorage.removeItem(key);
   }, [project, runtime.tianyiConversationId]);
-  const ensureConversation = useCallback(async () => {
+  const ensureConversation = useCallback(async (visit = conversationProjectVisit.current): Promise<string | null> => {
     if (!project) throw new Error(t("tianyi.workspace.noProject"));
+    if (visit.projectId !== project.id || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
     if (runtime.tianyiConversationId) return runtime.tianyiConversationId;
     const recoveredSessionId = intakeRun?.storyIntakeEnvelope?.sessionId;
     if (recoveredSessionId) {
+      if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
       runtime.setTianyiConversationId(recoveredSessionId);
       return recoveredSessionId;
     }
     const opened = await runtime.withConnection((token) => openTianyiSession(project.id, operationId("open"), token));
+    if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
     runtime.setTianyiConversationId(opened.sessionId);
     return opened.sessionId;
   }, [intakeRun?.storyIntakeEnvelope?.sessionId, project, runtime, t]);
 
-  const refresh = useCallback(async (sessionId: string, candidateId = runtime.activeTianyiCandidateId) => {
+  const refresh = useCallback(async (sessionId: string, candidateId = runtime.activeTianyiCandidateId, visit = conversationProjectVisit.current) => {
     if (!project) return;
+    const projectId = project.id;
+    if (visit.projectId !== projectId || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
     const [nextProjection, nextMetadata] = await runtime.withConnection((token) => Promise.all([
-      getTianyiCreativeProjection(project.id, sessionId, token),
-      getTianyiSessionMetadata(project.id, sessionId, token)
+      getTianyiCreativeProjection(projectId, sessionId, token),
+      getTianyiSessionMetadata(projectId, sessionId, token)
     ]));
+    if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
     setProjection(nextProjection);
     setMetadata(Array.isArray(nextMetadata) ? nextMetadata.find((item) => item.id === sessionId) ?? null : nextMetadata);
     const activeCandidate = candidateId ?? nextProjection?.candidates.find((item) => item.state === "handed-off")?.candidateId ?? null;
@@ -333,6 +349,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setBusy(true); setError("");
     try {
       const sessionId = await ensureConversation();
+      if (!sessionId) return;
       const captureOperationId = operationId("capture");
       const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
         projectId: project.id,
@@ -366,13 +383,15 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
 
   const submitConversation = async (conversationLane: "creative" | "work") => {
     const text = (conversationLane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft).trim();
-      if (!text || !project || busy) return;
+    if (!text || !project || busy) return;
+    const visit = conversationProjectVisit.current;
     setBusy(true); setError("");
     try {
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (conversationLane === "work" && workContextState === "failed") throw new Error("工作依据读取失败；草稿已保留。请重新读取正式事件后再发送，避免把失败误作无上下文。");
       if (conversationLane === "work" && runtime.workScope !== "current-story" && globalWorkEventRefs.length === 0) throw new Error("当前工作范围没有可追溯的正式事件；请选择故事单元或事件后再发送。");
-      const sessionId = await ensureConversation();
+      const sessionId = await ensureConversation(visit);
+      if (!sessionId || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       const selectedModelId = runtime.modelStatus?.profile.profile?.modelId;
       const profileId = runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
       const localFakeRuntime = dialogueRuntime === "local-fake";
@@ -395,6 +414,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           },
           token
         }));
+        if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
         if (result.status !== "current" || !result.answer) throw new Error("天意回答未完整落盘；已保留原问题，可按回执重试。");
       } else if (localFakeRuntime) {
         const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
@@ -416,11 +436,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           token
         }));
       } else throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
+      if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       if (conversationLane === "creative") runtime.setCreativeComposerDraft("");
       else runtime.setWorkComposerDraft("");
-      await refresh(sessionId);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。"); }
-    finally { setBusy(false); }
+      await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
+    } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。"); }
+    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const stopStoryIntake = async () => {

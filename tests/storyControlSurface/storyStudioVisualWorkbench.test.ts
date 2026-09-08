@@ -345,6 +345,15 @@ test("planning events can be created independently, abandoned explicitly, and ke
   assert.equal(stale.conflict, true);
 });
 
+test("planning event creation replays one durable operation without creating a duplicate", () => {
+  const input = createOperations();
+  const first = input.operations.createPlanningEvent({ projectId: input.project.id, title: "女娲候选的规划事件", body: "# 女娲候选\n\n稳定采纳正文。", tags: ["女娲候选"], operationId: "nuwa-adoption:review-a:candidate-a" });
+  const replayed = input.operations.createPlanningEvent({ projectId: input.project.id, title: "女娲候选的规划事件", body: "# 女娲候选\n\n稳定采纳正文。", tags: ["女娲候选"], operationId: "nuwa-adoption:review-a:candidate-a" });
+  assert.equal(replayed.id, first.id);
+  assert.equal(input.operations.listWorldObjects({ projectId: input.project.id, type: "event" }).filter((item) => item.title === first.title).length, 1);
+  assert.throws(() => input.operations.createPlanningEvent({ projectId: input.project.id, title: "不同负载", operationId: "nuwa-adoption:review-a:candidate-a" }), /different payload/u);
+});
+
 test("generic object update cannot promote a planned event directly to canon", () => {
   const input = createOperations();
   const planning = input.operations.createWorldObject({

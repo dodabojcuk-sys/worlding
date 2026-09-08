@@ -3,12 +3,17 @@ import { Download, FilePlus2, GitBranch, RefreshCw, ShieldCheck } from "lucide-r
 
 import { getCreationSourcePortState, listStoryUnits, runCreationSourcePortAction, type CreationSourcePortAction, type CreationSourcePortState, type StoryUnit } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
-import { isCurrentCreationSourceViewVisit, nextCreationSourceViewVisit, sameCreationSourceScope } from "./creationSourceViewVisit";
+import { creationRouteArtifactForProject, isCurrentCreationSourceViewVisit, nextCreationSourceViewVisit, sameCreationSourceScope } from "./creationSourceViewVisit";
 
 /** Renders the existing WorkVersion/OutputArtifact source projection; it owns neither. */
 export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
-  const routeArtifactId = new URL(window.location.href).searchParams.get("artifactId");
+  const route = new URL(window.location.href);
+  const routeArtifactId = route.searchParams.get("artifactId");
+  const routeProjectId = route.searchParams.get("projectId");
+  const routeArtifactScope = useRef({ projectId, artifactId: routeArtifactId });
+  if (routeArtifactScope.current.artifactId !== routeArtifactId) routeArtifactScope.current = { projectId, artifactId: routeArtifactId };
+  const projectScopedRouteArtifactId = creationRouteArtifactForProject({ currentProjectId: projectId, routeProjectId, routeArtifactId, legacyRouteProjectId: routeArtifactScope.current.projectId });
   const [state, setState] = useState<CreationSourcePortState | null>(null);
   const [storyUnits, setStoryUnits] = useState<readonly StoryUnit[]>([]);
   const [storyUnitId, setStoryUnitId] = useState<string | null>(null);
@@ -60,8 +65,14 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     readGeneration.current += 1;
     listGeneration.current += 1;
     const handoffArtifactId = projectId ? window.sessionStorage.getItem(`tianyan-creation-source-artifact:${projectId}`) : null;
-    const requestedArtifactId = handoffArtifactId || routeArtifactId;
+    const requestedArtifactId = handoffArtifactId || projectScopedRouteArtifactId;
     if (handoffArtifactId && projectId) window.sessionStorage.removeItem(`tianyan-creation-source-artifact:${projectId}`);
+    if (routeArtifactId && !projectScopedRouteArtifactId) {
+      const nextRoute = new URL(window.location.href);
+      nextRoute.searchParams.delete("artifactId");
+      nextRoute.searchParams.delete("projectId");
+      window.history.replaceState(window.history.state, "", `${nextRoute.pathname}${nextRoute.search}${nextRoute.hash}`);
+    }
     activeReadIdentity.current = creationReadIdentity({ projectId, view: requestedArtifactId ? "pinned" : "current", artifactId: requestedArtifactId ?? undefined });
     setState(null); setStoryUnits([]); setStoryUnitId(null); setEventIds([]); setView(requestedArtifactId ? "pinned" : "current"); setArtifactId(requestedArtifactId); setWriteOperation(null); setError("");
     if (projectId) {
@@ -78,7 +89,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     }
     // The selected project's identity is the read boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, routeArtifactId]);
+  }, [projectId, projectScopedRouteArtifactId, routeArtifactId]);
   const act = (action: CreationSourcePortAction) => {
     const requestedProjectId = projectId;
     if (!requestedProjectId) return;
@@ -95,7 +106,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     // durable owner intentionally rejects, so use an equally unique, bounded
     // author-action token instead of coupling this write to that platform API.
     const creationKey = action === "create-artifact" ? `author-creation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}` : undefined;
-    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId: requestedProjectId, action, storyUnitId: selectedStoryUnitId, eventIds: selectedEventIds, creationKey, token }))
+    void props.runtime.withConnection((token) => runCreationSourcePortAction({ projectId: requestedProjectId, action, storyUnitId: selectedStoryUnitId, eventIds: selectedEventIds, artifactId: artifactId ?? undefined, creationKey, token }))
       .then((next) => {
         if (!matchesVisit(visit) || activeProjectId.current !== requestedProjectId || next.project.id !== requestedProjectId) return;
         setState(next);

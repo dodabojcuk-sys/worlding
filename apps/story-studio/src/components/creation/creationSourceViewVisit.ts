@@ -13,3 +13,9 @@ export function sameCreationSourceScope(left: readonly string[], right: readonly
   if (left.length !== right.length) return false;
   return [...left].sort().every((id, index) => id === [...right].sort()[index]);
 }
+
+export function creationRouteArtifactForProject(input: { currentProjectId: string | null; routeProjectId: string | null; routeArtifactId: string | null; legacyRouteProjectId: string | null }) {
+  if (!input.routeArtifactId) return null;
+  const boundProjectId = input.routeProjectId || input.legacyRouteProjectId;
+  return boundProjectId === input.currentProjectId ? input.routeArtifactId : null;
+}

@@ -187,6 +187,37 @@ test("N1 cancellation wins over a late adapter result and repeated operation IDs
   });
 });
 
+test("N1 refuses a different operation while a persisted Provider attempt is still pending", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start.pending-fence" });
+    let release: (() => void) | null = null;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let requestSeen: (() => void) | null = null;
+    const seen = new Promise<void>((resolve) => { requestSeen = resolve; });
+    const delayed: NuwaN1ExecutionAdapter = {
+      adapterId: "local-fake.pending-fence",
+      async request(context) { requestSeen?.(); await held; return { type: "tool-request", toolName: "read_role_context", requestId: "tool.pending-fence", actor: context.actor }; },
+      async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
+      async continueAfterTool({ context }) { return { type: "actor-result", actor: context.actor, intent: "完成原操作", speech: null, action: { action: "observe", targetId: null }, observableResult: "原操作完成。" }; }
+    };
+    const inFlight = advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n1.pending.original", adapter: delayed });
+    await seen;
+    const persisted = readNuwaN1Run(workspace, run.runId)!;
+    assert.equal(persisted.attempts[0]?.outcome, "pending");
+    let secondAdapterCalls = 0;
+    const second: NuwaN1ExecutionAdapter = {
+      adapterId: "local-fake.must-not-dispatch",
+      async request() { secondAdapterCalls += 1; throw new Error("must not dispatch"); },
+      async executeTool() { throw new Error("must not execute"); },
+      async continueAfterTool() { throw new Error("must not continue"); }
+    };
+    await assert.rejects(() => advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: persisted.revision, operationId: "operation.n1.pending.second", adapter: second }), /persisted pending attempt/u);
+    assert.equal(secondAdapterCalls, 0);
+    release?.();
+    await inFlight;
+  });
+});
+
 test("N1 cold reads replay no dispatch and selected steps build candidate-only handoff", async () => {
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });

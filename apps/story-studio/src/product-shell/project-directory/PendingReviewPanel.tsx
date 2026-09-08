@@ -106,33 +106,50 @@ function GoldenCandidateAdoptionCard(props: {
   const [targetUnitId, setTargetUnitId] = useState("");
   const receipt = props.reviewCandidate.confirmationReceipt;
   const projectId = props.runtime.project?.id ?? null;
+  const activeProjectId = useRef(projectId);
+  activeProjectId.current = projectId;
   const refreshProgress = useCallback(async () => {
     if (!projectId || !receipt?.impactReviewId) { setImpact(null); setChangeSet(null); return; }
+    const requestedProjectId = projectId;
     const [nextImpact, nextChangeSet] = await Promise.all([
-      getImpactReview(projectId, receipt.impactReviewId),
-      getAuthorChangeSet(projectId)
+      getImpactReview(requestedProjectId, receipt.impactReviewId),
+      getAuthorChangeSet(requestedProjectId)
     ]);
+    if (activeProjectId.current !== requestedProjectId) return;
     setImpact(nextImpact);
     setChangeSet(nextChangeSet?.reviewId === receipt.impactReviewId ? nextChangeSet : null);
   }, [projectId, receipt?.impactReviewId]);
-  useEffect(() => { void refreshProgress().catch(() => { setImpact(null); setChangeSet(null); }); }, [refreshProgress]);
+  useEffect(() => {
+    let active = true;
+    setImpact(null); setChangeSet(null);
+    void refreshProgress().catch(() => { if (active && activeProjectId.current === projectId) { setImpact(null); setChangeSet(null); } });
+    return () => { active = false; };
+  }, [projectId, refreshProgress]);
   useEffect(() => {
     if (!projectId) { setStoryUnits([]); setTargetUnitId(""); return; }
+    let active = true;
+    setStoryUnits([]); setTargetUnitId("");
     void listStoryUnits(projectId).then((items) => {
-      const active = items.filter((item) => item.lifecycle !== "archived");
-      setStoryUnits(active);
-      setTargetUnitId((current) => active.some((item) => item.id === current) ? current : active[0]?.id ?? "");
-    }).catch(() => { setStoryUnits([]); setTargetUnitId(""); });
+      if (!active || activeProjectId.current !== projectId) return;
+      const activeUnits = items.filter((item) => item.lifecycle !== "archived");
+      setStoryUnits(activeUnits);
+      setTargetUnitId((current) => activeUnits.some((item) => item.id === current) ? current : activeUnits[0]?.id ?? "");
+    }).catch(() => { if (active && activeProjectId.current === projectId) { setStoryUnits([]); setTargetUnitId(""); } });
+    return () => { active = false; };
   }, [projectId]);
   const run = async (operation: (token: string) => Promise<void>) => {
     if (busy) return;
+    const requestedProjectId = projectId;
+    if (!requestedProjectId) return;
     setBusy(true); setError("");
     try {
       await props.runtime.withConnection(operation);
+      if (activeProjectId.current !== requestedProjectId) return;
       await props.onChanged();
+      if (activeProjectId.current !== requestedProjectId) return;
       await refreshProgress();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "候选采纳没有完成；正式故事未被静默改写。"); }
-    finally { setBusy(false); }
+    } catch (cause) { if (activeProjectId.current === requestedProjectId) setError(cause instanceof Error ? cause.message : "候选采纳没有完成；正式故事未被静默改写。"); }
+    finally { if (activeProjectId.current === requestedProjectId) setBusy(false); }
   };
   if (!projectId) return null;
   const selectedOption = impact?.options.find((option) => option.selected) ?? impact?.options[0] ?? null;
@@ -148,7 +165,7 @@ function GoldenCandidateAdoptionCard(props: {
     <p>女娲来源：Run {props.review.result.nuwaRunId} · Candidate {props.candidate.id}。关系候选仍须由 Relation Owner 单独确认，不会从共同出场推断。</p>
     <ol aria-label="候选采纳进度"><li className="is-complete">候选审阅</li><li className={receipt ? "is-complete" : ""}>影响预览</li><li className={impact?.status === "selected" || changeSet ? "is-complete" : ""}>作者选择</li><li className={changeSet?.status === "applied" ? "is-complete" : ""}>正式 Event</li></ol>
     {candidateAwaiting ? <button type="button" disabled={busy} onClick={() => void run(async (token) => {
-      const planning = await createPlanningEvent({ projectId, title: props.candidate.title, body: planningBody, tags: ["女娲候选", "待作者审查"], token });
+      const planning = await createPlanningEvent({ projectId, title: props.candidate.title, body: planningBody, tags: ["女娲候选", "待作者审查"], operationId: `nuwa-adoption:${props.review.id}:${props.candidate.id}`, token });
       const nextImpact = await createPlanningEventImpactReview(projectId, planning.id, token);
       await decideGoldenLoopCandidateReview({ projectId, reviewId: props.review.id, candidateId: props.candidate.id, decision: "accepted", confirmationReceipt: { planningEventId: planning.id, impactReviewId: nextImpact.id, contextReceiptId: props.review.result.contextReceiptId, nuwaRunId: props.review.result.nuwaRunId }, token });
     })}>确认候选并打开影响预览</button> : null}
@@ -180,17 +197,21 @@ export function PendingReviewPanel(props: {
 }) {
   const { t } = useI18n();
   const [items, setItems] = useState<PendingItem[]>([]);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const reloadSequence = useRef(0);
+  const projectId = props.runtime.project?.id ?? null;
+  const activeProjectId = useRef(projectId);
+  activeProjectId.current = projectId;
 
   const reload = useCallback(async () => {
     const loadId = ++reloadSequence.current;
-    if (!props.runtime.project) { setItems([]); setLoading(false); return; }
+    if (!props.runtime.project) { setItems([]); setLoadedProjectId(null); setLoading(false); return; }
+    const projectId = props.runtime.project.id;
     setLoading(true);
     try {
-      const projectId = props.runtime.project.id;
       const workVersionId = props.runtime.workVersionId;
       const [imports, golden, proposals, relations, storyIntakeRuns] = await Promise.all([
         listSourceImportReviews(projectId),
@@ -199,7 +220,7 @@ export function PendingReviewPanel(props: {
         listRelations({ projectId, reviewState: "candidate" }),
         workVersionId ? props.runtime.withConnection((token) => getTianyiStoryIntakeRuns({ projectId, workVersionId, token })) : Promise.resolve([])
       ]);
-      if (loadId !== reloadSequence.current) return;
+      if (loadId !== reloadSequence.current || activeProjectId.current !== projectId) return;
       const sourceItems = imports.flatMap((document) => document.candidates
         .filter((candidate) => candidate.status === "pending")
         .map((candidate): PendingItem => ({
@@ -274,19 +295,28 @@ export function PendingReviewPanel(props: {
           }));
       });
       setItems([...storyIntakeItems, ...sourceItems, ...goldenItems, ...agentItems, ...relationItems]);
+      setLoadedProjectId(projectId);
     } catch {
-      if (loadId === reloadSequence.current) setNotice(t("directory.unavailable"));
+      if (loadId === reloadSequence.current && activeProjectId.current === projectId) setNotice(t("directory.unavailable"));
     } finally {
-      if (loadId === reloadSequence.current) setLoading(false);
+      if (loadId === reloadSequence.current && activeProjectId.current === projectId) setLoading(false);
     }
   }, [props.runtime, t]);
 
+  useEffect(() => { reloadSequence.current += 1; setItems([]); setLoadedProjectId(null); setNotice(null); setBusy(null); }, [projectId]);
   useEffect(() => { void reload(); }, [reload]);
   const perform = async (id: string, action: () => Promise<void>) => {
+    const requestedProjectId = activeProjectId.current;
+    if (!requestedProjectId) return;
     setBusy(id); setNotice(null);
-    try { await action(); window.dispatchEvent(new Event("story-studio-pending-review-changed")); await reload(); }
-    catch (error) { setNotice(error instanceof Error ? error.message : t("pending.actionFailed")); }
-    finally { setBusy(null); }
+    try {
+      await action();
+      if (activeProjectId.current !== requestedProjectId) return;
+      window.dispatchEvent(new Event("story-studio-pending-review-changed"));
+      await reload();
+    }
+    catch (error) { if (activeProjectId.current === requestedProjectId) setNotice(error instanceof Error ? error.message : t("pending.actionFailed")); }
+    finally { if (activeProjectId.current === requestedProjectId) setBusy(null); }
   };
   const openSource = (item: PendingItem) => {
     if (!props.runtime.project || !item.sourceDocumentId) return;
@@ -305,7 +335,7 @@ export function PendingReviewPanel(props: {
     await props.runtime.withConnection((token) => confirmRelationCandidate({ projectId: props.runtime.project!.id, relationId: item.relation!.relationId, expectedRelationRevision: item.relation!.revision, operationId: `directory-confirm-relation-${item.relation!.relationId}-${item.relation!.revision}`, token }));
   };
 
-  if (loading) return <p className="project-directory-empty">{t("common.loading")}</p>;
+  if (loading || loadedProjectId !== projectId) return <p className="project-directory-empty">{t("common.loading")}</p>;
   return <section className="pending-review-panel" aria-label={t("directory.pending")} data-story-fact-owner="false">
     {notice && <p className="pending-review-notice" role="status">{notice}</p>}
     {!items.length && <p className="project-directory-empty">{t("pending.empty")}</p>}

@@ -2802,20 +2802,36 @@ export function createStoryStudioWorkspaceOperations(input: {
       title: string;
       body?: string;
       tags?: string[];
+      operationId?: string;
     }): StoryStudioWorldObject {
       const title = requireText(planningInput.title, "Planning event title", 100);
+      const body = typeof planningInput.body === "string" ? planningInput.body : `# ${title}\n\n`;
+      const operationTag = planningInput.operationId
+        ? `planning-operation:${createHash("sha256").update(`${planningInput.projectId}\u0000${requireText(planningInput.operationId, "Planning event operation", 180)}`, "utf8").digest("hex").slice(0, 32)}`
+        : null;
       const tags = [
         "作者规划",
         ...requireStringList(planningInput.tags, "Planning event tags")
-          .filter((tag) => tag !== "作者规划" && tag !== "作者确认")
+          .filter((tag) => tag !== "作者规划" && tag !== "作者确认"),
+        ...(operationTag ? [operationTag] : [])
       ];
+      if (operationTag) {
+        const projectPath = resolveProjectPath(rootPath, planningInput.projectId);
+        const matches = listObjectSummaries(projectPath).filter((item) => item.type === "event" && item.tags.includes(operationTag));
+        if (matches.length > 1) throw new Error("Planning event operation resolves to multiple durable objects.");
+        if (matches[0]) {
+          const existing = readProductObject(projectPath, matches[0].id);
+          if (existing.title !== title || existing.body.trimEnd() !== body.trimEnd() || stableJson([...existing.tags].sort()) !== stableJson([...tags].sort())) throw new Error("Planning event operation was already used with a different payload.");
+          return existing;
+        }
+      }
       return this.createWorldObject({
         projectId: planningInput.projectId,
         type: "event",
         title,
         status: "planned",
         tags,
-        body: typeof planningInput.body === "string" ? planningInput.body : `# ${title}\n\n`
+        body
       });
     },
 

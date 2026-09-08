@@ -1817,7 +1817,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/planning-events/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "title", "body", "tags"]);
+    requireAllowedKeys(body, ["projectId", "title", "body", "tags", "operationId"]);
     recordAuthorInitiatedAction(body.projectId, "event-impact-review", "event", [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createPlanningEvent(body)) });
     return;
@@ -2297,7 +2297,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname.startsWith("/__local/story-studio/creation/source/")) {
     requireToken(request);
     const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
-    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "title", "text", "selectedDifferenceIds", "expectedRootRevision", "creationKey"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "artifactId", "title", "text", "selectedDifferenceIds", "expectedRootRevision", "creationKey"]);
     const action = pathname.slice("/__local/story-studio/creation/source/".length);
     const scope = { workVersionId: body.workVersionId, storyUnitId: body.storyUnitId, eventIds: body.eventIds };
     const operation = action === "create-root"
@@ -2305,21 +2305,22 @@ async function handleProductRequest(request, response, url) {
       : action === "create-artifact"
         ? () => creationSourceSelectionPort.createArtifact(body.projectId, { ...scope, title: body.title, creationKey: body.creationKey })
         : action === "save-artifact"
-          ? () => creationSourceSelectionPort.saveArtifact(body.projectId, body.text)
+          ? () => creationSourceSelectionPort.saveArtifact(body.projectId, body.text, body.artifactId)
           : action === "reconcile-source"
             ? () => creationSourceSelectionPort.reconcileSource(body.projectId, {
               selectedDifferenceIds: body.selectedDifferenceIds,
-              expectedRootRevision: body.expectedRootRevision
+              expectedRootRevision: body.expectedRootRevision,
+              artifactId: body.artifactId
             })
             : action === "recover-source"
-              ? () => creationSourceSelectionPort.recoverSourceReconciliation(body.projectId)
+              ? () => creationSourceSelectionPort.recoverSourceReconciliation(body.projectId, body.artifactId)
               : null;
     if (!operation) throw productError("Creation source action does not exist.", 404);
     recordAuthorInitiatedAction(body.projectId, "draft-write", `creation-source-${action}`, [String(body.projectId)], "author");
     const result = await runAsyncProductOperation(operation);
     const responseScope = action === "create-artifact" && result?.id
       ? { ...scope, view: "pinned", artifactId: result.id }
-      : scope;
+      : body.artifactId ? { ...scope, view: "pinned", artifactId: body.artifactId } : scope;
     sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(body.projectId, responseScope)) });
     return;
   }

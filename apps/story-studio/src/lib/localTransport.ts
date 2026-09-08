@@ -1940,7 +1940,7 @@ export async function getCreationSourcePortState(input: { projectId: string; wor
   return request<CreationSourcePortState>(`${basePath}/creation/source?${query.toString()}`);
 }
 
-export async function runCreationSourcePortAction(input: { projectId: string; action: CreationSourcePortAction; workVersionId?: string; storyUnitId?: string; eventIds?: string[]; title?: string; text?: string; selectedDifferenceIds?: string[]; expectedRootRevision?: number; creationKey?: string; token: string }): Promise<CreationSourcePortState> {
+export async function runCreationSourcePortAction(input: { projectId: string; action: CreationSourcePortAction; workVersionId?: string; storyUnitId?: string; eventIds?: string[]; artifactId?: string; title?: string; text?: string; selectedDifferenceIds?: string[]; expectedRootRevision?: number; creationKey?: string; token: string }): Promise<CreationSourcePortState> {
   const { token, action, ...body } = input;
   return request<CreationSourcePortState>(`${basePath}/creation/source/${action}`, { method: "POST", token, body });
 }
@@ -2715,6 +2715,7 @@ export async function createPlanningEvent(input: {
   title: string;
   body?: string;
   tags?: string[];
+  operationId?: string;
   token: string;
 }): Promise<WorldObject> {
   const { token, ...body } = input;

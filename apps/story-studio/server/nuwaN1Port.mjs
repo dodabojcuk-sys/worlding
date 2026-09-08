@@ -100,6 +100,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function create(input) {
     requireExecutionAvailability();
     const prepared = setup(input);
+    const sourceIdentity = sourceIdentityForProject(input.projectId);
+    if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && (sourceIdentity?.kind !== "root" || !Number.isSafeInteger(Number(sourceIdentity.revision)))) {
+      throw failure("女娲高权限排演必须先绑定当前作品的正式主版本；未建立主版本时不会建立 Run 或授权。", 409);
+    }
     const relationType = resolveRelationType(input.projectId, input);
     const workspace = workspacePath(input.projectId);
     const snapshot = buildStorySnapshot({ workspacePath: workspace });
@@ -126,7 +130,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       workspacePath: workspace,
       runId: plan.runId,
       sourceSnapshotHash: snapshot.snapshotHash,
-      sourceIdentity: sourceIdentityForProject(input.projectId),
+      sourceIdentity,
       scene: {
         ...resolveScene(input.projectId, input.storyUnit),
         observedAt: now()
@@ -145,6 +149,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
 
   function ensureFullAccessAuthorization(projectId, runId, prepared, relationType, operationId) {
     if (actionPermissionBroker?.read(projectId).profile !== "full-access") return;
+    const sourceIdentity = requireRun(workspacePath(projectId), runId).sourceIdentity;
+    if (sourceIdentity?.kind !== "root" || !Number.isSafeInteger(Number(sourceIdentity.revision))) {
+      throw failure("这份排演没有冻结正式主版本身份；已拒绝补发高权限授权。", 409);
+    }
     const expectedActorIds = prepared.setup.participants.map((actor) => actor.id);
     const authorization = actionPermissionBroker.grantNuwaFullAccess({
       projectId,

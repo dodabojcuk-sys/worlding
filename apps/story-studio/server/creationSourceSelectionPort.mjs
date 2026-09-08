@@ -279,9 +279,9 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     throw new Error("Unexpected root WorkVersion revision during Creation reconciliation.");
   }
 
-  function saveArtifact(projectId, text = "雨声停在窗沿，沈砚把旧名守夜记录轻轻压在灯下。") {
-    const artifact = requireBoundArtifact(projectId);
-    const revisionOperationId = `${SAVE_OPERATION_ID}:${projectId}`;
+  function saveArtifact(projectId, text = "雨声停在窗沿，沈砚把旧名守夜记录轻轻压在灯下。", artifactId = null) {
+    const artifact = requireBoundArtifact(projectId, artifactId);
+    const revisionOperationId = `${SAVE_OPERATION_ID}:${projectId}:${artifact.id}`;
     if (artifact.currentRevisionId === `artifact-revision.${sha256(revisionOperationId).slice(0, 32)}`) return artifact;
     const model = readNovelDocumentModel(artifact.structure);
     if (!model) throw new Error("当前创作稿无法使用现有正文修订边界。");
@@ -366,21 +366,22 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   async function reconcileSource(projectId, input = {}) {
     const versionAuthority = authority(projectId);
     let root = versionAuthority.listVersions().find((item) => item.identity.kind === "root");
-    let artifact = requireBoundArtifact(projectId);
+    const artifactId = input.artifactId || null;
+    let artifact = requireBoundArtifact(projectId, artifactId);
     let binding = artifact.provenance.workVersionSource;
     if (!root || !binding) throw new Error("Creation source reconciliation requires one bound root WorkVersion artifact.");
     if (binding.sourceReconciliationReceipt && binding.pinnedRevision === 3) {
-      recoverSourceReconciliation(projectId);
-      return requireBoundArtifact(projectId);
+      recoverSourceReconciliation(projectId, artifact.id);
+      return requireBoundArtifact(projectId, artifact.id);
     }
     const expectedRootRevision = Number(input.expectedRootRevision);
     if (expectedRootRevision !== 3 || root.identity.currentRevision !== expectedRootRevision) {
       throw new Error("主线已再次更新，请重新核对");
     }
     if (binding.pinnedRevision !== 1) throw new Error("当前来源历史不符合本轮重新核对边界。");
-    const validation = (await read(projectId)).sourceValidation;
+    const validation = (await read(projectId, { view: "pinned", artifactId: artifact.id })).sourceValidation;
     if (validation?.status !== "historical_valid" || !validation.sourceDependentOperationsAllowed) throw new Error("The historical source is not valid for reconciliation.");
-    const compare = await sourceDriftCompare(projectId);
+    const compare = await sourceDriftCompare(projectId, { artifactId: artifact.id });
     const confirmedDifferenceIds = validateCreationSourceReconciliationSelection(compare, input.selectedDifferenceIds || []);
     const operationId = `${RECONCILE_SOURCE_OPERATION_ID}:${projectId}`;
     const appendKey = `creation-source-r0:root-r4:${projectId}:${operationId}`;
@@ -440,16 +441,16 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (updated.conflict) throw new Error("OutputArtifact optimistic concurrency conflict during source reconciliation.");
     artifact = updated.artifact;
     faultInjector("after-source-reconciliation-artifact-append", { projectId, artifactId: artifact.id });
-    recoverSourceReconciliation(projectId);
+    recoverSourceReconciliation(projectId, artifact.id);
     root = versionAuthority.listVersions().find((item) => item.identity.kind === "root");
     faultInjector("after-source-reconciliation-work-version-append", { projectId, rootRevision: root?.identity.currentRevision });
     return artifact;
   }
 
-  function recoverSourceReconciliation(projectId) {
+  function recoverSourceReconciliation(projectId, artifactId = null) {
     const versionAuthority = authority(projectId);
     const root = versionAuthority.listVersions().find((item) => item.identity.kind === "root");
-    const artifact = requireBoundArtifact(projectId);
+    const artifact = requireBoundArtifact(projectId, artifactId);
     const binding = artifact.provenance.workVersionSource;
     const receipt = binding?.sourceReconciliationReceipt;
     if (!root || !binding || !receipt) return { reconciled: false, reason: "nothing-to-reconcile" };

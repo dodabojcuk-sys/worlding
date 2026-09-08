@@ -119,6 +119,12 @@ test("multiple fixed artifacts require an explicit selection while current and a
     const second = await value.adapter.createArtifact(value.projectId, { creationKey: "author-fixed-two" });
     assert.notEqual(first.id, second.id, "each explicit author action owns one independently addressable fixed artifact");
 
+    const savedFirst = value.adapter.saveArtifact(value.projectId, "FIRST_ARTIFACT_BODY", first.id);
+    const savedSecond = value.adapter.saveArtifact(value.projectId, "SECOND_ARTIFACT_BODY", second.id);
+    assert.match(savedFirst.content, /FIRST_ARTIFACT_BODY/u);
+    assert.match(savedSecond.content, /SECOND_ARTIFACT_BODY/u);
+    assert.throws(() => value.adapter.saveArtifact(value.projectId), /必须指定 artifactId/u, "a production write cannot choose one of several fixed artifacts by list order");
+
     const ambiguous = await value.adapter.read(value.projectId);
     assert.equal(ambiguous.packageMode, "blocked");
     assert.equal(ambiguous.artifacts.length, 2);
@@ -141,6 +147,27 @@ test("multiple fixed artifacts require an explicit selection while current and a
     assert.equal(pinnedAfterArchive.packageMode, "pinned-artifact");
     assert.equal(pinnedAfterArchive.package?.storyMarkdown, firstPinned.package?.storyMarkdown, "the saved package remains the source even after its live Story Unit is archived");
     assert.equal(pinnedAfterArchive.package?.scope.label, firstPinned.package?.scope.label);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("multi-artifact save, reconciliation, and recovery stay on the explicitly selected artifact", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const first = await value.adapter.createArtifact(value.projectId, { creationKey: "author-reconcile-one" });
+    const second = await value.adapter.createArtifact(value.projectId, { creationKey: "author-reconcile-two" });
+    const savedFirst = value.adapter.saveArtifact(value.projectId, "FIRST_RECONCILE_BODY", first.id);
+    const savedSecond = value.adapter.saveArtifact(value.projectId, "SECOND_RECONCILE_BODY", second.id);
+    value.adapter.advanceRoot(value.projectId);
+    const compare = await value.adapter.sourceDriftCompare(value.projectId, { artifactId: first.id });
+    await assert.rejects(() => value.adapter.reconcileSource(value.projectId, { selectedDifferenceIds: compare.confirmableDifferenceIds.slice(0, 1), expectedRootRevision: 3 }), /必须指定 artifactId/u);
+    const reconciled = await value.adapter.reconcileSource(value.projectId, { artifactId: first.id, selectedDifferenceIds: compare.confirmableDifferenceIds.slice(0, 1), expectedRootRevision: 3 });
+    assert.equal(reconciled.id, first.id);
+    assert.equal(value.adapter.recoverSourceReconciliation(value.projectId, first.id).reason, "already-complete");
+    assert.match(value.operations.readOutputArtifact({ projectId: value.projectId, artifactId: first.id }).content, /FIRST_RECONCILE_BODY/u);
+    const untouchedSecond = value.operations.readOutputArtifact({ projectId: value.projectId, artifactId: second.id });
+    assert.equal(untouchedSecond.currentRevisionId, savedSecond.currentRevisionId);
+    assert.equal(savedFirst.id, first.id);
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
@@ -186,7 +213,7 @@ test("artifact save uses optimistic concurrency and duplicate operation creates 
       title: saved.title,
       content: saved.content,
       structure: saved.structure,
-      revisionOperationId: `author.creation-source.save-artifact-r2.r0:${value.projectId}`
+      revisionOperationId: `author.creation-source.save-artifact-r2.r0:${value.projectId}:${saved.id}`
     });
     const view = await value.adapter.read(value.projectId);
     assert.equal(saved.id, repeated.id);

@@ -234,6 +234,7 @@ export function cueNuwaN1Run(input: { workspacePath: string; runId: string; expe
 export async function advanceNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; adapter: NuwaN1ExecutionAdapter; now?: string }): Promise<NuwaN1Run> {
   const initial = requireRun(input.workspacePath, input.runId);
   if (initial.receipts.some((receipt) => receipt.operationId === input.operationId) || initial.attempts.some((attempt) => attempt.operationId === input.operationId)) return initial;
+  if (initial.attempts.some((attempt) => attempt.outcome === "pending")) throw new Error("Nuwa N1 has a persisted pending attempt; recover or cancel it before starting another Provider operation.");
   if (initial.revision !== input.expectedRevision) throw new Error("Nuwa N1 revision conflict.");
   if (initial.lifecycle !== "running") throw new Error("Nuwa N1 Run is not running.");
   if (initial.providerDispatchEvidence === "unknown") return persist(input, initial, "step", {

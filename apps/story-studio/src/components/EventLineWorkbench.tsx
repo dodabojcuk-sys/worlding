@@ -257,6 +257,7 @@ export function EventLineWorkbench(props: {
   useEffect(() => {
     if (!advancedView || projectionMode !== "perspective") return;
     let cancelled = false;
+    setPerspectiveOwnerProjection(null);
     void getEventStoryCrossingKnowledgeProjection(props.projectId, "author", []).then((projection) => {
       if (!cancelled) setPerspectiveOwnerProjection(projection);
     }).catch(() => {

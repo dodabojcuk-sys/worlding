@@ -46,26 +46,31 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [interrupting, setInterrupting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [queuedParticipantId, setQueuedParticipantId] = useState<string | null>(null);
 
   useEffect(() => {
     operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
     if (!projectId) return () => { active = false; };
     void Promise.all([getNuwaN1Bootstrap(projectId), getNuwaN1Latest(projectId)]).then(([nextBootstrap, latest]) => {
       if (!active) return;
       setBootstrap(nextBootstrap);
       setRun(latest.run ? latest : null);
       const requestedParticipantId = window.sessionStorage.getItem(`tianyan-nuwa-n1-preselect:${projectId}`);
-      const requestedParticipant = !latest.run && requestedParticipantId && nextBootstrap.participants.some((participant) => participant.id === requestedParticipantId) ? requestedParticipantId : null;
-      if (requestedParticipantId) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
+      const requestedParticipant = requestedParticipantId && nextBootstrap.participants.some((participant) => participant.id === requestedParticipantId) ? requestedParticipantId : null;
+      const queuedParticipant = latest.run ? requestedParticipant : null;
+      setQueuedParticipantId(queuedParticipant);
+      if (requestedParticipantId && (!requestedParticipant || !latest.run)) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? (requestedParticipant ? [requestedParticipant] : []));
       setStoryUnitId(nextBootstrap.storyUnits[0]?.id ?? "");
       setRelationTypeId(nextBootstrap.relationTypes.length === 1 ? nextBootstrap.relationTypes[0]!.id : null);
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
       setSelectedStepIds(latest.run?.steps.slice(-1).map((step) => step.stepId) ?? []);
       setSelectedStepId(latest.run?.steps.at(-1)?.stepId ?? null);
-      if (requestedParticipant) setNotice(`已从角色档案加入 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；再选择 1–2 位正式角色即可开始。`);
+      if (requestedParticipant) setNotice(latest.run
+        ? `已从角色档案保留 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；新建排演时会自动加入。`
+        : `已从角色档案加入 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；再选择 1–2 位正式角色即可开始。`);
     }).catch((reason: unknown) => {
       if (active) setError(messageFor(reason, "女娲工作面未能读取本地作品；现有作品没有被修改。"));
     });
@@ -171,6 +176,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const beginAnotherRun = () => {
     setRun(null); setSetup(null); setSelectedStepIds([]); setSelectedStepId(null); setCue(""); setError(null);
+    if (queuedParticipantId && projectId) {
+      setParticipantIds([queuedParticipantId]);
+      window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
+      const participant = bootstrap?.participants.find((item) => item.id === queuedParticipantId);
+      setQueuedParticipantId(null);
+      setNotice(`旧 Run 仍可从运行记录回看；已将 ${participant?.title ?? "角色档案中的角色"} 加入新排演。`);
+      return;
+    }
     setNotice("旧 Run 仍可从运行记录回看；现在可以按当前作品范围建立新排演。");
   };
   const sendCue = (event: FormEvent) => {
@@ -232,7 +245,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     // Keep the exact pinned identity in the route as well as the one-shot
     // handoff.  A Creation mount may otherwise see several historical drafts
     // after a refresh and correctly refuse to guess which one to open.
-    window.location.assign(`/creation?artifactId=${encodeURIComponent(artifactId)}`);
+    window.location.assign(`/creation?projectId=${encodeURIComponent(projectId)}&artifactId=${encodeURIComponent(artifactId)}`);
   };
 
   if (!projectId) return <NuwaUnavailable title="先打开一个作品" detail="女娲排演必须绑定当前作品、正式角色和故事单元；这里不会创建独立的故事副本或角色仓库。" />;

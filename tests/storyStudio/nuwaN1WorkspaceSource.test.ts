@@ -53,3 +53,12 @@ test("Nuwa N1 discards operation completions after the active project scope chan
   assert.match(workspace, /if \(!isCurrentOperation\(scope\)\) return/u);
   assert.match(workspace, /if \(isCurrentOperation\(scope\)\) setBusy\(false\)/u);
 });
+
+test("Nuwa N1 keeps a role handoff queued until the author starts a new run", () => {
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+
+  assert.match(workspace, /const \[queuedParticipantId, setQueuedParticipantId\]/u);
+  assert.match(workspace, /const queuedParticipant = latest\.run \? requestedParticipant : null/u);
+  assert.match(workspace, /setParticipantIds\(\[queuedParticipantId\]\)/u);
+  assert.match(workspace, /window\.sessionStorage\.removeItem\(`tianyan-nuwa-n1-preselect:/u, "the one-shot handoff is consumed only after it is applied to a setup");
+});

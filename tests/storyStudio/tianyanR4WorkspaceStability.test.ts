@@ -37,8 +37,12 @@ test("R4 review follow-up keeps directory ownership and async project fences in 
   assert.match(shell, /destination === "event-line" && focusLayout !== "wide"\) setWorkspaceDirectorySuppressed\(true\)/u);
   assert.match(pending, /reloadSequence/u);
   assert.match(pending, /loadId !== reloadSequence\.current/u);
+  assert.match(pending, /activeProjectId\.current !== projectId/u, "a previous project's inbox response cannot publish into the current project");
+  assert.match(pending, /operationId: `nuwa-adoption:/u, "candidate adoption has a durable planning-event operation identity");
   assert.match(tianyi, /workContextVisit/u);
   assert.match(tianyi, /library\.project\.id !== projectId/u);
+  assert.match(tianyi, /conversationProjectVisit/u);
+  assert.match(tianyi, /sameConversationProjectVisit/u, "a delayed work-lane reply cannot clear or refresh the next project's composer");
   assert.match(eventLine, /eventRevisionKey/u);
   assert.match(eventLine, /loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey/u);
   assert.match(shell, /locationRevision=\{locationRevision\}/u);
@@ -110,6 +114,7 @@ test("R4 advanced perspective receives stable Owner evidence rather than display
   const workbench = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
   const contract = source("src/storyContracts/eventPerspectiveProjection.ts");
   assert.match(workbench, /getEventStoryCrossingKnowledgeProjection\(props\.projectId, "author", \[\]\)/u);
+  assert.match(workbench, /setPerspectiveOwnerProjection\(null\);\s*void getEventStoryCrossingKnowledgeProjection/u, "old project Owner evidence is cleared before the next perspective read");
   assert.match(workbench, /knowledgeProjection=\{perspectiveOwnerProjection\}/u);
   assert.match(workbench, /perspectiveEventsFromKnowledgeProjection\(props\.events, props\.knowledgeProjection\)/u);
   assert.match(contract, /participantSubjectIds/u);

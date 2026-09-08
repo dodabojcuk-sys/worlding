@@ -123,6 +123,21 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   });
   assert.equal(crossProject.status, 409);
 
+  assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.otherProject.id, profile: "full-access" })).status, 200);
+  const otherCurrentCharacters = value.otherCharacters.map((character) => value.operations.readWorldObject({ projectId: value.otherProject.id, objectId: character.id }));
+  const otherCurrentUnit = value.operations.readStoryUnit({ projectId: value.otherProject.id, unitId: value.otherUnit.id });
+  const unversionedFullAccess = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", {
+    projectId: value.otherProject.id,
+    participants: otherCurrentCharacters.map((character) => ({ id: character.id, revision: character.revisionToken })),
+    storyUnit: { id: otherCurrentUnit.id, revision: otherCurrentUnit.version },
+    goal: "没有正式主版本时不得授予自动写入权限。",
+    operationId: "unversioned-full-access-must-block"
+  });
+  assert.equal(unversionedFullAccess.status, 409, JSON.stringify(unversionedFullAccess.payload));
+  assert.match(JSON.stringify(unversionedFullAccess.payload), /正式主版本/u);
+  const noUnversionedRun = await getJson(enabled.baseUrl, `/__local/story-studio/nuwa-n1/latest?projectId=${value.otherProject.id}`);
+  assert.equal((noUnversionedRun.payload.data as NuwaReadModel).run, null, "the rejected full-access request cannot leave an unversioned Run behind");
+
   child.kill("SIGTERM");
   await once(child, "exit");
   const restarted = await start(value, true);
