@@ -78,6 +78,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const scene = resolveScene(input.projectId, input.storyUnit);
     const actors = resolveActors(input.projectId, input.participants, scene);
     const goal = requiredText(input.goal, "局部目标", 1_000);
+    const previewRun = { runId: `nuwa-n1-preview.${createHash("sha256").update(`${project.id}:${scene.storyUnit.id}:${goal}`).digest("hex").slice(0, 20)}`, actors, scene, authorGoal: goal, steps: [], providerDispatches: 0, pendingCue: null };
     return {
       version: VERSION,
       availability: availability(),
@@ -86,16 +87,20 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         participants: actors.map((actor) => ({ id: actor.character.id, title: actor.displayName, revision: actor.character.revision, localGoal: actor.localGoal })),
         storyUnit: { id: scene.storyUnit.id, title: scene.label, revision: scene.storyUnit.revision },
         goal,
-        contextPreview: actors.map((actor) => ({
-          actorId: actor.character.id,
-          localGoal: actor.localGoal,
-          coreSummary: actor.coreSummary,
-          profileBasis: actor.profileBasis,
-          evidenceRefs: [...actor.knownFacts.map((fact) => fact.sourceRef.id), ...actor.beliefs.map((belief) => belief.sourceRef.id)],
-          knowledgeItems: actor.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
-          beliefItems: actor.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
-          excludedCount: actor.unknownFactIds.length
-        }))
+        contextPreview: actors.map((actor) => {
+          const context = compileNuwaN1Context(previewRun, actor, `nuwa-n1.preview.${createHash("sha256").update(`${project.id}:${actor.character.id}:${goal}`).digest("hex").slice(0, 24)}`);
+          return {
+            actorId: actor.character.id,
+            localGoal: context.localGoal,
+            coreSummary: context.coreSummary,
+            profileBasis: context.profileBasis,
+            attention: context.attention,
+            evidenceRefs: [...context.knownFacts.map((fact) => fact.sourceId), ...context.beliefs.map((belief) => belief.sourceId)],
+            knowledgeItems: context.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
+            beliefItems: context.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
+            excludedCount: actor.unknownFactIds.length
+          };
+        })
       }
     };
   }
@@ -740,6 +745,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
             localGoal: context.localGoal,
             coreSummary: context.coreSummary,
             profileBasis: context.profileBasis,
+            attention: context.attention,
             evidenceRefs: [
               ...context.knownFacts.map((fact) => ({ id: fact.sourceId, revision: fact.sourceRevision, visibility: fact.visibility })),
               ...context.beliefs.map((belief) => ({ id: belief.sourceId, revision: belief.sourceRevision, visibility: belief.stance }))
@@ -805,14 +811,15 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       });
       const knownFacts = projection.visibleEvents
         .filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState))
-        .map((event) => ({ factId: event.eventId, summary: `${event.knowledgeLabel}：${event.title}`, sourceRef: { id: event.eventId, revision: event.revisionToken }, visibility: event.knowledgeState }));
+        .map((event) => ({ factId: event.eventId, summary: `${event.knowledgeLabel}：${event.title}`, sourceRef: { id: event.eventId, revision: event.revisionToken }, visibility: event.knowledgeState, attentionRequired: true }));
       const beliefs = projection.visibleEvents
         .filter((event) => ["believes", "suspects", "misled", "denied", "contradicted"].includes(event.knowledgeState))
         .map((event) => ({
           beliefId: `belief.${event.eventId}`,
           summary: `${event.knowledgeLabel}：${event.title}`,
           stance: event.knowledgeState === "misled" ? "misunderstood" : event.knowledgeState === "suspects" || event.knowledgeState === "contradicted" ? "suspected" : "believed",
-          sourceRef: { id: event.eventId, revision: event.revisionToken }
+          sourceRef: { id: event.eventId, revision: event.revisionToken },
+          attentionRequired: true
         }));
       const unknownFactIds = projection.hiddenEventIds;
       return {

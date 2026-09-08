@@ -78,3 +78,18 @@ test("Nuwa N2A exposes author-owned character basis and per-character scene goal
   assert.match(adapter, /profileBasis: context\.profileBasis/u, "the inspected basis crosses the actual Provider tool boundary");
   assert.doesNotMatch(adapter, /private_notes|profile\.fields/u, "the adapter cannot inspect unrelated author profile fields");
 });
+
+test("Nuwa N2B keeps attention permission-first, deterministic and visible at the actual tool boundary", () => {
+  const attention = source("src/storyIntelligence/nuwaN1Attention.ts");
+  const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+  const adapter = source("apps/story-studio/server/nuwaN1PiAdapter.mjs");
+
+  assert.match(attention, /already-authorized role source set/u);
+  assert.match(attention, /current-scene-required/u);
+  assert.match(runtime, /required attention sources exceed budget before dispatch/u);
+  assert.match(runtime, /excludedKnowledgeCount: canonicalActor\.unknownFactIds\.length/u);
+  assert.match(adapter, /attention: context\.attention/u);
+  assert.match(workspace, /保守预算/u);
+  assert.match(workspace, /权限排除（身份隐藏）/u);
+});

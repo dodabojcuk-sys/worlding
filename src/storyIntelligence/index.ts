@@ -48,6 +48,8 @@ export {
   projectNuwaAttentionForAuthor
 } from "./nuwaAttentionContext.ts";
 export type { NuwaAttentionContext, NuwaAttentionSource, NuwaActorKnowledgeSlice, NuwaAttentionBriefInput, NuwaResolvedAttentionSource } from "./nuwaAttentionContext.ts";
+export { NUWA_N1_ATTENTION_VERSION, selectNuwaN1Attention } from "./nuwaN1Attention.ts";
+export type { NuwaN1AttentionCandidate, NuwaN1AttentionSelection } from "./nuwaN1Attention.ts";
 export {
   applyStoryMemoryRecallToNuwaResult,
   recallNuwaEvidenceWithSkill

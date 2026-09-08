@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 
 import { nuwaRunPath } from "./nuwaRunPack.ts";
+import { selectNuwaN1Attention, type NuwaN1AttentionSelection } from "./nuwaN1Attention.ts";
 import { stableHash, stableJson } from "./storySnapshotBuilder.ts";
 
 /**
@@ -15,10 +16,10 @@ export const NUWA_N1_MAX_DISPATCHES = 12;
 
 export type NuwaN1StableRef = { id: string; revision: string };
 export type NuwaN1Lifecycle = "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
-export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public" };
+export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public"; attentionRequired?: boolean };
 /** A belief remains role-local, but its evidence provenance must stay visible
  * so that a suspicion is never silently upgraded to a shared story fact. */
-export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef };
+export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef; attentionRequired?: boolean };
 export type NuwaN1ProfileBasis = {
   core: string | null;
   boundaries: string | null;
@@ -50,7 +51,8 @@ export type NuwaN1Context = {
   profileBasis: NuwaN1ProfileBasis;
   knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"] }>;
   beliefs: Array<NuwaN1Belief & { sourceId: string; sourceRevision: string }>;
-  unknownFactIds: string[];
+  excludedKnowledgeCount: number;
+  attention: NuwaN1AttentionSelection;
   recentDialogue: Array<{ speakerId: string; text: string; observedStep: number }>;
   allowedActions: string[];
   remaining: { committedSteps: number; dispatches: number; inputTokenBudget: 4096; outputTokenBudget: 1024 };
@@ -257,12 +259,12 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   const context = compileNuwaN1Context(initial, actor, input.operationId);
   const attemptId = safeOperation(input.operationId);
   const preflightInputTokens = Buffer.byteLength(stableJson(context), "utf8");
-  if (preflightInputTokens > context.remaining.inputTokenBudget) {
+  if (context.attention.budget.requiredOverflow || preflightInputTokens > context.remaining.inputTokenBudget) {
     const recorded = recordedAt(input);
     return writeAttempt(input, initial, {
       ...initial,
       lifecycle: "blocked",
-      blocker: "角色上下文的保守 Token 估算超过 N1 输入上限；未发送请求。",
+      blocker: context.attention.budget.requiredOverflow ? "当前场景的必需角色依据已超过输入预算；请缩短必需资料后重新建立 Run，系统没有截断或发送请求。" : "角色上下文的完整请求保守 Token 估算超过 N1 输入上限；未发送请求。",
       attempts: [...initial.attempts, {
         operationId: attemptId,
         attemptId,
@@ -271,7 +273,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
         contextHash: stableHash(context),
         requestId: null,
         dispatches: [],
-        tool: { status: "cancelled", recordedAt: recorded, detail: "input budget blocked before dispatch" },
+        tool: { status: "cancelled", recordedAt: recorded, detail: context.attention.budget.requiredOverflow ? "required attention sources exceed budget before dispatch" : "input budget blocked before dispatch" },
         usage: { inputTokens: preflightInputTokens, outputTokens: 0, source: "estimated" },
         outcome: "blocked",
         recordedAt: recorded,
@@ -350,9 +352,28 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   const canonicalActor = run.actors.find((candidate) => sameRef(candidate.character, actor.character));
   if (!canonicalActor) throw new Error("Nuwa N1 actor is outside the frozen Run scope.");
   const dialogue = run.steps.flatMap((step) => step.speech && (step.actor.id === actor.character.id || step.heardByActorIds.includes(actor.character.id)) ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
+  const knownFacts = [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility, attentionRequired: fact.attentionRequired === true })), ...heardStatements(run, actor.character.id).map((fact) => ({ ...fact, attentionRequired: false }))];
+  const beliefs = canonicalActor.beliefs.map((belief) => ({ beliefId: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceRef: structuredClone(belief.sourceRef), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision, attentionRequired: belief.attentionRequired === true }));
+  const remaining = { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096 as const, outputTokenBudget: 1024 as const };
+  const fixedContext = { version: "tianyan-nuwa-n1-role-context/v1" as const, runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis), excludedKnowledgeCount: canonicalActor.unknownFactIds.length, recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining, authorCue: run.pendingCue?.instruction ?? null };
+  const baseBytes = Buffer.byteLength(stableJson({ ...fixedContext, knownFacts: [], beliefs: [], attention: null }), "utf8");
+  const attention = selectNuwaN1Attention({
+    goal: `${canonicalActor.localGoal}\n${run.authorGoal}`,
+    sceneLabel: run.scene.label,
+    baseBytes,
+    maxInputTokens: remaining.inputTokenBudget,
+    outputReserveTokens: remaining.outputTokenBudget,
+    candidates: [
+      ...knownFacts.map((fact) => ({ key: `knowledge:${fact.factId}`, kind: "knowledge" as const, sourceId: fact.sourceId, summary: fact.summary, required: fact.attentionRequired, serializedBytes: Buffer.byteLength(stableJson(fact), "utf8") + 192 })),
+      ...beliefs.map((belief) => ({ key: `belief:${belief.beliefId}`, kind: "belief" as const, sourceId: belief.sourceId, summary: belief.summary, required: belief.attentionRequired, serializedBytes: Buffer.byteLength(stableJson(belief), "utf8") + 192 }))
+    ]
+  });
+  const selected = new Set(attention.selected.map((item) => item.key));
   return {
-    version: "tianyan-nuwa-n1-role-context/v1", runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis),
-    knownFacts: [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility })), ...heardStatements(run, actor.character.id)], beliefs: canonicalActor.beliefs.map((belief) => ({ ...structuredClone(belief), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision })), unknownFactIds: [...canonicalActor.unknownFactIds], recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining: { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096, outputTokenBudget: 1024 }, authorCue: run.pendingCue?.instruction ?? null
+    ...fixedContext,
+    knownFacts: knownFacts.filter((fact) => selected.has(`knowledge:${fact.factId}`)).map(({ attentionRequired: _required, ...fact }) => fact),
+    beliefs: beliefs.filter((belief) => selected.has(`belief:${belief.beliefId}`)).map(({ attentionRequired: _required, ...belief }) => belief),
+    attention
   };
 }
 
@@ -651,8 +672,8 @@ function assertSetup(input: { sourceSnapshotHash: string; scene: NuwaN1Scene; au
 }
 function normalizeActor(actor: NuwaN1Actor): NuwaN1Actor {
   const character = cloneRef(actor.character);
-  const knownFacts = actor.knownFacts.map((fact) => ({ factId: stableObjectId(fact.factId), summary: text(fact.summary, "known fact", 800), sourceRef: cloneRef(fact.sourceRef), visibility: fact.visibility }));
-  const beliefs = actor.beliefs.map((belief) => ({ beliefId: stableObjectId(belief.beliefId), summary: text(belief.summary, "belief", 800), stance: belief.stance, sourceRef: cloneRef(belief.sourceRef) }));
+  const knownFacts = actor.knownFacts.map((fact) => ({ factId: stableObjectId(fact.factId), summary: text(fact.summary, "known fact", 800), sourceRef: cloneRef(fact.sourceRef), visibility: fact.visibility, ...(fact.attentionRequired === true ? { attentionRequired: true } : {}) }));
+  const beliefs = actor.beliefs.map((belief) => ({ beliefId: stableObjectId(belief.beliefId), summary: text(belief.summary, "belief", 800), stance: belief.stance, sourceRef: cloneRef(belief.sourceRef), ...(belief.attentionRequired === true ? { attentionRequired: true } : {}) }));
   if (!Array.isArray(actor.allowedActions) || !actor.allowedActions.length) throw new Error("Nuwa N1 actor must have allowed actions.");
   const profileBasis = normalizeProfileBasis(actor.profileBasis, character.revision);
   return { character, displayName: text(actor.displayName, "displayName", 160), coreSummary: text(actor.coreSummary, "coreSummary", 1_000), localGoal: text(actor.localGoal, "localGoal", 800), profileBasis, knownFacts, beliefs, unknownFactIds: actor.unknownFactIds.map(stableObjectId), allowedActions: actor.allowedActions.map((action) => text(action, "allowed action", 120)) };

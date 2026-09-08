@@ -16,7 +16,8 @@ const context = {
   profileBasis: { core: "谨慎求证", boundaries: "不牺牲同伴换取线索", sourceRevision: "r1", sources: [{ field: "character_core", source: "author-profile" }, { field: "boundaries", source: "author-profile" }] },
   knownFacts: [{ factId: "event.bell", summary: "已得知：钟声响起", sourceId: "event.bell", sourceRevision: "r1", visibility: "informed" }],
   beliefs: [],
-  unknownFactIds: ["event.secret"],
+  excludedKnowledgeCount: 1,
+  attention: { version: "tianyan-nuwa-n1-attention/v1", algorithm: "permission-first-lexical-utf8/v1", selected: [{ key: "knowledge:event.bell", kind: "knowledge", sourceId: "event.bell", reason: "goal-keyword-match" }], excluded: { count: 2, reasonCounts: [{ reason: "lower-relevance-within-budget", count: 2 }] }, budget: { estimator: "utf8-byte-upper-bound/v1", maxInputTokens: 4096, baseBytes: 900, sourceBudgetBytes: 2296, selectedSourceBytes: 120, outputReserveTokens: 1024, requiredOverflow: false } },
   recentDialogue: [],
   allowedActions: ["speak", "observe", "ask"],
   remaining: { committedSteps: 6, dispatches: 12, inputTokenBudget: 4096, outputTokenBudget: 1024 },
@@ -35,6 +36,7 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
         toolContext = await input.tools[0].execute({ toolCallId: "tool.pi", arguments: {}, approvalReceiptId: "receipt" });
         const providerContext = (toolContext as { context: Record<string, unknown> }).context;
         assert.equal("unknownFactIds" in providerContext, false);
+        assert.deepEqual(providerContext.attention, context.attention);
         assert.deepEqual(providerContext.profileBasis, context.profileBasis);
         assert.equal(providerContext.localGoal, "核对钟声");
         assert.deepEqual(providerContext.excluded, { count: 1, reasonCodes: ["not-known-by-actor"] });

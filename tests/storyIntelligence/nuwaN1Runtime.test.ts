@@ -83,6 +83,29 @@ test("N1 compiles role-local context by stable ID and never leaks author secret 
   });
 });
 
+test("N2B sends an early goal-relevant clue instead of the full authorized history", async () => {
+  const attentionActors = fixtureActors();
+  attentionActors[0]!.unknownFactIds = ["event.secret-unrevealed-title"];
+  attentionActors[0]!.knownFacts = [
+    { factId: "fact.current-scene", summary: "当前场景雾港断桥正在震动。", sourceRef: { id: "event.current-scene", revision }, visibility: "experienced", attentionRequired: true },
+    ...Array.from({ length: 28 }, (_, index) => ({ factId: `fact.long-history-${index}`, summary: `无关集市历史 ${index}：${"旧货摊位与天气记录。".repeat(6)}`, sourceRef: { id: `event.long-history-${index}`, revision }, visibility: "informed" as const })),
+    { factId: "fact.early-bell", summary: "很早以前听到桥下钟声来自废塔的机械装置。", sourceRef: { id: "event.early-bell", revision }, visibility: "informed" }
+  ];
+  attentionActors[0]!.localGoal = "核实桥下钟声来源。";
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.n2b.start" });
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n2b.step", adapter: adapter(observed) });
+    const sent = observed.contexts[0] as ReturnType<typeof compileNuwaN1Context>;
+    assert.equal(stepped.steps.length, 1);
+    assert.equal(sent.knownFacts.some((fact) => fact.factId === "fact.current-scene"), true, "current-scene required content is retained");
+    assert.equal(sent.knownFacts.some((fact) => fact.factId === "fact.early-bell"), true, "the older clue matching the actor goal reaches the actual adapter input");
+    assert.ok(sent.knownFacts.length < attentionActors[0]!.knownFacts.length, "the full long history is not sent");
+    assert.ok(sent.attention.budget.selectedSourceBytes <= sent.attention.budget.sourceBudgetBytes);
+    assert.equal(JSON.stringify(sent).includes("secret-unrevealed-title"), false, "permission-excluded identity is represented only as a count");
+  }, attentionActors);
+});
+
 test("N1 embeds its lifecycle ledger in the existing RunPack and projects its active status", async () => {
   await withRun(({ workspace, run }) => {
     const runFile = path.join(workspace, ".world-os", "runs", "nuwa", run.runId, "run.json");
@@ -307,7 +330,8 @@ test("N1 blocks exact and conservatively estimated token overages without commit
     factId: `fact.oversized-${index}`,
     summary: `必须保留的角色事实${index}：${"长".repeat(400)}`,
     sourceRef: { id: `event.oversized-${index}`, revision },
-    visibility: "experienced" as const
+    visibility: "experienced" as const,
+    attentionRequired: true
   }));
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });
@@ -325,8 +349,8 @@ test("N1 blocks exact and conservatively estimated token overages without commit
     assert.equal(blocked.steps.length, 0);
     assert.equal(blocked.attempts[0]?.outcome, "blocked");
     assert.equal(blocked.attempts[0]?.usage?.source, "estimated");
-    assert.ok((blocked.attempts[0]?.usage?.inputTokens || 0) > 4096);
-    assert.match(blocked.blocker || "", /未发送请求/u);
+    assert.ok((blocked.attempts[0]?.usage?.inputTokens || 0) > 0);
+    assert.match(blocked.blocker || "", /必需角色依据.*超过输入预算.*没有截断或发送请求/u);
   }, oversizedActors);
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });

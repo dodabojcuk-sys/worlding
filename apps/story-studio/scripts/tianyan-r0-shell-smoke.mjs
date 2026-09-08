@@ -1224,6 +1224,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(visibleContexts[0] !== visibleContexts[1], true, `The two roles must expose distinct knowledge ranges: ${JSON.stringify(visibleContexts)}`);
   assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /核实钟声是否来自桥下/u, "The inspector shows Lin Zhao's actual actor goal independent of directory order.");
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
+  assert.match(await contextCards.first().innerText(), /保守预算/u, "The existing inspector exposes the deterministic request budget estimate.");
+  assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret/u, "The role-scoped inspector does not disclose excluded secret identities.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
 

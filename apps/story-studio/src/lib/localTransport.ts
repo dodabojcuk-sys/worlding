@@ -2230,6 +2230,13 @@ export type NuwaN1ProfileBasis = {
   sourceRevision: string;
   sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
 };
+export type NuwaN1AttentionReport = {
+  version: "tianyan-nuwa-n1-attention/v1";
+  algorithm: "permission-first-lexical-utf8/v1";
+  selected: Array<{ key: string; kind: "knowledge" | "belief"; sourceId: string; reason: "current-scene-required" | "goal-keyword-match" | "scene-keyword-match" | "stable-authorized-fallback" }>;
+  excluded: { count: number; reasonCounts: Array<{ reason: "lower-relevance-within-budget"; count: number }> };
+  budget: { estimator: "utf8-byte-upper-bound/v1"; maxInputTokens: number; baseBytes: number; sourceBudgetBytes: number; selectedSourceBytes: number; outputReserveTokens: number; requiredOverflow: boolean };
+};
 export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
 export type NuwaN1Step = {
   stepId: string;
@@ -2289,6 +2296,7 @@ export type NuwaN1ContextInspector = {
     localGoal: string;
     coreSummary: string;
     profileBasis: NuwaN1ProfileBasis;
+    attention: NuwaN1AttentionReport;
     evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
     knowledgeItems: Array<{ id: string; summary: string; visibility: string; sourceId: string; sourceRevision: string }>;
     beliefItems: Array<{ id: string; summary: string; stance: string; sourceId: string; sourceRevision: string }>;
@@ -2330,7 +2338,7 @@ export type NuwaN1Setup = {
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
     goal: string;
-    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
+    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
   };
 };
 export type NuwaN1CandidateResult = NuwaN1ReadModel & {
