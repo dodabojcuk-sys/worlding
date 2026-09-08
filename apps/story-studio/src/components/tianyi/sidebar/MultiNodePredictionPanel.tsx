@@ -6,6 +6,9 @@ import type { StoryStudioEventReference } from "../../../../../../src/storyContr
 import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, retryMultiNodePredictionRun, stopMultiNodePredictionRun, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import {
+  clearPredictionAbandonmentPending,
+  isPredictionAbandonmentPending,
+  markPredictionAbandonmentPending,
   predictionSourceSummary,
   predictionStageForView,
   predictionViewAfterEscape,
@@ -42,7 +45,6 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   });
   const pollingGeneration = useRef(0);
   const runRecoveryGeneration = useRef(0);
-  const abandonRecoveryGeneration = useRef(0);
   const receiptRecoveryGeneration = useRef(0);
   const historyLoadGeneration = useRef(0);
   const stopRequested = useRef(false);
@@ -65,6 +67,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     const terminalStatus = observed.status === "abandoned" || observed.status === "stale" ? observed.status : null;
     if (!shouldApplyPredictionRunSnapshot({ terminalStatus, incomingStatus: observed.status })) return null;
     if (terminalStatus) {
+      if (project) clearPredictionAbandonmentPending(project.id, observed.runId);
       terminalRunIds.current.add(observed.runId);
       pollingGeneration.current += 1;
       runRecoveryGeneration.current += 1;
@@ -139,6 +142,18 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     window.addEventListener("story-studio-prediction-review-selection", receive);
     return () => window.removeEventListener("story-studio-prediction-review-selection", receive);
   }, [run]);
+
+  useEffect(() => {
+    const receiveTerminalRun = (event: Event) => {
+      const next = (event as CustomEvent<PredictionRun>).detail;
+      if (!project || !run || next?.projectId !== project.id || next.runId !== run.runId || !["abandoned", "stale"].includes(next.status)) return;
+      const observed = setObservedRun(next); if (!observed) return;
+      setRuns((current) => [observed, ...current.filter((candidate) => candidate.runId !== observed.runId)]);
+      setReceipt(null); setPhase("idle"); setViewState("task");
+    };
+    window.addEventListener("story-studio-multi-node-prediction-run", receiveTerminalRun);
+    return () => window.removeEventListener("story-studio-multi-node-prediction-run", receiveTerminalRun);
+  }, [project?.id, run?.runId]);
 
   useEffect(() => {
     if (!run) return;
@@ -279,9 +294,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const abandon = () => void (async () => {
     if (!project || !run || busy || run.status === "abandoned") return;
     const targetRunId = run.runId;
-    // Abandonment is an author-terminal write. Its exact Owner recovery must
-    // not be cancelled by the independent start/history recovery pollers.
-    const recoveryGeneration = ++abandonRecoveryGeneration.current;
+    markPredictionAbandonmentPending(project.id, targetRunId);
     setBusy(true); setError("");
     try {
       const command = props.runtime.withConnection((token) => abandonMultiNodePredictionRun({ projectId: project.id, runId: targetRunId, token }));
@@ -290,7 +303,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
         command,
         readOwner: async () => (await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token))).find((candidate) => candidate.runId === targetRunId) ?? null,
         wait: () => new Promise((resolve) => window.setTimeout(resolve, 120)),
-        isActive: () => abandonRecoveryGeneration.current === recoveryGeneration
+        isActive: () => isPredictionAbandonmentPending(project.id, targetRunId)
       });
       // The command response is the persisted Owner receipt. A slow history
       // refresh must never hold the author-facing terminal state hostage.
@@ -307,8 +320,8 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
         setRuns(history.map((candidate) => candidate.runId === observed.runId ? observed : candidate));
       }).catch(() => undefined);
     }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
-    finally { if (abandonRecoveryGeneration.current === recoveryGeneration) abandonRecoveryGeneration.current += 1; setBusy(false); }
+    catch (cause) { clearPredictionAbandonmentPending(project.id, targetRunId); setError(cause instanceof Error ? cause.message : "无法放弃当前 Run。"); }
+    finally { setBusy(false); }
   })();
   const stop = () => void (async () => {
     if (!project || !run || !busy || stopRequested.current) return;
@@ -345,13 +358,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     return () => { window.removeEventListener("story-studio-stop-agent-execution", onStop); window.removeEventListener("story-studio-retry-agent-execution", onRetry); };
   });
 
-  useEffect(() => () => { pollingGeneration.current += 1; runRecoveryGeneration.current += 1; abandonRecoveryGeneration.current += 1; }, []);
-
-  useEffect(() => {
-    // A project/source change invalidates only the pending abandonment for
-    // the previous identity; normal run recovery uses its own generation.
-    abandonRecoveryGeneration.current += 1;
-  }, [project?.id, sourceKey]);
+  useEffect(() => () => { pollingGeneration.current += 1; runRecoveryGeneration.current += 1; }, []);
 
   if (!project || props.eventRefs.length < 1 || props.eventRefs.length > 4) return null;
   const pathNumber = activePath && run?.bundle ? run.bundle.paths.findIndex((path) => path.id === activePath.id) + 1 : 0;

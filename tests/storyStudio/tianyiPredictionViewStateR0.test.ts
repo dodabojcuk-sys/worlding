@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  clearPredictionAbandonmentPending,
+  isPredictionAbandonmentPending,
+  markPredictionAbandonmentPending,
   predictionSourceSummary,
   predictionStageForView,
   predictionRunStatusAfterTerminalFence,
@@ -13,6 +16,18 @@ import {
   predictionViewStateFromDraftedReceiptRecovery,
   predictionViewStateFromPersistence
 } from "../../apps/story-studio/src/components/tianyi/sidebar/tianyiPredictionViewState.ts";
+
+test("pending abandonment identity survives a panel instance and remains project scoped", () => {
+  const projectId = "project.pending-abandonment";
+  const runId = "prediction-run.pending-abandonment";
+  clearPredictionAbandonmentPending(projectId, runId);
+  markPredictionAbandonmentPending(projectId, runId);
+  assert.equal(isPredictionAbandonmentPending(projectId, runId), true);
+  assert.equal(isPredictionAbandonmentPending("project.other", runId), false);
+  assert.equal(isPredictionAbandonmentPending(projectId, "prediction-run.other"), false);
+  clearPredictionAbandonmentPending(projectId, runId);
+  assert.equal(isPredictionAbandonmentPending(projectId, runId), false);
+});
 
 test("persistent Run state maps to a view without inventing domain progress", () => {
   assert.equal(predictionViewStateFromPersistence({ runStatus: null, hasBundle: false, selectedPathId: null, hasReceipt: false }), "task");

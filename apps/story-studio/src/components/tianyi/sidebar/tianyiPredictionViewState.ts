@@ -8,9 +8,22 @@ export type TianyiPredictionTerminalRunStatus = Extract<PredictionRunStatus, "ab
 // browser-lifetime fence separate from the persisted Run owner so a response
 // captured before an author-terminal update cannot revive that Run afterwards.
 const terminalPredictionRunStatuses = new Map<string, TianyiPredictionTerminalRunStatus>();
+const pendingPredictionAbandonments = new Set<string>();
 
 function terminalPredictionRunKey(projectId: string, runId: string): string {
   return `${projectId}:${runId}`;
+}
+
+export function markPredictionAbandonmentPending(projectId: string, runId: string): void {
+  pendingPredictionAbandonments.add(terminalPredictionRunKey(projectId, runId));
+}
+
+export function clearPredictionAbandonmentPending(projectId: string, runId: string): void {
+  pendingPredictionAbandonments.delete(terminalPredictionRunKey(projectId, runId));
+}
+
+export function isPredictionAbandonmentPending(projectId: string, runId: string): boolean {
+  return pendingPredictionAbandonments.has(terminalPredictionRunKey(projectId, runId));
 }
 
 export function predictionRunStatusAfterTerminalFence(input: {

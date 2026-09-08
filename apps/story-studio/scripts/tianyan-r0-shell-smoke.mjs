@@ -3786,8 +3786,16 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)").length === 3);
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
   await panel.getByText("技术回执与历史", { exact: true }).click();
+  await page.route("**/prediction/abandon", async (route) => {
+    // Reproduce a panel remount after the author action but before the Owner
+    // sees it. The new Agent panel must retain the exact pending Run identity.
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await route.continue();
+  }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
   await abandonButton.press("Enter");
+  await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
+  await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor().catch(async (cause) => {
     const [dom, persisted] = await Promise.all([
       panel.evaluate((element) => ({
