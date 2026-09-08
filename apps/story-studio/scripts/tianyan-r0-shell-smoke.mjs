@@ -1212,7 +1212,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /阿芜/u);
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
-  await workspace.locator(".nuwa-n1-controlbar select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("在旧桥钟声中核对彼此知情，不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
   await workspace.getByText("已核对角色上下文", { exact: true }).waitFor();
