@@ -10,6 +10,7 @@ import {
   getNuwaN1Latest,
   replayNuwaN1Run,
   runNuwaN1Action,
+  runNuwaN1Continuously,
   setupNuwaN1,
   type NuwaN1Bootstrap,
   type NuwaN1ReadModel,
@@ -138,6 +139,11 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     }
     void act(() => props.runtime.withConnection((token) => runNuwaN1Action({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, action, operationId: newOperationId(), token })), undefined);
   };
+  const runContinuously = () => {
+    if (!projectId || !run?.run) return;
+    void act(() => props.runtime.withConnection((token) => runNuwaN1Continuously({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, operationId: newOperationId(), token })), run.authorization?.status === "active" ? "连续排演已完成，并已按范围授权自动应用正式结果。" : "连续排演已完成；普通权限结果仍停留在 Run 中等待选择。"
+    );
+  };
   const beginAnotherRun = () => {
     setRun(null); setSetup(null); setSelectedStepIds([]); setSelectedStepId(null); setCue(""); setError(null);
     setNotice("旧 Run 仍可从运行记录回看；现在可以按当前作品范围建立新排演。");
@@ -193,8 +199,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
         <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalDispatches(run.run)}</small> : <small>最多 6 个已提交步骤</small>}</div>
         {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
-        {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
-        {run?.run?.status === "running" ? <><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />单步</button><button type="button" disabled={interrupting} onClick={() => runAction("pause")}><CirclePause />暂停</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
+        {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={runContinuously}><Play />连续运行</button><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
+        {run?.run?.status === "running" ? <><button type="button" className="primary-action" disabled={busy} onClick={runContinuously}><Play />连续运行</button><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />单步</button><button type="button" disabled={interrupting} onClick={() => runAction("pause")}><CirclePause />暂停</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "paused" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("resume")}><CirclePlay />恢复</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <><button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button><button type="button" className="primary-action" disabled={busy} onClick={beginAnotherRun}><MessageSquarePlus />新建排演</button></> : null}
       </section>

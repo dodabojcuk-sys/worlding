@@ -177,6 +177,27 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     finally { if (activePiExecutions.get(activeKey) === execution) activePiExecutions.delete(activeKey); }
   }
 
+  async function continuous(input) {
+    const initial = requireRun(workspacePath(input.projectId), input.runId);
+    const baseOperationId = operation(input.operationId);
+    let expectedRevision = revision(input.expectedRevision);
+    let current = await step({ ...input, expectedRevision, operationId: `${baseOperationId}.step.${initial.steps.length + 1}` });
+    while (current.run && current.run.status === "running") {
+      expectedRevision = current.run.revision;
+      current = await step({ ...input, expectedRevision, operationId: `${baseOperationId}.step.${current.run.steps.length + 1}` });
+    }
+    if (current.run?.status === "completed" && current.authorization?.status === "active") {
+      return autoApply({
+        projectId: input.projectId,
+        runId: current.run.runId,
+        expectedRevision: current.run.revision,
+        operationId: `${baseOperationId}.apply`,
+        selectedStepIds: current.run.steps.map((step) => step.stepId)
+      });
+    }
+    return current;
+  }
+
   function pause(input) {
     return present(input.projectId, pauseNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(input.reason ? { reason: requiredText(input.reason, "暂停原因", 240) } : {}), now: now() }));
   }
@@ -480,7 +501,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     };
   }
 
-  return { bootstrap, setup, create, read, latest, step, pause, resume, stop, replay, cue, candidate, autoApply };
+  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply };
 }
 
 function candidateReviewResult(project, run, handoff) {

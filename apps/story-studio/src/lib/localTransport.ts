@@ -2369,6 +2369,11 @@ export async function runNuwaN1Action(input: { projectId: string; runId: string;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/${action}`, { method: "POST", token, body: requestBody });
 }
 
+export async function runNuwaN1Continuously(input: { projectId: string; runId: string; expectedRevision: number; operationId: string; token: string }): Promise<NuwaN1ReadModel | NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel | NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/continuous`, { method: "POST", token, body });
+}
+
 export async function replayNuwaN1Run(input: { projectId: string; runId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/replay`, { method: "POST", token, body });

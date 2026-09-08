@@ -187,6 +187,26 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   assert.equal((permissions.payload.data as { receipts: Array<{ decisionSource: string; authorizationId: string | null }> }).receipts.some((receipt) => receipt.decisionSource === "nuwa-scope-authorization" && receipt.authorizationId === result.automaticApplication.authorizationId), true);
 });
 
+test("Nuwa N1 continuous endpoint advances on the server and applies the completed high-permission Run without browser step polling", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const enabled = await start(value, true);
+  child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("continuous-create"));
+  const model = created.payload.data as NuwaReadModel;
+  const continuous = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/continuous", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "continuous-run" });
+  assert.equal(continuous.status, 200, JSON.stringify(continuous.payload));
+  const result = continuous.payload.data as NuwaReadModel & { automaticApplication: { eventId: string } };
+  assert.equal(result.run.status, "completed");
+  assert.equal(result.run.steps.length, 6);
+  assert.ok(result.automaticApplication.eventId);
+});
+
 test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-up tool result", async (t) => {
   const value = fixture();
   const host = await startSseHost({ holdFirstResponse: true });

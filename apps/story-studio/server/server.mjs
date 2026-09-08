@@ -3517,6 +3517,13 @@ async function handleNuwaN1Request(request, response, url) {
     sendJson(response, 200, { data: result });
     return;
   }
+  if (route === "continuous") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.continuous(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-continuous", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
   if (route === "pause" || route === "stop") {
     requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "reason"]);
     const result = runProductOperation(() => route === "pause" ? nuwaN1Port.pause(body) : nuwaN1Port.stop(body));
