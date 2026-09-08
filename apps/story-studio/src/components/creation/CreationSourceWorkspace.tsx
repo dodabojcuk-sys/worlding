@@ -41,6 +41,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
       if (!matchesVisit(visit) || activeProjectId.current !== requestedProjectId || readGeneration.current !== generation || next.project.id !== requestedProjectId) return;
       setState(next);
       setView(next.packageMode === "pinned-artifact" ? "pinned" : "current");
+      if (next.packageMode === "pinned-artifact") setArtifactId(next.artifact?.id ?? scope.artifactId ?? null);
       if (next.packageMode === "current-selection") {
         setStoryUnitId(next.storyUnit?.id ?? null);
         setEventIds(next.selectedEventIds);
@@ -55,6 +56,8 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     setState(null); setStoryUnits([]); setStoryUnitId(null); setEventIds([]); setView("current"); setArtifactId(null); setWriteOperation(null); setError("");
     if (projectId) {
       const requestedProjectId = projectId;
+      const requestedArtifactId = window.sessionStorage.getItem(`tianyan-creation-source-artifact:${requestedProjectId}`);
+      if (requestedArtifactId) window.sessionStorage.removeItem(`tianyan-creation-source-artifact:${requestedProjectId}`);
       const generation = ++listGeneration.current;
       void listStoryUnits(requestedProjectId).then((items) => {
         if (activeProjectId.current === requestedProjectId && listGeneration.current === generation) setStoryUnits(items.filter((item) => item.lifecycle !== "archived"));
@@ -63,7 +66,7 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
       });
       // New projects always issue an initial, project-only request. Never let
       // the prior render's unit/event selection leak into this first read.
-      void refresh(requestedProjectId, { view: "current" });
+      void refresh(requestedProjectId, requestedArtifactId ? { view: "pinned", artifactId: requestedArtifactId } : { view: "current" });
     }
     // The selected project's identity is the read boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps

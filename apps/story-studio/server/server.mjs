@@ -171,13 +171,15 @@ const relationOperations = createStoryStudioRelationOperations({
   workspaceOperations: operations,
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
 });
-const nuwaN1AutoApplicationFaultInjector = process.env.NODE_ENV === "test" && process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1"
+const nuwaN1AutoApplicationFaultInjector = process.env.NODE_ENV === "test" && (process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1" || process.env.TIANYAN_NUWA_N1_TEST_FAIL_ROLLBACK_ONCE === "1")
   ? (() => {
       let fired = false;
       return (event) => {
-        if (!fired && event.phase === "before-relation-confirm") {
+        const shouldFailRelation = process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1" && event.phase === "before-relation-confirm";
+        const shouldFailRollback = process.env.TIANYAN_NUWA_N1_TEST_FAIL_ROLLBACK_ONCE === "1" && event.phase === "before-rollback-relation";
+        if (!fired && (shouldFailRelation || shouldFailRollback)) {
           fired = true;
-          throw new Error("Injected Nuwa relation confirmation interruption.");
+          throw new Error(shouldFailRollback ? "Injected Nuwa rollback interruption." : "Injected Nuwa relation confirmation interruption.");
         }
       };
     })()
@@ -3581,6 +3583,18 @@ async function handleNuwaN1Request(request, response, url) {
     requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
     const result = runProductOperation(() => nuwaN1Port.autoApply(body));
     sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-freeze-draft") {
+    requireAllowedKeys(body, ["projectId", "runId", "receiptId", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.freezeAutoApplicationDraft(body));
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-rollback") {
+    requireAllowedKeys(body, ["projectId", "runId", "receiptId", "operationId"]);
+    const result = runProductOperation(() => nuwaN1Port.rollbackAutoApplication(body));
+    sendJson(response, 200, { data: result });
     return;
   }
   throw productError("女娲 N1 操作不存在。", 404);

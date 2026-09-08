@@ -6,9 +6,11 @@ import {
   createNuwaN1Candidate,
   createNuwaN1Run,
   cueNuwaN1Run,
+  freezeNuwaN1AutomaticDraft,
   getNuwaN1Bootstrap,
   getNuwaN1Latest,
   replayNuwaN1Run,
+  rollbackNuwaN1AutomaticApplication,
   runNuwaN1Action,
   runNuwaN1Continuously,
   setupNuwaN1,
@@ -175,6 +177,31 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       setNotice(`已按高权限范围自动写入正式 Event 并纳入当前故事单元（${result.automaticApplication.eventId}）；来源 Run、授权、影响审查与变更集均可追溯。`);
     }).catch((reason: unknown) => setError(messageFor(reason, "自动应用未完成；请刷新核对已保存回执，系统不会把未完成状态显示为已写入。"))).finally(() => setBusy(false));
   };
+  const freezeDraft = () => {
+    const application = run?.automaticApplication;
+    if (!projectId || !run?.run || !application) return;
+    setBusy(true); setError(null); setNotice(null);
+    void props.runtime.withConnection((token) => freezeNuwaN1AutomaticDraft({ projectId, runId: run.run!.runId, receiptId: application.receiptId, operationId: newOperationId(), token })).then((result) => {
+      updateRun(result);
+      setNotice(`已固定 ${result.automaticApplication.fixedDraft?.artifactId ?? "当前版本"}；之后回溯不会改写这份稿。`);
+    }).catch((reason: unknown) => setError(messageFor(reason, "固定稿未能建立；当前故事没有被改写。"))).finally(() => setBusy(false));
+  };
+  const rollbackApplication = () => {
+    const application = run?.automaticApplication;
+    if (!projectId || !run?.run || !application) return;
+    const operationId = application.rollback?.status === "recovery-required" ? application.rollback.operationId : newOperationId();
+    setBusy(true); setError(null); setNotice(null);
+    void props.runtime.withConnection((token) => rollbackNuwaN1AutomaticApplication({ projectId, runId: run.run!.runId, receiptId: application.receiptId, operationId, token })).then((result) => {
+      updateRun(result);
+      setNotice(`已完成补偿回溯；新的正式版本为 r${result.automaticApplication.rollback?.resultVersion?.revision ?? "?"}，Run 与 heard 历史仍保留。`);
+    }).catch((reason: unknown) => setError(messageFor(reason, "回溯未完整结束；请在本页恢复同一回执，系统不会显示为已全部回溯。"))).finally(() => setBusy(false));
+  };
+  const openFixedDraft = () => {
+    const artifactId = run?.automaticApplication?.fixedDraft?.artifactId;
+    if (!projectId || !artifactId) return;
+    window.sessionStorage.setItem(`tianyan-creation-source-artifact:${projectId}`, artifactId);
+    window.location.assign("/creation");
+  };
 
   if (!projectId) return <NuwaUnavailable title="先打开一个作品" detail="女娲排演必须绑定当前作品、正式角色和故事单元；这里不会创建独立的故事副本或角色仓库。" />;
   if (!bootstrap && !error) return <NuwaUnavailable title="正在读取女娲排演" detail="正在恢复当前作品的最新 Run；读取本身不会调用 Provider。" loading />;
@@ -231,7 +258,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         </> : null}
       </aside>
       </div>
-      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><label><span>给当前排演的提示</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder="例如：让下一步先确认钟楼内的声音来源。" /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !["running", "paused"].includes(run.run.status)}><Send />加入后续步骤</button></form><div><span>{selectedStepIds.length ? `已选择 ${selectedStepIds.length} 个结果` : run.authorization?.status === "active" ? "选择步骤后自动应用到授权范围" : "选择步骤后可送入待确认"}</span>{run.authorization?.status === "active" ? <button type="button" className="primary-action" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={autoApply}><CheckCircle2 />自动应用结果</button> : <button type="button" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={sendCandidate}><FilePlus2 />送入待确认</button>}</div></footer> : null}
+      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><label><span>给当前排演的提示</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder="例如：让下一步先确认钟楼内的声音来源。" /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !["running", "paused"].includes(run.run.status)}><Send />加入后续步骤</button></form><div><span>{selectedStepIds.length ? `已选择 ${selectedStepIds.length} 个结果` : run.authorization?.status === "active" ? "选择步骤后自动应用到授权范围" : "选择步骤后可送入待确认"}</span>{run.authorization?.status === "active" ? <button type="button" className="primary-action" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={autoApply}><CheckCircle2 />自动应用结果</button> : <button type="button" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={sendCandidate}><FilePlus2 />送入待确认</button>}{run.automaticApplication ? <span className="nuwa-n1-application-tools"><button type="button" disabled={busy || Boolean(run.automaticApplication.fixedDraft)} onClick={freezeDraft}>固定稿</button>{run.automaticApplication.fixedDraft ? <button type="button" onClick={openFixedDraft}>查看并下载固定稿</button> : null}<button type="button" className="danger-action" disabled={busy || run.automaticApplication.rollback?.status === "active"} onClick={rollbackApplication}>{run.automaticApplication.rollback?.status === "recovery-required" ? "恢复回溯" : "回溯本批"}</button></span> : null}</div></footer> : null}
       {run?.run ? <details className="nuwa-n1-technical"><summary>技术详情</summary><dl><div><dt>Run</dt><dd>{run.run.runId}</dd></div><div><dt>修订</dt><dd>{run.run.revision}</dd></div><div><dt>Provider</dt><dd>{run.run.provider.label} · {run.run.provider.providerCalls} calls</dd></div></dl></details> : null}
     </section>
   </main>;

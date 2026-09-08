@@ -218,6 +218,69 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   assert.equal(mismatched.status, 409, "the same operation identity cannot be rebound to different content");
 });
 
+test("Nuwa N1 freezes a same-Run draft then recovers one durable automatic-batch rollback", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true, undefined, false, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("rollback-create"));
+  let model = created.payload.data as NuwaReadModel;
+  model = (await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "rollback-step" })).payload.data as NuwaReadModel;
+  const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "rollback-apply", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(applied.status, 201, JSON.stringify(applied.payload));
+  const automatic = (applied.payload.data as NuwaReadModel & { automaticApplication: { receiptId: string; eventId: string; relationId: string; materialObjectId: string; narrativePlacementIds: string[]; resultVersion: { workVersionId: string; revision: number } } }).automaticApplication;
+  const frozen = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-freeze-draft", { projectId: value.project.id, runId: model.run.runId, receiptId: automatic.receiptId, operationId: "rollback-freeze" });
+  assert.equal(frozen.status, 201, JSON.stringify(frozen.payload));
+  const draft = (frozen.payload.data as NuwaReadModel & { automaticApplication: { fixedDraft: { artifactId: string } } }).automaticApplication.fixedDraft;
+  const source = createCreationSourceSelectionPort({ operations: value.operations });
+  const pinnedBefore = await source.read(value.project.id, { artifactId: draft.artifactId, view: "pinned" });
+  assert.equal(pinnedBefore.packageMode, "pinned-artifact");
+  assert.match(pinnedBefore.package.storyMarkdown, /来源步骤|旧桥/u, "the real fixed Markdown is built from the same formal Event source");
+
+  const rollbackRequest = { projectId: value.project.id, runId: model.run.runId, receiptId: automatic.receiptId, operationId: "rollback-automatic-batch" };
+  const interrupted = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", rollbackRequest);
+  assert.equal(interrupted.status, 409, "an interrupted rollback reports recovery instead of claiming the batch is fully reverted");
+  const recovered = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", rollbackRequest);
+  assert.equal(recovered.status, 200, JSON.stringify(recovered.payload));
+  const result = recovered.payload.data as NuwaReadModel & { automaticApplication: { status: string; rollback: { resultVersion: { revision: number } }; eventId: string } };
+  assert.equal(result.automaticApplication.status, "rolled-back");
+  assert.equal(result.automaticApplication.rollback.resultVersion.revision, automatic.resultVersion.revision + 1);
+  assert.equal(value.relations.readRelation({ projectId: value.project.id, relationId: automatic.relationId }).relation.archived, true);
+  assert.equal(value.operations.readWorldObject({ projectId: value.project.id, objectId: automatic.materialObjectId }).status, "archived");
+  assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).linkedEntityIds.includes(automatic.eventId), false);
+  const arrangement = value.operations.readNarrativeArrangement({ projectId: value.project.id, workVersionId: automatic.resultVersion.workVersionId, narrativePathId: value.unit.id });
+  const currentArrangement = arrangement.arrangement?.revisions.find((revision) => revision.revision === arrangement.arrangement?.currentRevision);
+  assert.equal(currentArrangement?.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), false);
+  assert.equal(value.operations.readWorldObject({ projectId: value.project.id, objectId: automatic.eventId }).status, "committed", "the original formal Event remains historical evidence instead of being deleted");
+  const pinnedAfter = await source.read(value.project.id, { artifactId: draft.artifactId, view: "pinned" });
+  assert.equal(pinnedAfter.package.storyMarkdown, pinnedBefore.package.storyMarkdown, "the old fixed Markdown stays frozen after the formal compensation");
+  const replayed = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", rollbackRequest);
+  assert.equal(replayed.status, 200);
+  assert.equal((replayed.payload.data as NuwaReadModel & { automaticApplication: { rollback: { resultVersion: { revision: number } } } }).automaticApplication.rollback.resultVersion.revision, result.automaticApplication.rollback.resultVersion.revision, "a lost response retry returns the original compensation result");
+  const refreshed = await getJson(enabled.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${encodeURIComponent(value.project.id)}&runId=${encodeURIComponent(model.run.runId)}`);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.payload.data as NuwaReadModel & { automaticApplication: { status: string } }).automaticApplication.status, "rolled-back", "refresh finds the durable receipt rather than guessing from UI state");
+});
+
+test("Nuwa N1 refuses automatic-batch rollback when a later author version exists", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => { if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); } rmSync(value.root, { recursive: true, force: true }); });
+  const enabled = await start(value, true); child = enabled.child;
+  await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("rollback-drift-create"));
+  let model = created.payload.data as NuwaReadModel;
+  model = (await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "rollback-drift-step" })).payload.data as NuwaReadModel;
+  const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "rollback-drift-apply", selectedStepIds: [model.run.steps[0]!.stepId] });
+  const automatic = (applied.payload.data as NuwaReadModel & { automaticApplication: { receiptId: string; resultVersion: { revision: number } } }).automaticApplication;
+  const source = createCreationSourceSelectionPort({ operations: value.operations });
+  source.appendStructuredStoryRevision(value.project.id, { expectedRevision: automatic.resultVersion.revision, authorActionId: "author.after-nuwa", idempotencyKey: "author.after-nuwa", createdAt: new Date().toISOString(), semanticDeltaRefs: ["author-change:kept"] });
+  const blocked = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", { projectId: value.project.id, runId: model.run.runId, receiptId: automatic.receiptId, operationId: "rollback-drift" });
+  assert.equal(blocked.status, 409);
+  assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).linkedEntityIds.includes(automatic.eventId), true, "a later author version is retained and no batch side effect is guessed");
+});
+
 test("Nuwa N1 blocks a changed Story Unit before formal application writes", async (t) => {
   const value = fixture();
   let child: ChildProcess | null = null;
@@ -511,7 +574,7 @@ function findNoteById(root: string, id: string): string | null {
   return null;
 }
 
-async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHostUrl?: string, failRelationOnce = false) {
+async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHostUrl?: string, failRelationOnce = false, failRollbackOnce = false) {
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
@@ -529,6 +592,7 @@ async function start(value: ReturnType<typeof fixture>, fake: boolean, localPiHo
       ...(fake ? { TIANYAN_NUWA_N1_FAKE_PROVIDER: "1" } : {})
       , ...(localPiHostUrl ? { TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL: localPiHostUrl, TIANYAN_PROVIDER_BUDGET_TEST_MODE: "1" } : {})
       , ...(failRelationOnce ? { TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE: "1" } : {})
+      , ...(failRollbackOnce ? { TIANYAN_NUWA_N1_TEST_FAIL_ROLLBACK_ONCE: "1" } : {})
     },
     stdio: ["ignore", "pipe", "pipe"]
   });

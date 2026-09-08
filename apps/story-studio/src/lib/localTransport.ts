@@ -2304,6 +2304,7 @@ export type NuwaN1ReadModel = {
   run: NuwaN1Run | null;
   contextInspector: NuwaN1ContextInspector | null;
   receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string }>;
+  automaticApplication?: NuwaN1AutomaticApplication;
 };
 export type NuwaN1Bootstrap = {
   version: "story-studio-nuwa-n1-bootstrap/v1";
@@ -2335,9 +2336,8 @@ export type NuwaN1CandidateResult = NuwaN1ReadModel & {
   review: { reviewId: string; status: string };
 };
 
-export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
-  automaticApplication: {
-    status: "applied";
+export type NuwaN1AutomaticApplication = {
+    status: "applied" | "rolled-back" | "recovery-required";
     decisionSource: "nuwa-scope-authorization";
     authorizationId: string;
     permissionReceiptId: string;
@@ -2346,7 +2346,17 @@ export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
     changeSetId: string;
     eventId: string;
     storyUnitId: string;
+    receiptId: string;
+    narrativePlacementIds: string[];
+    materialObjectId: string | null;
+    relationId: string | null;
+    workVersionReceiptId: string | null;
+    resultVersion: { workVersionId: string; revision: number } | null;
+    fixedDraft: null | { artifactId: string; sourceVersion: { workVersionId: string; revision: number }; creationKey: string; operationId: string; createdAt: string };
+    rollback: null | { operationId: string; status: "applying" | "active" | "recovery-required"; resultVersion: { workVersionId: string; revision: number } | null; failure: string | null };
   };
+export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
+  automaticApplication: NuwaN1AutomaticApplication;
 };
 
 export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Bootstrap> {
@@ -2397,6 +2407,16 @@ export async function createNuwaN1Candidate(input: { projectId: string; runId: s
 export async function autoApplyNuwaN1Result(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
   const { token, ...body } = input;
   return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-apply`, { method: "POST", token, body });
+}
+
+export async function freezeNuwaN1AutomaticDraft(input: { projectId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-freeze-draft`, { method: "POST", token, body });
+}
+
+export async function rollbackNuwaN1AutomaticApplication(input: { projectId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-rollback`, { method: "POST", token, body });
 }
 
 export type NuwaDirectorActionR1 =

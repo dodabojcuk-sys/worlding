@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -306,7 +306,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         relationTypeId: prepared.relationType?.relationTypeId ?? null,
         relationTypeRevision: prepared.relationType?.typeRevision ?? null,
         status: "applying",
-        application: { permissionReceiptId: null, impactPermissionReceiptId: null, candidate: null, review: null, planningEventId: null, impactReviewId: null, changeSetId: null, eventId: null, storyUnitLinkedVersion: null, narrativePlacementIds: [], materialObjectId: null, relationId: null, workVersionReceiptId: null, resultVersion: null },
+        application: { permissionReceiptId: null, impactPermissionReceiptId: null, candidate: null, review: null, planningEventId: null, impactReviewId: null, changeSetId: null, eventId: null, storyUnitLinkedVersion: null, narrativePlacementIds: [], materialObjectId: null, relationId: null, workVersionReceiptId: null, resultVersion: null, fixedDraft: null, rollback: null },
         failure: null,
         recordedAt: now(),
         updatedAt: now()
@@ -462,7 +462,162 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
 
   function presentAutoApplication(projectId, current, receipt) {
     const application = receipt.application;
-    return { ...read(projectId, current.runId), candidate: application.candidate, review: application.review, automaticApplication: { status: receipt.status === "active" ? "applied" : "recovery-required", decisionSource: "nuwa-scope-authorization", receiptId: receipt.receiptId, authorizationId: receipt.authorizationId, permissionReceiptId: application.permissionReceiptId, planningEventId: application.planningEventId, impactReviewId: application.impactReviewId, changeSetId: application.changeSetId, eventId: application.eventId, storyUnitId: receipt.storyUnitId, storyUnitVersion: application.storyUnitLinkedVersion, narrativePlacementIds: application.narrativePlacementIds, materialObjectId: application.materialObjectId, relationId: application.relationId, relationStatus: receipt.relationTypeId ? (application.relationId ? "confirmed" : "recovery-required") : "not-configured", workVersionReceiptId: application.workVersionReceiptId, resultVersion: application.resultVersion, sourceSnapshotHash: receipt.sourceSnapshotHash } };
+    return { ...read(projectId, current.runId), candidate: application.candidate, review: application.review, automaticApplication: presentAutomaticApplication(receipt) };
+  }
+
+  function presentAutomaticApplication(receipt) {
+    const application = receipt.application;
+    return { status: application.rollback?.status === "active" ? "rolled-back" : receipt.status === "active" ? "applied" : "recovery-required", decisionSource: "nuwa-scope-authorization", receiptId: receipt.receiptId, authorizationId: receipt.authorizationId, permissionReceiptId: application.permissionReceiptId, planningEventId: application.planningEventId, impactReviewId: application.impactReviewId, changeSetId: application.changeSetId, eventId: application.eventId, storyUnitId: receipt.storyUnitId, storyUnitVersion: application.storyUnitLinkedVersion, narrativePlacementIds: application.narrativePlacementIds, materialObjectId: application.materialObjectId, relationId: application.relationId, relationStatus: receipt.relationTypeId ? (application.relationId ? "confirmed" : "recovery-required") : "not-configured", workVersionReceiptId: application.workVersionReceiptId, resultVersion: application.resultVersion, sourceSnapshotHash: receipt.sourceSnapshotHash, fixedDraft: application.fixedDraft ?? null, rollback: application.rollback ?? null };
+  }
+
+  async function freezeAutoApplicationDraft(input) {
+    const project = requireProject(input.projectId);
+    const current = requireRun(workspacePath(project.id), input.runId);
+    const receipt = requireAutoApplicationReceipt(project.id, current.runId, input.receiptId);
+    const application = receipt.application;
+    if (receipt.status !== "active" || !application.eventId || !application.resultVersion) throw failure("这份自动应用尚未完成，不能建立固定稿。", 409);
+    const operationId = operation(input.operationId);
+    const source = creationSourcePort();
+    const root = source?.resolveRootWorkVersion(project.id);
+    if (!root || root.identity.workVersionId !== application.resultVersion.workVersionId || root.identity.currentRevision !== application.resultVersion.revision) throw failure("正式故事版本已经变化；不能把当前内容标为这份自动应用的固定稿。", 409);
+    if (application.fixedDraft) {
+      if (application.fixedDraft.operationId !== operationId) return presentAutoApplication(project.id, current, receipt);
+      return presentAutoApplication(project.id, current, receipt);
+    }
+    const creationKey = `${receipt.receiptId}.fixed-draft`;
+    const artifact = await source.createOrOpenOutputArtifact(project.id, {
+      workVersionId: application.resultVersion.workVersionId,
+      storyUnitId: receipt.storyUnitId,
+      eventIds: [application.eventId],
+      creationKey,
+      title: `${current.scene.label} · 女娲固定稿`
+    });
+    application.fixedDraft = {
+      artifactId: artifact.id,
+      sourceVersion: application.resultVersion,
+      creationKey,
+      operationId,
+      createdAt: now()
+    };
+    persistAutoApplication(receipt);
+    return presentAutoApplication(project.id, current, receipt);
+  }
+
+  /**
+   * Compensation is deliberately an independent, durable operation. It never
+   * changes the Run outcome: the Run remains historical evidence while the
+   * formal Owners record a later reversal and a new WorkVersion revision.
+   */
+  function rollbackAutoApplication(input) {
+    const project = requireProject(input.projectId);
+    const current = requireRun(workspacePath(project.id), input.runId);
+    const receipt = requireAutoApplicationReceipt(project.id, current.runId, input.receiptId);
+    const application = receipt.application;
+    if (receipt.status !== "active" || !application.eventId || !application.resultVersion) throw failure("这份自动应用尚未完成，不能回溯。", 409);
+    const operationId = operation(input.operationId);
+    const inputHash = digest({ projectId: project.id, runId: current.runId, receiptId: receipt.receiptId, operationId });
+    let rollback = application.rollback;
+    if (rollback) {
+      if (rollback.inputHash !== inputHash) throw failure("同一回溯操作键已绑定不同内容；已拒绝重放。", 409);
+      if (rollback.status === "active") return presentAutoApplication(project.id, current, receipt);
+    } else {
+      rollback = { operationId, inputHash, status: "applying", preflight: null, relation: null, arrangement: null, storyUnit: null, material: null, compensation: null, workVersionReceiptId: null, resultVersion: null, failure: null, recordedAt: now(), updatedAt: now() };
+      application.rollback = rollback;
+      persistAutoApplication(receipt);
+    }
+    try {
+      if (!rollback.preflight) {
+        const source = creationSourcePort();
+        const root = source?.resolveRootWorkVersion(project.id);
+        if (!root || root.identity.workVersionId !== application.resultVersion.workVersionId || root.identity.currentRevision !== application.resultVersion.revision) throw failure("故事版本已有后续修改；为保护作者内容，未开始回溯。", 409);
+        const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: receipt.storyUnitId });
+        if (!storyUnit || !storyUnit.linkedEntityIds.includes(application.eventId)) throw failure("目标故事单元已不再保有本批 Event；未猜测回溯范围。", 409);
+        const arrangement = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: application.resultVersion.workVersionId, narrativePathId: receipt.storyUnitId });
+        const insertReceipt = arrangement.arrangement?.receipts?.find((item) => item.operationId === `${receipt.receiptId}.arrangement.insert`) ?? null;
+        if (!arrangement.arrangement || !insertReceipt || !application.narrativePlacementIds.every((id) => insertReceipt.afterPlacementIds.includes(id))) throw failure("本批 NarrativePlacement 回执不完整；未开始回溯。", 409);
+        const relation = application.relationId ? relationOperations?.readRelation({ projectId: project.id, relationId: application.relationId }).relation : null;
+        if (application.relationId && (!relation || relation.archived || relation.reviewState !== "confirmed")) throw failure("本批 Relation 已变化；未开始回溯。", 409);
+        const material = operations.readWorldObject({ projectId: project.id, objectId: application.materialObjectId });
+        if (!material || material.status === "archived") throw failure("本批资料已变化；未开始回溯。", 409);
+        rollback.preflight = {
+          baseVersion: application.resultVersion,
+          storyUnitVersion: storyUnit.version,
+          relationRevision: relation?.revision ?? null,
+          materialRevision: material.revisionToken,
+          arrangementRevision: arrangement.arrangement.currentRevision,
+          arrangementOwnerVersion: arrangement.ownerVersion,
+          arrangementTargetRevision: insertReceipt.beforeRevision
+        };
+        persistAutoApplication(receipt);
+      }
+      const preflight = rollback.preflight;
+      const root = creationSourcePort().resolveRootWorkVersion(project.id);
+      if (!root || root.identity.workVersionId !== preflight.baseVersion.workVersionId || root.identity.currentRevision !== preflight.baseVersion.revision) throw failure("回溯期间故事版本已继续前进；已停止，未覆盖后续内容。", 409);
+      if (application.relationId && !rollback.relation) {
+        const relation = relationOperations.readRelation({ projectId: project.id, relationId: application.relationId }).relation;
+        if (!relation || relation.revision !== preflight.relationRevision || relation.archived) throw failure("Relation 版本已变化；已停止回溯。", 409);
+        autoApplicationFaultInjector?.({ phase: "before-rollback-relation", receiptId: receipt.receiptId, projectId: project.id, runId: current.runId });
+        const archived = relationOperations.archiveConfirmedRelation({ projectId: project.id, relationId: application.relationId, expectedRelationRevision: relation.revision, operationId: `${rollback.operationId}.relation-archive`, actor: "nuwa", now: now() });
+        rollback.relation = { relationId: application.relationId, receiptId: archived.receipt?.receiptId ?? null, revision: archived.relation?.revision ?? null };
+        persistAutoApplication(receipt);
+      }
+      if (!rollback.arrangement) {
+        const arrangement = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: preflight.baseVersion.workVersionId, narrativePathId: receipt.storyUnitId });
+        if (!arrangement.arrangement || arrangement.arrangement.currentRevision !== preflight.arrangementRevision || arrangement.ownerVersion !== preflight.arrangementOwnerVersion) throw failure("NarrativePlacement 已变化；已停止回溯。", 409);
+        const rolled = operations.rollbackNarrativeArrangement({ projectId: project.id, workVersionId: preflight.baseVersion.workVersionId, narrativePathId: receipt.storyUnitId, expectedOwnerVersion: arrangement.ownerVersion, expectedRevision: arrangement.arrangement.currentRevision, operationId: `${rollback.operationId}.arrangement-rollback`, authorActionId: `${rollback.operationId}.author.arrangement-rollback`, sourceKind: "author-action", sourceRef: `nuwa-n1-rollback:${receipt.receiptId}`, createdAt: now(), targetRevision: preflight.arrangementTargetRevision });
+        if (rolled.conflict || !rolled.receipt) throw failure(`NarrativePlacement 回溯冲突：${rolled.code}`, 409);
+        rollback.arrangement = { receiptId: rolled.receipt.receiptId, revision: rolled.arrangement?.currentRevision ?? null, ownerVersion: rolled.ownerVersion };
+        persistAutoApplication(receipt);
+      }
+      if (!rollback.storyUnit) {
+        const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: receipt.storyUnitId });
+        if (!storyUnit.linkedEntityIds.includes(application.eventId)) throw failure("正式 Event 已不在目标故事单元；已停止回溯。", 409);
+        const updated = operations.updateStoryUnit({ projectId: project.id, unitId: storyUnit.id, expectedVersion: storyUnit.version, linkedEntityIds: storyUnit.linkedEntityIds.filter((id) => id !== application.eventId) });
+        if (updated.conflict) throw failure("故事单元版本冲突；已停止回溯。", 409);
+        rollback.storyUnit = { unitId: storyUnit.id, version: updated.unit.version, removedEventId: application.eventId };
+        persistAutoApplication(receipt);
+      }
+      if (!rollback.material) {
+        const material = operations.readWorldObject({ projectId: project.id, objectId: application.materialObjectId });
+        if (material.status === "archived") throw failure("本批资料已由其他操作归档；已停止回溯。", 409);
+        const archived = operations.archiveWorldObject({ projectId: project.id, objectId: material.id, expectedHash: material.revisionToken });
+        rollback.material = { objectId: material.id, revisionToken: archived.revisionToken };
+        persistAutoApplication(receipt);
+      }
+      if (!rollback.compensation) {
+        const rollbackTag = `nuwa-auto-rollback:${receipt.receiptId}`;
+        const existing = operations.listWorldObjects({ projectId: project.id, type: "event" })
+          .filter((item) => item.status === "planned" && item.tags.includes(rollbackTag))
+          .map((item) => operations.readWorldObject({ projectId: project.id, objectId: item.id }))[0] ?? null;
+        const planning = existing || operations.createPlanningEvent({ projectId: project.id, title: `回溯：${current.scene.label}`, tags: ["女娲自动回溯", rollbackTag], body: `# 回溯：${current.scene.label}\n\n该补偿 Event 撤回自动应用 ${receipt.receiptId} 的当前正式效果；原始 Run、Event 与 heard 历史仍保留可查。\n\n- 自动应用回执：${receipt.receiptId}\n- 原 Event：${application.eventId}\n- 原版本：${preflight.baseVersion.workVersionId}@r${preflight.baseVersion.revision}\n` });
+        let impact = authorControl.createPlanningEventImpactReview({ projectId: project.id, planningEventId: planning.id });
+        if (impact.status === "pending") {
+          const option = impact.options[0];
+          if (!option) throw failure("回溯补偿缺少可用的影响路径。", 409);
+          impact = authorControl.chooseImpactRoute({ projectId: project.id, reviewId: impact.id, optionId: option.id, action: "adopt" });
+        }
+        if (impact.status !== "selected") throw failure("回溯补偿没有形成可写入的路线。", 409);
+        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, decisionSource: "nuwa-scope-rollback", authorizationId: receipt.authorizationId });
+        const applied = authorControl.applyAuthorChangeSet({ projectId: project.id, changeSetId: changeSet.id });
+        rollback.compensation = { planningEventId: planning.id, impactReviewId: impact.id, changeSetId: changeSet.id, eventId: applied.application.appliedEventId };
+        persistAutoApplication(receipt);
+      }
+      if (!rollback.workVersionReceiptId) {
+        const version = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: preflight.baseVersion.revision, authorActionId: `${rollback.operationId}.author`, idempotencyKey: `${rollback.operationId}.result-version`, createdAt: now(), semanticDeltaRefs: [`compensation-of:${receipt.receiptId}`, `event:${rollback.compensation.eventId}`, `archived-material:${application.materialObjectId}`, ...(application.relationId ? [`archived-relation:${application.relationId}`] : []), `rolled-back-placement:${application.narrativePlacementIds.join(",")}`] });
+        rollback.workVersionReceiptId = version.receipt.receiptId;
+        rollback.resultVersion = { workVersionId: version.identity.workVersionId, revision: version.identity.currentRevision };
+        persistAutoApplication(receipt);
+      }
+      rollback.status = "active";
+      rollback.failure = null;
+      persistAutoApplication(receipt);
+      return presentAutoApplication(project.id, current, receipt);
+    } catch (cause) {
+      rollback.status = "recovery-required";
+      rollback.failure = safeMessage(cause);
+      persistAutoApplication(receipt);
+      throw failure(`回溯未完整结束；已保留可恢复回执 ${receipt.receiptId}。${rollback.failure}`, errorStatus(cause));
+    }
   }
 
   function autoApplicationReceiptPath(projectId, receiptId) { return path.join(workspacePath(projectId), ".world-os", "workspace", "nuwa-n1-auto-applications", `${receiptId}.json`); }
@@ -470,6 +625,16 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function creationSourcePort() { return typeof creationSourceSelectionPort === "function" ? creationSourceSelectionPort() : creationSourceSelectionPort; }
   function autoApplicationReceiptId(operationId) { return `nuwa-n1-auto-application.${digest(operationId)}`; }
   function readAutoApplicationReceipt(projectId, receiptId) { const target = autoApplicationReceiptPath(projectId, receiptId); return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")) : null; }
+  function latestAutoApplicationReceipt(projectId, runId) {
+    const directory = path.dirname(autoApplicationReceiptPath(projectId, "placeholder"));
+    if (!existsSync(directory)) return null;
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => readAutoApplicationReceipt(projectId, entry.name.slice(0, -5)))
+      .filter((receipt) => receipt?.runId === runId && receipt.application?.eventId)
+      .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))[0] ?? null;
+  }
+  function requireAutoApplicationReceipt(projectId, runId, receiptId) { const receipt = readAutoApplicationReceipt(projectId, requiredText(receiptId, "自动应用回执", 240)); if (!receipt || receipt.projectId !== projectId || receipt.runId !== runId) throw failure("自动应用回执不存在或不属于当前 Run。", 404); return receipt; }
   function writeAutoApplicationReceipt(receipt) { const target = autoApplicationReceiptPath(receipt.projectId, receipt.receiptId); mkdirSync(path.dirname(target), { recursive: true }); const temporary = `${target}.${process.pid}.tmp`; writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); renameSync(temporary, target); }
   function persistAutoApplication(receipt) { receipt.updatedAt = now(); writeAutoApplicationReceipt(receipt); }
 
@@ -493,6 +658,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
 
   function present(projectId, run) {
     const project = requireProject(projectId);
+    const automaticReceipt = latestAutoApplicationReceipt(projectId, run.runId);
     return {
       version: VERSION,
       availability: availability(),
@@ -550,7 +716,8 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
           };
         })
       },
-      receipts: run.receipts
+      receipts: run.receipts,
+      ...(automaticReceipt ? { automaticApplication: presentAutomaticApplication(automaticReceipt) } : {})
     };
   }
 
@@ -693,7 +860,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     };
   }
 
-  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply };
+  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply, freezeAutoApplicationDraft, rollbackAutoApplication };
 }
 
 function candidateReviewResult(project, run, handoff) {
