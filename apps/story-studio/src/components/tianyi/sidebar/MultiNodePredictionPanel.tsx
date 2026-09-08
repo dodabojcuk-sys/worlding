@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { derivePredictionReviewGate, type DraftCreationReceipt, type IdentityResolutionKind, type PredictionRun } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
 import type { StoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
-import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, listMultiNodePredictionReviews, listMultiNodePredictionRuns, retryMultiNodePredictionRun, stopMultiNodePredictionRun, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
+import { acceptMultiNodePredictionReview, abandonMultiNodePredictionRun, createMultiNodePredictionReview, createMultiNodePredictionRun, executeMultiNodePredictionRun, getMultiNodePredictionExecution, getMultiNodePredictionRun, listMultiNodePredictionReviews, listMultiNodePredictionRuns, retryMultiNodePredictionRun, stopMultiNodePredictionRun, type MultiNodePredictionReviewProjection, type TianyiPredictionExecutionProjection } from "../../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import {
   clearPredictionAbandonmentPending,
@@ -85,6 +85,12 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     let active = true;
     const generation = ++historyLoadGeneration.current;
     setPhase("reading");
+    const pendingRunId = props.runtime.activePageAgentRunId;
+    if (pendingRunId && isPredictionAbandonmentPending(project.id, pendingRunId)) {
+      setRun(null); setReceipt(null); setViewState("task");
+      beginPendingAbandonmentRecovery(pendingRunId);
+      return () => { active = false; };
+    }
     void props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)).then((history) => {
       if (!active || historyLoadGeneration.current !== generation) return;
       setRuns(history);
@@ -259,6 +265,27 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       }
     })();
   };
+  const beginPendingAbandonmentRecovery = (runId: string) => {
+    if (!project) return;
+    const generation = ++runRecoveryGeneration.current;
+    void (async () => {
+      while (runRecoveryGeneration.current === generation) {
+        try {
+          const current = await props.runtime.withConnection((token) => getMultiNodePredictionRun({ projectId: project.id, runId, token }));
+          if (current && ["abandoned", "stale"].includes(current.status)) {
+            const observed = setObservedRun(current); if (!observed) return;
+            setRuns((history) => [observed, ...history.filter((candidate) => candidate.runId !== observed.runId)]);
+            setPhase("idle"); setViewState("task"); announceRun(observed);
+            return;
+          }
+          if (!isPredictionAbandonmentPending(project.id, runId)) { beginRunRecoveryPolling(runId); return; }
+        } catch {
+          if (!isPredictionAbandonmentPending(project.id, runId)) { beginRunRecoveryPolling(runId); return; }
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+    })();
+  };
   const beginSourceRecoveryPolling = () => {
     if (!project) return;
     const generation = ++runRecoveryGeneration.current;
@@ -315,7 +342,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       const response = await resolvePredictionAbandonment({
         runId: targetRunId,
         command,
-        readOwner: async () => (await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token))).find((candidate) => candidate.runId === targetRunId) ?? null,
+        readOwner: () => props.runtime.withConnection((token) => getMultiNodePredictionRun({ projectId: project.id, runId: targetRunId, token })),
         wait: () => new Promise((resolve) => window.setTimeout(resolve, 120)),
         isActive: () => isPredictionAbandonmentPending(project.id, targetRunId)
       });
@@ -498,6 +525,7 @@ function stageOrder(stage: "task" | "running" | "candidates" | "review"): number
 function replayedPredictionRun(projectId: string | null, eventRefs: readonly StoryStudioEventReference[]): PredictionRun | null {
   const replay = (window as Window & { __storyStudioPredictionRun?: PredictionRun }).__storyStudioPredictionRun;
   if (!projectId || replay?.projectId !== projectId) return null;
+  if (isPredictionAbandonmentPending(projectId, replay.runId) && !["abandoned", "stale"].includes(replay.status)) return null;
   const sourceKey = eventRefs.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
   const replayKey = replay.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|");
   if (!sourceKey || sourceKey !== replayKey) return null;

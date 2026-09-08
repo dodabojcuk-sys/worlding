@@ -3786,11 +3786,13 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)").length === 3);
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
   await panel.getByText("技术回执与历史", { exact: true }).click();
+  let releaseAbandonResponse = () => undefined;
+  const holdAbandonResponse = new Promise((resolve) => { releaseAbandonResponse = resolve; });
   await page.route("**/prediction/abandon", async (route) => {
     // Persist the author action first, then hold only its response while the
     // Agent panel remounts. The new instance must recover the exact Owner Run.
     const response = await route.fetch({ timeout: 0 });
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await holdAbandonResponse;
     await route.fulfill({ response });
   }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
@@ -3813,7 +3815,7 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId })
     ]);
     throw new Error(`Prediction abandon did not retain its terminal task surface: ${JSON.stringify({ dom, persisted: persisted.data })}`, { cause });
-  });
+  }).finally(() => releaseAbandonResponse());
   assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Keyboard abandonment must preserve the already-created draft projection.");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(180);
