@@ -3787,10 +3787,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
   await panel.getByText("技术回执与历史", { exact: true }).click();
   await page.route("**/prediction/abandon", async (route) => {
-    // Reproduce a panel remount after the author action but before the Owner
-    // sees it. The new Agent panel must retain the exact pending Run identity.
+    // Persist the author action first, then hold only its response while the
+    // Agent panel remounts. The new instance must recover the exact Owner Run.
+    const response = await route.fetch();
     await new Promise((resolve) => setTimeout(resolve, 1_000));
-    await route.continue();
+    await route.fulfill({ response });
   }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
   const abandonRequest = page.waitForRequest("**/prediction/abandon");
