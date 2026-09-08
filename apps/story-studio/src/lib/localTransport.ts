@@ -2293,6 +2293,8 @@ export type NuwaN1ReadModel = {
     storyUnitId: string;
     storyUnitRevision: string;
     actorIds: string[];
+    relationTypeId: string | null;
+    relationTypeRevision: number | null;
     status: "active" | "revoked" | "expired";
     maxSteps: number;
     maxProviderDispatches: number;
@@ -2306,6 +2308,7 @@ export type NuwaN1Bootstrap = {
   availability: NuwaN1Availability;
   participants: NuwaN1Participant[];
   storyUnits: NuwaN1StoryUnit[];
+  relationTypes: Array<{ id: string; title: string; revision: number }>;
   latestRunId: string | null;
 };
 export type NuwaN1Setup = {
@@ -2357,7 +2360,7 @@ export async function setupNuwaN1(input: { projectId: string; participants: Nuwa
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
 }
 
-export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
 }

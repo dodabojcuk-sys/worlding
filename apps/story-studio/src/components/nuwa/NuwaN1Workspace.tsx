@@ -30,6 +30,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [setup, setSetup] = useState<NuwaN1Setup | null>(null);
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [storyUnitId, setStoryUnitId] = useState("");
+  const [relationTypeId, setRelationTypeId] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
   const [cue, setCue] = useState("");
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
@@ -43,7 +44,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
 
   useEffect(() => {
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setGoal(""); setSelectedStepIds([]); setError(null); setNotice(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setError(null); setNotice(null);
     if (!projectId) return () => { active = false; };
     void Promise.all([getNuwaN1Bootstrap(projectId), getNuwaN1Latest(projectId)]).then(([nextBootstrap, latest]) => {
       if (!active) return;
@@ -54,6 +55,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (requestedParticipantId) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? (requestedParticipant ? [requestedParticipant] : []));
       setStoryUnitId(nextBootstrap.storyUnits[0]?.id ?? "");
+      setRelationTypeId(nextBootstrap.relationTypes.length === 1 ? nextBootstrap.relationTypes[0]!.id : null);
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
       setSelectedStepIds(latest.run?.steps.slice(-1).map((step) => step.stepId) ?? []);
       setSelectedStepId(latest.run?.steps.at(-1)?.stepId ?? null);
@@ -120,7 +122,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const participants = selectedParticipants(bootstrap, participantIds);
     const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
     if (!storyUnit) return;
-    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
+    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), relationTypeId, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
   };
   const runAction = (action: "step" | "pause" | "resume" | "stop" | "replay") => {
     if (!projectId || !run) return;
@@ -196,6 +198,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
+        <label><span>自动关系类型</span><select value={relationTypeId ?? ""} disabled={Boolean(run) || busy || !bootstrap?.relationTypes.length} onChange={(event) => setRelationTypeId(event.target.value || null)}><option value="">不写关系</option>{bootstrap?.relationTypes.map((type) => <option key={type.id} value={type.id}>{type.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
         <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalDispatches(run.run)}</small> : <small>最多 6 个已提交步骤</small>}</div>
         {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
