@@ -3793,7 +3793,9 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     await route.continue();
   }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
+  const abandonRequest = page.waitForRequest("**/prediction/abandon");
   await abandonButton.press("Enter");
+  await abandonRequest;
   await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
   await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor().catch(async (cause) => {
