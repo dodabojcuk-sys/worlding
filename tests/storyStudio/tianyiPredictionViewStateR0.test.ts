@@ -68,7 +68,8 @@ test("the drafted receipt recovery effect invalidates stale responses after a te
   assert.match(panel, /const status = predictionRunStatusAfterTerminalFence\(\{ projectId, runId: replay\.runId, incomingStatus: replay\.status \}\)/u);
   assert.match(panel, /historyLoadGeneration\.current \+= 1/u);
   assert.match(panel, /runRecoveryGeneration\.current \+= 1/u);
-  assert.match(panel, /if \(!run \|\| \["abandoned", "stale"\]\.includes\(run\.status\) \|\| detail\?\.origin !== "canvas"/u);
+  assert.match(panel, /terminalRunIds\.current\.has\(detail\?\.runId \|\| ""\)/u);
+  assert.match(panel, /if \(!run \|\| terminalRunIds\.current\.has\(detail\?\.runId \|\| ""\) \|\| \["abandoned", "stale"\]\.includes\(run\.status\) \|\| detail\?\.origin !== "canvas"/u);
   assert.match(panel, /if \(!run \|\| !\["abandoned", "stale"\]\.includes\(run\.status\)\) return;/u);
   assert.match(panel, /const observedReady = setObservedRun\(ready\) \?\? ready;/u);
   assert.match(panel, /predictionViewStateFromPersistence\(\{ runStatus: observedReady\.status, hasBundle: Boolean\(observedReady\.bundle\), selectedPathId: null, hasReceipt: false \}\)/u);
