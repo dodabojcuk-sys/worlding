@@ -241,10 +241,12 @@ test("Nuwa N1 continuous endpoint advances on the server and applies the complet
   const model = created.payload.data as NuwaReadModel;
   const continuous = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/continuous", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "continuous-run" });
   assert.equal(continuous.status, 200, JSON.stringify(continuous.payload));
-  const result = continuous.payload.data as NuwaReadModel & { automaticApplication: { eventId: string } };
+  const result = continuous.payload.data as NuwaReadModel & { automaticApplication: { eventId: string; planningEventId: string } };
   assert.equal(result.run.status, "completed");
   assert.equal(result.run.steps.length, 6);
   assert.ok(result.automaticApplication.eventId);
+  const planning = value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.planningEventId });
+  for (const step of result.run.steps) assert.match(planning.body, new RegExp(step.stepId.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"), "every completed step is retained in the formal application source");
 });
 
 test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-up tool result", async (t) => {

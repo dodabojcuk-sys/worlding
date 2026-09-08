@@ -283,12 +283,15 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     });
     if (permission.outcome !== "allowed") throw failure(permission.reason, 403);
     const handoff = candidate(input);
-    const selected = handoff.candidate.candidates[0];
-    if (!selected) throw failure("选定步骤没有形成可应用的女娲变化。", 409);
+    const selected = handoff.candidate.candidates;
+    if (!selected.length) throw failure("选定步骤没有形成可应用的女娲变化。", 409);
+    const sourceStepIds = selected.map((item) => item.sourceStepId);
+    const sourceSummary = selected.map((item) => `## ${item.title}\n\n${item.summary}\n\n${item.observedResult}\n\n- 来源步骤：${item.sourceStepId}`).join("\n\n");
+    const primary = selected[0];
     const planning = operations.createPlanningEvent({
       projectId: project.id,
-      title: selected.title,
-      body: `# ${selected.title}\n\n${selected.summary}\n\n${selected.observedResult}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${selected.sourceStepId}\n- 高权限范围授权：${authorization.id}\n- 决策来源：作者开始 Run 时的范围授权\n`,
+      title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`,
+      body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${authorization.id}\n- 决策来源：作者开始 Run 时的范围授权\n`,
       tags: ["女娲自动执行", current.runId]
     });
     const impactPermission = actionPermissionBroker.record(project.id, {
@@ -315,14 +318,14 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       type: "location",
       title: `场景：${current.scene.label}`,
       tags: ["女娲自动执行", current.runId],
-      body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${selected.sourceStepId}\n- 授权：${authorization.id}\n- 结果：${selected.observedResult}\n`
+      body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${sourceStepIds.join("、")}\n- 授权：${authorization.id}\n- 结果：${selected.map((item) => item.observedResult).join("；")}\n`
     });
     let relation = null;
     if (relationType) {
       const event = operations.readWorldObject({ projectId: project.id, objectId: eventId });
       const relationCandidate = relationOperations.createRelationCandidate({
         projectId: project.id,
-        relationId: `nuwa-relation.${current.runId}.${selected.sourceStepId}`,
+        relationId: `nuwa-relation.${current.runId}.${primary.sourceStepId}`,
         sourceObjectId: eventId,
         targetObjectId: material.id,
         relationTypeId: relationType.relationTypeId,
@@ -330,7 +333,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         direction: "forward",
         actor: "nuwa",
         sourceRevision: current.sourceSnapshotHash,
-        sourceRef: `nuwa-n1:${current.runId}:${selected.sourceStepId}`,
+        sourceRef: `nuwa-n1:${current.runId}:${primary.sourceStepId}`,
         operationId: `${input.operationId}.relation-candidate`,
         evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }],
         now: now()
