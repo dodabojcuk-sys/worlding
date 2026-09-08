@@ -9,6 +9,7 @@ import {
   clearPredictionAbandonmentPending,
   isPredictionAbandonmentPending,
   markPredictionAbandonmentPending,
+  readPredictionTerminalRunStatus,
   predictionSourceSummary,
   predictionStageForView,
   predictionViewAfterEscape,
@@ -144,13 +145,15 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   }, [run]);
 
   useEffect(() => {
-    const receiveTerminalRun = (event: Event) => {
-      const next = (event as CustomEvent<PredictionRun>).detail;
+    const applyTerminalRun = (next: PredictionRun) => {
       if (!project || !run || next?.projectId !== project.id || next.runId !== run.runId || !["abandoned", "stale"].includes(next.status)) return;
       const observed = setObservedRun(next); if (!observed) return;
       setRuns((current) => [observed, ...current.filter((candidate) => candidate.runId !== observed.runId)]);
       setReceipt(null); setPhase("idle"); setViewState("task");
     };
+    const rememberedStatus = project && run ? readPredictionTerminalRunStatus(project.id, run.runId) : null;
+    if (run && rememberedStatus && run.status !== rememberedStatus) applyTerminalRun({ ...run, status: rememberedStatus });
+    const receiveTerminalRun = (event: Event) => applyTerminalRun((event as CustomEvent<PredictionRun>).detail);
     window.addEventListener("story-studio-multi-node-prediction-run", receiveTerminalRun);
     return () => window.removeEventListener("story-studio-multi-node-prediction-run", receiveTerminalRun);
   }, [project?.id, run?.runId]);

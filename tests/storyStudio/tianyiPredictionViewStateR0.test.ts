@@ -6,6 +6,7 @@ import {
   clearPredictionAbandonmentPending,
   isPredictionAbandonmentPending,
   markPredictionAbandonmentPending,
+  readPredictionTerminalRunStatus,
   predictionSourceSummary,
   predictionStageForView,
   predictionRunStatusAfterTerminalFence,
@@ -27,6 +28,15 @@ test("pending abandonment identity survives a panel instance and remains project
   assert.equal(isPredictionAbandonmentPending(projectId, "prediction-run.other"), false);
   clearPredictionAbandonmentPending(projectId, runId);
   assert.equal(isPredictionAbandonmentPending(projectId, runId), false);
+});
+
+test("terminal prediction status can be replayed by a remounted panel", () => {
+  const projectId = "project.terminal-replay";
+  const runId = "prediction-run.terminal-replay";
+  assert.equal(readPredictionTerminalRunStatus(projectId, runId), null);
+  assert.equal(predictionRunStatusAfterTerminalFence({ projectId, runId, incomingStatus: "abandoned" }), "abandoned");
+  assert.equal(readPredictionTerminalRunStatus(projectId, runId), "abandoned");
+  assert.equal(readPredictionTerminalRunStatus("project.other", runId), null);
 });
 
 test("persistent Run state maps to a view without inventing domain progress", () => {

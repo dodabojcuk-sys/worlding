@@ -26,6 +26,10 @@ export function isPredictionAbandonmentPending(projectId: string, runId: string)
   return pendingPredictionAbandonments.has(terminalPredictionRunKey(projectId, runId));
 }
 
+export function readPredictionTerminalRunStatus(projectId: string, runId: string): TianyiPredictionTerminalRunStatus | null {
+  return terminalPredictionRunStatuses.get(terminalPredictionRunKey(projectId, runId)) ?? null;
+}
+
 export function predictionRunStatusAfterTerminalFence(input: {
   projectId: string;
   runId: string;
