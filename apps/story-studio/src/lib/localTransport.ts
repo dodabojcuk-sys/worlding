@@ -2232,6 +2232,8 @@ export type NuwaN1Step = {
   speech: string | null;
   action: { action: string; targetId: string | null } | null;
   observableResult: string;
+  heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>;
+  contextEvidenceRefs: Array<{ kind: "knowledge" | "belief"; id: string; summary: string; sourceId: string; sourceRevision: string; visibility: string }>;
   tool: { name: "read_role_context"; requestId: string };
   usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
   committedAt: string;
@@ -2278,8 +2280,8 @@ export type NuwaN1ContextInspector = {
   actors: Array<{
     actorId: string;
     evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
-    knowledgeItems: Array<{ id: string; summary: string; visibility: string }>;
-    beliefItems: Array<{ id: string; summary: string; stance: string }>;
+    knowledgeItems: Array<{ id: string; summary: string; visibility: string; sourceId: string; sourceRevision: string }>;
+    beliefItems: Array<{ id: string; summary: string; stance: string; sourceId: string; sourceRevision: string }>;
     excludedCount: number;
   }>;
 };

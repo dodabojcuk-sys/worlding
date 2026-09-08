@@ -56,6 +56,8 @@ export type NuwaN1ActorResult = {
   speech: string | null;
   action: { action: string; targetId: string | null };
   observableResult: string;
+  /** Explicit delivery contract.  Text is never parsed to infer who heard it. */
+  heardByActorIds?: string[];
   usage?: { inputTokens: number | null; outputTokens: number | null };
 };
 export type NuwaN1Usage = { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
@@ -84,6 +86,11 @@ export type NuwaN1Step = {
   };
   contextHash: string;
   usage: NuwaN1Usage;
+  heardByActorIds: string[];
+  /** The exact, scoped evidence references provided to this completed turn. */
+  contextEvidenceRefs: Array<{ kind: "knowledge" | "belief"; id: string; summary: string; sourceId: string; sourceRevision: string; visibility: string }>;
+  /** Durable statement deliveries; a heard statement is not a world fact. */
+  heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>;
   committedAt: string;
 };
 export type NuwaN1Receipt = { operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string; payloadHash?: string };
@@ -307,9 +314,17 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     return finishAttempt(input, current, attemptId, "blocked", "reported token usage exceeds N1 per-turn budget", { lifecycle: "blocked", blocker: "角色回合的精确 Token 用量超过 N1 上限；未提交场景步骤。" }, undefined, usage);
   }
   const sequence = current.steps.length + 1;
+  const stepId = `nuwa-n1-step.${stableHash({ runId: current.runId, sequence, operationId: input.operationId }).slice(0, 20)}`;
+  const speech = result.speech == null ? null : text(result.speech, "speech", 1_200);
+  const heardByActorIds = normalizeHearers(result.heardByActorIds, actor.character.id, current.actors);
+  if (heardByActorIds.length && !speech) throw new Error("Nuwa N1 statement delivery requires a completed spoken statement.");
+  const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
   const step: NuwaN1Step = {
-    stepId: `nuwa-n1-step.${stableHash({ runId: current.runId, sequence, operationId: input.operationId }).slice(0, 20)}`,
-    operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech: result.speech == null ? null : text(result.speech, "speech", 1_200), action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId: context.attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
+    stepId,
+    operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
+    contextEvidenceRefs: contextEvidenceRefs(context),
+    heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
+    toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
   };
   const next: NuwaN1Run = { ...current, steps: [...current.steps, step], pendingCue: null, lifecycle: sequence >= NUWA_N1_MAX_COMMITTED_STEPS ? "completed" : "running", blocker: null, attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt) };
   return persist(input, current, "step", next);
@@ -318,10 +333,10 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
 export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operationId: string): NuwaN1Context {
   const canonicalActor = run.actors.find((candidate) => sameRef(candidate.character, actor.character));
   if (!canonicalActor) throw new Error("Nuwa N1 actor is outside the frozen Run scope.");
-  const dialogue = run.steps.flatMap((step) => step.speech && step.actor.id !== actor.character.id ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
+  const dialogue = run.steps.flatMap((step) => step.speech && (step.actor.id === actor.character.id || step.heardByActorIds.includes(actor.character.id)) ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
   return {
     version: "tianyan-nuwa-n1-role-context/v1", runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary,
-    knownFacts: canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility })), beliefs: canonicalActor.beliefs.map((belief) => ({ ...structuredClone(belief), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision })), unknownFactIds: [...canonicalActor.unknownFactIds], recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining: { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096, outputTokenBudget: 1024 }, authorCue: run.pendingCue?.instruction ?? null
+    knownFacts: [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility })), ...heardStatements(run, actor.character.id)], beliefs: canonicalActor.beliefs.map((belief) => ({ ...structuredClone(belief), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision })), unknownFactIds: [...canonicalActor.unknownFactIds], recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining: { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096, outputTokenBudget: 1024 }, authorCue: run.pendingCue?.instruction ?? null
   };
 }
 
@@ -533,6 +548,29 @@ function validateUsage(usage: NuwaN1ActorResult["usage"]): void {
   for (const value of [usage?.inputTokens, usage?.outputTokens]) if (value != null && (!Number.isSafeInteger(value) || value < 0)) throw new Error("Nuwa N1 reported token usage is invalid.");
 }
 
+function normalizeHearers(value: unknown, speakerId: string, actors: NuwaN1Actor[]): string[] {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 2) throw new Error("Nuwa N1 statement recipients are invalid.");
+  const allowed = new Set(actors.map((actor) => actor.character.id));
+  const ids = [...new Set(value.map((item) => stableObjectId(String(item))))];
+  if (ids.some((id) => id === speakerId || !allowed.has(id))) throw new Error("Nuwa N1 statement recipient is outside the Run roster.");
+  return ids;
+}
+
+function heardStatements(run: NuwaN1Run, actorId: string) {
+  return run.steps
+    .flatMap((step) => step.heardStatements ?? [])
+    .filter((heard) => heard.recipientId === actorId)
+    .map((heard) => ({ factId: `heard.${heard.sourceStepId}.${actorId}`, summary: `听到 ${heard.speakerId} 的说法：${heard.statement}`, sourceId: heard.sourceStepId, sourceRevision: heard.sourceRevision, visibility: "heard" as const }));
+}
+
+function contextEvidenceRefs(context: NuwaN1Context): NuwaN1Step["contextEvidenceRefs"] {
+  return [
+    ...context.knownFacts.map((fact) => ({ kind: "knowledge" as const, id: fact.factId, summary: fact.summary, sourceId: fact.sourceId, sourceRevision: fact.sourceRevision, visibility: fact.visibility })),
+    ...context.beliefs.map((belief) => ({ kind: "belief" as const, id: belief.beliefId, summary: belief.summary, sourceId: belief.sourceId, sourceRevision: belief.sourceRevision, visibility: belief.stance }))
+  ];
+}
+
 /** A provider may omit exact metering.  Byte length is an intentionally
  * conservative upper bound for UTF-8 tokenization and is persisted as such. */
 function resolveUsage(context: NuwaN1Context, result: NuwaN1ActorResult): NuwaN1Usage {
@@ -564,6 +602,18 @@ function normalizeRun(value: unknown): NuwaN1Run {
   if (!Array.isArray(run.attempts)) run.attempts = [];
   run.sourceIdentity = normalizeSourceIdentity(run.sourceIdentity);
   run.actors = run.actors.map(normalizeActor);
+  run.steps = run.steps.map((step) => {
+    const heardByActorIds = Array.isArray(step.heardByActorIds) ? step.heardByActorIds.map((id) => stableObjectId(id)) : [];
+    const speech = step.speech == null ? null : text(step.speech, "speech", 1_200);
+    const sourceRevision = run.sourceIdentity?.revision ?? `run-r${run.revision}`;
+    const heardStatements = Array.isArray(step.heardStatements)
+      ? step.heardStatements.map(normalizeHeardStatement)
+      : speech ? heardByActorIds.map((recipientId) => ({ recipientId, speakerId: step.actor.id, statement: speech, sourceStepId: step.stepId, sourceRevision })) : [];
+    const allowed = new Set(run.actors.map((actor) => actor.character.id));
+    if (heardStatements.some((heard) => heard.speakerId !== step.actor.id || heard.sourceStepId !== step.stepId || heard.recipientId === step.actor.id || !allowed.has(heard.recipientId))) throw new Error("Nuwa N1 heard statement is outside its completed step or Run roster.");
+    if (heardStatements.length !== heardByActorIds.length || heardStatements.some((heard) => !heardByActorIds.includes(heard.recipientId))) throw new Error("Nuwa N1 statement delivery ledger is inconsistent.");
+    return { ...step, speech, heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
+  });
   run.attempts = run.attempts.map(normalizeAttempt);
   return structuredClone(run);
 }
@@ -596,6 +646,18 @@ function validateToolRequest(request: NuwaN1ToolRequest, actor: NuwaN1Actor): vo
 function validateActorResult(result: NuwaN1ActorResult, actor: NuwaN1Actor): void {
   if (result.type !== "actor-result" || !sameRef(result.actor, actor.character) || !actor.allowedActions.includes(result.action.action)) throw new Error("Nuwa N1 adapter result is outside the actor scope or allowed actions.");
   text(result.intent, "intent", 600); text(result.observableResult, "observableResult", 1_200); if (result.speech != null) text(result.speech, "speech", 1_200);
+  if (result.heardByActorIds != null && !Array.isArray(result.heardByActorIds)) throw new Error("Nuwa N1 statement recipients are invalid.");
+}
+function normalizeHeardStatement(value: unknown): NuwaN1Step["heardStatements"][number] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 heard statement is invalid.");
+  const heard = value as Record<string, unknown>;
+  return { recipientId: stableObjectId(String(heard.recipientId || "")), speakerId: stableObjectId(String(heard.speakerId || "")), statement: text(String(heard.statement || ""), "heard statement", 1_200), sourceStepId: safeId(String(heard.sourceStepId || "")), sourceRevision: text(String(heard.sourceRevision || ""), "heard source revision", 180) };
+}
+function normalizeContextEvidenceRef(value: unknown): NuwaN1Step["contextEvidenceRefs"][number] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 context evidence is invalid.");
+  const ref = value as Record<string, unknown>;
+  if (ref.kind !== "knowledge" && ref.kind !== "belief") throw new Error("Nuwa N1 context evidence kind is invalid.");
+  return { kind: ref.kind, id: stableObjectId(String(ref.id || "")), summary: text(String(ref.summary || ""), "context evidence", 1_200), sourceId: stableObjectId(String(ref.sourceId || "")), sourceRevision: text(String(ref.sourceRevision || ""), "context source revision", 180), visibility: text(String(ref.visibility || ""), "context visibility", 80) };
 }
 function requireRun(workspacePath: string, runId: string): NuwaN1Run { const run = readNuwaN1Run(workspacePath, runId); if (!run) throw new Error("Nuwa N1 Run has not been created for this RunPack."); return run; }
 function assertRunPack(workspacePath: string, runId: string, expectedSnapshotHash?: string): void {

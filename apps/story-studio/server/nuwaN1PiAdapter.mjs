@@ -123,9 +123,10 @@ function parseActorResult(text, context, usage) {
   let value;
   try { value = JSON.parse(String(text).trim()); }
   catch { throw new Error("Pi N1 response must be one strict JSON actor result."); }
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["intent", "speech", "action", "observableResult"].includes(key))) throw new Error("Pi N1 response has unsupported fields.");
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !["intent", "speech", "action", "observableResult", "heardByActorIds"].includes(key))) throw new Error("Pi N1 response has unsupported fields.");
   if (typeof value.intent !== "string" || !value.intent.trim() || typeof value.observableResult !== "string" || !value.observableResult.trim()) throw new Error("Pi N1 response lacks a bounded intent or observable result.");
   if (value.speech !== null && typeof value.speech !== "string") throw new Error("Pi N1 speech must be string or null.");
+  if (value.heardByActorIds != null && (!Array.isArray(value.heardByActorIds) || value.heardByActorIds.some((id) => typeof id !== "string"))) throw new Error("Pi N1 statement recipients must be stable IDs.");
   if (!value.action || typeof value.action !== "object" || Array.isArray(value.action) || Object.keys(value.action).some((key) => !["action", "targetId"].includes(key)) || !context.allowedActions.includes(value.action.action) || value.action.targetId !== null) throw new Error("Pi N1 action is outside this role's allowed read-only turn.");
   return {
     type: "actor-result",
@@ -134,6 +135,7 @@ function parseActorResult(text, context, usage) {
     speech: value.speech === null ? null : value.speech.trim().slice(0, 1_200),
     action: { action: value.action.action, targetId: null },
     observableResult: value.observableResult.trim().slice(0, 1_200),
+    heardByActorIds: value.heardByActorIds == null ? undefined : [...new Set(value.heardByActorIds.map((id) => id.normalize("NFC")))],
     usage: usage ? { inputTokens: usage.promptTokens, outputTokens: usage.completionTokens } : { inputTokens: null, outputTokens: null }
   };
 }

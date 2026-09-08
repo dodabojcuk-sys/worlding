@@ -6,6 +6,7 @@ import {
   advanceNuwaN1Run,
   buildStorySnapshot,
   cancelNuwaN1Run,
+  compileNuwaN1Context,
   createNuwaN1Run,
   createNuwaPlan,
   createNuwaRunPack,
@@ -503,7 +504,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         scene: { storyUnitId: run.scene.storyUnit.id, label: run.scene.label, observedAt: run.scene.observedAt },
         participants: run.actors.map((item) => ({ id: item.character.id, title: item.displayName, revision: item.character.revision })),
         goal: run.authorGoal,
-        steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
+        steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, heardStatements: step.heardStatements, contextEvidenceRefs: step.contextEvidenceRefs, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
         providerDispatches: run.providerDispatches,
         providerDispatchEvidence: run.providerDispatchEvidence,
@@ -535,16 +536,19 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         blocker: run.blocker
       },
       contextInspector: {
-        actors: run.actors.map((actor) => ({
-          actorId: actor.character.id,
-          evidenceRefs: [
-            ...actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, revision: fact.sourceRef.revision, visibility: fact.visibility })),
-            ...actor.beliefs.map((belief) => ({ id: belief.sourceRef.id, revision: belief.sourceRef.revision, visibility: belief.stance }))
-          ],
-          knowledgeItems: actor.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
-          beliefItems: actor.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
-          excludedCount: actor.unknownFactIds.length
-        }))
+        actors: run.actors.map((actor) => {
+          const context = compileNuwaN1Context(run, actor, `nuwa-n1.inspect.${createHash("sha256").update(`${run.runId}:${run.revision}:${actor.character.id}`).digest("hex").slice(0, 32)}`);
+          return {
+            actorId: actor.character.id,
+            evidenceRefs: [
+              ...context.knownFacts.map((fact) => ({ id: fact.sourceId, revision: fact.sourceRevision, visibility: fact.visibility })),
+              ...context.beliefs.map((belief) => ({ id: belief.sourceId, revision: belief.sourceRevision, visibility: belief.stance }))
+            ],
+            knowledgeItems: context.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility, sourceId: fact.sourceId, sourceRevision: fact.sourceRevision })),
+            beliefItems: context.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceId: belief.sourceId, sourceRevision: belief.sourceRevision })),
+            excludedCount: actor.unknownFactIds.length
+          };
+        })
       },
       receipts: run.receipts
     };
@@ -672,6 +676,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       async continueAfterTool({ context, toolResult }) {
         if (toolResult.context.actor.id !== context.actor.id) throw new Error("本地工程演练工具结果越过角色范围。");
         if (fakeStepDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fakeStepDelayMs));
+        const current = requireRun(workspacePath(projectId), runId);
         const heard = context.recentDialogue.at(-1)?.text || null;
         const evidence = context.knownFacts[0]?.summary || "当前没有额外可知事件；保持未知。";
         return {
@@ -681,6 +686,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
           speech: heard ? `我听到了这句话；我只按自己可知的信息继续观察。` : `我只依据当前可知信息继续观察。`,
           action: { action: "observe", targetId: null },
           observableResult: "角色完成一次受限观察；结果仍属于本次女娲 Run。",
+          ...(context.step === 1 && current.actors[1] ? { speech: "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
           usage: { inputTokens: null, outputTokens: null }
         };
       }

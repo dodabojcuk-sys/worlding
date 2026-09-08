@@ -254,7 +254,7 @@ function ContextInspector(props: { actors: Array<{ actorId: string; actorLabel: 
 
 function StepInspector(props: { step: NuwaN1Step | null }) {
   if (!props.step) return <section className="nuwa-n1-inspector-empty"><FileClock /><p>选择一个排演步骤，查看它的执行结果与状态决定。</p></section>;
-  return <section className="nuwa-n1-step-detail"><small>第 {props.step.sequence} 步</small><h3>执行结果</h3><dl><div><dt>意图</dt><dd>{props.step.intent}</dd></div>{props.step.speech ? <div><dt>台词</dt><dd>{props.step.speech}</dd></div> : null}{props.step.action ? <div><dt>动作</dt><dd>{props.step.action.action}</dd></div> : null}<div><dt>可观察结果</dt><dd>{props.step.observableResult}</dd></div><div><dt>上下文工具</dt><dd>{props.step.tool.name}</dd></div></dl></section>;
+  return <section className="nuwa-n1-step-detail"><small>第 {props.step.sequence} 步</small><h3>执行结果</h3><dl><div><dt>意图</dt><dd>{props.step.intent}</dd></div>{props.step.speech ? <div><dt>台词</dt><dd>{props.step.speech}</dd></div> : null}{props.step.action ? <div><dt>动作</dt><dd>{props.step.action.action}</dd></div> : null}<div><dt>可观察结果</dt><dd>{props.step.observableResult}</dd></div><div><dt>上下文工具</dt><dd>{props.step.tool.name}</dd></div>{props.step.heardStatements.length ? <div><dt>说法传播</dt><dd>{props.step.heardStatements.map((heard) => <span key={heard.recipientId}>仅递送至 {heard.recipientId} · 来源 {heard.sourceStepId}@{heard.sourceRevision}</span>)}</dd></div> : null}{props.step.contextEvidenceRefs.length ? <div><dt>实际上下文依据</dt><dd>{props.step.contextEvidenceRefs.map((reference) => <span key={`${reference.kind}:${reference.id}`}>{reference.visibility} · {reference.sourceId}@{reference.sourceRevision}</span>)}</dd></div> : null}</dl></section>;
 }
 
 function LogInspector(props: { run: NuwaN1ReadModel | null }) {

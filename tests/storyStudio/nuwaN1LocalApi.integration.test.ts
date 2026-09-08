@@ -68,10 +68,10 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   const firstStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "step-first" });
   assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
   model = firstStep.payload.data as NuwaReadModel;
-  assert.equal(model.run.steps.length, 1);
+  assert.equal(model.run.steps.length, 1, JSON.stringify(model));
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
-  assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 0]], "the author inspector keeps both formal roles visibly distinct after the Run starts");
+  assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 1]], "the recipient sees the explicitly delivered statement through the same context compiler used by the tool loop");
   assert.equal(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary, "已亲历：钟声在桥上消失");
   assert.equal(model.contextInspector.actors[1]?.beliefItems[0]?.summary, "被误导：潮声来自废塔");
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
@@ -397,15 +397,62 @@ test("Nuwa N1 continuous execution gives an in-flight cue a new durable step ide
   assert.equal(host.requests.length, 12, "the cue interruption consumes one accounted send and the following five turns consume the remaining eleven sends");
 });
 
+test("Nuwa N1 records an explicit heard statement for only its stable-ID recipient and preserves it across pause, read, resume, and retry", async (t) => {
+  const value = fixture({ threeActors: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const enabled = await start(value, true); child = enabled.child;
+  assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("heard-three-create"));
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel;
+  const first = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-first" });
+  assert.equal(first.status, 200, JSON.stringify(first.payload));
+  model = first.payload.data as NuwaReadModel;
+  const statement = model.run.steps[0]!;
+  const delivery = statement.heardStatements[0];
+  assert.deepEqual({ recipientId: delivery?.recipientId, speakerId: delivery?.speakerId, statement: delivery?.statement, sourceStepId: delivery?.sourceStepId }, { recipientId: value.characters[1].id, speakerId: value.characters[0].id, statement: "我只把钟声的线索告诉你。", sourceStepId: statement.stepId });
+  assert.equal(delivery?.sourceRevision, model.contextInspector.actors[1]!.knowledgeItems.find((item) => item.id === `heard.${statement.stepId}.${value.characters[1].id}`)?.sourceRevision, "heard delivery retains the immutable source version shown to the recipient");
+  assert.equal(model.contextInspector.actors[1]!.knowledgeItems.some((item) => item.id === `heard.${statement.stepId}.${value.characters[1].id}` && item.visibility === "heard"), true, "乙的当前检查器来自实际角色上下文并保留 heard，而不是升级为正式事实");
+  assert.equal(model.contextInspector.actors[2]!.knowledgeItems.some((item) => item.id.startsWith("heard.")), false, "丙未被递送该说法");
+
+  const duplicate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision - 1, operationId: "heard-three-first" });
+  assert.equal(duplicate.status, 200, JSON.stringify(duplicate.payload));
+  assert.equal((duplicate.payload.data as NuwaReadModel).run.steps.length, 1, "the same step operation cannot duplicate a delivery");
+
+  const paused = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/pause", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-pause" });
+  assert.equal(paused.status, 200);
+  model = paused.payload.data as NuwaReadModel;
+  const refreshed = await getJson(enabled.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${model.run.runId}`);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.payload.data as NuwaReadModel).contextInspector.actors[1]!.knowledgeItems.some((item) => item.id === `heard.${statement.stepId}.${value.characters[1].id}`), true, "a refresh keeps the persisted heard evidence");
+  const resumed = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/resume", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-resume" });
+  assert.equal(resumed.status, 200);
+  model = resumed.payload.data as NuwaReadModel;
+  const second = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-second" });
+  assert.equal(second.status, 200, JSON.stringify(second.payload));
+  model = second.payload.data as NuwaReadModel;
+  assert.equal(model.run.steps[1]!.actorId, value.characters[1].id);
+  assert.equal(model.run.steps[1]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId && ref.visibility === "heard" && ref.summary.includes(statement.speech!)), true, "乙的 actual tool context contains the delivered statement with its source step");
+  const third = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-third" });
+  assert.equal(third.status, 200, JSON.stringify(third.payload));
+  model = third.payload.data as NuwaReadModel;
+  assert.equal(model.run.steps[2]!.actorId, value.characters[2].id);
+  assert.equal(model.run.steps[2]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId || ref.summary.includes(statement.speech!)), false, "丙的 actual tool context excludes the undisclosed statement");
+});
+
 type NuwaReadModel = {
-  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
-  contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
+  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
+  contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
   authorization?: { id: string; status: string; storyUnitId: string; actorIds: string[] } | null;
 };
 
-function fixture() {
+function fixture(options: { threeActors?: boolean } = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-n1-local-api-"));
   const rootPath = path.join(root, "projects");
   const stateFilePath = path.join(root, "state.json");
@@ -415,7 +462,8 @@ function fixture() {
   const otherProject = operations.createProject({ title: "女娲 N1 同名隔离", folderSlug: "nuwa-n1-other", genre: "mystery", ambience: "rain" });
   const characters = [
     operations.createWorldObject({ projectId: project.id, type: "character", title: "林昭", body: "CANARY_AUTHOR_FUTURE\n林昭只知道亲眼看见的事。" }),
-    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。" })
+    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。" }),
+    ...(options.threeActors ? [operations.createWorldObject({ projectId: project.id, type: "character", title: "丙", body: "丙没有听到桥上的私下谈话。" })] : [])
   ];
   const knownEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。" });
   setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), knownEvent.id, characters[0]!.id);
