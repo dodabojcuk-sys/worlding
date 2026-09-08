@@ -27,7 +27,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, relationOperations = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   /** Exactly one executable actor step may own a Run.  The entry owns its
    * cancellation handle and promise; duplicate delivery returns that promise
    * instead of replacing the handle. */
@@ -60,6 +60,9 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       storyUnits: operations.listStoryUnits({ projectId })
         .filter((item) => item.lifecycle !== "archived")
         .map((item) => ({ id: item.id, title: item.title, revision: item.version })),
+      relationTypes: relationOperations?.listRelationTypes({ projectId }).types
+        .filter((item) => item.lifecycle === "active")
+        .map((item) => ({ id: item.relationTypeId, title: item.label, revision: item.typeRevision })) ?? [],
       latestRunId: latest?.run.runId ?? null
     };
   }
@@ -91,6 +94,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
   function create(input) {
     requireExecutionAvailability();
     const prepared = setup(input);
+    const relationType = resolveRelationType(input.projectId, input.relationTypeId);
     const workspace = workspacePath(input.projectId);
     const snapshot = buildStorySnapshot({ workspacePath: workspace });
     const operationId = operation(input.operationId);
@@ -135,6 +139,8 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         storyUnitId: prepared.setup.storyUnit.id,
         storyUnitRevision: prepared.setup.storyUnit.revision,
         actorIds: prepared.setup.participants.map((actor) => actor.id),
+        relationTypeId: relationType?.relationTypeId ?? null,
+        relationTypeRevision: relationType?.typeRevision ?? null,
         sourceOperationId: operationId,
         maxSteps: 6,
         maxProviderDispatches: 12
@@ -266,6 +272,12 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       throw failure("当前女娲 Run 没有有效的高权限范围授权；结果仍可送入待确认。", 403);
     }
     const targets = [current.runId, authorization.storyUnitId, ...authorization.actorIds];
+    const relationType = authorization.relationTypeId
+      ? relationOperations?.resolveRelationType({ projectId: project.id, relationTypeId: authorization.relationTypeId })
+      : null;
+    if (authorization.relationTypeId && (!relationType || relationType.lifecycle !== "active" || relationType.typeRevision !== authorization.relationTypeRevision)) {
+      throw failure("已授权的关系类型已变更或停用；已阻止本次自动关系写入。", 409);
+    }
     const permission = actionPermissionBroker.record(project.id, {
       actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run", targets, authorizationId: authorization.id, checkpointId: current.runId
     });
@@ -298,6 +310,40 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       ? storyUnit
       : operations.updateStoryUnit({ projectId: project.id, unitId: storyUnit.id, expectedVersion: storyUnit.version, linkedEntityIds });
     if (linked.conflict) throw failure("正式 Event 已创建，但故事单元刚刚变化；请刷新后处理归属冲突。", 409);
+    const material = operations.createWorldObject({
+      projectId: project.id,
+      type: "location",
+      title: `场景：${current.scene.label}`,
+      tags: ["女娲自动执行", current.runId],
+      body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${selected.sourceStepId}\n- 授权：${authorization.id}\n- 结果：${selected.observedResult}\n`
+    });
+    let relation = null;
+    if (relationType) {
+      const event = operations.readWorldObject({ projectId: project.id, objectId: eventId });
+      const relationCandidate = relationOperations.createRelationCandidate({
+        projectId: project.id,
+        relationId: `nuwa-relation.${current.runId}.${selected.sourceStepId}`,
+        sourceObjectId: eventId,
+        targetObjectId: material.id,
+        relationTypeId: relationType.relationTypeId,
+        relationLabelSnapshot: relationType.label,
+        direction: "forward",
+        actor: "nuwa",
+        sourceRevision: current.sourceSnapshotHash,
+        sourceRef: `nuwa-n1:${current.runId}:${selected.sourceStepId}`,
+        operationId: `${input.operationId}.relation-candidate`,
+        evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }],
+        now: now()
+      });
+      relation = relationOperations.confirmRelationCandidate({
+        projectId: project.id,
+        relationId: relationCandidate.relation.relationId,
+        expectedRelationRevision: relationCandidate.relation.revision,
+        operationId: `${input.operationId}.relation-confirm`,
+        actor: "nuwa",
+        now: now()
+      });
+    }
     return {
       ...read(project.id, current.runId),
       candidate: handoff.candidate,
@@ -311,7 +357,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         impactReviewId: resolved.id,
         changeSetId: applied.id,
         eventId,
-        storyUnitId: storyUnit.id
+        storyUnitId: storyUnit.id,
+        materialObjectId: material.id,
+        relationId: relation?.relation.relationId ?? null,
+        relationStatus: relation ? "confirmed" : "not-configured"
       }
     };
   }
@@ -399,6 +448,17 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const unit = operations.readStoryUnit({ projectId, unitId });
     if (unit.version !== ref?.revision) throw failure("故事单元已变更，请重新选择。", 409);
     return { storyUnit: { id: unit.id, revision: unit.version }, sceneRef: { id: unit.id, revision: unit.version }, observedAt: now(), label: unit.title };
+  }
+
+  function resolveRelationType(projectId, relationTypeId) {
+    if (!relationOperations) return null;
+    const active = relationOperations.listRelationTypes({ projectId }).types.filter((item) => item.lifecycle === "active");
+    if (relationTypeId != null) {
+      const selected = active.find((item) => item.relationTypeId === relationTypeId);
+      if (!selected) throw failure("所选关系类型不存在或已停用；请刷新后重新开始女娲 Run。", 409);
+      return selected;
+    }
+    return active.length === 1 ? active[0] : null;
   }
 
   function resolveActors(projectId, refs, scene) {

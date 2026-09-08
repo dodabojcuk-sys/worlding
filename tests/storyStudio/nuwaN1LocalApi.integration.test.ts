@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
+import { createStoryStudioRelationOperations } from "../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
 
@@ -185,7 +186,7 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   model = stepped.payload.data as NuwaReadModel;
   const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-result", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(applied.status, 201, JSON.stringify(applied.payload));
-  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { decisionSource: string; authorizationId: string; eventId: string; storyUnitId: string } };
+  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { decisionSource: string; authorizationId: string; eventId: string; storyUnitId: string; materialObjectId: string; relationId: string; relationStatus: string } };
   assert.equal(result.automaticApplication.decisionSource, "nuwa-scope-authorization");
   assert.equal(result.automaticApplication.storyUnitId, value.unit.id);
   const event = value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.eventId });
@@ -194,6 +195,15 @@ test("Nuwa N1 full access automatically applies one selected Run result through 
   assert.match(value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.planningEventId }).body, /来源女娲 Run/u);
   const unit = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id });
   assert.equal(unit.linkedEntityIds.includes(event.id), true);
+  const material = value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.materialObjectId });
+  assert.equal(material.type, "location");
+  const relation = value.relations.readRelation({ projectId: value.project.id, relationId: result.automaticApplication.relationId });
+  assert.equal(result.automaticApplication.relationStatus, "confirmed");
+  assert.equal(relation.relation.reviewState, "confirmed");
+  assert.equal(relation.relation.sourceObjectId, event.id);
+  assert.equal(relation.relation.targetObjectId, material.id);
+  assert.equal(relation.relation.relationTypeId, value.sceneRelationType.type.relationTypeId);
+  assert.equal(relation.relation.evidenceWarnings.every((warning) => warning.eligible), true, "the formal relation remains backed by the same committed Event");
   const permissions = await getJson(enabled.baseUrl, `/__local/story-studio/agent-permissions?projectId=${encodeURIComponent(value.project.id)}`);
   assert.equal((permissions.payload.data as { receipts: Array<{ decisionSource: string; authorizationId: string | null }> }).receipts.some((receipt) => receipt.decisionSource === "nuwa-scope-authorization" && receipt.authorizationId === result.automaticApplication.authorizationId), true);
 });
@@ -312,13 +322,18 @@ function fixture() {
   const misledEvent = operations.createWorldObject({ projectId: project.id, type: "event", title: "潮声来自废塔", tags: [`知情：${characters[1]!.id}=被误导`], body: "误导内容不是世界真相，但属于阿芜当前持有的信念。" });
   setKnowledgeSubject(operations.resolveProjectWorkspacePath({ projectId: project.id }), misledEvent.id, characters[1]!.id);
   const unit = operations.createStoryUnit({ projectId: project.id, title: "旧桥钟声", linkedEntityIds: [knownEvent.id, misledEvent.id] });
+  const relations = createStoryStudioRelationOperations({
+    workspaceOperations: operations,
+    verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
+  });
+  const sceneRelationType = relations.createRelationType({ projectId: project.id, operationId: "fixture.relation-type.scene", label: "发生于" });
   const otherCharacters = [
     operations.createWorldObject({ projectId: otherProject.id, type: "character", title: "林昭", body: "同名但属于另一个项目。" }),
     operations.createWorldObject({ projectId: otherProject.id, type: "character", title: "阿芜", body: "同名但属于另一个项目。" })
   ];
   const otherUnit = operations.createStoryUnit({ projectId: otherProject.id, title: "另一座旧桥" });
   return {
-    root, rootPath, stateFilePath, operations, authorControl, project, otherProject, characters, otherCharacters, unit, otherUnit,
+    root, rootPath, stateFilePath, operations, authorControl, relations, sceneRelationType, project, otherProject, characters, otherCharacters, unit, otherUnit,
     request(operationId: string) {
       const current = characters.map((character) => operations.readWorldObject({ projectId: project.id, objectId: character.id }));
       const currentUnit = operations.readStoryUnit({ projectId: project.id, unitId: unit.id });

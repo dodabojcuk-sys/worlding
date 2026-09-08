@@ -43,6 +43,10 @@ export type NuwaFullAccessAuthorization = {
   storyUnitId: string;
   storyUnitRevision: string;
   actorIds: string[];
+  /** An optional, author-selected active RelationType.  Null deliberately
+   * means that this scope may not infer a relation label from model text. */
+  relationTypeId: string | null;
+  relationTypeRevision: number | null;
   allowedActions: Array<Extract<AgentActionKind, "confirmed-event" | "library-write" | "event-impact-review">>;
   maxSteps: number;
   maxProviderDispatches: number;
@@ -130,18 +134,21 @@ export function createActionPermissionBroker(input: { resolveProjectPath(project
       const current = read(inputValue.projectId);
       return save(inputValue.projectId, { ...current, profile: inputValue.profile, updatedAt: now() });
     },
-    grantNuwaFullAccess(inputValue: { projectId: string; runId: string; storyUnitId: string; storyUnitRevision: string; actorIds: string[]; sourceOperationId: string; maxSteps?: number; maxProviderDispatches?: number; expiresAt?: string | null }) {
+    grantNuwaFullAccess(inputValue: { projectId: string; runId: string; storyUnitId: string; storyUnitRevision: string; actorIds: string[]; relationTypeId?: string | null; relationTypeRevision?: number | null; sourceOperationId: string; maxSteps?: number; maxProviderDispatches?: number; expiresAt?: string | null }) {
       const current = read(inputValue.projectId);
       if (current.profile !== "full-access") throw new Error("只有高权限档位可以建立女娲正式写入范围授权。");
       const actorIds = [...new Set(inputValue.actorIds.map((value) => String(value).trim()).filter(Boolean))];
       if (!inputValue.runId || !inputValue.storyUnitId || !inputValue.storyUnitRevision || actorIds.length < 2 || actorIds.length > 3) throw new Error("女娲范围授权缺少稳定运行、故事单元或角色范围。");
       if (!inputValue.sourceOperationId || inputValue.sourceOperationId.length > 160) throw new Error("女娲范围授权缺少稳定开始操作身份。");
+      const relationTypeId = inputValue.relationTypeId == null ? null : String(inputValue.relationTypeId).trim();
+      const relationTypeRevision = relationTypeId == null ? null : Number(inputValue.relationTypeRevision);
+      if (relationTypeId === "" || (relationTypeRevision != null && (!Number.isSafeInteger(relationTypeRevision) || relationTypeRevision < 1))) throw new Error("女娲范围授权的关系类型版本无效。");
       const existing = current.nuwaAuthorizations.find((entry) => entry.sourceOperationId === inputValue.sourceOperationId);
       if (existing) return existing;
       const grantedAt = now();
       const authorization: NuwaFullAccessAuthorization = {
         id: `nuwa-scope.${createHash("sha256").update(`${inputValue.projectId}:${inputValue.sourceOperationId}:${inputValue.storyUnitId}:${inputValue.storyUnitRevision}`).digest("hex").slice(0, 20)}`,
-        subject: "nuwa-n1", projectId: inputValue.projectId, runId: inputValue.runId, storyUnitId: inputValue.storyUnitId, storyUnitRevision: inputValue.storyUnitRevision, actorIds,
+        subject: "nuwa-n1", projectId: inputValue.projectId, runId: inputValue.runId, storyUnitId: inputValue.storyUnitId, storyUnitRevision: inputValue.storyUnitRevision, actorIds, relationTypeId, relationTypeRevision,
         allowedActions: ["confirmed-event", "library-write", "event-impact-review"], maxSteps: bounded(inputValue.maxSteps, 6), maxProviderDispatches: bounded(inputValue.maxProviderDispatches, 12),
         status: "active", grantedAt, expiresAt: inputValue.expiresAt || null, grantedBy: "author", sourceOperationId: inputValue.sourceOperationId, revokedAt: null, revokeReason: null
       };
@@ -213,7 +220,7 @@ function normalizeAuthorization(projectId: string, value: unknown): NuwaFullAcce
   const item = value as Partial<NuwaFullAccessAuthorization>;
   if (item.subject !== "nuwa-n1" || item.projectId !== projectId || !item.id || !item.runId || !item.storyUnitId || !item.storyUnitRevision || !Array.isArray(item.actorIds) || !Array.isArray(item.allowedActions) || !["active", "revoked", "expired"].includes(String(item.status))) throw new Error("Nuwa scope authorization is invalid.");
   return {
-    id: item.id, subject: "nuwa-n1", projectId, runId: item.runId, storyUnitId: item.storyUnitId, storyUnitRevision: item.storyUnitRevision, actorIds: item.actorIds.map(String),
+    id: item.id, subject: "nuwa-n1", projectId, runId: item.runId, storyUnitId: item.storyUnitId, storyUnitRevision: item.storyUnitRevision, actorIds: item.actorIds.map(String), relationTypeId: typeof item.relationTypeId === "string" && item.relationTypeId.trim() ? item.relationTypeId : null, relationTypeRevision: Number.isSafeInteger(item.relationTypeRevision) && Number(item.relationTypeRevision) > 0 ? Number(item.relationTypeRevision) : null,
     allowedActions: item.allowedActions.filter((action): action is NuwaFullAccessAuthorization["allowedActions"][number] => action === "confirmed-event" || action === "library-write" || action === "event-impact-review"),
     maxSteps: bounded(item.maxSteps, 6), maxProviderDispatches: bounded(item.maxProviderDispatches, 12), status: item.status as NuwaFullAccessAuthorization["status"],
     grantedAt: String(item.grantedAt || ""), expiresAt: typeof item.expiresAt === "string" ? item.expiresAt : null, grantedBy: "author", sourceOperationId: String(item.sourceOperationId || ""),

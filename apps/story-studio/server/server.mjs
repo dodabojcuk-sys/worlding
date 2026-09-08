@@ -167,10 +167,15 @@ const agentProposalOperations = createStoryStudioAgentProposalOperations({ rootP
 const authorControl = createStoryStudioAuthorControl({ rootPath, stateFilePath });
 const characterStateImpactFixture = createCharacterStateImpactFixtureAdapter({ operations, authorControl });
 const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ operations, authorControl });
+const relationOperations = createStoryStudioRelationOperations({
+  workspaceOperations: operations,
+  verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
+});
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
   actionPermissionBroker,
+  relationOperations,
   sourceIdentityForProject: nuwaN1SourceIdentity,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
@@ -226,10 +231,6 @@ const nuwaN1Port = createNuwaN1Port({
   }
 });
 const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
-const relationOperations = createStoryStudioRelationOperations({
-  workspaceOperations: operations,
-  verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
-});
 const canonReadProjection = createStoryStudioCanonReadProjection({ workspace: operations, authorControl });
 const creationSourceSelectionPort = createCreationSourceSelectionPort({
   operations,
