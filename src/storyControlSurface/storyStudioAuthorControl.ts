@@ -160,7 +160,7 @@ type PersistedAuthorChangeSet = {
   before: string[];
   change: string[];
   after: string[];
-  authorDecision: { optionId: string; label: string; status: "accepted" | "modified" };
+  authorDecision: { optionId: string; label: string; status: "accepted" | "modified"; source: "author-action" | "nuwa-scope-authorization"; authorizationId: string | null };
   candidate: NonNullable<ReturnType<typeof resolveAuthorDecision>["commitCandidate"]>;
   status: "pending" | "applying" | "applied" | "abandoned" | "stale";
   application: {
@@ -328,7 +328,7 @@ export type StoryStudioAuthorChangeSet = {
   before: string[];
   change: string[];
   after: string[];
-  authorDecision: { label: string; status: "accepted" | "modified" };
+  authorDecision: { label: string; status: "accepted" | "modified"; source: "author-action" | "nuwa-scope-authorization"; authorizationId: string | null };
     application: {
       canApply: boolean;
       reason: string;
@@ -830,7 +830,7 @@ export function createStoryStudioAuthorControl(input: {
       return projectReview(next, snapshot, false);
     },
 
-    createAuthorChangeSet(changeInput: { projectId: string; reviewId: string }): StoryStudioAuthorChangeSet {
+    createAuthorChangeSet(changeInput: { projectId: string; reviewId: string; decisionSource?: "author-action" | "nuwa-scope-authorization"; authorizationId?: string | null }): StoryStudioAuthorChangeSet {
       const projectPath = workspace.resolveProjectWorkspacePath({ projectId: changeInput.projectId });
       const review = requireReview(projectPath, changeInput.reviewId);
       if (review.status !== "selected" || !review.preview || !review.resolution?.commitCandidate) {
@@ -879,7 +879,9 @@ export function createStoryStudioAuthorControl(input: {
         authorDecision: {
           optionId: review.resolution.commitCandidate.selectedDecision.optionId,
           label: optionLabelFromType(review.resolution.commitCandidate.selectedDecision.optionType),
-          status: review.resolution.commitCandidate.selectedDecision.status
+          status: review.resolution.commitCandidate.selectedDecision.status,
+          source: changeInput.decisionSource ?? "author-action",
+          authorizationId: changeInput.decisionSource === "nuwa-scope-authorization" ? requireText(changeInput.authorizationId || "", "Nuwa scope authorization", 160) : null
         },
         candidate: review.resolution.commitCandidate,
         status: "pending",
@@ -1982,7 +1984,9 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
   const authorDecisionRef = `author-decision-${stableHash({
     reviewId: artifact.reviewId,
     optionId: artifact.authorDecision.optionId,
-    status: artifact.authorDecision.status
+    status: artifact.authorDecision.status,
+    source: artifact.authorDecision.source,
+    authorizationId: artifact.authorDecision.authorizationId
   }).slice(0, 24)}`;
   const applyOperationKey = `author-change-set-apply-${stableHash({
     contractVersion: APPLY_CONTRACT_VERSION,
@@ -2416,9 +2420,9 @@ function eventMarkdown(artifact: PersistedAuthorChangeSet, _commitId: string): s
   return [
     `# ${artifact.source.title} · ${artifact.authorDecision.label}`,
     "",
-    "## 作者选择",
+    artifact.authorDecision.source === "nuwa-scope-authorization" ? "## 已生效的作者范围授权" : "## 作者选择",
     "",
-    artifact.authorDecision.label,
+    artifact.authorDecision.source === "nuwa-scope-authorization" ? `女娲按范围授权自动采用：${artifact.authorDecision.label}${artifact.authorDecision.authorizationId ? `（${artifact.authorDecision.authorizationId}）` : ""}` : artifact.authorDecision.label,
     "",
     "## 已确认的事件变化",
     "",
@@ -2428,8 +2432,8 @@ function eventMarkdown(artifact: PersistedAuthorChangeSet, _commitId: string): s
     "",
     ...artifact.evidenceRefs.map((evidenceRef) => `- ${evidenceRef}`),
     "",
-    "事件记录：已由作者确认",
-    "变更来源：作者确认的受保护变更单",
+    artifact.authorDecision.source === "nuwa-scope-authorization" ? "事件记录：已按作者范围授权自动应用" : "事件记录：已由作者确认",
+    artifact.authorDecision.source === "nuwa-scope-authorization" ? "变更来源：女娲高权限的受保护变更单" : "变更来源：作者确认的受保护变更单",
     ""
   ].join("\n");
 }

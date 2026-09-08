@@ -55,7 +55,7 @@ export function AgentSettingsSection(props: {
   const visibleEntries = [...catalog?.entries ?? [], ...suggestedEntries.filter((suggestion) => !catalog?.entries.some((entry) => entry.id === suggestion.id))];
   const networkReady = selectedProviderMatches && (props.status?.profile.credentialRequired === false || credential?.configured === true);
 
-  const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "扩大授权范围" };
+  const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "女娲高权限自动执行" };
   const updatePermission = (profile: AgentPermissionProfile) => void props.onPermissionProfile?.(profile);
   const saveProvider = (event: FormEvent<HTMLFormElement>) => void (async () => {
     event.preventDefault();
@@ -212,10 +212,10 @@ export function AgentSettingsSection(props: {
     </form>
     <fieldset id="settings-agent-permissions" className="agent-permission-settings" disabled={!props.permissionState || props.busy || !props.onPermissionProfile}>
       <legend><ShieldCheck aria-hidden="true" />默认权限</legend>
-      <p>正式写入与高风险工具始终保留作者确认；这里设置日常读取和候选整理的默认范围。</p>
+      <p>一般与自动整理仍按候选/确认路径工作。高权限仅在作者开始女娲 Run 时，为已验证的项目、故事单元和角色范围建立可撤销的自动执行授权；删除、发布、部署和跨项目读取仍受硬保护。</p>
       {(Object.keys(permissionLabels) as AgentPermissionProfile[]).map((profile) => <label key={profile}>
         <input type="radio" name="agent-default-permission" value={profile} checked={props.permissionState?.profile === profile} onChange={() => updatePermission(profile)} />
-        <span><strong>{permissionLabels[profile]}</strong><small>{profile === "general" ? "读取与草拟为主" : profile === "auto-review" ? "可生成待确认候选" : "仍不得绕过正式 owner"}</small></span>
+        <span><strong>{permissionLabels[profile]}</strong><small>{profile === "general" ? "读取与草拟为主" : profile === "auto-review" ? "可生成待确认候选" : "女娲在开始时取得范围授权后，可通过既有 Owner 自动写入并保留回溯"}</small></span>
       </label>)}
     </fieldset>
     {props.error && <p role="alert">{props.error}</p>}

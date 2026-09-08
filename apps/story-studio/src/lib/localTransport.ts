@@ -2286,6 +2286,17 @@ export type NuwaN1ContextInspector = {
 export type NuwaN1ReadModel = {
   version: string;
   availability: NuwaN1Availability;
+  authorization: null | {
+    id: string;
+    subject: "nuwa-n1";
+    runId: string;
+    storyUnitId: string;
+    storyUnitRevision: string;
+    actorIds: string[];
+    status: "active" | "revoked" | "expired";
+    maxSteps: number;
+    maxProviderDispatches: number;
+  };
   run: NuwaN1Run | null;
   contextInspector: NuwaN1ContextInspector | null;
   receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string }>;
@@ -2317,6 +2328,20 @@ export type NuwaN1CandidateResult = NuwaN1ReadModel & {
     formalWrites: 0;
   };
   review: { reviewId: string; status: string };
+};
+
+export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
+  automaticApplication: {
+    status: "applied";
+    decisionSource: "nuwa-scope-authorization";
+    authorizationId: string;
+    permissionReceiptId: string;
+    planningEventId: string;
+    impactReviewId: string;
+    changeSetId: string;
+    eventId: string;
+    storyUnitId: string;
+  };
 };
 
 export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Bootstrap> {
@@ -2357,6 +2382,11 @@ export async function cueNuwaN1Run(input: { projectId: string; runId: string; ex
 export async function createNuwaN1Candidate(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1CandidateResult> {
   const { token, ...body } = input;
   return request<NuwaN1CandidateResult>(`${basePath}/nuwa-n1/candidate`, { method: "POST", token, body });
+}
+
+export async function autoApplyNuwaN1Result(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-apply`, { method: "POST", token, body });
 }
 
 export type NuwaDirectorActionR1 =

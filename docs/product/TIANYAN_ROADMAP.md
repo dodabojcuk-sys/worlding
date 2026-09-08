@@ -16,7 +16,7 @@
 | REL-R1 | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 本地通过；作者待验 | 事件线“关系变化”已读 Relation Owner 列表、状态/方向/类型筛选、详情、证据、故事有效时间和回执历史；人物知情/误解不自动改写关系。下一切片才是显式双时点比较与补偿撤销。 |
 | MAP-M1 | 回答地点由谁控制、谁与此有关、发生过什么、依据是什么 | 世界入口、现有地点/Relation/Event 投影与 `storyStudioLocationTopology.ts` | 已规划；本轮暂不建模 | N1 后再做“雾港断桥”二维示意/自定义底图、地点—势力—人物—事件与来源往返；布局坐标不写事实，目击不等于现居 |
 | MEM-A1 | 长会话知道当前任务范围、来源和不知道什么 | `storyContinuity`、ContextPack、停止点和回执 | 已有基础 | 版本/权限/时点感知检索与摘要；比较事实命中、泄密、未来信息与恢复一致性 |
-| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 dispatch 上限、暂停/刷新/恢复/停止/回放/新建与选定结果送入待确认。Pi adapter 仅在产品 Provider 路径、显式 N1 开关和已配置活动 Profile 三者同时满足时可用；本轮只以内存假 Pi 与本地 N1 fake 验证，真实调用为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
+| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、Action Permission Broker、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；高权限范围授权已接通；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 dispatch 上限、暂停/刷新/恢复/停止/回放/新建与选定结果送入待确认。`full-access` 在作者开始 Run 时由服务端建立项目/单元/角色绑定且可撤销的授权，不能由客户端伪造；自动 Event/Relation/资料/编排应用仍须接入既有 Owner。Pi adapter 仅在产品 Provider 路径、显式 N1 开关和已配置活动 Profile 三者同时满足时可用；本轮只以内存假 Pi 与本地 N1 fake 验证，真实调用为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
 | PRED-P1 | 比较平淡、意外、深远后果等候选路径 | 多节点预测、Story Unit、NarrativeArrangement | 本地通过；作者待验 | 明示依据、代价、冲突和后果；创作探索不伪装统计概率 |
 | MULTI-B1 | 对照 IF/改版/女娲结果并选择范围融入 | WorkVersion、候选/影响/回执边界 | 已有基础 | 差异、冲突、合并回执与撤销；区分普通支线和版本分支 |
 | FATE-F1 | 解释角色规划、实际和候选轨迹 | `characterFateProjection`（进入前核对现状） | 计划中 | 先确定作者维度与事件依据，不能用单分数冒充命运事实 |

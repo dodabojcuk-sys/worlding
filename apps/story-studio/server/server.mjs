@@ -170,6 +170,7 @@ const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ ope
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
+  actionPermissionBroker,
   sourceIdentityForProject: nuwaN1SourceIdentity,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
@@ -3546,6 +3547,12 @@ async function handleNuwaN1Request(request, response, url) {
     requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
     const result = runProductOperation(() => nuwaN1Port.candidate(body));
     recordAuthorInitiatedAction(body.projectId, "candidate-review", "nuwa-n1-candidate", [body.runId, ...body.selectedStepIds], "author");
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-apply") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
+    const result = runProductOperation(() => nuwaN1Port.autoApply(body));
     sendJson(response, 201, { data: result });
     return;
   }

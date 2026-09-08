@@ -52,11 +52,16 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   const objectsBefore = value.operations.listWorldObjects({ projectId: value.project.id }).length;
   const formalSnapshotBefore = buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash;
   const storyUnitVersionBefore = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).version;
+  const permission = await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" });
+  assert.equal(permission.status, 200);
   const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("create-fake"));
   assert.equal(created.status, 201, JSON.stringify(created.payload));
   let model = created.payload.data as NuwaReadModel;
   assert.equal(model.run.status, "ready");
   assert.equal(model.run.provider.providerCalls, 0);
+  assert.equal(model.authorization?.status, "active");
+  assert.equal(model.authorization?.storyUnitId, value.unit.id);
+  assert.deepEqual(model.authorization?.actorIds, value.characters.map((character) => character.id));
 
   const firstStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "step-first" });
   assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
@@ -151,6 +156,37 @@ test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for altern
   assert.equal(budgetLedger.reservationCount, host.requests.length, "every loopback send is reserved by the isolated Gateway ledger");
 });
 
+test("Nuwa N1 full access automatically applies one selected Run result through the existing formal Event chain", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const enabled = await start(value, true);
+  child = enabled.child;
+  assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
+  const created = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("auto-apply-create"));
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel;
+  const stepped = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-step" });
+  assert.equal(stepped.status, 200, JSON.stringify(stepped.payload));
+  model = stepped.payload.data as NuwaReadModel;
+  const applied = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "auto-apply-result", selectedStepIds: [model.run.steps[0]!.stepId] });
+  assert.equal(applied.status, 201, JSON.stringify(applied.payload));
+  const result = applied.payload.data as NuwaReadModel & { automaticApplication: { decisionSource: string; authorizationId: string; eventId: string; storyUnitId: string } };
+  assert.equal(result.automaticApplication.decisionSource, "nuwa-scope-authorization");
+  assert.equal(result.automaticApplication.storyUnitId, value.unit.id);
+  const event = value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.eventId });
+  assert.equal(event.status, "committed");
+  assert.equal(event.properties?.planned_from, result.automaticApplication.planningEventId);
+  assert.match(value.operations.readWorldObject({ projectId: value.project.id, objectId: result.automaticApplication.planningEventId }).body, /来源女娲 Run/u);
+  const unit = value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id });
+  assert.equal(unit.linkedEntityIds.includes(event.id), true);
+  const permissions = await getJson(enabled.baseUrl, `/__local/story-studio/agent-permissions?projectId=${encodeURIComponent(value.project.id)}`);
+  assert.equal((permissions.payload.data as { receipts: Array<{ decisionSource: string; authorizationId: string | null }> }).receipts.some((receipt) => receipt.decisionSource === "nuwa-scope-authorization" && receipt.authorizationId === result.automaticApplication.authorizationId), true);
+});
+
 test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-up tool result", async (t) => {
   const value = fixture();
   const host = await startSseHost({ holdFirstResponse: true });
@@ -225,6 +261,7 @@ type NuwaReadModel = {
   contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
+  authorization?: { id: string; status: string; storyUnitId: string; actorIds: string[] } | null;
 };
 
 function fixture() {

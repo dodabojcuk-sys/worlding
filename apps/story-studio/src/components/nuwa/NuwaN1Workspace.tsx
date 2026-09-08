@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { AlertTriangle, Bot, CheckCircle2, CirclePause, CirclePlay, FileClock, FilePlus2, History, MessageSquarePlus, OctagonX, PanelRight, Play, RefreshCw, Send, ShieldCheck, Sparkles, UsersRound } from "lucide-react";
 
 import {
+  autoApplyNuwaN1Result,
   createNuwaN1Candidate,
   createNuwaN1Run,
   cueNuwaN1Run,
@@ -158,6 +159,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       updateRun(result); setNotice(`已将“${result.candidate.candidates[0]?.title ?? "选定结果"}”送入待确认；尚未写入正式故事。`);
     }).catch((reason: unknown) => setError(messageFor(reason, "候选未能送入待确认；正式故事没有变化。"))).finally(() => setBusy(false));
   };
+  const autoApply = () => {
+    if (!projectId || !run || !selectedStepIds.length || run.authorization?.status !== "active") return;
+    setBusy(true); setError(null); setNotice(null);
+    void props.runtime.withConnection((token) => autoApplyNuwaN1Result({ projectId, runId: run.run!.runId, expectedRevision: run.run!.revision, selectedStepIds, operationId: newOperationId(), token })).then((result) => {
+      updateRun(result);
+      setNotice(`已按高权限范围自动写入正式 Event 并纳入当前故事单元（${result.automaticApplication.eventId}）；来源 Run、授权、影响审查与变更集均可追溯。`);
+    }).catch((reason: unknown) => setError(messageFor(reason, "自动应用未完成；请刷新核对已保存回执，系统不会把未完成状态显示为已写入。"))).finally(() => setBusy(false));
+  };
 
   if (!projectId) return <NuwaUnavailable title="先打开一个作品" detail="女娲排演必须绑定当前作品、正式角色和故事单元；这里不会创建独立的故事副本或角色仓库。" />;
   if (!bootstrap && !error) return <NuwaUnavailable title="正在读取女娲排演" detail="正在恢复当前作品的最新 Run；读取本身不会调用 Provider。" loading />;
@@ -171,12 +180,13 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   return <main className="shell-workspace shell-workspace-nuwa" aria-label="女娲">
     <section className="nuwa-n1-workspace" data-testid="nuwa-n1-workspace" data-run-status={status} data-provider-calls={availability?.providerCalls ?? 0}>
       <header className="nuwa-n1-header">
-        <div><small>有界排演 · 当前作品</small><h1>女娲</h1><p>{run?.run ? `围绕“${run.run.scene.label}”继续读取 Run 内变化；结果仍需送入待确认。` : "先选定一个故事单元与 2–3 位正式角色，建立可恢复的局部排演。"}</p></div>
+        <div><small>有界排演 · 当前作品</small><h1>女娲</h1><p>{run?.run ? run.authorization?.status === "active" ? `围绕“${run.run.scene.label}”持续运行；当前高权限范围可自动执行并保留回溯。` : `围绕“${run.run.scene.label}”继续读取 Run 内变化；结果需走待确认。` : "先选定一个故事单元与 2–3 位正式角色，建立可恢复的局部排演。"}</p></div>
         <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : executable ? "已配置执行器；开始排演才会发送明确授权的请求。" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
       </header>
 
       {error ? <p className="nuwa-n1-message is-error" role="alert"><AlertTriangle />{error}</p> : null}
       {notice ? <p className="nuwa-n1-message is-notice" role="status"><CheckCircle2 />{notice}</p> : null}
+      {run?.authorization ? <p className="nuwa-n1-message is-notice" data-testid="nuwa-n1-authorization"><ShieldCheck />{run.authorization.status === "active" ? `高权限自动执行已授权：当前 Run、${run.authorization.storyUnitId} 与 ${run.authorization.actorIds.length} 位角色；最多 ${run.authorization.maxSteps} 步 / ${run.authorization.maxProviderDispatches} 次模型发送，可随时停止或回溯。` : "此 Run 的高权限授权已失效；不会继续自动写入。"}</p> : null}
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
@@ -212,7 +222,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         </> : null}
       </aside>
       </div>
-      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><label><span>给当前排演的提示</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder="例如：让下一步先确认钟楼内的声音来源。" /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !["running", "paused"].includes(run.run.status)}><Send />加入后续步骤</button></form><div><span>{selectedStepIds.length ? `已选择 ${selectedStepIds.length} 个结果` : "选择步骤后可送入待确认"}</span><button type="button" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={sendCandidate}><FilePlus2 />送入待确认</button></div></footer> : null}
+      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><label><span>给当前排演的提示</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder="例如：让下一步先确认钟楼内的声音来源。" /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !["running", "paused"].includes(run.run.status)}><Send />加入后续步骤</button></form><div><span>{selectedStepIds.length ? `已选择 ${selectedStepIds.length} 个结果` : run.authorization?.status === "active" ? "选择步骤后自动应用到授权范围" : "选择步骤后可送入待确认"}</span>{run.authorization?.status === "active" ? <button type="button" className="primary-action" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={autoApply}><CheckCircle2 />自动应用结果</button> : <button type="button" disabled={busy || !selectedStepIds.length || !["completed", "cancelled"].includes(run.run.status)} onClick={sendCandidate}><FilePlus2 />送入待确认</button>}</div></footer> : null}
       {run?.run ? <details className="nuwa-n1-technical"><summary>技术详情</summary><dl><div><dt>Run</dt><dd>{run.run.runId}</dd></div><div><dt>修订</dt><dd>{run.run.revision}</dd></div><div><dt>Provider</dt><dd>{run.run.provider.label} · {run.run.provider.providerCalls} calls</dd></div></dl></details> : null}
     </section>
   </main>;

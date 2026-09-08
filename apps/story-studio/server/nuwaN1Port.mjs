@@ -27,7 +27,7 @@ const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   /** Exactly one executable actor step may own a Run.  The entry owns its
    * cancellation handle and promise; duplicate delivery returns that promise
    * instead of replacing the handle. */
@@ -125,6 +125,21 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
       operationId,
       now: now()
     });
+    // Starting a Run is the one explicit author action that can establish a
+    // high-permission scope.  The server derives every target from validated
+    // project objects; the browser and model never submit an authorization id.
+    if (actionPermissionBroker?.read(input.projectId).profile === "full-access") {
+      actionPermissionBroker.grantNuwaFullAccess({
+        projectId: input.projectId,
+        runId: plan.runId,
+        storyUnitId: prepared.setup.storyUnit.id,
+        storyUnitRevision: prepared.setup.storyUnit.revision,
+        actorIds: prepared.setup.participants.map((actor) => actor.id),
+        sourceOperationId: operationId,
+        maxSteps: 6,
+        maxProviderDispatches: 12
+      });
+    }
     return read(input.projectId, plan.runId);
   }
 
@@ -202,6 +217,70 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     return { ...present(project.id, result.run), candidate: result.handoff, review };
   }
 
+  /**
+   * High-permission application deliberately reuses the ordinary planning →
+   * impact → changeset → AuthorControl path.  The only different decision is
+   * the previously persisted, server-validated Nuwa scope; neither Pi nor the
+   * browser gets a direct world-object write capability.
+   */
+  function autoApply(input) {
+    const project = requireProject(input.projectId);
+    const current = requireRun(workspacePath(project.id), input.runId);
+    const authorization = actionPermissionBroker?.read(project.id).nuwaAuthorizations.find((item) => item.runId === current.runId && item.status === "active") ?? null;
+    if (!authorization || authorization.storyUnitId !== current.scene.storyUnit.id || authorization.storyUnitRevision !== current.scene.storyUnit.revision || authorization.actorIds.length !== current.actors.length || authorization.actorIds.some((id) => !current.actors.some((actor) => actor.character.id === id))) {
+      throw failure("当前女娲 Run 没有有效的高权限范围授权；结果仍可送入待确认。", 403);
+    }
+    const targets = [current.runId, authorization.storyUnitId, ...authorization.actorIds];
+    const permission = actionPermissionBroker.record(project.id, {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run", targets, authorizationId: authorization.id, checkpointId: current.runId
+    });
+    if (permission.outcome !== "allowed") throw failure(permission.reason, 403);
+    const handoff = candidate(input);
+    const selected = handoff.candidate.candidates[0];
+    if (!selected) throw failure("选定步骤没有形成可应用的女娲变化。", 409);
+    const planning = operations.createPlanningEvent({
+      projectId: project.id,
+      title: selected.title,
+      body: `# ${selected.title}\n\n${selected.summary}\n\n${selected.observedResult}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${selected.sourceStepId}\n- 高权限范围授权：${authorization.id}\n- 决策来源：作者开始 Run 时的范围授权\n`,
+      tags: ["女娲自动执行", current.runId]
+    });
+    const impactPermission = actionPermissionBroker.record(project.id, {
+      actor: "nuwa", action: "event-impact-review", targetType: "nuwa-run", targets, authorizationId: authorization.id, checkpointId: current.runId
+    });
+    if (impactPermission.outcome !== "allowed") throw failure(impactPermission.reason, 403);
+    const impact = authorControl.createPlanningEventImpactReview({ projectId: project.id, planningEventId: planning.id });
+    const option = impact.options[0];
+    if (!option) throw failure("女娲变化没有可应用的影响路径。", 409);
+    const resolved = authorControl.chooseImpactRoute({ projectId: project.id, reviewId: impact.id, optionId: option.id, action: "adopt" });
+    const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: resolved.id, decisionSource: "nuwa-scope-authorization", authorizationId: authorization.id });
+    const applied = authorControl.applyAuthorChangeSet({ projectId: project.id, changeSetId: changeSet.id });
+    const eventId = applied.application.appliedEventId;
+    if (!eventId) throw failure("正式 Event 未产生可验证回执。", 409);
+    const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: authorization.storyUnitId });
+    if (storyUnit.version !== authorization.storyUnitRevision) throw failure("目标故事单元已变化；已阻止自动归属。", 409);
+    const linkedEntityIds = [...new Set([...storyUnit.linkedEntityIds, eventId])];
+    const linked = linkedEntityIds.length === storyUnit.linkedEntityIds.length
+      ? storyUnit
+      : operations.updateStoryUnit({ projectId: project.id, unitId: storyUnit.id, expectedVersion: storyUnit.version, linkedEntityIds });
+    if (linked.conflict) throw failure("正式 Event 已创建，但故事单元刚刚变化；请刷新后处理归属冲突。", 409);
+    return {
+      ...read(project.id, current.runId),
+      candidate: handoff.candidate,
+      review: handoff.review,
+      automaticApplication: {
+        status: "applied",
+        decisionSource: "nuwa-scope-authorization",
+        authorizationId: authorization.id,
+        permissionReceiptId: permission.id,
+        planningEventId: planning.id,
+        impactReviewId: resolved.id,
+        changeSetId: applied.id,
+        eventId,
+        storyUnitId: storyUnit.id
+      }
+    };
+  }
+
   function read(projectId, runId) {
     requireProject(projectId);
     const run = requireRun(workspacePath(projectId), runId);
@@ -225,6 +304,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     return {
       version: VERSION,
       availability: availability(),
+      authorization: actionPermissionBroker?.read(projectId).nuwaAuthorizations.find((authorization) => authorization.runId === run.runId) ?? null,
       run: {
         runId: run.runId,
         status: run.lifecycle,
@@ -400,7 +480,7 @@ export function createNuwaN1Port({ operations, authorControl, fakeProviderAllowe
     };
   }
 
-  return { bootstrap, setup, create, read, latest, step, pause, resume, stop, replay, cue, candidate };
+  return { bootstrap, setup, create, read, latest, step, pause, resume, stop, replay, cue, candidate, autoApply };
 }
 
 function candidateReviewResult(project, run, handoff) {

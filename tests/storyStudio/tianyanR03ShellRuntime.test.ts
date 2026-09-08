@@ -61,3 +61,48 @@ test("R0.3 permission intent reaches the existing broker without a Provider call
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Nuwa full access is a server-created, target-bound scope rather than a forged author confirmation", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "nuwa-full-access-permissions-"));
+  try {
+    const broker = createActionPermissionBroker({
+      resolveProjectPath: (projectId) => path.join(root, projectId),
+      now: () => "2026-09-08T00:00:00.000Z"
+    });
+    broker.setProfile({ projectId: "project-a", profile: "full-access" });
+    const authorization = broker.grantNuwaFullAccess({
+      projectId: "project-a",
+      runId: "run.a",
+      storyUnitId: "unit.bridge",
+      storyUnitRevision: "unit-revision-a",
+      actorIds: ["character.lin", "character.wu"],
+      sourceOperationId: "nuwa.start.a"
+    });
+    const automatic = broker.record("project-a", {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
+      targets: ["run.a", "unit.bridge", "character.lin", "character.wu"], authorizationId: authorization.id
+    });
+    assert.equal(automatic.outcome, "allowed");
+    assert.equal(automatic.decisionSource, "nuwa-scope-authorization");
+    assert.equal(automatic.authorizationId, authorization.id);
+    const forged = broker.record("project-a", {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
+      targets: ["run.a", "unit.other", "character.lin", "character.wu"], authorizationId: authorization.id
+    });
+    assert.equal(forged.outcome, "requires-author", "a valid authorization cannot be reused for another Story Unit");
+    const browserSpoof = broker.record("project-a", {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
+      targets: ["run.a", "unit.bridge", "character.lin", "character.wu"], authorConfirmed: true
+    });
+    assert.equal(browserSpoof.outcome, "requires-author");
+    assert.equal(browserSpoof.decisionSource, "policy", "a Nuwa request cannot forge an author confirmation");
+    broker.revokeNuwaFullAccess({ projectId: "project-a", authorizationId: authorization.id, reason: "作者停止自动执行。" });
+    const revoked = broker.record("project-a", {
+      actor: "nuwa", action: "confirmed-event", targetType: "nuwa-run",
+      targets: ["run.a", "unit.bridge", "character.lin", "character.wu"], authorizationId: authorization.id
+    });
+    assert.equal(revoked.outcome, "requires-author");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
