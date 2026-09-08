@@ -44,6 +44,10 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   const receiptRecoveryGeneration = useRef(0);
   const historyLoadGeneration = useRef(0);
   const stopRequested = useRef(false);
+  // React state is committed after the Owner response.  A canvas selection
+  // event can arrive in that small window; remember terminal identity
+  // synchronously so it cannot restore the pre-abandon candidate surface.
+  const terminalRunIds = useRef(new Set<string>());
   const adjustGoalRef = useRef<HTMLTextAreaElement>(null);
   const focusGoalOnTask = useRef(false);
   const project = props.runtime.project;
@@ -59,6 +63,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     const terminalStatus = observed.status === "abandoned" || observed.status === "stale" ? observed.status : null;
     if (!shouldApplyPredictionRunSnapshot({ terminalStatus, incomingStatus: observed.status })) return null;
     if (terminalStatus) {
+      terminalRunIds.current.add(observed.runId);
       pollingGeneration.current += 1;
       runRecoveryGeneration.current += 1;
       receiptRecoveryGeneration.current += 1;
@@ -125,7 +130,7 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
   useEffect(() => {
     const receive = (event: Event) => {
       const detail = (event as CustomEvent<PredictionSelectionDetail>).detail;
-      if (!run || ["abandoned", "stale"].includes(run.status) || detail?.origin !== "canvas" || detail.runId !== run.runId) return;
+      if (!run || terminalRunIds.current.has(detail?.runId || "") || ["abandoned", "stale"].includes(run.status) || detail?.origin !== "canvas" || detail.runId !== run.runId) return;
       setPathId(detail.pathId); setSelectedNodeIds(detail.selectedCandidateNodeIds); setReceipt(null);
       setViewState(predictionViewAfterPathSelection(detail.pathId));
     };

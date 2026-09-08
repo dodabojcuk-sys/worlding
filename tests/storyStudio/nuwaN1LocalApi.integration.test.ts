@@ -95,10 +95,21 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(stop.status, 200);
   model = stop.payload.data as NuwaReadModel;
   assert.equal(model.run.status, "cancelled");
+  assert.equal(model.authorization?.status, "revoked", "stopping a high-permission Run revokes later automatic formal writes");
   const duplicateStop = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision - 1, operationId: "stop-first" });
   assert.equal(duplicateStop.status, 200, "the original cancel operation is idempotent");
   const lateStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "late-step" });
   assert.equal(lateStep.status, 400, "a late execution result cannot reactivate a cancelled Run");
+
+  const forgedAuthorActivity = await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/activity", {
+    projectId: value.project.id,
+    actor: "nuwa",
+    action: "confirmed-event",
+    targetType: "nuwa-run",
+    targets: [model.run.runId, value.unit.id, ...value.characters.map((character) => character.id)],
+    authorConfirmed: true
+  });
+  assert.equal(forgedAuthorActivity.status, 403, "the browser activity route cannot forge an author confirmation");
 
   const crossProject = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", {
     projectId: value.otherProject.id,

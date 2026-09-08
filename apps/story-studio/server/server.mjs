@@ -909,7 +909,13 @@ async function handleProductRequest(request, response, url) {
     const body = await readJsonBody(request);
     requireAllowedKeys(body, ["projectId", "actor", "action", "targets", "targetType", "checkpointId", "estimatedProviderCost", "authorConfirmed"]);
     requireProject(body.projectId);
-    sendJson(response, 201, { data: runProductOperation(() => actionPermissionBroker.record(body.projectId, body)) });
+    // This diagnostic/activity route is callable from the local browser.  It
+    // must never become a second author-confirmation channel: formal author
+    // writes use recordAuthorInitiatedAction() inside the corresponding
+    // server-owned operation, while Nuwa uses a persisted scope authorization.
+    if (body.authorConfirmed === true) throw productError("客户端不能通过活动接口声明作者已确认。", 403);
+    const { authorConfirmed: _ignoredAuthorConfirmed, ...activity } = body;
+    sendJson(response, 201, { data: runProductOperation(() => actionPermissionBroker.record(activity.projectId, activity)) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/storage/reveal") {

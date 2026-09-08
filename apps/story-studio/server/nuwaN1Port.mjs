@@ -211,6 +211,20 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     // valid live stream merely because it named the same Run.
     const next = cancelNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(input.reason ? { reason: requiredText(input.reason, "停止原因", 240) } : {}), now: now() });
     activePiExecutions.get(`${input.projectId}\u0000${input.runId}`)?.adapter?.cancel?.();
+    // Stop is also the author's durable stop-control for automatic formal
+    // writes.  Cancellation alone must not leave a completed or partially
+    // observed Run with an active scope that can later be applied by a stale
+    // browser action.  Already-applied changes remain in their Owner history
+    // and can be inspected or reverted through that history.
+    const authorization = actionPermissionBroker?.read(input.projectId).nuwaAuthorizations
+      .find((item) => item.runId === input.runId && item.status === "active");
+    if (authorization) {
+      actionPermissionBroker.revokeNuwaFullAccess({
+        projectId: input.projectId,
+        authorizationId: authorization.id,
+        reason: input.reason || "作者已停止女娲 Run，后续自动正式写入已撤销。"
+      });
+    }
     return present(input.projectId, next);
   }
 
