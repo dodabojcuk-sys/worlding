@@ -18,6 +18,7 @@ import {
   resolvePredictionAbandonment,
   predictionViewStateFromDraftedReceiptRecovery,
   predictionViewStateFromPersistence,
+  shouldDeferPredictionRunSnapshotForPendingAbandonment,
   shouldApplyPredictionRunSnapshot,
   type TianyiPredictionViewState
 } from "./tianyiPredictionViewState";
@@ -91,6 +92,11 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
         ?? history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey)
         ?? replayedPredictionRun(project.id, props.eventRefs)
         ?? null;
+      if (matching && shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: isPredictionAbandonmentPending(project.id, matching.runId), incomingStatus: matching.status })) {
+        setRuns(history); setRun(null); setReceipt(null); setPhase("reading"); setViewState("task");
+        beginRunRecoveryPolling(matching.runId);
+        return;
+      }
       const observed = setObservedRun(matching);
       if (observed) props.runtime.setActivePageAgentRunId(observed.runId);
       setPhase(observed?.status === "ready" ? "reviewing" : observed?.status === "stopped" ? "stopped" : observed?.status === "failed" ? "failed" : observed && ["created", "generating", "validating"].includes(observed.status) ? "validating" : "idle");
@@ -238,7 +244,12 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
           const history = await props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token));
           const current = history.find((item) => item.runId === runId);
           if (current) {
+            if (shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: isPredictionAbandonmentPending(project.id, runId), incomingStatus: current.status })) {
+              await new Promise((resolve) => window.setTimeout(resolve, 120));
+              continue;
+            }
             setRuns(history); const observed = setObservedRun(current); if (!observed) return; announceRun(observed);
+            if (["abandoned", "stale"].includes(observed.status)) { setPhase("idle"); setViewState("task"); return; }
             if (observed.status === "ready") { setPhase("reviewing"); setViewState("overview"); return; }
             if (observed.status === "failed") { setPhase("failed"); setViewState("task"); return; }
             if (observed.status === "stopped") { setPhase("stopped"); setViewState("task"); return; }

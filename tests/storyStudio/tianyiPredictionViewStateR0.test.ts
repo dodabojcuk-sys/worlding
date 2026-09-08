@@ -11,6 +11,7 @@ import {
   predictionStageForView,
   predictionRunStatusAfterTerminalFence,
   resolvePredictionAbandonment,
+  shouldDeferPredictionRunSnapshotForPendingAbandonment,
   shouldApplyPredictionRunSnapshot,
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
@@ -37,6 +38,14 @@ test("terminal prediction status can be replayed by a remounted panel", () => {
   assert.equal(predictionRunStatusAfterTerminalFence({ projectId, runId, incomingStatus: "abandoned" }), "abandoned");
   assert.equal(readPredictionTerminalRunStatus(projectId, runId), "abandoned");
   assert.equal(readPredictionTerminalRunStatus("project.other", runId), null);
+});
+
+test("a remounted panel defers only non-terminal snapshots while exact abandonment is pending", () => {
+  assert.equal(shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: true, incomingStatus: "ready" }), true);
+  assert.equal(shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: true, incomingStatus: "generating" }), true);
+  assert.equal(shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: true, incomingStatus: "abandoned" }), false);
+  assert.equal(shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: true, incomingStatus: "stale" }), false);
+  assert.equal(shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: false, incomingStatus: "ready" }), false);
 });
 
 test("persistent Run state maps to a view without inventing domain progress", () => {
