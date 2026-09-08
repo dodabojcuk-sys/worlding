@@ -3788,17 +3788,30 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await panel.getByText("技术回执与历史", { exact: true }).click();
   let releaseAbandonResponse = () => undefined;
   const holdAbandonResponse = new Promise((resolve) => { releaseAbandonResponse = resolve; });
+  let releaseAbandonPersisted = () => undefined;
+  const abandonPersisted = new Promise((resolve) => { releaseAbandonPersisted = resolve; });
+  let abandonPersistenceError = null;
   await page.route("**/prediction/abandon", async (route) => {
-    // Persist the author action first, then hold only its response while the
-    // Agent panel remounts. The new instance must recover the exact Owner Run.
-    const response = await route.fetch({ timeout: 0 });
+    // Persist through the fixture control channel so holding the browser
+    // response cannot also occupy the Vite proxy needed by the remounted UI.
+    let response;
+    try {
+      response = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/abandon`, route.request().postDataJSON());
+    } catch (cause) {
+      abandonPersistenceError = cause;
+    } finally {
+      releaseAbandonPersisted();
+    }
+    if (abandonPersistenceError) { await route.abort(); return; }
     await holdAbandonResponse;
-    await route.fulfill({ response });
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
   }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
   const abandonRequest = page.waitForRequest("**/prediction/abandon");
   await abandonButton.press("Enter");
   await abandonRequest;
+  await abandonPersisted;
+  if (abandonPersistenceError) throw abandonPersistenceError;
   await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
   await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
   await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor().catch(async (cause) => {
