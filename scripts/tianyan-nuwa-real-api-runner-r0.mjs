@@ -58,7 +58,7 @@ try {
       projectId = await createIsolatedStoryFixture(session);
       result.isolation.projectId = projectId;
       result.isolation.createdByThisScript = true;
-      result.latestProgress = "已通过正式宿主入口建立隔离作品、角色与故事单元。";
+      result.latestProgress = "已通过正式宿主入口建立隔离作品、角色、已确认依据与故事单元。";
     }
     const modelStatus = await getJson("/model-service/status", session);
     result.provider = providerIdentityFromStatus(modelStatus);
@@ -187,18 +187,62 @@ async function createIsolatedStoryFixture(cookie) {
   const fixtureProjectId = String(project?.id || "").trim();
   if (!fixtureProjectId) throw new Error("隔离项目创建响应缺少项目身份。");
   const characters = await Promise.all([
-    ["阿芜", "守住北闸的秘密，只向林昭说明封闸。"],
-    ["林昭", "根据已获知的消息寻找替代路线。"],
-    ["陆衍", "只按仓库职责行动，不知道私下说法。"]
-  ].map(async ([title, body]) => postJson("/world-objects/create", { projectId: fixtureProjectId, type: "character", title, body, status: "active", tags: ["API 隔离样例"] }, cookie)));
+    ["阿芜", "守住北闸的秘密，只向林昭说明封闸。", "守住同伴与北闸秘密", "不向未获知者泄露私下说法。"],
+    ["林昭", "根据已获知的消息寻找替代路线。", "先求证再行动", "不拿同伴冒险换取线索。"],
+    ["陆衍", "只按仓库职责行动，不知道私下说法。", "履行仓库职责", "不把传闻当成已知事实。"]
+  ].map(async ([title, body, core, boundaries]) => postJson("/world-objects/create", {
+    projectId: fixtureProjectId,
+    type: "character",
+    title,
+    body,
+    status: "active",
+    tags: ["API 隔离样例"],
+    profile: authorCharacterProfile(core, boundaries)
+  }, cookie)));
+  const lin = characters.find((character) => character.title === "林昭");
+  if (!lin?.id) throw new Error("隔离样例缺少林昭角色身份。");
+  await Promise.all([
+    postJson("/world-objects/create", { projectId: fixtureProjectId, type: "location", title: "北闸", body: "北闸目前已封，通行状态只应由正式事件和世界状态决定。", status: "active", tags: ["API 隔离样例"] }, cookie),
+    postJson("/world-objects/create", { projectId: fixtureProjectId, type: "item", title: "铜钥匙", body: "铜钥匙的持有者只由正式交接和世界状态决定。", status: "active", tags: ["API 隔离样例"] }, cookie)
+  ]);
+  const planning = await postJson("/world-objects/create", {
+    projectId: fixtureProjectId,
+    type: "event",
+    title: "阿芜只向林昭说明北闸已封并交接铜钥匙",
+    status: "planned",
+    tags: ["作者规划", "API 隔离样例"],
+    knowledgeSubjects: [lin.id],
+    body: "阿芜只向林昭说明北闸已封，并把铜钥匙交给林昭；陆衍没有获知这段私下说法。"
+  }, cookie);
+  if (!planning?.id) throw new Error("隔离样例没有建立作者规划 Event。");
+  const review = await postJson("/author-control/impact-review/create-from-planning-event", { projectId: fixtureProjectId, planningEventId: planning.id }, cookie);
+  const option = review?.options?.[0];
+  if (!review?.id || !option?.id) throw new Error("隔离样例的正式 Event 评审没有可采用选项。");
+  await postJson("/author-control/impact-review/choose", { projectId: fixtureProjectId, reviewId: review.id, optionId: option.id, action: "adopt" }, cookie);
+  const changeSet = await postJson("/author-control/change-set/create", { projectId: fixtureProjectId, reviewId: review.id }, cookie);
+  if (!changeSet?.id) throw new Error("隔离样例的 Author Change Set 没有身份。");
+  const applied = await postJson("/author-control/change-set/apply", { projectId: fixtureProjectId, changeSetId: changeSet.id }, cookie);
+  const eventId = applied?.application?.appliedEventId;
+  if (!eventId) throw new Error("隔离样例的正式 Event 没有实际写入。 ");
   await postJson("/story-units/create", {
     projectId: fixtureProjectId,
     title: "北闸与铜钥匙",
     summary: "阿芜仅向林昭传递北闸已封的消息；铜钥匙的去向需要在正式动作中决定。",
-    linkedEntityIds: characters.map((character) => character.id),
+    linkedEntityIds: [...characters.map((character) => character.id), eventId],
     items: [], sourceRefs: [], unresolvedQuestionIds: ["key-holder"]
   }, cookie);
   return fixtureProjectId;
+}
+
+function authorCharacterProfile(core, boundaries) {
+  return {
+    objectType: "character",
+    fields: {
+      character_core: { label: "角色核心", value: core, source: "author", confidence: "high", sourceAnchors: [] },
+      boundaries: { label: "底线", value: boundaries, source: "author", confidence: "high", sourceAnchors: [] }
+    },
+    authorConfirmed: true
+  };
 }
 
 function originFor(url) { return new URL(url).origin; }

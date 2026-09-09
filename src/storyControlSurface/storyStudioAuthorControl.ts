@@ -154,6 +154,8 @@ type PersistedAuthorChangeSet = {
    */
   workVersionId?: string | null;
   source: PersistedReviewSource;
+  /** Frozen on the Change Set so a retry never reads a mutable planning note. */
+  sourceKnowledgeSubjects?: string[];
   sourceScene?: { id: string; relativeId: string; title: string };
   baseline: {
     snapshotHash: string;
@@ -197,6 +199,7 @@ type PersistedApplyIntent = {
     status: "committed";
     tags: ["作者确认"];
     plannedFrom: string | null;
+    knowledgeSubjects?: string[];
     body: string;
     provenance: {
       sourceChangeSetId: string;
@@ -879,6 +882,9 @@ export function createStoryStudioAuthorControl(input: {
         evidenceRefs: [...new Set([...change.evidenceRefs, ...routeEvidenceIds])].sort()
       }));
       const changeSetId = `author-change-set-${stableHash({ reviewId: review.reviewId, candidateId: review.resolution.commitCandidate.id }).slice(0, 16)}`;
+      const sourceKnowledgeSubjects = review.source.kind === "planning-event"
+        ? workspace.readWorldObject({ projectId: changeInput.projectId, objectId: review.source.id }).knowledgeSubjects
+        : [];
       const artifact: PersistedAuthorChangeSet = {
         version: CHANGE_SET_VERSION,
         changeSetId,
@@ -886,6 +892,7 @@ export function createStoryStudioAuthorControl(input: {
         projectId: changeInput.projectId,
         workVersionId: changeInput.workVersionId ?? null,
         source: review.source,
+        ...(sourceKnowledgeSubjects.length ? { sourceKnowledgeSubjects: [...sourceKnowledgeSubjects].sort() } : {}),
         baseline: { snapshotHash: review.snapshotHash, sourceRevisionToken: review.source.revisionToken, objectRevisions },
         affectedNoteIds,
         structuredChanges,
@@ -1030,6 +1037,7 @@ export function createStoryStudioAuthorControl(input: {
         title: intent.event.title,
         body: intent.event.body,
         ...(intent.event.plannedFrom ? { plannedFrom: intent.event.plannedFrom } : {}),
+        ...(intent.event.knowledgeSubjects?.length ? { knowledgeSubjects: intent.event.knowledgeSubjects } : {}),
         provenance: {
           sourceChangeSetId: intent.event.provenance.sourceChangeSetId,
           sourceChangeSetRevision: intent.event.provenance.sourceChangeSetRevision,
@@ -1996,6 +2004,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     projectId: artifact.projectId,
     ...versionBinding,
     source: artifact.source,
+    ...(artifact.sourceKnowledgeSubjects ? { sourceKnowledgeSubjects: artifact.sourceKnowledgeSubjects } : {}),
     baseline: artifact.baseline,
     affectedNoteIds: artifact.affectedNoteIds,
     structuredChanges: artifact.structuredChanges,
@@ -2041,6 +2050,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     status: "committed" as const,
     tags: ["作者确认"] as ["作者确认"],
     plannedFrom: artifact.source.kind === "planning-event" ? artifact.source.id : null,
+    ...(artifact.sourceKnowledgeSubjects?.length ? { knowledgeSubjects: [...artifact.sourceKnowledgeSubjects] } : {}),
     body,
     provenance
   };

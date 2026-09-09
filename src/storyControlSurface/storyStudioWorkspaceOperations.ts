@@ -1422,6 +1422,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       title: string;
       body: string;
       plannedFrom?: string;
+      knowledgeSubjects?: string[];
       provenance: {
         sourceChangeSetId: string;
         sourceChangeSetRevision: string;
@@ -1443,6 +1444,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       const eventWorkVersion = eventInput.workVersionId == null ? null : readNarrativeWorkVersion(projectPath, eventInput.workVersionId);
       const targetEventRef = requireStableConfirmedEventRef(eventInput.targetEventRef);
       const plannedFrom = eventInput.plannedFrom == null ? null : requirePlanningSource(projectPath, eventInput.plannedFrom);
+      const knowledgeSubjects = requireStringList(eventInput.knowledgeSubjects, "knowledge subjects");
       const result = createWorkspaceNoteOnce(projectPath, {
         id: targetEventRef,
         type: "event",
@@ -1456,6 +1458,7 @@ export function createStoryStudioWorkspaceOperations(input: {
           card_blocks: defaultObjectCardBlocks("event"),
           ...(eventWorkVersion ? { story_work_version_id: eventWorkVersion.identity.workVersionId } : {}),
           ...(plannedFrom ? { planned_from: plannedFrom.id } : {}),
+          ...(knowledgeSubjects.length ? { knowledge_subjects: knowledgeSubjects } : {}),
           source_change_set_id: requireText(eventInput.provenance.sourceChangeSetId, "Source Change Set", 160),
           source_change_set_revision: requireHash(eventInput.provenance.sourceChangeSetRevision, "Source Change Set revision"),
           author_decision_ref: requireText(eventInput.provenance.authorDecisionRef, "Author decision", 160),

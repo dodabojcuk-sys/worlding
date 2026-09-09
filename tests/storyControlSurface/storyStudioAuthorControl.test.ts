@@ -309,6 +309,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
       title: "阿岚只获得部分地下室线索",
       status: "planned",
       tags: ["作者规划"],
+      knowledgeSubjects: [fixture.allyId],
       body: "# 阿岚只获得部分地下室线索\n\n[[林远]]只向[[阿岚]]透露[[旧灯塔]]地下室的一部分。\n"
     });
     const planningPath = path.join(fixture.projectPath, planning.relativeId);
@@ -330,6 +331,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
     const option = review.options.find((item) => item.label === "只透露部分线索") || review.options[0];
     fixture.control.chooseImpactRoute({ projectId: fixture.projectId, reviewId: review.id, optionId: option.id, action: "adopt" });
     const changeSet = fixture.control.createAuthorChangeSet({ projectId: fixture.projectId, reviewId: review.id });
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.projectPath, ".world-os", "author-control", "change-sets", `${changeSet.id}.json`), "utf8")).sourceKnowledgeSubjects, [fixture.allyId]);
     assert.equal(fixture.workspace.listWorldObjects({ projectId: fixture.projectId, type: "event" }).length, eventCountBefore);
     assert.deepEqual(readMarkdownTree(fixture.projectPath), canonicalBeforeReview);
     const timelineBeforeApply = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents
@@ -346,6 +348,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
       .find((item) => item.status === "committed" && item.properties.planned_from === planning.id);
     assert.ok(committed);
     assert.ok(committed.tags.includes("作者确认"));
+    assert.deepEqual(committed.knowledgeSubjects, [fixture.allyId], "the confirmed Event carries only the author-declared knowledge subject frozen in its Change Set");
     assert.equal(readFileSync(planningPath, "utf8"), planningBefore);
     assert.equal(fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: planning.id }).status, "planned");
   } finally {
