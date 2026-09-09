@@ -205,6 +205,15 @@ const nuwaN1Port = createNuwaN1Port({
       const profile = nuwaN1LocalHostUrl
         ? { provider: nuwaN1LocalHostProfile.providerId, id: nuwaN1LocalHostProfile.id, modelId: nuwaN1LocalHostProfile.modelId }
         : readActiveProviderProfile();
+      // Persistent settings identify a Provider instance (for example
+      // radeon-cloud.default). The Gateway executes one selected model profile
+      // generated from that instance. Do not pass the persistent instance ID
+      // into the Gateway's profileId field: that fails before any budget or
+      // transport lifecycle can start.
+      const gatewayProfile = nuwaN1LocalHostUrl
+        ? nuwaN1LocalHostProfile
+        : providerGateway.metadata().profiles.find((candidate) => candidate.providerId === profile?.provider && candidate.modelId === profile?.modelId);
+      if (!profile || !gatewayProfile) return null;
       return createNuwaN1PiAdapter({
         runtime: agentRuntimePluginResolution.runtime,
         projectId,
@@ -216,7 +225,7 @@ const nuwaN1Port = createNuwaN1Port({
         openProviderStream(providerInput) {
           const requestKey = `nuwa-n1.${projectId}.${runId}.${providerInput.agentRunId}.${providerInput.providerCall}`;
           return providerGateway.openChatStream({
-            profileId: profile.id,
+            profileId: gatewayProfile.id,
             messages: providerInput.messages,
             tools: providerInput.tools,
             toolChoice: providerInput.toolChoice,
@@ -3417,9 +3426,11 @@ function nuwaN1PiAvailability() {
   if (!agentRuntimePluginResolution.runtime) return { kind: "unavailable", label: "Pi 运行时插件不可用；未发送模型请求。", reason: "pi-runtime-unavailable", adapterId: null, providerCalls: 0 };
   const profile = readActiveProviderProfile();
   const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
+  const gatewayProfile = profile ? providerGateway.metadata().profiles.find((item) => item.providerId === profile.provider && item.modelId === profile.modelId) : null;
   if (!profile || profile.enabled === false) return { kind: "unavailable", label: "当前 Provider 未启用；女娲未发送模型请求。", reason: "provider-disabled", adapterId: null, providerCalls: 0 };
   if (!profile.modelId) return { kind: "unavailable", label: "当前 Provider 未选择聊天模型；女娲未发送模型请求。", reason: "model-unselected", adapterId: null, providerCalls: 0 };
   if (!provider?.configured || !providerCredential.configured()) return { kind: "unavailable", label: "当前 Provider 缺少已保存凭据；女娲未发送模型请求。", reason: "credential-missing", adapterId: null, providerCalls: 0 };
+  if (!gatewayProfile) return { kind: "unavailable", label: "当前 Provider 的执行模型档案尚未就绪；未发送模型请求。", reason: "gateway-profile-unavailable", adapterId: null, providerCalls: 0 };
   return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
 }
 
