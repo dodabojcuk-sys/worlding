@@ -35,6 +35,8 @@ import {
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
+import { appendWorldStateN4Repository, readWorldStateN4Repository } from "../storyWorkspace/worldStateN4Repository.ts";
+import { projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
 import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
 import {
   applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
@@ -1476,6 +1478,38 @@ export function createStoryStudioWorkspaceOperations(input: {
     readWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {
       const projectPath = resolveProjectPath(rootPath, objectInput.projectId);
       return readProductObject(projectPath, requireText(objectInput.objectId, "Object identifier", 160));
+    },
+
+    readWorldStateN4(stateInput: { projectId: string; objectId: string; observedAt: string }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const object = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      return clone(projectWorldStateN4({ store: readWorldStateN4Repository(projectPath), subjectId: object.id, observedAt: stateInput.observedAt }));
+    },
+
+    applyWorldStateN4(stateInput: { projectId: string; objectId: string; expectedObjectRevision: string; expectedRevision: number; operationId: string; effectiveAt: string; value: WorldStateN4Value; evidence: WorldStateN4Evidence; now: string; compensatesChangeId?: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const subject = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      if (subject.revisionToken !== requireText(stateInput.expectedObjectRevision, "World state object revision", 180)) throw new Error("World state object changed; refresh before applying a new state.");
+      if (stateInput.value.kind === "passage" && subject.type !== "location") throw new Error("Passage state can only be applied to a location or facility object.");
+      if (stateInput.value.kind === "holder" && subject.type !== "item") throw new Error("Holder state can only be applied to an item object.");
+      const sourceEvent = readProductObject(projectPath, stateInput.evidence.event.id);
+      if (sourceEvent.type !== "event" || sourceEvent.status !== "committed" || sourceEvent.revisionToken !== stateInput.evidence.event.revision) throw new Error("World state requires the exact current confirmed Event evidence.");
+      if (stateInput.value.kind === "holder" && stateInput.value.holder) {
+        const holder = readProductObject(projectPath, stateInput.value.holder.id);
+        if (holder.status === "archived" || holder.revisionToken !== stateInput.value.holder.revision) throw new Error("World state holder is unavailable or changed.");
+      }
+      const result = appendWorldStateN4Repository(projectPath, {
+        store: readWorldStateN4Repository(projectPath),
+        operationId: stateInput.operationId,
+        subject: { id: subject.id, revision: subject.revisionToken },
+        effectiveAt: stateInput.effectiveAt,
+        value: stateInput.value,
+        evidence: stateInput.evidence,
+        expectedRevision: stateInput.expectedRevision,
+        now: stateInput.now,
+        compensatesChangeId: stateInput.compensatesChangeId ?? null
+      });
+      return clone({ ...result, projection: projectWorldStateN4({ store: result.store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
     },
 
     openWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {

@@ -43,7 +43,8 @@ export type WorldStateN4Projection = {
   history: WorldStateN4Change[];
 };
 
-const IDENTIFIER = /^[A-Za-z0-9._-]{3,180}$/u;
+const IDENTIFIER = /^[\p{L}\p{N}._-]{3,180}$/u;
+const REVISION = /^[\p{L}\p{N}._:-]{3,240}$/u;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u;
 
 export function emptyWorldStateN4Store(): WorldStateN4Store {
@@ -158,7 +159,7 @@ function evidence(value: unknown): WorldStateN4Evidence {
 
 function objectRef(value: unknown): WorldStateN4ObjectRef {
   if (!isRecord(value)) throw new Error("World state object reference is invalid.");
-  return { id: identifier(value.id, "World state object"), revision: identifier(value.revision, "World state object revision") };
+  return { id: identifier(value.id, "World state object"), revision: revisionText(value.revision, "World state object revision") };
 }
 
 function sameChangeInput(change: WorldStateN4Change, input: { subject: WorldStateN4ObjectRef; effectiveAt: string; value: WorldStateN4Value; evidence: WorldStateN4Evidence; compensatesChangeId: string | null; now: string }): boolean {
@@ -167,6 +168,7 @@ function sameChangeInput(change: WorldStateN4Change, input: { subject: WorldStat
 
 function compareChanges(left: WorldStateN4Change, right: WorldStateN4Change): number { return left.effectiveAt.localeCompare(right.effectiveAt) || left.revision - right.revision; }
 function identifier(value: unknown, label: string): string { if (typeof value !== "string" || !IDENTIFIER.test(value)) throw new Error(`${label} is invalid.`); return value; }
+function revisionText(value: unknown, label: string): string { if (typeof value !== "string" || !REVISION.test(value)) throw new Error(`${label} is invalid.`); return value; }
 function isoTime(value: unknown, label: string): string { if (typeof value !== "string" || !ISO_TIME.test(value) || Number.isNaN(Date.parse(value))) throw new Error(`${label} is invalid.`); return value; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
 function stableSuffix(value: string): string { let hash = 2166136261; for (const code of value) { hash ^= code.codePointAt(0) ?? 0; hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16).padStart(8, "0"); }
