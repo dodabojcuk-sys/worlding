@@ -208,7 +208,7 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
     value: { kind: "passage", state: "closed" }, evidence: eventEvidence
   });
   value.operations.applyWorldStateN4({
-    projectId: value.project.id, objectId: copperKey.id, expectedObjectRevision: copperKey.revisionToken, expectedRevision: 1,
+    projectId: value.project.id, objectId: copperKey.id, expectedObjectRevision: copperKey.revisionToken, expectedRevision: 0,
     operationId: "n4.copper-key.held", effectiveAt: "2000-01-01T00:00:00Z", now: "2000-01-01T00:00:02Z",
     value: { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.characters[0]!.revisionToken } }, evidence: eventEvidence
   });
