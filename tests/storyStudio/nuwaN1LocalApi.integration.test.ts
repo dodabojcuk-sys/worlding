@@ -249,9 +249,14 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(awu.knowledgeItems.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false);
   const firstStateStep = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: next.run.runId, expectedRevision: next.run.revision, operationId: "n4-state-handoff-step" });
   assert.equal(firstStateStep.status, 200, JSON.stringify(firstStateStep.payload));
-  const stepped = firstStateStep.payload.data as NuwaReadModel;
+  let stepped = firstStateStep.payload.data as NuwaReadModel;
   assert.ok(stepped.run.steps[0], JSON.stringify(firstStateStep.payload));
-  const autoApplied = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-apply", selectedStepIds: [stepped.run.steps[0]!.stepId] });
+  // Lin Zhao acts in turns one and three.  Repeated compatible handoffs are
+  // still scene evidence, but must remain one reversible world-state write.
+  stepped = (await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-step-two" })).payload.data as NuwaReadModel;
+  stepped = (await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-step-three" })).payload.data as NuwaReadModel;
+  assert.equal(stepped.run.steps.length, 3);
+  const autoApplied = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-apply", selectedStepIds: [stepped.run.steps[0]!.stepId, stepped.run.steps[2]!.stepId] });
   assert.equal(autoApplied.status, 201, JSON.stringify(autoApplied.payload));
   const automatic = autoApplied.payload.data as NuwaReadModel & { automaticApplication: { worldStateChanges: Array<{ objectId: string; changeId: string }> } };
   assert.equal(automatic.automaticApplication.worldStateChanges.length, 1);
@@ -261,6 +266,7 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(rolledBack.status, 200, JSON.stringify(rolledBack.payload));
   const restored = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
   assert.deepEqual(restored.value, { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[0]!.id }).revisionToken } });
+
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {
