@@ -270,6 +270,13 @@ export type ModelServiceStatus = {
     runtime: "local-fake" | "provider" | "unavailable";
     reason: "provider-unconfigured" | "provider-disabled" | "model-unselected" | null;
   };
+  nuwaN1?: {
+    ready: boolean;
+    reason: "pi-adapter-disabled" | "real-provider-product-path-disabled" | "pi-runtime-unavailable" | "provider-disabled" | "model-unselected" | "credential-missing" | null;
+    label: string;
+    providerInstanceId: string | null;
+    modelId: string | null;
+  };
   agentRuntime?: {
     state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";
     requestedPluginId: string | null;
@@ -1315,12 +1322,18 @@ export async function clearProviderCredential(token: string): Promise<ProviderPr
   return request<ProviderProfileProjection>(`${basePath}/model-service/profile/clear-credential`, { method: "POST", token, body: { confirmed: true } });
 }
 
+/** The plaintext is returned only after an explicit, same-origin management action. Callers must keep it in component memory only. */
+export async function revealProviderCredential(input: { providerInstanceId: string; token: string }): Promise<{ providerInstanceId: string; apiKey: string }> {
+  const { token, ...body } = input;
+  return request<{ providerInstanceId: string; apiKey: string }>(`${basePath}/model-service/profile/reveal-credential`, { method: "POST", token, body: { ...body, confirmed: true } });
+}
+
 export async function discoverProviderModels(token: string): Promise<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }> {
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
+  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {

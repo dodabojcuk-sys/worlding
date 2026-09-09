@@ -970,7 +970,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   }
 
   function requireExecutionAvailability() {
-    if (!fakeProviderAllowed && !piAdapterFactory?.availability?.()) throw failure("女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
+    const status = piAdapterFactory?.availability?.();
+    if (!fakeProviderAllowed && (!status || status.kind === "unavailable")) throw failure(status?.label || "女娲 N1 当前没有获授权的执行器；未自动回退为假对话。", 503);
   }
 
   function createPiAdapter(projectId, runId, sourceIdentity, operationId) {

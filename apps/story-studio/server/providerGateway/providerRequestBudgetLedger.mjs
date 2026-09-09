@@ -61,7 +61,7 @@ export function createProviderRequestBudgetLedger(options) {
       if (state.counts.generationCalls + generationIncrease > limits.generationCalls || state.counts.totalCalls + requests.length > limits.totalCalls) {
         throw budgetError("PROVIDER_BUDGET_EXHAUSTED", "Provider request batch budget is exhausted; all dispatches were blocked before transport.", { counts: state.counts, limits, requestedCalls: requests.length });
       }
-      const reservations = requests.map((request) => ({ reservationId: stableId(request.idempotencyKey), idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest, kind: request.kind, toolLoopTurn: request.toolLoopTurn, retry: request.retry, authorizationReceiptId: authorization?.receiptId ?? null, outcome: "reserved", reservedAt: now(), completedAt: null, traceId: null }));
+      const reservations = requests.map((request) => ({ reservationId: stableId(request.idempotencyKey), idempotencyKey: request.idempotencyKey, requestDigest: request.requestDigest, kind: request.kind, scope: request.scope, toolLoopTurn: request.toolLoopTurn, retry: request.retry, authorizationReceiptId: authorization?.receiptId ?? null, outcome: "reserved", reservedAt: now(), completedAt: null, traceId: null }));
       state = { ...state, revision: state.revision + 1, counts: { setupCalls: state.counts.setupCalls + setupIncrease, generationCalls: state.counts.generationCalls + generationIncrease, toolLoopTurns: state.counts.toolLoopTurns + requests.filter((request) => request.toolLoopTurn).length, retryCalls: state.counts.retryCalls + requests.filter((request) => request.retry).length, totalCalls: state.counts.totalCalls + requests.length }, reservations: [...state.reservations, ...reservations] };
       writeState(target, state);
       return Object.freeze({ reused: false, reservations: Object.freeze(reservations.map(publicReservation)), ledger: publicLedger(state) });
@@ -107,6 +107,7 @@ export function createProviderRequestBudgetLedger(options) {
         idempotencyKey: request.idempotencyKey,
         requestDigest: request.requestDigest,
         kind: request.kind,
+        scope: request.scope,
         toolLoopTurn: request.toolLoopTurn,
         retry: request.retry,
         authorizationReceiptId: authorization?.receiptId ?? null,
@@ -154,6 +155,13 @@ export function createProviderRequestBudgetLedger(options) {
       state = { ...state, revision: state.revision + 1, authorizations: [...state.authorizations, authorization] };
       writeState(target, state);
       return Object.freeze({ reused: false, authorization: structuredClone(authorization) });
+    },
+
+    authorization(receiptId) {
+      const normalized = requiredText(receiptId, 180);
+      state = readState(target);
+      const authorization = state.authorizations.find((item) => item.receiptId === normalized) || null;
+      return authorization ? structuredClone(authorization) : null;
     },
 
     snapshot() {
@@ -210,7 +218,8 @@ function normalizeReservation(value) {
   if (kind !== "generation" && (toolLoopTurn || retry)) throw budgetError("PROVIDER_BUDGET_INVALID_REQUEST", "Setup requests cannot be tool-loop turns or retries.");
   const authorizationReceiptId = value.authorizationReceiptId == null ? null : requiredText(value.authorizationReceiptId, 180);
   const requestDigest = stableHash({ kind, toolLoopTurn, retry, authorizationReceiptId, scope: requiredText(value.scope || "provider", 240) });
-  return { idempotencyKey, kind, toolLoopTurn, retry, authorizationReceiptId, requestDigest };
+  const scope = requiredText(value.scope || "provider", 240);
+  return { idempotencyKey, kind, scope, toolLoopTurn, retry, authorizationReceiptId, requestDigest };
 }
 
 function normalizeAuthorization(value, currentLimits, issuedAt) {
@@ -218,10 +227,13 @@ function normalizeAuthorization(value, currentLimits, issuedAt) {
   const receiptId = requiredText(value.receiptId, 180);
   const authorizedBy = requiredText(value.authorizedBy, 120);
   const reason = requiredText(value.reason, 500);
-  const generationCalls = boundedInteger(value.limits?.generationCalls, currentLimits.generationCalls + 1, 1_000);
+  // A setup-only authorization may raise the total request ceiling without
+  // increasing generation capacity. Generation additions still require an
+  // explicit higher value in the same persisted receipt.
+  const generationCalls = boundedInteger(value.limits?.generationCalls, currentLimits.generationCalls, 1_000);
   const totalCalls = boundedInteger(value.limits?.totalCalls, currentLimits.totalCalls + 1, 2_000);
   if (totalCalls < generationCalls) throw budgetError("PROVIDER_BUDGET_AUTHORIZATION_INVALID", "Provider total cap cannot be lower than generation cap.");
-  return { receiptId, authorizedBy, reason, issuedAt: requiredText(value.issuedAt || issuedAt, 80), limits: { generationCalls, totalCalls } };
+  return { receiptId, authorizedBy, reason, scope: requiredText(value.scope || "legacy-or-unspecified", 80), issuedAt: requiredText(value.issuedAt || issuedAt, 80), limits: { generationCalls, totalCalls } };
 }
 
 function normalizeBaseline(value) {
@@ -265,6 +277,17 @@ function writeState(target, value) {
 }
 
 function publicLedger(state) {
+  const scopes = new Map();
+  for (const reservation of state.reservations) {
+    const scope = typeof reservation.scope === "string" && reservation.scope ? reservation.scope : "legacy-or-unspecified";
+    const current = scopes.get(scope) || { scope, setupCalls: 0, generationCalls: 0, totalCalls: 0, reservationCount: 0, unknownOutcomeCount: 0 };
+    current.setupCalls += reservation.kind === "setup" ? 1 : 0;
+    current.generationCalls += reservation.kind === "generation" ? 1 : 0;
+    current.totalCalls += 1;
+    current.reservationCount += 1;
+    current.unknownOutcomeCount += reservation.outcome === "dispatching" ? 1 : 0;
+    scopes.set(scope, current);
+  }
   return Object.freeze({
     version: state.version,
     revision: state.revision,
@@ -273,6 +296,8 @@ function publicLedger(state) {
     limits: Object.freeze({ ...state.limits }),
     authorizationCount: state.authorizations.length,
     reservationCount: state.reservations.length,
+    budgetScopes: Object.freeze([...scopes.values()].sort((left, right) => left.scope.localeCompare(right.scope)).map((scope) => Object.freeze({ ...scope }))),
+    authorizationScopes: Object.freeze([...new Set(state.authorizations.map((authorization) => authorization.scope || "legacy-or-unspecified"))].sort()),
     blocked: state.counts.generationCalls >= state.limits.generationCalls || state.counts.totalCalls >= state.limits.totalCalls
   });
 }

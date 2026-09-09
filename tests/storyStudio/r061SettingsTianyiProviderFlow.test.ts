@@ -4,7 +4,7 @@ import test from "node:test";
 
 const source = (file: string) => readFileSync(file, "utf8");
 
-test("Provider settings submit only a one-time credential to the server owner and never expose it", () => {
+test("Provider settings preserve normal secret opacity while providing an explicit temporary management reveal", () => {
   const settings = source("apps/story-studio/src/settings/agent/AgentSettingsSection.tsx");
   const route = source("apps/story-studio/src/settings/storage/SettingsStorageRoute.tsx");
 
@@ -12,11 +12,13 @@ test("Provider settings submit only a one-time credential to the server owner an
   assert.match(settings, /autoComplete="new-password"/);
   assert.match(settings, /credentialInput\.current\?\.value\.trim/);
   assert.match(settings, /credentialInput\.current\.value = ""/);
-  assert.match(settings, /已锁定保存/);
-  assert.match(settings, /小眼睛只查看本次输入/);
+  assert.match(settings, /已保存 · ••••••••/);
+  assert.match(settings, /显示已保存密钥/);
+  assert.match(settings, /20 秒后会自动隐藏/);
+  assert.match(settings, /保存并测试/);
   assert.match(settings, /显示本次输入的 API Key/);
   assert.doesNotMatch(settings, /credential\.suffix/);
-  assert.doesNotMatch(settings, /revealProviderCredential/);
+  assert.match(route, /revealProviderCredential/);
   assert.match(settings, /本机权威配置/);
   assert.match(settings, /name="llmModelId"/);
   assert.match(settings, /name="embeddingModelId"/);

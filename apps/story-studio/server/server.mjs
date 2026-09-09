@@ -200,7 +200,7 @@ const nuwaN1Port = createNuwaN1Port({
     availability() { return nuwaN1PiAvailability(); },
     create({ projectId, runId, sourceIdentity, actorIds, onProviderLifecycle }) {
       const availability = nuwaN1PiAvailability();
-      if (!availability || !agentRuntimePluginResolution.runtime) return null;
+      if (!availability || availability.kind === "unavailable" || !agentRuntimePluginResolution.runtime) return null;
       const profile = nuwaN1LocalHostUrl
         ? { provider: nuwaN1LocalHostProfile.providerId, id: nuwaN1LocalHostProfile.id, modelId: nuwaN1LocalHostProfile.modelId }
         : readActiveProviderProfile();
@@ -2620,6 +2620,9 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["expectedRevision", "provider", "displayName", "baseUrl", "modelId", "llmModelId", "embeddingModelId", "enabled", "apiKey"]);
     const requestedProvider = body.provider ?? readActiveProviderProfile()?.provider;
     assertProviderBaseUrl(requestedProvider, body.baseUrl ?? providerProfileState.profiles.find((profile) => profile.provider === requestedProvider)?.baseUrl);
+    if (typeof body.llmModelId === "string" && body.llmModelId.trim()) assertProviderModelId(body.llmModelId, "默认对话模型");
+    if (typeof body.modelId === "string" && body.modelId.trim()) assertProviderModelId(body.modelId, "默认对话模型");
+    if (typeof body.embeddingModelId === "string" && body.embeddingModelId.trim()) assertProviderModelId(body.embeddingModelId, "默认 Embedding 模型");
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
     const current = providerProfileStore.assertRevision(body.expectedRevision);
     providerProfileState = current;
@@ -2695,15 +2698,28 @@ async function handleModelServiceRequest(request, response, url) {
     sendJson(response, 200, { data: readProviderProfileProjection() });
     return;
   }
+  if (request.method === "POST" && route === "profile/reveal-credential") {
+    const body = await readJsonBody(request, 512);
+    requireAllowedKeys(body, ["confirmed", "providerInstanceId"]);
+    const active = readActiveProviderProfile();
+    if (body.confirmed !== true) throw productError("显示已保存密钥需要当前管理会话中的明确确认。", 400);
+    if (!active || body.providerInstanceId !== active.id) throw productError("当前管理会话不能读取其他 Provider 实例的凭据。", 403);
+    const apiKey = readActiveCredentialBackend().read();
+    if (!apiKey) throw productError("当前 Provider 尚未保存凭据。", 404);
+    sendJson(response, 200, { data: { providerInstanceId: active.id, apiKey } });
+    return;
+  }
   if (request.method === "POST" && route === "models") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
     const startedAt = Date.now();
     const active = readActiveProviderProfile();
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起目录请求。", 412);
+    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) throw productError("当前 Provider 缺少已保存凭据，未发起目录请求。", 412);
+    const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "model-catalog", generationCalls: 0, totalCalls: 1 });
     providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
+      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000, authorizationReceiptId: diagnostic.receiptId, budgetScope: diagnostic.scope });
       providerProfileState = providerProfileStore.completeCatalog({
         expectedRevision: providerProfileState.revision,
         entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
@@ -2751,55 +2767,74 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["modelId"]);
     const active = readActiveProviderProfile();
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起连接测试。", 412);
+    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) throw productError("当前 Provider 缺少已保存凭据，未发送连接测试。", 412);
     const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
     if (!requestedModelId) throw productError("请先选择或手工填写默认对话模型；未发起 Provider 请求。", 400);
+    assertProviderModelId(requestedModelId, "默认对话模型");
     const startedAt = Date.now();
-    providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: active.provider, timeoutMs: 15_000 });
-      const modelId = discovery.modelIds.includes(requestedModelId) ? requestedModelId : (() => { throw productError("选中的模型 ID 当前不可用，请更新模型后重试。", 409); })();
-      providerProfileState = providerProfileStore.completeCatalog({
+      const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "connection-test", generationCalls: 1, totalCalls: 1 });
+      syncProviderGatewayProfile(requestedModelId);
+      const profile = providerGateway.metadata().profiles[0];
+      if (!profile) throw productError("当前 Provider 没有可执行的对话模型档案。", 412);
+      const inference = await providerGateway.openChatCompletion({
+        profileId: profile.id,
+        messages: [{ role: "user", content: "Reply with OK." }],
+        maxOutputTokens: 16,
+        timeoutMs: 15_000,
+        idempotencyKey: diagnostic.idempotencyKey,
+        authorizationReceiptId: diagnostic.receiptId,
+        budgetScope: diagnostic.scope
+      });
+      const verifiedAt = new Date().toISOString();
+      providerProfileState = providerProfileStore.markConnection({
         expectedRevision: providerProfileState.revision,
-        entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
+        connectionStatus: "verified",
+        lastVerifiedAt: verifiedAt,
+        lastError: null,
         historyEntry: {
           id: randomUUID(),
           kind: "connection",
           status: "success",
-          occurredAt: new Date().toISOString(),
-          modelId,
-          modelCount: discovery.modelIds.length,
-          latencyMs: Date.now() - startedAt
+          occurredAt: verifiedAt,
+          modelId: requestedModelId,
+          latencyMs: Date.now() - startedAt,
+          traceId: inference.traceId
         }
       });
-      providerProfileState = providerProfileStore.markConnection({ expectedRevision: providerProfileState.revision, connectionStatus: "verified", lastVerifiedAt: new Date().toISOString(), lastError: null });
-      syncProviderGatewayProfile(modelId);
       sendJson(response, 200, {
         data: {
           gate: "connection",
           providerId: active.provider,
-          modelId,
-          availableModelCount: discovery.modelIds.length,
-          models: discovery.modelIds,
+          modelId: requestedModelId,
+          testedAt: verifiedAt,
+          latencyMs: Date.now() - startedAt,
+          availableModelCount: active.catalog.entries.filter((entry) => entry.source === "endpoint").length,
+          models: active.catalog.entries.filter((entry) => entry.source === "endpoint").map((entry) => entry.id),
           profile: readProviderProfileProjection()
         }
       });
     } catch (error) {
       try {
-        providerProfileState = providerProfileStore.failCatalog({
+        providerProfileState = providerProfileStore.markConnection({
           expectedRevision: providerProfileState.revision,
-          failure: { category: error?.code || "unavailable", message: safeProviderErrorSummary(error) },
+          connectionStatus: "failed",
+          lastVerifiedAt: null,
+          lastError: settingsDiagnosticErrorMessage(error),
           historyEntry: {
             id: randomUUID(),
             kind: "connection",
             status: "failed",
             occurredAt: new Date().toISOString(),
+            modelId: requestedModelId,
             latencyMs: Date.now() - startedAt,
-            error: safeProviderErrorSummary(error)
+            error: settingsDiagnosticErrorMessage(error)
           }
         });
       } catch {
         // A connection error must never hide the original provider failure.
       }
+      if (error?.code === "PROVIDER_BUDGET_EXHAUSTED") throw productError(settingsDiagnosticErrorMessage(error), 429);
       throw error;
     }
     return;
@@ -3189,6 +3224,16 @@ async function handleModelServiceRequest(request, response, url) {
                 ? "provider-disabled"
                 : "model-unselected"
         },
+        nuwaN1: (() => {
+          const availability = nuwaN1PiAvailability() || { kind: "unavailable", label: "女娲 Pi 执行器尚未配置。", reason: "pi-adapter-disabled", adapterId: null, providerCalls: 0 };
+          return {
+            ready: availability.kind === "pi-agent" || availability.kind === "local-pi-host",
+            reason: availability.reason || null,
+            label: availability.label,
+            providerInstanceId: activeProfile?.id || null,
+            modelId: activeProfile?.modelId || null
+          };
+        })(),
         agentRuntime: {
           ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),
           health: await agentRuntimePluginRegistry.health()
@@ -3236,6 +3281,60 @@ function shouldInstallHistoricalProviderIncident() {
   return process.env.NODE_ENV !== "test" && process.env.TIANYAN_PROVIDER_BUDGET_TEST_MODE !== "1";
 }
 
+const SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP = 4;
+
+/**
+ * A user-clicked settings operation may add one bounded reservation to the
+ * existing durable ledger.  It does not erase the historical incident or
+ * give each page refresh a new quota: all diagnostic scopes share four calls
+ * for this local configuration history.
+ */
+function reserveSettingsDiagnosticBudget({ active, kind, generationCalls, totalCalls }) {
+  const scope = `settings-${kind}`;
+  const snapshot = providerBudgetLedger.snapshot();
+  const alreadyUsed = (snapshot.budgetScopes || [])
+    .filter((entry) => typeof entry.scope === "string" && entry.scope.startsWith("settings-"))
+    .reduce((sum, entry) => sum + Number(entry.totalCalls || 0), 0);
+  if (alreadyUsed + totalCalls > SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP) {
+    const error = new Error(`本次诊断预算已用尽：设置诊断已使用 ${alreadyUsed}/${SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP} 次；未发送上游请求。`);
+    error.code = "PROVIDER_BUDGET_EXHAUSTED";
+    throw error;
+  }
+  const receiptId = `settings-diagnostic.${active.id}.${active.configRevision}.${kind}`;
+  const existing = providerBudgetLedger.authorization(receiptId);
+  if (existing) return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+  providerBudgetLedger.authorize({
+    receiptId,
+    authorizedBy: "current-provider-management-session",
+    reason: `Explicit user-triggered ${kind} diagnostic for the current Provider configuration.`,
+    scope,
+    limits: {
+      generationCalls: Math.max(snapshot.counts.generationCalls + generationCalls, snapshot.limits.generationCalls),
+      totalCalls: Math.max(snapshot.counts.totalCalls + totalCalls, snapshot.limits.totalCalls + 1)
+    },
+    issuedAt: new Date().toISOString()
+  });
+  return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+}
+
+function settingsDiagnosticErrorMessage(error) {
+  if (error?.code === "PROVIDER_BUDGET_EXHAUSTED") {
+    const snapshot = providerBudgetLedger.snapshot();
+    const used = (snapshot.budgetScopes || [])
+      .filter((entry) => typeof entry.scope === "string" && entry.scope.startsWith("settings-"))
+      .reduce((sum, entry) => sum + Number(entry.totalCalls || 0), 0);
+    return `未发送：本次诊断预算已用尽（设置诊断 ${used}/${SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP}）。请先在预算管理中确认新的有限授权。`;
+  }
+  return safeProviderErrorSummary(error);
+}
+
+function assertProviderModelId(value, label) {
+  const modelId = String(value || "").trim();
+  if (/^(?:https?:\/\/|\/\/)/iu.test(modelId)) {
+    throw productError(`${label}应为模型 ID，不是 API 地址；请把地址保留在“服务地址”栏。`, 400);
+  }
+}
+
 function readActiveProviderProfile() {
   return providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId) || null;
 }
@@ -3249,10 +3348,14 @@ function nuwaN1PiAvailability() {
   if (nuwaN1LocalHostUrl && agentRuntimePluginResolution.runtime) {
     return { kind: "local-pi-host", label: "本地 HTTP/SSE Pi 宿主已配置；不调用真实 Provider", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
   }
-  if (process.env.TIANYAN_NUWA_N1_PI_ADAPTER !== "1" || !productPathRealProviderAllowed || !agentRuntimePluginResolution.runtime) return null;
+  if (process.env.TIANYAN_NUWA_N1_PI_ADAPTER !== "1") return { kind: "unavailable", label: "女娲 Pi 适配器未由本地宿主启用；Provider 配置已保留。", reason: "pi-adapter-disabled", adapterId: null, providerCalls: 0 };
+  if (!productPathRealProviderAllowed) return { kind: "unavailable", label: "真实 Provider 产品路径未由本地宿主启用；未发送模型请求。", reason: "real-provider-product-path-disabled", adapterId: null, providerCalls: 0 };
+  if (!agentRuntimePluginResolution.runtime) return { kind: "unavailable", label: "Pi 运行时插件不可用；未发送模型请求。", reason: "pi-runtime-unavailable", adapterId: null, providerCalls: 0 };
   const profile = readActiveProviderProfile();
   const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
-  if (!profile || profile.enabled === false || !provider?.configured || !providerCredential.configured()) return null;
+  if (!profile || profile.enabled === false) return { kind: "unavailable", label: "当前 Provider 未启用；女娲未发送模型请求。", reason: "provider-disabled", adapterId: null, providerCalls: 0 };
+  if (!profile.modelId) return { kind: "unavailable", label: "当前 Provider 未选择聊天模型；女娲未发送模型请求。", reason: "model-unselected", adapterId: null, providerCalls: 0 };
+  if (!provider?.configured || !providerCredential.configured()) return { kind: "unavailable", label: "当前 Provider 缺少已保存凭据；女娲未发送模型请求。", reason: "credential-missing", adapterId: null, providerCalls: 0 };
   return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
 }
 

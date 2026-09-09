@@ -145,9 +145,13 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
     assert.equal(JSON.stringify(modelOnlyRestarted).includes("fixture-secret-value"), false);
 
-    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true }, activeHeaders);
-    assert.equal(revealed.status, 404);
-    assert.equal(JSON.stringify(revealed).includes("fixture-secret-value"), false);
+    const normalProfile = await jsonGet(base, "model-service/profile", activeHeaders);
+    assert.equal(JSON.stringify(normalProfile).includes("fixture-secret-value"), false);
+    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true, providerInstanceId: "siliconflow.default" }, activeHeaders);
+    assert.equal(revealed.status, 200);
+    assert.equal(revealed.data.apiKey, "fixture-secret-value");
+    const crossInstanceReveal = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true, providerInstanceId: "radeon-cloud.default" }, activeHeaders);
+    assert.equal(crossInstanceReveal.status, 403);
 
     const staleCredential = await jsonPost(base, "model-service/profile/save", {
       expectedRevision: 2,
@@ -162,14 +166,16 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(connection.data.modelId, "fixture/alternate-model");
     assert.equal(connection.data.availableModelCount, 2);
     assert.deepEqual(connection.data.models, ["fixture/chat-model", "fixture/alternate-model"]);
+    assert.equal(typeof connection.data.testedAt, "string");
+    assert.equal(typeof connection.data.latencyMs, "number");
     assert.equal(connection.data.profile.profile.connectionStatus, "verified");
     assert.equal(connection.data.profile.profile.modelId, "fixture/alternate-model");
     const inference = await jsonPost(base, "model-service/minimal-inference", {}, activeHeaders);
     assert.equal(inference.status, 200);
     assert.equal(inference.data.modelId, "fixture/alternate-model");
     assert.equal(inference.data.content, "OK");
-    assert.equal(fakeProvider.calls.models, 2);
-    assert.equal(fakeProvider.calls.completions, 1);
+    assert.equal(fakeProvider.calls.models, 1);
+    assert.equal(fakeProvider.calls.completions, 2);
 
     const cleared = await jsonPost(base, "model-service/profile/clear-credential", { confirmed: true }, activeHeaders);
     assert.equal(cleared.data.credential.configured, false);
