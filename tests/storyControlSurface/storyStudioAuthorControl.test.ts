@@ -290,6 +290,9 @@ test("an IF Change Set freezes its WorkVersion identity and never projects its E
     assert.equal(JSON.parse(readFileSync(intentPath, "utf8")).workVersionId, derived.identity.workVersionId);
     const event = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: applied.application.appliedEventId! });
     assert.equal(event.properties.story_work_version_id, derived.identity.workVersionId);
+    assert.deepEqual(fixture.control.listVerifiedCanonEventIds({ projectId: fixture.projectId, workVersionId: root.identity.workVersionId }), [base.canon.id]);
+    assert.deepEqual(fixture.control.listVerifiedCanonEventIds({ projectId: fixture.projectId, workVersionId: derived.identity.workVersionId }), [event.id]);
+    assert.equal(fixture.control.verifyCanonEventRead({ projectId: fixture.projectId, eventId: event.id, workVersionId: root.identity.workVersionId }), false);
     const timeline = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents.find((document) => document.type === "timeline");
     assert.equal((timeline?.content.entries as Array<{ eventId: string }> | undefined)?.some((entry) => entry.eventId === event.id) ?? false, false);
   } finally {

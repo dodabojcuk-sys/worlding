@@ -861,7 +861,12 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     if (!Array.isArray(refs) || refs.length < 2 || refs.length > 3) throw failure("女娲 N1 需要选择两到三个正式角色。", 400);
     const seen = new Set();
     const linkedEntityIds = new Set(operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds);
-    const verifiedEventIds = new Set(authorControl.listVerifiedCanonEventIds({ projectId }));
+    const verifiedEventIds = new Set(authorControl.listVerifiedCanonEventIds({
+      projectId,
+      // An IF Run may read its own formal Event results, but never a sibling
+      // or mainline Run merely because the Event Owner is shared.
+      workVersionId: sourceIdentity?.workVersionId ?? null
+    }));
     const sceneEvidence = operations.listWorldObjects({ projectId, type: "event" })
       .filter((item) => item.status !== "archived" && linkedEntityIds.has(item.id) && verifiedEventIds.has(item.id))
       .map((item) => operations.readWorldObject({ projectId, objectId: item.id }));

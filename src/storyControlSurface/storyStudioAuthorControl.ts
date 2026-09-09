@@ -741,14 +741,19 @@ export function createStoryStudioAuthorControl(input: {
       return decideCandidateReviewArtifact(decisionInput);
     },
 
-    listVerifiedCanonEventIds(readInput: { projectId: string }): string[] {
+    listVerifiedCanonEventIds(readInput: { projectId: string; workVersionId?: string | null }): string[] {
       const readIndex = buildCanonEventReadIndex(workspace, readInput.projectId);
       return readIndex.events
+        .filter((event) => eventBelongsToWorkVersion(workspace, readInput.projectId, readInput.workVersionId, event))
         .filter((event) => verifyCanonEventRead(workspace, readIndex.projectPath, readInput.projectId, event.id, readIndex))
         .map((event) => event.id);
     },
 
-    verifyCanonEventRead(readInput: { projectId: string; eventId: string }): boolean {
+    verifyCanonEventRead(readInput: { projectId: string; eventId: string; workVersionId?: string | null }): boolean {
+      if (readInput.workVersionId !== undefined) {
+        const event = readEventIfPresent(workspace, readInput.projectId, readInput.eventId);
+        if (!event || !eventBelongsToWorkVersion(workspace, readInput.projectId, readInput.workVersionId, event)) return false;
+      }
       return isVerifiedCanonEventRead(readInput.projectId, readInput.eventId);
     },
 
@@ -2324,6 +2329,29 @@ function projectConfirmedEventToMainlineTimeline(
     if (version.identity.kind === "derived") return;
   }
   workspace.projectConfirmedEventToTimeline({ projectId, eventId });
+}
+
+/**
+ * Scoping is opt-in for legacy callers.  A caller that names a WorkVersion
+ * receives only that version's Canon: old unbound events are mainline facts,
+ * while IF facts require their exact stable derived id.  This prevents a
+ * derived Event from becoming role context for a root Run just because both
+ * records live in the Event Owner's directory.
+ */
+function eventBelongsToWorkVersion(
+  workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
+  projectId: string,
+  requestedWorkVersionId: string | null | undefined,
+  event: StoryStudioWorldObject
+): boolean {
+  if (requestedWorkVersionId === undefined) return true;
+  const projectPath = workspace.resolveProjectWorkspacePath({ projectId });
+  const version = requestedWorkVersionId === null
+    ? createStoryStudioWorkVersionAuthority({ projectRoot: projectPath }).listVersions().find((item) => item.identity.kind === "root") ?? null
+    : createStoryStudioWorkVersionAuthority({ projectRoot: projectPath }).getVersion(requestedWorkVersionId);
+  const bound = event.properties.story_work_version_id;
+  if (version?.identity.kind === "derived") return bound === version.identity.workVersionId;
+  return typeof bound !== "string" || bound === version?.identity.workVersionId;
 }
 
 function validateLegacyAppliedEvent(
