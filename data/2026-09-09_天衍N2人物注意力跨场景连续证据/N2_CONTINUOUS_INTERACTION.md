@@ -41,6 +41,6 @@ npm run test:e2e
 tianyan R0 shell smoke PASS
 ```
 
-本次 `npm run verify` 中 typecheck、lint、unit `1144/1144`、integration `55/55` 与 build 均通过；随后默认 E2E 的既有 `full-shell` scope 在“关系图已有 14 个稳定 Event、时间线取样为空”的同步断言失败。相同失败已在本证据改动之前的 `584d843` 基线隔离复现，因此不把它记作 N2A—N2C 回归，也不把全量 `verify` 记为通过。
+首次全量运行暴露了一个可在本证据改动前 `584d843` 基线独立复现的 `full-shell` 断言问题：测试依赖 React Flow 私有包装属性，在关系图语义节点挂载前读取到空 ID 集合。关系图正式 Event 节点现显式暴露 `data-event-id`，测试等待关系图与时间线语义卡片 ready 后再比对同一组稳定 Event ID。修复后 `full-shell` 隔离 scope、默认六个 E2E scope 以及最终 `npm run verify` 全部通过；其中 unit `1144/1144`、integration `55/55`，typecheck、lint 与 build 均通过。
 
 这是本地自动化技术与交互证据，不构成真实 Provider 验证，也不替代 Founder 独立人工体验验收。

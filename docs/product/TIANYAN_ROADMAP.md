@@ -48,7 +48,7 @@
 1. **N2A：角色驱动依据与逐角色目标。**既有角色 Profile 是唯一人物资料写入者；Run 创建时冻结角色核心、底线、人物修订与逐角色本场目标。人物更新后旧 Run 不漂移，检查器与实际 Pi 工具输入同源，非白名单正文/私密字段不发送。本地类型、lint、构建、运行时/API、Pi adapter 与 `nuwa-n1` 浏览器闭环通过；真实 Provider 0 次，作者体验未验收。
 2. **N2B：注意力选择。**已在角色权限过滤后的集合内实现确定性词项排序与完整请求预算门；当前场景必需项不可被静默截断，早期目标相关线索优先于冗长无关历史，更换合法目标会改变排序，相同冻结输入可复现。实际 Pi 工具输入与检查器同源，权限排除身份不发送。本地领域/API/Pi/typecheck/lint/build 通过；当前 N2C 提交上的 `TIANYAN_E2E_SCOPE=nuwa-n1` 浏览器闭环亦已通过，先前三次宿主资源超时不再作为当前阻断；真实 Provider 0 次。
 3. **N2C：跨场景人物连续性记忆。**已新增 Story Continuity 项目级、逐角色 `character-memory-ledger` owner；每个已提交的明确递送先保存原话与说话者/接收者/Run/step/场景/时间/作品版本，再以确定性身份幂等追加。新 Run 只冻结当前项目、相同作品版本链且不晚于场景时点的 active `heard` 投影，B 可跨服务重启在第二场召回 A 的说法，未被递送的 C 不可见；回溯写失效修订并保留历史。检查器显示来源与有效性，实际角色工具上下文复用同一投影；59 项 N2 定向测试、完整 unit 1144/1144、integration 55/55、typecheck、lint、build 与同一浏览器运行内的 N2A→N2B→N2C 跨场景闭环已通过，截图和连续录屏位于 `data/2026-09-09_天衍N2人物注意力跨场景连续证据/`。真实 Provider 0 次，Founder 人工体验未验收。
-4. **全量门边界：**本次 `npm run verify` 在 typecheck、lint、unit、integration 与 build 通过后，于默认 `full-shell` 的既有关系图/时间线同步断言失败；相同失败可在本次连续证据改动前的 `584d843` 基线独立复现。N2 专属 `nuwa-n1` scope 连续两次通过，因此当前准确状态是“N2 局部与连续浏览器证据通过、全量门仍有独立既有失败”，不能写成全量通过。
+4. **全量门：**首次运行暴露的 `full-shell` 关系图/时间线同步断言失败可在本次连续证据改动前的 `584d843` 基线独立复现；根因是测试过早读取 React Flow 私有包装属性。现已为关系图语义 Event 节点暴露稳定 `data-event-id`，并在关系图与时间线投影 ready 后对比语义 ID。修复后隔离 `full-shell`、默认六个 E2E scope 及最终 `npm run verify` 全部通过；unit `1144/1144`、integration `55/55`、typecheck、lint 和 build 均通过。这仍只是本地技术验证，不替代真实 Provider 与 Founder 独立验收。
 
 ## 设计与研究边界
 

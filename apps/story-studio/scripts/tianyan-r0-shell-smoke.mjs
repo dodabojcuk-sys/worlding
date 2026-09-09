@@ -3264,7 +3264,9 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await selectEventView("关系图");
-  const graphEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
+  const graphEventCards = page.locator(".event-graph-flow .graph-node-shell[data-event-id]");
+  await graphEventCards.first().waitFor();
+  const graphEventIds = await graphEventCards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-event-id")).filter(Boolean).sort());
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
   if (output) await page.screenshot({ path: path.join(output, "A-1440x900-event-graph-foreground.png"), fullPage: true });
   const temporalRunsBeforeSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
@@ -3308,7 +3310,10 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.equal(storyRunsAfterConfirm.data[0]?.provider?.executionKind, "test-provider", "The isolated test Provider is explicit and is not presented as real AI proof.");
   assert.equal(await canvas.getAttribute("data-temporal-projection"), "independent", "Timeline must own an independent projection instead of reusing EventGraphCanvas.");
   assert.equal(await canvas.getAttribute("data-event-owner"), "shared-identities", "Independent projections still share formal Event identities.");
-  const timelineEventIds = await page.locator(".temporal-flow .react-flow__node").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
+  const temporalEventCards = page.locator(".temporal-event-card[data-event-id]");
+  await temporalEventCards.first().waitFor();
+  const timelineEventIds = await temporalEventCards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-event-id")).filter(Boolean).sort());
   assert.deepEqual(timelineEventIds, graphEventIds, "Relationship graph and timeline use the same stable Event IDs and node count.");
   assert.equal(await page.locator(".temporal-workspace .event-graph-node").count(), 0, "Timeline may not invoke the relationship Event node family.");
   assert.ok(await page.locator(".temporal-event-card:is(.is-inferred, .is-ambiguous)").count() >= 1, "Unknown formal times remain explicit inferred or ambiguous intervals.");
