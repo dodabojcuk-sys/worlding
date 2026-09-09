@@ -489,8 +489,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       const event = operations.readWorldObject({ projectId: project.id, objectId: application.eventId });
       const relationId = `nuwa-relation.${digest({ receiptId: receipt.receiptId, eventId: application.eventId, materialObjectId: application.materialObjectId })}`;
       autoApplicationFaultInjector?.({ phase: "before-relation-confirm", receiptId: receipt.receiptId, projectId: project.id, runId: current.runId });
-      const relationCandidate = relationOperations.createRelationCandidate({ projectId: project.id, relationId, sourceObjectId: application.eventId, targetObjectId: application.materialObjectId, relationTypeId: prepared.relationType.relationTypeId, relationLabelSnapshot: prepared.relationType.label, direction: "forward", actor: "nuwa", sourceRevision: current.sourceSnapshotHash, sourceRef: `nuwa-n1:${current.runId}:${receipt.receiptId}`, operationId: `${receipt.receiptId}.relation.candidate`, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId: application.eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }], now: now() });
-      const relation = relationOperations.confirmRelationCandidate({ projectId: project.id, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `${receipt.receiptId}.relation.confirm`, actor: "nuwa", now: now() });
+      const relationCandidate = relationOperations.createRelationCandidate({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, relationId, sourceObjectId: application.eventId, targetObjectId: application.materialObjectId, relationTypeId: prepared.relationType.relationTypeId, relationLabelSnapshot: prepared.relationType.label, direction: "forward", actor: "nuwa", sourceRevision: current.sourceSnapshotHash, sourceRef: `nuwa-n1:${current.runId}:${receipt.receiptId}`, operationId: `${receipt.receiptId}.relation.candidate`, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: project.id, eventId: application.eventId, revisionToken: event.revisionToken, state: "committed", requestedUse: "constraint" } }], now: now() });
+      const relation = relationOperations.confirmRelationCandidate({ projectId: project.id, workVersionId: current.sourceIdentity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `${receipt.receiptId}.relation.confirm`, actor: "nuwa", now: now() });
       application.relationId = relation.relation.relationId;
       persistAutoApplication(receipt);
     }
@@ -611,7 +611,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         const arrangement = operations.readNarrativeArrangement({ projectId: project.id, workVersionId: application.resultVersion.workVersionId, narrativePathId: receipt.storyUnitId });
         const insertReceipt = arrangement.arrangement?.receipts?.find((item) => item.operationId === `${receipt.receiptId}.arrangement.insert`) ?? null;
         if (!arrangement.arrangement || !insertReceipt || !application.narrativePlacementIds.every((id) => insertReceipt.afterPlacementIds.includes(id))) throw failure("本批 NarrativePlacement 回执不完整；未开始回溯。", 409);
-        const relation = application.relationId ? relationOperations?.readRelation({ projectId: project.id, relationId: application.relationId }).relation : null;
+        const relation = application.relationId ? relationOperations?.readRelation({ projectId: project.id, workVersionId: application.resultVersion.workVersionId, relationId: application.relationId }).relation : null;
         if (application.relationId && (!relation || relation.archived || relation.reviewState !== "confirmed")) throw failure("本批 Relation 已变化；未开始回溯。", 409);
         const material = operations.readWorldObject({ projectId: project.id, objectId: application.materialObjectId });
         if (!material || material.status === "archived") throw failure("本批资料已变化；未开始回溯。", 409);
@@ -643,10 +643,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       const root = creationSourcePort().resolveRootWorkVersion(project.id);
       if (!root || root.identity.workVersionId !== preflight.baseVersion.workVersionId || root.identity.currentRevision !== preflight.baseVersion.revision) throw failure("回溯期间故事版本已继续前进；已停止，未覆盖后续内容。", 409);
       if (application.relationId && !rollback.relation) {
-        const relation = relationOperations.readRelation({ projectId: project.id, relationId: application.relationId }).relation;
+        const relation = relationOperations.readRelation({ projectId: project.id, workVersionId: application.resultVersion.workVersionId, relationId: application.relationId }).relation;
         if (!relation || relation.revision !== preflight.relationRevision || relation.archived) throw failure("Relation 版本已变化；已停止回溯。", 409);
         autoApplicationFaultInjector?.({ phase: "before-rollback-relation", receiptId: receipt.receiptId, projectId: project.id, runId: current.runId });
-        const archived = relationOperations.archiveConfirmedRelation({ projectId: project.id, relationId: application.relationId, expectedRelationRevision: relation.revision, operationId: `${rollback.operationId}.relation-archive`, actor: "nuwa", now: now() });
+        const archived = relationOperations.archiveConfirmedRelation({ projectId: project.id, workVersionId: application.resultVersion.workVersionId, relationId: application.relationId, expectedRelationRevision: relation.revision, operationId: `${rollback.operationId}.relation-archive`, actor: "nuwa", now: now() });
         rollback.relation = { relationId: application.relationId, receiptId: archived.receipt?.receiptId ?? null, revision: archived.relation?.revision ?? null };
         persistAutoApplication(receipt);
       }

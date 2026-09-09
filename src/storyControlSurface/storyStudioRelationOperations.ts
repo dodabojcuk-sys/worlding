@@ -7,6 +7,7 @@ import {
   normalizeStoryStudioEventReference,
   type StoryStudioEventReference
 } from "../storyContracts/storyStudioEventReference.ts";
+import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 
 export type RelationDirectionR0 = "forward" | "reverse" | "both" | "none";
 export type RelationReviewStateR0 = "candidate" | "confirmed" | "rejected";
@@ -22,9 +23,10 @@ export type RelationTemporalMetadataR0 = {
 
 export type RelationReceiptR0 = {
   receiptId: string;
-  scope?: "relation" | "relation-type";
+  scope?: "relation" | "relation-type" | "relation-version-fork";
   relationId?: string;
   relationTypeId?: string;
+  workVersionId?: string | null;
   action: string;
   actor: string;
   operationId: string;
@@ -150,6 +152,8 @@ const relationRepository = relationRepositoryModule as unknown as RelationReposi
 
 type RelationOperationInput = {
   projectId: string;
+  /** The public WorkVersion identity; root is normalized to the legacy null slice. */
+  workVersionId?: string | null;
   authorActionReceiptId?: string;
   actor?: string;
   operationId: string;
@@ -159,24 +163,46 @@ type RelationOperationInput = {
 
 export function createStoryStudioRelationOperations(input: {
   workspaceOperations: WorkspaceOperationsR0;
-  verifyCanonEventRead?: (value: { projectId: string; eventId: string }) => boolean;
+  verifyCanonEventRead?: (value: { projectId: string; eventId: string; workVersionId?: string | null }) => boolean;
 }) {
   function projectPath(projectId: string): string {
     return input.workspaceOperations.resolveProjectWorkspacePath({ projectId });
   }
 
-  function evidenceResolver(projectId: string, rootPath: string) {
-    return (evidence: RelationEvidenceRefR0) => resolveEvidence(rootPath, projectId, evidence, input.workspaceOperations, input.verifyCanonEventRead);
+  function relationWorkVersionScope(projectId: string, requested: string | null | undefined): string | null | undefined {
+    const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath(projectId) });
+    const versions = authority.listVersions();
+    if (requested === undefined) {
+      // Compatibility data predates WorkVersion receipts.  Until a project has
+      // a version authority, preserve its single mainline slice rather than
+      // guessing that old facts belong to every later IF.
+      return versions.length ? null : undefined;
+    }
+    if (requested === null) return null;
+    const version = authority.getVersion(requested);
+    // `authority` is opened through this project's resolved workspace path;
+    // the persisted project id is an internal workspace identity and need not
+    // equal the public folder slug used by the control surface.
+    return version.identity.kind === "root" ? null : version.identity.workVersionId;
+  }
+
+  function scopedRelationRequest<T extends RelationOperationInput>(request: T): Record<string, unknown> {
+    return { ...withoutProject(request), workVersionId: relationWorkVersionScope(request.projectId, request.workVersionId) };
+  }
+
+  function evidenceResolver(projectId: string, rootPath: string, workVersionId: string | null | undefined) {
+    return (evidence: RelationEvidenceRefR0) => resolveEvidence(rootPath, projectId, evidence, input.workspaceOperations, input.verifyCanonEventRead, workVersionId);
   }
 
   function projectRelation(projectId: string, relation: RelationRecordR0): RelationReadProjectionR0 {
     const rootPath = projectPath(projectId);
     const type = relationRepository.resolveRelationType(rootPath, relation.relationTypeId);
-    const evidence = relationRepository.inspectRelationEvidence(rootPath, { relationId: relation.relationId }, { resolveEvidence: evidenceResolver(projectId, rootPath) }) as unknown as { warnings: RelationEvidenceStatusR0[] };
+    const evidence = relationRepository.inspectRelationEvidence(rootPath, { relationId: relation.relationId, workVersionId: relation.workVersionId || null }, { resolveEvidence: evidenceResolver(projectId, rootPath, relation.workVersionId || null) }) as unknown as { warnings: RelationEvidenceStatusR0[] };
+    const { workVersionId, inheritedFromWorkVersionId, ...record } = relation;
     return {
-      ...relation,
-      ...(relation.workVersionId ? { workVersionId: relation.workVersionId } : {}),
-      ...(relation.inheritedFromWorkVersionId ? { inheritedFromWorkVersionId: relation.inheritedFromWorkVersionId } : {}),
+      ...record,
+      ...(workVersionId ? { workVersionId } : {}),
+      ...(inheritedFromWorkVersionId ? { inheritedFromWorkVersionId } : {}),
       currentTypeLabel: type?.label || null,
       relationType: type,
       relationTypeResolution: relation.relationTypeId === "relation-type.unresolved" ? "unresolved" : "resolved",
@@ -188,15 +214,17 @@ export function createStoryStudioRelationOperations(input: {
     listRelations(request: { projectId: string; workVersionId?: string | null; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): { repositoryVersion: string; repositoryRevision: number; relations: RelationReadProjectionR0[] } {
       const rootPath = projectPath(request.projectId);
       const store = relationRepository.readRelationRepository(rootPath);
-      const relations = relationRepository.queryRelations(rootPath, request).map((relation) => projectRelation(request.projectId, relation));
+      const workVersionId = relationWorkVersionScope(request.projectId, request.workVersionId);
+      const relations = relationRepository.queryRelations(rootPath, { ...request, workVersionId }).map((relation) => projectRelation(request.projectId, relation));
       return { repositoryVersion: String(store.version), repositoryRevision: store.revision, relations };
     },
 
     readRelation(request: { projectId: string; relationId: string; workVersionId?: string | null }): { relation: RelationReadProjectionR0; receipts: RelationReceiptR0[] } {
       const rootPath = projectPath(request.projectId);
-      const relation = relationRepository.queryRelations(rootPath, { includeArchived: true, ...(request.workVersionId !== undefined ? { workVersionId: request.workVersionId } : {}) }).find((item) => item.relationId === request.relationId);
+      const workVersionId = relationWorkVersionScope(request.projectId, request.workVersionId);
+      const relation = relationRepository.queryRelations(rootPath, { includeArchived: true, ...(workVersionId !== undefined ? { workVersionId } : {}) }).find((item) => item.relationId === request.relationId);
       if (!relation) throw new Error("Relation does not exist.");
-      return { relation: projectRelation(request.projectId, relation), receipts: relationRepository.readRelationRepository(rootPath).receipts.filter((receipt) => receipt.relationId === relation.relationId) };
+      return { relation: projectRelation(request.projectId, relation), receipts: relationRepository.readRelationRepository(rootPath).receipts.filter((receipt) => receipt.relationId === relation.relationId && (receipt.workVersionId || null) === (relation.workVersionId || null)) };
     },
 
     listRelationTypes(request: { projectId: string }): { repositoryRevision: number; types: RelationTypeDefinitionR0[] } {
@@ -209,13 +237,14 @@ export function createStoryStudioRelationOperations(input: {
       return relationRepository.resolveRelationType(projectPath(request.projectId), request.relationTypeId);
     },
 
-    duplicateSuggestions(request: { projectId: string; sourceObjectId: string; targetObjectId: string; relationTypeId: string; direction: RelationDirectionR0; relationLabelSnapshot: string }) {
-      return relationRepository.queryRelationDuplicateSuggestions(projectPath(request.projectId), request);
+    duplicateSuggestions(request: { projectId: string; workVersionId?: string | null; sourceObjectId: string; targetObjectId: string; relationTypeId: string; direction: RelationDirectionR0; relationLabelSnapshot: string }) {
+      return relationRepository.queryRelationDuplicateSuggestions(projectPath(request.projectId), { ...request, workVersionId: relationWorkVersionScope(request.projectId, request.workVersionId) });
     },
 
-    relationEvidence(request: { projectId: string; relationId: string }): { relationId: string; statuses: RelationEvidenceStatusR0[]; warnings: RelationEvidenceStatusR0[] } {
+    relationEvidence(request: { projectId: string; relationId: string; workVersionId?: string | null }): { relationId: string; statuses: RelationEvidenceStatusR0[]; warnings: RelationEvidenceStatusR0[] } {
       const rootPath = projectPath(request.projectId);
-      return relationRepository.inspectRelationEvidence(rootPath, { relationId: request.relationId }, { resolveEvidence: evidenceResolver(request.projectId, rootPath) }) as unknown as { relationId: string; statuses: RelationEvidenceStatusR0[]; warnings: RelationEvidenceStatusR0[] };
+      const workVersionId = relationWorkVersionScope(request.projectId, request.workVersionId);
+      return relationRepository.inspectRelationEvidence(rootPath, { relationId: request.relationId, ...(workVersionId !== undefined ? { workVersionId } : {}) }, { resolveEvidence: evidenceResolver(request.projectId, rootPath, workVersionId) }) as unknown as { relationId: string; statuses: RelationEvidenceStatusR0[]; warnings: RelationEvidenceStatusR0[] };
     },
 
     createRelationType(request: RelationOperationInput): RelationTypeMutationResultR0 {
@@ -239,41 +268,46 @@ export function createStoryStudioRelationOperations(input: {
     },
 
     createRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.createRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.createRelationCandidate(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     createUnresolvedRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.createUnresolvedRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.createUnresolvedRelationCandidate(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     updateRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.updateRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.updateRelationCandidate(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     confirmRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
       const rootPath = projectPath(request.projectId);
-      return relationRepository.confirmRelationCandidate(rootPath, withoutProject(request), { resolveEvidence: evidenceResolver(request.projectId, rootPath) }) as RelationMutationResultR0;
+      const scoped = scopedRelationRequest(request);
+      return relationRepository.confirmRelationCandidate(rootPath, scoped, { resolveEvidence: evidenceResolver(request.projectId, rootPath, scoped.workVersionId as string | null | undefined) }) as RelationMutationResultR0;
     },
 
     rejectRelationCandidate(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.rejectRelationCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.rejectRelationCandidate(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     archiveConfirmedRelation(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.archiveConfirmedRelation(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.archiveConfirmedRelation(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     appendRelationEvidence(request: RelationOperationInput): RelationMutationResultR0 {
       const rootPath = projectPath(request.projectId);
-      return relationRepository.appendRelationEvidence(rootPath, withoutProject(request), { resolveEvidence: evidenceResolver(request.projectId, rootPath) }) as RelationMutationResultR0;
+      const scoped = scopedRelationRequest(request);
+      return relationRepository.appendRelationEvidence(rootPath, scoped, { resolveEvidence: evidenceResolver(request.projectId, rootPath, scoped.workVersionId as string | null | undefined) }) as RelationMutationResultR0;
     },
 
     createRelationCorrectionCandidate(request: RelationOperationInput): RelationMutationResultR0 {
-      return relationRepository.createRelationCorrectionCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+      return relationRepository.createRelationCorrectionCandidate(projectPath(request.projectId), scopedRelationRequest(request)) as RelationMutationResultR0;
     },
 
     forkRelationWorkVersion(request: { projectId: string; parentWorkVersionId: string | null; childWorkVersionId: string; operationId: string; now?: string }) {
-      return relationRepository.forkRelationWorkVersion(projectPath(request.projectId), withoutProject(request as RelationOperationInput));
+      const parentWorkVersionId = relationWorkVersionScope(request.projectId, request.parentWorkVersionId);
+      const childWorkVersionId = relationWorkVersionScope(request.projectId, request.childWorkVersionId);
+      if (!childWorkVersionId) throw new Error("Relation IF fork target must be a derived WorkVersion.");
+      return relationRepository.forkRelationWorkVersion(projectPath(request.projectId), { parentWorkVersionId: parentWorkVersionId || null, inheritedFromWorkVersionId: request.parentWorkVersionId, childWorkVersionId, operationId: request.operationId, ...(request.now ? { now: request.now } : {}) });
     }
   };
 }
@@ -288,10 +322,11 @@ function resolveEvidence(
   projectId: string,
   evidence: RelationEvidenceRefR0,
   workspaceOperations: WorkspaceOperationsR0,
-  verifyCanonEventRead?: (value: { projectId: string; eventId: string }) => boolean
+  verifyCanonEventRead?: (value: { projectId: string; eventId: string; workVersionId?: string | null }) => boolean,
+  workVersionId?: string | null
 ): { status: "current" | "stale" | "unsupported"; code: string; message: string } {
   if (evidence.kind === "source-anchor") return resolveSourceAnchor(projectPath, projectId, evidence.anchor || evidence);
-  if (evidence.kind === "confirmed-event") return resolveConfirmedEvent(projectId, evidence.reference || evidence.eventReference || evidence, workspaceOperations, verifyCanonEventRead);
+  if (evidence.kind === "confirmed-event") return resolveConfirmedEvent(projectId, evidence.reference || evidence.eventReference || evidence, workspaceOperations, verifyCanonEventRead, workVersionId);
   return { status: "unsupported", code: "evidence-kind-unsupported", message: "Relation evidence kind is not freshness-resolvable." };
 }
 
@@ -325,13 +360,14 @@ function resolveConfirmedEvent(
   projectId: string,
   value: unknown,
   workspaceOperations: WorkspaceOperationsR0,
-  verifyCanonEventRead?: (value: { projectId: string; eventId: string }) => boolean
+  verifyCanonEventRead?: (value: { projectId: string; eventId: string; workVersionId?: string | null }) => boolean,
+  workVersionId?: string | null
 ): { status: "current" | "stale"; code: string; message: string } {
   try {
     const reference = normalizeStoryStudioEventReference(value) as StoryStudioEventReference;
     if (reference.projectId !== projectId) return staleEvidence("event-project-mismatch", "Confirmed Event belongs to another project.");
     const event = workspaceOperations.readWorldObject({ projectId, objectId: reference.eventId });
-    const canonVerified = Boolean(verifyCanonEventRead?.({ projectId, eventId: reference.eventId }));
+    const canonVerified = Boolean(verifyCanonEventRead?.({ projectId, eventId: reference.eventId, ...(workVersionId ? { workVersionId } : {}) }));
     assertStoryStudioEventReferenceEligibility({
       reference,
       event: { id: event.id, type: event.type, status: event.status, revisionToken: event.revisionToken },

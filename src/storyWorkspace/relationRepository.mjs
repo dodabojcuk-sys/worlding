@@ -90,6 +90,7 @@ export function forkRelationWorkVersion(rootPath, input) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const parentWorkVersionId = optionalWorkVersionId(input?.parentWorkVersionId);
+  const inheritedFromWorkVersionId = optionalWorkVersionId(input?.inheritedFromWorkVersionId ?? input?.parentWorkVersionId);
   const childWorkVersionId = optionalWorkVersionId(input?.childWorkVersionId);
   if (!childWorkVersionId || childWorkVersionId === parentWorkVersionId) throw new Error("Relation IF fork requires a distinct child WorkVersion.");
   const operationId = requireOperationId(input?.operationId);
@@ -102,7 +103,7 @@ export function forkRelationWorkVersion(rootPath, input) {
   const already = store.relations.filter((relation) => relation.workVersionId === childWorkVersionId);
   if (already.length) throw new Error("Derived WorkVersion already has Relation state without this fork receipt.");
   const nextStore = prepareStoreForWrite(store);
-  const copied = parent.map((relation) => ({ ...clone(relation), workVersionId: childWorkVersionId, inheritedFromWorkVersionId: parentWorkVersionId, decisionReceipt: relation.decisionReceipt ? clone(relation.decisionReceipt) : null }));
+  const copied = parent.map((relation) => ({ ...clone(relation), workVersionId: childWorkVersionId, inheritedFromWorkVersionId, decisionReceipt: relation.decisionReceipt ? clone(relation.decisionReceipt) : null }));
   const receipt = appendReceipt(nextStore, { scope: "relation-version-fork", relationId: null, workVersionId: childWorkVersionId, action: "fork-relation-work-version", actor: "system", operationId, inputRevision: store.revision, resultRevision: store.revision + 1, repositoryRevision: store.revision + 1, timestamp: normalizeTimestamp(input?.now), createdAt: normalizeTimestamp(input?.now) });
   nextStore.revision = store.revision + 1;
   nextStore.relations = [...nextStore.relations, ...copied].sort((left, right) => left.relationId.localeCompare(right.relationId) || String(left.workVersionId || "").localeCompare(String(right.workVersionId || "")));
@@ -345,7 +346,7 @@ export function updateRelationCandidate(rootPath, input) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
   const current = findRelation(store, relationId, input?.workVersionId);
@@ -387,7 +388,7 @@ export function confirmRelationCandidate(rootPath, input, options = {}) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
   const current = findRelation(store, relationId, input?.workVersionId);
@@ -412,7 +413,7 @@ export function rejectRelationCandidate(rootPath, input) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
   const current = findRelation(store, relationId, input?.workVersionId);
@@ -435,7 +436,7 @@ export function archiveConfirmedRelation(rootPath, input) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
   const current = findRelation(store, relationId, input?.workVersionId);
@@ -458,7 +459,7 @@ export function appendRelationEvidence(rootPath, input, options = {}) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
   const current = findRelation(store, relationId, input?.workVersionId);
@@ -492,7 +493,7 @@ export function createRelationCorrectionCandidate(rootPath, input) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const supersedesRelationId = requireText(input?.supersedesRelationId || input?.relationId, "Relation to correct", 180);
   const superseded = findRelation(store, supersedesRelationId, input?.workVersionId);
@@ -1012,7 +1013,7 @@ function readStore(root) {
   const relationTypes = parsed.version === RELATION_REPOSITORY_VERSION && Array.isArray(parsed.relationTypes)
     ? parsed.relationTypes.map(normalizeRelationType)
     : [];
-  if (new Set(relations.map((relation) => relation.relationId)).size !== relations.length) throw new Error("Relation repository contains duplicate relation IDs.");
+  if (new Set(relations.map((relation) => `${relation.relationId}\u0000${relation.workVersionId || ""}`)).size !== relations.length) throw new Error("Relation repository contains duplicate Relation identity/version pairs.");
   return {
     version: parsed.version,
     workspaceIdentity: parsed.workspaceIdentity,
@@ -1260,12 +1261,16 @@ function findRelation(store, relationId, workVersionId = undefined) {
   return relation;
 }
 
-function replayRelationOperation(store, operationId) {
+function replayRelationOperation(store, operationId, workVersionId = undefined) {
   const receipt = store.receipts.find((item) => item.operationId === operationId);
   if (!receipt) return null;
   if (receipt.scope && receipt.scope !== "relation") throw new Error("Operation id is already used by a different Relation owner.");
   if (!receipt.relationId) throw new Error("Relation operation receipt is incomplete.");
-  const relation = store.relations.find((item) => item.relationId === receipt.relationId);
+  const expectedWorkVersionId = workVersionId === undefined ? null : optionalWorkVersionId(workVersionId);
+  if ((receipt.workVersionId || null) !== expectedWorkVersionId) {
+    throw new Error("Relation operation identity is already bound to another WorkVersion.");
+  }
+  const relation = store.relations.find((item) => item.relationId === receipt.relationId && relationMatchesWorkVersion(item, expectedWorkVersionId));
   if (!relation) throw new Error("Relation operation receipt points to a missing Relation.");
   return { relation: clone(relation), receipt: clone(receipt), idempotent: true };
 }
@@ -1283,7 +1288,7 @@ function createRelationCandidateInternal(rootPath, input, options = {}) {
   const root = prepareRoot(rootPath);
   const store = readStore(root);
   const operationId = requireOperationId(input?.operationId);
-  const replay = replayRelationOperation(store, operationId);
+  const replay = replayRelationOperation(store, operationId, input?.workVersionId);
   if (replay) return replay;
   const relationId = requireText(options.relationId || input?.relationId || `relation.manual.${fingerprint({ workspaceIdentity: store.workspaceIdentity, operationId }).slice(0, 32)}`, "Relation id", 180);
   if (store.relations.some((relation) => relation.relationId === relationId && relationMatchesWorkVersion(relation, input?.workVersionId ?? null))) throw new Error("Relation already exists; use a state-specific update operation.");
@@ -1505,6 +1510,8 @@ function commitRelationMutation(root, store, current, relation, input) {
 function relationSemanticPayload(relation) {
   return {
     relationId: relation.relationId,
+    workVersionId: relation.workVersionId || null,
+    inheritedFromWorkVersionId: relation.inheritedFromWorkVersionId || null,
     sourceObjectId: relation.sourceObjectId,
     targetObjectId: relation.targetObjectId,
     relationTypeId: relation.relationTypeId,
