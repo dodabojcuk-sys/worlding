@@ -97,6 +97,8 @@ test("N3 relation comparison ignores record timestamps and retains archived worl
 
 test("N3 relationship workspace exposes the Owner-backed dual-world-time author flow", () => {
   assert.match(progression, /includeArchived: true/u);
+  assert.match(progression, /data-work-version-id=\{props\.workVersionId/u);
+  assert.match(progression, /\[props\.projectId, props\.workVersionId, props\.relations\]/u);
   assert.match(progression, /compareRelationsAtWorldTimes/u);
   assert.match(progression, /人物或对象/u);
   assert.match(progression, /开始 T1/u);

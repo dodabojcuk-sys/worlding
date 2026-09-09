@@ -23,7 +23,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "r5-continuous"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -62,7 +62,7 @@ const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENC
 const shellFocusR22AEvidenceDirectory = process.env.TIANYAN_SHELL_R22A_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
 const nuwaN1EvidenceDirectory = process.env.TIANYAN_NUWA_N1_EVIDENCE_DIR || null;
-const r5ContinuousEvidenceDirectory = process.env.TIANYAN_R5_CONTINUOUS_EVIDENCE_DIR || null;
+const r5ContinuousEvidenceDirectory = process.env.TIANYAN_N3_CONTINUOUS_EVIDENCE_DIR || process.env.TIANYAN_R5_CONTINUOUS_EVIDENCE_DIR || null;
 const nuwaN1EvidenceDwellMs = Math.max(0, Number(process.env.TIANYAN_NUWA_N1_EVIDENCE_DWELL_MS || "5500") || 0);
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
@@ -89,7 +89,7 @@ const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
 const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
 const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
-const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous";
+const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -1216,7 +1216,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("核实钟声是否来自桥下");
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("确保退路不被切断");
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
-  await workspace.locator(".nuwa-n1-goal input").fill("在旧桥钟声中核对彼此知情，不得把未知内容当成事实。");
+  await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
   await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
   const contextCards = workspace.locator(".nuwa-n1-context-list article");
@@ -1227,7 +1227,10 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
   assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /谨慎求证[\s\S]*不伤害无辜/u, "N2A exposes Lin Zhao's author-confirmed core and boundary in the actual role input.");
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /重视同伴安全[\s\S]*不独自追击未知目标/u, "N2A exposes A-Wu's distinct author-confirmed core and boundary in the actual role input.");
-  assert.match(await contextCards.first().innerText(), /UTF-8 保守估算/u, "The existing inspector exposes the deterministic request budget estimate.");
+  const firstContextDetails = contextCards.first().locator("details.nuwa-n1-context-technical");
+  assert.match(await contextCards.first().innerText(), /查看来源、修订与预算详情/u, "The author-first context keeps technical provenance progressively available.");
+  await firstContextDetails.locator("summary").click();
+  assert.match(await firstContextDetails.innerText(), /UTF-8 保守估算[\s\S]*不是实际计费 token/u, "The expanded inspector exposes the deterministic request budget without calling it billing tokens.");
   assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
@@ -1292,7 +1295,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   const firstSceneRunId = firstScene.data.run.runId;
   const deliveredStatement = firstScene.data.run.steps[0]?.heardStatements[0]?.statement;
   const deliveredRecipientId = firstScene.data.run.steps[0]?.heardStatements[0]?.recipientId;
-  assert.equal(deliveredStatement, "我只把钟声的线索告诉你。", "The first scene records the exact statement delivered only from A-Wu to Lin Zhao.");
+  assert.equal(deliveredStatement, "北闸已封。", "The first scene records the exact statement delivered only from A-Wu to Lin Zhao.");
   assert.equal(deliveredRecipientId, characterFixture["林昭"].id, "The first-scene statement is delivered to Lin Zhao's stable identity.");
   const linMemoryLedger = await readCharacterMemoryLedger({ rootPath: fixtureRoot, agentId: "agent.nuwa", scope: "project", projectId: fixtureProjectId }, deliveredRecipientId);
   assert.ok(linMemoryLedger, "The first scene persists Lin Zhao's delivered statement through the Story Continuity owner.");
@@ -1310,10 +1313,12 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await secondSceneContexts.count(), 2, "The later scene previews only Lin Zhao and Lu Yan.");
   const linSecondScene = secondSceneContexts.filter({ hasText: "林昭" });
   const luSecondScene = secondSceneContexts.filter({ hasText: "陆衍" });
-  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*听闻[\s\S]*我只把钟声的线索告诉你/u, "N2C shows Lin Zhao's source-scoped heard memory alongside the N2A profile basis in the later scene.");
-  assert.match(await linSecondScene.innerText(), /匹配角色目标[\s\S]*UTF-8 保守估算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
+  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*听闻[\s\S]*阿芜在雾港追踪告诉林昭：北闸已封。/u, "N3 shows the source-scoped heard memory as an author-readable sentence alongside the N2A profile basis.");
+  const linSecondSceneDetails = linSecondScene.locator("details.nuwa-n1-context-technical");
+  await linSecondSceneDetails.locator("summary").click();
+  assert.match(await linSecondSceneDetails.innerText(), /匹配角色目标[\s\S]*UTF-8 保守估算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
   assert.doesNotMatch(await linSecondScene.innerText(), /本回合未进入注意力/u, "The recalled statement is part of Lin Zhao's actual selected attention input.");
-  assert.doesNotMatch(await luSecondScene.innerText(), /听闻 ·|我只把钟声的线索告诉你/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
+  assert.doesNotMatch(await luSecondScene.innerText(), /听闻 ·|北闸已封/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
   assert.doesNotMatch((await secondSceneContexts.allTextContents()).join("\n"), /N2_PRIVATE_/u, "The second scene still excludes author-private profile fields.");
   await page.setViewportSize({ width: 1440, height: 900 });
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
@@ -1361,7 +1366,7 @@ async function assertRelationshipReaderR1(page, consoleProblems) {
   const reader = page.getByTestId("relation-reader");
   await reader.waitFor();
   assert.equal(await reader.getAttribute("data-provider-calls"), "0", "Relation Reader opens without any Provider call.");
-  assert.match(await reader.innerText(), /Relation Owner 只读投影/u);
+  assert.match(await reader.innerText(), /Relation Owner 双时点只读投影/u);
   const relationButtons = reader.locator(".relation-reader-body > ol button");
   assert.ok(await relationButtons.count() >= 5, "The isolated R1 fixture exposes confirmed relation neighborhoods.");
   await relationButtons.first().click();
@@ -1502,7 +1507,7 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
   await relationType.selectOption({ index: 1 });
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
-  await workspace.locator(".nuwa-n1-goal input").fill("林昭只向阿芜说出钟声线索；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
+  await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
   await workspace.getByTestId("nuwa-n1-authorization").waitFor();
@@ -1537,12 +1542,40 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   const currentBefore = arrangementBefore.data.arrangement.revisions.find((revision) => revision.revision === arrangementBefore.data.arrangement.currentRevision);
   assert.equal(currentBefore.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), true, "The formal Event is placed in the Story Unit narrative order, not only linked to it.");
   if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09-1440-nuwa-auto-applied.png"), fullPage: false });
+  const applicationSummary = workspace.getByTestId("nuwa-n1-application-summary");
+  await applicationSummary.waitFor();
+  assert.match(await applicationSummary.innerText(), /正式事件[\s\S]*1 项[\s\S]*正式关系[\s\S]*1 项[\s\S]*叙事位置[\s\S]*[1-9]\d* 项[\s\S]*人物新增听闻/u, "The author summary keeps formal Event, Relation, narrative placement and heard memory separate.");
+  await applicationSummary.scrollIntoViewIfNeeded();
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09a-1440-n3-author-application-summary.png"), fullPage: false });
+
+  const temporalHistory = await setupN3TemporalRelationHistory();
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship&relationId=${encodeURIComponent(automatic.relationId)}`);
+  const relationshipReader = page.getByTestId("relation-reader");
+  await relationshipReader.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="relation-reader"] [data-history-state="ready"]'));
+  assert.equal(await relationshipReader.getAttribute("data-provider-calls"), "0", "N3 relation comparison remains a zero-Provider Owner projection.");
+  assert.match(await relationshipReader.innerText(), /开始与后来[\s\S]*新增[\s\S]*结束[\s\S]*改变[\s\S]*保持/u, "N3 exposes the four author-readable comparison outcomes.");
+  assert.ok(await relationshipReader.locator('[data-kind="changed"] button').count() >= 1, "The confirmed correction lineage is visibly changed between T1 and T2.");
+  assert.ok(await relationshipReader.locator('[data-kind="unknown"] button').count() >= 1, "Relations without world-valid time remain explicit instead of becoming absent.");
+  const selectedRelationDetail = relationshipReader.getByLabel("关系详情");
+  assert.match(await selectedRelationDetail.innerText(), /不能从记录时间推断/u, "The automatically applied relation keeps its unknown world time honest.");
+  await selectedRelationDetail.getByRole("button", { name: "回到女娲应用结果", exact: true }).click();
+  await page.waitForURL(/\/nuwa/u);
+  assert.equal(new URL(page.url()).searchParams.get("runId"), completed.data.run.runId, "Relation source navigation restores the exact Nuwa Run instead of the latest arbitrary Run.");
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-id"), completed.data.run.runId, "The exact Nuwa Run is restored after Relation source navigation.");
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship&relationId=${encodeURIComponent(temporalHistory.correctionRelationId)}`);
+  await relationshipReader.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="relation-reader"] [data-history-state="ready"]'));
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09b-1440-n3-relation-world-time-compare.png"), fullPage: false });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN&runId=${encodeURIComponent(completed.data.run.runId)}`);
+  await workspace.waitFor();
 
   await workspace.getByRole("button", { name: "固定稿", exact: true }).click();
-  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).waitFor();
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().waitFor();
   const fixedArtifactId = (await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.automaticApplication.fixedDraft?.artifactId;
   assert.ok(fixedArtifactId, "The automatic receipt records the fixed OutputArtifact identity before navigation.");
-  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).click();
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().click();
   await page.waitForURL(/\/creation/u);
   const creation = page.getByTestId("creation-source-workspace");
   await creation.waitFor();
@@ -1556,7 +1589,7 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   const firstDownloadPath = await firstDownload.path();
   assert.ok(firstDownloadPath, "The fixed draft must produce an actual browser download.");
   const firstMarkdown = readFileSync(firstDownloadPath, "utf8");
-  assert.match(firstMarkdown, /我只把钟声的线索告诉你。/u, "The downloaded fixed Markdown contains the selected Run dialogue.");
+  assert.match(firstMarkdown, /北闸已封。/u, "The downloaded fixed Markdown contains the selected Run dialogue.");
   assert.match(firstMarkdown, /角色完成一次受限观察/u, "The downloaded fixed Markdown contains the selected Run action outcome.");
   assert.doesNotMatch(firstMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "The fixed browser download excludes unselected and unauthorized material.");
   if (r5ContinuousEvidenceDirectory) copyFileSync(firstDownloadPath, path.join(r5ContinuousEvidenceDirectory, "09-nuwa-auto-fixed-before-rollback.md"));
@@ -1577,7 +1610,7 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   const arrangementAfter = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(automatic.resultVersion.workVersionId)}&narrativePathId=${encodeURIComponent(automatic.storyUnitId)}`);
   const currentAfter = arrangementAfter.data.arrangement.revisions.find((revision) => revision.revision === arrangementAfter.data.arrangement.currentRevision);
   assert.equal(currentAfter.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), false, "Compensation removes the batch from current narrative order without deleting its historical Event.");
-  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).click();
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().click();
   await page.waitForURL(/\/creation/u);
   assert.equal(new URL(page.url()).searchParams.get("artifactId"), fixedArtifactId, "The fixed-draft entry keeps its exact artifact identity in the route after rollback.");
   await creation.waitFor();
@@ -1660,6 +1693,49 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
     await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "11-1440-nuwa-fixed-after-rollback.png"), fullPage: false });
   }
   assert.deepEqual(consoleProblems, [], "The high-permission UI closeout must not produce browser warnings or errors.");
+}
+
+async function setupN3TemporalRelationHistory() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.ok(typeState.data.types.length >= 2, "N3 temporal history needs two existing author-approved relation types.");
+  const [beforeType, afterType] = typeState.data.types;
+  const created = await postFixture(`${base}/relations/create`, {
+    projectId: fixtureProjectId,
+    sourceObjectId: characterFixture["林昭"].id,
+    targetObjectId: characterFixture["陆衍"].id,
+    relationTypeId: beforeType.relationTypeId,
+    relationLabelSnapshot: beforeType.label,
+    direction: "forward",
+    sourceRef: "n3-world-time-author-fixture",
+    temporal: { validFrom: "2026-09-01T08:00:00.000Z", validTo: "2026-09-03T08:00:00.000Z", confidence: "high", sourceAnchors: ["author-world-time.n3.before"] },
+    operationId: `n3-temporal-before-${fixture.fixtureId}`
+  });
+  const confirmed = await postFixture(`${base}/relations/confirm`, {
+    projectId: fixtureProjectId,
+    relationId: created.data.relation.relationId,
+    expectedRelationRevision: created.data.relation.revision,
+    operationId: `n3-temporal-before-confirm-${fixture.fixtureId}`
+  });
+  const correction = await postFixture(`${base}/relations/correction/create`, {
+    projectId: fixtureProjectId,
+    relationId: confirmed.data.relation.relationId,
+    expectedRelationRevision: confirmed.data.relation.revision,
+    sourceObjectId: characterFixture["林昭"].id,
+    targetObjectId: characterFixture["陆衍"].id,
+    relationTypeId: afterType.relationTypeId,
+    relationLabelSnapshot: afterType.label,
+    direction: "forward",
+    temporal: { validFrom: "2026-09-04T08:00:00.000Z", validTo: null, confidence: "high", sourceAnchors: ["author-world-time.n3.after"] },
+    operationId: `n3-temporal-correction-${fixture.fixtureId}`
+  });
+  const correctionConfirmed = await postFixture(`${base}/relations/confirm`, {
+    projectId: fixtureProjectId,
+    relationId: correction.data.relation.relationId,
+    expectedRelationRevision: correction.data.relation.revision,
+    operationId: `n3-temporal-correction-confirm-${fixture.fixtureId}`
+  });
+  return { beforeRelationId: confirmed.data.relation.relationId, correctionRelationId: correctionConfirmed.data.relation.relationId };
 }
 
 async function setupCharacterFixture() {

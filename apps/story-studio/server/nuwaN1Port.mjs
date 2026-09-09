@@ -957,7 +957,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
           speech: heard ? `我听到了这句话；我只按自己可知的信息继续观察。` : `我只依据当前可知信息继续观察。`,
           action: { action: "observe", targetId: null },
           observableResult: "角色完成一次受限观察；结果仍属于本次女娲 Run。",
-          ...(context.step === 1 && current.actors[1] ? { speech: "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
+          ...(context.step === 1 && current.actors[1] ? { speech: current.authorGoal.includes("北闸已封") ? "北闸已封。" : "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
           usage: { inputTokens: null, outputTokens: null }
         };
       }
