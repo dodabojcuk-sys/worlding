@@ -248,7 +248,16 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (!isCurrentOperation(scope)) return;
       updateRun(result);
       setNotice(`已完成补偿回溯；新的正式版本为 r${result.automaticApplication.rollback?.resultVersion?.revision ?? "?"}，Run 与 heard 历史仍保留。`);
-    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setError(messageFor(reason, "回溯未完整结束；请在本页恢复同一回执，系统不会显示为已全部回溯。")); }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
+    }).catch((reason: unknown) => {
+      if (!isCurrentOperation(scope)) return;
+      setError(messageFor(reason, "回溯未完整结束；请在本页恢复同一回执，系统不会显示为已全部回溯。"));
+      // The durable receipt may have advanced to recovery-required even when
+      // this write request fails.  Refresh it before another click so the
+      // recovery keeps its original idempotency key.
+      void getNuwaN1Run(projectId, run.run!.runId).then((latest) => {
+        if (isCurrentOperation(scope)) updateRun(latest);
+      }).catch(() => { /* Keep the original failure visible if refresh is unavailable. */ });
+    }).finally(() => { if (isCurrentOperation(scope)) setBusy(false); });
   };
   const openFixedDraft = () => {
     const artifactId = run?.automaticApplication?.fixedDraft?.artifactId;
