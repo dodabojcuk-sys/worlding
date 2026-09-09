@@ -768,6 +768,37 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     });
   }
 
+  // MULTI-B1 needs a target-version checkpoint without pretending that a
+  // derived IF is the root creation source.  This remains a WorkVersion-only
+  // write: Event, Relation, WorldState and NarrativeArrangement are recorded
+  // first by their existing Owners and are passed here only as receipt refs.
+  function appendTargetWorkVersionRevision(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const target = versionAuthority.getVersion(input.workVersionId);
+    if (target.identity.status !== "active") throw new Error("归档的作品版本不能接收 MULTI-B1 融入结果。");
+    // The authority checks its idempotency receipt before current-version
+    // concurrency.  Preserve that order so a response lost after append can
+    // replay even though the target has advanced to the merge result.
+    if (target.identity.currentRevision === input.expectedRevision && target.manifest.canonicalDigest !== input.expectedManifestDigest) {
+      throw new Error("目标作品版本已变化；请重新比较后再融入。");
+    }
+    try {
+      return versionAuthority.appendRevision({
+      workVersionId: target.identity.workVersionId,
+      expectedRevision: input.expectedRevision,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: target.identity.currentRevision + 1 }),
+      optionalNuwaProvenanceRefs: [],
+      semanticDeltaRefs: input.semanticDeltaRefs
+      });
+    } catch (error) {
+      if (/revision conflict|expected revision/i.test(String(error?.message || error))) throw new Error("目标作品版本已变化；请重新比较后再融入。");
+      throw error;
+    }
+  }
+
   function listWorkVersions(projectId) {
     const versionAuthority = authority(projectId);
     return versionAuthority.listVersions().map((version) => ({
@@ -805,6 +836,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     listWorkVersions,
     createDerivedWorkVersion,
     appendStructuredStoryRevision,
+    appendTargetWorkVersionRevision,
     validateWorkVersionSource: read,
     buildNeutralStoryPackage: async (projectId, input = {}) => {
       const root = authority(projectId).listVersions().find((item) => item.identity.kind === "root");

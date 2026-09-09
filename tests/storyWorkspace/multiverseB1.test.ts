@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareMultiverseB1Versions, planMultiverseB1Merge, type MultiverseVersionSnapshot } from "../../src/storyWorkspace/multiverseB1.ts";
+import { beginMultiverseB1Compensation, beginMultiverseB1Merge, compareMultiverseB1Versions, finishMultiverseB1Compensation, finishMultiverseB1Merge, markMultiverseB1MergeRecovery, planMultiverseB1Merge, recordMultiverseB1OwnerResult, type MultiverseVersionSnapshot } from "../../src/storyWorkspace/multiverseB1.ts";
 
 const base: MultiverseVersionSnapshot = {
   projectId: "north-gate", workVersionId: "work-version.root.north-gate", revision: 4, manifestDigest: "base-manifest",
@@ -40,4 +40,23 @@ test("B1 blocks divergent dual-side content and stale target writes", () => {
   assert.equal(change.state, "conflict");
   assert.equal(change.selection, "blocked-conflict");
   assert.throws(() => planMultiverseB1Merge({ comparison: compared, selectedChangeIds: [change.changeId], operationId: "author.conflict", idempotencyKey: "merge-conflict-0001", currentTarget: { ...target, revision: 6 } }), /changed after comparison/u);
+});
+
+test("B1 C keeps a resumable Owner-receipt boundary and rejects a changed replay", () => {
+  const source = snapshot("work-version.derived.north-gate", 2, "if-manifest", {
+    Event: [{ id: "event.key-transfer", value: { title: "林昭将铜钥匙交给阿芜" }, sourceRefs: ["event.key-transfer.if"] }],
+    WorldState: [{ id: "state.copper-key", value: { itemId: "item.copper-key", holderId: "character.awu" }, sourceRefs: ["event.key-transfer.if"], dependencyIds: ["event.key-transfer"] }]
+  });
+  const target = snapshot("work-version.root.north-gate", 4, "target-manifest", {});
+  const comparison = compareMultiverseB1Versions({ base, source, target });
+  const plan = planMultiverseB1Merge({ comparison, selectedChangeIds: ["multiverse-b1.worldstate.state.copper-key"], operationId: "author.merge.key", idempotencyKey: "merge-key-0002", currentTarget: target });
+  let execution = beginMultiverseB1Merge(plan);
+  execution = recordMultiverseB1OwnerResult({ execution, ownerKind: "Event", changeId: "multiverse-b1.event.event.key-transfer", receiptRef: "changeset:cs-1", targetRef: "event:event-1" });
+  execution = markMultiverseB1MergeRecovery(execution, "response lost after Event receipt");
+  execution = recordMultiverseB1OwnerResult({ execution, ownerKind: "Event", changeId: "multiverse-b1.event.event.key-transfer", receiptRef: "changeset:cs-1", targetRef: "event:event-1" });
+  execution = recordMultiverseB1OwnerResult({ execution, ownerKind: "WorldState", changeId: "multiverse-b1.worldstate.state.copper-key", receiptRef: "world-state:change-1", targetRef: "item.copper-key" });
+  execution = finishMultiverseB1Merge({ execution, resultVersion: { workVersionId: target.workVersionId, revision: 5, manifestDigest: "merged-manifest" } });
+  assert.equal(execution.status, "applied");
+  assert.throws(() => recordMultiverseB1OwnerResult({ execution, ownerKind: "Event", changeId: "multiverse-b1.event.event.key-transfer", receiptRef: "changeset:other", targetRef: "event:event-1" }), /Cannot write/u);
+  assert.equal(finishMultiverseB1Compensation(beginMultiverseB1Compensation(execution)).status, "compensated");
 });

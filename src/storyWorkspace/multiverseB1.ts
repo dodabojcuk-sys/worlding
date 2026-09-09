@@ -61,6 +61,23 @@ export type MultiverseMergePlan = {
   receiptId: string;
 };
 
+/**
+ * Durable-owner adapters use this small state machine to make a B1 merge
+ * resumable without becoming an Event/Relation/WorldState repository.  The
+ * receipt contains only the frozen plan and references returned by the
+ * existing Owners; the adapter remains responsible for persisting it.
+ */
+export type MultiverseMergeExecutionStatus = "planned" | "applying" | "recovery-required" | "applied" | "compensating" | "compensated";
+export type MultiverseMergeOwnerReceipt = { ownerKind: MultiverseOwnerKind; changeId: string; receiptRef: string; targetRef: string };
+export type MultiverseMergeExecution = {
+  schemaVersion: "tianyan-multiverse-b1-merge-execution/v1";
+  plan: MultiverseMergePlan;
+  status: MultiverseMergeExecutionStatus;
+  ownerReceipts: MultiverseMergeOwnerReceipt[];
+  resultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+  failure: string | null;
+};
+
 const ownerOrder: MultiverseOwnerKind[] = ["Event", "Relation", "WorldState", "NarrativePlacement"];
 
 export function compareMultiverseB1Versions(input: { base: MultiverseVersionSnapshot; source: MultiverseVersionSnapshot; target: MultiverseVersionSnapshot }): MultiverseComparison {
@@ -111,6 +128,68 @@ export function planMultiverseB1Merge(input: { comparison: MultiverseComparison;
     ownerWriteOrder: writes,
     receiptId: `multiverse-b1-merge.${digest(material).slice(0, 32)}`
   };
+}
+
+export function beginMultiverseB1Merge(plan: MultiverseMergePlan): MultiverseMergeExecution {
+  return {
+    schemaVersion: "tianyan-multiverse-b1-merge-execution/v1",
+    plan: clone(plan), status: "planned", ownerReceipts: [], resultVersion: null, failure: null
+  };
+}
+
+/** Records exactly one existing-Owner result. Replays are accepted only when
+ * they name the same result; a lost HTTP response can therefore resume safely. */
+export function recordMultiverseB1OwnerResult(input: { execution: MultiverseMergeExecution; ownerKind: MultiverseOwnerKind; changeId: string; receiptRef: string; targetRef: string }): MultiverseMergeExecution {
+  const current = clone(input.execution);
+  if (!["planned", "applying", "recovery-required"].includes(current.status)) throw new Error(`Cannot write an Owner result while merge is ${current.status}.`);
+  if (!current.plan.selectedChangeIds.includes(input.changeId) && !current.plan.requiredChangeIds.includes(input.changeId)) throw new Error("Owner result does not belong to the selected B1 merge.");
+  if (!current.plan.ownerWriteOrder.includes(input.ownerKind)) throw new Error("Owner result is outside the B1 merge write order.");
+  const prior = current.ownerReceipts.find((item) => item.changeId === input.changeId);
+  const next = { ownerKind: input.ownerKind, changeId: input.changeId, receiptRef: requiredText(input.receiptRef, "receiptRef"), targetRef: requiredText(input.targetRef, "targetRef") };
+  if (prior && !same(prior, next)) throw new Error("B1 idempotency key already has a different Owner result.");
+  if (!prior) current.ownerReceipts.push(next);
+  current.status = "applying";
+  current.failure = null;
+  return current;
+}
+
+export function markMultiverseB1MergeRecovery(execution: MultiverseMergeExecution, failure: string): MultiverseMergeExecution {
+  const next = clone(execution);
+  if (!["planned", "applying", "recovery-required"].includes(next.status)) throw new Error(`Cannot recover merge in ${next.status}.`);
+  next.status = "recovery-required";
+  next.failure = requiredText(failure, "failure");
+  return next;
+}
+
+export function finishMultiverseB1Merge(input: { execution: MultiverseMergeExecution; resultVersion: { workVersionId: string; revision: number; manifestDigest: string } }): MultiverseMergeExecution {
+  const next = clone(input.execution);
+  const required = unique([...next.plan.selectedChangeIds, ...next.plan.requiredChangeIds]);
+  if (next.status === "applied") {
+    if (!same(next.resultVersion, input.resultVersion)) throw new Error("B1 idempotency key already has a different result version.");
+    return next;
+  }
+  if (!["planned", "applying", "recovery-required"].includes(next.status) || required.some((changeId) => !next.ownerReceipts.some((item) => item.changeId === changeId))) throw new Error("B1 merge is missing one or more required Owner receipts.");
+  if (input.resultVersion.workVersionId !== next.plan.target.workVersionId || !Number.isSafeInteger(input.resultVersion.revision) || !input.resultVersion.manifestDigest) throw new Error("B1 merge result does not bind to its target WorkVersion.");
+  next.status = "applied";
+  next.resultVersion = clone(input.resultVersion);
+  next.failure = null;
+  return next;
+}
+
+export function beginMultiverseB1Compensation(execution: MultiverseMergeExecution): MultiverseMergeExecution {
+  const next = clone(execution);
+  if (next.status === "compensated") return next;
+  if (next.status !== "applied") throw new Error("Only an applied B1 merge can be compensated.");
+  next.status = "compensating";
+  return next;
+}
+
+export function finishMultiverseB1Compensation(execution: MultiverseMergeExecution): MultiverseMergeExecution {
+  const next = clone(execution);
+  if (next.status === "compensated") return next;
+  if (next.status !== "compensating") throw new Error("B1 compensation has not started.");
+  next.status = "compensated";
+  return next;
 }
 
 function compareObject(ownerKind: MultiverseOwnerKind, objectId: string, base: MultiverseObject | null, source: MultiverseObject | null, target: MultiverseObject | null): MultiverseDifference {

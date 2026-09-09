@@ -100,6 +100,31 @@ test("B1 creates one named IF from the frozen root identity without copying stor
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("B1 C appends the selected target version only after its frozen target preflight", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    port.createRoot(value.projectId);
+    const root = port.resolveRootWorkVersion(value.projectId)!;
+    const derived = port.createDerivedWorkVersion(value.projectId, {
+      displayName: "阿芜持有铜钥匙", parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.create-if", idempotencyKey: "multiverse-b1:create-if:append-target", createdAt: "2026-09-09T12:00:00.000Z"
+    });
+    const input = {
+      workVersionId: derived.identity.workVersionId, expectedRevision: derived.identity.currentRevision,
+      expectedManifestDigest: derived.manifest.canonicalDigest, authorActionId: "author.multiverse-b1.merge",
+      idempotencyKey: "multiverse-b1:merge:append-target", createdAt: "2026-09-09T12:01:00.000Z",
+      semanticDeltaRefs: ["multiverse-b1.worldstate.state.copper-key", "world-state:item.copper-key:change-1"]
+    };
+    const applied = port.appendTargetWorkVersionRevision(value.projectId, input);
+    const replay = port.appendTargetWorkVersionRevision(value.projectId, input);
+    assert.equal(applied.identity.currentRevision, 2);
+    assert.equal(replay.receipt.receiptId, applied.receipt.receiptId);
+    assert.throws(() => port.appendTargetWorkVersionRevision(value.projectId, { ...input, idempotencyKey: "multiverse-b1:merge:stale", expectedRevision: 1 }), /已变化/u);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("pinned artifact export keeps the exact saved package after its Story Unit changes", async () => {
   const value = fixture();
   try {
