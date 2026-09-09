@@ -37,6 +37,7 @@ export function queryRelations(rootPath, query = {}) {
   const text = query.text == null ? "" : normalizeSearchText(query.text);
   const titles = text ? new Map(listWorkspaceNotes(prepareRoot(rootPath)).map((note) => [note.id, note.title])) : null;
   return store.relations
+    .filter((relation) => relationMatchesWorkVersion(relation, query.workVersionId))
     .filter((relation) => query.includeArchived === true || !relation.archived)
     .filter((relation) => !query.reviewState || relation.reviewState === query.reviewState)
     .filter((relation) => !query.objectId || relation.sourceObjectId === query.objectId || relation.targetObjectId === query.objectId)
@@ -77,6 +78,36 @@ export function rejectRelation(rootPath, input) {
 
 export function archiveRelation(rootPath, input) {
   return archiveConfirmedRelation(rootPath, input);
+}
+
+/**
+ * Copy the formal mainline snapshot into a derived IF inside this repository.
+ * It is deliberately a single Owner write, not a second relation database:
+ * the same stable relation id gains one version-scoped state row.  Replaying
+ * the fork is harmless; a mismatched already-present slice fails closed.
+ */
+export function forkRelationWorkVersion(rootPath, input) {
+  const root = prepareRoot(rootPath);
+  const store = readStore(root);
+  const parentWorkVersionId = optionalWorkVersionId(input?.parentWorkVersionId);
+  const childWorkVersionId = optionalWorkVersionId(input?.childWorkVersionId);
+  if (!childWorkVersionId || childWorkVersionId === parentWorkVersionId) throw new Error("Relation IF fork requires a distinct child WorkVersion.");
+  const operationId = requireOperationId(input?.operationId);
+  const existing = store.receipts.find((receipt) => receipt.operationId === operationId);
+  if (existing) {
+    if (existing.scope !== "relation-version-fork" || existing.workVersionId !== childWorkVersionId) throw new Error("Relation IF fork operation identity is already bound to another result.");
+    return { copiedRelationIds: store.relations.filter((relation) => relation.workVersionId === childWorkVersionId).map((relation) => relation.relationId).sort(), idempotent: true, receipt: clone(existing) };
+  }
+  const parent = store.relations.filter((relation) => relationMatchesWorkVersion(relation, parentWorkVersionId));
+  const already = store.relations.filter((relation) => relation.workVersionId === childWorkVersionId);
+  if (already.length) throw new Error("Derived WorkVersion already has Relation state without this fork receipt.");
+  const nextStore = prepareStoreForWrite(store);
+  const copied = parent.map((relation) => ({ ...clone(relation), workVersionId: childWorkVersionId, inheritedFromWorkVersionId: parentWorkVersionId, decisionReceipt: relation.decisionReceipt ? clone(relation.decisionReceipt) : null }));
+  const receipt = appendReceipt(nextStore, { scope: "relation-version-fork", relationId: null, workVersionId: childWorkVersionId, action: "fork-relation-work-version", actor: "system", operationId, inputRevision: store.revision, resultRevision: store.revision + 1, repositoryRevision: store.revision + 1, timestamp: normalizeTimestamp(input?.now), createdAt: normalizeTimestamp(input?.now) });
+  nextStore.revision = store.revision + 1;
+  nextStore.relations = [...nextStore.relations, ...copied].sort((left, right) => left.relationId.localeCompare(right.relationId) || String(left.workVersionId || "").localeCompare(String(right.workVersionId || "")));
+  writeStore(root, nextStore);
+  return { copiedRelationIds: copied.map((relation) => relation.relationId).sort(), idempotent: false, receipt: clone(receipt) };
 }
 
 export function listRelationTypes(rootPath) {
@@ -317,7 +348,7 @@ export function updateRelationCandidate(rootPath, input) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const current = findRelation(store, relationId);
+  const current = findRelation(store, relationId, input?.workVersionId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   assertCandidateIsEditable(current);
   if (input?.sourceObjectId !== undefined || input?.targetObjectId !== undefined) {
@@ -359,7 +390,7 @@ export function confirmRelationCandidate(rootPath, input, options = {}) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const current = findRelation(store, relationId);
+  const current = findRelation(store, relationId, input?.workVersionId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   assertCandidateIsEditable(current);
   if (current.relationTypeId === UNRESOLVED_RELATION_TYPE_ID) throw new Error("Relation type must be selected before confirmation.");
@@ -384,7 +415,7 @@ export function rejectRelationCandidate(rootPath, input) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const current = findRelation(store, relationId);
+  const current = findRelation(store, relationId, input?.workVersionId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   assertCandidateIsEditable(current);
   const next = { ...current, reviewState: "rejected", archived: true, revision: current.revision + 1, decisionReceipt: null };
@@ -407,7 +438,7 @@ export function archiveConfirmedRelation(rootPath, input) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const current = findRelation(store, relationId);
+  const current = findRelation(store, relationId, input?.workVersionId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   if (current.reviewState !== "confirmed" || current.archived) throw new Error("Only an active confirmed Relation can be archived.");
   const next = { ...current, archived: true, revision: current.revision + 1, decisionReceipt: null };
@@ -430,7 +461,7 @@ export function appendRelationEvidence(rootPath, input, options = {}) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const current = findRelation(store, relationId);
+  const current = findRelation(store, relationId, input?.workVersionId);
   assertExpectedRevision(current.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   if (current.reviewState !== "confirmed" || current.archived) throw new Error("Only an active confirmed Relation can receive evidence.");
   const additional = normalizeEvidenceSet(input?.evidenceRefs);
@@ -464,7 +495,7 @@ export function createRelationCorrectionCandidate(rootPath, input) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const supersedesRelationId = requireText(input?.supersedesRelationId || input?.relationId, "Relation to correct", 180);
-  const superseded = findRelation(store, supersedesRelationId);
+  const superseded = findRelation(store, supersedesRelationId, input?.workVersionId);
   assertExpectedRevision(superseded.revision, input?.expectedRelationRevision ?? input?.expectedRevision, "Relation revision is stale.");
   if (superseded.reviewState !== "confirmed" || superseded.archived) throw new Error("Only an active confirmed Relation can create a correction candidate.");
   const correctionRelationId = input?.correctionRelationId || input?.newRelationId || `relation.correction.${fingerprint({ workspaceIdentity: store.workspaceIdentity, operationId }).slice(0, 32)}`;
@@ -496,7 +527,8 @@ export function queryRelationDuplicateSuggestions(rootPath, input) {
   if (!type) throw new Error("Relation type cannot be resolved.");
   const typeLabel = normalizeRelationSnapshot(type.label, "Relation type label");
   const matches = store.relations.filter((relation) =>
-    relation.sourceObjectId === sourceObjectId
+    relationMatchesWorkVersion(relation, input?.workVersionId)
+    && relation.sourceObjectId === sourceObjectId
     && relation.targetObjectId === targetObjectId
     && relation.relationTypeId === relationTypeId
     && relation.direction === direction
@@ -513,7 +545,7 @@ export function queryRelationDuplicateSuggestions(rootPath, input) {
 export function inspectRelationEvidence(rootPath, input, options = {}) {
   const store = readRelationRepository(rootPath);
   const relationId = requireText(input?.relationId, "Relation id", 180);
-  const relation = findRelation(store, relationId);
+  const relation = findRelation(store, relationId, input?.workVersionId);
   const statuses = evaluateRelationEvidence(store, relation, options);
   return {
     relationId,
@@ -1014,6 +1046,11 @@ function normalizeStoredRelation(relation) {
   const relationId = requireText(relation?.relationId, "Relation id", 180);
   return {
     relationId,
+    // Legacy relations are the durable mainline slice.  A derived slice is
+    // still stored by this one Relation Owner, keyed by the same stable
+    // relation identity plus a verified WorkVersion id at the control layer.
+    workVersionId: optionalWorkVersionId(relation?.workVersionId),
+    inheritedFromWorkVersionId: optionalWorkVersionId(relation?.inheritedFromWorkVersionId),
     sourceObjectId: requireText(relation?.sourceObjectId, "Relation source object", 160),
     targetObjectId: requireText(relation?.targetObjectId, "Relation target object", 160),
     relationTypeId: requireText(relation?.relationTypeId, "Relation type id", 180),
@@ -1187,6 +1224,18 @@ function prepareStoreForWrite(store) {
   };
 }
 
+function optionalWorkVersionId(value) {
+  if (value == null || value === "") return null;
+  return requireText(value, "Relation WorkVersion", 180);
+}
+
+function relationMatchesWorkVersion(relation, workVersionId) {
+  // Omitted preserves legacy cross-version administrative reads.  Explicit
+  // null addresses the mainline; a string addresses exactly one IF slice.
+  if (workVersionId === undefined) return true;
+  return (relation.workVersionId || null) === (workVersionId || null);
+}
+
 function assertExpectedRepositoryRevision(store, expected) {
   if (expected === undefined || expected === null) return;
   assertExpectedRevision(store.revision, expected, "Relation repository revision is stale.");
@@ -1205,8 +1254,8 @@ function requireDirection(value) {
   return value;
 }
 
-function findRelation(store, relationId) {
-  const relation = store.relations.find((item) => item.relationId === relationId);
+function findRelation(store, relationId, workVersionId = undefined) {
+  const relation = store.relations.find((item) => item.relationId === relationId && relationMatchesWorkVersion(item, workVersionId));
   if (!relation) throw new Error("Relation does not exist.");
   return relation;
 }
@@ -1237,7 +1286,7 @@ function createRelationCandidateInternal(rootPath, input, options = {}) {
   const replay = replayRelationOperation(store, operationId);
   if (replay) return replay;
   const relationId = requireText(options.relationId || input?.relationId || `relation.manual.${fingerprint({ workspaceIdentity: store.workspaceIdentity, operationId }).slice(0, 32)}`, "Relation id", 180);
-  if (store.relations.some((relation) => relation.relationId === relationId)) throw new Error("Relation already exists; use a state-specific update operation.");
+  if (store.relations.some((relation) => relation.relationId === relationId && relationMatchesWorkVersion(relation, input?.workVersionId ?? null))) throw new Error("Relation already exists; use a state-specific update operation.");
   const relation = buildCandidateRelation(root, store, { ...input, relationId }, options);
   return commitRelationMutation(root, store, null, relation, {
     action: "create-relation-candidate",
@@ -1283,6 +1332,8 @@ function buildCandidateRelation(root, store, input, options = {}) {
       : { kind: "manual-author", operationId: input.operationId, actor, sourceRef: optionalSourceRef(input?.sourceRef), ...(authorActionReceiptId ? { authorActionReceiptId } : {}) };
   return {
     relationId: requireText(input?.relationId, "Relation id", 180),
+    workVersionId: optionalWorkVersionId(input?.workVersionId),
+    inheritedFromWorkVersionId: optionalWorkVersionId(input?.inheritedFromWorkVersionId),
     sourceObjectId,
     targetObjectId,
     relationTypeId,
@@ -1420,7 +1471,7 @@ function evidenceStatus(index, kind, status, eligible, message, code) {
 }
 
 function commitRelationMutation(root, store, current, relation, input) {
-  if (!current && store.relations.some((item) => item.relationId === relation.relationId)) throw new Error("Relation already exists; operation identity cannot be reused for another Relation.");
+  if (!current && store.relations.some((item) => item.relationId === relation.relationId && relationMatchesWorkVersion(item, relation.workVersionId))) throw new Error("Relation already exists; operation identity cannot be reused for another Relation.");
   const actor = requireText(input.actor || "author", "Relation actor", 120);
   const now = normalizeTimestamp(input.now);
   const nextStore = prepareStoreForWrite(store);
@@ -1428,6 +1479,7 @@ function commitRelationMutation(root, store, current, relation, input) {
   const receipt = appendReceipt(nextStore, {
     scope: "relation",
     relationId: relation.relationId,
+    workVersionId: relation.workVersionId || null,
     action: input.action,
     actor,
     operationId: requireOperationId(input.operationId),
@@ -1445,7 +1497,7 @@ function commitRelationMutation(root, store, current, relation, input) {
   });
   const persisted = { ...relation, decisionReceipt: receipt };
   nextStore.revision = repositoryRevision;
-  nextStore.relations = [...nextStore.relations.filter((item) => item.relationId !== relation.relationId), persisted].sort((left, right) => left.relationId.localeCompare(right.relationId));
+  nextStore.relations = [...nextStore.relations.filter((item) => item.relationId !== relation.relationId || !relationMatchesWorkVersion(item, relation.workVersionId)), persisted].sort((left, right) => left.relationId.localeCompare(right.relationId) || String(left.workVersionId || "").localeCompare(String(right.workVersionId || "")));
   writeStore(root, nextStore);
   return { relation: clone(persisted), receipt: clone(receipt), idempotent: false, repositoryRevision };
 }

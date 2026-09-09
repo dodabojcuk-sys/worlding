@@ -837,6 +837,16 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       childWorkVersionId: created.identity.workVersionId,
       operationId: `${input.idempotencyKey}.world-state-fork`
     });
+    // Relation state has the same copy-on-write IF boundary as N4 state.
+    // The Relation Owner persists the child slice in its existing repository;
+    // this port only coordinates the already-created WorkVersion identity.
+    relationOperations?.forkRelationWorkVersion?.({
+      projectId,
+      parentWorkVersionId: parent.identity.workVersionId,
+      childWorkVersionId: created.identity.workVersionId,
+      operationId: `${input.idempotencyKey}.relation-fork`,
+      now: input.createdAt
+    });
     return created;
   }
 

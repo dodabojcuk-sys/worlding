@@ -42,6 +42,9 @@ export type RelationReceiptR0 = {
 
 export type RelationRecordR0 = {
   relationId: string;
+  /** null is mainline/legacy; a stable id is one derived IF slice. */
+  workVersionId?: string;
+  inheritedFromWorkVersionId?: string;
   sourceObjectId: string;
   targetObjectId: string;
   relationTypeId: string;
@@ -128,6 +131,7 @@ type RelationRepositoryModuleR0 = {
   createRelationCandidate(rootPath: string, input: Record<string, unknown>): unknown;
   createUnresolvedRelationCandidate(rootPath: string, input: Record<string, unknown>): unknown;
   createRelationCorrectionCandidate(rootPath: string, input: Record<string, unknown>): unknown;
+  forkRelationWorkVersion(rootPath: string, input: Record<string, unknown>): unknown;
   createRelationType(rootPath: string, input: Record<string, unknown>): unknown;
   inspectRelationEvidence(rootPath: string, input: Record<string, unknown>, options?: Record<string, unknown>): unknown;
   listRelationTypes(rootPath: string): unknown;
@@ -171,6 +175,8 @@ export function createStoryStudioRelationOperations(input: {
     const evidence = relationRepository.inspectRelationEvidence(rootPath, { relationId: relation.relationId }, { resolveEvidence: evidenceResolver(projectId, rootPath) }) as unknown as { warnings: RelationEvidenceStatusR0[] };
     return {
       ...relation,
+      ...(relation.workVersionId ? { workVersionId: relation.workVersionId } : {}),
+      ...(relation.inheritedFromWorkVersionId ? { inheritedFromWorkVersionId: relation.inheritedFromWorkVersionId } : {}),
       currentTypeLabel: type?.label || null,
       relationType: type,
       relationTypeResolution: relation.relationTypeId === "relation-type.unresolved" ? "unresolved" : "resolved",
@@ -179,16 +185,16 @@ export function createStoryStudioRelationOperations(input: {
   }
 
   return {
-    listRelations(request: { projectId: string; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): { repositoryVersion: string; repositoryRevision: number; relations: RelationReadProjectionR0[] } {
+    listRelations(request: { projectId: string; workVersionId?: string | null; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): { repositoryVersion: string; repositoryRevision: number; relations: RelationReadProjectionR0[] } {
       const rootPath = projectPath(request.projectId);
       const store = relationRepository.readRelationRepository(rootPath);
       const relations = relationRepository.queryRelations(rootPath, request).map((relation) => projectRelation(request.projectId, relation));
       return { repositoryVersion: String(store.version), repositoryRevision: store.revision, relations };
     },
 
-    readRelation(request: { projectId: string; relationId: string }): { relation: RelationReadProjectionR0; receipts: RelationReceiptR0[] } {
+    readRelation(request: { projectId: string; relationId: string; workVersionId?: string | null }): { relation: RelationReadProjectionR0; receipts: RelationReceiptR0[] } {
       const rootPath = projectPath(request.projectId);
-      const relation = relationRepository.queryRelations(rootPath, { includeArchived: true }).find((item) => item.relationId === request.relationId);
+      const relation = relationRepository.queryRelations(rootPath, { includeArchived: true, ...(request.workVersionId !== undefined ? { workVersionId: request.workVersionId } : {}) }).find((item) => item.relationId === request.relationId);
       if (!relation) throw new Error("Relation does not exist.");
       return { relation: projectRelation(request.projectId, relation), receipts: relationRepository.readRelationRepository(rootPath).receipts.filter((receipt) => receipt.relationId === relation.relationId) };
     },
@@ -264,6 +270,10 @@ export function createStoryStudioRelationOperations(input: {
 
     createRelationCorrectionCandidate(request: RelationOperationInput): RelationMutationResultR0 {
       return relationRepository.createRelationCorrectionCandidate(projectPath(request.projectId), withoutProject(request)) as RelationMutationResultR0;
+    },
+
+    forkRelationWorkVersion(request: { projectId: string; parentWorkVersionId: string | null; childWorkVersionId: string; operationId: string; now?: string }) {
+      return relationRepository.forkRelationWorkVersion(projectPath(request.projectId), withoutProject(request as RelationOperationInput));
     }
   };
 }
