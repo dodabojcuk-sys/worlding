@@ -467,7 +467,9 @@ function validateMessages(value) {
     const content = typeof message.content === "string" ? message.content.trim() : "";
     const toolCalls = message.role === "assistant" ? validateAssistantToolCalls(message.toolCalls) : [];
     const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160) : null;
-    const name = message.role === "tool" ? boundedToolName(message.name) : null;
+    // Native tool-call continuations are keyed solely by tool_call_id.  Do
+    // not require the retired function-calling `name` field while deliberately
+    // omitting it from the outbound OpenAI-compatible payload.
     if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
     totalCharacters += content.length;
     // OpenAI permits null assistant content beside tool_calls, but several
