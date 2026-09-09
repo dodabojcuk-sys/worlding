@@ -470,7 +470,11 @@ function validateMessages(value) {
     const name = message.role === "tool" ? boundedToolName(message.name) : null;
     if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
     totalCharacters += content.length;
-    if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content: content || null, tool_calls: toolCalls });
+    // OpenAI permits null assistant content beside tool_calls, but several
+    // OpenAI-compatible endpoints reject that exact continuation payload.
+    // An explicit empty string preserves the same semantics and lets the
+    // following tool result remain a standards-shaped message sequence.
+    if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content, tool_calls: toolCalls });
     if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, name, content });
     return Object.freeze({ role: message.role, content });
   });
