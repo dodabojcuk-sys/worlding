@@ -15,6 +15,7 @@ import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthorit
 import { resolveWorkVersionOwnerSnapshotRefs } from "../../../src/storyWorkspace/workVersionSnapshotResolver.ts";
 import { projectNarrativeArrangement } from "../../../src/storyContracts/narrativeArrangement.ts";
 import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
+import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
@@ -1224,8 +1225,10 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(visibleContexts[0] !== visibleContexts[1], true, `The two roles must expose distinct knowledge ranges: ${JSON.stringify(visibleContexts)}`);
   assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /核实钟声是否来自桥下/u, "The inspector shows Lin Zhao's actual actor goal independent of directory order.");
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
+  assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /谨慎求证[\s\S]*不伤害无辜/u, "N2A exposes Lin Zhao's author-confirmed core and boundary in the actual role input.");
+  assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /重视同伴安全[\s\S]*不独自追击未知目标/u, "N2A exposes A-Wu's distinct author-confirmed core and boundary in the actual role input.");
   assert.match(await contextCards.first().innerText(), /保守预算/u, "The existing inspector exposes the deterministic request budget estimate.");
-  assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret/u, "The role-scoped inspector does not disclose excluded secret identities.");
+  assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
 
@@ -1240,8 +1243,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
   const steps = workspace.locator(".nuwa-n1-reader li");
   const stepActors = await steps.locator("article > header strong").allTextContents();
-  assert.deepEqual(new Set(stepActors), new Set(["林昭", "阿芜"]), `The first two turns keep the two selected formal identities: ${JSON.stringify(stepActors)}`);
-  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "The second actor receives actual prior dialogue, not a fixed isolated monologue.");
+  assert.deepEqual(stepActors, ["阿芜", "林昭"], `The first two turns keep the product's stable formal-identity order: ${JSON.stringify(stepActors)}`);
+  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "Lin Zhao receives A-Wu's actual directed dialogue, not a fixed isolated monologue.");
   assert.equal(await contextCards.count(), 2, "Both knowledge boundaries remain inspectable after steps commit.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "02-1440-two-role-steps.png"), fullPage: false });
   await evidenceDwell();
@@ -1285,13 +1288,46 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await evidenceDwell();
   await workspace.getByRole("button", { name: "回放", exact: true }).click();
   assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 3, "Replay reads the recorded steps without dispatching again.");
+  const firstScene = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const firstSceneRunId = firstScene.data.run.runId;
+  const deliveredStatement = firstScene.data.run.steps[0]?.heardStatements[0]?.statement;
+  const deliveredRecipientId = firstScene.data.run.steps[0]?.heardStatements[0]?.recipientId;
+  assert.equal(deliveredStatement, "我只把钟声的线索告诉你。", "The first scene records the exact statement delivered only from A-Wu to Lin Zhao.");
+  assert.equal(deliveredRecipientId, characterFixture["林昭"].id, "The first-scene statement is delivered to Lin Zhao's stable identity.");
+  const linMemoryLedger = await readCharacterMemoryLedger({ rootPath: fixtureRoot, agentId: "agent.nuwa", scope: "project", projectId: fixtureProjectId }, deliveredRecipientId);
+  assert.ok(linMemoryLedger, "The first scene persists Lin Zhao's delivered statement through the Story Continuity owner.");
+  assert.equal(linMemoryLedger.value.records.some((record) => record.sourceRunId === firstSceneRunId && record.statement === deliveredStatement && record.validity.state === "active"), true, "The persisted heard record remains active before the later scene begins.");
   await workspace.getByRole("button", { name: "新建排演", exact: true }).click();
-  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在新 Run 中重新核实钟声");
-  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("在新 Run 中重新确认退路");
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").uncheck();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在第二场回忆阿芜告知的钟声线索并谨慎求证");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "陆衍" }).locator("input").fill("只依据自己实际获知的内容观察钟声");
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "灯塔支线" });
+  await workspace.locator(".nuwa-n1-goal input").fill("在第二场依据各自实际听闻继续调查钟声，不得共享未被递送的记忆。");
+  await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
+  await workspace.getByText("已核对角色上下文", { exact: true }).waitFor();
+  const secondSceneContexts = workspace.locator(".nuwa-n1-context-list article");
+  assert.equal(await secondSceneContexts.count(), 2, "The later scene previews only Lin Zhao and Lu Yan.");
+  const linSecondScene = secondSceneContexts.filter({ hasText: "林昭" });
+  const luSecondScene = secondSceneContexts.filter({ hasText: "陆衍" });
+  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*跨场景听闻记忆[\s\S]*我只把钟声的线索告诉你/u, "N2C shows Lin Zhao's source-scoped heard memory alongside the N2A profile basis in the later scene.");
+  assert.match(await linSecondScene.innerText(), /匹配角色目标[\s\S]*保守预算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
+  assert.doesNotMatch(await linSecondScene.innerText(), /本回合未进入注意力/u, "The recalled statement is part of Lin Zhao's actual selected attention input.");
+  assert.doesNotMatch(await luSecondScene.innerText(), /跨场景听闻记忆|我只把钟声的线索告诉你/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
+  assert.doesNotMatch((await secondSceneContexts.allTextContents()).join("\n"), /N2_PRIVATE_/u, "The second scene still excludes author-private profile fields.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
+  await evidenceDwell();
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
   await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
-  await page.waitForTimeout(75);
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  const secondScene = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.notEqual(secondScene.data.run.runId, firstSceneRunId, "The later scene is a distinct Run rather than a mutation of the first scene.");
+  assert.equal(secondScene.data.run.scene.storyUnitId, narrativeFixture.branch.id, "The later Run is bound to the selected branch scene.");
+  assert.equal(secondScene.data.run.steps[0]?.actorId, characterFixture["林昭"].id, "Lin Zhao takes the first later-scene turn.");
+  assert.equal(secondScene.data.run.steps[0]?.contextEvidenceRefs.some((reference) => reference.visibility === "heard" && reference.summary.includes(deliveredStatement)), true, "Lin Zhao's actual role-context tool receives the persisted cross-scene heard statement.");
+  assert.equal(secondScene.data.run.providerDispatches, 0, "The continuous N2A-to-N2C evidence remains a zero-Provider local rehearsal.");
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
   assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /本地\/网络模型发送 0 \/ 12 · 内部工具回合 [1-9]\d*/u, "A stopped local-tool turn must remain visible without being mislabelled as a model send.");
@@ -1630,8 +1666,15 @@ async function setupCharacterFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: fixtureProjectId });
   const created = [];
-  for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }, { title: "顾澜", subtype: "配角" }, { title: "程野", subtype: "次要角色" }, { title: "苏弦", subtype: "次要角色" }]) {
-    const result = await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype });
+  for (const character of [
+    { title: "林昭", subtype: "主要角色", profile: n2CharacterProfile("谨慎求证", "不伤害无辜", "N2_PRIVATE_LIN") },
+    { title: "阿芜", subtype: "配角", profile: n2CharacterProfile("重视同伴安全", "不独自追击未知目标", "N2_PRIVATE_AWU") },
+    { title: "陆衍", subtype: "次要角色", profile: n2CharacterProfile("谨慎旁观", "不接受未被告知的私下信息", "N2_PRIVATE_LU") },
+    { title: "顾澜", subtype: "配角" },
+    { title: "程野", subtype: "次要角色" },
+    { title: "苏弦", subtype: "次要角色" }
+  ]) {
+    const result = await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype, ...(character.profile ? { profile: character.profile } : {}) });
     created.push({ ...character, ...result.data.object });
   }
   characterFixture = Object.fromEntries(created.map((character) => [character.title, character]));
@@ -1648,6 +1691,18 @@ async function setupCharacterFixture() {
     noWritePolicy: true,
     fixtureMode: "deterministic"
   });
+}
+
+function n2CharacterProfile(core, boundaries, secret) {
+  return {
+    objectType: "character",
+    fields: {
+      character_core: { label: "角色核心", value: core, source: "author", confidence: "high", sourceAnchors: [] },
+      boundaries: { label: "底线", value: boundaries, source: "author", confidence: "high", sourceAnchors: [] },
+      private_notes: { label: "作者秘密", value: secret, source: "author", confidence: "high", sourceAnchors: [] }
+    },
+    authorConfirmed: true
+  };
 }
 
 async function setupObservationFixture() {
