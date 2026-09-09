@@ -14,8 +14,11 @@ import {
   cueNuwaN1Run,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderDispatch,
   recordNuwaN1ProviderPreflightFailure,
+  recordNuwaN1ProviderReservation,
   readNuwaN1Run,
+  resolveNuwaN1ProviderDispatch,
   resumeNuwaN1Run,
   startNuwaN1Run,
   buildStorySnapshot,
@@ -350,7 +353,15 @@ test("N1 records an invalid post-result delivery contract as a terminal failed a
       adapterId: "local-fake.invalid-delivery",
       async request(context) { return { type: "tool-request", toolName: "read_role_context", requestId: "tool.invalid-delivery", actor: context.actor }; },
       async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
-      async continueAfterTool({ context }) { return { type: "actor-result", actor: context.actor, intent: "静默", speech: null, heardByActorIds: ["character.阿芜"], action: { action: "observe", targetId: null }, observableResult: "不应提交。", usage: { inputTokens: 20, outputTokens: 20 } }; }
+      async continueAfterTool({ context }) {
+        for (const providerCall of [1, 2]) {
+          const requestKey = `nuwa-n1.fixture.invalid-delivery.${providerCall}`;
+          recordNuwaN1ProviderReservation({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", providerCall, requestKey, reservationId: `reservation.${providerCall}`, receiptEnvelopeId: `envelope.${providerCall}`, provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" } });
+          recordNuwaN1ProviderDispatch({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", requestKey });
+          resolveNuwaN1ProviderDispatch({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", requestKey, status: "completed" });
+        }
+        return { type: "actor-result", actor: context.actor, intent: "静默", speech: null, heardByActorIds: ["character.阿芜"], action: { action: "observe", targetId: null }, observableResult: "不应提交。", usage: { inputTokens: 20, outputTokens: 20 } };
+      }
     };
     const blocked = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n1.invalid-result", adapter: invalidDelivery });
     assert.equal(blocked.lifecycle, "blocked");
@@ -358,6 +369,9 @@ test("N1 records an invalid post-result delivery contract as a terminal failed a
     assert.equal(blocked.attempts[0]?.outcome, "failed");
     assert.notEqual(blocked.attempts[0]?.outcome, "pending");
     assert.deepEqual(blocked.attempts[0]?.usage, { inputTokens: 20, outputTokens: 20, source: "reported" });
+    assert.equal(blocked.providerDispatches, 2, "completed Provider sends remain accounted for after a later result-contract rejection");
+    assert.deepEqual(blocked.attempts[0]?.dispatches.map((dispatch) => [dispatch.phase, dispatch.status]), [["request", "dispatched"], ["continue-after-tool", "failed"], ["provider", "completed"], ["provider", "completed"]]);
+    assert.match(blocked.attempts[0]?.dispatches.find((dispatch) => dispatch.phase === "continue-after-tool")?.detail || "", /statement delivery requires a completed spoken statement/u);
   });
 });
 
