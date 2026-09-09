@@ -585,9 +585,79 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   assert.equal(model.run.steps[2]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId || ref.summary.includes(statement.speech!)), false, "丙的 actual tool context excludes the undisclosed statement");
 });
 
+test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart while C remains unaware", async (t) => {
+  const value = fixture({ threeActors: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  let server = await start(value, true); child = server.child;
+  const firstCreate = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("n2c-scene-one-create"));
+  assert.equal(firstCreate.status, 201, JSON.stringify(firstCreate.payload));
+  let first = firstCreate.payload.data as NuwaReadModel;
+  const firstStep = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-step" });
+  assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
+  first = firstStep.payload.data as NuwaReadModel;
+  const delivered = first.run.steps[0]!.heardStatements[0]!;
+  assert.equal(delivered.recipientId, value.characters[1]!.id);
+  assert.equal(first.contextInspector.actors[2]!.memoryItems.length, 0);
+  const paused = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/pause", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-pause" });
+  assert.equal(paused.status, 200, JSON.stringify(paused.payload));
+  first = paused.payload.data as NuwaReadModel;
+  const refreshed = await getJson(server.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${first.run.runId}`);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.payload.data as NuwaReadModel).run.steps[0]!.heardStatements[0]!.statement, delivered.statement);
+  const resumed = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/resume", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-resume" });
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.payload));
+  first = resumed.payload.data as NuwaReadModel;
+  const stopped = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-stop" });
+  assert.equal(stopped.status, 200, JSON.stringify(stopped.payload));
+
+  child.kill("SIGTERM");
+  await once(child, "exit");
+  child = null;
+  const secondUnit = value.operations.createStoryUnit({ projectId: value.project.id, title: "钟楼后的第二场" });
+  server = await start(value, true); child = server.child;
+  const participants = value.characters.slice(1).map((character, index) => {
+    const current = value.operations.readWorldObject({ projectId: value.project.id, objectId: character.id });
+    return { id: current.id, revision: current.revisionToken, localGoal: index === 0 ? "回想上一场听到的钟声线索" : "确认自己是否知道钟声线索" };
+  });
+  const secondRequest = { projectId: value.project.id, participants, storyUnit: { id: secondUnit.id, revision: secondUnit.version }, goal: "在第二场依据各自实际听闻判断钟声线索。", operationId: "n2c-scene-two" };
+  const setup = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/setup", secondRequest);
+  assert.equal(setup.status, 200, JSON.stringify(setup.payload));
+  const preview = setup.payload.data as { setup: { contextPreview: Array<{ actorId: string; memoryItems: Array<{ summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string } }> }> } };
+  assert.equal(preview.setup.contextPreview[0]!.memoryItems.length, 1, "B receives the persisted heard record in the later scene");
+  assert.equal(preview.setup.contextPreview[0]!.memoryItems[0]!.summary.includes(delivered.statement), true);
+  assert.deepEqual(preview.setup.contextPreview[0]!.memoryItems[0]!.source, {
+    memoryId: preview.setup.contextPreview[0]!.memoryItems[0]!.source.memoryId,
+    speakerId: value.characters[0]!.id,
+    sourceRunId: first.run.runId,
+    sourceStepId: first.run.steps[0]!.stepId,
+    sceneId: value.unit.id,
+    sceneObservedAt: preview.setup.contextPreview[0]!.memoryItems[0]!.source.sceneObservedAt,
+    workVersionId: preview.setup.contextPreview[0]!.memoryItems[0]!.source.workVersionId,
+    workRevision: preview.setup.contextPreview[0]!.memoryItems[0]!.source.workRevision,
+    validity: "active"
+  });
+  assert.equal(preview.setup.contextPreview[1]!.memoryItems.length, 0, "C remains unaware because no delivery named C");
+
+  const secondCreate = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", { ...secondRequest, operationId: "n2c-scene-two-create" });
+  assert.equal(secondCreate.status, 201, JSON.stringify(secondCreate.payload));
+  const second = secondCreate.payload.data as NuwaReadModel;
+  assert.equal(second.contextInspector.actors[0]!.profileBasis.core, "先保全退路", "B's author-owned profile basis remains connected to the recalled input");
+  assert.equal(second.contextInspector.actors[0]!.memoryItems[0]!.source.sourceRunId, first.run.runId);
+  assert.equal(second.contextInspector.actors[0]!.memoryItems[0]!.selectedByAttention, true, "the goal-relevant memory is selected by the bounded attention layer");
+  const recalledStep = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: second.run.runId, expectedRevision: second.run.revision, operationId: "n2c-scene-two-step" });
+  assert.equal(recalledStep.status, 200, JSON.stringify(recalledStep.payload));
+  const recalled = recalledStep.payload.data as NuwaReadModel;
+  assert.equal(recalled.run.steps[0]!.actorId, value.characters[1]!.id);
+  assert.equal(recalled.run.steps[0]!.contextEvidenceRefs.some((ref) => ref.visibility === "heard" && ref.summary.includes(delivered.statement)), true, "B's actual role-context tool receives the valid cross-scene memory");
+});
+
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
-  contextInspector: { actors: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }> }> };
+  contextInspector: { actors: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }>; memoryItems: Array<{ id: string; summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string }; selectedByAttention?: boolean }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
   authorization?: { id: string; status: string; storyUnitId: string; actorIds: string[] } | null;

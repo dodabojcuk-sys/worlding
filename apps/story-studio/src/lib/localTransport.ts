@@ -2230,6 +2230,8 @@ export type NuwaN1ProfileBasis = {
   sourceRevision: string;
   sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
 };
+export type NuwaN1MemorySource = { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: "active" };
+export type NuwaN1MemoryItem = { id: string; summary: string; source: NuwaN1MemorySource; selectedByAttention?: boolean };
 export type NuwaN1AttentionReport = {
   version: "tianyan-nuwa-n1-attention/v1";
   algorithm: "permission-first-lexical-utf8/v1";
@@ -2300,6 +2302,7 @@ export type NuwaN1ContextInspector = {
     evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
     knowledgeItems: Array<{ id: string; summary: string; visibility: string; sourceId: string; sourceRevision: string }>;
     beliefItems: Array<{ id: string; summary: string; stance: string; sourceId: string; sourceRevision: string }>;
+    memoryItems: NuwaN1MemoryItem[];
     excludedCount: number;
   }>;
 };
@@ -2338,7 +2341,7 @@ export type NuwaN1Setup = {
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
     goal: string;
-    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; evidenceRefs: string[]; excludedCount: number }>;
+    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; memoryItems: NuwaN1MemoryItem[]; evidenceRefs: string[]; excludedCount: number }>;
   };
 };
 export type NuwaN1CandidateResult = NuwaN1ReadModel & {

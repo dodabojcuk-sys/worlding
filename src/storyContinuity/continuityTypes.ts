@@ -4,6 +4,7 @@ export const CONTINUITY_MAX_ID_LENGTH = 96;
 export const PERSONA_VERSION = "story-tianyi-persona/v1" as const;
 export const RELATIONSHIP_POLICY_VERSION = "story-tianyi-relationship-policy/v1" as const;
 export const MEMORY_VERSION = "story-tianyi-memory/v1" as const;
+export const CHARACTER_MEMORY_LEDGER_VERSION = "story-continuity-character-memory-ledger/v1" as const;
 export const GLOBAL_MEMORY_GRANT_VERSION = "story-tianyi-global-memory-grant/v1" as const;
 export const INTERACTION_EVENT_VERSION = "story-tianyi-interaction-event/v1" as const;
 export const CONTEXT_RECEIPT_VERSION = "story-tianyi-context-receipt/v1" as const;
@@ -21,6 +22,7 @@ export type ContinuityOwnerKind =
   | "persona"
   | "relationship-policy"
   | "memory"
+  | "character-memory-ledger"
   | "global-memory-grant"
   | "session"
   | "context-receipt"
@@ -87,6 +89,41 @@ export type MemoryItem = {
   source_refs: string[];
   knowledge_subject_refs?: string[];
   body: string;
+};
+
+export type CharacterMemorySourceIdentity = {
+  kind: "root" | "unversioned-draft";
+  workVersionId: string;
+  revision: string;
+};
+
+export type CharacterHeardMemoryRecord = {
+  id: string;
+  epistemicState: "heard";
+  recipientId: string;
+  speakerId: string;
+  statement: string;
+  sourceRunId: string;
+  sourceStepId: string;
+  sourceStepRevision: string;
+  sourceScene: { id: string; revision: string; observedAt: string };
+  sourceIdentity: CharacterMemorySourceIdentity;
+  validity: {
+    state: "active" | "invalidated";
+    invalidatedAt: string | null;
+    invalidatedByOperationId: string | null;
+    reason: "source-rollback" | null;
+  };
+  recordedAt: string;
+};
+
+export type CharacterMemoryLedger = {
+  version: typeof CHARACTER_MEMORY_LEDGER_VERSION;
+  ownerId: string;
+  projectId: string;
+  recipientId: string;
+  state: "active";
+  records: CharacterHeardMemoryRecord[];
 };
 
 export type GlobalMemoryGrant = {

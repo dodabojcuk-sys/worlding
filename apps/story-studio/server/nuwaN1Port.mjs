@@ -22,6 +22,11 @@ import {
   startNuwaN1Run
 } from "../../../src/storyIntelligence/index.ts";
 import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import {
+  invalidateCharacterMemoriesByRun,
+  listRecallableCharacterMemories,
+  synchronizeCharacterHeardMemories
+} from "../../../src/storyContinuity/index.ts";
 
 const VERSION = "tianyan-nuwa-n1-port/v1";
 const FAKE_ADAPTER_ID = "local-n1-tool-roundtrip-fake/v1";
@@ -33,7 +38,7 @@ const AUTO_APPLICATION_RECEIPT_VERSION = "tianyan-nuwa-n1-auto-application/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, actionPermissionBroker = null, relationOperations = null, creationSourceSelectionPort = null, autoApplicationFaultInjector = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, continuityRootPath, continuityAgentId = "agent.nuwa", actionPermissionBroker = null, relationOperations = null, creationSourceSelectionPort = null, autoApplicationFaultInjector = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   /** Exactly one executable actor step may own a Run.  The entry owns its
    * cancellation handle and promise; duplicate delivery returns that promise
    * instead of replacing the handle. */
@@ -73,10 +78,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     };
   }
 
-  function setup(input) {
+  async function setup(input, frozenSourceIdentity = sourceIdentityForProject(input.projectId)) {
     const project = requireProject(input.projectId);
     const scene = resolveScene(input.projectId, input.storyUnit);
-    const actors = resolveActors(input.projectId, input.participants, scene);
+    const actors = await resolveActors(input.projectId, input.participants, scene, frozenSourceIdentity);
     const goal = requiredText(input.goal, "局部目标", 1_000);
     const previewRun = { runId: `nuwa-n1-preview.${createHash("sha256").update(`${project.id}:${scene.storyUnit.id}:${goal}`).digest("hex").slice(0, 20)}`, actors, scene, authorGoal: goal, steps: [], providerDispatches: 0, pendingCue: null };
     return {
@@ -98,6 +103,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
             evidenceRefs: [...context.knownFacts.map((fact) => fact.sourceId), ...context.beliefs.map((belief) => belief.sourceId)],
             knowledgeItems: context.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility })),
             beliefItems: context.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance })),
+            memoryItems: context.knownFacts.filter((fact) => fact.memorySource).map((fact) => ({ id: fact.factId, summary: fact.summary, source: fact.memorySource })),
             excludedCount: actor.unknownFactIds.length
           };
         })
@@ -105,10 +111,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     };
   }
 
-  function create(input) {
+  async function create(input) {
     requireExecutionAvailability();
-    const prepared = setup(input);
     const sourceIdentity = sourceIdentityForProject(input.projectId);
+    const prepared = await setup(input, sourceIdentity);
     if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && (sourceIdentity?.kind !== "root" || !Number.isSafeInteger(Number(sourceIdentity.revision)))) {
       throw failure("女娲高权限排演必须先绑定当前作品的正式主版本；未建立主版本时不会建立 Run 或授权。", 409);
     }
@@ -144,7 +150,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         observedAt: now()
       },
       authorGoal: prepared.setup.goal,
-      actors: resolveActors(input.projectId, input.participants, resolveScene(input.projectId, input.storyUnit)),
+      actors: await resolveActors(input.projectId, input.participants, resolveScene(input.projectId, input.storyUnit), sourceIdentity),
       operationId,
       now: now()
     });
@@ -206,6 +212,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         adapter,
         now: now()
       });
+      await synchronizeCharacterHeardMemories(continuityContext(input.projectId), next);
       return present(input.projectId, next);
     })();
     execution.promise = promise;
@@ -544,7 +551,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
    * changes the Run outcome: the Run remains historical evidence while the
    * formal Owners record a later reversal and a new WorkVersion revision.
    */
-  function rollbackAutoApplication(input) {
+  async function rollbackAutoApplication(input) {
     const project = requireProject(input.projectId);
     const current = requireRun(workspacePath(project.id), input.runId);
     const receipt = requireAutoApplicationReceipt(project.id, current.runId, input.receiptId);
@@ -555,7 +562,10 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     let rollback = application.rollback;
     if (rollback) {
       if (rollback.inputHash !== inputHash) throw failure("同一回溯操作键已绑定不同内容；已拒绝重放。", 409);
-      if (rollback.status === "active") return presentAutoApplication(project.id, current, receipt);
+      if (rollback.status === "active") {
+        await invalidateCharacterMemoriesByRun(continuityContext(project.id), { runId: current.runId, invalidatedAt: rollback.updatedAt, operationId: `nuwa-memory-rollback.${digest(rollback.operationId)}` });
+        return presentAutoApplication(project.id, current, receipt);
+      }
     } else {
       rollback = { operationId, inputHash, status: "applying", preflight: null, relation: null, arrangement: null, storyUnit: null, material: null, compensation: null, workVersionReceiptId: null, resultVersion: null, failure: null, recordedAt: now(), updatedAt: now() };
       application.rollback = rollback;
@@ -647,6 +657,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       rollback.status = "active";
       rollback.failure = null;
       persistAutoApplication(receipt);
+      await invalidateCharacterMemoriesByRun(continuityContext(project.id), { runId: current.runId, invalidatedAt: receipt.updatedAt, operationId: `nuwa-memory-rollback.${digest(rollback.operationId)}` });
       return presentAutoApplication(project.id, current, receipt);
     } catch (cause) {
       rollback.status = "recovery-required";
@@ -752,6 +763,12 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
             ],
             knowledgeItems: context.knownFacts.map((fact) => ({ id: fact.factId, summary: fact.summary, visibility: fact.visibility, sourceId: fact.sourceId, sourceRevision: fact.sourceRevision })),
             beliefItems: context.beliefs.map((belief) => ({ id: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceId: belief.sourceId, sourceRevision: belief.sourceRevision })),
+            memoryItems: actor.knownFacts.filter((fact) => fact.memorySource).map((fact) => ({
+              id: fact.factId,
+              summary: fact.summary,
+              source: fact.memorySource,
+              selectedByAttention: context.attention.selected.some((item) => item.key === `knowledge:${fact.factId}`)
+            })),
             excludedCount: actor.unknownFactIds.length
           };
         })
@@ -784,7 +801,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     return active.length === 1 ? active[0] : null;
   }
 
-  function resolveActors(projectId, refs, scene) {
+  async function resolveActors(projectId, refs, scene, sourceIdentity) {
     if (!Array.isArray(refs) || refs.length < 2 || refs.length > 3) throw failure("女娲 N1 需要选择两到三个正式角色。", 400);
     const seen = new Set();
     const linkedEntityIds = new Set(operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds);
@@ -795,7 +812,7 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
     const formalCharacters = operations.listWorldObjects({ projectId, type: "character" })
       .filter((item) => item.status !== "archived")
       .map((item) => ({ id: item.id, label: item.title, revisionToken: item.revisionToken }));
-    return refs.map((ref) => {
+    return Promise.all(refs.map(async (ref) => {
       if (!ref || typeof ref.id !== "string" || seen.has(ref.id)) throw failure("角色必须使用不同的稳定身份。", 400);
       seen.add(ref.id);
       const summary = operations.listWorldObjects({ projectId, type: "character" }).find((item) => item.id === ref.id && item.status !== "archived");
@@ -812,6 +829,24 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
       const knownFacts = projection.visibleEvents
         .filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState))
         .map((event) => ({ factId: event.eventId, summary: `${event.knowledgeLabel}：${event.title}`, sourceRef: { id: event.eventId, revision: event.revisionToken }, visibility: event.knowledgeState, attentionRequired: true }));
+      const recalledMemories = await listRecallableCharacterMemories(continuityContext(projectId), { recipientId: summary.id, sourceIdentity, observedAt: scene.observedAt });
+      knownFacts.push(...recalledMemories.map((memory) => ({
+        factId: memory.id,
+        summary: `听闻：${memory.speakerId} 说“${memory.statement}”`,
+        sourceRef: { id: memory.id, revision: digest({ memoryId: memory.id, sourceStepRevision: memory.sourceStepRevision, sourceRunId: memory.sourceRunId }) },
+        visibility: "heard",
+        memorySource: {
+          memoryId: memory.id,
+          speakerId: memory.speakerId,
+          sourceRunId: memory.sourceRunId,
+          sourceStepId: memory.sourceStepId,
+          sceneId: memory.sourceScene.id,
+          sceneObservedAt: memory.sourceScene.observedAt,
+          workVersionId: memory.sourceIdentity.workVersionId,
+          workRevision: memory.sourceIdentity.revision,
+          validity: memory.validity.state
+        }
+      })));
       const beliefs = projection.visibleEvents
         .filter((event) => ["believes", "suspects", "misled", "denied", "contradicted"].includes(event.knowledgeState))
         .map((event) => ({
@@ -833,7 +868,12 @@ export function createNuwaN1Port({ operations, authorControl, actionPermissionBr
         unknownFactIds,
         allowedActions: ["speak", "observe", "ask"]
       };
-    });
+    }));
+  }
+
+  function continuityContext(projectId) {
+    if (!continuityRootPath) throw failure("Story Continuity 根目录未配置；没有写入角色记忆。", 503);
+    return { rootPath: continuityRootPath, agentId: continuityAgentId, scope: "project", projectId };
   }
 
   function resolveCharacterProfileBasis(character) {

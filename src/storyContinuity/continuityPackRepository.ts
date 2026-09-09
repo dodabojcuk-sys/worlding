@@ -19,6 +19,7 @@ import type { OwnerCodec } from "./continuityOwnerRepository.ts";
 import { readResolvedOwner } from "./continuityOwnerRepository.ts";
 import { interactionArchiveCodec } from "./interactionArchiveRepository.ts";
 import { globalMemoryGrantCodec, memoryCodec } from "./memoryGrantRepositories.ts";
+import { characterMemoryLedgerCodec } from "./characterMemoryRepository.ts";
 import { personaCodec, relationshipPolicyCodec } from "./personaPolicyRepositories.ts";
 import { contextReceiptCodec, stoppingPointCodec } from "./receiptStoppingRepositories.ts";
 import {
@@ -111,7 +112,9 @@ export async function exportContinuityPack(rootPath: string, input: ExportContin
         if (!current) throw new Error("Continuity Pack selection does not exist.");
         const value = current.value as Record<string, unknown>;
         if (value.state === "revoked") throw new Error("Revoked continuity owners are not exported by default.");
-        const sensitivity = normalized.kind === "memory" ? String(value.sensitivity) as MemorySensitivity : null;
+        const sensitivity = normalized.kind === "memory"
+          ? String(value.sensitivity) as MemorySensitivity
+          : normalized.kind === "character-memory-ledger" ? "personal" : null;
         assertExportSensitivity(sensitivity, input);
         const source = await readSecureUtf8(location, codec.maximumBytes);
         if (source === null || sha256(source) !== current.contentHash) throw new Error("Continuity Pack source changed during export.");
@@ -198,7 +201,9 @@ export async function stageContinuityPack(rootPath: string, input: { sourcePackI
         const location = await resolveContinuityOwner(context, parsed.kind, parsed.id);
         const codec = codecFor(parsed.kind);
         const normalized = codec.normalizeSource(source, location);
-        const sensitivity = parsed.kind === "memory" ? String((normalized.value as Record<string, unknown>).sensitivity) as MemorySensitivity : null;
+        const sensitivity = parsed.kind === "memory"
+          ? String((normalized.value as Record<string, unknown>).sensitivity) as MemorySensitivity
+          : parsed.kind === "character-memory-ledger" ? "personal" : null;
         if (sensitivity === "restricted") throw new Error("Restricted Memory cannot enter import staging.");
         if (sensitivity) sensitivitySummary[sensitivity] += 1;
         const target = resolvePackChild(temporaryDirectory, packPath);
@@ -288,6 +293,7 @@ function codecFor(kind: ContinuityOwnerKind): OwnerCodec<Record<string, unknown>
     persona: personaCodec,
     "relationship-policy": relationshipPolicyCodec,
     memory: memoryCodec,
+    "character-memory-ledger": characterMemoryLedgerCodec,
     "global-memory-grant": globalMemoryGrantCodec,
     session: interactionArchiveCodec,
     "context-receipt": contextReceiptCodec,
@@ -307,15 +313,16 @@ function parseCanonicalOwnerPath(relativePath: string): Omit<StagedCandidate, "p
     if (global[2] === "relationship-policy.json") return { kind: "relationship-policy", id: agentId, agentId, scope: "author-global", projectId: null };
     return { kind: "memory", id: requireMachineId(global[3], "Imported Memory identifier"), agentId, scope: "author-global", projectId: null };
   }
-  const project = normalized.match(/^([^/]+)\/continuity\/agents\/([^/]+)\/(memories\/([^/]+)\.md|global-memory-grants\/([^/]+)\.grant\.json|sessions\/([^/]+)\.jsonl|receipts\/([^/]+)\.context-receipt\.json|stopping-points\/([^/]+)\.md)$/u);
+  const project = normalized.match(/^([^/]+)\/continuity\/agents\/([^/]+)\/(memories\/([^/]+)\.md|character-memory-ledgers\/([^/]+)\.ledger\.json|global-memory-grants\/([^/]+)\.grant\.json|sessions\/([^/]+)\.jsonl|receipts\/([^/]+)\.context-receipt\.json|stopping-points\/([^/]+)\.md)$/u);
   if (!project) throw new Error("Continuity Pack owner path is unknown.");
   const projectId = requireProjectId(project[1]);
   const agentId = requireMachineId(project[2], "Imported Agent identifier");
   if (project[4]) return { kind: "memory", id: requireMachineId(project[4], "Imported Memory identifier"), agentId, scope: "project", projectId };
-  if (project[5]) return { kind: "global-memory-grant", id: requireMachineId(project[5], "Imported grant Memory identifier"), agentId, scope: "project", projectId };
-  if (project[6]) return { kind: "session", id: requireMachineId(project[6], "Imported session identifier"), agentId, scope: "project", projectId };
-  if (project[7]) return { kind: "context-receipt", id: requireMachineId(project[7], "Imported Receipt identifier"), agentId, scope: "project", projectId };
-  return { kind: "stopping-point", id: requireMachineId(project[8], "Imported stopping-point identifier"), agentId, scope: "project", projectId };
+  if (project[5]) return { kind: "character-memory-ledger", id: requireMachineId(project[5], "Imported Character Memory ledger identifier"), agentId, scope: "project", projectId };
+  if (project[6]) return { kind: "global-memory-grant", id: requireMachineId(project[6], "Imported grant Memory identifier"), agentId, scope: "project", projectId };
+  if (project[7]) return { kind: "session", id: requireMachineId(project[7], "Imported session identifier"), agentId, scope: "project", projectId };
+  if (project[8]) return { kind: "context-receipt", id: requireMachineId(project[8], "Imported Receipt identifier"), agentId, scope: "project", projectId };
+  return { kind: "stopping-point", id: requireMachineId(project[9], "Imported stopping-point identifier"), agentId, scope: "project", projectId };
 }
 
 function assertExportSensitivity(sensitivity: MemorySensitivity | null, input: ExportContinuityPackInput): void {

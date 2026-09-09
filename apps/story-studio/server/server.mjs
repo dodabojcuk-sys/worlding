@@ -187,6 +187,8 @@ const nuwaN1AutoApplicationFaultInjector = process.env.NODE_ENV === "test" && (p
 const nuwaN1Port = createNuwaN1Port({
   operations,
   authorControl,
+  continuityRootPath: rootPath,
+  continuityAgentId: "agent.nuwa",
   actionPermissionBroker,
   relationOperations,
   creationSourceSelectionPort: () => creationSourceSelectionPort,
@@ -3529,7 +3531,7 @@ async function handleNuwaN1Request(request, response, url) {
   const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
   if (route === "setup" || route === "create") {
     requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "relationTypeId", "operationId"]);
-    const result = runProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
+    const result = await runAsyncProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
     if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
     sendJson(response, route === "create" ? 201 : 200, { data: result });
     return;
@@ -3595,7 +3597,7 @@ async function handleNuwaN1Request(request, response, url) {
   }
   if (route === "auto-rollback") {
     requireAllowedKeys(body, ["projectId", "runId", "receiptId", "operationId"]);
-    const result = runProductOperation(() => nuwaN1Port.rollbackAutoApplication(body));
+    const result = await runAsyncProductOperation(() => nuwaN1Port.rollbackAutoApplication(body));
     sendJson(response, 200, { data: result });
     return;
   }

@@ -84,6 +84,10 @@
 .nuwa-n1-attention-sources span { min-width: 0; overflow-wrap: anywhere; font-size: .66rem; }
 .nuwa-n1-attention-budget { display: grid; gap: .12rem; margin-block: .45rem; padding: .36rem; background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface)); border-radius: .25rem; }
 .nuwa-n1-attention-budget span { color: var(--color-text-muted); font-size: .62rem; line-height: 1.4; }
+.nuwa-n1-memory-sources { display: grid; gap: .3rem; margin-block: .45rem; padding: .4rem; border-inline-start: 2px solid var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 28%, var(--color-surface)); }
+.nuwa-n1-memory-sources ul { display: grid; gap: .28rem; margin: 0; padding-inline-start: 1rem; }
+.nuwa-n1-memory-sources li { display: grid; gap: .08rem; color: var(--color-text-muted); font-size: .67rem; line-height: 1.4; }
+.nuwa-n1-memory-sources li small { overflow-wrap: anywhere; }
 .nuwa-n1-reader article > footer span[data-kind="tool"] { color: var(--color-accent); }
 .nuwa-n1-empty-run { min-block-size: 18rem; display: grid; place-content: center; justify-items: center; gap: .35rem; padding: 1rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed var(--color-border); text-align: center; }
 .nuwa-n1-empty-run svg { inline-size: 1.5rem; color: var(--color-accent); }

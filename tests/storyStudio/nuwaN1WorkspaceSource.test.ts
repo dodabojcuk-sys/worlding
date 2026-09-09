@@ -93,3 +93,20 @@ test("Nuwa N2B keeps attention permission-first, deterministic and visible at th
   assert.match(workspace, /保守预算/u);
   assert.match(workspace, /权限排除（身份隐藏）/u);
 });
+
+test("Nuwa N2C shows cross-scene heard provenance without making the RunPack its permanent owner", () => {
+  const continuity = source("src/storyContinuity/characterMemoryRepository.ts");
+  const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
+  const port = source("apps/story-studio/server/nuwaN1Port.mjs");
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+
+  assert.match(continuity, /epistemicState: "heard"/u);
+  assert.match(continuity, /sourceScene/u);
+  assert.match(continuity, /sourceIdentity/u);
+  assert.match(continuity, /invalidateCharacterMemoriesByRun/u);
+  assert.match(port, /synchronizeCharacterHeardMemories/u);
+  assert.match(port, /listRecallableCharacterMemories/u);
+  assert.match(runtime, /fact\.memorySource/u, "the Run keeps only a frozen recall projection");
+  assert.match(workspace, /跨场景听闻记忆（仍是 heard，不是世界事实）/u);
+  assert.match(workspace, /当前有效/u);
+});
