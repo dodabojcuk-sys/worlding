@@ -1583,14 +1583,23 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   await page.waitForFunction((artifactId) => document.querySelector('select[aria-label="固定创作稿"]')?.value === artifactId && Boolean(document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id")), fixedArtifactId);
   const packagePanel = creation.getByLabel("中性故事包");
   await packagePanel.waitFor();
+  const fixedArtifactPackageId = await creation.getAttribute("data-package-id");
+  assert.ok(fixedArtifactPackageId, "The selected fixed draft A has one visible package identity before download.");
   const firstDownloadButton = packagePanel.getByRole("button", { name: "下载 Markdown", exact: true });
   assert.equal(await firstDownloadButton.isEnabled(), true, "The frozen package is downloadable from the normal Creation UI.");
   const [firstDownload] = await Promise.all([page.waitForEvent("download"), firstDownloadButton.click()]);
   const firstDownloadPath = await firstDownload.path();
   assert.ok(firstDownloadPath, "The fixed draft must produce an actual browser download.");
   const firstMarkdown = readFileSync(firstDownloadPath, "utf8");
+  const [firstAuthorReadableBody, firstSourceAppendix = ""] = firstMarkdown.split("## 来源说明");
+  assert.match(firstAuthorReadableBody, /天衍中性故事稿 · 作者阅读版 v2/u, "New fixed drafts download the author-readable Markdown v2 format.");
   assert.match(firstMarkdown, /北闸已封。/u, "The downloaded fixed Markdown contains the selected Run dialogue.");
-  assert.match(firstMarkdown, /角色完成一次受限观察/u, "The downloaded fixed Markdown contains the selected Run action outcome.");
+  assert.match(firstAuthorReadableBody, /\*\*对白\*\*：北闸已封。/u, "The author-readable body renders dialogue as dialogue.");
+  assert.match(firstAuthorReadableBody, /\*\*行动\*\*：观察/u, "The author-readable body renders the selected Run action.");
+  assert.match(firstAuthorReadableBody, /\*\*结果\*\*：角色完成一次受限观察/u, "The author-readable body renders the selected Run action outcome.");
+  assert.match(firstAuthorReadableBody, /\*\*听闻\*\*：林昭 听 阿芜 说：“北闸已封。”/u, "The author-readable body retains who heard the dialogue.");
+  assert.doesNotMatch(firstAuthorReadableBody, /selectedSourceBody|character\./u, "Implementation fields stay out of the author-readable body.");
+  assert.match(firstSourceAppendix, /渲染格式：`tianyan-author-readable-markdown\/v2`/u, "The source appendix retains export provenance.");
   assert.doesNotMatch(firstMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "The fixed browser download excludes unselected and unauthorized material.");
   if (r5ContinuousEvidenceDirectory) copyFileSync(firstDownloadPath, path.join(r5ContinuousEvidenceDirectory, "09-nuwa-auto-fixed-before-rollback.md"));
   if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "10-1440-nuwa-fixed-draft.png"), fullPage: false });
@@ -1625,6 +1634,13 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   assert.ok(secondDownloadPath, "The original fixed draft remains downloadable after compensation.");
   const secondMarkdown = readFileSync(secondDownloadPath, "utf8");
   assert.equal(secondMarkdown, firstMarkdown, "The old fixed Markdown remains byte-for-byte frozen after rollback.");
+  // This is the post-compensation proof for fixed draft A. Keep it before the
+  // deliberate later A→B race exercise so a final B screenshot is never
+  // mislabelled as evidence that A was re-opened after compensation.
+  if (r5ContinuousEvidenceDirectory) {
+    copyFileSync(secondDownloadPath, path.join(r5ContinuousEvidenceDirectory, "10-nuwa-auto-fixed-after-rollback-a.md"));
+    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "11-1440-nuwa-fixed-after-rollback-a.png"), fullPage: false });
+  }
 
   const ambiguous = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.equal(ambiguous.data.packageMode, "blocked", "A multi-draft read without an explicit target remains blocked.");
@@ -1688,9 +1704,24 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   assert.ok(bDownloadAfterLateAPath, "Fixed draft B remains downloadable after both late A responses.");
   assert.equal(readFileSync(bDownloadAfterLateAPath, "utf8"), bMarkdown, "The actual B download remains byte-for-byte B after late A success and error responses.");
   if (r5ContinuousEvidenceDirectory) {
-    copyFileSync(secondDownloadPath, path.join(r5ContinuousEvidenceDirectory, "10-nuwa-auto-fixed-after-rollback.md"));
     copyFileSync(bDownloadAfterLateAPath, path.join(r5ContinuousEvidenceDirectory, "11-creation-fixed-b-after-late-a.md"));
-    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "11-1440-nuwa-fixed-after-rollback.png"), fullPage: false });
+    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "12-1440-creation-fixed-b-after-late-a.png"), fullPage: false });
+    writeFileSync(path.join(r5ContinuousEvidenceDirectory, "12-fixed-draft-identity.json"), `${JSON.stringify({
+      schemaVersion: "tianyan-n3-fixed-draft-identity-evidence/r1",
+      projectId: fixtureProjectId,
+      sourceRunId: completed.data.run.runId,
+      automaticApplicationReceiptId: automatic.receiptId,
+      fixedArtifact: {
+        artifactId: fixedArtifactId,
+        sourceWorkVersion: automatic.fixedDraft?.sourceVersion ?? automatic.resultVersion ?? null,
+        packageId: fixedArtifactPackageId,
+        downloads: [
+          { phase: "before-rollback", savedFile: "09-nuwa-auto-fixed-before-rollback.md", screenshot: "10-1440-nuwa-fixed-draft.png" },
+          { phase: "after-rollback", savedFile: "10-nuwa-auto-fixed-after-rollback-a.md", screenshot: "11-1440-nuwa-fixed-after-rollback-a.png" }
+        ]
+      },
+      distinctArtifactB: { artifactId: otherArtifact.value, savedFile: "11-creation-fixed-b-after-late-a.md", screenshot: "12-1440-creation-fixed-b-after-late-a.png" }
+    }, null, 2)}\n`, "utf8");
   }
   assert.deepEqual(consoleProblems, [], "The high-permission UI closeout must not produce browser warnings or errors.");
 }

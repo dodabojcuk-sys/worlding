@@ -1,6 +1,12 @@
 export const NEUTRAL_STORY_PACKAGE_SCHEMA_VERSION = "tianyan-neutral-story-package/v1" as const;
 export const NEUTRAL_STORY_PACKAGE_PROVENANCE_VERSION = "tianyan-neutral-story-package-provenance/v1" as const;
-export const NEUTRAL_STORY_PACKAGE_EXPORTER_VERSION = "1.0.0";
+/**
+ * The package contract remains v1. This version identifies the presentation
+ * frozen in story.md, so old pinned snapshots remain byte-for-byte readable
+ * instead of being silently re-rendered by a newer reader.
+ */
+export const NEUTRAL_STORY_PACKAGE_RENDERING_FORMAT = "tianyan-author-readable-markdown/v2" as const;
+export const NEUTRAL_STORY_PACKAGE_EXPORTER_VERSION = "2.0.0";
 
 export type NeutralStorySourceRef = {
   sourceKind: string;
@@ -192,7 +198,7 @@ export async function buildNeutralStoryPackage(input: NeutralStoryPackageExportI
   const sourceAnchors = collectSourceAnchors(normalizedUnits);
   const assetReferences = (input.assetReferences || []).map(normalizeAssetReference).sort((left, right) => left.assetId.localeCompare(right.assetId));
   const warnings = [...missingUnitWarnings, ...sourceAnchors.filter((anchor) => anchor.staleState !== "fresh").map((anchor) => `Source anchor ${anchor.anchorId} is ${anchor.staleState}.`)].sort();
-  const storyMarkdown = renderStoryMarkdown(projectRef.title, scope, normalizedUnits, warnings);
+  const storyMarkdown = renderStoryMarkdown(projectRef.title, scope, normalizedUnits, warnings, sourceAnchors);
   const projections: Record<string, string> = {};
   const storyUnitsProjection = {
     schemaVersion: "tianyan-neutral-story-package-projection/v1",
@@ -377,40 +383,125 @@ function collectSourceAnchors(units: NeutralStoryUnitInput[]): NeutralSourceAnch
   return Array.from(anchors.values()).sort((left, right) => left.anchorId.localeCompare(right.anchorId));
 }
 
-function renderStoryMarkdown(projectTitle: string, scope: NeutralStoryPackageManifestV1["scope"], units: NeutralStoryUnitInput[], warnings: string[]): string {
+function renderStoryMarkdown(projectTitle: string, scope: NeutralStoryPackageManifestV1["scope"], units: NeutralStoryUnitInput[], warnings: string[], sourceAnchors: NeutralSourceAnchorV1[]): string {
   const lines = [
     `# ${projectTitle}`,
     "",
-    "> Neutral Story Package V1 · source-bound read-only projection",
-    `> Scope: ${scope.label}`,
+    "> 天衍中性故事稿 · 作者阅读版 v2",
+    `> 交付范围：${scope.label}`,
     "",
-    "## Delivery notes",
+    "## 正文",
     "",
-    "This document is a neutral story result. Output format is intentionally selected after this package is reviewed.",
-    ...(warnings.length ? ["", "### Source warnings", "", ...warnings.map((warning) => `- ${warning}`)] : []),
-    "",
-    "## Story Units",
-    ""
   ];
-  if (!units.length) lines.push("No Story Unit is currently selected.", "");
+  const sourceNotes: string[] = [];
+  if (!units.length) lines.push("当前没有可交付的故事单元。", "");
   units.forEach((unit, index) => {
-    lines.push(`### ${index + 1}. ${unit.title}`, "", unit.summary || "No summary provided.", "");
+    lines.push(`### ${index + 1}. ${unit.title}`, "");
     if (unit.items.length) {
-      lines.push("#### Narrative material", "");
+      lines.push("#### 场景内容", "");
       for (const item of unit.items) {
-        const status = item.possibilityStatus ? ` · ${item.possibilityStatus}` : "";
-        lines.push(`- **${item.authority} · ${item.kind}${status}**: ${readableValue(item.content)}`);
+        const rendered = renderAuthorMaterial(item.content);
+        lines.push(rendered.main, "");
+        sourceNotes.push(...rendered.sourceNotes);
       }
-      lines.push("");
     }
   });
+  lines.push(
+    "## 来源说明",
+    "",
+    `- 渲染格式：\`${NEUTRAL_STORY_PACKAGE_RENDERING_FORMAT}\`。新建固定稿会冻结本页正文与来源快照；旧固定稿继续按其原始字节读取。`,
+    `- 交付范围：${scope.label}。未选步骤、候选、作者意图和未授权内容不进入正文。`,
+    "- 正文保留已选择来源的段落、对白、行动与结果；授权状态、运行标识和来源回执在本附录中定位，不混入场景正文。",
+    ""
+  );
+  if (sourceNotes.length) lines.push("### 本次来源摘记", "", ...Array.from(new Set(sourceNotes)).sort().map((note) => `- ${note}`), "");
+  if (sourceAnchors.length) lines.push("### 来源回执索引", "", ...sourceAnchors.map((anchor) => `- ${anchor.anchorId}`).sort(), "");
+  if (warnings.length) lines.push("### 来源提示", "", ...warnings.map((warning) => `- ${warning}`), "");
   return `${lines.join("\n").replace(/\n{3,}/gu, "\n\n").trim()}\n`;
 }
 
-function readableValue(value: unknown): string {
-  if (typeof value === "string") return redactSensitiveText(value).replace(/\s+/gu, " ").trim();
-  if (value === null || typeof value === "number" || typeof value === "boolean") return String(value);
-  return redactSensitiveText(canonicalJson(value)).trim();
+function renderAuthorMaterial(value: unknown): { main: string; sourceNotes: string[] } {
+  if (typeof value === "string") return { main: preserveAuthorText(value), sourceNotes: [] };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { main: `> 已选择内容：${String(value)}`, sourceNotes: [] };
+  const record = value as Record<string, unknown>;
+  const selectedSourceBody = textField(record.selectedSourceBody);
+  if (selectedSourceBody) {
+    const rendered = renderNarrativeBody(selectedSourceBody, true);
+    const formalBody = textField(record.body);
+    return {
+      main: rendered.main,
+      sourceNotes: [
+        ...rendered.sourceNotes,
+        ...(textField(record.title) ? [`正式事件：${redactSensitiveText(textField(record.title)!)}。`] : []),
+        ...(formalBody?.includes("按作者范围授权自动应用") ? ["正式应用：已按作者范围授权自动应用；详见来源回执索引。"] : [])
+      ]
+    };
+  }
+  const body = textField(record.body);
+  if (body) return renderNarrativeBody(body, false);
+  const title = textField(record.title);
+  if (title) return { main: `**${redactSensitiveText(title)}**`, sourceNotes: [] };
+  // An author may intentionally provide a JSON or code fragment as story
+  // material. Preserve it verbatim in a fenced block instead of attempting a
+  // broad JSON parse or losing it while making the common Event shape readable.
+  return { main: `\`\`\`json\n${redactSensitiveText(canonicalJson(record)).trim()}\n\`\`\``, sourceNotes: [] };
+}
+
+function renderNarrativeBody(value: string, moveSourceMarkers: boolean): { main: string; sourceNotes: string[] } {
+  const original = redactSensitiveText(value).replace(/\r\n?/gu, "\n").trim();
+  if (!original) return { main: "> 已选择来源没有可显示的正文。", sourceNotes: [] };
+  if (looksLikeJsonDocument(original)) return { main: `\`\`\`json\n${original}\n\`\`\``, sourceNotes: [] };
+  const sourceNotes: string[] = [];
+  const lines: string[] = [];
+  let currentActor: string | null = null;
+  for (const sourceLine of original.split("\n")) {
+    const line = sourceLine.trimEnd();
+    if (moveSourceMarkers && /^\s*-\s*(来源步骤|来源女娲 Run|高权限范围授权|自动应用回执|决策来源)\s*：/u.test(line)) {
+      sourceNotes.push(line.replace(/^\s*-\s*/u, ""));
+      continue;
+    }
+    if (/^#\s+/u.test(line)) { lines.push(`### ${line.replace(/^#+\s*/u, "")}`); continue; }
+    const sceneActor = line.match(/^##\s+(.+?)的场景行动\s*$/u);
+    if (sceneActor) {
+      currentActor = sceneActor[1].trim();
+      lines.push(`#### ${currentActor}的场景行动`);
+      continue;
+    }
+    if (/^##\s+/u.test(line)) { lines.push(`#### ${line.replace(/^#+\s*/u, "")}`); continue; }
+    const heard = line.match(/^\s*依据受限上下文核对：听到\s+character\.([^\s]+)\s+的说法：(.+)$/u);
+    if (heard) {
+      const listener = currentActor ? `${currentActor} 听 ${heard[1]} 说` : `${heard[1]} 说`;
+      lines.push(`**听闻**：${listener}：“${heard[2]}”`);
+      continue;
+    }
+    const dialogue = line.match(/^\s*台词\s*：\s*(.+)$/u);
+    if (dialogue) { lines.push(`**对白**：${dialogue[1]}`); continue; }
+    const action = line.match(/^\s*行动\s*：\s*(.+)$/u);
+    if (action) { lines.push(`**行动**：${authorReadableAction(action[1])}`); continue; }
+    const outcome = line.match(/^\s*结果\s*：\s*(.+)$/u);
+    if (outcome) { lines.push(`**结果**：${outcome[1]}`); continue; }
+    lines.push(line);
+  }
+  return { main: lines.join("\n").replace(/\n{3,}/gu, "\n\n").trim(), sourceNotes };
+}
+
+function preserveAuthorText(value: string): string {
+  const text = redactSensitiveText(value).replace(/\r\n?/gu, "\n").trim();
+  return looksLikeJsonDocument(text) ? `\`\`\`json\n${text}\n\`\`\`` : text;
+}
+
+function looksLikeJsonDocument(value: string): boolean {
+  const trimmed = value.trim();
+  return (trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function authorReadableAction(value: string): string {
+  const action = value.trim();
+  return ({ observe: "观察", speak: "交谈", move: "移动", inspect: "查看" } as Record<string, string>)[action] || action;
+}
+
+function textField(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function normalizeForCanonicalJson(value: unknown): unknown {
