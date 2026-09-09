@@ -146,6 +146,7 @@ type PersistedAuthorChangeSet = {
   changeSetId: string;
   reviewId: string;
   projectId: string;
+  workVersionId: string | null;
   source: PersistedReviewSource;
   sourceScene?: { id: string; relativeId: string; title: string };
   baseline: {
@@ -175,6 +176,7 @@ type PersistedApplyIntent = {
   version: typeof APPLY_INTENT_VERSION;
   contractVersion: typeof APPLY_CONTRACT_VERSION;
   projectId: string;
+  workVersionId: string | null;
   changeSetId: string;
   changeSetRevision: string;
   authorDecisionRef: string;
@@ -830,7 +832,7 @@ export function createStoryStudioAuthorControl(input: {
       return projectReview(next, snapshot, false);
     },
 
-    createAuthorChangeSet(changeInput: { projectId: string; reviewId: string; decisionSource?: "author-action" | "nuwa-scope-authorization"; authorizationId?: string | null }): StoryStudioAuthorChangeSet {
+    createAuthorChangeSet(changeInput: { projectId: string; reviewId: string; workVersionId?: string | null; decisionSource?: "author-action" | "nuwa-scope-authorization"; authorizationId?: string | null }): StoryStudioAuthorChangeSet {
       const projectPath = workspace.resolveProjectWorkspacePath({ projectId: changeInput.projectId });
       const review = requireReview(projectPath, changeInput.reviewId);
       if (review.status !== "selected" || !review.preview || !review.resolution?.commitCandidate) {
@@ -868,6 +870,7 @@ export function createStoryStudioAuthorControl(input: {
         changeSetId,
         reviewId: review.reviewId,
         projectId: changeInput.projectId,
+        workVersionId: changeInput.workVersionId ?? null,
         source: review.source,
         baseline: { snapshotHash: review.snapshotHash, sourceRevisionToken: review.source.revisionToken, objectRevisions },
         affectedNoteIds,
@@ -1008,6 +1011,7 @@ export function createStoryStudioAuthorControl(input: {
 
       const publication = workspace.createConfirmedEventOnce({
         projectId: intent.projectId,
+        workVersionId: intent.workVersionId,
         targetEventRef: intent.targetEventRef,
         title: intent.event.title,
         body: intent.event.body,
@@ -1969,6 +1973,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     changeSetId: artifact.changeSetId,
     reviewId: artifact.reviewId,
     projectId: artifact.projectId,
+    workVersionId: artifact.workVersionId,
     source: artifact.source,
     baseline: artifact.baseline,
     affectedNoteIds: artifact.affectedNoteIds,
@@ -1991,6 +1996,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
   const applyOperationKey = `author-change-set-apply-${stableHash({
     contractVersion: APPLY_CONTRACT_VERSION,
     projectId: artifact.projectId,
+    workVersionId: artifact.workVersionId,
     changeSetId: artifact.changeSetId,
     changeSetRevision,
     authorDecisionRef
