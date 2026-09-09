@@ -35,8 +35,7 @@ import {
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
-import { appendWorldStateN4Repository, readWorldStateN4Repository } from "../storyWorkspace/worldStateN4Repository.ts";
-import { projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
+import { appendWorldStateN4Change, emptyWorldStateN4Store, normalizeWorldStateN4Store, projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Store, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
 import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
 import {
   applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
@@ -200,6 +199,7 @@ const WORLD_OBJECT_TYPE_SET = new Set<string>(WORLD_OBJECT_TYPES);
 const OBJECT_CARD_BLOCK_TYPES = ["text", "secret", "character-arc", "property-group", "relation-group", "properties", "connections", "media", "map", "graph", "timeline", "tree", "canvas"] as const;
 const OBJECT_CARD_BLOCK_TYPE_SET = new Set<string>(OBJECT_CARD_BLOCK_TYPES);
 const OBJECT_PROFILE_FRONTMATTER_KEY = "story_profile_v1";
+const WORLD_STATE_N4_FRONTMATTER_KEY = "world_state_n4";
 const EDITABLE_FRONTMATTER_KEYS = new Set(["title", "status", "tags", "aliases", "card_layout", "card_blocks", "cover", "media", OBJECT_PROFILE_FRONTMATTER_KEY]);
 const RESERVED_FRONTMATTER_KEYS = new Set(["world_os", "id", "type"]);
 const EVENT_AUTHORITY_STATUSES = new Set(["planned", "committed"]);
@@ -1483,12 +1483,15 @@ export function createStoryStudioWorkspaceOperations(input: {
     readWorldStateN4(stateInput: { projectId: string; objectId: string; observedAt: string }) {
       const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
       const object = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
-      return clone(projectWorldStateN4({ store: readWorldStateN4Repository(projectPath), subjectId: object.id, observedAt: stateInput.observedAt }));
+      return clone(projectWorldStateN4({ store: readWorldStateN4Store(projectPath, object.id), subjectId: object.id, observedAt: stateInput.observedAt }));
     },
 
     applyWorldStateN4(stateInput: { projectId: string; objectId: string; expectedObjectRevision: string; expectedRevision: number; operationId: string; effectiveAt: string; value: WorldStateN4Value; evidence: WorldStateN4Evidence; now: string; compensatesChangeId?: string | null }) {
       const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
       const subject = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      const currentStore = readWorldStateN4Store(projectPath, subject.id);
+      const prior = currentStore.changes.find((change) => change.operationId === stateInput.operationId);
+      if (prior) return clone({ store: currentStore, change: prior, idempotent: true, projection: projectWorldStateN4({ store: currentStore, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
       if (subject.revisionToken !== requireText(stateInput.expectedObjectRevision, "World state object revision", 180)) throw new Error("World state object changed; refresh before applying a new state.");
       if (stateInput.value.kind === "passage" && subject.type !== "location") throw new Error("Passage state can only be applied to a location or facility object.");
       if (stateInput.value.kind === "holder" && subject.type !== "item") throw new Error("Holder state can only be applied to an item object.");
@@ -1498,8 +1501,8 @@ export function createStoryStudioWorkspaceOperations(input: {
         const holder = readProductObject(projectPath, stateInput.value.holder.id);
         if (holder.status === "archived" || holder.revisionToken !== stateInput.value.holder.revision) throw new Error("World state holder is unavailable or changed.");
       }
-      const result = appendWorldStateN4Repository(projectPath, {
-        store: readWorldStateN4Repository(projectPath),
+      const result = appendWorldStateN4Change({
+        store: currentStore,
         operationId: stateInput.operationId,
         subject: { id: subject.id, revision: subject.revisionToken },
         effectiveAt: stateInput.effectiveAt,
@@ -1509,6 +1512,16 @@ export function createStoryStudioWorkspaceOperations(input: {
         now: stateInput.now,
         compensatesChangeId: stateInput.compensatesChangeId ?? null
       });
+      const note = findObjectNote(projectPath, subject.id);
+      const persisted = updateWorkspaceNote(projectPath, {
+        relativePath: note.relativePath,
+        expectedContentHash: note.contentHash,
+        frontmatter: { [WORLD_STATE_N4_FRONTMATTER_KEY]: JSON.stringify(result.store) },
+        body: note.body
+      });
+      if (persisted.conflict) throw new Error("World state object changed while saving; refresh before retrying.");
+      rememberObject(projectPath, note.relativePath);
+      recordCanonicalRevision(projectPath, { kind: "object", id: subject.id }, "save", null, stateInput.operationId);
       return clone({ ...result, projection: projectWorldStateN4({ store: result.store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
     },
 
@@ -3133,6 +3146,21 @@ function findObjectNote(projectPath: string, objectId: string) {
   const summary = listObjectSummaries(projectPath).find((item) => item.id === objectId);
   if (!summary) throw new Error("World object does not exist.");
   return readWorkspaceNote(projectPath, summary.relativeId);
+}
+
+/** N4 state history is a versioned field on the formal subject object.  It is
+ * not a second WorldState repository: WorkspaceOperations remains the only
+ * writer and each entry binds to its existing confirmed Event evidence. */
+function readWorldStateN4Store(projectPath: string, objectId: string): WorldStateN4Store {
+  const note = findObjectNote(projectPath, objectId);
+  const encoded = note.frontmatter[WORLD_STATE_N4_FRONTMATTER_KEY];
+  if (encoded == null || encoded === "") return emptyWorldStateN4Store();
+  if (Array.isArray(encoded) || typeof encoded !== "string") throw new Error("World state object field is invalid.");
+  try {
+    return normalizeWorldStateN4Store(JSON.parse(encoded) as unknown);
+  } catch (error) {
+    throw new Error(`World state object field cannot be read: ${error instanceof Error ? error.message : "invalid JSON"}`);
+  }
 }
 
 /**

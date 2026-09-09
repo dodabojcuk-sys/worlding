@@ -33,13 +33,14 @@ test("N4 WorldState owner persists only bounded state with a current confirmed E
   const key = input.operations.readWorldObject({ projectId: input.project.id, objectId: input.key.id });
   const holder = input.operations.readWorldObject({ projectId: input.project.id, objectId: input.awu.id });
   const keyApplied = input.operations.applyWorldStateN4({
-    projectId: input.project.id, objectId: key.id, expectedObjectRevision: key.revisionToken, expectedRevision: 1,
+    projectId: input.project.id, objectId: key.id, expectedObjectRevision: key.revisionToken, expectedRevision: 0,
     operationId: "n4.key.awu", effectiveAt: "2026-09-09T01:00:00Z", now: "2026-09-09T01:00:02Z",
     value: { kind: "holder", state: "held", holder: { id: holder.id, revision: holder.revisionToken } }, evidence: { kind: "confirmed-event", event: { id: event.id, revision: event.revisionToken } }
   });
   assert.deepEqual(keyApplied.projection.value, { kind: "holder", state: "held", holder: { id: holder.id, revision: holder.revisionToken } });
+  const updatedKey = input.operations.readWorldObject({ projectId: input.project.id, objectId: key.id });
   assert.throws(() => input.operations.applyWorldStateN4({
-    projectId: input.project.id, objectId: key.id, expectedObjectRevision: key.revisionToken, expectedRevision: 2,
+    projectId: input.project.id, objectId: key.id, expectedObjectRevision: updatedKey.revisionToken, expectedRevision: 1,
     operationId: "n4.key.invalid", effectiveAt: "2026-09-09T01:00:00Z", now: "2026-09-09T01:00:03Z",
     value: { kind: "passage", state: "open" }, evidence: { kind: "confirmed-event", event: { id: event.id, revision: event.revisionToken } }
   }), /Passage state/i);
