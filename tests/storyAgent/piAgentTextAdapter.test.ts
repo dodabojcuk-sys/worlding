@@ -42,6 +42,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   let calls = 0;
   let executions = 0;
   const toolChoices: unknown[] = [];
+  const retryFlags: boolean[] = [];
   const adapter = createPiTextAgentAdapter();
   const result = await adapter.run(request({
     tools: [{ name: "read_context_manifest", label: "读取上下文", description: "只读", inputSchema: { type: "object", properties: {}, additionalProperties: false }, async execute() { executions += 1; return { sourceCount: 1 }; } }],
@@ -49,6 +50,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
     async authorizeTool(input) { return { allowed: input.toolName === "read_context_manifest" }; },
     async openProviderStream(input) {
       toolChoices.push(input.toolChoice ?? null);
+      retryFlags.push(input.retry);
       calls += 1;
       return calls === 1
         ? { traceId: "trace.tool", events: events([
@@ -65,6 +67,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   assert.equal(calls, 2);
   assert.equal(executions, 1);
   assert.deepEqual(toolChoices, [{ type: "function", function: { name: "read_context_manifest" } }, null]);
+  assert.deepEqual(retryFlags, [false, false]);
 });
 
 test("Pi adapter carries native event-graph candidate frames through author approval to the Relation owner port", async () => {

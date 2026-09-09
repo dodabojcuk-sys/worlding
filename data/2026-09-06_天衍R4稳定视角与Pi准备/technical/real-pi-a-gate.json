@@ -1,0 +1,18 @@
+{
+  "verdict": "REAL_PI_AGENT_GATE_A_PASS",
+  "recordedAt": "2026-09-06T09:07:41+08:00",
+  "httpStatus": 200,
+  "realProviderCalls": 1,
+  "gate": "connection",
+  "localRoute": "POST /__local/story-studio/model-service/test",
+  "providerId": "radeon-cloud",
+  "modelId": "DeepSeek-V4-Flash-Vision-Exp",
+  "availableModelCount": 4,
+  "budgetAccounting": {
+    "authorizationDispatchOrdinal": 5,
+    "ledgerReceiptPresent": false,
+    "reason": "The pre-R4 setup path dispatched before setup reservations were implemented. R4 records this actual call without rewriting the existing ledger."
+  },
+  "secretMaterialRecorded": false,
+  "note": "This live model-discovery dispatch used the final existing six-call synthetic-only authorization. The pre-R4 implementation did not ledger setup calls; R4 now fixes future setup accounting."
+}

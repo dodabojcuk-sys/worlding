@@ -243,7 +243,7 @@ export function buildFocusTrajectoryOverlay(input: {
   focusObjectIds: readonly string[];
 }): FocusTrajectoryOverlay {
   const formalById = new Map(input.objects.filter((object) => object.formal === true).map((object) => [object.id, object]));
-  const objects = unique(input.focusObjectIds).flatMap((id) => formalById.get(id) ?? []).slice(0, 3);
+  const objects = unique(input.focusObjectIds).flatMap((id) => formalById.get(id) ?? []).slice(0, 5);
   const points: FocusTrajectoryPoint[] = [];
   const segments: FocusTrajectorySegment[] = [];
   for (const object of objects) {

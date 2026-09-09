@@ -90,9 +90,28 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const profile = activeProfiles.find((candidate) => candidate.id === input?.profileId);
       if (!profile) throw providerGatewayError("invalid-request");
       const adapter = adapterMap.get(profile.providerId);
-      const messages = validateMessages(input?.messages);
-      const tools = validateTools(input?.tools);
-      const toolChoice = validateToolChoice(input?.toolChoice, tools);
+      const onProviderLifecycle = typeof input?.onProviderLifecycle === "function" ? input.onProviderLifecycle : null;
+      let messages;
+      let tools;
+      let toolChoice;
+      try {
+        messages = validateMessages(input?.messages);
+        tools = validateTools(input?.tools);
+        toolChoice = validateToolChoice(input?.toolChoice, tools);
+      } catch (error) {
+        // Validation happens before a budget reservation or transport dispatch.
+        // Persist only a bounded shape label so a durable Run can distinguish a
+        // local protocol mismatch from an upstream rejection without exposing
+        // prompt, tool-result, or credential content.
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "failed",
+          requestKey: input?.idempotencyKey ?? null,
+          reservationId: null,
+          receiptEnvelopeId: null,
+          detail: lifecycleDiagnostic(error)
+        });
+        throw error;
+      }
       const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
       if (adapter.status().configured !== true) return adapter.openChatStream({
@@ -102,9 +121,16 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       });
       const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
+      let enteredTransport = false;
       try {
         receipt = beginReceiptEnvelope(receiptEnvelopeStore, reservation, input, profile);
         markReceiptDispatched(receiptEnvelopeStore, receipt);
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "reserved",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null
+        });
         const stream = await adapter.openChatStream({
           modelId: profile.modelId,
           messages,
@@ -116,15 +142,33 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           enableThinking: profile.enableThinking,
           ...(tools.length ? { tools, toolChoice } : {})
         });
+        enteredTransport = true;
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "dispatched",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null
+        });
         if (!reservation && !receipt) return stream;
         return Object.freeze({
           traceId: stream.traceId,
           ...(receipt ? { receiptEnvelopeId: receipt.envelopeId } : {}),
-          events: budgetedEvents(stream.events, budgetLedger, reservation?.reservation?.reservationId ?? null, stream.traceId, receiptEnvelopeStore, receipt)
+          events: budgetedEvents(stream.events, budgetLedger, reservation?.reservation?.reservationId ?? null, stream.traceId, receiptEnvelopeStore, receipt, onProviderLifecycle, {
+            requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+            reservationId: reservation?.reservation?.reservationId ?? null,
+            receiptEnvelopeId: receipt?.envelopeId ?? null
+          })
         });
       } catch (error) {
         completeBudgetFailure(budgetLedger, reservation, error);
         persistReceiptFailure(receiptEnvelopeStore, receipt, error);
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: enteredTransport ? lifecycleFailureStatus(error) : "failed",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null,
+          detail: lifecycleDiagnostic(error)
+        });
         throw error;
       }
     },
@@ -179,21 +223,37 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
     async discoverModels(input = {}) {
       const adapter = adapterMap.get(input.providerId || "siliconflow");
       if (!adapter || typeof adapter.discoverModels !== "function") throw providerGatewayError("invalid-request");
-      // Catalog discovery is an explicit Settings action, not generation. It
-      // must remain available even when a prior generation authorization is
-      // exhausted; the route still enforces same-origin, credential ownership,
-      // response bounds and a hard timeout before this boundary.
-      return adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
+      const reservation = adapter.status().configured === true
+        ? reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "setup", `model-catalog:${adapter.id}`)
+        : null;
+      try {
+        const result = await adapter.discoverModels({ signal: input.signal, timeoutMs: input.timeoutMs });
+        if (reservation) budgetLedger.complete({ reservationId: reservation.reservation.reservationId, outcome: "success", traceId: result.traceId });
+        return result;
+      } catch (error) {
+        completeBudgetFailure(budgetLedger, reservation, error);
+        throw error;
+      }
     },
     async probeEmbedding(input = {}) {
       const adapter = adapterMap.get(input.providerId || "siliconflow");
       if (!adapter || typeof adapter.probeEmbedding !== "function") throw providerGatewayError("unavailable");
-      return adapter.probeEmbedding({
-        modelId: input.modelId,
-        syntheticText: EMBEDDING_PROBE_TEXT,
-        signal: input.signal,
-        timeoutMs: input.timeoutMs
-      });
+      const reservation = adapter.status().configured === true
+        ? reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "setup", `embedding-probe:${adapter.id}`)
+        : null;
+      try {
+        const result = await adapter.probeEmbedding({
+          modelId: input.modelId,
+          syntheticText: EMBEDDING_PROBE_TEXT,
+          signal: input.signal,
+          timeoutMs: input.timeoutMs
+        });
+        if (reservation) budgetLedger.complete({ reservationId: reservation.reservation.reservationId, outcome: "success", traceId: result.traceId });
+        return result;
+      } catch (error) {
+        completeBudgetFailure(budgetLedger, reservation, error);
+        throw error;
+      }
     },
     selectDiscoveredModel(modelIds, options = {}) {
       const modelId = selectStructuredChatModel(modelIds);
@@ -237,7 +297,7 @@ function reserveBudget(ledger, input, kind, scope) {
   return reservation;
 }
 
-async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEnvelopeStore = null, receipt = null) {
+async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEnvelopeStore = null, receipt = null, onProviderLifecycle = null, lifecycleIdentity = null) {
   let completed = false;
   let responseBody = "";
   let usage = null;
@@ -255,17 +315,49 @@ async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEn
     freezeReceiptResponse(receiptEnvelopeStore, receipt, { responseBody, traceId, usage, finishReason });
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: "success", traceId });
     completed = true;
+    await notifyProviderLifecycleSafely(onProviderLifecycle, { phase: "completed", ...lifecycleIdentity });
   } catch (error) {
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: budgetOutcome(error), traceId });
     persistReceiptFailure(receiptEnvelopeStore, receipt, error);
+    await notifyProviderLifecycle(onProviderLifecycle, { phase: lifecycleFailureStatus(error), ...lifecycleIdentity, detail: lifecycleDiagnostic(error) });
     completed = true;
     throw error;
   } finally {
     if (!completed) {
       if (ledger && reservationId) ledger.complete({ reservationId, outcome: "cancelled-after-dispatch", traceId });
       persistReceiptFailure(receiptEnvelopeStore, receipt, { code: "cancelled" });
+      await notifyProviderLifecycle(onProviderLifecycle, { phase: "cancelled", ...lifecycleIdentity, detail: "stream-consumption-cancelled" });
     }
   }
+}
+
+async function notifyProviderLifecycle(callback, event) {
+  if (typeof callback !== "function") return;
+  if (typeof event?.requestKey !== "string" || !event.requestKey.trim()) return;
+  await callback(Object.freeze({ ...event }));
+}
+
+async function notifyProviderLifecycleSafely(callback, event) {
+  try {
+    await notifyProviderLifecycle(callback, event);
+  } catch {
+    // Lifecycle persistence is recovery metadata. It must never rewrite a
+    // transport result whose response receipt and budget outcome are already
+    // durably known.
+  }
+}
+
+function lifecycleFailureStatus(error) {
+  if (error?.code === "cancelled" || error?.name === "AbortError") return "cancelled";
+  // Once transport has accepted a request, a network error cannot prove the
+  // upstream did not receive it.  Preserve that conservative unknown state.
+  return "unknown";
+}
+
+function lifecycleDiagnostic(error) {
+  if (typeof error?.validationStage === "string") return `request-validation:${error.validationStage}`;
+  const value = String(error instanceof Error ? error.message : error || "transport-failed").trim();
+  return value.slice(0, 240) || "transport-failed";
 }
 
 function beginReceiptEnvelope(store, reservation, input, profile) {
@@ -385,23 +477,33 @@ function publicProfile(profile) {
 
 function validateMessages(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_MESSAGES) {
-    throw providerGatewayError("invalid-request");
+    throw invalidMessage("messages-shape");
   }
   let totalCharacters = 0;
   const messages = value.map((message) => {
-    if (!message || typeof message !== "object") throw providerGatewayError("invalid-request");
-    if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw providerGatewayError("invalid-request");
+    if (!message || typeof message !== "object") throw invalidMessage("message-shape");
+    if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw invalidMessage("message-role");
     const content = typeof message.content === "string" ? message.content.trim() : "";
     const toolCalls = message.role === "assistant" ? validateAssistantToolCalls(message.toolCalls) : [];
-    const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160) : null;
-    const name = message.role === "tool" ? boundedToolName(message.name) : null;
-    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
+    const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160, "tool-result-id") : null;
+    // Native tool-call continuations are keyed solely by tool_call_id.  Do
+    // not require the retired function-calling `name` field while deliberately
+    // omitting it from the outbound OpenAI-compatible payload.
+    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw invalidMessage(message.role === "tool" ? "tool-result-content" : "message-content");
     totalCharacters += content.length;
-    if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content: content || null, tool_calls: toolCalls });
-    if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, name, content });
+    // OpenAI permits null assistant content beside tool_calls, but several
+    // OpenAI-compatible endpoints reject that exact continuation payload.
+    // An explicit empty string preserves the same semantics and lets the
+    // following tool result remain a standards-shaped message sequence.
+    if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content, tool_calls: toolCalls });
+    // Tool-result `name` was used by the older function-calling shape.  The
+    // native tool_calls continuation is identified by tool_call_id; omitting
+    // the legacy field keeps strict OpenAI-compatible endpoints from
+    // rejecting an otherwise valid second turn.
+    if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, content });
     return Object.freeze({ role: message.role, content });
   });
-  if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
+  if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw invalidMessage("message-total-content");
   return Object.freeze(messages);
 }
 
@@ -437,26 +539,32 @@ function validateToolChoice(value, tools) {
 
 function validateAssistantToolCalls(value) {
   if (value == null) return Object.freeze([]);
-  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw providerGatewayError("invalid-request");
+  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw invalidMessage("assistant-tool-calls");
   return Object.freeze(value.map((call) => Object.freeze({
-    id: boundedToolString(call?.id, 160),
+    id: boundedToolString(call?.id, 160, "assistant-tool-id"),
     type: "function",
     function: Object.freeze({
-      name: boundedToolName(call?.name ?? call?.function?.name),
-      arguments: boundedToolString(call?.argumentsJson ?? call?.function?.arguments, MAX_MESSAGE_CHARACTERS)
+      name: boundedToolName(call?.name ?? call?.function?.name, "assistant-tool-name"),
+      arguments: boundedToolString(call?.argumentsJson ?? call?.function?.arguments, MAX_MESSAGE_CHARACTERS, "assistant-tool-arguments")
     })
   })));
 }
 
-function boundedToolName(value) {
-  const name = boundedToolString(value, 96);
-  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) throw providerGatewayError("invalid-request");
+function boundedToolName(value, validationStage = null) {
+  const name = boundedToolString(value, 96, validationStage);
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) throw validationStage ? invalidMessage(validationStage) : providerGatewayError("invalid-request");
   return name;
 }
 
-function boundedToolString(value, maximum) {
-  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw providerGatewayError("invalid-request");
+function boundedToolString(value, maximum, validationStage = null) {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw validationStage ? invalidMessage(validationStage) : providerGatewayError("invalid-request");
   return value.trim();
+}
+
+function invalidMessage(validationStage) {
+  const error = providerGatewayError("invalid-request");
+  error.validationStage = validationStage;
+  return error;
 }
 
 function requiredString(value) {

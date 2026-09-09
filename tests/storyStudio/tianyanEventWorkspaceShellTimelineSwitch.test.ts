@@ -38,6 +38,8 @@ test("timeline owns an independent projection while preserving formal Event ids"
   assert.doesNotMatch(workspace, /<EventGraphCanvas[^>]+mode=\{projectionMode === "timeline"/u);
   assert.match(timeline, /data-temporal-projection="independent"/u);
   assert.match(timeline, /id: item\.event\.id,\s*type: "temporalEvent"/u);
+  assert.match(formalEventNode, /eventId=\{props\.data\.remote \? undefined : props\.data\.eventId\}/u);
+  assert.match(graph, /data: \{ eventId: event\.id,/u);
   assert.match(timeline, /TemporalEventNode/u);
   assert.match(timeline, /temporal-unplaced-tray/u);
   assert.match(timeline, /temporal-conflict-summary/u);

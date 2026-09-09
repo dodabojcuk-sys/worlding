@@ -73,6 +73,62 @@ test("invalid caller input is distinct from an invalid upstream response", async
   );
 });
 
+test("Gateway records only a safe local validation stage for a malformed tool continuation", async () => {
+  let fetchCount = 0;
+  const lifecycle: Array<Record<string, unknown>> = [];
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async () => {
+      fetchCount += 1;
+      throw new Error("fetch must not run for local validation");
+    }
+  });
+
+  await assert.rejects(gateway.openChatStream({
+    ...requestInput(),
+    idempotencyKey: "nuwa-tool-continuation-validation",
+    messages: [
+      { role: "assistant", content: null, toolCalls: [{ id: "call_role_context", name: "read_role_context", argumentsJson: "{}" }] },
+      { role: "tool", toolCallId: "", content: "{}" }
+    ],
+    onProviderLifecycle: async (event: Record<string, unknown>) => { lifecycle.push(event); }
+  }), (error: unknown) => error instanceof ProviderGatewayError && error.code === "invalid-request");
+
+  assert.equal(fetchCount, 0);
+  assert.deepEqual(lifecycle, [{
+    phase: "failed",
+    requestKey: "nuwa-tool-continuation-validation",
+    reservationId: null,
+    receiptEnvelopeId: null,
+    detail: "request-validation:tool-result-id"
+  }]);
+});
+
+test("Gateway wire-normalizes the native Pi tool continuation without retaining a legacy tool name", async () => {
+  let body: Record<string, unknown> | null = null;
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async (_url: URL | RequestInfo, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body));
+      return sseResponse(["data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n", "data: [DONE]\n\n"]);
+    }
+  });
+
+  const stream = await gateway.openChatStream({
+    ...requestInput(),
+    messages: [
+      { role: "assistant", content: null, toolCalls: [{ id: "call_role_context", name: "read_role_context", argumentsJson: "{}" }] },
+      { role: "tool", toolCallId: "call_role_context", name: "read_role_context", content: "{}" }
+    ]
+  });
+  await collect(stream.events);
+
+  assert.deepEqual(body?.messages, [
+    { role: "assistant", content: "", tool_calls: [{ id: "call_role_context", type: "function", function: { name: "read_role_context", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "call_role_context", content: "{}" }
+  ]);
+});
+
 test("SiliconFlow adapter uses the fixed official endpoint and normalizes ordered SSE chunks", async () => {
   let observedUrl = "";
   let observedInit: RequestInit | undefined;
@@ -500,26 +556,24 @@ test("session credential stays in memory and model discovery exposes IDs only", 
   assert.equal(credentials.readForProvider(), "");
 });
 
-test("model discovery remains available when the generation budget is exhausted", async () => {
+test("model discovery counts as setup and is blocked before transport when the total budget is exhausted", async () => {
   let reserveCalls = 0;
+  let transportCalls = 0;
   const gateway = createAiProviderGateway({
     adapters: [createSiliconFlowAdapter({
       environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
-      fetchImpl: async () => new Response(JSON.stringify({ data: [{ id: "fixture/selectable-model" }] }), {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      })
+      fetchImpl: async () => { transportCalls += 1; return new Response(JSON.stringify({ data: [{ id: "fixture/selectable-model" }] }), { status: 200, headers: { "content-type": "application/json" } }); }
     })],
     budgetLedger: {
       snapshot: () => ({ blocked: true }),
-      reserve: () => { reserveCalls += 1; throw new Error("generation budget is exhausted"); },
+      reserve: () => { reserveCalls += 1; throw new Error("total provider budget is exhausted"); },
       complete: () => undefined
     }
   });
 
-  const discovery = await gateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 });
-  assert.deepEqual(discovery.modelIds, ["fixture/selectable-model"]);
-  assert.equal(reserveCalls, 0);
+  await assert.rejects(() => gateway.discoverModels({ providerId: "siliconflow", timeoutMs: 15_000 }), /total provider budget is exhausted/u);
+  assert.equal(reserveCalls, 1);
+  assert.equal(transportCalls, 0);
 });
 
 test("live catalog selection rejects JSON-incompatible families and creates a session-only profile", async () => {

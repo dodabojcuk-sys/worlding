@@ -122,6 +122,7 @@ test("desktop topbar preserves every global control while keeping one search and
   assert.match(shell, /onOpenProject=\{props\.runtime\.openProject\}/);
   assert.match(runtime, /openProject\(projectId: string\): Promise<void>/);
   assert.match(runtime, /openProject\(projectId, token\)/);
+  assert.match(runtime, /getCreationSourcePortState\(\{ projectId: activeProject\.id \}\)[\s\S]*?\.catch\(\(\) => \{[\s\S]*?setWorkVersionLabel\(null\)[\s\S]*?setWorkVersionId\(null\)/);
   assert.match(styles, /shell-topbar-panel-toggle[\s\S]*border: 1px solid transparent/);
   assert.match(topbar, /shell-topbar-overflow-menu/);
   assert.match(topbar, /aria-controls="shell-topbar-overflow-menu"/);
@@ -171,9 +172,11 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
   assert.match(shell, /const openAccount = \(\) => \{/);
-  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*setDirectoryOpen\(false\)/);
+  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.doesNotMatch(shell, /const openAccount = \(\) => \{[\s\S]{0,240}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /const openSettings = \(\) => \{/);
-  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setDirectoryOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setAccountOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.doesNotMatch(shell, /const openSettings = \(\) => \{[\s\S]{0,280}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /data-settings-open=\{settingsOpen\}/);
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);
   assert.match(shell, /accountOpen=\{accountOpen\}/);
@@ -230,6 +233,8 @@ test("active R0 shell is split by responsibility and confines runtime transport 
   assert.match(eventLine, /EventLineWorkbench/);
   assert.match(eventLine, /getVerifiedCanonEventList/);
   assert.match(eventLine, /getWorldLibrary/);
+  assert.match(eventLine, /modelingRuns: \[\], logicReviews: \[\]/);
+  assert.match(eventLine, /setLoadState\("ready"\)[\s\S]*?listStoryModelingRuns[\s\S]*?listStoryLogicReviews/);
   assert.doesNotMatch(app, /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.doesNotMatch([shell, navigation, topbar, workspace, directory, dock].join("\n"), /localTransport|providerGateway|piAgentAdapter|storyStudioAuthorControl|storyStudioWorkspaceOperations/);
   assert.match(runtime, /localTransport/);

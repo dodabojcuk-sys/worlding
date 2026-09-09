@@ -64,7 +64,7 @@ export type PiTextAgentRequest = {
   tools?: readonly PiTextAgentTool[];
   requiredToolName?: string | null;
   authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>;
-  openProviderStream(input: { messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
+  openProviderStream(input: { agentRunId: string; messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
   onEvent?(event: PiTextStreamEvent): Promise<void> | void;
 };
 export type PiTextAgentResult = { text: string; providerCalls: number; traceId: string | null; responseModelId: string | null; usage: PiProviderUsage | null; latencyMs: number };
@@ -131,7 +131,9 @@ export function createPiTextAgentAdapter(input: { now?: () => string; monotonicN
       streamFn: async (_selectedModel, context, options = {}) => {
         providerCalls += 1;
         const stream = new AssistantMessageEventStream();
-        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry || providerCalls > 1, signal: options.signal, model, onTrace(value) { traceId = value; }, async onResponseModel(value) { responseModelId = value; await emit({ type: "response-metadata", responseModelId: value }); }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
+        // A normal second model turn after a tool result is a tool-loop turn,
+        // not a retry.  Retry accounting is supplied explicitly by the host.
+        void bridgeProviderStream({ stream, request, messages: toGatewayMessages(request.systemPrompt, context.messages, contentText), providerCall: providerCalls, retry: request.retry, signal: options.signal, model, onTrace(value) { traceId = value; }, async onResponseModel(value) { responseModelId = value; await emit({ type: "response-metadata", responseModelId: value }); }, onUsage(value) { usage = value; }, onTerminalError(error) { terminalBridgeError = error; } });
         return stream;
       }
     });
@@ -188,6 +190,7 @@ async function bridgeProviderStream(input: { stream: { push(event: unknown): voi
     if (input.signal?.aborted) throw abortError();
     input.stream.push({ type: "start", partial: { ...base(), content: [] } });
     const provider = await input.request.openProviderStream({
+      agentRunId: input.request.runId,
       messages: input.messages,
       tools: (input.request.tools ?? []).map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false } })),
       ...(input.providerCall === 1 && input.request.requiredToolName

@@ -210,7 +210,7 @@
 
 /* R12 — the default author surface. NarrativeArrangement is the only source of
  * horizontal order; the styles below never imply order for the unplaced tray. */
-.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; background: var(--color-surface-muted); }
+.shell-workspace-event-line .event-line-spine-main:has(> .story-progression-workspace) { padding: 0; overflow-y: auto; scrollbar-gutter: stable; background: var(--color-surface-muted); }
 .story-progression-workspace { min-inline-size: 0; min-block-size: 100%; padding: 1.35rem clamp(1rem, 2.4vw, 2.2rem) 2.5rem; color: var(--color-text); background: var(--color-surface-muted); }
 .story-progression-workspace button,
 .story-progression-workspace select { font: inherit; }
@@ -454,6 +454,44 @@
 .narrative-arrangement-inspector-empty { justify-items: center; padding-block: 2.5rem; color: var(--color-text-muted); text-align: center; }
 .narrative-arrangement-inspector-empty svg { inline-size: 1.7rem; color: var(--color-accent); }
 .narrative-arrangement-inspector-empty p { margin: 0; font-size: .72rem; line-height: 1.5; }
+
+.relation-reader { display: grid; gap: .85rem; min-block-size: 0; padding: 1rem; overflow: auto; border: 1px solid var(--color-border); border-radius: .7rem; background: var(--color-surface); }
+.relation-reader > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.relation-reader h2, .relation-reader h3, .relation-reader p { margin: 0; }
+.relation-reader header small { color: var(--color-accent); font-weight: 700; }
+.relation-reader header p, .relation-reader-detail > p { margin-block-start: .3rem; color: var(--color-text-muted); font-size: .82rem; line-height: 1.55; }
+.relation-reader-filters { display: flex; flex-wrap: wrap; gap: .55rem; }
+.relation-reader-filters label { display: grid; gap: .2rem; color: var(--color-text-muted); font-size: .75rem; }
+.relation-reader-filters select { min-inline-size: 8rem; padding: .3rem .45rem; color: var(--color-text); background: var(--color-app-background); border: 1px solid var(--color-border); border-radius: .35rem; }
+.relation-time-compare { display: grid; gap: .65rem; padding: .75rem; background: color-mix(in srgb, var(--color-app-background) 68%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: .5rem; }
+.relation-time-compare > header { display: flex; align-items: end; justify-content: space-between; gap: .75rem; }
+.relation-time-compare > header > div { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+.relation-time-compare > header > div:first-child { display: grid; gap: .12rem; }
+.relation-time-compare > header span { color: var(--color-text-muted); font-size: .72rem; }
+.relation-time-compare label { display: grid; gap: .18rem; color: var(--color-text-muted); font-size: .7rem; }
+.relation-time-compare select { min-inline-size: 12rem; padding: .3rem .45rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .35rem; }
+.relation-comparison-results { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; }
+.relation-comparison-results > section { min-inline-size: 0; padding: .45rem; background: var(--color-surface); border: 1px solid var(--color-border); border-block-start: 3px solid var(--color-accent); }
+.relation-comparison-results > section[data-kind="unknown"], .relation-comparison-results > section[data-kind="conflict"] { grid-column: span 2; border-block-start-color: var(--color-warning); }
+.relation-comparison-results section > header { display: flex; justify-content: space-between; gap: .4rem; }
+.relation-comparison-results section > header strong { font-size: .76rem; }
+.relation-comparison-results ol { display: grid; gap: .25rem; margin: .4rem 0 0; padding: 0; list-style: none; }
+.relation-comparison-results li { color: var(--color-text-muted); font-size: .7rem; line-height: 1.4; }
+.relation-comparison-results button { inline-size: 100%; padding: .35rem; overflow-wrap: anywhere; color: var(--color-text); text-align: start; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .25rem; }
+.relation-comparison-results p { margin-block-start: .35rem; color: var(--color-text-muted); font-size: .68rem; }
+.relation-reader-body { display: grid; grid-template-columns: minmax(14rem, .85fr) minmax(18rem, 1.15fr); min-block-size: 18rem; border: 1px solid var(--color-border); border-radius: .5rem; overflow: hidden; }
+.relation-reader-body > ol { display: grid; align-content: start; gap: .25rem; margin: 0; padding: .45rem; overflow: auto; list-style: none; background: color-mix(in srgb, var(--color-app-background) 72%, var(--color-surface)); }
+.relation-reader-body > ol button { display: grid; gap: .18rem; inline-size: 100%; padding: .6rem; color: var(--color-text); text-align: start; background: transparent; border: 1px solid transparent; border-radius: .35rem; }
+.relation-reader-body > ol button[aria-pressed="true"] { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.relation-reader-body > ol span { color: var(--color-text-muted); font-size: .76rem; }
+.relation-reader-detail { display: grid; align-content: start; gap: .8rem; padding: 1rem; overflow: auto; }
+.relation-reader-detail dl { display: grid; gap: .5rem; margin: 0; }
+.relation-reader-detail dl > div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .5rem; padding-block-end: .5rem; border-block-end: 1px solid var(--color-border); }
+.relation-reader-detail dt { color: var(--color-text-muted); font-size: .8rem; }
+.relation-reader-detail dd { margin: 0; overflow-wrap: anywhere; }
+.relation-reader-source-links { display: flex; flex-wrap: wrap; gap: .4rem; }
+.relation-reader-source-links button { min-block-size: 2rem; padding-inline: .55rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; }
+.relation-reader-empty { align-self: center; padding: 1rem; color: var(--color-text-muted); }
 
 @media (max-width: 80rem) {
   .story-progression-workspace { padding-inline: .85rem; }
@@ -1874,7 +1912,7 @@
   flex-direction: column;
   block-size: 100%;
   min-block-size: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .story-knowledge-compare-popover { position: absolute; z-index: 9; inset-block-start: 6.9rem; inset-inline-end: clamp(1rem, 2.4vw, 2.2rem); inline-size: min(48rem, calc(100% - 2rem)); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .45rem; box-shadow: var(--shadow-panel); }
@@ -1890,6 +1928,30 @@
 .story-progression-heading p { overflow: hidden; max-inline-size: 48rem; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; }
 .story-progression-heading dl { padding: .45rem .65rem; border-radius: .35rem; }
 .story-progression-controls { margin-block-end: .48rem; border-radius: .38rem; box-shadow: none; backdrop-filter: none; }
+.story-progression-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .32rem .65rem; }
+.story-progression-tasks,
+.story-progression-actions { min-inline-size: 0; }
+.story-progression-tasks { flex-wrap: wrap; }
+.story-progression-actions { inline-size: auto; justify-content: flex-end; flex-wrap: wrap; padding-inline-start: .45rem; padding-block-start: 0; border-inline-start: 1px solid var(--color-border); border-block-start: 0; overflow: visible; }
+.story-progression-more { position: relative; flex: 0 0 auto; }
+.story-progression-more-menu { position: absolute; z-index: 12; inset-block-start: calc(100% + .35rem); inset-inline-end: 0; inline-size: min(18rem, calc(100vw - 2rem)); display: grid; gap: .18rem; padding: .4rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .4rem; box-shadow: var(--shadow-panel); }
+.story-progression-more-menu button { justify-content: flex-start; inline-size: 100%; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.story-progression-more-menu hr { inline-size: 100%; block-size: 1px; margin: .18rem 0; border: 0; background: var(--color-border); }
+.story-character-observation { align-self: stretch; flex: 0 0 auto; min-inline-size: 0; box-sizing: border-box; min-block-size: 2.65rem; display: flex; align-items: center; gap: .55rem; margin: 0 0 .48rem; padding: .38rem .5rem; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: .38rem; }
+.story-character-observation-label { flex: 0 0 auto; display: flex; align-items: center; gap: .42rem; color: var(--color-text-muted); }
+.story-character-observation-label > svg { inline-size: .95rem; color: var(--color-accent); }
+.story-character-observation-label > span { display: grid; gap: .05rem; }
+.story-character-observation-label strong { color: var(--color-text); font-size: .72rem; }
+.story-character-observation-label small { font-size: .62rem; white-space: nowrap; }
+.story-character-observation-chips { min-inline-size: 0; flex: 1 1 auto; display: flex; align-items: center; gap: .3rem; overflow-x: auto; }
+.story-character-observation-chips > span { flex: 0 0 auto; display: inline-flex; align-items: center; gap: .1rem; min-block-size: 1.8rem; padding: 0 .18rem; color: var(--color-accent); background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border)); border-radius: .3rem; }
+.story-character-observation-chips strong { padding-inline: .2rem; font-size: .68rem; }
+.story-character-observation button { min-block-size: 1.8rem; display: inline-grid; place-items: center; padding-inline: .48rem; color: var(--color-text-muted); background: transparent; border: 1px solid var(--color-border); border-radius: .28rem; font-size: .68rem; white-space: nowrap; }
+.story-character-observation-chips button { inline-size: 1.45rem; padding: 0; border: 0; }
+.story-character-observation button svg { inline-size: .7rem; }
+.story-character-observation button:disabled { opacity: .3; cursor: default; }
+.story-character-observation > p { max-inline-size: 22rem; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.story-knowledge-boundary-status { flex: 0 0 auto; }
 .formal-narrative-workspace, .shell-workspace-event-line .temporal-workspace.is-task-surface { border-radius: .42rem; box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="overview"] .formal-narrative-card { box-shadow: none; }
 .formal-narrative-workspace[data-semantic-level="reading"] .formal-narrative-card.is-selected { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent); }
@@ -1899,6 +1961,17 @@
 .story-progression-heading,
 .story-progression-controls,
 .story-progression-migration-notice { flex: 0 0 auto; }
+
+.event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr) auto; }
+.event-line-shell[data-page-dock-open="true"] .story-progression-actions { overflow: visible; }
+
+@media (max-width: 80rem) {
+  .story-progression-controls,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-controls { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  .story-progression-actions,
+  .event-line-shell[data-page-dock-open="true"] .story-progression-actions { inline-size: 100%; justify-content: flex-start; padding-inline-start: 0; padding-block-start: .32rem; border-inline-start: 0; border-block-start: 1px solid var(--color-border); }
+  .story-progression-more { margin-inline-start: auto; }
+}
 
 .story-progression-scope {
   position: absolute;
@@ -2167,4 +2240,12 @@
   .shell-workspace-event-line .temporal-conflict-summary span { display: none; }
   .shell-workspace-event-line .temporal-conflict-summary { padding-block: .4rem; }
   .evidence-audit-board > header { padding: .65rem; }
+  .relation-reader { padding: .7rem; }
+  .relation-reader > header { align-items: stretch; flex-direction: column; }
+  .relation-time-compare > header { align-items: stretch; flex-direction: column; }
+  .relation-time-compare > header > div:last-child { display: grid; grid-template-columns: 1fr 1fr; }
+  .relation-time-compare select { min-inline-size: 0; inline-size: 100%; }
+  .relation-comparison-results { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .relation-reader-body { grid-template-columns: 1fr; }
+  .relation-reader-body > ol { max-block-size: 12rem; border-block-end: 1px solid var(--color-border); }
 }

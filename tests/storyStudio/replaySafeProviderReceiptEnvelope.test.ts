@@ -117,6 +117,68 @@ test("gateway persists budget, envelope and dispatch before local fake transport
   assert.equal(ledger.snapshot().counts.totalCalls, 1);
 });
 
+test("a completed lifecycle callback failure cannot rewrite a successful streamed response", async () => {
+  const root = freshRoot("lifecycle-callback");
+  const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: zeroProviderBudgetBaseline(), now: clock() });
+  const store = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: root, now: clock() });
+  const phases: string[] = [];
+  const gateway = createAiProviderGateway({
+    budgetLedger: ledger,
+    receiptEnvelopeStore: store,
+    adapters: [{
+      id: "siliconflow",
+      models: [{ id: PROFILE.modelId, label: "Lifecycle callback fixture", capabilities: ["streaming", "json"] }],
+      status: () => ({ configured: true }),
+      async openChatStream() {
+        return {
+          traceId: "lifecycle-success-trace",
+          events: (async function* () { yield { type: "chunk", text: "durable-success", finishReason: "stop", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } }; })()
+        };
+      }
+    }]
+  });
+  const stream = await gateway.openChatStream({
+    profileId: PROFILE.id,
+    messages: [{ role: "user", content: "fixture" }],
+    idempotencyKey: "gateway.lifecycle.success",
+    receiptEnvelopeContext: beginInput({ operationId: "gateway.lifecycle.success", budgetReservationId: undefined }),
+    onProviderLifecycle(event: { phase: string }) {
+      phases.push(event.phase);
+      if (event.phase === "completed") throw new Error("simulated lifecycle persistence failure");
+    }
+  });
+  const chunks: string[] = [];
+  for await (const event of stream.events) if (event.type === "chunk") chunks.push(event.text);
+  assert.deepEqual(chunks, ["durable-success"]);
+  assert.deepEqual(phases, ["reserved", "dispatched", "completed"]);
+  assert.equal(store.list()[0]?.replayStatus, "response_frozen", "the known success receipt cannot be replaced by a callback error");
+  assert.equal(ledger.snapshot().counts.totalCalls, 1);
+});
+
+test("Gateway rejection is reserved evidence, not an N1 model send", async () => {
+  const root = freshRoot("gateway-rejected-before-transport");
+  const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: zeroProviderBudgetBaseline(), now: clock() });
+  const lifecycle: Array<{ phase: string; requestKey: string; reservationId: string | null }> = [];
+  const gateway = createAiProviderGateway({
+    budgetLedger: ledger,
+    adapters: [{
+      id: "siliconflow",
+      models: [{ id: PROFILE.modelId, label: "Rejecting local host", capabilities: ["streaming", "json"] }],
+      status: () => ({ configured: true }),
+      async openChatStream() { const error = new Error("loopback refused before transport"); error.code = "local-preflight-rejected"; throw error; }
+    }]
+  });
+  await assert.rejects(gateway.openChatStream({
+    profileId: PROFILE.id,
+    messages: [{ role: "user", content: "fixture" }],
+    idempotencyKey: "gateway.n1.rejected.1",
+    onProviderLifecycle(event: { phase: string; requestKey: string; reservationId: string | null }) { lifecycle.push(event); }
+  }), /loopback refused/u);
+  assert.deepEqual(lifecycle.map((event) => event.phase), ["reserved", "failed"]);
+  assert.equal(lifecycle.some((event) => event.phase === "dispatched"), false);
+  assert.equal(ledger.snapshot().counts.generationCalls, 1, "Gateway conservatively retains the pre-transport reservation");
+});
+
 test("historical 3/6/9 Provider incident remains immutable and unrelated to local replay fixtures", () => {
   const root = freshRoot("historical");
   const ledger = createProviderRequestBudgetLedger({ appDataRoot: root, initialSnapshot: HISTORICAL_PROVIDER_INCIDENT_R0 });

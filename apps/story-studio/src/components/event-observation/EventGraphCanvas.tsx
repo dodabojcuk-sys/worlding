@@ -37,6 +37,7 @@ type Selection =
   | { kind: "remote"; direction: "past" | "future"; count: number }
   | null;
 type NodeData = {
+  eventId?: string;
   title: string; time: string; location: string; status: string; focused: boolean; selected: boolean; predictionSelected?: boolean;
   remote?: boolean; candidate?: boolean; direction?: "past" | "future"; count?: number; runId?: string; pathCount?: number;
   pathLabel?: string; reviewSelected?: boolean; scopeLabel?: string; sourceSummary?: boolean; sourceCount?: number; onExpandSources?: () => void;
@@ -186,6 +187,19 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
     workspaceDockCoordinator.openPageInspector("event-line", mode);
   }, []);
   const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
+
+  // The graph owns the visible relation inspector. Route recovery can also
+  // restore the parent event-detail dock in the same commit, so keep the Shell
+  // coordinator aligned with the inspector that is actually on screen. This
+  // is a state repair, not a second relation owner: selection and review data
+  // remain in the existing Event/Relation projections.
+  useEffect(() => {
+    if ((selection?.kind === "relation" || selection?.kind === "smart-relation")
+      && rightWorkSurface.ownerId === "event-line"
+      && rightWorkSurface.mode !== "RELATION_REVIEW") {
+      openInspector("RELATION_REVIEW");
+    }
+  }, [openInspector, rightWorkSurface.mode, rightWorkSurface.ownerId, selection?.kind]);
 
   useEffect(() => {
     if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;
@@ -973,7 +987,7 @@ function buildFormalNarrativeGraph(input: {
     visiblePathGroups.set(placement.storyUnitId, list);
   }
   const focusY = mainY + Math.max(1, branchUnits.length) * 265 + 245;
-  for (const [objectIndex, object] of input.focusObjects.slice(0, 3).entries()) {
+  for (const [objectIndex, object] of input.focusObjects.slice(0, 5).entries()) {
     const laneY = focusY + objectIndex * 96;
     nodes.push({ id: `focus-label:${object.id}`, type: "narrativeTopology", position: { x: 18, y: laneY - 8 }, selectable: false, draggable: false, data: { kind: "topology", topology: "unit", label: object.label, detail: object.type === "character" ? "人物轨迹" : object.type === "location" ? "地点出现" : "物品流转" } });
     for (const pathPlacements of visiblePathGroups.values()) {
@@ -1289,7 +1303,7 @@ function deriveGraph(events: readonly EventLineEventSummary[], relations: readon
     const temporalAnchors = temporal ? [...temporal.anchorBeforeEventIds, ...temporal.anchorAfterEventIds].map((id) => events.find((item) => item.id === id)?.title ?? "已记录锚点").join("、") : "";
     const graphPosition = canvasKind === "narrative" ? narrativeLayout?.positions[event.id] : positions[event.id] ?? relationGraphPosition(index);
     const trackId = semantic.storyLine.kind === "main" ? "main" : semantic.storyLine.id;
-    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? graphPosition ?? developmentGridFallback(index), data: { title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, trackId, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
+    return { id: event.id, type: "event", className: `event-graph-node ${focused ? "is-focused" : ""} ${temporal ? `is-temporal-${temporal.placementKind}` : ""}`, position: mode === "temporal" ? temporalPosition ?? positions[event.id] ?? developmentGridFallback(index) : collectionMemberPositions.get(event.id) ?? predictionPosition ?? focusLayout?.positions[event.id] ?? graphPosition ?? developmentGridFallback(index), data: { eventId: event.id, title: event.title, time: semantic.time.label, location: metadata.locationLabels[0] ?? "地点未提供", status: semantic.status === "confirmed" ? "已确认" : "待审", focused, selected: workspaceSelectionIds.has(event.id), predictionSelected: predictionSelectionIds.has(event.id), temporal: mode === "temporal" && Boolean(temporal), temporalKind: temporal?.placementKind, temporalSummary: temporal?.authorFacingSummary, temporalAnchors, temporalConfidence: temporal?.confidence === null || temporal?.confidence === undefined ? "置信度待判定" : `置信度 ${Math.round(temporal.confidence * 100)}%`, semanticZoom, trackId, eventRole: event.tags.some((tag) => /(?:关键转折|转折|turning point)/iu.test(tag)) ? "turning" : "ordinary", portMode: canvasKind, branching: active.filter((relation) => relation.sourceObjectId === event.id && relation.reviewState === "confirmed").length > 1 } } satisfies Node<NodeData>;
   });
   const collectionNodes: Node<NodeData>[] = collectionPoints.map(({ unitId, point }, pointIndex) => {
     const rows = Math.ceil(point.eventIds.length / 2);
@@ -1454,7 +1468,10 @@ function fitFocusProjection(flow: ReactFlowInstance<Node<NodeData>, Edge>, nodes
   // the workspace inspector or local directory is layered over the canvas.
   void flow.fitView({
     nodes: nodes.map((node) => ({ id: node.id })),
-    padding: drawerOpen ? .18 : .08,
+    // Cards render taller than React Flow's provisional node measurements.
+    // Reserve that live-card margin so the remote context clusters remain
+    // inside the clipped canvas after the inspector narrows the workspace.
+    padding: drawerOpen ? .22 : .16,
     minZoom: .25,
     maxZoom: 1.05,
     duration: 0

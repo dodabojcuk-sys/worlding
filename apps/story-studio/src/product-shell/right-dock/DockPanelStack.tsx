@@ -6,6 +6,7 @@ import type { DockToolId } from "./types";
 import { useI18n } from "../i18n/I18nProvider";
 
 export function DockPanelStack(props: {
+  projectId: string | null;
   overlay: boolean;
   modal: boolean;
   openPanelIds: readonly DockToolId[];
@@ -20,7 +21,7 @@ export function DockPanelStack(props: {
   return <aside className="dock-panel-stack" aria-label={t("dock.openPanels")} role={props.overlay ? "dialog" : undefined} aria-modal={props.modal || undefined} data-panel-count="1" data-active-tool-id={toolId}>
       <div className="dock-panel-stack-item" key={toolId}>
         <DockPanelFrame id={tool.id} title={t(tool.labelKey)} description={t(tool.descriptionKey)} onClose={() => props.onClose(toolId)}>
-          {toolId === "engineering-log" ? <EngineeringLogPanel />
+          {toolId === "engineering-log" ? <EngineeringLogPanel projectId={props.projectId} />
             : toolId === "expert-analysis" ? <ExpertAnalysisPanel />
               : <section className="page-tool-not-connected"><strong>{t(tool.labelKey)}</strong><p>{t(tool.descriptionKey)}. {t("dock.notConnectedSuffix")}</p></section>}
         </DockPanelFrame>

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,7 +18,7 @@ function fixture(faultInjector?: (boundary: string) => void) {
   const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
   operations.createProject({ title: "潮痕来信 · 创作来源隔离演示", folderSlug: projectId });
   operations.createWorldObject({ projectId, type: "character", title: "沈砚" });
-  const event = operations.createWorldObject({ projectId, type: "event", title: "沈砚在灯下核对守夜记录", status: "planned", tags: ["Fixture"] });
+  const event = operations.createWorldObject({ projectId, type: "event", title: "沈砚在灯下核对守夜记录", body: "沈砚说：钟声只告诉守夜人。随后他把残页压在灯下，确认线索仍待核对。", status: "planned", tags: ["Fixture"] });
   const capturedAt = "2026-08-24T09:40:00.000Z";
   const sourceRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: event.id, entityVersion: event.revisionToken, capturedAt, staleState: "fresh" as const };
   const storyUnit = operations.createStoryUnit({
@@ -74,6 +74,257 @@ test("Path A binds one existing OutputArtifact to root r1 and appends root r2 ex
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("B1 creates one named IF from the frozen root identity without copying story facts", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    port.createRoot(value.projectId);
+    const root = port.resolveRootWorkVersion(value.projectId)!;
+    const input = {
+      displayName: "阿芜持有铜钥匙",
+      parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision,
+      expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.create-if",
+      idempotencyKey: "multiverse-b1:create-if:awu-key",
+      createdAt: "2026-09-09T12:00:00.000Z"
+    };
+    const first = port.createDerivedWorkVersion(value.projectId, input);
+    const replay = port.createDerivedWorkVersion(value.projectId, input);
+    assert.equal(first.identity.kind, "derived");
+    assert.equal(first.identity.parentVersionId, root.identity.workVersionId);
+    assert.equal(first.identity.parentBaseRevision, root.identity.currentRevision);
+    assert.equal(replay.identity.workVersionId, first.identity.workVersionId, "same idempotency key reuses the original IF receipt");
+    assert.equal(port.listWorkVersions(value.projectId).filter((version) => version.identity.kind === "derived").length, 1);
+    assert.throws(() => port.createDerivedWorkVersion(value.projectId, { ...input, idempotencyKey: "multiverse-b1:create-if:stale", expectedParentRevision: root.identity.currentRevision + 1 }), /已变化/u);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("root WorkVersion records a hashable empty verified-Canon Event slice", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({
+      operations: value.operations,
+      canonReadProjection: { listVerifiedCanonEvents: () => ({ status: "ready", eventIds: [], invalidRecordCount: 0 }) }
+    });
+    const root = port.createRoot(value.projectId);
+    assert.equal(root.identity.kind, "root");
+    assert.ok(root.manifest.canonicalDigest);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("B1 C appends the selected target version only after its frozen target preflight", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    port.createRoot(value.projectId);
+    const root = port.resolveRootWorkVersion(value.projectId)!;
+    const derived = port.createDerivedWorkVersion(value.projectId, {
+      displayName: "阿芜持有铜钥匙", parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.create-if", idempotencyKey: "multiverse-b1:create-if:append-target", createdAt: "2026-09-09T12:00:00.000Z"
+    });
+    const input = {
+      workVersionId: derived.identity.workVersionId, expectedRevision: derived.identity.currentRevision,
+      expectedManifestDigest: derived.manifest.canonicalDigest, authorActionId: "author.multiverse-b1.merge",
+      idempotencyKey: "multiverse-b1:merge:append-target", createdAt: "2026-09-09T12:01:00.000Z",
+      semanticDeltaRefs: ["multiverse-b1.worldstate.state.copper-key", "world-state:item.copper-key:change-1"]
+    };
+    const applied = port.appendTargetWorkVersionRevision(value.projectId, input);
+    const replay = port.appendTargetWorkVersionRevision(value.projectId, input);
+    assert.equal(applied.identity.currentRevision, 2);
+    assert.equal(replay.receipt.receiptId, applied.receipt.receiptId);
+    assert.throws(() => port.appendTargetWorkVersionRevision(value.projectId, { ...input, idempotencyKey: "multiverse-b1:merge:stale", expectedRevision: 1 }), /已变化/u);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("a root-bound fixed artifact remains available when the project also has an IF", async () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    const root = port.createRoot(value.projectId);
+    port.createDerivedWorkVersion(value.projectId, { displayName: "铜钥匙 IF", parentVersionId: root.identity.workVersionId, expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId, authorActionId: "author.root-export.if", idempotencyKey: "root-export-if", createdAt: "2026-09-09T16:00:00.000Z" });
+    const artifact = await port.createArtifact(value.projectId, { workVersionId: root.identity.workVersionId, storyUnitId: value.storyUnit.id, eventIds: [value.event.id], creationKey: "root-export-with-if" });
+    assert.equal(artifact.provenance.workVersionSource?.workVersionId, root.identity.workVersionId);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("B1 IF freezes N4 holder state in the existing WorldState Owner", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    const item = value.operations.createWorldObject({ projectId: value.projectId, type: "item", title: "铜钥匙" });
+    const root = port.createRoot(value.projectId);
+    const evidence = value.operations.createWorldObject({ projectId: value.projectId, type: "event", title: "钥匙已交接", status: "committed" });
+    const main = value.operations.applyWorldStateN4({
+      projectId: value.projectId, objectId: item.id, workVersionId: root.identity.workVersionId,
+      expectedObjectRevision: item.revisionToken, expectedRevision: 0, operationId: "multiverse-b1.root-key",
+      effectiveAt: "2026-09-09T12:00:00.000Z", value: { kind: "holder", state: "held", holder: { id: value.event.id, revision: value.event.revisionToken } },
+      evidence: { kind: "confirmed-event", event: { id: evidence.id, revision: evidence.revisionToken } }, now: "2026-09-09T12:00:00.000Z"
+    });
+    const derived = port.createDerivedWorkVersion(value.projectId, {
+      displayName: "阿芜持有铜钥匙", parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.state-if", idempotencyKey: "multiverse-b1:state-if", createdAt: "2026-09-09T12:01:00.000Z"
+    });
+    const frozenItem = value.operations.readWorldObject({ projectId: value.projectId, objectId: item.id });
+    value.operations.applyWorldStateN4({
+      projectId: value.projectId, objectId: item.id, workVersionId: derived.identity.workVersionId,
+      expectedObjectRevision: frozenItem.revisionToken, expectedRevision: main.store.revision, operationId: "multiverse-b1.if-key",
+      effectiveAt: "2026-09-09T12:01:00.000Z", value: { kind: "holder", state: "held", holder: { id: value.event.id, revision: value.event.revisionToken } },
+      evidence: { kind: "confirmed-event", event: { id: evidence.id, revision: evidence.revisionToken } }, now: "2026-09-09T12:01:00.000Z"
+    });
+    const rootState = value.operations.readWorldStateN4({ projectId: value.projectId, objectId: item.id, workVersionId: root.identity.workVersionId, observedAt: "2026-09-09T12:02:00.000Z" });
+    const ifState = value.operations.readWorldStateN4({ projectId: value.projectId, objectId: item.id, workVersionId: derived.identity.workVersionId, observedAt: "2026-09-09T12:02:00.000Z" });
+    assert.equal(rootState.history.length, 1, "IF mutation must not rewrite mainline history");
+    assert.equal(ifState.history.length, 2, "IF retains frozen baseline plus its own mutation");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("pinned artifact export keeps the exact saved package after its Story Unit changes", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    await value.adapter.createArtifact(value.projectId);
+    const before = await value.adapter.read(value.projectId);
+    const changed = value.operations.updateStoryUnit({
+      projectId: value.projectId,
+      unitId: value.storyUnit.id,
+      expectedVersion: value.storyUnit.version,
+      summary: "R5R1_CURRENT_CANARY must never appear under the older package digest."
+    });
+    assert.equal(changed.conflict, false);
+    const pinned = await value.adapter.read(value.projectId);
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.equal(pinned.packageMode, "pinned-artifact");
+    assert.equal(pinned.package?.digest, before.package?.digest);
+    assert.equal(pinned.package?.storyMarkdown, before.package?.storyMarkdown);
+    assert.doesNotMatch(pinned.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u);
+    assert.equal(current.packageMode, "current-selection");
+    assert.doesNotMatch(current.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u, "Story Unit summary is not an exportable Event-content authority.");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("pinned artifact export rejects a snapshot whose Markdown no longer matches its saved digest", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const created = await value.adapter.createArtifact(value.projectId);
+    const source = created.provenance.workVersionSource!;
+    assert.ok(source.pinnedPackageSnapshot?.snapshotDigest);
+    const artifactPath = path.join(value.rootPath, value.projectId, created.relativeId);
+    const stored = readFileSync(artifactPath, "utf8");
+    const corrupted = stored.replace(source.pinnedPackageSnapshot!.snapshotDigest!, `sha256:${"0".repeat(64)}`);
+    assert.notEqual(corrupted, stored, "the fixture must corrupt the persisted snapshot outside the protected write API");
+    writeFileSync(artifactPath, corrupted, "utf8");
+    const blocked = await value.adapter.read(value.projectId, { view: "pinned", artifactId: created.id });
+    assert.equal(blocked.packageMode, "blocked");
+    assert.equal(blocked.package, null);
+    assert.match(blocked.sourceRequestBlocker?.authorMessage || "", /摘要不匹配/u);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("selected formal Event prose is frozen into the source-bound Markdown without borrowing unit summaries", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const artifact = await value.adapter.createArtifact(value.projectId, { storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    const pinned = await value.adapter.read(value.projectId, { view: "pinned", artifactId: artifact.id });
+    assert.match(pinned.package?.storyMarkdown || "", /钟声只告诉守夜人/u);
+    assert.match(pinned.package?.storyMarkdown || "", /把残页压在灯下/u);
+    assert.doesNotMatch(pinned.package?.storyMarkdown || "", /寄信人和精确时间仍未知/u, "Story Unit summary remains an index, not selected Event prose.");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("multiple fixed artifacts require an explicit selection while current and archived-source reads keep their boundaries", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const first = await value.adapter.createArtifact(value.projectId, { creationKey: "author-fixed-one" });
+    const firstPinned = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    const second = await value.adapter.createArtifact(value.projectId, { creationKey: "author-fixed-two" });
+    assert.notEqual(first.id, second.id, "each explicit author action owns one independently addressable fixed artifact");
+
+    const savedFirst = value.adapter.saveArtifact(value.projectId, "FIRST_ARTIFACT_BODY", first.id);
+    const savedSecond = value.adapter.saveArtifact(value.projectId, "SECOND_ARTIFACT_BODY", second.id);
+    assert.match(savedFirst.content, /FIRST_ARTIFACT_BODY/u);
+    assert.match(savedSecond.content, /SECOND_ARTIFACT_BODY/u);
+    assert.throws(() => value.adapter.saveArtifact(value.projectId), /必须指定 artifactId/u, "a production write cannot choose one of several fixed artifacts by list order");
+
+    const ambiguous = await value.adapter.read(value.projectId);
+    assert.equal(ambiguous.packageMode, "blocked");
+    assert.equal(ambiguous.artifacts.length, 2);
+    assert.match(ambiguous.sourceRequestBlocker?.authorMessage || "", /必须指定 artifactId/u);
+
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.equal(current.packageMode, "current-selection", "a current preview is never blocked by the existence of several historical artifacts");
+
+    value.adapter.advanceRoot(value.projectId);
+    const firstHistorical = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    const secondHistorical = await value.adapter.read(value.projectId, { view: "pinned", artifactId: second.id });
+    assert.equal(firstHistorical.artifact?.id, first.id, "the nested drift read keeps the explicitly selected first artifact identity");
+    assert.equal(secondHistorical.artifact?.id, second.id, "the nested drift read keeps the explicitly selected second artifact identity");
+    assert.ok(firstHistorical.sourceCompare, "the first selected artifact receives its own historical-source comparison");
+    assert.ok(secondHistorical.sourceCompare, "the second selected artifact receives its own historical-source comparison");
+
+    const archived = value.operations.archiveStoryUnit({ projectId: value.projectId, unitId: value.storyUnit.id, expectedVersion: value.storyUnit.version });
+    assert.equal(archived.conflict, false);
+    const pinnedAfterArchive = await value.adapter.read(value.projectId, { view: "pinned", artifactId: first.id });
+    assert.equal(pinnedAfterArchive.packageMode, "pinned-artifact");
+    assert.equal(pinnedAfterArchive.package?.storyMarkdown, firstPinned.package?.storyMarkdown, "the saved package remains the source even after its live Story Unit is archived");
+    assert.equal(pinnedAfterArchive.package?.scope.label, firstPinned.package?.scope.label);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("multi-artifact save, reconciliation, and recovery stay on the explicitly selected artifact", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const first = await value.adapter.createArtifact(value.projectId, { creationKey: "author-reconcile-one" });
+    const second = await value.adapter.createArtifact(value.projectId, { creationKey: "author-reconcile-two" });
+    const savedFirst = value.adapter.saveArtifact(value.projectId, "FIRST_RECONCILE_BODY", first.id);
+    const savedSecond = value.adapter.saveArtifact(value.projectId, "SECOND_RECONCILE_BODY", second.id);
+    value.adapter.advanceRoot(value.projectId);
+    const compare = await value.adapter.sourceDriftCompare(value.projectId, { artifactId: first.id });
+    await assert.rejects(() => value.adapter.reconcileSource(value.projectId, { selectedDifferenceIds: compare.confirmableDifferenceIds.slice(0, 1), expectedRootRevision: 3 }), /必须指定 artifactId/u);
+    const reconciled = await value.adapter.reconcileSource(value.projectId, { artifactId: first.id, selectedDifferenceIds: compare.confirmableDifferenceIds.slice(0, 1), expectedRootRevision: 3 });
+    assert.equal(reconciled.id, first.id);
+    assert.equal(value.adapter.recoverSourceReconciliation(value.projectId, first.id).reason, "already-complete");
+    assert.match(value.operations.readOutputArtifact({ projectId: value.projectId, artifactId: first.id }).content, /FIRST_RECONCILE_BODY/u);
+    const untouchedSecond = value.operations.readOutputArtifact({ projectId: value.projectId, artifactId: second.id });
+    assert.equal(untouchedSecond.currentRevisionId, savedSecond.currentRevisionId);
+    assert.equal(savedFirst.id, first.id);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("current selection excludes author intent and mixed selected/unselected Event fragments", async () => {
+  const value = fixture();
+  try {
+    const other = value.operations.createWorldObject({ projectId: value.projectId, type: "event", title: "未选正式事件", status: "planned" });
+    const selectedRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: value.event.id, entityVersion: value.event.revisionToken, capturedAt: "2026-08-24T09:40:00.000Z", staleState: "fresh" as const };
+    const unselectedRef = { sourceKind: "event-line" as const, ownerId: "story-studio.event", entityId: other.id, entityVersion: other.revisionToken, capturedAt: "2026-08-24T09:40:00.000Z", staleState: "fresh" as const };
+    const updated = value.operations.updateStoryUnit({
+      projectId: value.projectId,
+      unitId: value.storyUnit.id,
+      expectedVersion: value.storyUnit.version,
+      summary: "R5R1_AUTHOR_SUMMARY_CANARY",
+      linkedEntityIds: [value.event.id, other.id],
+      items: [
+        { id: "author-intent-canary", kind: "note", authority: "author-intent", content: { title: "R5R1_AUTHOR_INTENT_CANARY" }, sourceRefs: [selectedRef], createdBy: "author" },
+        { id: "mixed-canary", kind: "note", authority: "canon", content: { title: "R5R1_MIXED_UNSELECTED_CANARY" }, sourceRefs: [selectedRef, unselectedRef], createdBy: "system" },
+        { id: "selected-canon", kind: "note", authority: "canon", content: { title: "R5R1_SELECTED_FORMAL" }, sourceRefs: [selectedRef], createdBy: "system" }
+      ]
+    });
+    assert.equal(updated.conflict, false);
+    value.adapter.createRoot(value.projectId);
+    const current = await value.adapter.read(value.projectId, { view: "current", storyUnitId: value.storyUnit.id, eventIds: [value.event.id] });
+    assert.match(current.package?.storyMarkdown || "", /R5R1_SELECTED_FORMAL/u);
+    assert.doesNotMatch(current.package?.storyMarkdown || "", /R5R1_AUTHOR_SUMMARY_CANARY|R5R1_AUTHOR_INTENT_CANARY|R5R1_MIXED_UNSELECTED_CANARY/u);
+    assert.ok(current.availableEvents.some((event) => event.id === other.id), "available events remain visible after the current selection excludes one of them");
+    assert.deepEqual(current.selectedEventIds, [value.event.id]);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("artifact save uses optimistic concurrency and duplicate operation creates no second revision", async () => {
   const value = fixture();
   try {
@@ -88,7 +339,7 @@ test("artifact save uses optimistic concurrency and duplicate operation creates 
       title: saved.title,
       content: saved.content,
       structure: saved.structure,
-      revisionOperationId: `author.creation-source.save-artifact-r2.r0:${value.projectId}`
+      revisionOperationId: `author.creation-source.save-artifact-r2.r0:${value.projectId}:${saved.id}`
     });
     const view = await value.adapter.read(value.projectId);
     assert.equal(saved.id, repeated.id);

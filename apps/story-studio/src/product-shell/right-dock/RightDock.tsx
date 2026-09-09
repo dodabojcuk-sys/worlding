@@ -4,6 +4,7 @@ import type { DockLayoutState, DockToolId } from "./types";
 import { useEffect } from "react";
 
 export function RightDock(props: {
+  projectId: string | null;
   layout: DockLayoutState;
   compact: boolean;
   modal: boolean;
@@ -25,7 +26,7 @@ export function RightDock(props: {
     return () => window.removeEventListener("keydown", closeFromEscape);
   }, [props.layout.activeToolId, props.onToggle]);
   return <>
-    <DockPanelStack overlay={props.compact} modal={props.modal} openPanelIds={props.layout.openPanelIds} panelSizes={props.layout.panelSizes} onClose={props.onToggle} onResize={props.onResize} />
+    <DockPanelStack projectId={props.projectId} overlay={props.compact} modal={props.modal} openPanelIds={props.layout.openPanelIds} panelSizes={props.layout.panelSizes} onClose={props.onToggle} onResize={props.onResize} />
     <DockToolRail compact={props.compact} expanded={false} activeToolId={props.layout.activeToolId} onToggle={props.onToggle} onToggleExpanded={() => undefined} />
   </>;
 }

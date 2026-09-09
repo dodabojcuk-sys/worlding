@@ -10,6 +10,7 @@ import {
   getModelServiceStatus,
   importStorageProject,
   probeProviderEmbedding,
+  revealProviderCredential,
   revealStorageProject,
   saveProviderProfile,
   testProviderConnection,
@@ -122,6 +123,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     return result;
   };
+  const revealCredential = async (providerInstanceId: string) => withToken((token) => revealProviderCredential({ providerInstanceId, token }));
   const probeEmbedding = async (modelId: string) => {
     const result = await withToken((token) => probeProviderEmbedding(token, modelId));
     await refreshRuntime(project);
@@ -186,6 +188,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
             onSaveProviderProfile={saveProvider}
             onDiscoverProviderModels={discoverModels}
             onTestProviderConnection={testConnection}
+            onRevealProviderCredential={revealCredential}
             onProbeEmbedding={probeEmbedding}
             onDisableProviderProfile={disableProvider}
           /></section>}

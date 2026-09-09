@@ -74,10 +74,11 @@ import {
   tianyiObjectContextRefKey
 } from "../../../src/storyContinuity/index.ts";
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
-import { createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
+import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
+import { createOpenAiCompatibleAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
 import { createSessionCredentialController } from "./providerGateway/sessionCredentialController.mjs";
 import { createProviderCredentialBackend } from "./providerGateway/providerCredentialBackend.mjs";
 import { resolveProviderServerAppDataRoot } from "./providerGateway/providerAppDataRoot.mjs";
@@ -110,7 +111,10 @@ import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin }
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
 import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
+import { createNuwaN1Port } from "./nuwaN1Port.mjs";
+import { NUWA_N1_PI_ADAPTER_ID, createNuwaN1PiAdapter } from "./nuwaN1PiAdapter.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
+import { createMultiverseB1FixtureAdapter } from "./multiverseB1Fixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
@@ -164,11 +168,98 @@ const agentProposalOperations = createStoryStudioAgentProposalOperations({ rootP
 const authorControl = createStoryStudioAuthorControl({ rootPath, stateFilePath });
 const characterStateImpactFixture = createCharacterStateImpactFixtureAdapter({ operations, authorControl });
 const nuwaBoundedScenarioFixture = createNuwaBoundedScenarioFixtureAdapter({ operations, authorControl });
-const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
 const relationOperations = createStoryStudioRelationOperations({
   workspaceOperations: operations,
   verifyCanonEventRead: ({ projectId, eventId }) => authorControl.verifyCanonEventRead({ projectId, eventId })
 });
+const nuwaN1AutoApplicationFaultInjector = process.env.NODE_ENV === "test" && (process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1" || process.env.TIANYAN_NUWA_N1_TEST_FAIL_ROLLBACK_ONCE === "1")
+  ? (() => {
+      let fired = false;
+      return (event) => {
+        const shouldFailRelation = process.env.TIANYAN_NUWA_N1_TEST_FAIL_RELATION_ONCE === "1" && event.phase === "before-relation-confirm";
+        const shouldFailRollback = process.env.TIANYAN_NUWA_N1_TEST_FAIL_ROLLBACK_ONCE === "1" && event.phase === "before-rollback-relation";
+        if (!fired && (shouldFailRelation || shouldFailRollback)) {
+          fired = true;
+          throw new Error(shouldFailRollback ? "Injected Nuwa rollback interruption." : "Injected Nuwa relation confirmation interruption.");
+        }
+      };
+    })()
+  : null;
+const nuwaN1Port = createNuwaN1Port({
+  operations,
+  authorControl,
+  continuityRootPath: rootPath,
+  continuityAgentId: "agent.nuwa",
+  actionPermissionBroker,
+  relationOperations,
+  creationSourceSelectionPort: () => creationSourceSelectionPort,
+  autoApplicationFaultInjector: nuwaN1AutoApplicationFaultInjector,
+  sourceIdentityForProject: nuwaN1SourceIdentity,
+  fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
+  fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
+  piAdapterFactory: {
+    availability() { return nuwaN1PiAvailability(); },
+    create({ projectId, runId, sourceIdentity, actorIds, onProviderLifecycle }) {
+      const availability = nuwaN1PiAvailability();
+      if (!availability || availability.kind === "unavailable" || !agentRuntimePluginResolution.runtime) return null;
+      const profile = nuwaN1LocalHostUrl
+        ? { provider: nuwaN1LocalHostProfile.providerId, id: nuwaN1LocalHostProfile.id, modelId: nuwaN1LocalHostProfile.modelId }
+        : readActiveProviderProfile();
+      // Persistent settings identify a Provider instance (for example
+      // radeon-cloud.default). The Gateway executes one selected model profile
+      // generated from that instance. Do not pass the persistent instance ID
+      // into the Gateway's profileId field: that fails before any budget or
+      // transport lifecycle can start.
+      const gatewayProfile = nuwaN1LocalHostUrl
+        ? nuwaN1LocalHostProfile
+        : providerGateway.metadata().profiles.find((candidate) => candidate.providerId === profile?.provider && candidate.modelId === profile?.modelId);
+      if (!profile || !gatewayProfile) return null;
+      return createNuwaN1PiAdapter({
+        runtime: agentRuntimePluginResolution.runtime,
+        projectId,
+        runId,
+        actorIds,
+        provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
+        sourceIdentity,
+        onProviderLifecycle,
+        openProviderStream(providerInput) {
+          const requestKey = `nuwa-n1.${projectId}.${runId}.${providerInput.agentRunId}.${providerInput.providerCall}`;
+          return providerGateway.openChatStream({
+            profileId: gatewayProfile.id,
+            messages: providerInput.messages,
+            tools: providerInput.tools,
+            toolChoice: providerInput.toolChoice,
+            maxOutputTokens: 512,
+            signal: providerInput.signal,
+            // Pi restarts its providerCall ordinal for every actor attempt.
+            // agentRunId contains the durable N1 attempt identity, so a retry
+            // reuses its key while another actor gets an independent key.
+            idempotencyKey: requestKey,
+            budgetScope: `nuwa-n1:${projectId}`,
+            ...(nuwaApiTestAuthorizationReceipt() ? { authorizationReceiptId: nuwaApiTestAuthorizationReceipt() } : {}),
+            toolLoopTurn: providerInput.providerCall > 1,
+            retry: providerInput.retry,
+            // The envelope carries only durable identities and no prompt,
+            // credentials, or raw model response.  It is linked to the
+            // existing replay-safe Gateway owner, not a second N1 ledger.
+            receiptEnvelopeContext: {
+              projectId,
+              projectVersion: sourceIdentity.revision,
+              sessionId: runId,
+              archiveRecordId: `nuwa-runpack.${runId}`,
+              sourceAnchorIds: [sourceIdentity.workVersionId],
+              sourceRevision: sourceIdentity.revision,
+              operationId: requestKey,
+              providerProfileRevision: sourceIdentity.revision
+            },
+            onProviderLifecycle: providerInput.onProviderLifecycle
+          });
+        }
+      });
+    }
+  }
+});
+const multiverseSingleDerivedFixture = createMultiverseSingleDerivedFixtureAdapter({ operations, authorControl });
 const canonReadProjection = createStoryStudioCanonReadProjection({ workspace: operations, authorControl });
 const creationSourceSelectionPort = createCreationSourceSelectionPort({
   operations,
@@ -178,6 +269,7 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
     ? { projectionSalt: ({ projectId, sourceGeneration }) => `disposable-e2e-source:${projectId}:generation-${sourceGeneration}` }
     : {})
 });
+const multiverseB1Fixture = createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort, authorControl });
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
 const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl, creationSourceSelectionPort });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });
@@ -219,18 +311,59 @@ const providerCredential = createSessionCredentialController({
     clear() { readActiveCredentialBackend().clear(); }
   }
 });
+const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
+// Test-only host mode exercises the same Gateway -> HTTP/SSE -> Pi boundary
+// without a credential, paid Provider, or production switch.  Its ledger
+// lives below the test app-data root, so it cannot consume or reset a real
+// Provider history.
+const nuwaN1LocalHostUrl = process.env.NODE_ENV === "test" && /^http:\/\/127\.0\.0\.1:\d+(?:\/[^\s]*)?$/u.test(process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL || "")
+  ? process.env.TIANYAN_NUWA_N1_LOCAL_PI_HOST_URL
+  : null;
 const providerBudgetLedger = createProviderRequestBudgetLedger({
   appDataRoot: providerAppDataRoot,
-  initialSnapshot: shouldInstallHistoricalProviderIncident() ? HISTORICAL_PROVIDER_INCIDENT_R0 : zeroProviderBudgetBaseline()
+  initialSnapshot: nuwaN1LocalHostUrl
+    ? localNuwaN1HostBudgetBaseline()
+    : shouldInstallHistoricalProviderIncident()
+      ? HISTORICAL_PROVIDER_INCIDENT_R0
+      : zeroProviderBudgetBaseline()
 });
 const replaySafeProviderReceiptEnvelopeStore = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: providerAppDataRoot });
-const productPathRealProviderAllowed = process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH === "1";
+const nuwaN1LocalHostProfile = Object.freeze({
+  id: "local-nuwa-n1-http-sse",
+  label: "本地 N1 HTTP/SSE 宿主",
+  purpose: "structured-story",
+  providerId: "local-nuwa-n1-host",
+  modelId: "nuwa-n1-sse-fixture",
+  maxOutputTokens: 512,
+  temperature: 0,
+  timeoutMs: 5_000,
+  enableThinking: false
+});
+// This adapter is test-process-only. It lets the browser exercise the exact
+// grounded-answer transport without configuring or invoking a paid Provider.
+const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
+const localFakeGroundedProfile = Object.freeze({
+  id: "local-fake-grounded-answer",
+  label: "本地假服务 · Grounded Answer",
+  purpose: "structured-story",
+  providerId: "local-fake",
+  modelId: "deterministic-grounded-fixture",
+  maxOutputTokens: 512,
+  temperature: 0,
+  timeoutMs: 5_000,
+  enableThinking: false
+});
 const providerGateway = createAiProviderGateway({
-  adapters: providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
-    instance,
-    apiKeyProvider: () => readProviderCredential(instance.provider),
-    baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
-  })),
+  adapters: [
+    ...providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
+      instance,
+      apiKeyProvider: () => readProviderCredential(instance.provider),
+      baseUrlProvider: () => validatedProviderBaseUrl(instance.provider)
+    })),
+    ...(agentFakeProviderStreamAllowed ? [createLocalFakeGroundedAdapter()] : []),
+    ...(nuwaN1LocalHostUrl ? [createNuwaN1LocalHostAdapter(nuwaN1LocalHostUrl)] : [])
+  ],
+  ...(agentFakeProviderStreamAllowed || nuwaN1LocalHostUrl ? { profiles: [...DEFAULT_MODEL_PROFILES, ...(agentFakeProviderStreamAllowed ? [localFakeGroundedProfile] : []), ...(nuwaN1LocalHostUrl ? [nuwaN1LocalHostProfile] : [])] } : {}),
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
@@ -238,7 +371,8 @@ const providerGateway = createAiProviderGateway({
     maxOutputTokensCap: 2_048
   } : {})
 });
-syncProviderGatewayProfile();
+if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
+else syncProviderGatewayProfile();
 const multiNodePredictionGateway = productPathRealProviderAllowed
   ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
   : null;
@@ -258,7 +392,6 @@ const tianyi = createStoryStudioTianyiOperations({
 });
 const intelligenceBridge = createStoryStudioIntelligenceBridgeOperations({ rootPath, stateFilePath, agentId: tianyiAgentId, localControlToken: controlToken, tianyiOperations: tianyi });
 const agentDraftFixtureAllowed = process.env.NODE_ENV !== "production" || process.env.TIANYAN_AGENT_DRAFT_FIXTURE_MODE === "1";
-const agentFakeProviderStreamAllowed = process.env.NODE_ENV !== "production" && process.env.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1";
 const agentFakeStoryIntakeFailureOrdinal = process.env.NODE_ENV === "test"
   ? Math.max(0, Number(process.env.TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL || 0) || 0)
   : 0;
@@ -322,6 +455,9 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const rawRequest = input.contextRequest && typeof input.contextRequest === "object"
       ? input.contextRequest
       : { productMode: "world", activeOwner: { kind: "project", id: input.projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] };
+    if (rawRequest.knowledgeView?.contextAccess === "character" || rawRequest.knowledgeView?.contextAccess === "display-only") {
+      throw new Error("角色或读者视角不能进入作者 Agent ContextPack；请使用带稳定 SubjectRef 的依据问答。");
+    }
     const storyIntake = parseStoryIntakeRequest(rawRequest.storyIntake ?? null);
     const knowledgeProjection = input.currentPage === "/event-line" && rawRequest.knowledgeView?.observerId
       ? projectEventStoryCrossingKnowledge(input.projectId, rawRequest.knowledgeView.observerId)
@@ -733,7 +869,7 @@ server.listen(port, "127.0.0.1", () => {
  * action envelope so a future autonomous caller cannot silently reuse this
  * route without an explicit confirmation boundary. */
 function recordAuthorInitiatedAction(projectId, action, targetType, targets, actor = "author") {
-  const receipt = actionPermissionBroker.record(projectId, { actor, action, targetType, targets, authorConfirmed: true, estimatedProviderCost: 0 });
+  const receipt = actionPermissionBroker.record(projectId, { actor, action, targetType, targets, authorConfirmed: true, authorConfirmationChannel: "trusted-server-route", estimatedProviderCost: 0 });
   if (receipt.outcome !== "allowed") throw productError(receipt.reason, 403);
   return receipt;
 }
@@ -762,6 +898,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/storage/status") {
     requireToken(request);
     const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     const project = requireProject(projectId);
     const projectPath = path.join(rootPath, project.id);
     const reveal = fileManagerCommand(projectPath);
@@ -804,7 +941,13 @@ async function handleProductRequest(request, response, url) {
     const body = await readJsonBody(request);
     requireAllowedKeys(body, ["projectId", "actor", "action", "targets", "targetType", "checkpointId", "estimatedProviderCost", "authorConfirmed"]);
     requireProject(body.projectId);
-    sendJson(response, 201, { data: runProductOperation(() => actionPermissionBroker.record(body.projectId, body)) });
+    // This diagnostic/activity route is callable from the local browser.  It
+    // must never become a second author-confirmation channel: formal author
+    // writes use recordAuthorInitiatedAction() inside the corresponding
+    // server-owned operation, while Nuwa uses a persisted scope authorization.
+    if (body.authorConfirmed === true) throw productError("客户端不能通过活动接口声明作者已确认。", 403);
+    const { authorConfirmed: _ignoredAuthorConfirmed, ...activity } = body;
+    sendJson(response, 201, { data: runProductOperation(() => actionPermissionBroker.record(activity.projectId, activity)) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/storage/reveal") {
@@ -886,11 +1029,13 @@ async function handleProductRequest(request, response, url) {
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations") {
     const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
     const reviewState = url.searchParams.get("reviewState") || undefined;
     const direction = url.searchParams.get("direction") || undefined;
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.listRelations({
       projectId,
+      ...(workVersionId ? { workVersionId } : {}),
       includeArchived: url.searchParams.get("includeArchived") === "true",
       ...(reviewState ? { reviewState } : {}),
       ...(url.searchParams.get("objectId") ? { objectId: url.searchParams.get("objectId") } : {}),
@@ -903,8 +1048,9 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/relation") {
     const projectId = requireQueryValue(url, "projectId");
     const relationId = requireQueryValue(url, "relationId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.readRelation({ projectId, relationId })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.readRelation({ projectId, relationId, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/types") {
@@ -927,15 +1073,17 @@ async function handleProductRequest(request, response, url) {
     const relationTypeId = requireQueryValue(url, "relationTypeId");
     const direction = requireQueryValue(url, "direction");
     const relationLabelSnapshot = requireQueryValue(url, "relationLabelSnapshot");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.duplicateSuggestions({ projectId, sourceObjectId, targetObjectId, relationTypeId, direction, relationLabelSnapshot })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.duplicateSuggestions({ projectId, sourceObjectId, targetObjectId, relationTypeId, direction, relationLabelSnapshot, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/evidence") {
     const projectId = requireQueryValue(url, "projectId");
     const relationId = requireQueryValue(url, "relationId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.relationEvidence({ projectId, relationId })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.relationEvidence({ projectId, relationId, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/types/legacy-preview") {
@@ -984,7 +1132,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.sourceObjectId, body.targetObjectId]);
     sendJson(response, 201, { data: runProductOperation(() => relationOperations.createRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -993,7 +1141,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/update") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "relationTypeId", "direction", "evidenceRefs", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "relationTypeId", "direction", "evidenceRefs", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.updateRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1002,7 +1150,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/confirm") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.confirmRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1011,7 +1159,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/reject") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.rejectRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1020,7 +1168,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/archive") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.archiveConfirmedRelation({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1029,7 +1177,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/evidence/append") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "evidenceRefs", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "evidenceRefs", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.appendRelationEvidence({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1038,7 +1186,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/correction/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "supersedesRelationId", "correctionRelationId", "expectedRelationRevision", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "supersedesRelationId", "correctionRelationId", "expectedRelationRevision", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 201, { data: runProductOperation(() => relationOperations.createRelationCorrectionCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1212,7 +1360,8 @@ async function handleProductRequest(request, response, url) {
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/verified-events") {
     const projectId = requireQueryValue(url, "projectId");
-    sendJson(response, 200, { data: canonReadProjection.listVerifiedCanonEvents({ projectId }) });
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim();
+    sendJson(response, 200, { data: canonReadProjection.listVerifiedCanonEvents({ projectId, ...(workVersionId ? { workVersionId } : {}) }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/knowledge-view") {
@@ -1225,7 +1374,8 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/event") {
     const projectId = requireQueryValue(url, "projectId");
     const eventId = requireQueryValue(url, "eventId");
-    sendJson(response, 200, { data: canonReadProjection.readVerifiedCanonEvent({ projectId, eventId }) });
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim();
+    sendJson(response, 200, { data: canonReadProjection.readVerifiedCanonEvent({ projectId, eventId, ...(workVersionId ? { workVersionId } : {}) }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/normal-creation") {
@@ -1314,7 +1464,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/world-objects/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "type", "title", "status", "tags", "aliases", "body", "agentTypeId", "agentTypeFieldValues", "profile"]);
+    requireAllowedKeys(body, ["projectId", "type", "title", "status", "tags", "aliases", "body", "knowledgeSubjects", "agentTypeId", "agentTypeFieldValues", "profile"]);
     recordAuthorInitiatedAction(body.projectId, "library-write", body.type, [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createGenericWorldObject(body)) });
     return;
@@ -1689,7 +1839,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/planning-events/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "title", "body", "tags"]);
+    requireAllowedKeys(body, ["projectId", "title", "body", "tags", "operationId"]);
     recordAuthorInitiatedAction(body.projectId, "event-impact-review", "event", [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createPlanningEvent(body)) });
     return;
@@ -2115,6 +2265,10 @@ async function handleProductRequest(request, response, url) {
     await handleNuwaDirectorR1Request(request, response, url);
     return;
   }
+  if (pathname.startsWith("/__local/story-studio/nuwa-n1")) {
+    await handleNuwaN1Request(request, response, url);
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/intelligence-overlay") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: runProductOperation(() => authorControl.readIntelligenceOverlay({ projectId })) });
@@ -2151,38 +2305,84 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => multiverseSingleDerivedFixture.read(projectId, { ensureNuwa, missingSource, staleSelection })) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/multiverse/b1-fixture") {
+    if (process.env.TIANYAN_MULTIVERSE_B1_FIXTURE !== "1") throw productError("MULTI-B1 Fixture is disabled for this runtime.", 404);
+    const projectId = requireQueryValue(url, "projectId");
+    sendJson(response, 200, { data: runProductOperation(() => multiverseB1Fixture.read(projectId)) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/multiverse/versions") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    sendJson(response, 200, { data: runProductOperation(() => creationSourceSelectionPort.listWorkVersions(projectId)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/multiverse/versions/create") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "displayName", "parentVersionId", "expectedParentRevision", "expectedParentManifestId", "idempotencyKey"]);
+    const project = requireProject(body.projectId);
+    const authorAction = recordAuthorInitiatedAction(project.id, "branch-merge", "multiverse-create-if", [body.parentVersionId], "author");
+    const created = runProductOperation(() => creationSourceSelectionPort.createDerivedWorkVersion(project.id, {
+      ...body,
+      authorActionId: authorAction.id,
+      createdAt: new Date().toISOString()
+    }));
+    sendJson(response, 201, { data: { created, versions: runProductOperation(() => creationSourceSelectionPort.listWorkVersions(project.id)) } });
+    return;
+  }
+  if (request.method === "POST" && pathname.startsWith("/__local/story-studio/multiverse/b1-fixture/")) {
+    requireToken(request);
+    if (process.env.TIANYAN_MULTIVERSE_B1_FIXTURE !== "1") throw productError("MULTI-B1 Fixture is disabled for this runtime.", 404);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId"]);
+    const action = pathname.slice("/__local/story-studio/multiverse/b1-fixture/".length);
+    if (!new Set(["setup", "merge", "compensate"]).has(action)) throw productError("MULTI-B1 Fixture action does not exist.", 404);
+    const project = requireProject(body.projectId);
+    recordAuthorInitiatedAction(project.id, action === "setup" ? "rehearsal-run" : "branch-merge", `multiverse-b1-fixture-${action}`, [action], "author");
+    const result = runProductOperation(() => action === "setup" ? multiverseB1Fixture.setup(project.id) : action === "merge" ? multiverseB1Fixture.merge(project.id) : multiverseB1Fixture.compensate(project.id));
+    sendJson(response, 200, { data: { result, view: runProductOperation(() => multiverseB1Fixture.read(project.id)) } });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/creation/source") {
     const projectId = requireQueryValue(url, "projectId");
     const storyUnitId = String(url.searchParams.get("storyUnitId") || "").trim() || undefined;
     const eventIds = url.searchParams.getAll("eventId").map((value) => value.trim()).filter(Boolean);
     const workVersionId = String(url.searchParams.get("workVersionId") || "").trim() || undefined;
-    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(projectId, { storyUnitId, eventIds, workVersionId })) });
+    const artifactId = String(url.searchParams.get("artifactId") || "").trim() || undefined;
+    const requestedView = String(url.searchParams.get("view") || "").trim();
+    if (requestedView && requestedView !== "current" && requestedView !== "pinned") throw productError("Creation source view is invalid.", 400);
+    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(projectId, { storyUnitId, eventIds, workVersionId, artifactId, view: requestedView || undefined })) });
     return;
   }
   if (request.method === "POST" && pathname.startsWith("/__local/story-studio/creation/source/")) {
     requireToken(request);
     const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
-    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "title", "text", "selectedDifferenceIds", "expectedRootRevision"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "storyUnitId", "eventIds", "artifactId", "title", "text", "selectedDifferenceIds", "expectedRootRevision", "creationKey"]);
     const action = pathname.slice("/__local/story-studio/creation/source/".length);
     const scope = { workVersionId: body.workVersionId, storyUnitId: body.storyUnitId, eventIds: body.eventIds };
     const operation = action === "create-root"
       ? () => creationSourceSelectionPort.createRoot(body.projectId)
       : action === "create-artifact"
-        ? () => creationSourceSelectionPort.createArtifact(body.projectId, { ...scope, title: body.title })
+        ? () => creationSourceSelectionPort.createArtifact(body.projectId, { ...scope, title: body.title, creationKey: body.creationKey })
         : action === "save-artifact"
-          ? () => creationSourceSelectionPort.saveArtifact(body.projectId, body.text)
+          ? () => creationSourceSelectionPort.saveArtifact(body.projectId, body.text, body.artifactId)
           : action === "reconcile-source"
             ? () => creationSourceSelectionPort.reconcileSource(body.projectId, {
               selectedDifferenceIds: body.selectedDifferenceIds,
-              expectedRootRevision: body.expectedRootRevision
+              expectedRootRevision: body.expectedRootRevision,
+              artifactId: body.artifactId
             })
             : action === "recover-source"
-              ? () => creationSourceSelectionPort.recoverSourceReconciliation(body.projectId)
+              ? () => creationSourceSelectionPort.recoverSourceReconciliation(body.projectId, body.artifactId)
               : null;
     if (!operation) throw productError("Creation source action does not exist.", 404);
     recordAuthorInitiatedAction(body.projectId, "draft-write", `creation-source-${action}`, [String(body.projectId)], "author");
-    await runAsyncProductOperation(operation);
-    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(body.projectId, scope)) });
+    const result = await runAsyncProductOperation(operation);
+    const responseScope = action === "create-artifact" && result?.id
+      ? { ...scope, view: "pinned", artifactId: result.id }
+      : body.artifactId ? { ...scope, view: "pinned", artifactId: body.artifactId } : scope;
+    sendJson(response, 200, { data: await runAsyncProductOperation(() => creationSourceSelectionPort.read(body.projectId, responseScope)) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/creation/source-e2e/advance-root") {
@@ -2459,6 +2659,9 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["expectedRevision", "provider", "displayName", "baseUrl", "modelId", "llmModelId", "embeddingModelId", "enabled", "apiKey"]);
     const requestedProvider = body.provider ?? readActiveProviderProfile()?.provider;
     assertProviderBaseUrl(requestedProvider, body.baseUrl ?? providerProfileState.profiles.find((profile) => profile.provider === requestedProvider)?.baseUrl);
+    if (typeof body.llmModelId === "string" && body.llmModelId.trim()) assertProviderModelId(body.llmModelId, "默认对话模型");
+    if (typeof body.modelId === "string" && body.modelId.trim()) assertProviderModelId(body.modelId, "默认对话模型");
+    if (typeof body.embeddingModelId === "string" && body.embeddingModelId.trim()) assertProviderModelId(body.embeddingModelId, "默认 Embedding 模型");
     const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
     const current = providerProfileStore.assertRevision(body.expectedRevision);
     providerProfileState = current;
@@ -2534,15 +2737,35 @@ async function handleModelServiceRequest(request, response, url) {
     sendJson(response, 200, { data: readProviderProfileProjection() });
     return;
   }
+  if (request.method === "POST" && route === "profile/reveal-credential") {
+    const body = await readJsonBody(request, 512);
+    requireAllowedKeys(body, ["confirmed", "providerInstanceId"]);
+    const active = readActiveProviderProfile();
+    if (body.confirmed !== true) throw productError("显示已保存密钥需要当前管理会话中的明确确认。", 400);
+    if (!active || body.providerInstanceId !== active.id) throw productError("当前管理会话不能读取其他 Provider 实例的凭据。", 403);
+    const apiKey = readActiveCredentialBackend().read();
+    if (!apiKey) throw productError("当前 Provider 尚未保存凭据。", 404);
+    sendJson(response, 200, { data: { providerInstanceId: active.id, apiKey } });
+    return;
+  }
+  if (request.method === "POST" && route === "nuwa-api-test-authorize") {
+    const body = await readJsonBody(request, 512);
+    requireAllowedKeys(body, ["maxProviderDispatches"]);
+    const authorization = authorizeNuwaApiTestBudget(body.maxProviderDispatches);
+    sendJson(response, 200, { data: { receiptId: authorization.receiptId, scope: authorization.scope, limits: authorization.limits } });
+    return;
+  }
   if (request.method === "POST" && route === "models") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
     const startedAt = Date.now();
     const active = readActiveProviderProfile();
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起目录请求。", 412);
+    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) throw productError("当前 Provider 缺少已保存凭据，未发起目录请求。", 412);
+    const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "model-catalog", generationCalls: 0, totalCalls: 1 });
     providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000 });
+      const discovery = await providerGateway.discoverModels({ providerId: active?.provider, timeoutMs: 15_000, authorizationReceiptId: diagnostic.receiptId, budgetScope: diagnostic.scope });
       providerProfileState = providerProfileStore.completeCatalog({
         expectedRevision: providerProfileState.revision,
         entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
@@ -2590,55 +2813,74 @@ async function handleModelServiceRequest(request, response, url) {
     requireAllowedKeys(body, ["modelId"]);
     const active = readActiveProviderProfile();
     if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起连接测试。", 412);
+    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) throw productError("当前 Provider 缺少已保存凭据，未发送连接测试。", 412);
     const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
     if (!requestedModelId) throw productError("请先选择或手工填写默认对话模型；未发起 Provider 请求。", 400);
+    assertProviderModelId(requestedModelId, "默认对话模型");
     const startedAt = Date.now();
-    providerProfileState = providerProfileStore.beginCatalog({ expectedRevision: providerProfileState.revision });
     try {
-      const discovery = await providerGateway.discoverModels({ providerId: active.provider, timeoutMs: 15_000 });
-      const modelId = discovery.modelIds.includes(requestedModelId) ? requestedModelId : (() => { throw productError("选中的模型 ID 当前不可用，请更新模型后重试。", 409); })();
-      providerProfileState = providerProfileStore.completeCatalog({
+      const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "connection-test", generationCalls: 1, totalCalls: 1 });
+      syncProviderGatewayProfile(requestedModelId);
+      const profile = providerGateway.metadata().profiles[0];
+      if (!profile) throw productError("当前 Provider 没有可执行的对话模型档案。", 412);
+      const inference = await providerGateway.openChatCompletion({
+        profileId: profile.id,
+        messages: [{ role: "user", content: "Reply with OK." }],
+        maxOutputTokens: 16,
+        timeoutMs: 15_000,
+        idempotencyKey: diagnostic.idempotencyKey,
+        authorizationReceiptId: diagnostic.receiptId,
+        budgetScope: diagnostic.scope
+      });
+      const verifiedAt = new Date().toISOString();
+      providerProfileState = providerProfileStore.markConnection({
         expectedRevision: providerProfileState.revision,
-        entries: discovery.modelEntries || discovery.modelIds.map((id) => ({ id, source: "endpoint", capabilityClaims: [] })),
+        connectionStatus: "verified",
+        lastVerifiedAt: verifiedAt,
+        lastError: null,
         historyEntry: {
           id: randomUUID(),
           kind: "connection",
           status: "success",
-          occurredAt: new Date().toISOString(),
-          modelId,
-          modelCount: discovery.modelIds.length,
-          latencyMs: Date.now() - startedAt
+          occurredAt: verifiedAt,
+          modelId: requestedModelId,
+          latencyMs: Date.now() - startedAt,
+          traceId: inference.traceId
         }
       });
-      providerProfileState = providerProfileStore.markConnection({ expectedRevision: providerProfileState.revision, connectionStatus: "verified", lastVerifiedAt: new Date().toISOString(), lastError: null });
-      syncProviderGatewayProfile(modelId);
       sendJson(response, 200, {
         data: {
           gate: "connection",
           providerId: active.provider,
-          modelId,
-          availableModelCount: discovery.modelIds.length,
-          models: discovery.modelIds,
+          modelId: requestedModelId,
+          testedAt: verifiedAt,
+          latencyMs: Date.now() - startedAt,
+          availableModelCount: active.catalog.entries.filter((entry) => entry.source === "endpoint").length,
+          models: active.catalog.entries.filter((entry) => entry.source === "endpoint").map((entry) => entry.id),
           profile: readProviderProfileProjection()
         }
       });
     } catch (error) {
       try {
-        providerProfileState = providerProfileStore.failCatalog({
+        providerProfileState = providerProfileStore.markConnection({
           expectedRevision: providerProfileState.revision,
-          failure: { category: error?.code || "unavailable", message: safeProviderErrorSummary(error) },
+          connectionStatus: "failed",
+          lastVerifiedAt: null,
+          lastError: settingsDiagnosticErrorMessage(error),
           historyEntry: {
             id: randomUUID(),
             kind: "connection",
             status: "failed",
             occurredAt: new Date().toISOString(),
+            modelId: requestedModelId,
             latencyMs: Date.now() - startedAt,
-            error: safeProviderErrorSummary(error)
+            error: settingsDiagnosticErrorMessage(error)
           }
         });
       } catch {
         // A connection error must never hide the original provider failure.
       }
+      if (error?.code === "PROVIDER_BUDGET_EXHAUSTED") throw productError(settingsDiagnosticErrorMessage(error), 429);
       throw error;
     }
     return;
@@ -3028,6 +3270,16 @@ async function handleModelServiceRequest(request, response, url) {
                 ? "provider-disabled"
                 : "model-unselected"
         },
+        nuwaN1: (() => {
+          const availability = nuwaN1PiAvailability() || { kind: "unavailable", label: "女娲 Pi 执行器尚未配置。", reason: "pi-adapter-disabled", adapterId: null, providerCalls: 0 };
+          return {
+            ready: availability.kind === "pi-agent" || availability.kind === "local-pi-host",
+            reason: availability.reason || null,
+            label: availability.label,
+            providerInstanceId: activeProfile?.id || null,
+            modelId: activeProfile?.modelId || null
+          };
+        })(),
         agentRuntime: {
           ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),
           health: await agentRuntimePluginRegistry.health()
@@ -3075,8 +3327,120 @@ function shouldInstallHistoricalProviderIncident() {
   return process.env.NODE_ENV !== "test" && process.env.TIANYAN_PROVIDER_BUDGET_TEST_MODE !== "1";
 }
 
+const SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP = 4;
+const NUWA_API_TEST_MAX_PROVIDER_DISPATCHES = 12;
+
+/**
+ * A user-clicked settings operation may add one bounded reservation to the
+ * existing durable ledger.  It does not erase the historical incident or
+ * give each page refresh a new quota: all diagnostic scopes share four calls
+ * for this local configuration history.
+ */
+function reserveSettingsDiagnosticBudget({ active, kind, generationCalls, totalCalls }) {
+  const scope = `settings-${kind}`;
+  const snapshot = providerBudgetLedger.snapshot();
+  const alreadyUsed = (snapshot.budgetScopes || [])
+    .filter((entry) => typeof entry.scope === "string" && entry.scope.startsWith("settings-"))
+    .reduce((sum, entry) => sum + Number(entry.totalCalls || 0), 0);
+  if (alreadyUsed + totalCalls > SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP) {
+    const error = new Error(`本次诊断预算已用尽：设置诊断已使用 ${alreadyUsed}/${SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP} 次；未发送上游请求。`);
+    error.code = "PROVIDER_BUDGET_EXHAUSTED";
+    throw error;
+  }
+  const receiptId = `settings-diagnostic.${active.id}.${active.configRevision}.${kind}`;
+  const existing = providerBudgetLedger.authorization(receiptId);
+  if (existing) return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+  providerBudgetLedger.authorize({
+    receiptId,
+    authorizedBy: "current-provider-management-session",
+    reason: `Explicit user-triggered ${kind} diagnostic for the current Provider configuration.`,
+    scope,
+    limits: {
+      generationCalls: Math.max(snapshot.counts.generationCalls + generationCalls, snapshot.limits.generationCalls),
+      totalCalls: Math.max(snapshot.counts.totalCalls + totalCalls, snapshot.limits.totalCalls + 1)
+    },
+    issuedAt: new Date().toISOString()
+  });
+  return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+}
+
+function authorizeNuwaApiTestBudget(maxProviderDispatches) {
+  const requested = Number(maxProviderDispatches);
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > NUWA_API_TEST_MAX_PROVIDER_DISPATCHES) {
+    throw productError(`女娲 API 实验最多允许 ${NUWA_API_TEST_MAX_PROVIDER_DISPATCHES} 次实际发送。`, 400);
+  }
+  const receiptId = `nuwa-api-test.r0.${requested}`;
+  const existing = providerBudgetLedger.authorization(receiptId);
+  if (existing) return existing;
+  const snapshot = providerBudgetLedger.snapshot();
+  return providerBudgetLedger.authorize({
+    receiptId,
+    authorizedBy: "explicit-nuwa-api-test-runner",
+    reason: "Explicit isolated Nuwa API experiment with a bounded real Provider dispatch budget.",
+    scope: "nuwa-api-test-r0",
+    limits: {
+      generationCalls: snapshot.counts.generationCalls + requested,
+      totalCalls: snapshot.counts.totalCalls + requested
+    },
+    issuedAt: new Date().toISOString()
+  }).authorization;
+}
+
+function nuwaApiTestAuthorizationReceipt() {
+  return providerBudgetLedger.authorization(`nuwa-api-test.r0.${NUWA_API_TEST_MAX_PROVIDER_DISPATCHES}`)?.receiptId ?? null;
+}
+
+function settingsDiagnosticErrorMessage(error) {
+  if (error?.code === "PROVIDER_BUDGET_EXHAUSTED") {
+    const snapshot = providerBudgetLedger.snapshot();
+    const used = (snapshot.budgetScopes || [])
+      .filter((entry) => typeof entry.scope === "string" && entry.scope.startsWith("settings-"))
+      .reduce((sum, entry) => sum + Number(entry.totalCalls || 0), 0);
+    return `未发送：本次诊断预算已用尽（设置诊断 ${used}/${SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP}）。请先在预算管理中确认新的有限授权。`;
+  }
+  return safeProviderErrorSummary(error);
+}
+
+function assertProviderModelId(value, label) {
+  const modelId = String(value || "").trim();
+  if (/^(?:https?:\/\/|\/\/)/iu.test(modelId)) {
+    throw productError(`${label}应为模型 ID，不是 API 地址；请把地址保留在“服务地址”栏。`, 400);
+  }
+}
+
 function readActiveProviderProfile() {
   return providerProfileState.profiles.find((profile) => profile.id === providerProfileState.activeProfileId) || null;
+}
+
+/** N1 only exposes the production Pi adapter after three explicit host gates:
+ * the product Provider path, the N1 adapter switch, and a configured active
+ * profile. Normal development and every local fixture remain unavailable (or
+ * use the separately labelled zero-Provider fake), never an implicit live
+ * fallback. */
+function nuwaN1PiAvailability() {
+  if (nuwaN1LocalHostUrl && agentRuntimePluginResolution.runtime) {
+    return { kind: "local-pi-host", label: "本地 HTTP/SSE Pi 宿主已配置；不调用真实 Provider", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
+  }
+  if (process.env.TIANYAN_NUWA_N1_PI_ADAPTER !== "1") return { kind: "unavailable", label: "女娲 Pi 适配器未由本地宿主启用；Provider 配置已保留。", reason: "pi-adapter-disabled", adapterId: null, providerCalls: 0 };
+  if (!productPathRealProviderAllowed) return { kind: "unavailable", label: "真实 Provider 产品路径未由本地宿主启用；未发送模型请求。", reason: "real-provider-product-path-disabled", adapterId: null, providerCalls: 0 };
+  if (!agentRuntimePluginResolution.runtime) return { kind: "unavailable", label: "Pi 运行时插件不可用；未发送模型请求。", reason: "pi-runtime-unavailable", adapterId: null, providerCalls: 0 };
+  const profile = readActiveProviderProfile();
+  const provider = profile ? providerGateway.metadata().providers.find((item) => item.id === profile.provider) : null;
+  const gatewayProfile = profile ? providerGateway.metadata().profiles.find((item) => item.providerId === profile.provider && item.modelId === profile.modelId) : null;
+  if (!profile || profile.enabled === false) return { kind: "unavailable", label: "当前 Provider 未启用；女娲未发送模型请求。", reason: "provider-disabled", adapterId: null, providerCalls: 0 };
+  if (!profile.modelId) return { kind: "unavailable", label: "当前 Provider 未选择聊天模型；女娲未发送模型请求。", reason: "model-unselected", adapterId: null, providerCalls: 0 };
+  if (!provider?.configured || !providerCredential.configured()) return { kind: "unavailable", label: "当前 Provider 缺少已保存凭据；女娲未发送模型请求。", reason: "credential-missing", adapterId: null, providerCalls: 0 };
+  if (!gatewayProfile) return { kind: "unavailable", label: "当前 Provider 的执行模型档案尚未就绪；未发送模型请求。", reason: "gateway-profile-unavailable", adapterId: null, providerCalls: 0 };
+  return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
+}
+
+function nuwaN1SourceIdentity(projectId, requestedWorkVersionId = null) {
+  const version = requestedWorkVersionId
+    ? creationSourceSelectionPort.resolveWorkVersion(projectId, requestedWorkVersionId)
+    : creationSourceSelectionPort.resolveRootWorkVersion(projectId);
+  return version
+    ? { kind: version.identity.kind, workVersionId: version.identity.workVersionId, revision: String(version.identity.currentRevision) }
+    : { kind: "unversioned-draft", workVersionId: `work-version.unversioned.${projectId}`, revision: "unversioned" };
 }
 
 function readProviderProfileProjection() {
@@ -3094,6 +3458,87 @@ function readProviderProfileProjection() {
     },
     credentialRequired: preset?.credentialRequired !== false
   };
+}
+
+function createLocalFakeGroundedAdapter() {
+  return Object.freeze({
+    id: "local-fake",
+    label: "本地假服务",
+    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat"]) }]),
+    status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
+    async openChatStream(input) {
+      const system = input.messages.find((message) => message.role === "system")?.content || "";
+      const includedSources = readGroundedFixtureJson(system, "includedSources must equal exactly:", []);
+      const excludedSources = readGroundedFixtureJson(system, "excludedSources must equal exactly:", []);
+      const answer = includedSources.length
+        ? {
+            summary: "本地假服务已按当前明确选择读取正式事件；未写入故事事实。",
+            claims: [{ statement: "已附加事件仅作为本轮工作依据。", status: "fact", sourceRefs: includedSources, uncertaintyReason: null }],
+            status: "fact",
+            sourceRefs: includedSources,
+            uncertaintyReason: null,
+            includedSources,
+            excludedSources
+          }
+        : {
+            summary: "本地假服务未收到已授权依据，不能形成事实判断。",
+            claims: [],
+            status: "unknown",
+            sourceRefs: [],
+            uncertaintyReason: "当前工作范围没有可用的正式事件依据。",
+            includedSources,
+            excludedSources
+          };
+      return Object.freeze({
+        traceId: `trace.local-fake.grounded.${stableHash(JSON.stringify(input.messages)).slice(0, 16)}`,
+        events: (async function* () {
+          if (input.signal?.aborted) { const error = new Error("Local fake grounded stream aborted."); error.name = "AbortError"; throw error; }
+          yield { type: "chunk", text: JSON.stringify(answer), finishReason: "stop", usage: { promptTokens: 24, completionTokens: 36, totalTokens: 60 } };
+        })()
+      });
+    }
+  });
+}
+
+function createNuwaN1LocalHostAdapter(baseUrl) {
+  const transport = createOpenAiCompatibleAdapter({
+    id: nuwaN1LocalHostProfile.providerId,
+    label: nuwaN1LocalHostProfile.label,
+    defaultBaseUrl: baseUrl,
+    modelMetadata: [{ id: nuwaN1LocalHostProfile.modelId, label: nuwaN1LocalHostProfile.label, capabilities: ["chat", "streaming", "tool-calls"] }],
+    credentialRequired: false,
+    modelDiscovery: null,
+    traceHeader: "x-request-id"
+  });
+  // This remains a loopback-only, credential-free test fixture, but it must
+  // use the Gateway's reservation, receipt, and stream-completion path.  The
+  // server gives this mode a separate 12-call ledger above; it never opens a
+  // production Provider or changes the paid-Provider ledger.
+  return Object.freeze({
+    id: transport.id,
+    label: transport.label,
+    get models() { return transport.models; },
+    status() { return { ...transport.status(), configured: true, reason: "loopback-http-sse-test-host" }; },
+    openChatStream(input) { return transport.openChatStream(input); }
+  });
+}
+
+function localNuwaN1HostBudgetBaseline() {
+  return {
+    ...zeroProviderBudgetBaseline(),
+    authorizedGenerationCap: 12,
+    authorizedTotalCap: 12
+  };
+}
+
+function readGroundedFixtureJson(source, prefix, fallback) {
+  const start = source.indexOf(prefix);
+  if (start < 0) return fallback;
+  const valueStart = source.indexOf("[", start + prefix.length);
+  if (valueStart < 0) return fallback;
+  const lineEnd = source.indexOf("\n", valueStart);
+  try { return JSON.parse(source.slice(valueStart, lineEnd < 0 ? source.length : lineEnd)); }
+  catch { return fallback; }
 }
 
 function syncProviderGatewayProfile(preferredModelId = null) {
@@ -3260,6 +3705,103 @@ function receiptMachineSelectionId(value) {
   return normalized.length <= CONTINUITY_MAX_ID_LENGTH && CONTINUITY_ID_PATTERN.test(normalized)
     ? normalized
     : null;
+}
+
+async function handleNuwaN1Request(request, response, url) {
+  const prefix = "/__local/story-studio/nuwa-n1";
+  requireSameOrigin(request);
+  const route = url.pathname.slice(prefix.length).replace(/^\//u, "");
+  if (request.method === "GET") {
+    if (route === "bootstrap") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.bootstrap(requireQueryValue(url, "projectId"))) });
+      return;
+    }
+    if (route === "latest") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.latest(requireQueryValue(url, "projectId"))) });
+      return;
+    }
+    if (route === "read") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.read(requireQueryValue(url, "projectId"), requireQueryValue(url, "runId"))) });
+      return;
+    }
+    throw productError("女娲 N1 读取操作不存在。", 404);
+  }
+  if (request.method !== "POST") throw productError("女娲 N1 只接受本地 GET/POST 请求。", 405);
+  requireToken(request);
+  const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+  if (route === "setup" || route === "create") {
+    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "relationTypeId", "operationId", "workVersionId"]);
+    const result = await runAsyncProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
+    if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
+    sendJson(response, route === "create" ? 201 : 200, { data: result });
+    return;
+  }
+  if (route === "step") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.step(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-step", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "continuous") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.continuous(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-continuous", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "pause" || route === "stop") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "reason"]);
+    const result = runProductOperation(() => route === "pause" ? nuwaN1Port.pause(body) : nuwaN1Port.stop(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", `nuwa-n1-${route}`, [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "resume") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId"]);
+    const result = runProductOperation(() => nuwaN1Port.resume(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-resume", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "replay") {
+    requireAllowedKeys(body, ["projectId", "runId"]);
+    sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.replay(body)) });
+    return;
+  }
+  if (route === "cue") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "instruction"]);
+    const result = runProductOperation(() => nuwaN1Port.cue(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-cue", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "candidate") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
+    const result = runProductOperation(() => nuwaN1Port.candidate(body));
+    recordAuthorInitiatedAction(body.projectId, "candidate-review", "nuwa-n1-candidate", [body.runId, ...body.selectedStepIds], "author");
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-apply") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "selectedStepIds"]);
+    const result = runProductOperation(() => nuwaN1Port.autoApply(body));
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-freeze-draft") {
+    requireAllowedKeys(body, ["projectId", "runId", "receiptId", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.freezeAutoApplicationDraft(body));
+    sendJson(response, 201, { data: result });
+    return;
+  }
+  if (route === "auto-rollback") {
+    requireAllowedKeys(body, ["projectId", "runId", "receiptId", "operationId"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.rollbackAutoApplication(body));
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  throw productError("女娲 N1 操作不存在。", 404);
 }
 
 async function handleNuwaDirectorR1Request(request, response, url) {
@@ -3955,7 +4497,7 @@ function projectEventStoryCrossingKnowledge(projectId, observerId, observerIds =
   const events = operations.listWorldObjects({ projectId, type: "event" })
     .filter((event) => event.status !== "archived")
     .map((event) => operations.readWorldObject({ projectId, objectId: event.id }))
-    .map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, body: event.body }));
+    .map((event) => ({ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, knowledgeSubjectIds: event.knowledgeSubjects, body: event.body }));
   const characters = operations.listWorldObjects({ projectId, type: "character" })
     .filter((character) => character.status !== "archived")
     .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));
@@ -4000,7 +4542,7 @@ function runProductOperation(operation) {
   try {
     return operation();
   } catch (error) {
-    throw productError(error instanceof Error ? error.message : "项目操作无法完成。", 400);
+    throw productError(error instanceof Error ? error.message : "项目操作无法完成。", Number(error?.statusCode || 400));
   }
 }
 
@@ -4008,7 +4550,7 @@ async function runAsyncProductOperation(operation) {
   try {
     return await operation();
   } catch (error) {
-    throw productError(error instanceof Error ? error.message : "天意连续性操作无法完成。", 400);
+    throw productError(error instanceof Error ? error.message : "天意连续性操作无法完成。", Number(error?.statusCode || 400));
   }
 }
 

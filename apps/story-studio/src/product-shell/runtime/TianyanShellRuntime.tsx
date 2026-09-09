@@ -65,7 +65,7 @@ export function TianyanShellRuntime() {
   const [tianyiConversationId, setTianyiConversationId] = useState<string | null>(null);
   const [creativeComposerDraft, setCreativeComposerDraft] = useState("");
   const [workComposerDraft, setWorkComposerDraft] = useState("");
-  const [workScope, setWorkScope] = useState<TianyanShellRuntimeState["workScope"]>("current-unit");
+  const [workScope, setWorkScope] = useState<TianyanShellRuntimeState["workScope"]>("current-story");
   const [activeTianyiCandidateId, setActiveTianyiCandidateId] = useState<string | null>(null);
   const [activePageAgentRunId, setActivePageAgentRunId] = useState<string | null>(null);
   const [pageAgentTaskDraft, setPageAgentTaskDraft] = useState("");
@@ -93,26 +93,32 @@ export function TianyanShellRuntime() {
       setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative")) ?? "");
       setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work")) ?? "");
       setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(activeProject.id)));
-      const [versionResult, runtimeResult] = await Promise.allSettled([
-        getCreationSourcePortState({ projectId: activeProject.id }),
-        withConnection(async (token) => Promise.all([
-          getModelServiceStatus(token),
-          getAgentPermissionState(activeProject.id)
-        ]))
-      ]);
-      if (!active) return;
-      if (versionResult.status === "fulfilled") {
-        const root = versionResult.value.root;
+      // A failed version read must not leave a previous project's label attached to
+      // the current project. The Shell can still become interactive because this is
+      // a read-only status projection, not the connection owner.
+      setWorkVersionLabel(null);
+      setWorkVersionId(null);
+      void getCreationSourcePortState({ projectId: activeProject.id }).then((version) => {
+        if (!active) return;
+        const root = version.root;
         setWorkVersionLabel(root ? `${root.name} · r${root.revision}` : null);
         setWorkVersionId(root?.id ?? null);
-      }
-      if (runtimeResult.status === "fulfilled") {
-        setModelStatus(runtimeResult.value[0]);
-        setPermissionState(runtimeResult.value[1]);
+      }).catch(() => {
+        if (!active) return;
+        setWorkVersionLabel(null);
+        setWorkVersionId(null);
+      });
+      void withConnection(async (token) => Promise.all([
+        getModelServiceStatus(token),
+        getAgentPermissionState(activeProject.id)
+      ])).then((runtime) => {
+        if (!active) return;
+        setModelStatus(runtime[0]);
+        setPermissionState(runtime[1]);
         setConnectionState("ready");
-      } else {
-        setConnectionState("unavailable");
-      }
+      }).catch(() => {
+        if (active) setConnectionState("unavailable");
+      });
     }).catch(() => {
       if (active) setConnectionState("unavailable");
     });

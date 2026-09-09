@@ -80,6 +80,41 @@ test("Neutral Story Package export is deterministic, human-readable, and source-
   assert.equal(first.provenance.projectionReceipts.length, 2);
 });
 
+test("author-readable v2 renders the typed selected narrative body while preserving intentional JSON source text", async () => {
+  const input = packageInput();
+  input.storyUnits[0]!.items = [{
+    id: "item.nuwa-selected",
+    kind: "confirmed-event",
+    authority: "canon",
+    content: {
+      title: "雾港追踪 · 已授权结果",
+      body: "女娲已按作者范围授权自动应用：立即揭示\n- 自动应用回执：nuwa-receipt.1",
+      selectedSourceBody: "# 雾港追踪\n\n## 林昭的场景行动\n\n依据受限上下文核对：听到 character.阿芜 的说法：北闸已封。\n\n台词：北闸已封。\n\n行动：observe\n\n结果：角色完成一次受限观察。\n\n- 来源步骤：nuwa-step.1\n- 来源女娲 Run：nuwa-run.1"
+    },
+    sourceRefs: input.storyUnits[0]!.sourceRefs
+  }, {
+    id: "item.author-json",
+    kind: "source-fragment",
+    authority: "canon",
+    content: { body: "{\"authorKeepsThisJson\":true}" },
+    sourceRefs: input.storyUnits[0]!.sourceRefs
+  }];
+
+  const value = await buildNeutralStoryPackage(input);
+  const [main, appendix] = value.storyMarkdown.split("## 来源说明");
+  assert.match(value.storyMarkdown, /天衍中性故事稿 · 作者阅读版 v2/u);
+  assert.match(main || "", /\*\*对白\*\*：北闸已封。/u);
+  assert.match(main || "", /\*\*行动\*\*：观察/u);
+  assert.match(main || "", /\*\*结果\*\*：角色完成一次受限观察。/u);
+  assert.match(main || "", /\*\*听闻\*\*：林昭 听 阿芜 说：“北闸已封。”/u);
+  assert.doesNotMatch(main || "", /selectedSourceBody|character\.阿芜|nuwa-step\.1|nuwa-run\.1/u, "run identifiers and stable implementation labels leave the scene body for the appendix");
+  assert.match(main || "", /```json\n\{"authorKeepsThisJson":true\}\n```/u, "intentional author JSON is retained instead of broadly parsed or deleted");
+  assert.match(appendix || "", /渲染格式：`tianyan-author-readable-markdown\/v2`/u);
+  assert.match(appendix || "", /来源步骤：nuwa-step\.1/u);
+  assert.match(appendix || "", /来源女娲 Run：nuwa-run\.1/u);
+  assert.match(appendix || "", /正式应用：已按作者范围授权自动应用/u);
+});
+
 test("mock HTTP adapter can be verified against a local fake server without external traffic", async () => {
   const packageValue = await buildNeutralStoryPackage(packageInput());
   let received: Record<string, unknown> | null = null;

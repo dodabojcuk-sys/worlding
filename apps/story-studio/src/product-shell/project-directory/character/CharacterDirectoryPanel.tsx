@@ -1,6 +1,8 @@
-import { Archive, ArrowLeft, CheckSquare, ChevronDown, Filter, ListFilter, Plus, Search, SlidersHorizontal, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Archive, ArrowLeft, CheckSquare, ChevronDown, Filter, GripVertical, ListFilter, Plus, Search, SlidersHorizontal, Trash2, UserRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { CHARACTER_OBSERVATION_MIME, createCharacterObservationDragPayload } from "../../../../../../src/storyContracts/characterObservationSelection.ts";
 import type { TianyanShellRuntimeState } from "../../runtime/TianyanShellRuntime";
+import type { DirectoryWorkspaceState } from "../directoryWorkspaceState";
 import { getBrowserPreferenceStorage, readObjectDirectoryDensity, readObjectDirectorySort, saveObjectDirectoryDensity, saveObjectDirectorySort, type ObjectDirectoryDensity } from "../../../lib/controlCenterPreferences";
 import { useI18n } from "../../i18n/I18nProvider";
 import { CharacterCreateDialog, characterRoleLabel } from "./CharacterCreateDialog";
@@ -20,26 +22,42 @@ export function CharacterDirectoryPanel(props: {
   onBack(): void;
   onSelect(objectId: string): void;
   onRequestScopedSearch(request: CharacterDirectoryScopedSearchRequest): void;
+  directoryState: DirectoryWorkspaceState;
+  onDirectoryState(state: DirectoryWorkspaceState): void;
 }) {
   const { t } = useI18n();
   const directory = useCharacterDirectory(props.runtime);
   const preferenceStorage = getBrowserPreferenceStorage();
-  const [view, setView] = useState<View>("active");
+  const [view, setView] = useState<View>(props.directoryState.character.view);
   const [sort, setSort] = useState<CharacterDirectorySort>(() => readObjectDirectorySort(preferenceStorage, "local-user", "character"));
-  const [multi, setMulti] = useState(false);
-  const [selected, setSelected] = useState(() => new Set<string>());
+  const [multi, setMulti] = useState(props.directoryState.character.multi);
+  const [selected, setSelected] = useState(() => new Set(props.directoryState.character.selectedIds));
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [creationNotice, setCreationNotice] = useState<string | null>(null);
-  const [tagFilter, setTagFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [roleFilter, setRoleFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState(props.directoryState.character.tagFilter);
+  const [categoryFilter, setCategoryFilter] = useState(props.directoryState.character.categoryFilter);
+  const [roleFilter, setRoleFilter] = useState(props.directoryState.character.roleFilter);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [batchCategoryOpen, setBatchCategoryOpen] = useState(false);
   const [density, setDensity] = useState<ObjectDirectoryDensity>(() => readObjectDirectoryDensity(preferenceStorage, "local-user", "character"));
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    props.onDirectoryState({
+      ...props.directoryState,
+      path: ["characters"],
+      selectedObjectId: props.selectedId ?? props.directoryState.selectedObjectId,
+      character: { view, tagFilter, categoryFilter, roleFilter, multi, selectedIds: [...selected], scrollTop: listRef.current?.scrollTop ?? props.directoryState.character.scrollTop }
+    });
+  }, [categoryFilter, multi, props.selectedId, roleFilter, selected, tagFilter, view]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = props.directoryState.character.scrollTop;
+  }, []);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -83,6 +101,23 @@ export function CharacterDirectoryPanel(props: {
   });
   const selectSort = (next: CharacterDirectorySort) => { setSort(saveObjectDirectorySort(preferenceStorage, "local-user", "character", next)); setSortOpen(false); };
   const selectDensity = (next: ObjectDirectoryDensity) => { setDensity(saveObjectDirectoryDensity(preferenceStorage, "local-user", "character", next)); setViewOpen(false); };
+  const beginObservationDrag = (event: DragEvent<HTMLButtonElement>, record: CharacterDirectoryRecord) => {
+    const projectId = props.runtime.project?.id;
+    if (!projectId) { event.preventDefault(); return; }
+    const ids = multi && selected.has(record.object.id) ? selected : new Set([record.object.id]);
+    const references = visible.filter((item) => ids.has(item.object.id)).map((item) => ({
+      objectId: item.object.id,
+      version: item.object.revisionToken,
+      sourceId: null,
+      projectId,
+      workVersionId: props.runtime.workVersionId ?? null,
+      objectType: "character"
+    }));
+    const payload = createCharacterObservationDragPayload({ projectId, workVersionId: props.runtime.workVersionId ?? null, references });
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(CHARACTER_OBSERVATION_MIME, JSON.stringify(payload));
+    event.dataTransfer.setData("text/plain", references.map((reference) => reference.objectId).join(","));
+  };
 
   return <><aside className="character-directory-panel" aria-label={t("character.directory")} data-density={density} data-testid="character-directory">
     <header>
@@ -124,7 +159,7 @@ export function CharacterDirectoryPanel(props: {
       <button type="button" className="character-directory-clear-filters" onClick={clearFilters}>{t("character.clearFilters")}</button>
     </div>}
     {(actionError || creationNotice) && <p className="character-directory-error" role="status">{actionError ? `${t("character.actionFailed")}: ${actionError}` : creationNotice}</p>}
-    <div className="character-directory-list" role="listbox" aria-multiselectable={multi || undefined} tabIndex={0} onKeyDown={(event) => {
+    <div ref={listRef} className="character-directory-list" role="listbox" aria-multiselectable={multi || undefined} tabIndex={0} onScroll={(event) => props.onDirectoryState({ ...props.directoryState, path: ["characters"], character: { ...props.directoryState.character, view, tagFilter, categoryFilter, roleFilter, multi, selectedIds: [...selected], scrollTop: event.currentTarget.scrollTop } })} onKeyDown={(event) => {
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       event.preventDefault();
       const index = Math.max(0, visible.findIndex((record) => record.object.id === props.selectedId));
@@ -132,7 +167,7 @@ export function CharacterDirectoryPanel(props: {
       if (next && !multi) props.onSelect(next.object.id);
     }}>
       {directory.loading && <p>{t("common.loading")}</p>}{directory.error && <p role="alert">{directory.error}</p>}{!directory.loading && visible.length === 0 && <p>{t("directory.empty")}</p>}
-      {visible.map((record) => <CharacterRow key={record.object.id} record={record} density={density} multi={multi} selected={selected.has(record.object.id)} current={props.selectedId === record.object.id} onSelect={() => multi ? toggleSelected(record.object.id) : props.onSelect(record.object.id)} />)}
+      {visible.map((record) => <CharacterRow key={record.object.id} record={record} density={density} multi={multi} selected={selected.has(record.object.id)} current={props.selectedId === record.object.id} onDragStart={(event) => beginObservationDrag(event, record)} onSelect={() => multi ? toggleSelected(record.object.id) : props.onSelect(record.object.id)} />)}
     </div>
     {multi ? <footer className="character-selection-bar"><strong>{t("character.selectedCount").replace("{count}", String(selected.size))}</strong><div className="character-batch-category"><button type="button" disabled={!selected.size || busy} onClick={() => setBatchCategoryOpen((open) => !open)}>{t("character.category")}</button>{batchCategoryOpen && <select aria-label={t("character.category")} defaultValue="" onChange={(event) => { if (event.target.value) void run(() => directory.setCategory([...selected], event.target.value)); }}><option value="">{t("character.chooseCategory")}</option>{directory.categories.map((category) => <option key={category.id} value={category.id}>{category.title}</option>)}</select>}</div><button disabled={!selected.size || busy} onClick={() => { const tag = window.prompt(t("character.tagPrompt")); if (tag?.trim()) void run(() => directory.addTags([...selected], [tag.trim()])); }}>{t("character.tag")}</button><button disabled={!selected.size || busy} onClick={() => void run(() => directory.archive([...selected]))}>{t("character.archive")}</button><button disabled={!selected.size || busy} onClick={() => void run(() => directory.trash([...selected]))}>{t("character.moveTrash")}</button></footer> : <footer><button type="button" onClick={() => setView("archived")}><Archive aria-hidden="true" />{t("character.archive")}</button><button type="button" onClick={() => setView("trash")}><Trash2 aria-hidden="true" />{t("character.trash")}</button>{view === "trash" && selectedVisible && props.selectedId && <button type="button" onClick={() => void run(() => directory.restoreTrash(props.selectedId!))}>{t("character.restore")}</button>}{view === "archived" && selectedVisible && props.selectedId && <button type="button" onClick={() => void run(() => directory.unarchive([props.selectedId!]))}>{t("character.restore")}</button>}</footer>}
   </aside>{createOpen && <CharacterCreateDialog categories={directory.categories} roleLevels={roleLevels} onClose={() => setCreateOpen(false)} onCreate={directory.create} onCreateCategory={directory.createCategory} onRetryCategory={directory.retryCategory} onCreated={(result) => showCreated(result.objectId)} />}</>;
@@ -146,10 +181,11 @@ function SortOption(props: { value: CharacterDirectorySort; current: CharacterDi
   return <button type="button" role="menuitemradio" aria-checked={props.value === props.current} onClick={() => props.onSelect(props.value)}>{props.label}</button>;
 }
 
-function CharacterRow(props: { record: CharacterDirectoryRecord; density: ObjectDirectoryDensity; multi: boolean; selected: boolean; current: boolean; onSelect(): void }) {
+function CharacterRow(props: { record: CharacterDirectoryRecord; density: ObjectDirectoryDensity; multi: boolean; selected: boolean; current: boolean; onDragStart(event: DragEvent<HTMLButtonElement>): void; onSelect(): void }) {
   const { t } = useI18n(); const { record } = props;
   const summary = getCharacterDirectorySummary(record.object, t("character.noAuxiliary"));
-  return <button type="button" role="option" aria-selected={props.multi ? props.selected : props.current} data-current={props.current || undefined} onClick={props.onSelect}>
+  return <button type="button" role="option" aria-selected={props.multi ? props.selected : props.current} aria-label={`${record.object.title}；可拖入角色观察`} data-current={props.current || undefined} draggable onDragStart={props.onDragStart} onClick={props.onSelect}>
+    <GripVertical className="character-row-drag-handle" aria-hidden="true" />
     {props.multi && <input type="checkbox" tabIndex={-1} readOnly checked={props.selected} aria-label={record.object.title} />}
     {props.density === "standard" && <span className="character-row-avatar">{record.object.card.portrait ? <img src={record.object.card.portrait.assetRef} alt="" /> : <UserRound aria-hidden="true" />}</span>}
     <span className="character-row-copy"><strong>{record.object.title}</strong><span><em>{characterRoleLabel(record.object.subtype, t)}</em>{record.object.status === "archived" && <i>{t("character.archived")}</i>}</span>{props.density === "standard" && <small>{summary}</small>}{props.density === "standard" && (record.categoryName || record.object.tags[0]) && <small className="character-row-meta">{record.categoryName || record.object.tags[0]}</small>}</span>

@@ -21,6 +21,9 @@ import type {
   RelationTypeDefinitionR0,
   RelationTypeMutationResultR0
 } from "../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
+import { InFlightReadRegistry, InFlightReadTimeoutError } from "./inFlightReadRegistry";
+import { projectProjectionInvalidationMode } from "./projectProjectionInvalidation";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -159,6 +162,13 @@ export type StoryStudioBootstrap = {
   recovery?: { code: string; message: string };
 };
 
+export type MultiverseWorkVersion = {
+  identity: { workVersionId: string; projectId: string; kind: "root" | "derived"; displayName: string; parentVersionId: string | null; parentBaseRevision: number | null; parentManifestId: string | null; status: "active" | "archived"; currentRevision: number; headManifestId: string };
+  manifest: { manifestId: string; canonicalDigest: string };
+  revision: { revision: number; createdAt: string };
+  staleness: { state: "current" | "stale" | "blocked_missing_reference" };
+};
+
 export type StorageProviderConnection = {
   providerId: "local-folder";
   kind: "local-folder";
@@ -259,6 +269,13 @@ export type ModelServiceStatus = {
     ready: boolean;
     runtime: "local-fake" | "provider" | "unavailable";
     reason: "provider-unconfigured" | "provider-disabled" | "model-unselected" | null;
+  };
+  nuwaN1?: {
+    ready: boolean;
+    reason: "pi-adapter-disabled" | "real-provider-product-path-disabled" | "pi-runtime-unavailable" | "provider-disabled" | "model-unselected" | "credential-missing" | null;
+    label: string;
+    providerInstanceId: string | null;
+    modelId: string | null;
   };
   agentRuntime?: {
     state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";
@@ -702,11 +719,11 @@ export type NarrativeArrangementRead = { ownerVersion: string | null; arrangemen
 export type NarrativeArrangementWriteResult = { conflict: boolean; replayed: boolean; code: "stale-arrangement-revision" | "idempotency-key-reused" | "placement-not-found" | "anchor-not-found" | "anchor-unit-mismatch" | "order-conflict" | "branch-mismatch" | "rollback-revision-not-found" | "stale-owner-version" | "arrangement-already-exists" | null; ownerVersion: string; arrangement: NarrativeArrangement | null; receipt: NarrativeArrangementReceipt | null };
 export type OutputSourceUnitRef = { unitId: string; unitVersion: string; role: "primary" | "supporting"; includedItemIds: string[] };
 export type CreationSourceReconciliationReceipt = { schemaVersion: "tianyan-creation-source-reconciliation-receipt/r0"; artifactId: string; originalArtifactRevisionId: string; newArtifactRevisionId: string; sourceWorkVersionId: string; fromRevision: number; fromManifestDigest: string; toRevision: number; toManifestDigest: string; semanticDiffDigest: `sha256:${string}`; bodyDigestBefore: `sha256:${string}`; bodyDigestAfter: `sha256:${string}`; confirmedDifferenceIds: string[]; unresolvedDifferenceIds: string[]; idempotencyKey: string; executionStage: "artifact_revision_appended"; expectedWorkVersionReceiptId: string; blockedReason: null; createdAt: string };
-export type WorkVersionOutputArtifactSource = { schemaVersion: "tianyan-work-version-output-artifact-source/r0"; sourceKind: "work-version"; projectId: string; workVersionId: string; workVersionKind: "root"; pinnedRevision: number; manifestId: string; manifestDigest: string; selectedStoryUnitRefs: Array<{ unitId: string; unitVersion: string }>; selectedEventRefs: Array<{ eventId: string; eventRevision: string }>; sourceAnchorRefs: string[]; neutralStoryPackageId: string; neutralStoryPackageDigest: `sha256:${string}`; sourceOwnerReceiptRefs: string[]; creationOperationReceipt: { operationId: string; idempotencyKey: string; payloadDigest: `sha256:${string}` }; sourceReconciliationReceipt?: CreationSourceReconciliationReceipt; createdAt: string };
+export type WorkVersionOutputArtifactSource = { schemaVersion: "tianyan-work-version-output-artifact-source/r0"; sourceKind: "work-version"; projectId: string; workVersionId: string; workVersionKind: "root"; pinnedRevision: number; manifestId: string; manifestDigest: string; selectedStoryUnitRefs: Array<{ unitId: string; unitVersion: string }>; selectedEventRefs: Array<{ eventId: string; eventRevision: string }>; sourceAnchorRefs: string[]; neutralStoryPackageId: string; neutralStoryPackageDigest: `sha256:${string}`; pinnedPackageSnapshot?: { packageId: string; contentHash: `sha256:${string}`; snapshotDigest?: `sha256:${string}`; scope: { kind: "unit"; unitIds: string[]; label: string }; sourceAnchors: Array<{ anchorId: string; sourceKind: string; ownerId: string; entityId: string; entityVersion: string | null; capturedAt: string; staleState: string }>; warnings: string[]; storyMarkdown: string }; sourceOwnerReceiptRefs: string[]; creationOperationReceipt: { operationId: string; idempotencyKey: string; payloadDigest: `sha256:${string}` }; sourceReconciliationReceipt?: CreationSourceReconciliationReceipt; createdAt: string };
 export type OutputArtifact = { schemaVersion: "story-studio-output-artifact/v2"; id: string; relativeId: string; type: OutputArtifactType; title: string; sourceUnits: OutputSourceUnitRef[]; generationBrief: Record<string, unknown> | null; content: string; structure: Record<string, unknown>; lifecycle: "draft" | "queued" | "generating" | "review" | "approved" | "archived"; currentRevisionId: string; provenance: { sourceArtifactId: string | null; sourceArtifactVersion: string | null; migratedFromVersion: string | null; workVersionSource: WorkVersionOutputArtifactSource | null }; version: string; createdAt: string; updatedAt: string; source: "markdown" };
 export type CreationSourceSemanticDifference = { id: string; kind: "added" | "removed" | "changed" | "unchanged" | "unknown" | "conflict" | "missing"; state: "changed" | "unchanged" | "unknown" | "conflict" | "stale" | "insufficient" | "integrated"; dimension: string; ownerKind: string; summary: string; sourceRefs: string[]; affectsArtifact: boolean; authorConfirmable: boolean };
 export type CreationSourceDriftCompare = { schemaVersion: "tianyan-owner-referenced-semantic-compare/r0"; version: "tianyan-creation-source-drift-compare/r0"; status: "ready" | "blocked_concurrency" | "blocked_missing_reference" | "blocked_corrupt_reference"; sourceStatus: "historical_valid"; baseRevision: number; currentRevision: number; baseManifestDigest: string; currentManifestDigest: string; ownerDigestChanges: Array<{ ownerKind: string; changed: boolean }>; differences: CreationSourceSemanticDifference[]; artifactImpactDifferenceIds: string[]; confirmableDifferenceIds: string[]; unresolvedDifferenceIds: string[]; blockerMessage: string | null };
-export type CreationSourcePortState = { version: "tianyan-project-scoped-creation-source-port/r0" | "tianyan-work-version-bound-creation-fixture-r0/v1"; project: { id: string; title: string }; root: { id: string; name: string; kind: "root"; revision: number; status: "active" | "archived"; manifestId: string; manifestDigest: string } | null; derivedVersionCount: number; storyUnit: { id: string; title: string; version: string; summary: string; itemCount: number }; events: Array<{ id: string; title: string; revision: string; status: string }>; package: { id: string; digest: string; scope: { kind: string; unitIds: string[]; label: string }; sourceAnchors: Array<{ anchorId: string; sourceKind: string; ownerId: string; entityId: string; entityVersion: string | null; capturedAt: string; staleState: string }>; warnings: string[]; storyMarkdown: string } | null; artifact: OutputArtifact | null; authorText: string; legacyArtifact: OutputArtifact | null; revisionHistory: DocumentRevisionHistory | null; sourceValidation: { status: "current" | "historical_valid" | "archived_valid" | "unverifiable_missing" | "unverifiable_corrupt"; sourceReadable: true; sourceDependentOperationsAllowed: boolean; authorMessage: string; technicalReason: string | null } | null; sourceCompare: CreationSourceDriftCompare | null; reconciliation: { status: "completed" | "artifact_revision_appended"; receipt: CreationSourceReconciliationReceipt; bodyUnchanged: boolean; workVersionReceiptVerified: boolean } | null; recovery: { pendingAppend: boolean; artifactSourcePinnedRevision: number | null }; writes: { outputArtifactRevisions: number; workVersionRevisions: number; provider: 0; plugin: 0; canon: 0; event: 0; worldState: 0; character: 0; relation: 0; session: 0; archive: 0; memory: 0 }; multiverseExpansion: "HOLD" };
+export type CreationSourcePortState = { version: "tianyan-project-scoped-creation-source-port/r0" | "tianyan-work-version-bound-creation-fixture-r0/v1"; project: { id: string; title: string }; root: { id: string; name: string; kind: "root"; revision: number; status: "active" | "archived"; manifestId: string; manifestDigest: string } | null; derivedVersionCount: number; storyUnit: { id: string; title: string; version: string; summary: string; itemCount: number } | null; events: Array<{ id: string; title: string; revision: string; status: string }>; availableEvents: Array<{ id: string; title: string; revision: string; status: string }>; selectedEventIds: string[]; packageMode: "current-selection" | "pinned-artifact" | "blocked"; package: { id: string; digest: string; scope: { kind: string; unitIds: string[]; label: string }; sourceAnchors: Array<{ anchorId: string; sourceKind: string; ownerId: string; entityId: string; entityVersion: string | null; capturedAt: string; staleState: string }>; warnings: string[]; storyMarkdown: string } | null; artifact: OutputArtifact | null; artifacts: OutputArtifact[]; authorText: string; legacyArtifact: OutputArtifact | null; revisionHistory: DocumentRevisionHistory | null; sourceValidation: { status: "current" | "historical_valid" | "archived_valid" | "unverifiable_missing" | "unverifiable_corrupt"; sourceReadable: true; sourceDependentOperationsAllowed: boolean; authorMessage: string; technicalReason: string | null } | null; sourceCompare: CreationSourceDriftCompare | null; reconciliation: { status: "completed" | "artifact_revision_appended"; receipt: CreationSourceReconciliationReceipt; bodyUnchanged: boolean; workVersionReceiptVerified: boolean } | null; recovery: { pendingAppend: boolean; artifactSourcePinnedRevision: number | null }; writes: { outputArtifactRevisions: number; workVersionRevisions: number; provider: 0; plugin: 0; canon: 0; event: 0; worldState: 0; character: 0; relation: 0; session: 0; archive: 0; memory: 0 }; multiverseExpansion: "HOLD" };
 export type WorkVersionBoundCreationFixture = CreationSourcePortState;
 export type NormalEventCreationState = {
   version: "tianyan-normal-event-creation-port/r0";
@@ -1305,12 +1322,18 @@ export async function clearProviderCredential(token: string): Promise<ProviderPr
   return request<ProviderProfileProjection>(`${basePath}/model-service/profile/clear-credential`, { method: "POST", token, body: { confirmed: true } });
 }
 
+/** The plaintext is returned only after an explicit, same-origin management action. Callers must keep it in component memory only. */
+export async function revealProviderCredential(input: { providerInstanceId: string; token: string }): Promise<{ providerInstanceId: string; apiKey: string }> {
+  const { token, ...body } = input;
+  return request<{ providerInstanceId: string; apiKey: string }>(`${basePath}/model-service/profile/reveal-credential`, { method: "POST", token, body: { ...body, confirmed: true } });
+}
+
 export async function discoverProviderModels(token: string): Promise<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }> {
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
+  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {
@@ -1482,7 +1505,7 @@ export async function openProject(projectId: string, token: string): Promise<Sto
 }
 
 export async function getWorldLibrary(projectId: string): Promise<WorldLibraryBootstrap> {
-  return request<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
+  return readProjectProjection<WorldLibraryBootstrap>(`${basePath}/world-library?projectId=${encodeURIComponent(projectId)}`);
 }
 
 export async function getObjectCatalog(projectId: string, workVersionId: string): Promise<ObjectCatalogState> {
@@ -1794,7 +1817,7 @@ export async function recordAgentActivity(input: { projectId: string; actor: Age
 }
 
 export async function listStoryUnits(projectId: string, includeArchived = false): Promise<StoryUnit[]> {
-  return request<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
+  return readProjectProjection<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
 }
 
 export async function getStoryUnit(projectId: string, unitId: string): Promise<StoryUnit> {
@@ -1927,15 +1950,17 @@ export async function updateOutputArtifact(input: { projectId: string; artifactI
 
 export type CreationSourcePortAction = "create-root" | "create-artifact" | "save-artifact" | "reconcile-source" | "recover-source";
 
-export async function getCreationSourcePortState(input: { projectId: string; workVersionId?: string; storyUnitId?: string; eventIds?: string[] }): Promise<CreationSourcePortState> {
+export async function getCreationSourcePortState(input: { projectId: string; workVersionId?: string; storyUnitId?: string; eventIds?: string[]; view?: "current" | "pinned"; artifactId?: string }): Promise<CreationSourcePortState> {
   const query = new URLSearchParams({ projectId: input.projectId });
   if (input.workVersionId) query.set("workVersionId", input.workVersionId);
   if (input.storyUnitId) query.set("storyUnitId", input.storyUnitId);
+  if (input.view) query.set("view", input.view);
+  if (input.artifactId) query.set("artifactId", input.artifactId);
   for (const eventId of input.eventIds || []) query.append("eventId", eventId);
   return request<CreationSourcePortState>(`${basePath}/creation/source?${query.toString()}`);
 }
 
-export async function runCreationSourcePortAction(input: { projectId: string; action: CreationSourcePortAction; workVersionId?: string; storyUnitId?: string; eventIds?: string[]; title?: string; text?: string; selectedDifferenceIds?: string[]; expectedRootRevision?: number; token: string }): Promise<CreationSourcePortState> {
+export async function runCreationSourcePortAction(input: { projectId: string; action: CreationSourcePortAction; workVersionId?: string; storyUnitId?: string; eventIds?: string[]; artifactId?: string; title?: string; text?: string; selectedDifferenceIds?: string[]; expectedRootRevision?: number; creationKey?: string; token: string }): Promise<CreationSourcePortState> {
   const { token, action, ...body } = input;
   return request<CreationSourcePortState>(`${basePath}/creation/source/${action}`, { method: "POST", token, body });
 }
@@ -2051,6 +2076,15 @@ export async function getMultiverseSingleDerivedFixture(projectId: string, optio
   if (options.surface) query.set("surface", options.surface);
   if (options.fixtureCase) query.set("case", options.fixtureCase);
   return request<MultiverseSingleDerivedFixture>(`${basePath}/author-control/multiverse-single-derived-fixture?${query.toString()}`);
+}
+
+export async function getMultiverseWorkVersions(projectId: string): Promise<MultiverseWorkVersion[]> {
+  return request<MultiverseWorkVersion[]>(`${basePath}/multiverse/versions?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function createMultiverseWorkVersion(input: { projectId: string; displayName: string; parentVersionId: string; expectedParentRevision: number; expectedParentManifestId: string; idempotencyKey: string; token: string }): Promise<{ created: unknown; versions: MultiverseWorkVersion[] }> {
+  const { token, ...body } = input;
+  return request<{ created: unknown; versions: MultiverseWorkVersion[] }>(`${basePath}/multiverse/versions/create`, { method: "POST", token, body });
 }
 
 export async function runMultiverseSingleDerivedFixture(input: {
@@ -2212,6 +2246,233 @@ export async function getNuwaDirectorStateR1(projectId: string, runId: string): 
   return request<NuwaDirectorStateR1>(`${basePath}/author-control/exploration/director-r1?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
+/**
+ * Browser DTOs for the bounded Nuwa N1 author surface.  These are projections
+ * owned by the Nuwa RunPack/AuthorControl server path; the browser only keeps
+ * the currently rendered projection and never becomes a Run or candidate owner.
+ */
+export type NuwaN1Availability = { kind: "unavailable" | "local-fake" | "pi-agent"; label: string; providerCalls: 0; adapterId?: string | null };
+export type NuwaN1Participant = { id: string; title: string; revision: string; localGoal?: string };
+export type NuwaN1ProfileBasis = {
+  core: string | null;
+  boundaries: string | null;
+  sourceRevision: string;
+  sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
+};
+export type NuwaN1MemorySource = { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: "active" };
+export type NuwaN1MemoryItem = { id: string; summary: string; source: NuwaN1MemorySource; selectedByAttention?: boolean };
+export type NuwaN1AttentionReport = {
+  version: "tianyan-nuwa-n1-attention/v1";
+  algorithm: "permission-first-lexical-utf8/v1";
+  selected: Array<{ key: string; kind: "knowledge" | "belief"; sourceId: string; reason: "current-scene-required" | "goal-keyword-match" | "scene-keyword-match" | "stable-authorized-fallback" }>;
+  excluded: { count: number; reasonCounts: Array<{ reason: "lower-relevance-within-budget"; count: number }> };
+  budget: { estimator: "utf8-byte-upper-bound/v1"; maxInputTokens: number; baseBytes: number; sourceBudgetBytes: number; selectedSourceBytes: number; outputReserveTokens: number; requiredOverflow: boolean };
+};
+export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
+export type NuwaN1Step = {
+  stepId: string;
+  sequence: number;
+  actorId: string;
+  intent: string;
+  speech: string | null;
+  action: { action: string; targetId: string | null } | null;
+  observableResult: string;
+  heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>;
+  contextEvidenceRefs: Array<{ kind: "knowledge" | "belief"; id: string; summary: string; sourceId: string; sourceRevision: string; visibility: string }>;
+  tool: { name: "read_role_context"; requestId: string };
+  usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
+  committedAt: string;
+};
+export type NuwaN1Run = {
+  runId: string;
+  status: "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
+  revision: number;
+  scene: { storyUnitId: string; label: string; observedAt: string };
+  participants: NuwaN1Participant[];
+  goal: string;
+  steps: NuwaN1Step[];
+  /** Actual model-boundary sends; never inferred from local tool bookkeeping. */
+  providerDispatches: number;
+  providerDispatchEvidence: "complete" | "unknown";
+  pendingCue: { operationId: string; instruction: string } | null;
+  dispatches: number;
+  attempts: Array<{
+    attemptId: string;
+    actorId: string;
+    requestId: string | null;
+    dispatches: Array<{
+      phase: "request" | "continue-after-tool" | "provider";
+      status: "reserved" | "dispatched" | "completed" | "failed" | "cancelled" | "unknown";
+      recordedAt: string;
+      detail: string | null;
+      providerCall?: number | null;
+      requestKey?: string | null;
+      reservationId?: string | null;
+      receiptEnvelopeId?: string | null;
+      provider?: { providerId: string; profileId: string; modelId: string } | null;
+    }>;
+    tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
+    usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" } | null;
+    outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
+    recordedAt: string;
+    updatedAt: string;
+  }>;
+  provider: NuwaN1Availability;
+  stoppedAt?: string | null;
+  blocker?: string | null;
+};
+export type NuwaN1ContextInspector = {
+  actors: Array<{
+    actorId: string;
+    localGoal: string;
+    coreSummary: string;
+    profileBasis: NuwaN1ProfileBasis;
+    attention: NuwaN1AttentionReport;
+    evidenceRefs: Array<{ id: string; revision: string; visibility: string }>;
+    knowledgeItems: Array<{ id: string; summary: string; visibility: string; sourceId: string; sourceRevision: string }>;
+    beliefItems: Array<{ id: string; summary: string; stance: string; sourceId: string; sourceRevision: string }>;
+    memoryItems: NuwaN1MemoryItem[];
+    excludedCount: number;
+  }>;
+};
+export type NuwaN1ReadModel = {
+  version: string;
+  availability: NuwaN1Availability;
+  authorization: null | {
+    id: string;
+    subject: "nuwa-n1";
+    runId: string;
+    storyUnitId: string;
+    storyUnitRevision: string;
+    actorIds: string[];
+    relationTypeId: string | null;
+    relationTypeRevision: number | null;
+    status: "active" | "revoked" | "expired";
+    maxSteps: number;
+    maxProviderDispatches: number;
+  };
+  run: NuwaN1Run | null;
+  contextInspector: NuwaN1ContextInspector | null;
+  receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string }>;
+  automaticApplication?: NuwaN1AutomaticApplication;
+};
+export type NuwaN1Bootstrap = {
+  version: "story-studio-nuwa-n1-bootstrap/v1";
+  availability: NuwaN1Availability;
+  participants: NuwaN1Participant[];
+  storyUnits: NuwaN1StoryUnit[];
+  relationTypes: Array<{ id: string; title: string; revision: number }>;
+  latestRunId: string | null;
+};
+export type NuwaN1Setup = {
+  setup: {
+    projectId: string;
+    participants: NuwaN1Participant[];
+    storyUnit: NuwaN1StoryUnit;
+    goal: string;
+    contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; memoryItems: NuwaN1MemoryItem[]; evidenceRefs: string[]; excludedCount: number }>;
+  };
+};
+export type NuwaN1CandidateResult = NuwaN1ReadModel & {
+  candidate: {
+    handoffId: string;
+    runId: string;
+    sourceSnapshotHash: string;
+    selectedStepIds: string[];
+    status: "candidate";
+    candidates: Array<{ candidateId: string; title: string; summary: string; speech: string | null; action: string; sourceStepId: string; affectedCharacterIds: string[]; observedResult: string }>;
+    formalWrites: 0;
+  };
+  review: { reviewId: string; status: string };
+};
+
+export type NuwaN1AutomaticApplication = {
+    status: "applied" | "rolled-back" | "recovery-required";
+    decisionSource: "nuwa-scope-authorization";
+    authorizationId: string;
+    permissionReceiptId: string;
+    planningEventId: string;
+    impactReviewId: string;
+    changeSetId: string;
+    eventId: string;
+    storyUnitId: string;
+    receiptId: string;
+    narrativePlacementIds: string[];
+    materialObjectId: string | null;
+    relationId: string | null;
+    workVersionReceiptId: string | null;
+    resultVersion: { workVersionId: string; revision: number } | null;
+    fixedDraft: null | { artifactId: string; sourceVersion: { workVersionId: string; revision: number }; creationKey: string; operationId: string; createdAt: string };
+    rollback: null | { operationId: string; status: "applying" | "active" | "recovery-required"; resultVersion: { workVersionId: string; revision: number } | null; failure: string | null };
+  };
+export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
+  automaticApplication: NuwaN1AutomaticApplication;
+};
+
+export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Bootstrap> {
+  return request<NuwaN1Bootstrap>(`${basePath}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function getNuwaN1Latest(projectId: string): Promise<NuwaN1ReadModel> {
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/latest?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function getNuwaN1Run(projectId: string, runId: string): Promise<NuwaN1ReadModel> {
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
+}
+
+export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
+  const { token, ...body } = input;
+  return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
+}
+
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
+}
+
+export type NuwaN1RunAction = "step" | "pause" | "resume" | "stop" | "replay";
+export async function runNuwaN1Action(input: { projectId: string; runId: string; expectedRevision: number; action: Exclude<NuwaN1RunAction, "replay">; operationId: string; token: string; reason?: string }): Promise<NuwaN1ReadModel> {
+  const { token, action, ...body } = input;
+  const requestBody = action === "pause" || action === "stop" ? { ...body, reason: input.reason ?? (action === "stop" ? "作者停止本地排演。" : "作者暂停本地排演。") } : body;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/${action}`, { method: "POST", token, body: requestBody });
+}
+
+export async function runNuwaN1Continuously(input: { projectId: string; runId: string; expectedRevision: number; operationId: string; token: string }): Promise<NuwaN1ReadModel | NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel | NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/continuous`, { method: "POST", token, body });
+}
+
+export async function replayNuwaN1Run(input: { projectId: string; runId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/replay`, { method: "POST", token, body });
+}
+
+export async function cueNuwaN1Run(input: { projectId: string; runId: string; expectedRevision: number; instruction: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/cue`, { method: "POST", token, body });
+}
+
+export async function createNuwaN1Candidate(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1CandidateResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1CandidateResult>(`${basePath}/nuwa-n1/candidate`, { method: "POST", token, body });
+}
+
+export async function autoApplyNuwaN1Result(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-apply`, { method: "POST", token, body });
+}
+
+export async function freezeNuwaN1AutomaticDraft(input: { projectId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-freeze-draft`, { method: "POST", token, body });
+}
+
+export async function rollbackNuwaN1AutomaticApplication(input: { projectId: string; runId: string; receiptId: string; operationId: string; token: string }): Promise<NuwaN1AutomaticApplicationResult> {
+  const { token, ...body } = input;
+  return request<NuwaN1AutomaticApplicationResult>(`${basePath}/nuwa-n1/auto-rollback`, { method: "POST", token, body });
+}
+
 export type NuwaDirectorActionR1 =
   | { action: "set-permission"; kind: NuwaDirectorPermissionKindR1; granted: boolean; reason: string }
   | { action: "create-temporary-agent"; displayName: string; purpose: string }
@@ -2287,6 +2548,7 @@ export async function createWorldObject(input: {
   tags?: string[];
   aliases?: string[];
   body?: string;
+  knowledgeSubjects?: string[];
   agentTypeId?: string;
   agentTypeFieldValues?: Record<string, string | number | boolean | null>;
   profile?: StoryStudioObjectProfile | null;
@@ -2507,6 +2769,7 @@ export async function createPlanningEvent(input: {
   title: string;
   body?: string;
   tags?: string[];
+  operationId?: string;
   token: string;
 }): Promise<WorldObject> {
   const { token, ...body } = input;
@@ -3091,10 +3354,45 @@ async function intelligenceBridgeRequest<T>(route: string, token: string, body: 
   return request<T>(`${basePath}/intelligence-bridge/${route}`, { method: "POST", token, body });
 }
 
+// Same-origin local projection reads are response-driven. A fixed browser
+// deadline misclassifies a busy single-threaded local owner as disconnected
+// and aborts a request that is still progressing. Network/process failures
+// still reject fetch; project changes can explicitly invalidate and abort.
+const projectProjectionReads = new InFlightReadRegistry(null, 5_000);
+
+async function readProjectProjection<T>(url: string): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const projectId = parsedUrl.searchParams.get("projectId");
+  const endpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" as const : "story-units" as const;
+  for (;;) {
+    const read = projectProjectionReads.read(url, (signal) => request<T>(url, { signal }));
+    if (read.reused) recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: read.fresh ? "ready" : "loading", reason: read.fresh ? "fresh-snapshot" : "in-flight" });
+    try {
+      const value = await read.promise;
+      if (read.isCurrent()) return value;
+      recordDirectoryReadDiagnostic({ phase: "transport-reuse", endpoint, projectId, outcome: "discarded", reason: "pre-write-generation" });
+      await projectProjectionReads.whenStable();
+    } catch (error) {
+      if (error instanceof InFlightReadTimeoutError) {
+        recordDirectoryReadDiagnostic({ phase: "transport-timeout", endpoint, projectId, outcome: "failed", reason: "read-timeout", durationMs: error.timeoutMs });
+        throw new LocalTransportError("本地作品读取超时；请重新连接。现有作品没有被修改。", 504);
+      }
+      throw error;
+    }
+  }
+}
+
 async function request<T>(
   url: string,
   input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
+  const parsedUrl = new URL(url, window.location.origin);
+  const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;
+  const directoryProjectId = directoryEndpoint ? parsedUrl.searchParams.get("projectId") : null;
+  const startedAt = directoryEndpoint && directoryReadDiagnosticsEnabled() ? performance.now() : null;
+  if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-start", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: "loading" });
+  const projectionInvalidationMode = projectProjectionInvalidationMode(parsedUrl.pathname, input.method || "GET");
+  const closeProjectionWriteBoundary = projectionInvalidationMode === "boundary" ? projectProjectionReads.beginInvalidationBoundary() : null;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -3108,26 +3406,38 @@ async function request<T>(
       signal: input.signal
     });
   } catch (cause) {
+    closeProjectionWriteBoundary?.();
+    if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-failed", endpoint: directoryEndpoint, projectId: directoryProjectId, outcome: cause instanceof DOMException && cause.name === "AbortError" ? "cancelled" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     if (cause instanceof DOMException && cause.name === "AbortError") {
       throw new LocalTransportError("操作已取消；没有新的内容被写入。", 499);
     }
     throw new LocalTransportError("本地服务暂时未连接。当前页面会保留；需要读取或保存时请重新连接。", 0);
   }
-  const source = await response.text();
-  let payload: { data?: T; error?: string };
   try {
-    payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
-  } catch {
-    throw new LocalTransportError(
-      response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
-      response.status
-    );
+    if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
+    const source = await response.text();
+    let payload: { data?: T; error?: string };
+    try {
+      payload = source ? JSON.parse(source) as { data?: T; error?: string } : {};
+    } catch {
+      throw new LocalTransportError(
+        response.ok ? "本地服务返回了无法读取的数据。" : "本地服务暂时不可用，请确认 Story Studio 已完整启动。",
+        response.status
+      );
+    }
+    if (!response.ok || payload.data === undefined) {
+      const fallback = response.status >= 500
+        ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
+        : "本地项目操作失败。";
+      throw new LocalTransportError(payload.error || fallback, response.status);
+    }
+    return payload.data;
+  } finally {
+    // A read begun while the write was pending was marked non-cacheable when
+    // it entered the registry. Closing the boundary therefore cannot evict a
+    // newer post-write read or trigger a second full projection scan.
+    closeProjectionWriteBoundary?.();
+    if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
   }
-  if (!response.ok || payload.data === undefined) {
-    const fallback = response.status >= 500
-      ? "本地服务暂时不可用，请确认 Story Studio 已完整启动。"
-      : "本地项目操作失败。";
-    throw new LocalTransportError(payload.error || fallback, response.status);
-  }
-  return payload.data;
 }

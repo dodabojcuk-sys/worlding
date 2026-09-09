@@ -39,6 +39,10 @@
 .character-directory-list > button { width: 100%; min-height: 3.25rem; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); text-align: start; border-radius: var(--radius-md); }
 .character-directory-list > button:hover { background: var(--color-surface-muted); }
 .character-directory-list > button[data-current] { background: var(--color-accent-soft); box-shadow: inset 3px 0 var(--color-accent); }
+.character-directory-list > button[draggable="true"] { cursor: grab; }
+.character-directory-list > button[draggable="true"]:active { cursor: grabbing; }
+.character-row-drag-handle { inline-size: .8rem; block-size: 1rem; flex: 0 0 auto; color: var(--color-text-muted); opacity: .56; }
+.character-directory-list > button:hover .character-row-drag-handle, .character-directory-list > button:focus-visible .character-row-drag-handle { color: var(--color-accent); opacity: 1; }
 .character-row-avatar { inline-size: 2.6rem; block-size: 2.6rem; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface-muted) 84%, var(--color-accent-soft)); border-radius: 50%; }
 .character-row-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .character-row-avatar svg { inline-size: 1.25rem; block-size: 1.25rem; }
@@ -125,6 +129,20 @@
 .character-profile-editor h2 { margin: 0; font-family: var(--font-display); font-size: var(--font-size-lg); }
 .character-profile-editor label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .character-profile-editor input, .character-profile-editor select, .character-profile-editor textarea { width: 100%; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); }
+.character-profile-agent-basis { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-profile-agent-basis legend { padding: 0 var(--space-1); color: var(--color-text); font-size: var(--font-size-sm); font-weight: 650; }
+.character-profile-agent-basis > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.character-inspector-agent-basis { display: grid; gap: var(--space-2); margin: var(--space-3) 0; padding: var(--space-3); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-inspector-agent-basis > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--space-2); }
+.character-inspector-agent-basis dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.character-inspector-agent-basis dd { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.character-profile-agent-basis { display: grid; gap: var(--space-3); margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-profile-agent-basis legend { padding-inline: var(--space-1); color: var(--color-text); font-size: var(--font-size-sm); font-weight: 650; }
+.character-profile-agent-basis > p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.character-inspector-agent-basis { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); padding: var(--space-3); background: color-mix(in srgb, var(--color-accent-soft) 38%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.character-inspector-agent-basis > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: var(--space-2); }
+.character-inspector-agent-basis dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.character-inspector-agent-basis dd { min-width: 0; margin: 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .character-profile-editor input, .character-profile-editor select { min-height: 2.35rem; padding-inline: var(--space-2); }
 .character-profile-editor textarea { padding: var(--space-2); resize: vertical; }
 .character-profile-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
@@ -178,6 +196,15 @@
 .character-inspector-details h4 { font-size: var(--font-size-sm); }
 .character-inspector-details p { margin: var(--space-1) 0 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.65; white-space: pre-wrap; }
 .character-inspector > footer button:disabled { cursor: not-allowed; opacity: .55; }
+.character-inspector-knowledge { display: grid; gap: var(--space-3); }
+.character-inspector-knowledge > p { margin: 0; color: var(--color-text-muted); }
+.character-inspector-knowledge dl { display: grid; gap: var(--space-2); margin: 0; }
+.character-inspector-knowledge dl > div { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-2); background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.character-inspector-knowledge dt { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.character-inspector-knowledge dd { margin: 0; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.character-inspector-knowledge ol { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.character-inspector-knowledge li { display: grid; gap: var(--space-1); padding: var(--space-3); background: var(--color-workspace-background); border-radius: var(--radius-sm); }
+.character-inspector-knowledge li span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .character-create-more { padding: var(--space-2); background: var(--color-workspace-background); border-radius: var(--radius-sm); }
 .character-create-more > summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .character-create-more .character-create-grid { margin-block-start: var(--space-3); }

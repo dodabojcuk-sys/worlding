@@ -1,0 +1,33 @@
+{
+  "version": "tianyan-pi-r4-synthetic-cases/v1",
+  "providerCalls": 0,
+  "cases": [
+    {
+      "id": "same-name-alias",
+      "source": "守钟人林昭，人称铁铃，在雨夜听见第三次钟响；新来的绘图师也叫林昭，但没有到过钟楼。",
+      "expected": [
+        "两个同名人物保持不同稳定身份",
+        "铁铃只可绑定守钟人林昭",
+        "绘图师林昭不得获得钟楼亲历或知情"
+      ]
+    },
+    {
+      "id": "relative-time-item-location",
+      "source": "守钟人失踪后的第二天，阿尧在旧码头捡到缺口铜铃；铜铃此前只在北塔出现。",
+      "expected": [
+        "识别人、物品、地点、事件及相对时间",
+        "相对时间保留为待确认依据，不伪造成绝对日期",
+        "物品和地点只进入参与与状态观察，不产生人类信念"
+      ]
+    },
+    {
+      "id": "misconception-future-intent",
+      "source": "苏禾误以为阿尧偷走铜铃；作者计划在三章后揭示真正拿走铜铃的是守钟人。当前没有角色知道这个计划。",
+      "expected": [
+        "错误信念与世界事实分开",
+        "作者未来意图保持作者私密且不得进入角色 ContextPack",
+        "当前 Story Intake 无专门类型时明确保留为 unresolved，不伪称已有 Writer"
+      ]
+    }
+  ]
+}

@@ -291,7 +291,7 @@ export function normalizeTianyiGroundedSourceManifest(value: unknown): TianyiGro
     subjectRef: requestInput.subjectRef === null ? null : requireSourceKey(requestInput.subjectRef),
     sceneRef: requestInput.sceneRef === null ? null : requireSourceKey(requestInput.sceneRef),
     explicitRefs: stringArray(requestInput.explicitRefs, 5, requireSourceKey, "Tianyi grounded explicit source references"),
-    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, 4, requireSourceKey, "Tianyi grounded explicit event references") } : {})
+    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, 6, requireSourceKey, "Tianyi grounded explicit event references") } : {})
   };
   if (request.accessMode === "author" && request.subjectRef !== null) throw new Error("Author manifest cannot carry a subject.");
   if (request.accessMode === "character" && request.subjectRef === null) throw new Error("Character manifest requires a subject.");
@@ -458,7 +458,7 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 }
 
 function normalizeEventReferences(value: unknown): StoryStudioEventReference[] {
-  if (!Array.isArray(value) || value.length > 4) throw new Error("Tianyi grounded explicit event references are invalid.");
+  if (!Array.isArray(value) || value.length > 6) throw new Error("Tianyi grounded explicit event references are invalid.");
   const unique = new Map<string, StoryStudioEventReference>();
   for (const item of value) {
     const reference = normalizeStoryStudioEventReference(item);

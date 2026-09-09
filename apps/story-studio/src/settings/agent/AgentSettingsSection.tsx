@@ -1,6 +1,6 @@
 import { Bot, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
-import { useRef, useState, type FormEvent } from "react";
-import type { AgentPermissionProfile, AgentPermissionState, ModelCatalogEntry, ModelCatalogSnapshot, ModelServiceStatus, ProviderPresetId } from "../../lib/localTransport";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { AgentPermissionProfile, AgentPermissionState, ModelCatalogEntry, ModelCatalogSnapshot, ModelServiceStatus, ProviderInstanceProjection, ProviderPresetId } from "../../lib/localTransport";
 
 export type ProviderProfileUpdate = {
   expectedRevision: number;
@@ -29,7 +29,8 @@ export function AgentSettingsSection(props: {
   onPermissionProfile?(profile: AgentPermissionProfile): Promise<void>;
   onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult>;
   onDiscoverProviderModels?(): Promise<string[]>;
-  onTestProviderConnection?(modelId?: string): Promise<{ modelId: string; availableModelCount: number }>;
+  onTestProviderConnection?(modelId?: string): Promise<{ modelId: string; testedAt: string; latencyMs: number; availableModelCount: number }>;
+  onRevealProviderCredential?(providerInstanceId: string): Promise<{ providerInstanceId: string; apiKey: string }>;
   onProbeEmbedding?(modelId: string): Promise<{ modelId: string; dimensions: number; latencyMs: number }>;
   onDisableProviderProfile?(expectedRevision: number): Promise<void>;
 }) {
@@ -38,48 +39,73 @@ export function AgentSettingsSection(props: {
   const activeConfigured = providers.find((provider) => provider.id === selected?.provider)?.configured === true;
   const credential = props.status?.profile.credential;
   const agentRuntime = props.status?.agentRuntime;
+  const nuwaN1 = props.status?.nuwaN1;
   const credentialInput = useRef<HTMLInputElement>(null);
+  const providerForm = useRef<HTMLFormElement>(null);
+  const revealTimer = useRef<number | null>(null);
   const llmModelInput = useRef<HTMLInputElement>(null);
   const embeddingModelInput = useRef<HTMLInputElement>(null);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerNotice, setProviderNotice] = useState("");
   const [showCredentialDraft, setShowCredentialDraft] = useState(false);
+  const [replaceCredential, setReplaceCredential] = useState(false);
+  const [revealedCredential, setRevealedCredential] = useState<string | null>(null);
   const [providerId, setProviderId] = useState<ProviderPresetId>(selected?.provider ?? "siliconflow");
   const selectedProviderMatches = selected?.provider === providerId;
   const providerPreset = props.status?.profile.presets.find((preset) => preset.id === providerId) ?? props.status?.profile.presets[0];
   const providerInstance = props.status?.profile.providerInstances.find((instance) => instance.provider === providerId) ?? selected;
+  const [selectedModelDraft, setSelectedModelDraft] = useState(providerInstance?.modelId ?? "");
+  const [embeddingModelDraft, setEmbeddingModelDraft] = useState(providerInstance?.embeddingModelId ?? "");
+  const [modelQuery, setModelQuery] = useState("");
+  const [catalogExpanded, setCatalogExpanded] = useState(false);
   const catalog = providerInstance?.catalog;
   const endpointEntries = catalog?.entries.filter((entry) => entry.source === "endpoint") ?? [];
   const manualEntries = catalog?.entries.filter((entry) => entry.source === "manual" || entry.source === "unverified") ?? [];
   const suggestedEntries = providerInstance?.suggestedModels ?? [];
   const visibleEntries = [...catalog?.entries ?? [], ...suggestedEntries.filter((suggestion) => !catalog?.entries.some((entry) => entry.id === suggestion.id))];
   const networkReady = selectedProviderMatches && (props.status?.profile.credentialRequired === false || credential?.configured === true);
+  const clearRevealedCredential = () => {
+    if (revealTimer.current !== null) window.clearTimeout(revealTimer.current);
+    revealTimer.current = null;
+    setRevealedCredential(null);
+  };
 
-  const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "扩大授权范围" };
+  useEffect(() => () => { if (revealTimer.current !== null) window.clearTimeout(revealTimer.current); }, []);
+  useEffect(() => {
+    clearRevealedCredential();
+    setReplaceCredential(false);
+    setSelectedModelDraft(providerInstance?.modelId ?? "");
+    setEmbeddingModelDraft(providerInstance?.embeddingModelId ?? "");
+  }, [providerId, providerInstance?.configRevision]);
+
+  const permissionLabels: Record<AgentPermissionProfile, string> = { general: "逐步确认", "auto-review": "候选可自动整理", "full-access": "女娲高权限自动执行" };
   const updatePermission = (profile: AgentPermissionProfile) => void props.onPermissionProfile?.(profile);
+  const persistProvider = async () => {
+    if (!props.onSaveProviderProfile || !providerForm.current) throw new Error("Provider 配置表单不可用。");
+    const fields = new FormData(providerForm.current);
+    const apiKey = credentialInput.current?.value.trim() ?? "";
+    await props.onSaveProviderProfile({
+      expectedRevision: props.status?.profile.revision ?? 0,
+      provider: providerId,
+      displayName: String(fields.get("displayName") ?? "").trim(),
+      baseUrl: String(fields.get("baseUrl") ?? "").trim(),
+      llmModelId: String(fields.get("llmModelId") ?? "").trim(),
+      embeddingModelId: String(fields.get("embeddingModelId") ?? "").trim(),
+      enabled: fields.get("enabled") === "on",
+      ...(apiKey ? { apiKey } : {})
+    });
+    if (credentialInput.current) credentialInput.current.value = "";
+    clearRevealedCredential();
+    setReplaceCredential(false);
+  };
   const saveProvider = (event: FormEvent<HTMLFormElement>) => void (async () => {
     event.preventDefault();
-    if (!props.onSaveProviderProfile) return;
-    const fields = new FormData(event.currentTarget);
-    const apiKey = credentialInput.current?.value.trim() ?? "";
-    setProviderBusy(true);
-    setProviderNotice("");
+    setProviderBusy(true); setProviderNotice("");
     try {
-      await props.onSaveProviderProfile({
-        expectedRevision: props.status?.profile.revision ?? 0,
-        provider: providerId,
-        displayName: String(fields.get("displayName") ?? "").trim(),
-        baseUrl: String(fields.get("baseUrl") ?? "").trim(),
-        llmModelId: String(fields.get("llmModelId") ?? "").trim(),
-        embeddingModelId: String(fields.get("embeddingModelId") ?? "").trim(),
-        enabled: fields.get("enabled") === "on",
-        ...(apiKey ? { apiKey } : {})
-      });
-      if (credentialInput.current) credentialInput.current.value = "";
-      setProviderNotice(`Provider 配置已安全保存。未发起外部请求；如需目录请单独点击“获取模型”。`);
-    } catch (cause) {
-      setProviderNotice(cause instanceof Error ? cause.message : "保存 Provider 配置失败。");
-    } finally { setProviderBusy(false); }
+      await persistProvider();
+      setProviderNotice("Provider 配置已保存。凭据保持在服务器 owner；保存不会发起外部请求。");
+    } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "保存 Provider 配置失败。此前已保存配置保持不变。"); }
+    finally { setProviderBusy(false); }
   })();
   const discoverModels = () => void (async () => {
     if (!props.onDiscoverProviderModels) return;
@@ -87,19 +113,50 @@ export function AgentSettingsSection(props: {
     setProviderNotice("");
     try {
       const models = await props.onDiscoverProviderModels();
+      setCatalogExpanded(true);
       setProviderNotice(`已获取 ${models.length} 个可用模型。请从列表选择，或手动填写模型 ID。`);
       window.requestAnimationFrame(() => llmModelInput.current?.focus());
     } catch (cause) {
       setProviderNotice(cause instanceof Error ? cause.message : "获取模型失败，可以手动填写模型 ID。");
     } finally { setProviderBusy(false); }
   })();
+  const runConnectionTest = async (modelId?: string) => {
+    if (!props.onTestProviderConnection) return;
+    const result = await props.onTestProviderConnection(modelId);
+    setProviderNotice(`连接测试成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。已发送一次合成聊天探测。`);
+  };
   const testConnection = () => void (async () => {
     if (!props.onTestProviderConnection) return;
+    if (hasUnsavedProviderChanges(providerForm.current, { providerId, selected, providerInstance, selectedModelDraft, embeddingModelDraft, hasCredentialDraft: Boolean(credentialInput.current?.value.trim()) })) {
+      setProviderNotice("配置有未保存修改。请点击“保存并测试”，避免用旧地址、旧凭据或旧模型误判结果。");
+      return;
+    }
     setProviderBusy(true); setProviderNotice("");
     try {
-      const result = await props.onTestProviderConnection(llmModelInput.current?.value.trim() || undefined);
-      setProviderNotice(`连接测试成功：${result.modelId}，目录 ${result.availableModelCount} 个模型。`);
+      await runConnectionTest(selectedModelDraft || undefined);
     } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "连接测试失败。"); }
+    finally { setProviderBusy(false); }
+  })();
+  const saveAndTest = () => void (async () => {
+    if (!props.onSaveProviderProfile || !props.onTestProviderConnection) return;
+    setProviderBusy(true); setProviderNotice("");
+    try {
+      const modelId = selectedModelDraft.trim() || undefined;
+      await persistProvider();
+      await runConnectionTest(modelId);
+    } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "保存或连接测试失败。此前已保存配置未被清除。"); }
+    finally { setProviderBusy(false); }
+  })();
+  const revealCredential = () => void (async () => {
+    if (!props.onRevealProviderCredential || !providerInstance) return;
+    if (revealedCredential) { clearRevealedCredential(); return; }
+    setProviderBusy(true); setProviderNotice("");
+    try {
+      const result = await props.onRevealProviderCredential(providerInstance.id);
+      setRevealedCredential(result.apiKey);
+      revealTimer.current = window.setTimeout(clearRevealedCredential, 20_000);
+      setProviderNotice("已在当前设置页暂时显示保存的密钥；20 秒后会自动隐藏，不会复制或持久化。 ");
+    } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "无法显示已保存密钥。"); }
     finally { setProviderBusy(false); }
   })();
   const probeEmbedding = () => void (async () => {
@@ -139,7 +196,7 @@ export function AgentSettingsSection(props: {
       <div><dt>默认 Embedding</dt><dd>{selected?.enabled && selected.embeddingModelId ? selected.embeddingModelId : "未选择"}</dd></div>
       <div><dt>流式运行</dt><dd>{props.status?.tianyiDialogue.ready ? "可用" : "不可用"}</dd></div>
       <div><dt>工具调用</dt><dd>{props.status?.tianyiDialogue.ready ? "经 Gateway 与作者审批" : "当前不可用"}</dd></div>
-      <div><dt>Pi Agent</dt><dd>{props.status?.tianyiDialogue.ready ? "已接入 Provider Gateway" : "等待 Provider 配置"}</dd></div>
+      <div><dt>Pi Agent</dt><dd>{nuwaN1?.ready ? `女娲可用 · ${nuwaN1.modelId}` : nuwaN1?.label ?? "等待 Provider 配置"}</dd></div>
     </dl>
     {!activeConfigured && <p role="status">当前 Provider 尚未可用；Agent 不会用 fixture 冒充成功。</p>}
     <section id="settings-agent-runtime" className="agent-runtime-plugin-status" aria-labelledby="agent-runtime-plugin-title" data-agent-runtime-plugin={agentRuntime?.activePluginId ?? "unavailable"}>
@@ -158,10 +215,10 @@ export function AgentSettingsSection(props: {
       {agentRuntime?.message && <p role="status">{agentRuntime.message}</p>}
       <div className="agent-runtime-plugin-actions"><button type="button" data-agent-runtime-update="check" disabled={props.busy || !props.onRefresh} onClick={props.onRefresh}>检查内置运行时状态</button><small>升级必须由产品更新流程显式提供并通过 ABI 兼容测试；此处不会拉取外部代码。</small></div>
     </section>
-    <form id="settings-agent-provider" className="agent-provider-profile" onSubmit={saveProvider} key={`${props.status?.profile.revision ?? "initial"}:${providerId}`}>
+    <form id="settings-agent-provider" ref={providerForm} className="agent-provider-profile" onSubmit={saveProvider} key={`${props.status?.profile.revision ?? "initial"}:${providerId}`}>
       <div>
         <strong>Provider 配置</strong>
-        <p>模型调用只经 Provider Gateway；密钥在提交后由服务器凭据 owner 持有，UI 仅显示掩码和连接状态。</p>
+        <p>模型调用只经 Provider Gateway；常规读取只显示掩码。只有当前管理会话中明确点击，才会短时显示已保存密钥。</p>
       </div>
       <dl>
         <div><dt>连接状态</dt><dd>{providerInstance?.connectionStatus ?? "unknown"}</dd></div>
@@ -175,13 +232,13 @@ export function AgentSettingsSection(props: {
       <label>服务地址<input name="baseUrl" type="url" required defaultValue={providerInstance?.baseUrl ?? providerPreset?.defaultBaseUrl ?? ""} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /></label>
       <div className="agent-provider-model-field">
         <label htmlFor="provider-llm-model-id">默认对话模型</label>
-        <input id="provider-llm-model-id" ref={llmModelInput} name="llmModelId" list="provider-llm-model-options" defaultValue={providerInstance?.modelId ?? ""} placeholder="从目录选择或手工填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
+        <input id="provider-llm-model-id" ref={llmModelInput} name="llmModelId" list="provider-llm-model-options" value={selectedModelDraft} onChange={(event) => setSelectedModelDraft(event.target.value)} placeholder="从目录选择或手工填写模型 ID" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
         <datalist id="provider-llm-model-options">{visibleEntries.filter((entry) => entry.capabilityClaims.some((claim) => claim.capability === "llm") || entry.id === providerInstance?.modelId).map((entry) => <option key={`llm:${entry.id}`} value={entry.id}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</option>)}</datalist>
         <small>LLM 用于对话与结构化创作；能力未知的目录项不会自动归类。</small>
       </div>
       <div className="agent-provider-model-field">
         <label htmlFor="provider-embedding-model-id">默认 Embedding 模型</label>
-        <input id="provider-embedding-model-id" ref={embeddingModelInput} name="embeddingModelId" list="provider-embedding-model-options" defaultValue={providerInstance?.embeddingModelId ?? ""} placeholder="手工声明后可用合成文本验证" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
+        <input id="provider-embedding-model-id" ref={embeddingModelInput} name="embeddingModelId" list="provider-embedding-model-options" value={embeddingModelDraft} onChange={(event) => setEmbeddingModelDraft(event.target.value)} placeholder="手工声明后可用合成文本验证" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />
         <datalist id="provider-embedding-model-options">{visibleEntries.filter((entry) => entry.capabilityClaims.some((claim) => claim.capability === "embedding") || entry.id === providerInstance?.embeddingModelId).map((entry) => <option key={`embedding:${entry.id}`} value={entry.id}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</option>)}</datalist>
         <small>Embedding 验证只发送固定合成文本；不发送故事、人物、Canon 或知识库正文。</small>
       </div>
@@ -189,22 +246,27 @@ export function AgentSettingsSection(props: {
         <strong>模型目录 · {catalogStateLabel(catalog?.status ?? "never_fetched")}</strong>
         <p>{catalogSummary(catalog, endpointEntries.length)}</p>
         {catalog?.failure && <p role="alert">{catalog.failure.message}{catalog.failure.occurredAt ? ` · ${formatCatalogTime(catalog.failure.occurredAt)}` : ""}</p>}
-        {endpointEntries.length > 0 && <details><summary>服务端目录 · {endpointEntries.length}</summary>{endpointEntries.map((entry) => <p key={`endpoint:${entry.id}`}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</p>)}</details>}
+        {visibleEntries.length > 0 && <><label>搜索模型<input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="按模型名或 ID 过滤" disabled={providerBusy || props.busy} /></label><button type="button" onClick={() => setCatalogExpanded((current) => !current)}>{catalogExpanded ? "收起模型列表" : `展开模型列表（${visibleEntries.length}）`}</button>{catalogExpanded && <div className="agent-provider-model-list">{visibleEntries.filter((entry) => entry.id.toLowerCase().includes(modelQuery.trim().toLowerCase())).map((entry) => <div key={`select:${entry.source}:${entry.id}`}><strong>{entry.label || entry.id}</strong><small>{entry.id} · {entry.source === "endpoint" ? "本次/上次服务端目录" : entry.source === "manual" ? "手工配置" : "预设建议"}</small><button type="button" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onClick={() => { setSelectedModelDraft(entry.id); setProviderNotice(`已选择 ${entry.id}；请保存后再测试或用于女娲。`); }}>选择用于对话</button></div>)}</div>}</>}
+        {endpointEntries.length > 0 && <details><summary>服务端目录详情 · {endpointEntries.length}</summary>{endpointEntries.map((entry) => <p key={`endpoint:${entry.id}`}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</p>)}</details>}
         {manualEntries.length > 0 && <details><summary>手工配置 / 旧记录 · {manualEntries.length}</summary>{manualEntries.map((entry) => <p key={`manual:${entry.id}`}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</p>)}</details>}
         {suggestedEntries.length > 0 && <details><summary>预设建议（未计入已获取） · {suggestedEntries.length}</summary>{suggestedEntries.map((entry) => <p key={`suggested:${entry.id}`}>{modelOptionLabel(entry, providerInstance?.providerInstanceId, catalog)}</p>)}</details>}
       </section>
+      <section className="agent-provider-validation" aria-live="polite">
+        <strong>验证状态</strong>
+        <p>聊天探测：{providerInstance?.lastVerifiedAt ? `${providerInstance.modelId} · ${formatCatalogTime(providerInstance.lastVerifiedAt)}` : providerInstance?.lastError || "尚未验证"}</p>
+        <p>女娲：{nuwaN1?.ready ? `将使用 ${nuwaN1.providerInstanceId} / ${nuwaN1.modelId}` : nuwaN1?.label ?? "等待本地宿主配置"}</p>
+      </section>
       <div className="agent-provider-secret-field">
-        <label htmlFor="provider-api-key">新的 API Key（可选）</label>
-        <div className="agent-provider-secret-control"><input id="provider-api-key" ref={credentialInput} name="apiKey" type={showCredentialDraft ? "text" : "password"} autoComplete="new-password" placeholder={credential?.configured ? "输入新 Key 以替换已锁定凭据" : "输入 API Key"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /><button type="button" aria-label={showCredentialDraft ? "隐藏本次输入的 API Key" : "显示本次输入的 API Key"} title={showCredentialDraft ? "隐藏本次输入" : "显示本次输入"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onClick={() => setShowCredentialDraft((current) => !current)}>{showCredentialDraft ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button></div>
-        <small className="agent-provider-secret-note"><LockKeyhole aria-hidden="true" />{credential?.configured ? "已保存的 Key 保持锁定；输入新 Key 后保存即可替换。小眼睛只查看本次输入。" : "保存后由服务器凭据 owner 锁定持有，不会回传浏览器。"}</small>
+        {selectedProviderMatches && credential?.configured && !replaceCredential ? <><label htmlFor="saved-provider-api-key">API Key</label><div className="agent-provider-secret-control">{revealedCredential ? <input id="saved-provider-api-key" value={revealedCredential} readOnly autoComplete="off" aria-label="已保存的 API Key（临时显示）" /> : <output id="saved-provider-api-key">已保存 · ••••••••</output>}<button type="button" disabled={providerBusy || props.busy || !props.onRevealProviderCredential} onClick={revealCredential}>{revealedCredential ? "隐藏已保存密钥" : "显示已保存密钥"}</button><button type="button" disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onClick={() => { clearRevealedCredential(); setReplaceCredential(true); }}>更换</button></div><small className="agent-provider-secret-note"><LockKeyhole aria-hidden="true" />已保存。显示只保留在当前组件内，离开、切换实例、再次隐藏或 20 秒后清除。</small></> : <><label htmlFor="provider-api-key">{replaceCredential ? "新的 API Key（可选）" : "API Key"}</label><div className="agent-provider-secret-control"><input id="provider-api-key" ref={credentialInput} name="apiKey" type={showCredentialDraft ? "text" : "password"} autoComplete="new-password" placeholder={replaceCredential ? "输入新 Key 后保存以替换" : "输入 API Key"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} /><button type="button" aria-label={showCredentialDraft ? "隐藏本次输入的 API Key" : "显示本次输入的 API Key"} title={showCredentialDraft ? "隐藏本次输入" : "显示本次输入"} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} onClick={() => setShowCredentialDraft((current) => !current)}>{showCredentialDraft ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button>{replaceCredential && <button type="button" onClick={() => setReplaceCredential(false)}>取消更换</button>}</div><small className="agent-provider-secret-note"><LockKeyhole aria-hidden="true" />留空保存其他字段会保留原 Key；保存失败也不会清除已保存凭据。</small></>}
       </div>
       <label className="agent-provider-enabled"><input name="enabled" type="checkbox" defaultChecked={providerInstance?.enabled ?? true} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />启用此 Provider</label>
       <div className="agent-provider-actions">
         <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : "保存 Provider 配置"}</button>
         <button type="button" className={networkReady && catalog?.status === "never_fetched" ? "settings-primary-action" : undefined} disabled={providerBusy || props.busy || !networkReady || !props.onDiscoverProviderModels} onClick={discoverModels}>{endpointEntries.length ? "重新获取模型" : "获取模型"}</button>
         <button type="button" disabled={providerBusy || props.busy || !networkReady || !props.onTestProviderConnection} onClick={testConnection}>测试连接</button>
+        <button type="button" disabled={providerBusy || props.busy || !props.onSaveProviderProfile || !props.onTestProviderConnection} onClick={saveAndTest}>保存并测试</button>
         <button type="button" disabled={providerBusy || props.busy || !networkReady || !props.onProbeEmbedding} onClick={probeEmbedding}>验证 Embedding</button>
-        <button type="reset" disabled={providerBusy || props.busy} onClick={() => { setProviderId(selected?.provider ?? "siliconflow"); setProviderNotice(""); }}>取消未保存更改</button>
+        <button type="reset" disabled={providerBusy || props.busy} onClick={() => { clearRevealedCredential(); setReplaceCredential(false); setProviderId(selected?.provider ?? "siliconflow"); setProviderNotice(""); }}>取消未保存更改</button>
         <button type="button" disabled={providerBusy || props.busy || !selected?.enabled || !props.onDisableProviderProfile} onClick={disableProvider}>停用 Provider</button>
       </div>
       <p className="agent-provider-index-gate" role="note"><strong>索引绑定门禁：</strong>更改“默认 Embedding”只影响未来新索引。已有数据集继续绑定原 index generation；配置不兼容时必须重建，不会静默迁移或混用向量。</p>
@@ -212,10 +274,10 @@ export function AgentSettingsSection(props: {
     </form>
     <fieldset id="settings-agent-permissions" className="agent-permission-settings" disabled={!props.permissionState || props.busy || !props.onPermissionProfile}>
       <legend><ShieldCheck aria-hidden="true" />默认权限</legend>
-      <p>正式写入与高风险工具始终保留作者确认；这里设置日常读取和候选整理的默认范围。</p>
+      <p>一般与自动整理仍按候选/确认路径工作。高权限仅在作者开始女娲 Run 时，为已验证的项目、故事单元和角色范围建立可撤销的自动执行授权；删除、发布、部署和跨项目读取仍受硬保护。</p>
       {(Object.keys(permissionLabels) as AgentPermissionProfile[]).map((profile) => <label key={profile}>
         <input type="radio" name="agent-default-permission" value={profile} checked={props.permissionState?.profile === profile} onChange={() => updatePermission(profile)} />
-        <span><strong>{permissionLabels[profile]}</strong><small>{profile === "general" ? "读取与草拟为主" : profile === "auto-review" ? "可生成待确认候选" : "仍不得绕过正式 owner"}</small></span>
+        <span><strong>{permissionLabels[profile]}</strong><small>{profile === "general" ? "读取与草拟为主" : profile === "auto-review" ? "可生成待确认候选" : "女娲在开始时取得范围授权后，可通过既有 Owner 自动写入并保留回溯"}</small></span>
       </label>)}
     </fieldset>
     {props.error && <p role="alert">{props.error}</p>}
@@ -254,3 +316,22 @@ function catalogSummary(catalog: ModelCatalogSnapshot | undefined, endpointCount
 }
 
 function formatCatalogTime(value: string | null): string { return value ? new Date(value).toLocaleString("zh-CN") : "时间未记录"; }
+
+function hasUnsavedProviderChanges(form: HTMLFormElement | null, input: {
+  providerId: ProviderPresetId;
+  selected: ProviderInstanceProjection | null | undefined;
+  providerInstance: ProviderInstanceProjection | null | undefined;
+  selectedModelDraft: string;
+  embeddingModelDraft: string;
+  hasCredentialDraft: boolean;
+}): boolean {
+  if (!form || !input.providerInstance) return true;
+  const fields = new FormData(form);
+  return input.hasCredentialDraft
+    || input.providerId !== input.selected?.provider
+    || String(fields.get("displayName") ?? "").trim() !== input.providerInstance.displayName
+    || String(fields.get("baseUrl") ?? "").trim() !== input.providerInstance.baseUrl
+    || input.selectedModelDraft.trim() !== input.providerInstance.modelId
+    || input.embeddingModelDraft.trim() !== input.providerInstance.embeddingModelId
+    || (fields.get("enabled") === "on") !== input.providerInstance.enabled;
+}

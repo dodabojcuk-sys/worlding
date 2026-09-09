@@ -248,7 +248,7 @@ export function buildTemporalCanvasProjection(events: readonly EventLineEventSum
   const edges: Edge[] = relations.filter((relation) => ids.has(relation.sourceObjectId) && ids.has(relation.targetObjectId) && relation.reviewState === "confirmed" && (isTemporalRelation(relation) || isSelectedCausalChain(relation, selectedEventId))).map((relation): Edge => ({ id: `temporal.${relation.relationId}`, source: relation.sourceObjectId, target: relation.targetObjectId, type: "smoothstep", label: relation.currentTypeLabel ?? relation.relationLabelSnapshot, markerEnd: { type: MarkerType.ArrowClosed }, className: "temporal-constraint-edge" }));
   const chronological = evidence.filter((item) => item.coordinate !== null && item.state !== "conflict").sort((left, right) => left.coordinate! - right.coordinate! || left.sourceIndex - right.sourceIndex);
   const focusNodes: Node<TemporalCanvasNodeData>[] = [];
-  for (const [objectIndex, object] of focusObjects.slice(0, 3).entries()) {
+  for (const [objectIndex, object] of focusObjects.slice(0, 5).entries()) {
     const overlay = buildFocusTrajectoryOverlay({ anchors: chronological.map((item) => ({ anchorId: item.event.id, event: item.event })), objects: focusObjects, focusObjectIds: [object.id] });
     const laneY = focusBaseY + objectIndex * 92;
     for (const point of overlay.points) {

@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { terminateChildProcess } from "./bounded-process-teardown.mjs";
@@ -14,8 +15,17 @@ import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthorit
 import { resolveWorkVersionOwnerSnapshotRefs } from "../../../src/storyWorkspace/workVersionSnapshotResolver.ts";
 import { projectNarrativeArrangement } from "../../../src/storyContracts/narrativeArrangement.ts";
 import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
+import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
 
 assertCanonicalRuntime();
+if (!process.env.TIANYAN_E2E_SCOPE) {
+  // The high-density shell, prediction execution and cancellable stream each
+  // keep their full assertions, but receive independent fixture/API/browser
+  // lifecycles so one CPU-heavy scenario cannot starve another scenario's
+  // bounded product-state transition.
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous"]) await runIsolatedE2eScope(scope);
+  process.exit(0);
+}
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 // Smoke tests must not attach to a developer's already-running local app.
@@ -51,6 +61,9 @@ const founderCloseoutR21EvidenceDirectory = process.env.TIANYAN_EVENT_LINE_R2_1_
 const tianyiGoldenLoopEvidenceDirectory = process.env.TIANYI_GOLDEN_LOOP_EVIDENCE_DIR || null;
 const shellFocusR22AEvidenceDirectory = process.env.TIANYAN_SHELL_R22A_EVIDENCE_DIR || null;
 const multiNodePredictionEvidenceDirectory = process.env.TIANYAN_MULTI_NODE_PREDICTION_EVIDENCE_DIR || null;
+const nuwaN1EvidenceDirectory = process.env.TIANYAN_NUWA_N1_EVIDENCE_DIR || null;
+const r5ContinuousEvidenceDirectory = process.env.TIANYAN_N3_CONTINUOUS_EVIDENCE_DIR || process.env.TIANYAN_R5_CONTINUOUS_EVIDENCE_DIR || null;
+const nuwaN1EvidenceDwellMs = Math.max(0, Number(process.env.TIANYAN_NUWA_N1_EVIDENCE_DWELL_MS || "5500") || 0);
 const runtimeModeEvidencePath = process.env.TIANYAN_RUNTIME_MODE_DEV_EVIDENCE || null;
 const predictionOnly = process.env.TIANYAN_E2E_SCOPE === "multi-node-prediction";
 const authorEventReloadOnly = process.env.TIANYAN_E2E_SCOPE === "author-event-reload";
@@ -71,17 +84,45 @@ const founderCloseoutR21Only = process.env.TIANYAN_E2E_SCOPE === "event-line-fou
 const founderCloseoutR21RecordingOnly = process.env.TIANYAN_E2E_SCOPE === "event-line-founder-closeout-r2-1-recording";
 const shellFocusR22AOnly = process.env.TIANYAN_E2E_SCOPE === "workspace-shell-focus-r2-2a";
 const storyIntakeOnly = process.env.TIANYAN_E2E_SCOPE === "tianyi-story-intake";
+const r4CharacterObservationOnly = process.env.TIANYAN_E2E_SCOPE === "r4-character-observation";
+const r4WorkspaceOnly = process.env.TIANYAN_E2E_SCOPE === "r4-workspace";
+const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream";
+const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
+const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
+const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
+const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
+const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
+const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
+const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REVISION || "local-uncommitted";
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
 let r1CausalFixture = null;
+let characterFixture = null;
 let server;
 let apiServer;
 let browser;
+let browserContext;
+let diagnosticTraceStarted = false;
 let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 const r062Captures = [];
+
+async function runIsolatedE2eScope(scope) {
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(),
+      stdio: "inherit",
+      env: { ...process.env, TIANYAN_E2E_SCOPE: scope }
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(`Tianyan E2E scope ${scope} failed (${signal || code}).`));
+    });
+  });
+}
 
 async function findAvailablePort(requestedPort, excludedPort) {
   const requested = Number(requestedPort || "0");
@@ -102,7 +143,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -122,10 +163,16 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
-  const page = recordingDirectory
-    ? await (await browser.newContext({ viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } })).newPage()
-    : await browser.newPage({ viewport: { width: 1152, height: 720 } });
+  const recordingDirectory = r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
+  browserContext = await browser.newContext(recordingDirectory
+    ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
+    : { viewport: { width: 1152, height: 720 } });
+  if (diagnosticEvidenceDirectory) {
+    await browserContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
+    diagnosticTraceStarted = true;
+  }
+  const page = await browserContext.newPage();
   const consoleProblems = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
@@ -142,6 +189,35 @@ try {
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
     await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (agentFakeStreamOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertAgentFakeProviderStream(page);
+  } else if (nuwaN1Only) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertNuwaN1BoundedLoop(page, consoleProblems);
+  } else if (relationReaderOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await setupR1CausalFixture();
+    await assertRelationshipReaderR1(page, consoleProblems);
+  } else if (r5ContinuousOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture({ createRoot: false });
+    await setupR1CausalFixture();
+    await assertR5ContinuousAuthorLoop(page, consoleProblems);
+  } else if (r4CharacterObservationOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertCharacterObservationDragAndRecovery(page);
+  } else if (r4WorkspaceOnly) {
+    await setupCharacterFixture();
+    await setupEventGraphFixture();
+    await assertR4GlobalWorkWorkspace(page, consoleProblems);
   } else if (shellFocusR22AOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -255,12 +331,10 @@ try {
     await setupTimelineFixture();
     await assertTimelineRelationshipGraph(page, consoleProblems);
     if (temporalProjectionRecordingDirectory) await recordTemporalProjectionOperation();
-    await assertMultiNodePredictionProductization(page, consoleProblems);
     await assertRightWorkSurfaceStateMachine(page, consoleProblems);
     if (eventGraphEvidenceDirectory) await captureEventGraphEvidence(page, consoleProblems);
     if (eventGraphDensityEvidence) await captureEventGraphDensityEvidence(page, consoleProblems);
     await assertAuthorEventCreation(page, consoleProblems);
-    await assertAgentFakeProviderStream(page);
   }
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
@@ -268,6 +342,13 @@ try {
   console.error("tianyan R0 shell smoke FAILED:", error);
   throw error;
 } finally {
+  if (browserContext && diagnosticTraceStarted && diagnosticEvidenceDirectory) {
+    try {
+      await browserContext.tracing.stop({ path: path.join(diagnosticEvidenceDirectory, "trace.zip") });
+    } catch (error) {
+      console.error("tianyan R0 shell smoke diagnostic trace could not be saved:", error);
+    }
+  }
   if (browser) await browser.close();
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
@@ -377,7 +458,7 @@ async function assertProviderCatalogSettingsR0(page) {
     await provider.locator('input[name="llmModelId"]').fill("fixture/chat:latest");
     await provider.locator('input[name="embeddingModelId"]').fill("fixture/embed:latest");
     await provider.getByRole("button", { name: "保存 Provider 配置", exact: true }).click();
-    await provider.getByText(/未发起外部请求/u).waitFor();
+    await provider.getByText(/Provider 配置已保存。凭据保持在服务器 owner；保存不会发起外部请求。/u).waitFor();
     assert.equal(ollamaFixture.calls.tags, 0, "saving and selecting a Provider must not discover models");
 
     const getModels = provider.getByRole("button", { name: "获取模型", exact: true });
@@ -514,7 +595,8 @@ async function assertSingleGlobalSearch(page) {
   await page.keyboard.press("ControlOrMeta+K");
   await dialog.waitFor();
   assert.equal(await dialog.getAttribute("data-search-scope"), "global", "Keyboard search opens the same global scope");
-  assert.equal(await page.locator("input[type='search']").count(), 1, "Only the open shared search dialog may render a search field");
+  const searchInputs = await page.locator("input[type='search']").evaluateAll((inputs) => inputs.map((input) => ({ id: input.id, className: input.className, visible: getComputedStyle(input).display !== "none" && getComputedStyle(input).visibility !== "hidden", parent: input.parentElement?.className ?? null })));
+  assert.equal(searchInputs.length, 1, `Only the open shared search dialog may render a search field; found ${JSON.stringify(searchInputs)}`);
   await dialog.locator("input[type='search']").focus();
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "hidden" });
@@ -586,11 +668,13 @@ async function assertCharacterDirectoryAndInspector(page) {
   for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
     assert.ok(Math.abs(workspaceExpanded[key] - workspaceBefore.rect[key]) <= 0.5, `Expanding the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceExpanded[key]})`);
   }
-  await page.getByRole("button", { name: "多选", exact: true }).click();
-  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
-  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
   await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
   await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
+  await page.getByRole("button", { name: "多选", exact: true }).click();
+  await page.locator(".character-directory-list input[type=checkbox]").first().waitFor();
+  assert.ok(await page.locator(".character-directory-list input[type=checkbox]").count() > 0, "Multi-select exposes checkboxes only after activation");
+  assert.equal(await page.getByRole("button", { name: /永久删除/u }).count(), 0, "Permanent delete is safely blocked from the directory UI");
 }
 
 async function assertCharacterCreationDurability(page) {
@@ -619,13 +703,16 @@ async function assertCharacterCreationDurability(page) {
   await page.getByTestId("character-inspector").waitFor();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("沈砚"));
   assert.match(page.url(), /directoryObject=character\./u, "The created object must be selected through its stable object ID in the URL");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
+  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-directory").waitFor();
   const createdOption = page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" });
   await waitForCharacterDirectoryIdle(page);
   await createdOption.waitFor();
   assert.equal(await createdOption.count(), 1, `A double submit must create only one durable character; directory=${await page.locator(".character-directory-list").textContent()}`);
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Created category IDs must remain persistence-only values");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
 
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
@@ -652,6 +739,8 @@ async function assertCharacterCreationDurability(page) {
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
   await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
   assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
+  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
@@ -1099,12 +1188,612 @@ async function assertDevelopmentRuntimeMode() {
   }, null, 2));
 }
 
+async function assertNuwaN1BoundedLoop(page, consoleProblems) {
+  const evidenceDirectory = nuwaN1EvidenceDirectory || r5ContinuousEvidenceDirectory;
+  if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
+  const evidenceDwell = async () => {
+    if (evidenceDirectory) await page.waitForTimeout(nuwaN1EvidenceDwellMs);
+  };
+  const providerRequests = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && /\/__local\/story-studio\/(?:provider|model-service)|\/api\/provider|\/(?:chat\/)?completions/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  });
+  const objectsBefore = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  const workspace = page.getByTestId("nuwa-n1-workspace");
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-provider-calls"), "0", "The N1 fixture is visibly zero-Provider.");
+  await workspace.getByText("本地工程演练 · 0 Provider", { exact: true }).first().waitFor();
+
+  const selectedPeople = workspace.locator('.nuwa-n1-participant-options input[type="checkbox"]:checked');
+  assert.equal(await selectedPeople.count(), 0, "N1 does not silently choose formal characters for the author.");
+  assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /林昭/u);
+  assert.match(await workspace.locator(".nuwa-n1-participant-options").innerText(), /阿芜/u);
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("核实钟声是否来自桥下");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("确保退路不被切断");
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。");
+  await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
+  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor().catch(async (cause) => {
+    const failureEvidenceDirectory = diagnosticEvidenceDirectory || evidenceDirectory;
+    if (failureEvidenceDirectory) await page.screenshot({ path: path.join(failureEvidenceDirectory, "00-failed-context-preview.png"), fullPage: false });
+    const diagnostics = {
+      previewCount: await workspace.locator(".nuwa-n1-context-preview").count(),
+      runStatus: await workspace.getAttribute("data-run-status"),
+      notices: (await workspace.locator('[role="alert"], [role="status"]').allTextContents()).map((value) => value.slice(0, 240))
+    };
+    throw new Error(`Nuwa N1 context preview did not appear: ${JSON.stringify(diagnostics)}`, { cause });
+  });
+  const contextCards = workspace.locator(".nuwa-n1-context-list article");
+  assert.equal(await contextCards.count(), 2, "The inspector shows both isolated role contexts before execution.");
+  const visibleContexts = await contextCards.allTextContents();
+  assert.equal(visibleContexts[0] !== visibleContexts[1], true, `The two roles must expose distinct knowledge ranges: ${JSON.stringify(visibleContexts)}`);
+  assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /核实钟声是否来自桥下/u, "The inspector shows Lin Zhao's actual actor goal independent of directory order.");
+  assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
+  assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /谨慎求证[\s\S]*不伤害无辜/u, "N2A exposes Lin Zhao's author-confirmed core and boundary in the actual role input.");
+  assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /重视同伴安全[\s\S]*不独自追击未知目标/u, "N2A exposes A-Wu's distinct author-confirmed core and boundary in the actual role input.");
+  const firstContextDetails = contextCards.first().locator("details.nuwa-n1-context-technical");
+  assert.match(await contextCards.first().innerText(), /查看来源、修订与预算详情/u, "The author-first context keeps technical provenance progressively available.");
+  await firstContextDetails.locator("summary").click();
+  assert.match(await firstContextDetails.innerText(), /UTF-8 保守估算[\s\S]*不是实际计费 token/u, "The expanded inspector exposes the deterministic request budget without calling it billing tokens.");
+  assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  assert.equal(await workspace.getByRole("button", { name: "停止", exact: true }).isEnabled(), true, "Stop stays reachable while the first long step request is in flight.");
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  assert.equal(await workspace.getByRole("button", { name: "暂停", exact: true }).isEnabled(), true, "Pause stays reachable while a later long step request is in flight.");
+  assert.equal(await workspace.getByRole("button", { name: "停止", exact: true }).isEnabled(), true, "Stop stays reachable while a later long step request is in flight.");
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
+  const steps = workspace.locator(".nuwa-n1-reader li");
+  const stepActors = await steps.locator("article > header strong").allTextContents();
+  assert.deepEqual(stepActors, ["阿芜", "林昭"], `The first two turns keep the product's stable formal-identity order: ${JSON.stringify(stepActors)}`);
+  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "Lin Zhao receives A-Wu's actual directed dialogue, not a fixed isolated monologue.");
+  assert.equal(await contextCards.count(), 2, "Both knowledge boundaries remain inspectable after steps commit.");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "02-1440-two-role-steps.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.locator(".nuwa-n1-composer textarea").fill("下一步先核对钟楼内的声音来源。");
+  await workspace.getByRole("button", { name: "加入后续步骤", exact: true }).click();
+  await workspace.getByText(/作者提示已进入/u).waitFor();
+  await workspace.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "paused");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-status"), "paused", "Refresh restores the paused Run rather than silently restarting it.");
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 2, "Refresh restores the committed steps without replay dispatch.");
+  await page.setViewportSize({ width: 1195, height: 792 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const compactGeometry = await workspace.evaluate((node) => {
+    const composer = node.querySelector(".nuwa-n1-composer")?.getBoundingClientRect();
+    const inspector = node.querySelector(".nuwa-n1-inspector")?.getBoundingClientRect();
+    const rail = document.querySelector(".shell-tool-rail")?.getBoundingClientRect();
+    return { overflow: document.documentElement.scrollWidth > window.innerWidth, composerRight: composer?.right ?? 0, inspectorRight: inspector?.right ?? 0, railLeft: rail?.left ?? window.innerWidth };
+  });
+  assert.equal(compactGeometry.overflow, false, `N1 must not hide overflow at 1195: ${JSON.stringify(compactGeometry)}`);
+  assert.ok(compactGeometry.composerRight <= compactGeometry.railLeft && compactGeometry.inspectorRight <= compactGeometry.railLeft, `Composer and inspector stay clear of the retained right rail: ${JSON.stringify(compactGeometry)}`);
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "03-1195-paused-refresh.png"), fullPage: false });
+  await evidenceDwell();
+
+  await workspace.getByRole("button", { name: "恢复", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "running");
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 3);
+  await workspace.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  await workspace.getByRole("button", { name: "送入待确认", exact: true }).click();
+  await workspace.getByText(/送入待确认；尚未写入正式故事/u).waitFor();
+  const reviews = await getFixture(`${apiUrl}/__local/story-studio/author-control/candidate-reviews?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(reviews.data.length, 1, "The selected N1 result reaches the existing pending-review owner.");
+  assert.equal(reviews.data[0]?.status, "awaiting");
+  const objectsAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(objectsAfter.data.objects.length, objectsBefore.data.objects.length, "N1 candidate handoff must not create a formal World object.");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "04-1195-stopped-candidate.png"), fullPage: false });
+  await evidenceDwell();
+  await workspace.getByRole("button", { name: "回放", exact: true }).click();
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 3, "Replay reads the recorded steps without dispatching again.");
+  const firstScene = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const firstSceneRunId = firstScene.data.run.runId;
+  const deliveredStatement = firstScene.data.run.steps[0]?.heardStatements[0]?.statement;
+  const deliveredRecipientId = firstScene.data.run.steps[0]?.heardStatements[0]?.recipientId;
+  assert.equal(deliveredStatement, "北闸已封。", "The first scene records the exact statement delivered only from A-Wu to Lin Zhao.");
+  assert.equal(deliveredRecipientId, characterFixture["林昭"].id, "The first-scene statement is delivered to Lin Zhao's stable identity.");
+  const linMemoryLedger = await readCharacterMemoryLedger({ rootPath: fixtureRoot, agentId: "agent.nuwa", scope: "project", projectId: fixtureProjectId }, deliveredRecipientId);
+  assert.ok(linMemoryLedger, "The first scene persists Lin Zhao's delivered statement through the Story Continuity owner.");
+  assert.equal(linMemoryLedger.value.records.some((record) => record.sourceRunId === firstSceneRunId && record.statement === deliveredStatement && record.validity.state === "active"), true, "The persisted heard record remains active before the later scene begins.");
+  await workspace.getByRole("button", { name: "继续下一场", exact: true }).click();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").uncheck();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在第二场回忆阿芜告知的钟声线索并谨慎求证");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "陆衍" }).locator("input").fill("只依据自己实际获知的内容观察钟声");
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "灯塔支线" });
+  await workspace.locator(".nuwa-n1-goal input").fill("在第二场依据各自实际听闻继续调查钟声，不得共享未被递送的记忆。");
+  await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
+  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
+  const secondSceneContexts = workspace.locator(".nuwa-n1-context-list article");
+  assert.equal(await secondSceneContexts.count(), 2, "The later scene previews only Lin Zhao and Lu Yan.");
+  const linSecondScene = secondSceneContexts.filter({ hasText: "林昭" });
+  const luSecondScene = secondSceneContexts.filter({ hasText: "陆衍" });
+  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*听闻[\s\S]*阿芜在雾港追踪告诉林昭：北闸已封。/u, "N3 shows the source-scoped heard memory as an author-readable sentence alongside the N2A profile basis.");
+  const linSecondSceneDetails = linSecondScene.locator("details.nuwa-n1-context-technical");
+  await linSecondSceneDetails.locator("summary").click();
+  assert.match(await linSecondSceneDetails.innerText(), /匹配角色目标[\s\S]*UTF-8 保守估算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
+  assert.doesNotMatch(await linSecondScene.innerText(), /本回合未进入注意力/u, "The recalled statement is part of Lin Zhao's actual selected attention input.");
+  assert.doesNotMatch(await luSecondScene.innerText(), /听闻 ·|北闸已封/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
+  assert.doesNotMatch((await secondSceneContexts.allTextContents()).join("\n"), /N2_PRIVATE_/u, "The second scene still excludes author-private profile fields.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
+  await evidenceDwell();
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  const secondScene = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.notEqual(secondScene.data.run.runId, firstSceneRunId, "The later scene is a distinct Run rather than a mutation of the first scene.");
+  assert.equal(secondScene.data.run.scene.storyUnitId, narrativeFixture.branch.id, "The later Run is bound to the selected branch scene.");
+  assert.equal(secondScene.data.run.steps[0]?.actorId, characterFixture["林昭"].id, "Lin Zhao takes the first later-scene turn.");
+  assert.equal(secondScene.data.run.steps[0]?.contextEvidenceRefs.some((reference) => reference.visibility === "heard" && reference.summary.includes(deliveredStatement)), true, "Lin Zhao's actual role-context tool receives the persisted cross-scene heard statement.");
+  assert.equal(secondScene.data.run.providerDispatches, 0, "The continuous N2A-to-N2C evidence remains a zero-Provider local rehearsal.");
+  await workspace.getByRole("button", { name: "停止", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /本地\/网络模型发送 0 \/ 12 · 内部工具回合 [1-9]\d*/u, "A stopped local-tool turn must remain visible without being mislabelled as a model send.");
+  assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
+  assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");
+}
+
+async function assertRelationshipReaderR1(page, consoleProblems) {
+  const evidenceDirectory = relationReaderEvidenceDirectory || r5ContinuousEvidenceDirectory;
+  if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const linId = characterFixture?.["林昭"]?.id;
+  assert.ok(linId, "R5 character handoff needs the stable 林昭 fixture identity.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  const inspector = page.getByTestId("character-inspector");
+  await inspector.waitFor();
+  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  const knowledge = page.getByTestId("character-knowledge-preview");
+  await knowledge.waitFor();
+  assert.equal(await knowledge.getAttribute("data-provider-calls"), "0", "Character knowledge reads the established zero-Provider projection.");
+  assert.match(await knowledge.innerText(), /可见依据[\s\S]*已排除/u);
+  assert.doesNotMatch(await knowledge.innerText(), /R2_SECRET_CLAIM/u, "Author-only secret prose never reaches the character panel.");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "00-1440-character-knowledge.png"), fullPage: false });
+  await inspector.getByRole("button", { name: "加入女娲", exact: true }).click();
+  const nuwa = page.getByTestId("nuwa-n1-workspace");
+  await nuwa.waitFor();
+  assert.equal(await nuwa.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").isChecked(), true, "Joining Nuwa carries the stable character identity as a one-time setup choice.");
+  assert.match(await nuwa.innerText(), /已从角色档案加入 林昭/u);
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship`);
+  await closeGlobalTianyiIfOpen(page);
+  const reader = page.getByTestId("relation-reader");
+  await reader.waitFor();
+  assert.equal(await reader.getAttribute("data-provider-calls"), "0", "Relation Reader opens without any Provider call.");
+  assert.match(await reader.innerText(), /Relation Owner 双时点只读投影/u);
+  const relationButtons = reader.locator(".relation-reader-body > ol button");
+  assert.ok(await relationButtons.count() >= 5, "The isolated R1 fixture exposes confirmed relation neighborhoods.");
+  await relationButtons.first().click();
+  const detail = reader.getByLabel("关系详情");
+  await detail.waitFor();
+  await detail.getByLabel("关系回执历史").getByText(/回执历史/u).waitFor();
+  assert.match(await detail.innerText(), /关系类型[\s\S]*方向[\s\S]*故事有效时间[\s\S]*来源依据/u, "A selected relation exposes type, direction, temporal honesty and evidence.");
+  await reader.getByLabel("关系筛选").getByLabel("状态").selectOption("candidate");
+  assert.equal(await relationButtons.count(), 1, "Candidate filtering preserves the one unconfirmed Relation Owner record.");
+  assert.match(await reader.innerText(), /待确认关系/u);
+  await reader.getByLabel("关系筛选").getByLabel("状态").selectOption("confirmed");
+  assert.ok(await relationButtons.count() >= 5, "Returning to confirmed relations restores the same read-only neighborhood.");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-relation-reader-r1.png"), fullPage: false });
+  assert.deepEqual(consoleProblems, [], "Relation Reader must not produce browser warnings or errors.");
+}
+
+async function assertR5ContinuousAuthorLoop(page, consoleProblems) {
+  if (r5ContinuousEvidenceDirectory) mkdirSync(r5ContinuousEvidenceDirectory, { recursive: true });
+  // M2 and M4 start from one stable character reference, then the existing N1
+  // fixture proves that the same project keeps two formal roles bounded.
+  await assertRelationshipReaderR1(page, consoleProblems);
+  await assertNuwaN1BoundedLoop(page, consoleProblems);
+
+  // Continue from the exact N1 handoff above.  This intentionally uses the
+  // central UI rather than a fixture API to substitute an unrelated Event.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.locator(".shell-pending-entry").click();
+  const adoption = page.getByTestId("golden-candidate-adoption");
+  await adoption.waitFor();
+  const selectedCandidateTitle = await adoption.locator("xpath=ancestor::article").locator("header strong").innerText();
+  assert.match(await adoption.innerText(), /女娲来源：Run/u, "Central Candidate Review must retain the selected Nuwa Run identity.");
+  await adoption.getByRole("button", { name: "确认候选并打开影响预览", exact: true }).click();
+  await adoption.getByText(/影响预览：尚待作者选择路径/u).waitFor();
+  await adoption.getByRole("button", { name: "选择采纳路径", exact: true }).click();
+  await adoption.getByRole("button", { name: "生成作者变更集", exact: true }).click();
+  await adoption.getByRole("button", { name: "确认写入正式 Event", exact: true }).click();
+  await adoption.getByText(/已由 Author Change Set 写入正式 Event/u).waitFor();
+  const adoptedFormalEventId = await adoption.getAttribute("data-applied-event-id");
+  assert.ok(adoptedFormalEventId, "The adoption UI must expose the Author Change Set's applied Event identity for source traceability.");
+  await adoption.getByLabel("纳入故事单元").selectOption(narrativeFixture.unit.id);
+  await adoption.getByRole("button", { name: "确认故事单元映射", exact: true }).click();
+  await page.waitForFunction((unitId) => {
+    const select = document.querySelector('select[aria-label="纳入故事单元"]');
+    return select?.value === unitId;
+  }, narrativeFixture.unit.id);
+  const formalAfterNuwaAdoption = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const adoptedFormalEvent = formalAfterNuwaAdoption.data.objects.find((item) => item.type === "event" && item.status === "committed" && item.id === adoptedFormalEventId);
+  assert.ok(adoptedFormalEvent, "The Event used by Creation must be written through the selected Nuwa Candidate Review chain.");
+  assert.notEqual(adoptedFormalEvent.title, "", `The candidate “${selectedCandidateTitle}” must resolve to a named formal Event.`);
+  const mappedUnit = (await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.find((unit) => unit.id === narrativeFixture.unit.id);
+  assert.equal(mappedUnit?.linkedEntityIds.includes(adoptedFormalEvent.id), true, "The author-confirmed Nuwa Event must be explicitly mapped into the chosen Story Unit.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-1440-nuwa-candidate-adoption.png"), fullPage: false });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/creation?locale=zh-CN`);
+  const creation = page.getByTestId("creation-source-workspace");
+  await creation.waitFor();
+  const unitSelect = creation.getByLabel("故事单元");
+  await unitSelect.waitFor();
+  assert.ok(await unitSelect.locator("option").count() >= 2, "Creation scope exposes a selectable formal Story Unit.");
+  await creation.getByText("已确认事件（至少一项）", { exact: true }).waitFor();
+  const createRoot = creation.getByRole("button", { name: "建立主故事版本", exact: true });
+  if (await createRoot.count()) {
+    await createRoot.click();
+    await creation.getByText(/当前作品主线/u).first().waitFor();
+  }
+  const createArtifact = creation.getByRole("button", { name: "建立新的固定创作稿", exact: true });
+  assert.equal(await createArtifact.isEnabled(), true, `R5 creation package is unavailable after same-source adoption: ${await creation.innerText()}`);
+  const artifactRequest = page.waitForRequest((request) => request.url().endsWith("/__local/story-studio/creation/source/create-artifact") && request.method() === "POST");
+  const artifactResponse = page.waitForResponse((response) => response.url().endsWith("/__local/story-studio/creation/source/create-artifact") && response.request().method() === "POST");
+  await createArtifact.click();
+  const request = await artifactRequest;
+  assert.match(request.postData() || "", /"creationKey":"[A-Za-z0-9._-]{8,120}"/u, `Creation must send a durable owner-compatible idempotency key: ${request.postData()}`);
+  const response = await artifactResponse;
+  assert.equal(response.status(), 200, `Creation artifact write must succeed: ${await response.text()}`);
+  await createArtifact.waitFor({ state: "detached" });
+  const packagePanel = creation.getByLabel("中性故事包");
+  await packagePanel.waitFor();
+  assert.match(await packagePanel.innerText(), /来源回执索引/u, "The creation package exposes its source receipt index.");
+  const [download] = await Promise.all([page.waitForEvent("download"), packagePanel.getByRole("button", { name: "下载 Markdown", exact: true }).click()]);
+  assert.equal(download.suggestedFilename(), "tianyan-story-package.md");
+  const downloadedPath = await download.path();
+  assert.ok(downloadedPath, "Creation export must materialize a file, not merely a suggested filename.");
+  const downloadedMarkdown = readFileSync(downloadedPath, "utf8");
+  assert.match(downloadedMarkdown, new RegExp(adoptedFormalEvent.title, "u"), "The downloaded Markdown must contain the Event adopted from the selected Nuwa Run.");
+  assert.doesNotMatch(downloadedMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "An unselected author secret must not enter the downloaded Markdown.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "06-1440-creation-scope-package.png"), fullPage: false });
+
+  // A second project receives a distinct receipt through the same owner. The
+  // current project's UI must not show that target when searched.
+  const other = await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "另一部隔离作品", folderSlug: "r5-isolated-other-project" });
+  await postFixture(`${apiUrl}/__local/story-studio/agent-permissions/activity`, { projectId: other.data.id, actor: "tianyi", action: "read-context", targets: ["only-other-project-target"], targetType: "other-project", authorConfirmed: false, estimatedProviderCost: 0 });
+  const currentReceipts = await getFixture(`${apiUrl}/__local/story-studio/agent-permissions?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(currentReceipts.data.receipts.some((receipt) => receipt.targets.includes("only-other-project-target")), false, "Operation receipts remain project-isolated before the UI projection.");
+
+  const toolLauncher = page.locator(".dock-tool-launcher");
+  if (await toolLauncher.count()) await toolLauncher.click();
+  await page.locator('[data-tool-id="engineering-log"]').click();
+  const log = page.getByLabel("工程日志连续活动流");
+  await log.waitFor();
+  assert.equal(await log.getAttribute("data-provider-calls"), "0", "The operation log is an Owner receipt projection and makes no Provider call.");
+  await log.getByLabel("操作类型").selectOption("rehearsal-run");
+  assert.ok(await log.locator(".engineering-log-stream li").count() >= 1, "N1 start/step/pause/cancel receipts are filterable in the current project.");
+  await log.getByRole("button", { name: "查看回执", exact: true }).first().click();
+  await log.getByLabel("操作回执详情").waitFor();
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "07-1440-operation-log-receipt.png"), fullPage: false });
+  await log.getByLabel("检索回执").fill("only-other-project-target");
+  assert.equal(await log.locator(".engineering-log-stream li").count(), 0, "Searching this project's log cannot reveal a different project's receipt.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "08-1440-operation-log-isolation.png"), fullPage: false });
+  await assertR5R2AutomaticApplicationCloseout(page, consoleProblems);
+  assert.deepEqual(consoleProblems, [], "The R5 continuous author loop must not produce browser warnings or errors.");
+}
+
+async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
+  // Fixture setup establishes the author's project-wide high-permission
+  // profile.  Every Run, pause/recovery, automatic write, draft and rollback
+  // below is then performed through the browser-facing product routes.
+  await postFixture(`${apiUrl}/__local/story-studio/agent-permissions/profile`, { projectId: fixtureProjectId, profile: "full-access" });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  const workspace = page.getByTestId("nuwa-n1-workspace");
+  await workspace.waitFor();
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="nuwa-n1-workspace"]');
+    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("继续下一场")));
+  });
+  const newRun = workspace.getByRole("button", { name: "继续下一场", exact: true });
+  if (await newRun.count()) await newRun.click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="nuwa-n1-workspace"] .nuwa-n1-participant-options label').length >= 3);
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("只向阿芜核实钟声线索");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("听清线索并保护退路");
+  await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "陆衍" }).locator("input").fill("保持观察且不接收私下谈话");
+  const relationType = workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "自动关系类型" }).locator("select");
+  assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
+  await relationType.selectOption({ index: 1 });
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
+  await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
+  await workspace.getByTestId("nuwa-n1-authorization").waitFor();
+  await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 1);
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
+  const steps = workspace.locator(".nuwa-n1-reader li");
+  assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "阿芜的第二次实际工具输入 receives only 林昭定向递送的说法。");
+  await workspace.getByRole("button", { name: "暂停", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "paused");
+  await reloadProduct(page);
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-status"), "paused", "The high-permission Run remains paused after browser refresh.");
+  await workspace.getByRole("button", { name: "恢复", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "running");
+  await workspace.getByRole("button", { name: "单步", exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 3);
+  assert.match(await steps.nth(2).innerText(), /我只依据当前可知信息继续观察/u, "陆衍的实际工具输入 excludes 林昭只递给阿芜的说法。");
+  await workspace.getByRole("button", { name: "连续运行", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "completed");
+  await workspace.getByRole("button", { name: "固定稿", exact: true }).waitFor();
+  const completed = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const automatic = completed.data.automaticApplication;
+  assert.equal(automatic.status, "applied", "A completed high-permission Run is applied through the formal owner chain.");
+  assert.ok(automatic.eventId && automatic.relationId && automatic.narrativePlacementIds.length, "The UI-triggered receipt records Event, Relation and NarrativePlacement identities.");
+  const formalEvent = (await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.objects.find((item) => item.id === automatic.eventId);
+  assert.equal(formalEvent?.status, "committed", "The browser-triggered automatic application creates a committed formal Event.");
+  const relation = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(automatic.relationId)}`);
+  assert.equal(relation.data.relation.reviewState, "confirmed", "The same receipt creates a confirmed formal Relation.");
+  const arrangementBefore = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(automatic.resultVersion.workVersionId)}&narrativePathId=${encodeURIComponent(automatic.storyUnitId)}`);
+  const currentBefore = arrangementBefore.data.arrangement.revisions.find((revision) => revision.revision === arrangementBefore.data.arrangement.currentRevision);
+  assert.equal(currentBefore.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), true, "The formal Event is placed in the Story Unit narrative order, not only linked to it.");
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09-1440-nuwa-auto-applied.png"), fullPage: false });
+  const applicationSummary = workspace.getByTestId("nuwa-n1-application-summary");
+  await applicationSummary.waitFor();
+  assert.match(await applicationSummary.innerText(), /正式事件[\s\S]*1 项[\s\S]*正式关系[\s\S]*1 项[\s\S]*叙事位置[\s\S]*[1-9]\d* 项[\s\S]*人物新增听闻/u, "The author summary keeps formal Event, Relation, narrative placement and heard memory separate.");
+  await applicationSummary.scrollIntoViewIfNeeded();
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09a-1440-n3-author-application-summary.png"), fullPage: false });
+
+  const temporalHistory = await setupN3TemporalRelationHistory();
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship&relationId=${encodeURIComponent(automatic.relationId)}`);
+  const relationshipReader = page.getByTestId("relation-reader");
+  await relationshipReader.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="relation-reader"] [data-history-state="ready"]'));
+  assert.equal(await relationshipReader.getAttribute("data-provider-calls"), "0", "N3 relation comparison remains a zero-Provider Owner projection.");
+  assert.match(await relationshipReader.innerText(), /开始与后来[\s\S]*新增[\s\S]*结束[\s\S]*改变[\s\S]*保持/u, "N3 exposes the four author-readable comparison outcomes.");
+  assert.ok(await relationshipReader.locator('[data-kind="changed"] button').count() >= 1, "The confirmed correction lineage is visibly changed between T1 and T2.");
+  assert.ok(await relationshipReader.locator('[data-kind="unknown"] button').count() >= 1, "Relations without world-valid time remain explicit instead of becoming absent.");
+  const selectedRelationDetail = relationshipReader.getByLabel("关系详情");
+  assert.match(await selectedRelationDetail.innerText(), /不能从记录时间推断/u, "The automatically applied relation keeps its unknown world time honest.");
+  await selectedRelationDetail.getByRole("button", { name: "回到女娲应用结果", exact: true }).click();
+  await page.waitForURL(/\/nuwa/u);
+  assert.equal(new URL(page.url()).searchParams.get("runId"), completed.data.run.runId, "Relation source navigation restores the exact Nuwa Run instead of the latest arbitrary Run.");
+  await workspace.waitFor();
+  assert.equal(await workspace.getAttribute("data-run-id"), completed.data.run.runId, "The exact Nuwa Run is restored after Relation source navigation.");
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=relationship&relationId=${encodeURIComponent(temporalHistory.correctionRelationId)}`);
+  await relationshipReader.waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="relation-reader"] [data-history-state="ready"]'));
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "09b-1440-n3-relation-world-time-compare.png"), fullPage: false });
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN&runId=${encodeURIComponent(completed.data.run.runId)}`);
+  await workspace.waitFor();
+
+  await workspace.getByRole("button", { name: "固定稿", exact: true }).click();
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().waitFor();
+  const fixedArtifactId = (await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.automaticApplication.fixedDraft?.artifactId;
+  assert.ok(fixedArtifactId, "The automatic receipt records the fixed OutputArtifact identity before navigation.");
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().click();
+  await page.waitForURL(/\/creation/u);
+  const creation = page.getByTestId("creation-source-workspace");
+  await creation.waitFor();
+  await creation.getByLabel("固定创作稿").selectOption(fixedArtifactId);
+  await page.waitForFunction((artifactId) => document.querySelector('select[aria-label="固定创作稿"]')?.value === artifactId && Boolean(document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id")), fixedArtifactId);
+  const packagePanel = creation.getByLabel("中性故事包");
+  await packagePanel.waitFor();
+  const fixedArtifactPackageId = await creation.getAttribute("data-package-id");
+  assert.ok(fixedArtifactPackageId, "The selected fixed draft A has one visible package identity before download.");
+  const firstDownloadButton = packagePanel.getByRole("button", { name: "下载 Markdown", exact: true });
+  assert.equal(await firstDownloadButton.isEnabled(), true, "The frozen package is downloadable from the normal Creation UI.");
+  const [firstDownload] = await Promise.all([page.waitForEvent("download"), firstDownloadButton.click()]);
+  const firstDownloadPath = await firstDownload.path();
+  assert.ok(firstDownloadPath, "The fixed draft must produce an actual browser download.");
+  const firstMarkdown = readFileSync(firstDownloadPath, "utf8");
+  const [firstAuthorReadableBody, firstSourceAppendix = ""] = firstMarkdown.split("## 来源说明");
+  assert.match(firstAuthorReadableBody, /天衍中性故事稿 · 作者阅读版 v2/u, "New fixed drafts download the author-readable Markdown v2 format.");
+  assert.match(firstMarkdown, /北闸已封。/u, "The downloaded fixed Markdown contains the selected Run dialogue.");
+  assert.match(firstAuthorReadableBody, /\*\*对白\*\*：北闸已封。/u, "The author-readable body renders dialogue as dialogue.");
+  assert.match(firstAuthorReadableBody, /\*\*行动\*\*：观察/u, "The author-readable body renders the selected Run action.");
+  assert.match(firstAuthorReadableBody, /\*\*结果\*\*：角色完成一次受限观察/u, "The author-readable body renders the selected Run action outcome.");
+  assert.match(firstAuthorReadableBody, /\*\*听闻\*\*：林昭 听 阿芜 说：“北闸已封。”/u, "The author-readable body retains who heard the dialogue.");
+  assert.doesNotMatch(firstAuthorReadableBody, /selectedSourceBody|character\./u, "Implementation fields stay out of the author-readable body.");
+  assert.match(firstSourceAppendix, /渲染格式：`tianyan-author-readable-markdown\/v2`/u, "The source appendix retains export provenance.");
+  assert.doesNotMatch(firstMarkdown, /R2_SECRET_CLAIM|雾灯匣夹层藏有真正航海图/u, "The fixed browser download excludes unselected and unauthorized material.");
+  if (r5ContinuousEvidenceDirectory) copyFileSync(firstDownloadPath, path.join(r5ContinuousEvidenceDirectory, "09-nuwa-auto-fixed-before-rollback.md"));
+  if (r5ContinuousEvidenceDirectory) await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "10-1440-nuwa-fixed-draft.png"), fullPage: false });
+
+  await gotoProduct(page, `${baseUrl}/nuwa?locale=zh-CN`);
+  await workspace.waitFor();
+  await workspace.getByRole("button", { name: "回溯本批", exact: true }).click();
+  await workspace.getByText(/已完成补偿回溯/u).waitFor();
+  await reloadProduct(page);
+  await workspace.waitFor();
+  const rolledBack = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(rolledBack.data.automaticApplication.status, "rolled-back", "Refresh restores the durable compensation receipt instead of claiming the Run was undone.");
+  const unitAfter = (await getFixture(`${apiUrl}/__local/story-studio/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.find((unit) => unit.id === automatic.storyUnitId);
+  assert.equal(unitAfter.linkedEntityIds.includes(automatic.eventId), false, "The current Story Unit no longer links the compensated Event.");
+  const relationAfter = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(automatic.relationId)}`);
+  assert.equal(relationAfter.data.relation.archived, true, "The current Relation view records the compensation as archived history.");
+  const arrangementAfter = await getFixture(`${apiUrl}/__local/story-studio/narrative-arrangement?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(automatic.resultVersion.workVersionId)}&narrativePathId=${encodeURIComponent(automatic.storyUnitId)}`);
+  const currentAfter = arrangementAfter.data.arrangement.revisions.find((revision) => revision.revision === arrangementAfter.data.arrangement.currentRevision);
+  assert.equal(currentAfter.placements.some((placement) => automatic.narrativePlacementIds.includes(placement.placementId)), false, "Compensation removes the batch from current narrative order without deleting its historical Event.");
+  await workspace.getByRole("button", { name: "查看并下载固定稿", exact: true }).first().click();
+  await page.waitForURL(/\/creation/u);
+  assert.equal(new URL(page.url()).searchParams.get("artifactId"), fixedArtifactId, "The fixed-draft entry keeps its exact artifact identity in the route after rollback.");
+  await creation.waitFor();
+  const secondArtifactSelect = creation.getByLabel("固定创作稿");
+  await secondArtifactSelect.waitFor();
+  await secondArtifactSelect.selectOption(fixedArtifactId);
+  await page.waitForFunction((artifactId) => document.querySelector('select[aria-label="固定创作稿"]')?.value === artifactId && Boolean(document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id")), fixedArtifactId);
+  const secondDownloadButton = creation.getByLabel("中性故事包").getByRole("button", { name: "下载 Markdown", exact: true });
+  assert.equal(await secondDownloadButton.isEnabled(), true, "The old pinned package remains downloadable after compensation.");
+  const [secondDownload] = await Promise.all([page.waitForEvent("download"), secondDownloadButton.click()]);
+  const secondDownloadPath = await secondDownload.path();
+  assert.ok(secondDownloadPath, "The original fixed draft remains downloadable after compensation.");
+  const secondMarkdown = readFileSync(secondDownloadPath, "utf8");
+  assert.equal(secondMarkdown, firstMarkdown, "The old fixed Markdown remains byte-for-byte frozen after rollback.");
+  // This is the post-compensation proof for fixed draft A. Keep it before the
+  // deliberate later A→B race exercise so a final B screenshot is never
+  // mislabelled as evidence that A was re-opened after compensation.
+  if (r5ContinuousEvidenceDirectory) {
+    copyFileSync(secondDownloadPath, path.join(r5ContinuousEvidenceDirectory, "10-nuwa-auto-fixed-after-rollback-a.md"));
+    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "11-1440-nuwa-fixed-after-rollback-a.png"), fullPage: false });
+  }
+
+  const ambiguous = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(ambiguous.data.packageMode, "blocked", "A multi-draft read without an explicit target remains blocked.");
+  assert.equal(ambiguous.data.artifact, null, "A multi-draft read without an explicit target does not pick an arbitrary artifact.");
+  assert.match(ambiguous.data.sourceRequestBlocker?.authorMessage || "", /必须指定 artifactId/u);
+
+  const artifactOptions = await secondArtifactSelect.locator("option").evaluateAll((options) => options.map((option) => ({ value: option.value, label: option.textContent || "" })));
+  const otherArtifact = artifactOptions.find((option) => option.value && option.value !== fixedArtifactId);
+  assert.ok(otherArtifact?.value, "The existing Creation flow supplies a distinct fixed draft B for identity switching.");
+  const otherProjection = await getFixture(`${apiUrl}/__local/story-studio/creation/source?projectId=${encodeURIComponent(fixtureProjectId)}&view=pinned&artifactId=${encodeURIComponent(otherArtifact.value)}`);
+  assert.equal(otherProjection.data.artifact?.id, otherArtifact.value, "The server resolves fixed draft B by its explicit identity.");
+  await secondArtifactSelect.selectOption(otherArtifact.value);
+  await page.waitForFunction((packageId) => document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id") === packageId, otherProjection.data.package.id);
+  const bDownloadButton = creation.getByLabel("中性故事包").getByRole("button", { name: "下载 Markdown", exact: true });
+  const [bDownload] = await Promise.all([page.waitForEvent("download"), bDownloadButton.click()]);
+  const bDownloadPath = await bDownload.path();
+  assert.ok(bDownloadPath, "Switching to fixed draft B produces an actual browser download.");
+  const bMarkdown = readFileSync(bDownloadPath, "utf8");
+  assert.notEqual(bMarkdown, firstMarkdown, "Fixed draft B remains distinct from the selected Nuwa fixed draft A.");
+
+  const delayOldA = async (mode) => {
+    let releaseRequest;
+    let markRequestSeen;
+    const requestSeen = new Promise((resolve) => { markRequestSeen = resolve; });
+    const release = new Promise((resolve) => { releaseRequest = resolve; });
+    const handler = async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.get("view") !== "pinned" || requestUrl.searchParams.get("artifactId") !== fixedArtifactId) {
+        await route.continue();
+        return;
+      }
+      markRequestSeen();
+      await release;
+      if (mode === "success") await route.continue();
+      else await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "fixture late A failure" }) });
+    };
+    await page.route("**/__local/story-studio/creation/source?**", handler);
+    await secondArtifactSelect.selectOption(fixedArtifactId);
+    await requestSeen;
+    await secondArtifactSelect.selectOption(otherArtifact.value);
+    await page.waitForFunction((packageId) => document.querySelector('[data-testid="creation-source-workspace"]')?.getAttribute("data-package-id") === packageId, otherProjection.data.package.id);
+    const response = page.waitForResponse((candidate) => {
+      const candidateUrl = new URL(candidate.url());
+      return candidateUrl.pathname.endsWith("/__local/story-studio/creation/source") && candidateUrl.searchParams.get("view") === "pinned" && candidateUrl.searchParams.get("artifactId") === fixedArtifactId;
+    });
+    releaseRequest();
+    await response;
+    await page.unroute("**/__local/story-studio/creation/source?**", handler);
+    assert.equal(await secondArtifactSelect.inputValue(), otherArtifact.value, `A late ${mode} response cannot replace the user's selected fixed draft B.`);
+    assert.equal(await creation.getAttribute("data-package-id"), otherProjection.data.package.id, `A late ${mode} response cannot repaint A's package over B.`);
+    assert.equal(await creation.getByRole("alert").count(), 0, `A late ${mode} response cannot surface A's obsolete error on B.`);
+  };
+  await delayOldA("success");
+  const consoleProblemCountBeforeLateError = consoleProblems.length;
+  await delayOldA("error");
+  const inducedLateErrorProblems = consoleProblems.splice(consoleProblemCountBeforeLateError);
+  assert.ok(inducedLateErrorProblems.some((problem) => /HTTP 400:.*creation\/source/u.test(problem)), "The diagnostic run observes the induced late A error instead of silently ignoring its existence.");
+
+  const [bDownloadAfterLateA] = await Promise.all([page.waitForEvent("download"), bDownloadButton.click()]);
+  const bDownloadAfterLateAPath = await bDownloadAfterLateA.path();
+  assert.ok(bDownloadAfterLateAPath, "Fixed draft B remains downloadable after both late A responses.");
+  assert.equal(readFileSync(bDownloadAfterLateAPath, "utf8"), bMarkdown, "The actual B download remains byte-for-byte B after late A success and error responses.");
+  if (r5ContinuousEvidenceDirectory) {
+    copyFileSync(bDownloadAfterLateAPath, path.join(r5ContinuousEvidenceDirectory, "11-creation-fixed-b-after-late-a.md"));
+    await page.screenshot({ path: path.join(r5ContinuousEvidenceDirectory, "12-1440-creation-fixed-b-after-late-a.png"), fullPage: false });
+    writeFileSync(path.join(r5ContinuousEvidenceDirectory, "12-fixed-draft-identity.json"), `${JSON.stringify({
+      schemaVersion: "tianyan-n3-fixed-draft-identity-evidence/r1",
+      projectId: fixtureProjectId,
+      sourceRunId: completed.data.run.runId,
+      automaticApplicationReceiptId: automatic.receiptId,
+      fixedArtifact: {
+        artifactId: fixedArtifactId,
+        sourceWorkVersion: automatic.fixedDraft?.sourceVersion ?? automatic.resultVersion ?? null,
+        packageId: fixedArtifactPackageId,
+        downloads: [
+          { phase: "before-rollback", savedFile: "09-nuwa-auto-fixed-before-rollback.md", screenshot: "10-1440-nuwa-fixed-draft.png" },
+          { phase: "after-rollback", savedFile: "10-nuwa-auto-fixed-after-rollback-a.md", screenshot: "11-1440-nuwa-fixed-after-rollback-a.png" }
+        ]
+      },
+      distinctArtifactB: { artifactId: otherArtifact.value, savedFile: "11-creation-fixed-b-after-late-a.md", screenshot: "12-1440-creation-fixed-b-after-late-a.png" }
+    }, null, 2)}\n`, "utf8");
+  }
+  assert.deepEqual(consoleProblems, [], "The high-permission UI closeout must not produce browser warnings or errors.");
+}
+
+async function setupN3TemporalRelationHistory() {
+  const base = `${apiUrl}/__local/story-studio`;
+  const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.ok(typeState.data.types.length >= 2, "N3 temporal history needs two existing author-approved relation types.");
+  const [beforeType, afterType] = typeState.data.types;
+  const created = await postFixture(`${base}/relations/create`, {
+    projectId: fixtureProjectId,
+    sourceObjectId: characterFixture["林昭"].id,
+    targetObjectId: characterFixture["陆衍"].id,
+    relationTypeId: beforeType.relationTypeId,
+    relationLabelSnapshot: beforeType.label,
+    direction: "forward",
+    sourceRef: "n3-world-time-author-fixture",
+    temporal: { validFrom: "2026-09-01T08:00:00.000Z", validTo: "2026-09-03T08:00:00.000Z", confidence: "high", sourceAnchors: ["author-world-time.n3.before"] },
+    operationId: `n3-temporal-before-${fixture.fixtureId}`
+  });
+  const confirmed = await postFixture(`${base}/relations/confirm`, {
+    projectId: fixtureProjectId,
+    relationId: created.data.relation.relationId,
+    expectedRelationRevision: created.data.relation.revision,
+    operationId: `n3-temporal-before-confirm-${fixture.fixtureId}`
+  });
+  const correction = await postFixture(`${base}/relations/correction/create`, {
+    projectId: fixtureProjectId,
+    relationId: confirmed.data.relation.relationId,
+    expectedRelationRevision: confirmed.data.relation.revision,
+    sourceObjectId: characterFixture["林昭"].id,
+    targetObjectId: characterFixture["陆衍"].id,
+    relationTypeId: afterType.relationTypeId,
+    relationLabelSnapshot: afterType.label,
+    direction: "forward",
+    temporal: { validFrom: "2026-09-04T08:00:00.000Z", validTo: null, confidence: "high", sourceAnchors: ["author-world-time.n3.after"] },
+    operationId: `n3-temporal-correction-${fixture.fixtureId}`
+  });
+  const correctionConfirmed = await postFixture(`${base}/relations/confirm`, {
+    projectId: fixtureProjectId,
+    relationId: correction.data.relation.relationId,
+    expectedRelationRevision: correction.data.relation.revision,
+    operationId: `n3-temporal-correction-confirm-${fixture.fixtureId}`
+  });
+  return { beforeRelationId: confirmed.data.relation.relationId, correctionRelationId: correctionConfirmed.data.relation.relationId };
+}
+
 async function setupCharacterFixture() {
   const base = `${apiUrl}/__local/story-studio`;
   await postFixture(`${base}/projects/create`, { title: "长夜将明", folderSlug: fixtureProjectId });
-  for (const character of [{ title: "林昭", subtype: "主要角色" }, { title: "阿芜", subtype: "配角" }, { title: "陆衍", subtype: "次要角色" }, { title: "顾澜", subtype: "配角" }, { title: "程野", subtype: "次要角色" }, { title: "苏弦", subtype: "次要角色" }]) {
-    await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype });
+  const created = [];
+  for (const character of [
+    { title: "林昭", subtype: "主要角色", profile: n2CharacterProfile("谨慎求证", "不伤害无辜", "N2_PRIVATE_LIN") },
+    { title: "阿芜", subtype: "配角", profile: n2CharacterProfile("重视同伴安全", "不独自追击未知目标", "N2_PRIVATE_AWU") },
+    { title: "陆衍", subtype: "次要角色", profile: n2CharacterProfile("谨慎旁观", "不接受未被告知的私下信息", "N2_PRIVATE_LU") },
+    { title: "顾澜", subtype: "配角" },
+    { title: "程野", subtype: "次要角色" },
+    { title: "苏弦", subtype: "次要角色" }
+  ]) {
+    const result = await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: character.title, mode: "freeform", subtype: character.subtype, ...(character.profile ? { profile: character.profile } : {}) });
+    created.push({ ...character, ...result.data.object });
   }
+  characterFixture = Object.fromEntries(created.map((character) => [character.title, character]));
   await postFixture(`${base}/agent-recognition/drafts/create`, {
     projectId: fixtureProjectId,
     operationId: `operation.${fixture.fixtureId}.visual-pending`,
@@ -1120,8 +1809,23 @@ async function setupCharacterFixture() {
   });
 }
 
+function n2CharacterProfile(core, boundaries, secret) {
+  return {
+    objectType: "character",
+    fields: {
+      character_core: { label: "角色核心", value: core, source: "author", confidence: "high", sourceAnchors: [] },
+      boundaries: { label: "底线", value: boundaries, source: "author", confidence: "high", sourceAnchors: [] },
+      private_notes: { label: "作者秘密", value: secret, source: "author", confidence: "high", sourceAnchors: [] }
+    },
+    authorConfirmed: true
+  };
+}
+
 async function setupObservationFixture() {
   const base = `${apiUrl}/__local/story-studio`;
+  assert.ok(characterFixture?.["林昭"]?.id && characterFixture?.["阿芜"]?.id, "N1 observation fixture requires stable formal character IDs.");
+  const linId = characterFixture["林昭"].id;
+  const awuId = characterFixture["阿芜"].id;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", tags: ["港区"] });
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "雾灯匣", status: "active", tags: ["关键物品"] });
   const definitions = [
@@ -1132,12 +1836,12 @@ async function setupObservationFixture() {
     { key: "signal", title: "潮汐信号第一次中断", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "人物：程野", "地点：雾港"] },
     { key: "ledger", title: "守夜账册缺失一页", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-02 00:00 – 2026-09-03 00:00", "人物：顾澜", "物品：雾灯匣"] },
     { key: "witness", title: "苏弦看见第二艘船", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-01 09:00", "目击：苏弦", "地点：雾港"] },
-    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", "知情：读者=未知", "物品：雾灯匣"] },
+    { key: "warning", title: "阿芜留下潮痕警告", tags: ["作者草稿", "单元：雾港追踪", "故事线：人物线 · 林昭", "时间：约 2026-09-02 12:00", "人物：阿芜", "知情：林昭=已得知", `知情：${linId}=已得知`, "知情：读者=未知", "物品：雾灯匣"] },
     { key: "blackout", title: "旧城灯塔同时熄灭", tags: ["作者草稿", "单元：雾港追踪", "故事线：主故事线|调查线 · 雾港", "时间：2026-09-03 18:00", "人物：陆衍", "知情：林昭=已得知", "知情：阿芜=未知", "知情：读者=已得知", "地点：雾港", "时间冲突：港务钟与灯塔记录相差两小时"] },
     { key: "branch", title: "林昭选择追踪支线", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-03", "人物：林昭", "知情：阿芜=未知", "知情：读者=未知", "地点：雾港"] },
     { key: "echo", title: "灯塔回声重述旧案", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：相对2天前", "相对锚点：先揭示的港口后果", "听闻：林昭", "地点：雾港"] },
     { key: "map", title: "暗格地图指向外海", tags: ["作者草稿", "单元：灯塔支线", "故事线：灯塔支线", "时间：2026-09-04", "人物：程野", "物品：雾灯匣"] },
-    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", "知情：读者=未知", "推测：苏弦"] },
+    { key: "false-lead", title: "伪造航线制造误导", tags: ["作者草稿", "单元：灯塔支线", "故事线：人物线 · 林昭|调查线 · 雾港|灯塔支线", "时间：2026-09-04", "知情：林昭=怀疑", "知情：阿芜=被误导", `知情：${awuId}=被误导`, "知情：读者=未知", "推测：苏弦"] },
     { key: "return", title: "支线证据带回主线", tags: ["作者草稿", "单元：灯塔支线", "故事线：主故事线|灯塔支线", "时间：2026-09-05", "人物：林昭", "地点：雾港"] },
     { key: "confrontation", title: "六人在旧码头对峙", tags: ["作者草稿", "单元：雾港追踪", "时间：2026-09-05", "人物：林昭,阿芜,陆衍,顾澜,程野,苏弦", "地点：雾港"] },
     { key: "reveal", title: "雾灯匣揭示第二层刻痕", tags: ["作者草稿", "单元：雾港追踪", "故事线：调查线 · 雾港", "作者秘密", "时间：2026-09-05", "人物：顾澜", "知情：林昭=未知", "知情：阿芜=未知", "知情：读者=未知", "物品：雾灯匣"] },
@@ -1153,7 +1857,7 @@ async function setupObservationFixture() {
   observationFixture = Object.fromEntries(created.map((event) => [event.key, event]));
 }
 
-async function setupNarrativeFixture() {
+async function setupNarrativeFixture({ createRoot = true } = {}) {
   const unit = await postFixture(`${apiUrl}/__local/story-studio/story-units/create`, {
     projectId: fixtureProjectId,
     title: "雾港追踪",
@@ -1174,6 +1878,11 @@ async function setupNarrativeFixture() {
     status: "active",
     linkedEntityIds: [observationFixture.branch.id, observationFixture.echo.id, observationFixture.map.id, observationFixture["false-lead"].id, observationFixture.return.id]
   });
+  const root = createRoot ? createNarrativeFixtureRoot() : null;
+  narrativeFixture = { unit: unit.data, branch: branch.data, workVersionId: root?.identity.workVersionId ?? null };
+}
+
+function createNarrativeFixtureRoot() {
   const bundle = Object.fromEntries(WORK_VERSION_REQUIRED_OWNER_KINDS.map((ownerKind, index) => [ownerKind, {
     ownerIdentity: `${ownerKind}.${fixture.fixtureId}`,
     projectionSchemaVersion: `${ownerKind}/r12-e2e-v1`,
@@ -1182,7 +1891,7 @@ async function setupNarrativeFixture() {
     provenanceReceiptIds: [`receipt.${ownerKind}.${fixture.fixtureId}`],
     canonicalProjection: { ownerKind, fixture: "r12-event-line-workspace" }
   }]));
-  const root = createStoryStudioWorkVersionAuthority({ projectRoot: path.join(fixtureRoot, fixtureProjectId) }).createRootCheckpoint({
+  return createStoryStudioWorkVersionAuthority({ projectRoot: path.join(fixtureRoot, fixtureProjectId) }).createRootCheckpoint({
     displayName: "R12 事件线主作品",
     authorActionId: `author.r12-root.${fixture.fixtureId}`,
     idempotencyKey: `idempotency.r12-root.${fixture.fixtureId}`,
@@ -1191,7 +1900,6 @@ async function setupNarrativeFixture() {
     ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle),
     optionalNuwaProvenanceRefs: []
   });
-  narrativeFixture = { unit: unit.data, branch: branch.data, workVersionId: root.identity.workVersionId };
 }
 
 async function setupR1CausalFixture() {
@@ -1849,17 +2557,23 @@ async function assertR12EventLineWorkspace(page, consoleProblems) {
   await page.waitForTimeout(320);
   await capture("03-1440-three-focus.png");
 
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1195, height: 800 });
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   await graph.getByRole("button", { name: "全书位置", exact: true }).click();
   await page.waitForTimeout(320);
   await repeatedBranchEvent.first().locator(".formal-narrative-card-main").click();
   await page.locator(".page-context-dock-panel").waitFor();
   await page.waitForTimeout(220);
-  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "false", "Opening details at 1280px collapses the project directory first.");
-  assert.ok((await graph.locator(".formal-narrative-flow").boundingBox()).width >= 360, "The graph retains usable context beside the 1280px details Dock.");
+  assert.equal(await page.locator(".tianyan-r0-shell").getAttribute("data-directory-visible"), "true", "Opening details at 1195px preserves the author’s open project directory.");
+  const directoryBox = await page.locator(".project-directory-panel").boundingBox();
+  const flowBox = await graph.locator(".formal-narrative-flow").boundingBox();
+  assert.ok(directoryBox && flowBox, "The directory and narrative canvas must both be measurable at 1195px.");
+  assert.ok(flowBox.width >= 360, "The graph retains usable context beside the 1195px details Dock.");
+  assert.ok(directoryBox.x + directoryBox.width <= flowBox.x || flowBox.x + flowBox.width <= directoryBox.x, "The preserved directory must not cover the narrative canvas at 1195px.");
   assert.equal(await graph.locator(".formal-narrative-card.is-selected").count(), 2, "Both Placement nodes share the selected Event identity.");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-  await capture("07-1280-detail.png");
+  await capture("07-1195-directory-and-detail.png");
   await page.getByRole("button", { name: "打开天意助手", exact: true }).click();
   await page.locator(".tianyi-sidebar").waitFor();
   assert.equal(await page.locator(".page-context-dock-panel").count(), 0, "Tianyi and the page-owned details Dock are mutually exclusive.");
@@ -2265,16 +2979,80 @@ function eventViewButton(page, name) {
 }
 
 async function switchEventView(page, name) {
-  if (await page.locator(".event-observation-controls").filter({ visible: true }).count() === 0) {
-    const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
-    if (await more.count()) {
-      if (await more.getAttribute("aria-expanded") !== "true") await more.click();
-      const entry = name === "故事脊柱" ? "故事结构" : "关系网络";
-      await page.getByRole("button", { name: entry, exact: true }).filter({ visible: true }).first().click();
-      if (name === "故事脊柱" || name === "关系图") return;
+  await waitForEventLineWorkspace(page, name);
+  const direct = eventViewButton(page, name);
+  if (await direct.count()) {
+    await direct.click();
+    return;
+  }
+  const menuEntry = ({ "故事脊柱": "故事结构", "关系图": "关系网络", "时间轴": "时间核对" })[name];
+  const more = page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).first();
+  if (menuEntry && await more.count()) {
+    if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+    const entry = page.getByRole("menuitem", { name: menuEntry, exact: true }).filter({ visible: true }).first();
+    if (await entry.count()) {
+      await entry.click();
+      return;
     }
   }
-  await eventViewButton(page, name).click();
+  throw new Error(`Event view control is unavailable: ${JSON.stringify(await eventViewDiagnostic(page, name))}`);
+}
+
+async function waitForEventLineWorkspace(page, requestedView) {
+  try {
+    await page.getByTestId("event-line-workbench").waitFor({ state: "visible", timeout: 10_000 });
+  } catch (error) {
+    throw new Error(`Event workspace did not become interactive before switching ${requestedView}: ${JSON.stringify(await eventViewDiagnostic(page, requestedView))}`, { cause: error });
+  }
+}
+
+async function eventViewDiagnostic(page, requestedView) {
+  return page.evaluate(({ requestedView, runRevision }) => {
+    const describe = (element) => {
+      const box = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        label: element.getAttribute("aria-label") || element.textContent?.trim() || "",
+        disabled: element instanceof HTMLButtonElement ? element.disabled : false,
+        visible: Boolean(element instanceof HTMLElement && element.offsetParent !== null),
+        rect: { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) },
+        display: style.display,
+        visibility: style.visibility
+      };
+    };
+    const root = document.querySelector('[data-testid="event-line-workbench"]');
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return {
+      operation: `switch:${requestedView}`,
+      revision: runRevision,
+      url: window.location.pathname + window.location.search,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      shellConnection: shell?.getAttribute("data-connection-state") ?? null,
+      projectionMode: root?.getAttribute("data-projection-mode") ?? null,
+      renderer: root?.getAttribute("data-event-observation-renderer") ?? null,
+      task: document.querySelector('[data-testid="story-progression-workspace"]')?.getAttribute("data-event-task") ?? null,
+      controls: Array.from(document.querySelectorAll(".event-observation-controls, .event-graph-view-switch, .story-progression-controls")).map(describe),
+      buttons: Array.from(document.querySelectorAll("button")).filter((button) => /结构|叙事顺序|世界时间|关系网络|时间核对|更多/u.test(button.textContent ?? "")).map(describe)
+    };
+  }, { requestedView, runRevision });
+}
+
+async function waitForTemporalState(page, expectedStates, operation, timeout = 30_000) {
+  try {
+    await page.waitForFunction((states) => states.includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""), expectedStates, { timeout });
+  } catch (error) {
+    const temporal = await page.evaluate(() => {
+      const canvas = document.querySelector("[data-temporal-state]");
+      const status = document.querySelector(".temporal-canvas-status");
+      return {
+        state: canvas?.getAttribute("data-temporal-state") ?? null,
+        projection: canvas?.getAttribute("data-temporal-projection") ?? null,
+        statusText: status?.textContent?.trim() ?? null,
+        statusClass: status?.className ?? null
+      };
+    });
+    throw new Error(`Temporal state did not settle for ${operation}: ${JSON.stringify({ expectedStates, temporal, view: await eventViewDiagnostic(page, "时间轴") })}`, { cause: error });
+  }
 }
 
 async function openStoryModelingTools(page) {
@@ -2284,6 +3062,7 @@ async function openStoryModelingTools(page) {
 
 async function assertEventGraphWorkspace(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
+  await assertCharacterObservationDragAndRecovery(page);
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await switchEventView(page, "关系图");
@@ -2473,6 +3252,125 @@ async function assertEventGraphWorkspace(page) {
   assert.equal(overflow, false, "1440px event graph workspace must not create horizontal page scrolling.");
 }
 
+async function assertCharacterObservationDragAndRecovery(page) {
+  const providerRequests = [];
+  const observe = (request) => {
+    if (request.method() === "POST" && /\/model-service\/(?:models|test|embedding-probe|minimal-inference)|\/tianyi-agent\/run/u.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+  };
+  page.on("request", observe);
+  try {
+    await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&eventTask=perspective&directoryView=characters`);
+    const directory = page.getByTestId("character-directory");
+    const dropzone = page.getByTestId("character-observation-dropzone");
+    await directory.waitFor();
+    await dropzone.waitFor();
+    const geometry = async () => await page.evaluate(() => {
+      const tray = document.querySelector('[data-testid="character-observation-dropzone"]')?.getBoundingClientRect();
+      const workspace = document.querySelector('[data-testid="story-progression-workspace"]');
+      const workspaceBox = workspace?.getBoundingClientRect();
+      const style = workspace ? getComputedStyle(workspace) : null;
+      const canvasWidth = workspaceBox && style ? workspaceBox.width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd) : 0;
+      const canvasX = workspaceBox && style ? workspaceBox.x + parseFloat(style.paddingInlineStart) : 0;
+      return tray && workspaceBox ? { trayWidth: tray.width, canvasWidth, trayX: tray.x, canvasX } : null;
+    });
+    const initialGeometry = await geometry();
+    assert.ok(initialGeometry && Math.abs(initialGeometry.trayWidth - initialGeometry.canvasWidth) <= 1 && Math.abs(initialGeometry.trayX - initialGeometry.canvasX) <= 1, `0-person tray must span the canvas column=${JSON.stringify(initialGeometry)}`);
+    await waitForCharacterDirectoryIdle(page);
+    const source = page.getByRole("option", { name: /林昭；可拖入角色观察/u });
+    await source.dragTo(dropzone);
+    await dropzone.getByText("1/5 人", { exact: true }).waitFor();
+    const oneGeometry = await geometry();
+    assert.ok(oneGeometry && Math.abs(oneGeometry.trayWidth - oneGeometry.canvasWidth) <= 1 && Math.abs(oneGeometry.trayX - oneGeometry.canvasX) <= 1, `1-person tray must remain aligned with the canvas column=${JSON.stringify({ initialGeometry, oneGeometry })}`);
+    await dropzone.getByRole("button", { name: "1/5 人", exact: true }).click();
+    const picker = page.getByTestId("knowledge-compare-picker");
+    for (const label of ["阿芜", "陆衍"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("3/5 人", { exact: true }).waitFor();
+    for (const label of ["顾澜", "程野"]) await picker.getByLabel(label, { exact: true }).check();
+    await dropzone.getByText("5/5 人", { exact: true }).waitFor();
+    const fiveGeometry = await geometry();
+    assert.ok(fiveGeometry && Math.abs(fiveGeometry.trayWidth - fiveGeometry.canvasWidth) <= 1 && Math.abs(fiveGeometry.trayX - fiveGeometry.canvasX) <= 1, `5-person tray must remain aligned with the canvas column=${JSON.stringify({ initialGeometry, fiveGeometry })}`);
+    assert.equal(await dropzone.getAttribute("data-provider-calls"), "0", "Dragging a formal character must be a zero-Provider operation.");
+    assert.match(page.url(), /eventFocus=character\./u, "The stable character selection must be recoverable from the URL.");
+    await reloadProduct(page);
+    await page.getByTestId("character-observation-dropzone").getByText("5/5 人", { exact: true }).waitFor();
+    const restoredDirectory = page.getByTestId("character-directory");
+    const multiButton = restoredDirectory.getByRole("button", { name: /多选/u });
+    await multiButton.click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="character-directory"] [aria-multiselectable="true"]') !== null);
+    await restoredDirectory.getByRole("option", { name: /林昭；可拖入角色观察/u }).click();
+    const directoryStorageKey = `tianyan:directory-workspace:${fixtureProjectId}`;
+    await page.waitForFunction((key) => {
+      try { return JSON.parse(localStorage.getItem(key) || "null")?.character?.selectedIds?.includes("character.林昭"); }
+      catch { return false; }
+    }, directoryStorageKey);
+    await reloadProduct(page);
+    const selectedRole = page.getByTestId("character-directory").getByRole("option", { name: /林昭；可拖入角色观察/u });
+    assert.equal(await selectedRole.getAttribute("aria-selected"), "true", "Dedicated Character directory multi-selection must recover per project.");
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).selectOption("archived");
+    await reloadProduct(page);
+    await page.getByTestId("character-directory").getByRole("button", { name: /筛选/u }).click();
+    assert.equal(await page.getByTestId("character-directory").getByRole("combobox", { name: "目录范围" }).inputValue(), "archived", "Dedicated Character directory filters must recover per project.");
+    assert.deepEqual(providerRequests, [], "Drag, selection persistence, and refresh recovery must make no Provider request.");
+  } finally {
+    page.off("request", observe);
+  }
+}
+
+async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
+  const capture = async (name) => {
+    if (!r4R2EvidenceDirectory) return;
+    mkdirSync(r4R2EvidenceDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(r4R2EvidenceDirectory, name), fullPage: false });
+  };
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const assertVisibleComposer = async (width, height) => {
+    await page.setViewportSize({ width, height });
+    const geometry = await page.evaluate(() => {
+      const textarea = document.querySelector('textarea[aria-label="工作模式草稿"]')?.getBoundingClientRect();
+      const send = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("发送到当前工作"))?.getBoundingClientRect();
+      return { textarea, send, viewport: { width: window.innerWidth, height: window.innerHeight }, scrollWidth: document.documentElement.scrollWidth };
+    });
+    assert.ok(geometry.textarea && geometry.textarea.top >= 0 && geometry.textarea.bottom <= geometry.viewport.height, `Work textarea must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.send && geometry.send.top >= 0 && geometry.send.bottom <= geometry.viewport.height, `Work send action must be visible at ${width}x${height}=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scrollWidth <= geometry.viewport.width, `Work must not create body overflow at ${width}x${height}=${JSON.stringify(geometry)}`);
+  };
+
+  await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN&tianyiLane=work`);
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker summary")?.textContent?.includes("正在读取") !== true);
+  await assertVisibleComposer(1440, 900);
+  await capture("r4-r2-1440-global-work-composer.png");
+
+  const scope = page.locator(".tianyi-work-contract select");
+  await scope.selectOption("selected-events");
+  const context = page.locator(".tianyi-work-context-picker");
+  await context.locator("summary").click();
+  const eventChecks = context.locator('input[type="checkbox"]');
+  assert.ok(await eventChecks.count() >= 6, "R4 fixture must expose at least six formal Events for bounded context selection.");
+  for (let index = 0; index < 6; index += 1) await eventChecks.nth(index).check();
+  await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6);
+  assert.match(await context.innerText(), /已附加 6\/6 项/u, "Selecting six Events must expose the exact attached evidence count.");
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 6, "The displayed evidence list must match the six attached Event references.");
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("围绕已选事件检查角色动机与因果，但不写入正式故事。");
+  await assertVisibleComposer(1195, 900);
+  await capture("r4-r2-1195-six-event-work-context.png");
+  await assertVisibleComposer(1024, 768);
+  await capture("r4-r2-1024-global-work-composer.png");
+  await assertVisibleComposer(900, 740);
+  const groundedRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer"));
+  await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+  const groundedPayload = JSON.parse((await groundedRequest).postData() || "{}");
+  const selectedEventIds = await eventChecks.evaluateAll((checks) => checks.slice(0, 6).map((check) => check.getAttribute("data-event-id")));
+  assert.equal(groundedPayload.profileId, "local-fake-grounded-answer", "The local fixture must exercise grounded transport without selecting a paid Provider.");
+  assert.equal(groundedPayload.contextRequest.eventRefs?.length, 6, "The grounded request must preserve the author's six explicit Event references.");
+  assert.deepEqual(groundedPayload.contextRequest.eventRefs.map((reference) => reference.eventId), selectedEventIds, "The fake grounded request must contain exactly the six selected Event identities.");
+  await page.waitForFunction(() => !(document.querySelector('textarea[aria-label="工作模式草稿"]') instanceof HTMLTextAreaElement) || document.querySelector('textarea[aria-label="工作模式草稿"]').value === "", undefined, { timeout: 15_000 });
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "R4-R2 must not create fake attachment references.");
+  assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "R4-R2 must not create fake source references.");
+  assert.deepEqual(consoleProblems, [], "R4 global Work layout interactions must not add browser errors.");
+}
+
 async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.ok(timelineFixture, "The time graph must use an isolated fixture.");
   const output = founderEvidenceDirectory;
@@ -2482,7 +3380,9 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN`);
   await closeGlobalTianyiIfOpen(page);
   await selectEventView("关系图");
-  const graphEventIds = await page.locator(".event-graph-flow .react-flow__node-event").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
+  const graphEventCards = page.locator(".event-graph-flow .graph-node-shell[data-event-id]");
+  await graphEventCards.first().waitFor();
+  const graphEventIds = await graphEventCards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-event-id")).filter(Boolean).sort());
   await page.locator(".event-graph-node").filter({ hasText: "雾港启航" }).click();
   if (output) await page.screenshot({ path: path.join(output, "A-1440x900-event-graph-foreground.png"), fullPage: true });
   const temporalRunsBeforeSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
@@ -2490,7 +3390,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await selectEventView("时间轴");
   const canvas = page.getByLabel("独立时间线工作区");
   await canvas.waitFor();
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "initial timeline open");
   assert.equal(await canvas.getAttribute("data-view-switch-provider-calls"), "0", "Opening the timeline is a zero-cost read path.");
   assert.equal(await canvas.getAttribute("data-view-switch-agent-runs"), "0", "Opening the timeline never creates an Agent Run.");
   const temporalRunsAfterSwitch = await postFixture(`${apiUrl}/__local/story-studio/tianyi/temporal-projection/list`, { projectId: fixtureProjectId });
@@ -2513,7 +3413,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   await confirmation.getByRole("button", { name: "确认运行一次", exact: true }).click();
   const completedResponse = await executionResponse;
   assert.equal(completedResponse.ok(), true, `Confirmed temporal modeling transport must finish successfully: HTTP ${completedResponse.status()}.`);
-  await page.waitForFunction(() => document.querySelector('[data-temporal-state="ready"]'), undefined, { timeout: 10_000 }).catch(async () => {
+  await waitForTemporalState(page, ["ready"], "confirmed temporal modeling", 10_000).catch(async () => {
     const runs = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
     throw new Error(`Temporal projection did not become ready: ${JSON.stringify(await page.evaluate(() => ({
       state: document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state"),
@@ -2526,7 +3426,10 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   assert.equal(storyRunsAfterConfirm.data[0]?.provider?.executionKind, "test-provider", "The isolated test Provider is explicit and is not presented as real AI proof.");
   assert.equal(await canvas.getAttribute("data-temporal-projection"), "independent", "Timeline must own an independent projection instead of reusing EventGraphCanvas.");
   assert.equal(await canvas.getAttribute("data-event-owner"), "shared-identities", "Independent projections still share formal Event identities.");
-  const timelineEventIds = await page.locator(".temporal-flow .react-flow__node").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-id") ?? node.getAttribute("data-nodeid")).filter(Boolean).sort());
+  await page.waitForFunction(() => document.querySelector('[data-testid="event-line-workbench"]')?.getAttribute("data-knowledge-projection-state") === "ready");
+  const temporalEventCards = page.locator(".temporal-event-card[data-event-id]");
+  await temporalEventCards.first().waitFor();
+  const timelineEventIds = await temporalEventCards.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-event-id")).filter(Boolean).sort());
   assert.deepEqual(timelineEventIds, graphEventIds, "Relationship graph and timeline use the same stable Event IDs and node count.");
   assert.equal(await page.locator(".temporal-workspace .event-graph-node").count(), 0, "Timeline may not invoke the relationship Event node family.");
   assert.ok(await page.locator(".temporal-event-card:is(.is-inferred, .is-ambiguous)").count() >= 1, "Unknown formal times remain explicit inferred or ambiguous intervals.");
@@ -2596,7 +3499,7 @@ async function assertTimelineRelationshipGraph(page, consoleProblems) {
   const runsBeforeRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   await reloadProduct(page);
   await selectEventView("时间轴");
-  await page.waitForFunction(() => ["missing", "stale", "ready"].includes(document.querySelector("[data-temporal-state]")?.getAttribute("data-temporal-state") ?? ""));
+  await waitForTemporalState(page, ["missing", "stale", "ready"], "timeline after refresh");
   const runsAfterRefresh = await postFixture(`${apiUrl}/__local/story-studio/tianyi/story-modeling/list`, { projectId: fixtureProjectId });
   assert.equal(runsAfterRefresh.data.length, runsBeforeRefresh.data.length, "Refresh and view switching create no additional story-modeling Run.");
   assert.equal(await page.getByLabel("时间标尺").count(), 1, "The base coordinate system remains available after refresh.");
@@ -2622,12 +3525,41 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   };
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded`);
+  // This scenario asserts fixture-owned Story Units. Earlier scenarios may
+  // legitimately exercise another project, so bind the browser to the same
+  // project that owns the selected Event graph before reading its directory.
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const activeProject = await getFixture(`${apiUrl}/__local/story-studio/bootstrap`);
+  assert.equal(activeProject.data.activeProject?.id, fixtureProjectId, "Multi-node directory must read the Event graph fixture project, never a previous empty project.");
+  await gotoProduct(page, `${baseUrl}/event-line?locale=zh-CN&rail=expanded&directoryTrace=1`);
   await closeGlobalTianyiIfOpen(page);
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await directoryToggle.getAttribute("aria-pressed") !== "true") await directoryToggle.click();
   const projectDirectory = page.locator(".project-directory-panel");
-  if (!(await projectDirectory.isVisible())) await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
+  const persistedCharacterDirectory = page.getByTestId("character-directory");
+  await page.waitForFunction(() => {
+    const character = document.querySelector('[data-testid="character-directory"]');
+    const tree = document.querySelector(".project-directory-panel .project-directory-tree");
+    return Boolean((character instanceof HTMLElement && character.offsetParent !== null) || (tree instanceof HTMLElement && tree.offsetParent !== null));
+  });
+  if (await persistedCharacterDirectory.isVisible()) {
+    await persistedCharacterDirectory.getByRole("button", { name: "返回工程目录", exact: true }).click();
+    await persistedCharacterDirectory.waitFor({ state: "hidden" });
+  }
+  await projectDirectory.waitFor();
+  const classifiedDirectoryTab = projectDirectory.locator('[role="tab"]').first();
+  await classifiedDirectoryTab.waitFor({ state: "visible" });
+  if (await classifiedDirectoryTab.getAttribute("aria-selected") !== "true") await classifiedDirectoryTab.click();
   const directoryTree = projectDirectory.locator(".project-directory-tree");
+  try {
+    await directoryTree.waitFor({ state: "visible" });
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({ text: element.innerText, tabs: Array.from(element.querySelectorAll('[role="tab"]')).map((tab) => ({ text: tab.textContent, selected: tab.getAttribute("aria-selected") })), connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") }));
+    throw new Error(`Classified directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug })}`, { cause: error });
+  }
+  await directoryTree.locator(".project-directory-breadcrumb").waitFor({ state: "visible" });
   const rootBreadcrumb = directoryTree.locator(".project-directory-breadcrumb").getByRole("button", { name: "目录", exact: true });
+  await rootBreadcrumb.waitFor({ state: "visible" });
   await rootBreadcrumb.click();
   assert.equal(await directoryTree.locator(".project-directory-reference").count(), 0, "The directory root must expose only second-level categories, never Event rows.");
   assert.deepEqual((await directoryTree.locator(".project-directory-entry").allTextContents()).map((value) => value.replace(/\d+$/u, "").trim()), ["故事结构", "信息资料", "设定", "来源", "创意"], "Directory root keeps the five high-level categories.");
@@ -2635,9 +3567,40 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "故事结构" }).click();
   await directoryTree.locator(".project-directory-entry").filter({ hasText: "单元" }).click();
   const unitEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: /· 雾港/u });
-  await unitEntry.click();
+  try {
+    await unitEntry.click();
+  } catch (error) {
+    const directoryDebug = await projectDirectory.evaluate((element) => ({
+      text: element.innerText,
+      path: element.querySelector(".project-directory-page")?.getAttribute("data-directory-depth"),
+      entries: Array.from(element.querySelectorAll(".project-directory-entry")).map((entry) => entry.textContent?.trim()),
+      pendingStatus: element.querySelector("[data-pending-status]")?.getAttribute("data-pending-status"),
+      connection: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state")
+    }));
+    const sourceDebug = await page.evaluate(async (projectId) => {
+      const read = async (path) => {
+        const response = await fetch(path);
+        const body = await response.json().catch(() => null);
+        return { status: response.status, body };
+      };
+      const [bootstrap, library, units] = await Promise.all([
+        read("/__local/story-studio/bootstrap"),
+        read(`/__local/story-studio/world-library?projectId=${encodeURIComponent(projectId)}`),
+        read(`/__local/story-studio/story-units?projectId=${encodeURIComponent(projectId)}`)
+      ]);
+      return {
+        bootstrap: bootstrap.body?.data?.activeProject?.id ?? null,
+        library: { status: library.status, project: library.body?.data?.project?.id ?? null, objectCount: library.body?.data?.objects?.length ?? null },
+        units: { status: units.status, count: units.body?.data?.length ?? null, titles: units.body?.data?.map((unit) => unit.title) ?? null },
+        directoryTrace: window.__tianyanDirectoryReadTrace ?? []
+      };
+    }, fixtureProjectId);
+    throw new Error(`Story Unit directory did not settle: ${JSON.stringify({ url: page.url(), directory: directoryDebug, sources: sourceDebug })}`, { cause: error });
+  }
+  const setPointEntry = directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" });
+  await setPointEntry.waitFor({ state: "visible" });
   assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "直接属于单元" }).count(), 1, "A Unit must expose direct Event membership.");
-  assert.equal(await directoryTree.locator(".project-directory-entry").filter({ hasText: "可选集点 · 仓库冲突" }).count(), 1, "A Set Point must remain an optional sibling collection.");
+  assert.equal(await setPointEntry.count(), 1, "A Set Point must remain an optional sibling collection.");
   await capture("B-1440x900-directory-unit-direct-and-set-point.png");
   await directoryTree.locator(".project-directory-entry").first().press("Escape");
   await page.waitForFunction(() => document.activeElement?.getAttribute("data-directory-node")?.startsWith("unit:") === true);
@@ -2718,7 +3681,6 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await panel.getByRole("button", { name: "停止本次推演", exact: true }).count(), 1, "Running stage must expose exactly one primary stop action instead of adoption controls.");
   try { await page.waitForFunction(() => document.querySelector(".tianyi-prediction-panel")?.getAttribute("data-prediction-phase") === "reviewing"); }
   catch (error) {
-    const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
     const state = await page.evaluate(() => {
       const element = document.querySelector(".tianyi-prediction-panel");
       return {
@@ -2729,7 +3691,16 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
         announcedView: window.__storyStudioPredictionView ?? null
       };
     });
-    throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    // A Playwright timeout can race the same render that satisfies its polling
+    // callback. Sample the DOM before any diagnostic request; all downstream
+    // canvas, review, adoption, and recovery assertions still run unchanged.
+    const reachedReviewAtBoundary = state.phase === "reviewing"
+      && state.view === "overview"
+      && state.announcedRun?.status === "ready";
+    if (!reachedReviewAtBoundary) {
+      const persistedRuns = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId });
+      throw new Error(`Agent background recovery did not reach review. State=${JSON.stringify(state)} Panel=${await panel.innerText().catch(() => "unmounted")} Runs=${JSON.stringify(persistedRuns.data)}`, { cause: error });
+    }
   }
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-prediction-node").length >= 5);
   assert.ok(await panel.locator(".tianyi-prediction-path-list li").count() >= 2, "Ready prediction must expose multiple continuous candidate paths.");
@@ -3002,9 +3973,49 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   await page.waitForFunction(() => document.querySelectorAll(".event-graph-node:not(.event-graph-prediction-node)").length === 3);
   assert.equal(await page.locator(".event-graph-node:not(.event-graph-prediction-node)").count(), 3, "The source summary must expand the three formal Events on keyboard activation.");
   await panel.getByText("技术回执与历史", { exact: true }).click();
+  let releaseAbandonResponse = () => undefined;
+  const holdAbandonResponse = new Promise((resolve) => { releaseAbandonResponse = resolve; });
+  let releaseAbandonPersisted = () => undefined;
+  const abandonPersisted = new Promise((resolve) => { releaseAbandonPersisted = resolve; });
+  let abandonPersistenceError = null;
+  await page.route("**/prediction/abandon", async (route) => {
+    // Persist through the fixture control channel so holding the browser
+    // response cannot also occupy the Vite proxy needed by the remounted UI.
+    let response;
+    try {
+      response = await postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/abandon`, route.request().postDataJSON());
+    } catch (cause) {
+      abandonPersistenceError = cause;
+    } finally {
+      releaseAbandonPersisted();
+    }
+    if (abandonPersistenceError) { await route.abort(); return; }
+    await holdAbandonResponse;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
+  }, { times: 1 });
   const abandonButton = panel.getByRole("button", { name: "放弃本次推演", exact: true });
+  const abandonRequest = page.waitForRequest("**/prediction/abandon");
   await abandonButton.press("Enter");
-  await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor();
+  await abandonRequest;
+  await abandonPersisted;
+  if (abandonPersistenceError) throw abandonPersistenceError;
+  await tianyiSidebar.getByRole("tab", { name: "工作", exact: true }).click();
+  await tianyiSidebar.getByRole("tab", { name: /Agent/u }).click();
+  await panel.getByText("本次推演已放弃；既有草稿和历史回执均保留。", { exact: true }).waitFor().catch(async (cause) => {
+    const [dom, persisted] = await Promise.all([
+      panel.evaluate((element) => ({
+        phase: element.getAttribute("data-prediction-phase"),
+        view: element.getAttribute("data-prediction-view"),
+        runId: element.getAttribute("data-run-id"),
+        error: element.querySelector(".tianyi-error")?.textContent?.trim() ?? null,
+        text: element.innerText.slice(0, 1_500),
+        announcedRun: window.__storyStudioPredictionRun ?? null,
+        announcedView: window.__storyStudioPredictionView ?? null
+      })),
+      postFixture(`${apiUrl}/__local/story-studio/tianyi/prediction/list`, { projectId: fixtureProjectId })
+    ]);
+    throw new Error(`Prediction abandon did not retain its terminal task surface: ${JSON.stringify({ dom, persisted: persisted.data })}`, { cause });
+  }).finally(() => releaseAbandonResponse());
   assert.equal(await page.getByLabel("单元目录").getByText("异常信号增强", { exact: true }).count(), 1, "Keyboard abandonment must preserve the already-created draft projection.");
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(180);
@@ -3125,14 +4136,14 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
   assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
   assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
-  assert.equal(await page.getByRole("button", { name: "整理成三个候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "整理为故事候选", exact: true }).count(), 1);
   await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
-  await page.getByRole("button", { name: "附件", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The shell must not offer a fake attachment action without a bound upload route.");
   await capture("01-1195x720-TIANYI-creative-mode.png");
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
-  assert.equal(await page.getByRole("heading", { name: "选择一个候选继续" }).count(), 1);
+  assert.equal(await page.getByRole("heading", { name: "当前故事工作上下文" }).count(), 1);
   assert.equal(await page.getByLabel("工作模式草稿").getAttribute("placeholder"), "继续完善当前候选，准备进入影响预览……");
-  assert.equal(await page.getByRole("button", { name: "继续完善候选", exact: true }).count(), 1);
+  assert.equal(await page.getByRole("button", { name: "发送到当前工作", exact: true }).count(), 1);
   await page.getByLabel("工作模式草稿").fill("只属于工作泳道的草稿");
   await page.getByLabel("工作范围").selectOption("selected-events");
   await capture("02-1195x720-TIANYI-work-mode.png");
@@ -3141,7 +4152,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   await page.getByRole("tab", { name: "工作模式", exact: true }).click();
   assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
   assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
-  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 1, "Shared attachments must remain visible across lanes.");
+  assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 0, "Global Work no longer creates an unbound demo attachment.");
   const before = await shellGeometry(page);
   assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
   await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
@@ -3282,8 +4293,8 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.getByLabel("天意统一会话").waitFor();
     assert.equal(await page.getByRole("tab", { name: "Agent", exact: true }).count(), 0, "The Tianyi page must not expose a second page Agent.");
     await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
-    await page.getByRole("button", { name: "附件", exact: true }).click();
-    await page.getByRole("button", { name: "来源", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "The composer must not create a fake attachment reference while no real binding route exists.");
+    assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "The composer must not label an unbound demo item as a source.");
     await capture("01-1440x900-TIANYI-creative-author-intent.png");
     await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
     await page.locator(".tianyi-candidate-grid article").first().waitFor();
@@ -3300,7 +4311,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await page.locator('.tianyi-lane-stage[aria-label="工作模式"]').waitFor({ state: "attached" });
     assert.equal(await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id"), conversationId, "Creative and Work must keep one conversation identity.");
     await page.getByLabel("同一会话的可见历史").getByText(/旧约钥匙/u).first().waitFor();
-    assert.match(await page.getByLabel("当前视图").textContent(), /本地附件（演示）.*工程来源（演示）/su);
+    assert.match(await page.getByLabel("当前视图").textContent(), /暂无共享引用/u);
     assert.match(await page.getByLabel("当前视图").textContent(), /3 个候选/u);
     await page.getByLabel("工作范围").selectOption("selected-events");
     await page.getByLabel("工作模式草稿").fill("只调整钥匙交接事件，不改变 Canon 或其他故事事实。");

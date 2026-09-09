@@ -48,6 +48,8 @@ export {
   projectNuwaAttentionForAuthor
 } from "./nuwaAttentionContext.ts";
 export type { NuwaAttentionContext, NuwaAttentionSource, NuwaActorKnowledgeSlice, NuwaAttentionBriefInput, NuwaResolvedAttentionSource } from "./nuwaAttentionContext.ts";
+export { NUWA_N1_ATTENTION_VERSION, selectNuwaN1Attention } from "./nuwaN1Attention.ts";
+export type { NuwaN1AttentionCandidate, NuwaN1AttentionSelection } from "./nuwaN1Attention.ts";
 export {
   applyStoryMemoryRecallToNuwaResult,
   recallNuwaEvidenceWithSkill
@@ -156,6 +158,42 @@ export {
   validateBoundedSnapshot,
   writeNuwaBoundedRun
 } from "./nuwaBoundedScenarioRuntime.ts";
+export {
+  NUWA_N1_MAX_COMMITTED_STEPS,
+  NUWA_N1_MAX_DISPATCHES,
+  NUWA_N1_RUNTIME_VERSION,
+  advanceNuwaN1Run,
+  cancelNuwaN1Run,
+  compileNuwaN1Context,
+  createNuwaN1Run,
+  cueNuwaN1Run,
+  pauseNuwaN1Run,
+  prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderPreflightFailure,
+  recordNuwaN1ProviderReservation,
+  readNuwaN1Run,
+  resolveNuwaN1ProviderDispatch,
+  resumeNuwaN1Run,
+  startNuwaN1Run
+} from "./nuwaN1Runtime.ts";
+export type {
+  NuwaN1Actor,
+  NuwaN1ActorResult,
+  NuwaN1Belief,
+  NuwaN1CandidateHandoff,
+  NuwaN1Context,
+  NuwaN1ExecutionAdapter,
+  NuwaN1KnownFact,
+  NuwaN1Lifecycle,
+  NuwaN1Receipt,
+  NuwaN1Run,
+  NuwaN1Scene,
+  NuwaN1StableRef,
+  NuwaN1Step,
+  NuwaN1ToolRequest,
+  NuwaN1ToolResult
+} from "./nuwaN1Runtime.ts";
 export type {
   BoundedCharacterKnowledge,
   BoundedKnowledgeClaim,

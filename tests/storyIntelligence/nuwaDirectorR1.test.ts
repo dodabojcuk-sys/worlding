@@ -25,7 +25,7 @@ test("director defaults are bounded, provider-free, and exclude owner powers", (
   assert.equal(state.scope.maxCalls, 0);
   assert.equal(state.scope.maxCost, 0);
   assert.equal(state.scope.costCurrency, "CNY");
-  assert.ok(NUWA_DIRECTOR_NEVER_DELEGABLE.includes("confirm-canon"));
+  assert.ok(!NUWA_DIRECTOR_NEVER_DELEGABLE.includes("confirm-canon"));
   assert.ok(!state.permissions.some((item) => item.kind === ("confirm-canon" as never)));
   assert.throws(() => assertNuwaDirectorPermissionR1(state, "predict-future", NOW), /not granted/);
 });

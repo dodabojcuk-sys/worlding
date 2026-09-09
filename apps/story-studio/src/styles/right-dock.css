@@ -95,6 +95,11 @@
 .engineering-log-stream div span { color: var(--color-text-muted); }
 .engineering-log-stream em { align-self: start; padding: 0.125rem var(--space-1); color: var(--color-success); background: var(--color-accent-soft); border-radius: var(--radius-sm); font-style: normal; }
 .engineering-log-stream em[data-status="hint"] { color: var(--color-warning); }
+.engineering-log-detail-toggle { grid-column: 2 / -1; justify-self: start; padding: 0; color: var(--color-accent); background: transparent; border: 0; font: inherit; }
+.engineering-log-receipt { display: grid; grid-column: 2 / -1; grid-template-columns: minmax(5rem, auto) minmax(0, 1fr); gap: var(--space-1) var(--space-2); margin: 0; padding: var(--space-2); background: var(--color-surface-raised); border-radius: var(--radius-sm); }
+.engineering-log-receipt div { display: contents; }
+.engineering-log-receipt dt { color: var(--color-text-muted); }
+.engineering-log-receipt dd { min-inline-size: 0; margin: 0; overflow-wrap: anywhere; }
 .expert-analysis-panel article { padding: var(--space-4); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .expert-analysis-panel p { margin: 0 0 var(--space-3); line-height: 1.65; }
 .expert-analysis-panel small { color: var(--color-text-muted); line-height: 1.6; }

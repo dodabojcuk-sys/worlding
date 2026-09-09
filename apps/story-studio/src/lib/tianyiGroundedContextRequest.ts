@@ -40,7 +40,7 @@ export function createTianyiGroundedContextRequest(input: {
     subjectRef: input.access.subjectRef,
     sceneRef,
     explicitRefs: [...explicit.values()].slice(0, 5),
-    ...(eventRefs.size ? { eventRefs: [...eventRefs.values()].slice(0, 4) } : {})
+    ...(eventRefs.size ? { eventRefs: [...eventRefs.values()].slice(0, 6) } : {})
   };
 }
 

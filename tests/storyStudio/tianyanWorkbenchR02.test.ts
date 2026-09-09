@@ -51,7 +51,10 @@ test("page-tool registry feeds one contextual dock and unavailable tools cannot 
   assert.doesNotMatch(stack, /\.map\(/);
   assert.match(resize, /role="separator"/);
   assert.doesNotMatch(log, /今天|昨天/u);
-  assert.match(log, /data-receipt-projection="local-demo"/);
+  assert.match(log, /data-receipt-projection="author-action-receipts"/);
+  assert.match(log, /getAgentPermissionState\(props\.projectId\)/);
+  assert.match(log, /导出脱敏日志/);
+  assert.doesNotMatch(log, /local-demo/);
   assert.match(expert, /onAdoptSuggestion/);
   assert.match(expert, /onIgnoreSuggestion/);
   assert.doesNotMatch(expert, /writeCanon|createEvent|storyStudioWorkspaceOperations/u);

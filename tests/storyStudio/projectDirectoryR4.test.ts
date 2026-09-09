@@ -9,7 +9,7 @@ const revision = "a".repeat(64);
 const projectId = "directory-r4";
 const event = (id: string, title: string, tags: string[]) => ({ id, relativeId: `world/events/${id}.md`, title, type: "event" as const, status: "committed", tags, aliases: [], revisionToken: revision, source: "markdown" as const });
 
-function fixture() {
+function fixture(verified = true) {
   const events = [
     event("event.signal", "暗号传递", ["作者确认", "单元：雾港"]),
     event("event.standoff", "仓库对峙", ["作者确认", "单元：雾港", "集点：仓库冲突"]),
@@ -18,7 +18,7 @@ function fixture() {
   ];
   const library = { project: { id: projectId, title: "长夜将明" }, objects: events, visualDocuments: [], folders: [], placements: [], folderRevision: revision, counts: { character: 0, location: 0, event: 4, item: 0, faction: 0, rule: 0, thread: 0 }, tabs: [], activeObject: null, selection: {}, source: "markdown" } as unknown as WorldLibraryBootstrap;
   const unit = { id: "unit.fog", relativeId: "story-units/fog.md", title: "雾港", summary: "", kind: "main", parentUnitId: null, branchPointEventId: null, mergeTargetUnitId: null, order: 0, sourceVersionRef: revision, status: "active", objective: "", coreConflict: "", turningPoint: "", openHook: "", lifecycle: "active", sourceRefs: [], items: [], collectionPoints: [{ id: "collection-point.warehouse", title: "仓库冲突", eventIds: ["event.standoff", "event.lockdown"], order: 0, collapsed: false, sourceVersionRef: revision, revision: 1, layout: { x: 0, y: 0, pinned: false }, lastOperationId: "collection-point.warehouse.create" }], linkedEntityIds: events.map((item) => item.id), unresolvedQuestionIds: [], generationConstraints: {}, version: revision, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), source: "markdown" } satisfies StoryUnit;
-  return createProjectDirectoryViewModel((key) => zhCN[key], { library, units: [unit], sources: [], workVersionId: "work-r4", pendingCount: 0, verifiedEventIds: events.map((event) => event.id) });
+  return createProjectDirectoryViewModel((key) => zhCN[key], { library, units: [unit], sources: [], workVersionId: "work-r4", pendingCount: 0, verifiedEventIds: verified ? events.map((event) => event.id) : [] });
 }
 
 test("DIRECTORY_R4_ROOT exposes only high-level categories and counts", () => {
@@ -52,4 +52,11 @@ test("DIRECTORY_R4_UNIT keeps direct nodes and an optional collection point with
   assert.equal(new Set(results.map((item) => item.node.reference?.objectId)).size, 4);
   assert.ok(results.every((item) => item.path.map((part) => part.label).join(" / ").includes("单元 01 · 雾港")));
   assert.equal(results.filter((item) => item.node.label === "仓库对峙")[0]?.path.at(-2)?.label, "可选集点 · 仓库冲突");
+});
+
+test("DIRECTORY_R4_UNIT renders formal Story Unit membership before Canon enrichment completes", () => {
+  const projection = fixture(false);
+  const unit = projection.groups[0]?.children?.[0]?.children?.[0];
+  assert.deepEqual(unit?.children?.map((child) => [child.label, child.count]), [["直接属于单元", 2], ["可选集点 · 仓库冲突", 2]]);
+  assert.equal(flattenDirectoryReferences(projection.groups).filter((item) => item.node.reference?.objectType === "event").length, 4);
 });

@@ -17,7 +17,6 @@ export const NUWA_DIRECTOR_PERMISSION_KINDS = [
 ] as const;
 
 export const NUWA_DIRECTOR_NEVER_DELEGABLE = [
-  "confirm-canon",
   "permanent-delete",
   "publish-or-deploy",
   "cross-project-read",
@@ -25,6 +24,11 @@ export const NUWA_DIRECTOR_NEVER_DELEGABLE = [
   "change-director-permissions",
   "escape-budget"
 ] as const;
+
+// This legacy, provider-free Director contract is still limited to proposals
+// and temporary Run-local work.  It no longer defines a blanket ban on
+// confirmed story changes: N1 full-access writes are decided by the project
+// Action Permission Broker and performed only by their existing Owners.
 
 export type NuwaDirectorPermissionKindR1 = (typeof NUWA_DIRECTOR_PERMISSION_KINDS)[number];
 export type NuwaDirectorPermissionStatusR1 = "granted" | "revoked";

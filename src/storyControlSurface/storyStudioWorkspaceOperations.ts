@@ -35,6 +35,7 @@ import {
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
+import { appendWorldStateN4Change, compensationValueForWorldStateN4, emptyWorldStateN4Store, normalizeWorldStateN4Store, projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Store, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
 import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
 import {
   applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
@@ -198,6 +199,8 @@ const WORLD_OBJECT_TYPE_SET = new Set<string>(WORLD_OBJECT_TYPES);
 const OBJECT_CARD_BLOCK_TYPES = ["text", "secret", "character-arc", "property-group", "relation-group", "properties", "connections", "media", "map", "graph", "timeline", "tree", "canvas"] as const;
 const OBJECT_CARD_BLOCK_TYPE_SET = new Set<string>(OBJECT_CARD_BLOCK_TYPES);
 const OBJECT_PROFILE_FRONTMATTER_KEY = "story_profile_v1";
+const WORLD_STATE_N4_FRONTMATTER_KEY = "world_state_n4";
+const WORLD_STATE_N4_BY_WORK_VERSION_VERSION = "tianyan-world-state-n4-by-work-version/v1";
 const EDITABLE_FRONTMATTER_KEYS = new Set(["title", "status", "tags", "aliases", "card_layout", "card_blocks", "cover", "media", OBJECT_PROFILE_FRONTMATTER_KEY]);
 const RESERVED_FRONTMATTER_KEYS = new Set(["world_os", "id", "type"]);
 const EVENT_AUTHORITY_STATUSES = new Set(["planned", "committed"]);
@@ -1048,6 +1051,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       tags?: string[];
       aliases?: string[];
       body?: string;
+      knowledgeSubjects?: string[];
       plannedFrom?: string;
       agentTypeId?: string;
       agentTypeFieldValues?: Record<string, unknown>;
@@ -1060,6 +1064,8 @@ export function createStoryStudioWorkspaceOperations(input: {
       const id = uniqueObjectId(type, title, new Set(existing.map((item) => item.id)));
       const plannedFrom = objectInput.plannedFrom == null ? null : requirePlanningSource(projectPath, objectInput.plannedFrom);
       if (plannedFrom && type !== "event") throw new Error("Only event notes can reference a planning event.");
+      const knowledgeSubjects = requireStringList(objectInput.knowledgeSubjects, "knowledge subjects");
+      if (type !== "event" && knowledgeSubjects.length) throw new Error("Only event notes can declare knowledge subjects.");
       const agentTypeFrontmatter = prepareAgentTypeBindingFrontmatter(projectPath, type, null, objectInput.agentTypeId, objectInput.agentTypeFieldValues, true);
       const profile = normalizeOptionalObjectProfile(objectInput.profile, type);
       const note = createWorkspaceNote(projectPath, {
@@ -1072,6 +1078,7 @@ export function createStoryStudioWorkspaceOperations(input: {
           tags: requireStringList(objectInput.tags, "tags"),
           card_layout: "horizontal",
           card_blocks: defaultObjectCardBlocks(type),
+          ...(knowledgeSubjects.length ? { knowledge_subjects: knowledgeSubjects } : {}),
           ...agentTypeFrontmatter.frontmatter,
           ...(profile ? { [OBJECT_PROFILE_FRONTMATTER_KEY]: serializeStoryStudioObjectProfile(profile) } : {}),
           ...(plannedFrom ? { planned_from: plannedFrom.id } : {})
@@ -1165,6 +1172,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       tags?: string[];
       aliases?: string[];
       body?: string;
+      knowledgeSubjects?: string[];
       profile?: StoryStudioObjectProfileInput | StoryStudioObjectProfile | null;
     }): StoryStudioWorldObject {
       assertGenericObjectCreationAuthorityBoundary(objectInput);
@@ -1409,10 +1417,12 @@ export function createStoryStudioWorkspaceOperations(input: {
 
     createConfirmedEventOnce(eventInput: {
       projectId: string;
+      workVersionId?: string | null;
       targetEventRef: string;
       title: string;
       body: string;
       plannedFrom?: string;
+      knowledgeSubjects?: string[];
       provenance: {
         sourceChangeSetId: string;
         sourceChangeSetRevision: string;
@@ -1431,8 +1441,10 @@ export function createStoryStudioWorkspaceOperations(input: {
       ) => void;
     }): { created: boolean; conflict: boolean; event: StoryStudioWorldObject | null } {
       const projectPath = resolveProjectPath(rootPath, eventInput.projectId);
+      const eventWorkVersion = eventInput.workVersionId == null ? null : readNarrativeWorkVersion(projectPath, eventInput.workVersionId);
       const targetEventRef = requireStableConfirmedEventRef(eventInput.targetEventRef);
       const plannedFrom = eventInput.plannedFrom == null ? null : requirePlanningSource(projectPath, eventInput.plannedFrom);
+      const knowledgeSubjects = requireStringList(eventInput.knowledgeSubjects, "knowledge subjects");
       const result = createWorkspaceNoteOnce(projectPath, {
         id: targetEventRef,
         type: "event",
@@ -1444,7 +1456,9 @@ export function createStoryStudioWorkspaceOperations(input: {
           tags: ["作者确认"],
           card_layout: "horizontal",
           card_blocks: defaultObjectCardBlocks("event"),
+          ...(eventWorkVersion ? { story_work_version_id: eventWorkVersion.identity.workVersionId } : {}),
           ...(plannedFrom ? { planned_from: plannedFrom.id } : {}),
+          ...(knowledgeSubjects.length ? { knowledge_subjects: knowledgeSubjects } : {}),
           source_change_set_id: requireText(eventInput.provenance.sourceChangeSetId, "Source Change Set", 160),
           source_change_set_revision: requireHash(eventInput.provenance.sourceChangeSetRevision, "Source Change Set revision"),
           author_decision_ref: requireText(eventInput.provenance.authorDecisionRef, "Author decision", 160),
@@ -1471,6 +1485,94 @@ export function createStoryStudioWorkspaceOperations(input: {
     readWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {
       const projectPath = resolveProjectPath(rootPath, objectInput.projectId);
       return readProductObject(projectPath, requireText(objectInput.objectId, "Object identifier", 160));
+    },
+
+    readWorldStateN4(stateInput: { projectId: string; objectId: string; observedAt: string; workVersionId?: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const object = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      return clone(projectWorldStateN4({ store: readWorldStateN4Store(projectPath, object.id, stateInput.workVersionId ?? null), subjectId: object.id, observedAt: stateInput.observedAt }));
+    },
+
+    applyWorldStateN4(stateInput: { projectId: string; objectId: string; workVersionId?: string | null; expectedObjectRevision: string; expectedRevision: number; operationId: string; effectiveAt: string; value: WorldStateN4Value; evidence: WorldStateN4Evidence; now: string; compensatesChangeId?: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const subject = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      const versionKey = worldStateWorkVersionKey(projectPath, stateInput.workVersionId ?? null);
+      const envelope = readWorldStateN4Envelope(projectPath, subject.id);
+      const currentStore = worldStateStoreForVersion(envelope, versionKey);
+      const prior = currentStore.changes.find((change) => change.operationId === stateInput.operationId);
+      if (prior) return clone({ store: currentStore, change: prior, idempotent: true, projection: projectWorldStateN4({ store: currentStore, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
+      if (subject.revisionToken !== requireText(stateInput.expectedObjectRevision, "World state object revision", 180)) throw new Error("World state object changed; refresh before applying a new state.");
+      if (stateInput.value.kind === "passage" && subject.type !== "location") throw new Error("Passage state can only be applied to a location or facility object.");
+      if (stateInput.value.kind === "holder" && subject.type !== "item") throw new Error("Holder state can only be applied to an item object.");
+      const sourceEvent = readProductObject(projectPath, stateInput.evidence.event.id);
+      if (sourceEvent.type !== "event" || sourceEvent.status !== "committed" || sourceEvent.revisionToken !== stateInput.evidence.event.revision) throw new Error("World state requires the exact current confirmed Event evidence.");
+      if (stateInput.value.kind === "holder" && stateInput.value.holder) {
+        const holder = readProductObject(projectPath, stateInput.value.holder.id);
+        if (holder.status === "archived" || holder.revisionToken !== stateInput.value.holder.revision) throw new Error("World state holder is unavailable or changed.");
+      }
+      const result = appendWorldStateN4Change({
+        store: currentStore,
+        operationId: stateInput.operationId,
+        subject: { id: subject.id, revision: subject.revisionToken },
+        effectiveAt: stateInput.effectiveAt,
+        value: stateInput.value,
+        evidence: stateInput.evidence,
+        expectedRevision: stateInput.expectedRevision,
+        now: stateInput.now,
+        compensatesChangeId: stateInput.compensatesChangeId ?? null
+      });
+      const note = findObjectNote(projectPath, subject.id);
+      const persisted = updateWorkspaceNote(projectPath, {
+        relativePath: note.relativePath,
+        expectedContentHash: note.contentHash,
+        frontmatter: { [WORLD_STATE_N4_FRONTMATTER_KEY]: JSON.stringify(withWorldStateStoreForVersion(envelope, versionKey, result.store)) },
+        body: note.body
+      });
+      if (persisted.conflict) throw new Error("World state object changed while saving; refresh before retrying.");
+      rememberObject(projectPath, note.relativePath);
+      recordCanonicalRevision(projectPath, { kind: "object", id: subject.id }, "save", null, stateInput.operationId);
+      return clone({ ...result, projection: projectWorldStateN4({ store: result.store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
+    },
+
+    compensateWorldStateN4(stateInput: { projectId: string; objectId: string; workVersionId?: string | null; expectedObjectRevision: string; expectedRevision: number; operationId: string; compensatesChangeId: string; effectiveAt: string; evidence: WorldStateN4Evidence; now: string }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const subject = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      const store = readWorldStateN4Store(projectPath, subject.id, stateInput.workVersionId ?? null);
+      const prior = store.changes.find((change) => change.operationId === stateInput.operationId);
+      if (prior) return clone({ store, change: prior, idempotent: true, projection: projectWorldStateN4({ store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
+      const compensation = compensationValueForWorldStateN4({ store, changeId: stateInput.compensatesChangeId });
+      if (compensation.subject.id !== subject.id) throw new Error("World state compensation does not belong to this object.");
+      return this.applyWorldStateN4({ ...stateInput, expectedObjectRevision: stateInput.expectedObjectRevision, expectedRevision: stateInput.expectedRevision, value: compensation.value, compensatesChangeId: compensation.compensatesChangeId });
+    },
+
+    forkWorldStateN4(stateInput: { projectId: string; parentWorkVersionId: string | null; childWorkVersionId: string; operationId: string }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const parentKey = worldStateWorkVersionKey(projectPath, stateInput.parentWorkVersionId);
+      const childKey = worldStateWorkVersionKey(projectPath, stateInput.childWorkVersionId);
+      if (!childKey || childKey === parentKey) throw new Error("World state IF fork requires a distinct child WorkVersion.");
+      const operationId = requireText(stateInput.operationId, "World state IF fork operation", 180);
+      const copiedObjectIds: string[] = [];
+      for (const object of listObjectSummaries(projectPath).filter((item) => item.status !== "archived" && (item.type === "location" || item.type === "item"))) {
+        const note = readWorkspaceNote(projectPath, object.relativeId);
+        const envelope = readWorldStateN4Envelope(projectPath, object.id);
+        const existing = envelope.workVersions[childKey];
+        if (existing) {
+          copiedObjectIds.push(object.id);
+          continue;
+        }
+        const next = withWorldStateStoreForVersion(envelope, childKey, worldStateStoreForVersion(envelope, parentKey));
+        const persisted = updateWorkspaceNote(projectPath, {
+          relativePath: note.relativePath,
+          expectedContentHash: note.contentHash,
+          frontmatter: { [WORLD_STATE_N4_FRONTMATTER_KEY]: JSON.stringify(next) },
+          body: note.body
+        });
+        if (persisted.conflict) throw new Error("World state changed while freezing IF baseline; retry the same operation.");
+        rememberObject(projectPath, note.relativePath);
+        recordCanonicalRevision(projectPath, { kind: "object", id: object.id }, "save", null, `${operationId}.${object.id}`);
+        copiedObjectIds.push(object.id);
+      }
+      return clone({ parentWorkVersionId: parentKey, childWorkVersionId: childKey, operationId, copiedObjectIds: copiedObjectIds.sort() });
     },
 
     openWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {
@@ -1752,6 +1854,7 @@ export function createStoryStudioWorkspaceOperations(input: {
         status: current.type === "event" ? "possible" : "active",
         tags,
         aliases: stringList(current.frontmatter.aliases),
+        knowledgeSubjects: stringList(current.frontmatter.knowledge_subjects),
         body: current.body
       });
     },
@@ -2802,20 +2905,36 @@ export function createStoryStudioWorkspaceOperations(input: {
       title: string;
       body?: string;
       tags?: string[];
+      operationId?: string;
     }): StoryStudioWorldObject {
       const title = requireText(planningInput.title, "Planning event title", 100);
+      const body = typeof planningInput.body === "string" ? planningInput.body : `# ${title}\n\n`;
+      const operationTag = planningInput.operationId
+        ? `planning-operation:${createHash("sha256").update(`${planningInput.projectId}\u0000${requireText(planningInput.operationId, "Planning event operation", 180)}`, "utf8").digest("hex").slice(0, 32)}`
+        : null;
       const tags = [
         "作者规划",
         ...requireStringList(planningInput.tags, "Planning event tags")
-          .filter((tag) => tag !== "作者规划" && tag !== "作者确认")
+          .filter((tag) => tag !== "作者规划" && tag !== "作者确认"),
+        ...(operationTag ? [operationTag] : [])
       ];
+      if (operationTag) {
+        const projectPath = resolveProjectPath(rootPath, planningInput.projectId);
+        const matches = listObjectSummaries(projectPath).filter((item) => item.type === "event" && item.tags.includes(operationTag));
+        if (matches.length > 1) throw new Error("Planning event operation resolves to multiple durable objects.");
+        if (matches[0]) {
+          const existing = readProductObject(projectPath, matches[0].id);
+          if (existing.title !== title || existing.body.trimEnd() !== body.trimEnd() || stableJson([...existing.tags].sort()) !== stableJson([...tags].sort())) throw new Error("Planning event operation was already used with a different payload.");
+          return existing;
+        }
+      }
       return this.createWorldObject({
         projectId: planningInput.projectId,
         type: "event",
         title,
         status: "planned",
         tags,
-        body: typeof planningInput.body === "string" ? planningInput.body : `# ${title}\n\n`
+        body
       });
     },
 
@@ -2958,6 +3077,10 @@ export function createStoryStudioWorkspaceOperations(input: {
       if (event.type !== "event" || !hasCompleteCanonProvenance(event.frontmatter)) {
         throw new Error("Timeline auto projection only accepts an author-confirmed Canon event.");
       }
+      if (typeof event.frontmatter.story_work_version_id === "string") {
+        const version = readNarrativeWorkVersion(projectPath, event.frontmatter.story_work_version_id);
+        if (version.identity.kind === "derived") throw new Error("IF confirmed Event must stay in its version narrative; it cannot enter the mainline timeline.");
+      }
       let timeline = (listVisualDocumentFiles(projectPath) as StoryStudioVisualDocument[])
         .filter((document) => document.type === "timeline")
         .sort((left, right) => left.relativePath.localeCompare(right.relativePath))[0];
@@ -3077,6 +3200,68 @@ function findObjectNote(projectPath: string, objectId: string) {
   const summary = listObjectSummaries(projectPath).find((item) => item.id === objectId);
   if (!summary) throw new Error("World object does not exist.");
   return readWorkspaceNote(projectPath, summary.relativeId);
+}
+
+/** N4 state history stays on the formal subject object.  The envelope keeps
+ * immutable IF slices beside the legacy/mainline slice; it is still written
+ * exclusively by WorkspaceOperations, never by a Multiverse cache. */
+type WorldStateN4Envelope = { version: typeof WORLD_STATE_N4_BY_WORK_VERSION_VERSION; mainline: WorldStateN4Store; workVersions: Record<string, WorldStateN4Store> };
+
+function readWorldStateN4Store(projectPath: string, objectId: string, workVersionId: string | null = null): WorldStateN4Store {
+  return worldStateStoreForVersion(readWorldStateN4Envelope(projectPath, objectId), worldStateWorkVersionKey(projectPath, workVersionId));
+}
+
+function readWorldStateN4Envelope(projectPath: string, objectId: string): WorldStateN4Envelope {
+  const note = findObjectNote(projectPath, objectId);
+  const encoded = note.frontmatter[WORLD_STATE_N4_FRONTMATTER_KEY];
+  if (encoded == null || encoded === "") return { version: WORLD_STATE_N4_BY_WORK_VERSION_VERSION, mainline: emptyWorldStateN4Store(), workVersions: {} };
+  if (Array.isArray(encoded) || typeof encoded !== "string") throw new Error("World state object field is invalid.");
+  try {
+    const parsed = JSON.parse(encoded) as unknown;
+    // N4 R0 persisted the bare store. Treat it as the durable mainline slice;
+    // no historical fact is rewritten merely to introduce IF isolation.
+    try { return { version: WORLD_STATE_N4_BY_WORK_VERSION_VERSION, mainline: normalizeWorldStateN4Store(parsed), workVersions: {} }; }
+    catch {
+      if (!isWorldStateN4Envelope(parsed)) throw new Error("World state version envelope is invalid.");
+      const workVersions: Record<string, WorldStateN4Store> = {};
+      for (const [versionId, store] of Object.entries(parsed.workVersions)) {
+        const validId = worldStateWorkVersionKey(projectPath, versionId);
+        if (!validId) throw new Error("World state WorkVersion identity is invalid.");
+        workVersions[versionId] = normalizeWorldStateN4Store(store);
+      }
+      return { version: WORLD_STATE_N4_BY_WORK_VERSION_VERSION, mainline: normalizeWorldStateN4Store(parsed.mainline), workVersions };
+    }
+  } catch (error) {
+    throw new Error(`World state object field cannot be read: ${error instanceof Error ? error.message : "invalid JSON"}`);
+  }
+}
+
+function worldStateWorkVersionKey(projectPath: string, workVersionId: string | null): string | null {
+  if (workVersionId == null) return null;
+  const version = readNarrativeWorkVersion(projectPath, workVersionId);
+  // The original N4 field is the canonical mainline slice.  Keeping root on
+  // that slice preserves all existing readers while derived IFs gain their
+  // own immutable baseline and later mutations.
+  return version.identity.kind === "root" ? null : version.identity.workVersionId;
+}
+
+function worldStateStoreForVersion(envelope: WorldStateN4Envelope, workVersionId: string | null): WorldStateN4Store {
+  return structuredClone(workVersionId == null ? envelope.mainline : envelope.workVersions[workVersionId] ?? envelope.mainline);
+}
+
+function withWorldStateStoreForVersion(envelope: WorldStateN4Envelope, workVersionId: string | null, store: WorldStateN4Store): WorldStateN4Envelope {
+  return workVersionId == null
+    ? { version: WORLD_STATE_N4_BY_WORK_VERSION_VERSION, mainline: normalizeWorldStateN4Store(store), workVersions: envelope.workVersions }
+    : { version: WORLD_STATE_N4_BY_WORK_VERSION_VERSION, mainline: envelope.mainline, workVersions: { ...envelope.workVersions, [workVersionId]: normalizeWorldStateN4Store(store) } };
+}
+
+function isWorldStateN4Envelope(value: unknown): value is { version: string; mainline: unknown; workVersions: Record<string, unknown> } {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && (value as Record<string, unknown>).version === WORLD_STATE_N4_BY_WORK_VERSION_VERSION
+    && Boolean((value as Record<string, unknown>).mainline)
+    && Boolean((value as Record<string, unknown>).workVersions)
+    && typeof (value as Record<string, unknown>).workVersions === "object"
+    && !Array.isArray((value as Record<string, unknown>).workVersions);
 }
 
 /**

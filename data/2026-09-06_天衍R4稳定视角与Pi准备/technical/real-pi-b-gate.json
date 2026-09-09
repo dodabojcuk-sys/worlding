@@ -1,0 +1,26 @@
+{
+  "verdict": "REAL_PI_AGENT_GATE_B_PASS",
+  "recordedAt": "2026-09-06T09:05:20+08:00",
+  "httpStatus": 200,
+  "realProviderCalls": 1,
+  "gate": "minimal-inference",
+  "localRoute": "POST /__local/story-studio/model-service/minimal-inference",
+  "modelId": "self-dploy/DeepSeek-V4-Flash-Vision-Exp",
+  "finishReason": "stop",
+  "usage": {
+    "promptTokens": 8,
+    "completionTokens": 2,
+    "totalTokens": 10
+  },
+  "traceIdPresent": true,
+  "contentLength": 2,
+  "error": null,
+  "budgetAccounting": {
+    "authorizationDispatchOrdinal": 6,
+    "ledgerRevisionAfter": 25,
+    "generationAfter": 17,
+    "totalAfter": 20
+  },
+  "secretMaterialRecorded": false,
+  "scope": "Minimal provider inference only; this is not a story conversation or a tool-call success."
+}

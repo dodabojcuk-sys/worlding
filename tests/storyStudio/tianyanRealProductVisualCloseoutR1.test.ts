@@ -56,3 +56,8 @@ test("invalid-record warning is a dismissible workspace card", () => {
   assert.match(graphStyles, /\.event-line-state\.is-warning \{/u);
   assert.match(graphStyles, /margin: \.75rem \.75rem 0/u);
 });
+
+test("temporal cache recovery falls back to the formal base layout without an implicit model run", () => {
+  assert.match(workbench, /cacheTimedOut = true[\s\S]*?setTemporalState\("missing"\)[\s\S]*?基础布局/u);
+  assert.match(workbench, /没有启动 AI 分析，也没有写入时间事实/u);
+});

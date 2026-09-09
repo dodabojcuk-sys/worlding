@@ -29,18 +29,18 @@ test("CLASSIFIED_SHELL_PRESENT_WITH_NO_OPEN_WORK", () => {
   const projection = createEmptyProjectDirectoryProjection((key) => zhCN[key]);
   assertZeroDirectoryShell(projection);
   const panel = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryPanel.tsx");
-  assert.match(panel, /<ProjectDirectoryTree groups=\{state\.projection\.groups\}/);
+  assert.match(panel, /<ProjectDirectoryTree[^>]*groups=\{state\.projection\.groups\}/);
   assert.match(panel, /data-directory-empty-shell-actions="true"/);
   assert.match(panel, /directory\.newProject/);
   assert.match(panel, /directory\.openImport/);
 });
 
-test("CLASSIFIED_ROOT delegates hierarchy and cross-layer search to the directory tree", () => {
+test("CLASSIFIED_ROOT delegates hierarchy to the directory tree while global search owns cross-layer search", () => {
   const tree = source("apps/story-studio/src/product-shell/project-directory/ProjectDirectoryTree.tsx");
   assert.match(tree, /data-directory-depth=\{path\.length\}/);
-  assert.match(tree, /flattenDirectoryReferences/);
   assert.match(tree, /project-directory-breadcrumb/);
   assert.match(tree, /event\.altKey && event\.key === "ArrowLeft"/);
+  assert.doesNotMatch(tree, /type="search"|project-directory-search/);
   assert.doesNotMatch(tree, /new Set\(props\.groups\.map/);
 });
 

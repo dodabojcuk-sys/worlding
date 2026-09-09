@@ -36,10 +36,13 @@ export function createStoryStudioCanonReadProjection(input: {
   authorControl: AuthorControl;
 }) {
   return {
-    listVerifiedCanonEvents(readInput: { projectId: string }): StoryStudioVerifiedCanonListRead {
+    listVerifiedCanonEvents(readInput: { projectId: string; workVersionId?: string | null }): StoryStudioVerifiedCanonListRead {
       try {
         const events = input.workspace.listWorldObjects({ projectId: readInput.projectId, type: "event" });
-        const eventIds = input.authorControl.listVerifiedCanonEventIds({ projectId: readInput.projectId });
+        const eventIds = input.authorControl.listVerifiedCanonEventIds({
+          projectId: readInput.projectId,
+          ...(readInput.workVersionId !== undefined ? { workVersionId: readInput.workVersionId } : {})
+        });
         const verifiedIds = new Set(eventIds);
         const invalidRecordCount = events.filter((event) =>
           claimsCanonIdentity(event.status, event.tags) && !verifiedIds.has(event.id)
@@ -50,7 +53,7 @@ export function createStoryStudioCanonReadProjection(input: {
       }
     },
 
-    readVerifiedCanonEvent(readInput: { projectId: string; eventId: string }): StoryStudioVerifiedCanonDetailRead {
+    readVerifiedCanonEvent(readInput: { projectId: string; eventId: string; workVersionId?: string | null }): StoryStudioVerifiedCanonDetailRead {
       try {
         if (!input.authorControl.verifyCanonEventRead(readInput)) {
           return {
