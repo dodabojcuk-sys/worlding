@@ -11,6 +11,7 @@ import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
+import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -53,11 +54,16 @@ export function ShellWorkspaceOutlet(props: {
     return <MultiverseB1Workspace runtime={props.runtime} />;
   }
 
+  if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
+    return <MapM1Workspace runtime={props.runtime} />;
+  }
+
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">
     <section className="shell-workspace-stage" data-shell-lab={props.shellLab || undefined}>
       <p className="shell-workspace-eyebrow">{t("workspace.eyebrow")}</p>
       <h1 id="shell-workspace-title">{label}</h1>
       <p className="shell-workspace-summary">{summary}</p>
+      {!props.shellLab && props.destination.id === "world" ? <button type="button" onClick={() => window.location.assign("/world?worldView=map")}>打开地点地图</button> : null}
       {props.directoryObjectId && <p className="shell-workspace-status" data-directory-focus={props.directoryObjectId}>{t("directory.focused")}: {props.directoryObjectId}</p>}
       {props.shellLab && <><div className="shell-workspace-rule" aria-hidden="true" />
         <p className="shell-workspace-status"><span aria-hidden="true" />{t("workspace.ready")}</p>
