@@ -51,8 +51,11 @@ try {
     const health = await getJson("/health");
     if (health?.status !== "healthy") throw new Error("本地 Story Studio API 健康响应无效。");
 
+    const session = await openLocalSession();
+    const modelStatus = await getJson("/model-service/status", session);
+    result.provider = providerIdentityFromStatus(modelStatus);
     result.stage = "checking-nuwa-availability";
-    result.latestProgress = "读取女娲运行能力，不会读取凭据。";
+    result.latestProgress = "已读取当前非秘密 Provider 实例与模型，继续检查女娲运行能力。";
     const bootstrap = await getJson(`/nuwa-n1/bootstrap?projectId=${encodeURIComponent(projectId)}`);
     const availability = bootstrap?.availability || null;
     if (!availability || availability.kind === "unavailable" || availability.kind === "local-fake") {
@@ -64,7 +67,6 @@ try {
       // lower budget.  The script never attempts a second run or retry.
       result.stage = "creating-run";
       result.latestProgress = "通过女娲宿主创建一次有界 Run。";
-      const session = await openLocalSession();
       const operationId = `api-test.${taskId}`;
       const created = await postJson("/nuwa-n1/create", {
         projectId,
@@ -117,8 +119,8 @@ function finish(status, exitCode, progress, failure = null) {
   result.firstFailure = failure;
 }
 
-async function getJson(endpoint) {
-  const response = await fetchWithTimeout(`${baseUrl}${endpoint}`, { headers: { accept: "application/json", origin: originFor(baseUrl) } });
+async function getJson(endpoint, cookie = "") {
+  const response = await fetchWithTimeout(`${baseUrl}${endpoint}`, { headers: { accept: "application/json", origin: originFor(baseUrl), ...(cookie ? { cookie } : {}) } });
   return readResponse(response);
 }
 
@@ -157,6 +159,11 @@ async function readResponse(response) {
 function providerIdentity(run) {
   const profile = run?.providerDispatchEvidence?.find?.((item) => item?.provider)?.provider || run?.dispatches?.find?.((item) => item?.provider)?.provider || null;
   return { profileId: profile?.profileId || null, providerId: profile?.providerId || null, modelId: profile?.modelId || null };
+}
+
+function providerIdentityFromStatus(status) {
+  const profile = status?.profile?.profile || null;
+  return { profileId: profile?.id || profile?.providerInstanceId || null, providerId: profile?.provider || null, modelId: profile?.modelId || null };
 }
 
 function originFor(url) { return new URL(url).origin; }
