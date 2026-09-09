@@ -33,8 +33,13 @@ import type {
   RelationReceipt,
   StoryUnit
 } from "../../lib/localTransport";
-import { readRelation } from "../../lib/localTransport";
+import { listRelations, readRelation } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import {
+  compareRelationsAtWorldTimes,
+  relationWorldTimeOptions,
+  type RelationTemporalComparisonRow
+} from "../../../../../src/storyContracts/relationTemporalComparison.ts";
 import {
   buildEventParticipationProjection,
   type EventTaskPreset
@@ -366,16 +371,47 @@ function RelationshipReader(props: { projectId?: string; relations: readonly Rel
   const [status, setStatus] = useState<"all" | RelationReadProjectionR0["reviewState"]>("all");
   const [direction, setDirection] = useState<"all" | RelationReadProjectionR0["direction"]>("all");
   const [type, setType] = useState("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const types = useMemo(() => [...new Map(props.relations.map((relation) => [relation.relationTypeId, relation.currentTypeLabel ?? relation.relationLabelSnapshot])).entries()].sort((left, right) => left[1].localeCompare(right[1], "zh-CN")), [props.relations]);
-  const visible = useMemo(() => props.relations.filter((relation) => (status === "all" || relation.reviewState === status) && (direction === "all" || relation.direction === direction) && (type === "all" || relation.relationTypeId === type)), [direction, props.relations, status, type]);
+  const [focusObjectId, setFocusObjectId] = useState("all");
+  const [selectedId, setSelectedId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("relationId"));
+  const [ownerRelations, setOwnerRelations] = useState<readonly RelationReadProjectionR0[]>(props.relations);
+  const [historyState, setHistoryState] = useState<"loading" | "ready" | "failed">(props.projectId ? "loading" : "ready");
+  useEffect(() => {
+    let current = true;
+    setOwnerRelations(props.relations);
+    if (!props.projectId) { setHistoryState("ready"); return () => { current = false; }; }
+    setHistoryState("loading");
+    void listRelations({ projectId: props.projectId, includeArchived: true }).then((result) => {
+      if (!current) return;
+      setOwnerRelations(result.relations);
+      setHistoryState("ready");
+    }).catch(() => { if (current) setHistoryState("failed"); });
+    return () => { current = false; };
+  }, [props.projectId, props.relations]);
+  const types = useMemo(() => [...new Map(ownerRelations.map((relation) => [relation.relationTypeId, relation.currentTypeLabel ?? relation.relationLabelSnapshot])).entries()].sort((left, right) => left[1].localeCompare(right[1], "zh-CN")), [ownerRelations]);
+  const scopedRelations = useMemo(() => ownerRelations.filter((relation) => (direction === "all" || relation.direction === direction) && (type === "all" || relation.relationTypeId === type) && (focusObjectId === "all" || relation.sourceObjectId === focusObjectId || relation.targetObjectId === focusObjectId)), [direction, focusObjectId, ownerRelations, type]);
+  const visible = useMemo(() => scopedRelations.filter((relation) => status === "all" || relation.reviewState === status), [scopedRelations, status]);
   const selected = visible.find((relation) => relation.relationId === selectedId) ?? visible[0] ?? null;
   const labels = new Map([...props.objects.map((object) => [object.id, object.label] as const), ...props.events.map((event) => [event.id, event.title] as const)]);
+  const timeOptions = useMemo(() => relationWorldTimeOptions(scopedRelations), [scopedRelations]);
+  const [t1, setT1] = useState("");
+  const [t2, setT2] = useState("");
+  useEffect(() => {
+    setT1((current) => timeOptions.includes(current) ? current : timeOptions[0] ?? "");
+    setT2((current) => timeOptions.includes(current) ? current : timeOptions.at(-1) ?? "");
+  }, [timeOptions]);
+  const invalidRange = Boolean(t1 && t2 && Date.parse(t1) > Date.parse(t2));
+  const comparison = useMemo(() => t1 && t2 && !invalidRange ? compareRelationsAtWorldTimes(scopedRelations, t1, t2) : null, [invalidRange, scopedRelations, t1, t2]);
   return <section className="relation-reader" data-testid="relation-reader" data-provider-calls="0">
-    <header><div><small>关系 R1 · Relation Owner 只读投影</small><h2>关系变化</h2><p>筛选不写入关系；没有有效时间或历史依据时保持“未确定”，不会由当前状态倒推。</p></div><button type="button" onClick={props.onOpenGraph}><GitBranch />打开局部关系图</button></header>
-    <div className="relation-reader-filters" aria-label="关系筛选"><label>状态<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">全部</option><option value="confirmed">正式</option><option value="candidate">待确认</option><option value="rejected">已拒绝</option></select></label><label>方向<select value={direction} onChange={(event) => setDirection(event.target.value as typeof direction)}><option value="all">全部</option><option value="forward">单向</option><option value="reverse">反向</option><option value="both">双向</option><option value="none">未确定</option></select></label><label>类型<select value={type} onChange={(event) => setType(event.target.value)}><option value="all">全部类型</option>{types.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
-    <div className="relation-reader-body"><ol aria-label="当前范围关系">{visible.map((relation) => <li key={relation.relationId}><button type="button" aria-pressed={selected?.relationId === relation.relationId} onClick={() => setSelectedId(relation.relationId)}><strong>{labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} {relationArrow(relation.direction)} {labels.get(relation.targetObjectId) ?? relation.targetObjectId}</strong><span>{relation.currentTypeLabel ?? relation.relationLabelSnapshot} · {relationStatus(relation.reviewState)}</span></button></li>)}{!visible.length ? <li className="relation-reader-empty">当前筛选没有关系。系统不会从人物共现或文本相似度补造边。</li> : null}</ol>{selected ? <RelationDetail projectId={props.projectId} relation={selected} labels={labels} /> : <section className="relation-reader-empty"><p>选择一条关系后查看其类型、证据、有效时间与回执。</p></section>}</div>
+    <header><div><small>关系 N3 · Relation Owner 双时点只读投影</small><h2>关系变化</h2><p>只按同一作品中的故事有效时间比较；系统记录时间、归档动作、人物听闻和图形位置都不会被当成关系变化。</p></div><button type="button" onClick={props.onOpenGraph}><GitBranch />打开局部关系图</button></header>
+    <div className="relation-reader-filters" aria-label="关系筛选"><label>人物或对象<select value={focusObjectId} onChange={(event) => setFocusObjectId(event.target.value)}><option value="all">全部对象</option>{props.objects.map((object) => <option key={object.id} value={object.id}>{object.label}</option>)}</select></label><label>状态<select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">全部</option><option value="confirmed">正式</option><option value="candidate">待确认</option><option value="rejected">已拒绝</option></select></label><label>方向<select value={direction} onChange={(event) => setDirection(event.target.value as typeof direction)}><option value="all">全部方向</option><option value="forward">单向</option><option value="reverse">反向</option><option value="both">双向</option><option value="none">未确定</option></select></label><label>类型<select value={type} onChange={(event) => setType(event.target.value)}><option value="all">全部类型</option>{types.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div>
+    <section className="relation-time-compare" aria-label="关系双时点比较" data-history-state={historyState}><header><div><strong>开始与后来</strong><span>{historyState === "loading" ? "正在读取 Relation Owner 历史…" : historyState === "failed" ? "历史暂不可读；保留当前关系，不把缺失当作 0。" : `${ownerRelations.length} 条 Owner 记录`}</span></div><div><label>开始 T1<select value={t1} disabled={!timeOptions.length} onChange={(event) => setT1(event.target.value)}>{timeOptions.map((time) => <option key={time} value={time}>{worldTimeLabel(time)}</option>)}</select></label><label>后来 T2<select value={t2} disabled={!timeOptions.length} onChange={(event) => setT2(event.target.value)}>{timeOptions.map((time) => <option key={time} value={time}>{worldTimeLabel(time)}</option>)}</select></label></div></header>{comparison ? <RelationComparison comparison={comparison} labels={labels} onSelect={setSelectedId} /> : <p className="relation-reader-empty">{invalidRange ? "开始时间不能晚于后来时间；没有执行倒序推断。" : "当前范围没有可比较的明确世界时间；未知时间关系单独保留，不记为“没有关系”。"}</p>}</section>
+    <div className="relation-reader-body"><ol aria-label="当前范围关系">{visible.map((relation) => <li key={relation.relationId}><button type="button" aria-pressed={selected?.relationId === relation.relationId} onClick={() => setSelectedId(relation.relationId)}><strong>{labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} {relationArrow(relation.direction)} {labels.get(relation.targetObjectId) ?? relation.targetObjectId}</strong><span>{relation.currentTypeLabel ?? relation.relationLabelSnapshot} · {relationStatus(relation.reviewState)}{relation.archived ? " · 归档记录" : ""}</span></button></li>)}{!visible.length ? <li className="relation-reader-empty">当前筛选没有关系。系统不会从人物共现或文本相似度补造边。</li> : null}</ol>{selected ? <RelationDetail projectId={props.projectId} relation={selected} labels={labels} /> : <section className="relation-reader-empty"><p>选择一条关系后查看其类型、证据、有效时间与回执。</p></section>}</div>
   </section>;
+}
+
+function RelationComparison(props: { comparison: ReturnType<typeof compareRelationsAtWorldTimes>; labels: ReadonlyMap<string, string>; onSelect(id: string): void }) {
+  const grouped = (["added", "ended", "changed", "maintained"] as const).map((kind) => ({ kind, rows: props.comparison.rows.filter((row) => row.kind === kind) }));
+  return <div className="relation-comparison-results">{grouped.map((group) => <section key={group.kind} data-kind={group.kind}><header><strong>{relationComparisonKindLabel(group.kind)}</strong><span>{group.rows.length} 项</span></header>{group.rows.length ? <ol>{group.rows.map((row) => <li key={row.lineageId}><button type="button" onClick={() => props.onSelect((row.after ?? row.before)!.relationId)}>{relationComparisonSummary(row, props.labels)}</button></li>)}</ol> : <p>0 项</p>}</section>)}{props.comparison.unknown.length ? <section data-kind="unknown"><header><strong>时间未知</strong><span>{props.comparison.unknown.length} 项</span></header><ol>{props.comparison.unknown.map((item) => <li key={item.relation.relationId}><button type="button" onClick={() => props.onSelect(item.relation.relationId)}>{relationEndpoints(item.relation, props.labels)} · 未纳入前后归零</button></li>)}</ol></section> : null}{props.comparison.conflicts.length ? <section data-kind="conflict"><header><strong>时间冲突</strong><span>{props.comparison.conflicts.length} 组</span></header><ol>{props.comparison.conflicts.map((item) => <li key={`${item.lineageId}:${item.at}`}>{item.at.toUpperCase()} 同时命中 {item.relations.length} 条正式记录；未强行排序</li>)}</ol></section> : null}</div>;
 }
 
 function RelationDetail(props: { projectId?: string; relation: RelationReadProjectionR0; labels: ReadonlyMap<string, string> }) {
@@ -392,7 +428,37 @@ function RelationDetail(props: { projectId?: string; relation: RelationReadProje
     }).catch(() => { if (current) setHistoryError("回执历史暂不可读；当前关系详情保持不变。"); });
     return () => { current = false; };
   }, [props.projectId, relation.relationId]);
-  return <aside className="relation-reader-detail" aria-label="关系详情"><header><small>{relation.reviewState === "confirmed" ? "正式关系" : relation.reviewState === "candidate" ? "待确认关系" : "已拒绝关系"}</small><h3>{props.labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} {relationArrow(relation.direction)} {props.labels.get(relation.targetObjectId) ?? relation.targetObjectId}</h3></header><dl><div><dt>关系类型</dt><dd>{relation.currentTypeLabel ?? "待绑定"}{relation.relationTypeResolution === "unresolved" ? " · 未解析" : ""}</dd></div><div><dt>方向</dt><dd>{directionLabel(relation.direction)}</dd></div><div><dt>故事有效时间</dt><dd>{temporal ? `${temporal.validFrom ?? "未确定"} — ${temporal.validTo ?? "未确定"} · ${temporal.confidence}` : "未提供；不能从记录时间推断"}</dd></div><div><dt>来源依据</dt><dd>{relation.evidenceRefs.length ? relation.evidenceRefs.map((reference) => reference.kind).join("；") : "暂无可读依据"}</dd></div><div><dt>依据状态</dt><dd>{relation.evidenceWarnings.length ? relation.evidenceWarnings.map((warning) => warning.message).join("；") : "当前可用"}</dd></div><div><dt>变更回执</dt><dd>{relation.decisionReceipt ? `${relation.decisionReceipt.action} · ${relation.decisionReceipt.timestamp}` : "该阶段尚未采集决策回执"}</dd></div></dl><section className="relation-reader-history" aria-label="关系回执历史"><h4>回执历史</h4>{historyError ? <p role="status">{historyError}</p> : receipts === null ? <p>正在读取 Relation Owner 回执…</p> : receipts.length ? <ol>{receipts.map((receipt) => <li key={receipt.receiptId}><strong>{receipt.action}</strong><span>{receipt.timestamp} · r{receipt.resultRevision}</span></li>)}</ol> : <p>Relation Owner 未返回该关系的历史回执。</p>}</section><p>关系的记录时间只用于审计；角色的怀疑或误解仍属于人物知情/信念投影，不会自动改变本关系。</p></aside>;
+  const eventIds = relation.evidenceRefs.flatMap(confirmedEventId);
+  const nuwaRunId = relationNuwaRunId(relation);
+  return <aside className="relation-reader-detail" aria-label="关系详情">
+    <header><small>{relation.reviewState === "confirmed" ? "正式关系" : relation.reviewState === "candidate" ? "待确认关系" : "已拒绝关系"}</small><h3>{relationEndpoints(relation, props.labels)}</h3></header>
+    <dl><div><dt>关系类型</dt><dd>{relation.currentTypeLabel ?? "待绑定"}{relation.relationTypeResolution === "unresolved" ? " · 未解析" : ""}</dd></div><div><dt>方向</dt><dd>{directionLabel(relation.direction)}</dd></div><div><dt>故事有效时间</dt><dd>{temporal ? `${temporal.validFrom ?? "未确定"} — ${temporal.validTo ?? "未确定"} · ${temporal.confidence}` : "未提供；不能从记录时间推断"}</dd></div><div><dt>来源依据</dt><dd>{relation.evidenceRefs.length ? relation.evidenceRefs.map((reference) => reference.kind).join("；") : "暂无可读依据"}</dd></div><div><dt>依据状态</dt><dd>{relation.evidenceWarnings.length ? relation.evidenceWarnings.map((warning) => warning.message).join("；") : "当前可用"}</dd></div><div><dt>变更回执</dt><dd>{relation.decisionReceipt ? `${relation.decisionReceipt.action} · ${relation.decisionReceipt.timestamp}` : "该阶段尚未采集决策回执"}</dd></div></dl>
+    {eventIds.length || nuwaRunId ? <nav className="relation-reader-source-links" aria-label="关系来源定位">{eventIds.map((eventId) => <button type="button" key={eventId} onClick={() => window.location.assign(`/event-line?eventTask=story&eventId=${encodeURIComponent(eventId)}`)}>查看正式 Event 证据</button>)}{nuwaRunId ? <button type="button" onClick={() => window.location.assign(`/nuwa?${new URLSearchParams({ ...(props.projectId ? { projectId: props.projectId } : {}), runId: nuwaRunId }).toString()}`)}>回到女娲应用结果</button> : null}</nav> : null}
+    <section className="relation-reader-history" aria-label="关系回执历史"><h4>回执历史</h4>{historyError ? <p role="status">{historyError}</p> : receipts === null ? <p>正在读取 Relation Owner 回执…</p> : receipts.length ? <ol>{receipts.map((receipt) => <li key={receipt.receiptId}><strong>{receipt.action}</strong><span>{receipt.timestamp} · r{receipt.resultRevision}</span></li>)}</ol> : <p>Relation Owner 未返回该关系的历史回执。</p>}</section>
+    <p>关系的记录时间只用于审计；归档也不会自动变成故事终止时点。角色的怀疑、听闻或误解仍属于人物投影，不会自动改变本关系。</p>
+  </aside>;
+}
+
+function relationComparisonKindLabel(kind: RelationTemporalComparisonRow["kind"]): string { return ({ added: "新增", ended: "结束", changed: "改变", maintained: "保持" } as const)[kind]; }
+function relationComparisonSummary(row: RelationTemporalComparisonRow, labels: ReadonlyMap<string, string>): string {
+  const current = row.after ?? row.before!;
+  const before = row.before ? row.before.currentTypeLabel ?? row.before.relationLabelSnapshot : "无";
+  const after = row.after ? row.after.currentTypeLabel ?? row.after.relationLabelSnapshot : "无";
+  return `${relationEndpoints(current, labels)} · ${before} → ${after}`;
+}
+function relationEndpoints(relation: RelationReadProjectionR0, labels: ReadonlyMap<string, string>): string { return `${labels.get(relation.sourceObjectId) ?? relation.sourceObjectId} ${relationArrow(relation.direction)} ${labels.get(relation.targetObjectId) ?? relation.targetObjectId}`; }
+function worldTimeLabel(value: string): string { return new Date(value).toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+function confirmedEventId(reference: { kind: string; [key: string]: unknown }): string[] {
+  if (reference.kind !== "confirmed-event") return [];
+  const nested = reference.reference;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return [];
+  const eventId = (nested as Record<string, unknown>).eventId;
+  return typeof eventId === "string" && eventId ? [eventId] : [];
+}
+function relationNuwaRunId(relation: RelationReadProjectionR0): string | null {
+  const sourceRef = typeof relation.provenance.sourceRef === "string" ? relation.provenance.sourceRef : "";
+  const match = sourceRef.match(/^nuwa-n1:([^:]+):/u);
+  return match?.[1] ?? null;
 }
 
 function relationArrow(direction: RelationReadProjectionR0["direction"]) { return direction === "forward" ? "→" : direction === "reverse" ? "←" : direction === "both" ? "↔" : "—"; }
