@@ -614,9 +614,17 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const revisionHistory = artifact ? operations.getDocumentRevisionHistory({ projectId, ref: { kind: "artifact", id: artifact.id } }) : null;
     const authorText = artifact ? artifactAuthorText(artifact) : "";
     const reconciliationReceipt = binding?.sourceReconciliationReceipt || null;
-    const compare = root && binding && !reconciliationReceipt && root.identity.currentRevision >= 3 && binding.pinnedRevision < root.identity.currentRevision
-      ? await sourceDriftCompare(projectId, options)
-      : null;
+    let compare = null;
+    if (root && binding && !reconciliationReceipt && root.identity.currentRevision >= 3 && binding.pinnedRevision < root.identity.currentRevision) {
+      try { compare = await sourceDriftCompare(projectId, options); }
+      catch (error) {
+        // A pinned snapshot stays downloadable even if a later, unrelated
+        // current-source compare cannot be constructed.  Expose the precise
+        // compare failure rather than erasing the fixed artifact itself.
+        if (packageMode !== "pinned-artifact") throw error;
+        compare = { status: "unavailable", message: String(error?.message || error) };
+      }
+    }
     const reconciliationComplete = Boolean(reconciliationReceipt && root?.identity.currentRevision === 4 && binding?.pinnedRevision === 3);
     return {
       version: "tianyan-project-scoped-creation-source-port/r0",
