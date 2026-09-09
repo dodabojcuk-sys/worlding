@@ -13,6 +13,9 @@ test("character inspector exposes one consistent edit affordance without a secon
   assert.match(inspector, /edit\(t\("character\.aliases"\)\)/);
   assert.match(inspector, /edit\(t\("character\.tag"\)\)/);
   assert.match(inspector, /character-inspector-header-actions/);
+  assert.match(inspector, /listRelations\(\{ projectId: props\.runtime\.project\.id, objectId: props\.objectId, reviewState: "confirmed" \}\)/);
+  assert.match(inspector, /这里读取 Relation Owner 的已确认记录/);
+  assert.match(inspector, /图谱引用不等于 Relation Owner 中的正式关系/);
   assert.match(styles, /\.character-inspector-edit[\s\S]*border: 1px solid transparent/);
   assert.match(styles, /\.character-inspector-header-actions > button[\s\S]*background: transparent[\s\S]*border: 1px solid var\(--color-border\)/);
   assert.match(styles, /\.character-inspector \{[\s\S]*width: min\(19rem/);
