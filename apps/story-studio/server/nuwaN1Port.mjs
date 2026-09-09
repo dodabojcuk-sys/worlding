@@ -441,7 +441,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       }
       if (impact.status !== "selected") throw failure("自动影响审查没有形成可写入的路线。", 409);
       if (!application.changeSetId) {
-        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, decisionSource: "nuwa-scope-authorization", authorizationId: prepared.authorization.id });
+        const changeSet = authorControl.createAuthorChangeSet({ projectId: project.id, reviewId: impact.id, workVersionId: current.sourceIdentity.workVersionId, decisionSource: "nuwa-scope-authorization", authorizationId: prepared.authorization.id });
         application.changeSetId = changeSet.id;
         persistAutoApplication(receipt);
       }
