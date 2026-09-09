@@ -58,5 +58,7 @@ test("B1 C keeps a resumable Owner-receipt boundary and rejects a changed replay
   execution = finishMultiverseB1Merge({ execution, resultVersion: { workVersionId: target.workVersionId, revision: 5, manifestDigest: "merged-manifest" } });
   assert.equal(execution.status, "applied");
   assert.throws(() => recordMultiverseB1OwnerResult({ execution, ownerKind: "Event", changeId: "multiverse-b1.event.event.key-transfer", receiptRef: "changeset:other", targetRef: "event:event-1" }), /Cannot write/u);
-  assert.equal(finishMultiverseB1Compensation(beginMultiverseB1Compensation(execution)).status, "compensated");
+  const compensated = finishMultiverseB1Compensation({ execution: beginMultiverseB1Compensation(execution), resultVersion: { workVersionId: target.workVersionId, revision: 6, manifestDigest: "compensated-manifest" } });
+  assert.equal(compensated.status, "compensated");
+  assert.equal(compensated.compensationResultVersion?.revision, 6);
 });

@@ -75,6 +75,9 @@ export type MultiverseMergeExecution = {
   status: MultiverseMergeExecutionStatus;
   ownerReceipts: MultiverseMergeOwnerReceipt[];
   resultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+  /** A later compensation revision.  The original merge result remains
+   * historical evidence and is never rewritten. */
+  compensationResultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
   failure: string | null;
 };
 
@@ -133,7 +136,7 @@ export function planMultiverseB1Merge(input: { comparison: MultiverseComparison;
 export function beginMultiverseB1Merge(plan: MultiverseMergePlan): MultiverseMergeExecution {
   return {
     schemaVersion: "tianyan-multiverse-b1-merge-execution/v1",
-    plan: clone(plan), status: "planned", ownerReceipts: [], resultVersion: null, failure: null
+    plan: clone(plan), status: "planned", ownerReceipts: [], resultVersion: null, compensationResultVersion: null, failure: null
   };
 }
 
@@ -155,7 +158,7 @@ export function recordMultiverseB1OwnerResult(input: { execution: MultiverseMerg
 
 export function markMultiverseB1MergeRecovery(execution: MultiverseMergeExecution, failure: string): MultiverseMergeExecution {
   const next = clone(execution);
-  if (!["planned", "applying", "recovery-required"].includes(next.status)) throw new Error(`Cannot recover merge in ${next.status}.`);
+  if (!["planned", "applying", "recovery-required", "compensating"].includes(next.status)) throw new Error(`Cannot recover merge in ${next.status}.`);
   next.status = "recovery-required";
   next.failure = requiredText(failure, "failure");
   return next;
@@ -184,11 +187,26 @@ export function beginMultiverseB1Compensation(execution: MultiverseMergeExecutio
   return next;
 }
 
-export function finishMultiverseB1Compensation(execution: MultiverseMergeExecution): MultiverseMergeExecution {
+/** A compensation interruption is resumable only when the original merge had
+ * already recorded its exact target version.  This cannot turn an incomplete
+ * application receipt into a compensation attempt. */
+export function resumeMultiverseB1Compensation(execution: MultiverseMergeExecution): MultiverseMergeExecution {
+  const next = clone(execution);
+  if (next.status === "compensating") return next;
+  if (next.status !== "recovery-required" || !next.resultVersion) throw new Error("Only an interrupted completed B1 merge can resume compensation.");
+  next.status = "compensating";
+  next.failure = null;
+  return next;
+}
+
+export function finishMultiverseB1Compensation(input: { execution: MultiverseMergeExecution; resultVersion: { workVersionId: string; revision: number; manifestDigest: string } }): MultiverseMergeExecution {
+  const execution = input.execution;
   const next = clone(execution);
   if (next.status === "compensated") return next;
   if (next.status !== "compensating") throw new Error("B1 compensation has not started.");
+  if (input.resultVersion.workVersionId !== next.plan.target.workVersionId || !Number.isSafeInteger(input.resultVersion.revision) || !input.resultVersion.manifestDigest) throw new Error("B1 compensation result does not bind to its target WorkVersion.");
   next.status = "compensated";
+  next.compensationResultVersion = clone(input.resultVersion);
   return next;
 }
 
