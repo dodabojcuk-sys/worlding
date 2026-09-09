@@ -257,6 +257,10 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(automatic.automaticApplication.worldStateChanges.length, 1);
   const transferred = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
   assert.deepEqual(transferred.value, { kind: "holder", state: "held", holder: { id: value.characters[1]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[1]!.id }).revisionToken } });
+  const rolledBack = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", { projectId: value.project.id, runId: stepped.run.runId, receiptId: automatic.automaticApplication.receiptId, operationId: "n4-state-handoff-rollback" });
+  assert.equal(rolledBack.status, 200, JSON.stringify(rolledBack.payload));
+  const restored = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
+  assert.deepEqual(restored.value, { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[0]!.id }).revisionToken } });
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {

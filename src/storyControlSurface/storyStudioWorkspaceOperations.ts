@@ -35,7 +35,7 @@ import {
 import { stableJson } from "../storyContinuity/continuityValidation.ts";
 import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import { createObjectCatalog, type CatalogLifecycleSource } from "../storyWorkspace/objectCatalog.ts";
-import { appendWorldStateN4Change, emptyWorldStateN4Store, normalizeWorldStateN4Store, projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Store, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
+import { appendWorldStateN4Change, compensationValueForWorldStateN4, emptyWorldStateN4Store, normalizeWorldStateN4Store, projectWorldStateN4, type WorldStateN4Evidence, type WorldStateN4Store, type WorldStateN4Value } from "../storyContracts/worldStateN4.ts";
 import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction.ts";
 import {
   applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
@@ -1523,6 +1523,17 @@ export function createStoryStudioWorkspaceOperations(input: {
       rememberObject(projectPath, note.relativePath);
       recordCanonicalRevision(projectPath, { kind: "object", id: subject.id }, "save", null, stateInput.operationId);
       return clone({ ...result, projection: projectWorldStateN4({ store: result.store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
+    },
+
+    compensateWorldStateN4(stateInput: { projectId: string; objectId: string; expectedObjectRevision: string; expectedRevision: number; operationId: string; compensatesChangeId: string; effectiveAt: string; evidence: WorldStateN4Evidence; now: string }) {
+      const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
+      const subject = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
+      const store = readWorldStateN4Store(projectPath, subject.id);
+      const prior = store.changes.find((change) => change.operationId === stateInput.operationId);
+      if (prior) return clone({ store, change: prior, idempotent: true, projection: projectWorldStateN4({ store, subjectId: subject.id, observedAt: stateInput.effectiveAt }) });
+      const compensation = compensationValueForWorldStateN4({ store, changeId: stateInput.compensatesChangeId });
+      if (compensation.subject.id !== subject.id) throw new Error("World state compensation does not belong to this object.");
+      return this.applyWorldStateN4({ ...stateInput, expectedObjectRevision: stateInput.expectedObjectRevision, expectedRevision: stateInput.expectedRevision, value: compensation.value, compensatesChangeId: compensation.compensatesChangeId });
     },
 
     openWorldObject(objectInput: { projectId: string; objectId: string }): StoryStudioWorldObject {

@@ -584,7 +584,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         return presentAutoApplication(project.id, current, receipt);
       }
     } else {
-      rollback = { operationId, inputHash, status: "applying", preflight: null, relation: null, arrangement: null, storyUnit: null, material: null, compensation: null, workVersionReceiptId: null, resultVersion: null, failure: null, recordedAt: now(), updatedAt: now() };
+      rollback = { operationId, inputHash, status: "applying", preflight: null, relation: null, arrangement: null, storyUnit: null, material: null, compensation: null, worldStateChanges: [], workVersionReceiptId: null, resultVersion: null, failure: null, recordedAt: now(), updatedAt: now() };
       application.rollback = rollback;
       persistAutoApplication(receipt);
     }
@@ -602,6 +602,12 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         if (application.relationId && (!relation || relation.archived || relation.reviewState !== "confirmed")) throw failure("本批 Relation 已变化；未开始回溯。", 409);
         const material = operations.readWorldObject({ projectId: project.id, objectId: application.materialObjectId });
         if (!material || material.status === "archived") throw failure("本批资料已变化；未开始回溯。", 409);
+        const worldState = (application.worldStateChanges ?? []).map((change) => {
+          const projection = operations.readWorldStateN4({ projectId: project.id, objectId: change.objectId, observedAt: now() });
+          const object = operations.readWorldObject({ projectId: project.id, objectId: change.objectId });
+          if (!projection.change || projection.change.changeId !== change.changeId) throw failure("本批对象状态已有后续作者修改；为保护新状态，未开始回溯。", 409);
+          return { objectId: change.objectId, objectRevision: object.revisionToken, changeId: change.changeId, revision: projection.change.revision };
+        });
         rollback.preflight = {
           baseVersion: application.resultVersion,
           storyUnitVersion: storyUnit.version,
@@ -609,7 +615,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
           materialRevision: material.revisionToken,
           arrangementRevision: arrangement.arrangement.currentRevision,
           arrangementOwnerVersion: arrangement.ownerVersion,
-          arrangementTargetRevision: insertReceipt.beforeRevision
+          arrangementTargetRevision: insertReceipt.beforeRevision,
+          worldState
         };
         persistAutoApplication(receipt);
       }
@@ -665,8 +672,17 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         rollback.compensation = { planningEventId: planning.id, impactReviewId: impact.id, changeSetId: changeSet.id, eventId: applied.application.appliedEventId };
         persistAutoApplication(receipt);
       }
+      if (!Array.isArray(rollback.worldStateChanges)) rollback.worldStateChanges = [];
+      for (const state of preflight.worldState ?? []) {
+        if (rollback.worldStateChanges.some((change) => change.objectId === state.objectId && change.compensatesChangeId === state.changeId)) continue;
+        const current = operations.readWorldObject({ projectId: project.id, objectId: state.objectId });
+        if (current.revisionToken !== state.objectRevision) throw failure("对象状态版本已变化；已停止回溯以保护后续作者修改。", 409);
+        const compensated = operations.compensateWorldStateN4({ projectId: project.id, objectId: state.objectId, expectedObjectRevision: current.revisionToken, expectedRevision: state.revision, operationId: `${rollback.operationId}.world-state.${state.changeId}`, compensatesChangeId: state.changeId, effectiveAt: now(), evidence: { kind: "confirmed-event", event: { id: rollback.compensation.eventId, revision: operations.readWorldObject({ projectId: project.id, objectId: rollback.compensation.eventId }).revisionToken } }, now: now() });
+        rollback.worldStateChanges.push({ objectId: state.objectId, changeId: compensated.change.changeId, compensatesChangeId: state.changeId, revision: compensated.change.revision });
+        persistAutoApplication(receipt);
+      }
       if (!rollback.workVersionReceiptId) {
-        const version = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: preflight.baseVersion.revision, authorActionId: `${rollback.operationId}.author`, idempotencyKey: `${rollback.operationId}.result-version`, createdAt: now(), semanticDeltaRefs: [`compensation-of:${receipt.receiptId}`, `event:${rollback.compensation.eventId}`, `archived-material:${application.materialObjectId}`, ...(application.relationId ? [`archived-relation:${application.relationId}`] : []), `rolled-back-placement:${application.narrativePlacementIds.join(",")}`] });
+        const version = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: preflight.baseVersion.revision, authorActionId: `${rollback.operationId}.author`, idempotencyKey: `${rollback.operationId}.result-version`, createdAt: now(), semanticDeltaRefs: [`compensation-of:${receipt.receiptId}`, `event:${rollback.compensation.eventId}`, `archived-material:${application.materialObjectId}`, ...(application.relationId ? [`archived-relation:${application.relationId}`] : []), ...rollback.worldStateChanges.map((change) => `compensated-world-state:${change.objectId}:${change.compensatesChangeId}`), `rolled-back-placement:${application.narrativePlacementIds.join(",")}`] });
         rollback.workVersionReceiptId = version.receipt.receiptId;
         rollback.resultVersion = { workVersionId: version.identity.workVersionId, revision: version.identity.currentRevision };
         persistAutoApplication(receipt);
