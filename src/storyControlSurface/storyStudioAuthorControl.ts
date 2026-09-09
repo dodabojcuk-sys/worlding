@@ -49,6 +49,7 @@ import {
   type StoryStudioWorldObject
 } from "./storyStudioWorkspaceOperations.ts";
 import { createStoryStudioRelationOperations } from "./storyStudioRelationOperations.ts";
+import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 import type { DraftCreationReceipt, PredictionRun, PredictionRelationReceiptItem } from "../storyContracts/multiNodePrediction.ts";
 
 const REVIEW_VERSION = "story-studio-impact-review/v1";
@@ -146,7 +147,12 @@ type PersistedAuthorChangeSet = {
   changeSetId: string;
   reviewId: string;
   projectId: string;
-  workVersionId: string | null;
+  /**
+   * Absent only in Change Sets written before IF provenance existed.  Keep
+   * that distinction while reading: adding a synthetic null would change the
+   * historical intent hash and make an already-applied record unverifiable.
+   */
+  workVersionId?: string | null;
   source: PersistedReviewSource;
   sourceScene?: { id: string; relativeId: string; title: string };
   baseline: {
@@ -176,7 +182,8 @@ type PersistedApplyIntent = {
   version: typeof APPLY_INTENT_VERSION;
   contractVersion: typeof APPLY_CONTRACT_VERSION;
   projectId: string;
-  workVersionId: string | null;
+  /** Absent for the pre-IF intent format; see PersistedAuthorChangeSet. */
+  workVersionId?: string | null;
   changeSetId: string;
   changeSetRevision: string;
   authorDecisionRef: string;
@@ -323,6 +330,8 @@ export type StoryStudioAuthorChangeSet = {
   version: "story-studio-author-change-set-product/v1";
   id: string;
   reviewId: string;
+  /** null is the mainline; a stable id identifies the IF that owns this result. */
+  workVersionId: string | null;
   status: "pending" | "applying" | "applied" | "abandoned" | "stale";
   source: { sceneId: string; sceneTitle: string };
   affectedNoteIds: string[];
@@ -960,14 +969,14 @@ export function createStoryStudioAuthorControl(input: {
       if (artifact.status === "applied") {
         if (!existingIntent) {
           validateLegacyAppliedEvent(workspace, artifact);
-          if (artifact.application.appliedEventId) workspace.projectConfirmedEventToTimeline({ projectId: artifact.projectId, eventId: artifact.application.appliedEventId });
+          if (artifact.application.appliedEventId) projectConfirmedEventToMainlineTimeline(workspace, artifact.projectId, artifact.workVersionId, artifact.application.appliedEventId);
           return projectChangeSet(artifact, false);
         }
         if (!sameApplyIntent(existingIntent, buildApplyIntent(artifact))) {
           throw applyError("APPLY_INTENT_MISMATCH", "已应用变更单与冻结写入意图不一致，禁止静默接受。");
         }
         validateAppliedEvent(workspace, artifact, existingIntent);
-        if (artifact.application.appliedEventId) workspace.projectConfirmedEventToTimeline({ projectId: artifact.projectId, eventId: artifact.application.appliedEventId });
+        if (artifact.application.appliedEventId) projectConfirmedEventToMainlineTimeline(workspace, artifact.projectId, artifact.workVersionId, artifact.application.appliedEventId);
         return projectChangeSet(artifact, false);
       }
       if (artifact.status === "abandoned") throw new Error("已放弃的受保护变更单不能写入。");
@@ -1049,7 +1058,7 @@ export function createStoryStudioAuthorControl(input: {
       writeChangeSet(projectPath, applied, (boundary) => {
         emitApplyFault(input, boundary === "temporary-durable" ? "applied-temporary-durable" : "applied-final-published", intent);
       });
-      workspace.projectConfirmedEventToTimeline({ projectId: applied.projectId, eventId: publication.event.id });
+      projectConfirmedEventToMainlineTimeline(workspace, applied.projectId, intent.workVersionId, publication.event.id);
       emitApplyFault(input, "after-applied-durable", intent);
       emitApplyFault(input, "before-response", intent);
       return projectChangeSet(applied, false);
@@ -1968,12 +1977,19 @@ function previewAfter(preview: NonNullable<PersistedImpactReview["preview"]>): s
 }
 
 function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyIntent {
+  // Do not normalize a missing legacy field to null.  It is part of the
+  // content-addressed intent and doing so would invalidate a durable,
+  // previously-applied receipt.  Newly-created Change Sets always carry an
+  // explicit null (root) or a stable WorkVersion id (IF).
+  const versionBinding = artifact.workVersionId === undefined
+    ? {}
+    : { workVersionId: artifact.workVersionId };
   const changeSetRevision = stableHash({
     version: artifact.version,
     changeSetId: artifact.changeSetId,
     reviewId: artifact.reviewId,
     projectId: artifact.projectId,
-    workVersionId: artifact.workVersionId,
+    ...versionBinding,
     source: artifact.source,
     baseline: artifact.baseline,
     affectedNoteIds: artifact.affectedNoteIds,
@@ -1996,7 +2012,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
   const applyOperationKey = `author-change-set-apply-${stableHash({
     contractVersion: APPLY_CONTRACT_VERSION,
     projectId: artifact.projectId,
-    workVersionId: artifact.workVersionId,
+    ...versionBinding,
     changeSetId: artifact.changeSetId,
     changeSetRevision,
     authorDecisionRef
@@ -2037,6 +2053,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     version: APPLY_INTENT_VERSION,
     contractVersion: APPLY_CONTRACT_VERSION,
     projectId: artifact.projectId,
+    ...versionBinding,
     changeSetId: artifact.changeSetId,
     changeSetRevision,
     authorDecisionRef,
@@ -2288,6 +2305,27 @@ function buildCanonEventReadIndex(
   return { projectPath, events, eventsById, eventsByOperation };
 }
 
+/**
+ * A derived WorkVersion owns a separate narrative arrangement.  Its confirmed
+ * Event is still a real Author-Control result, but it must not be projected
+ * into the root Timeline merely because the underlying Event directory is
+ * shared.  Old Change Sets have no version binding and retain the historical
+ * mainline projection behaviour.
+ */
+function projectConfirmedEventToMainlineTimeline(
+  workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
+  projectId: string,
+  workVersionId: string | null | undefined,
+  eventId: string
+): void {
+  if (typeof workVersionId === "string") {
+    const projectPath = workspace.resolveProjectWorkspacePath({ projectId });
+    const version = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath }).getVersion(workVersionId);
+    if (version.identity.kind === "derived") return;
+  }
+  workspace.projectConfirmedEventToTimeline({ projectId, eventId });
+}
+
 function validateLegacyAppliedEvent(
   workspace: ReturnType<typeof createStoryStudioWorkspaceOperations>,
   artifact: PersistedAuthorChangeSet
@@ -2401,6 +2439,7 @@ function projectChangeSet(artifact: PersistedAuthorChangeSet, stale: boolean): S
     version: "story-studio-author-change-set-product/v1",
     id: artifact.changeSetId,
     reviewId: artifact.reviewId,
+    workVersionId: artifact.workVersionId ?? null,
     status,
     source: { sceneId: artifact.source.kind === "scene" ? artifact.source.id : "", sceneTitle: artifact.source.title },
     affectedNoteIds: artifact.affectedNoteIds,

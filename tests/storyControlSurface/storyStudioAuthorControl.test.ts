@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { AuthorChangeSetApplyError, createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { readNuwaRunPack, readNuwaStandaloneSandboxContext } from "../../src/storyIntelligence/nuwaRunPack.ts";
 import { NUWA_AUTHOR_LOOP_SEEDS } from "../../src/storyIntelligence/storyIntelligenceTypes.ts";
 
@@ -247,6 +248,50 @@ test("author-approved Change Set dry-runs, persists, and applies exactly one eve
     assert.equal(fixture.control.applyAuthorChangeSet({ projectId: fixture.projectId, changeSetId: changeSet.id }).application.appliedEventId, applied.application.appliedEventId);
     const timelineAfterReplay = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents.find((document) => document.type === "timeline");
     assert.equal((timelineAfterReplay?.content.entries as Array<{ eventId: string }>).filter((entry) => entry.eventId === applied.application.appliedEventId).length, 1);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("an IF Change Set freezes its WorkVersion identity and never projects its Event into the mainline timeline", () => {
+  const fixture = createFixture();
+  try {
+    const base = createVerifiedCanon(fixture, "版本基点事件");
+    fixture.workspace.createStoryUnit({ projectId: fixture.projectId, title: "铁门前的主线", linkedEntityIds: [base.canon.id] });
+    const versions = createCreationSourceSelectionPort({ operations: fixture.workspace });
+    const root = versions.createRoot(fixture.projectId);
+    const derived = versions.createDerivedWorkVersion(fixture.projectId, {
+      displayName: "阿岚先保管钥匙",
+      parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision,
+      expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.test.if-change-set",
+      idempotencyKey: "author-control-if-change-set-0001",
+      createdAt: "2026-09-09T12:00:00.000Z"
+    });
+    const planning = fixture.workspace.createWorldObject({
+      projectId: fixture.projectId,
+      type: "event",
+      title: "阿岚先保管钥匙",
+      status: "planned",
+      tags: ["作者规划"]
+    });
+    const review = fixture.control.createPlanningEventImpactReview({ projectId: fixture.projectId, planningEventId: planning.id });
+    fixture.control.chooseImpactRoute({ projectId: fixture.projectId, reviewId: review.id, optionId: review.options[0]!.id, action: "adopt" });
+    const changeSet = fixture.control.createAuthorChangeSet({
+      projectId: fixture.projectId,
+      reviewId: review.id,
+      workVersionId: derived.identity.workVersionId
+    });
+    const applied = fixture.control.applyAuthorChangeSet({ projectId: fixture.projectId, changeSetId: changeSet.id });
+    assert.equal(applied.status, "applied");
+    assert.equal(applied.workVersionId, derived.identity.workVersionId);
+    const intentPath = path.join(fixture.projectPath, ".world-os", "author-control", "change-sets", `${changeSet.id}.apply-intent.v1.json`);
+    assert.equal(JSON.parse(readFileSync(intentPath, "utf8")).workVersionId, derived.identity.workVersionId);
+    const event = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: applied.application.appliedEventId! });
+    assert.equal(event.properties.story_work_version_id, derived.identity.workVersionId);
+    const timeline = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents.find((document) => document.type === "timeline");
+    assert.equal((timeline?.content.entries as Array<{ eventId: string }> | undefined)?.some((entry) => entry.eventId === event.id) ?? false, false);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
