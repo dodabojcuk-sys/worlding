@@ -374,6 +374,9 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     if (!sourceVersion || sourceVersion.identity.workVersionId !== current.sourceIdentity.workVersionId || sourceVersion.identity.currentRevision !== Number(current.sourceIdentity.revision)) {
       throw failure("排演来源版本已变化；没有执行任何正式写入。", 409);
     }
+    if (sourceVersion.identity.kind === "derived") {
+      throw failure("该 IF 已可排演并冻结 N4 状态，但正式 Event/Relation 仍未具备版本作用域；为避免改写主线，本次结果只能进入候选与 B1-C 融入审查。", 409);
+    }
     const relationType = authorization.relationTypeId ? relationOperations?.resolveRelationType({ projectId: project.id, relationTypeId: authorization.relationTypeId }) : null;
     if (authorization.relationTypeId && (!relationType || relationType.lifecycle !== "active" || relationType.typeRevision !== authorization.relationTypeRevision)) throw failure("已授权的关系类型已变更或停用；已阻止本次自动关系写入。", 409);
     return { authorization, storyUnit, relationType, sourceVersion };

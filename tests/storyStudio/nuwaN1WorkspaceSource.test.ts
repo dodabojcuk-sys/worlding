@@ -47,6 +47,7 @@ test("MULTI-B1 lets an author bind a Nuwa Run to an explicit active IF version",
   assert.match(server, /"workVersionId"/u);
   assert.match(server, /resolveWorkVersion\(projectId, requestedWorkVersionId\)/u);
   assert.match(runtime, /"root" \| "derived" \| "unversioned-draft"/u);
+  assert.match(source("apps/story-studio/server/nuwaN1Port.mjs"), /正式 Event\/Relation 仍未具备版本作用域/u, "derived automatic apply must fail closed until those Owners are version-scoped");
 });
 
 test("Nuwa N1 follow-up derives completion copy from returned state and revalidates durable authorization", () => {
