@@ -102,15 +102,15 @@
       "id": "project-scoped-work-version-authority-r0",
       "status": "PRODUCTION_CONNECTED",
       "maturity": "immutable-snapshot-manifest-ledger-with-frozen-if-semantic-comparison-and-merge-planning",
-      "entrypoints": ["src/storyWorkspace/workVersionAuthority.ts"],
-      "sourceFiles": ["src/storyWorkspace/storyWorkspaceRepository.mjs", "src/storyWorkspace/workVersionSnapshotResolver.ts", "src/storyWorkspace/multiverseB1.ts", "src/storyControlSurface/atomicNoReplaceFile.ts"],
+      "entrypoints": ["src/storyWorkspace/workVersionAuthority.ts", "apps/story-studio/server/creationSourceSelectionPort.mjs", "apps/story-studio/server/server.mjs"],
+      "sourceFiles": ["src/storyWorkspace/storyWorkspaceRepository.mjs", "src/storyWorkspace/workVersionSnapshotResolver.ts", "src/storyWorkspace/multiverseB1.ts", "src/storyControlSurface/atomicNoReplaceFile.ts", "apps/story-studio/src/lib/localTransport.ts"],
       "domainOwners": ["src/storyWorkspace/workVersionAuthority.ts"],
       "stateOwners": ["src/storyWorkspace/workVersionAuthority.ts"],
       "persistenceOwner": "One project-scoped WorkVersion child aggregate owns version identity, lineage, immutable manifests, append-only revisions, receipts, integrity and recovery only; Project and all story facts remain in existing owners",
       "providerDependency": "none",
-      "tests": ["tests/storyWorkspace/workVersionAuthorityR0.test.ts", "tests/storyWorkspace/multiverseB1.test.ts"],
+      "tests": ["tests/storyWorkspace/workVersionAuthorityR0.test.ts", "tests/storyWorkspace/multiverseB1.test.ts", "tests/storyStudio/workVersionBoundCreationOutputArtifactR0.test.ts"],
       "legacyProvenance": ["TIANYAN_MULTIVERSE_EXISTING_OWNER_AND_VERSION_MODEL_AUDIT_R0", "ADR_TIANYAN_PROJECT_SCOPED_WORK_VERSION_AUTHORITY_R0"],
-      "remainingGap": "The B1 semantic layer freezes same-project root/IF snapshots and produces conflict-safe author selections; server routes, existing Owner writes, compensation receipts and the Multiverse workspace remain to be connected before it can claim a complete author workflow"
+      "remainingGap": "B1-A can create/read one named IF through the local host with a frozen root revision and manifest; B1 semantic comparison exists as a pure frozen-snapshot layer. Existing Owner writes, compensation receipts, fixed-draft IF binding and the Multiverse workspace still need connection before it can claim a complete author workflow"
     },
     {
       "id": "nuwa-rehearsal-runpack-contract",

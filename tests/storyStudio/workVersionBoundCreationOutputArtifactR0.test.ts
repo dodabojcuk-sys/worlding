@@ -74,6 +74,32 @@ test("Path A binds one existing OutputArtifact to root r1 and appends root r2 ex
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("B1 creates one named IF from the frozen root identity without copying story facts", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    port.createRoot(value.projectId);
+    const root = port.resolveRootWorkVersion(value.projectId)!;
+    const input = {
+      displayName: "阿芜持有铜钥匙",
+      parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision,
+      expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.create-if",
+      idempotencyKey: "multiverse-b1:create-if:awu-key",
+      createdAt: "2026-09-09T12:00:00.000Z"
+    };
+    const first = port.createDerivedWorkVersion(value.projectId, input);
+    const replay = port.createDerivedWorkVersion(value.projectId, input);
+    assert.equal(first.identity.kind, "derived");
+    assert.equal(first.identity.parentVersionId, root.identity.workVersionId);
+    assert.equal(first.identity.parentBaseRevision, root.identity.currentRevision);
+    assert.equal(replay.identity.workVersionId, first.identity.workVersionId, "same idempotency key reuses the original IF receipt");
+    assert.equal(port.listWorkVersions(value.projectId).filter((version) => version.identity.kind === "derived").length, 1);
+    assert.throws(() => port.createDerivedWorkVersion(value.projectId, { ...input, idempotencyKey: "multiverse-b1:create-if:stale", expectedParentRevision: root.identity.currentRevision + 1 }), /已变化/u);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("pinned artifact export keeps the exact saved package after its Story Unit changes", async () => {
   const value = fixture();
   try {

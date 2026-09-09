@@ -768,9 +768,42 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     });
   }
 
+  function listWorkVersions(projectId) {
+    const versionAuthority = authority(projectId);
+    return versionAuthority.listVersions().map((version) => ({
+      identity: version.identity,
+      manifest: { manifestId: version.manifest.manifestId, canonicalDigest: version.manifest.canonicalDigest },
+      revision: { revision: version.revision.revision, createdAt: version.revision.createdAt },
+      staleness: versionAuthority.projectVersionStaleness(version.identity.workVersionId)
+    }));
+  }
+
+  function createDerivedWorkVersion(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const parent = versionAuthority.getVersion(input.parentVersionId);
+    if (parent.identity.kind !== "root" || parent.identity.status !== "active") throw new Error("IF 必须从当前可用的主故事版本创建。");
+    if (parent.identity.currentRevision !== input.expectedParentRevision || parent.identity.headManifestId !== input.expectedParentManifestId) {
+      throw new Error("主故事版本在创建 IF 前已变化；请刷新后重新选择分叉点。");
+    }
+    return versionAuthority.createDerivedVersion({
+      displayName: input.displayName,
+      parentVersionId: parent.identity.workVersionId,
+      parentBaseRevision: parent.identity.currentRevision,
+      parentManifestId: parent.identity.headManifestId,
+      expectedRevision: 0,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: parent.identity.currentRevision }),
+      optionalNuwaProvenanceRefs: []
+    });
+  }
+
   return Object.freeze({
     resolveActiveProject,
     resolveRootWorkVersion: (projectId) => authority(projectId).listVersions().find((item) => item.identity.kind === "root") || null,
+    listWorkVersions,
+    createDerivedWorkVersion,
     appendStructuredStoryRevision,
     validateWorkVersionSource: read,
     buildNeutralStoryPackage: async (projectId, input = {}) => {

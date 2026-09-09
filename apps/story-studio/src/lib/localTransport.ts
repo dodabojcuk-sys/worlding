@@ -162,6 +162,13 @@ export type StoryStudioBootstrap = {
   recovery?: { code: string; message: string };
 };
 
+export type MultiverseWorkVersion = {
+  identity: { workVersionId: string; projectId: string; kind: "root" | "derived"; displayName: string; parentVersionId: string | null; parentBaseRevision: number | null; parentManifestId: string | null; status: "active" | "archived"; currentRevision: number; headManifestId: string };
+  manifest: { manifestId: string; canonicalDigest: string };
+  revision: { revision: number; createdAt: string };
+  staleness: { state: "current" | "stale" | "blocked_missing_reference" };
+};
+
 export type StorageProviderConnection = {
   providerId: "local-folder";
   kind: "local-folder";
@@ -2056,6 +2063,15 @@ export async function getMultiverseSingleDerivedFixture(projectId: string, optio
   if (options.surface) query.set("surface", options.surface);
   if (options.fixtureCase) query.set("case", options.fixtureCase);
   return request<MultiverseSingleDerivedFixture>(`${basePath}/author-control/multiverse-single-derived-fixture?${query.toString()}`);
+}
+
+export async function getMultiverseWorkVersions(projectId: string): Promise<MultiverseWorkVersion[]> {
+  return request<MultiverseWorkVersion[]>(`${basePath}/multiverse/versions?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function createMultiverseWorkVersion(input: { projectId: string; displayName: string; parentVersionId: string; expectedParentRevision: number; expectedParentManifestId: string; idempotencyKey: string; token: string }): Promise<{ created: unknown; versions: MultiverseWorkVersion[] }> {
+  const { token, ...body } = input;
+  return request<{ created: unknown; versions: MultiverseWorkVersion[] }>(`${basePath}/multiverse/versions/create`, { method: "POST", token, body });
 }
 
 export async function runMultiverseSingleDerivedFixture(input: {

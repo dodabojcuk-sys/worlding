@@ -2285,6 +2285,26 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => multiverseSingleDerivedFixture.read(projectId, { ensureNuwa, missingSource, staleSelection })) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/multiverse/versions") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    sendJson(response, 200, { data: runProductOperation(() => creationSourceSelectionPort.listWorkVersions(projectId)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/multiverse/versions/create") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "displayName", "parentVersionId", "expectedParentRevision", "expectedParentManifestId", "idempotencyKey"]);
+    const project = requireProject(body.projectId);
+    const authorAction = recordAuthorInitiatedAction(project.id, "branch-merge", "multiverse-create-if", [body.parentVersionId], "author");
+    const created = runProductOperation(() => creationSourceSelectionPort.createDerivedWorkVersion(project.id, {
+      ...body,
+      authorActionId: authorAction.id,
+      createdAt: new Date().toISOString()
+    }));
+    sendJson(response, 201, { data: { created, versions: runProductOperation(() => creationSourceSelectionPort.listWorkVersions(project.id)) } });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/creation/source") {
     const projectId = requireQueryValue(url, "projectId");
     const storyUnitId = String(url.searchParams.get("storyUnitId") || "").trim() || undefined;
