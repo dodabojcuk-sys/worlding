@@ -513,8 +513,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         }
         continue;
       }
-      const currentState = operations.readWorldStateN4({ projectId: project.id, objectId: subject.id, observedAt: now() });
-      const appliedState = operations.applyWorldStateN4({ projectId: project.id, objectId: subject.id, expectedObjectRevision: subject.revisionToken, expectedRevision: currentState.history.length, operationId: commandKey, effectiveAt: now(), value, evidence: { kind: "confirmed-event", event: { id: eventForState.id, revision: eventForState.revisionToken } }, now: now() });
+      const currentState = operations.readWorldStateN4({ projectId: project.id, objectId: subject.id, workVersionId: current.sourceIdentity.workVersionId, observedAt: now() });
+      const appliedState = operations.applyWorldStateN4({ projectId: project.id, objectId: subject.id, workVersionId: current.sourceIdentity.workVersionId, expectedObjectRevision: subject.revisionToken, expectedRevision: currentState.history.length, operationId: commandKey, effectiveAt: now(), value, evidence: { kind: "confirmed-event", event: { id: eventForState.id, revision: eventForState.revisionToken } }, now: now() });
       application.worldStateChanges.push({ operationId: commandKey, sourceStepId: step.stepId, objectId: subject.id, changeId: appliedState.change.changeId, revision: appliedState.change.revision, value: appliedState.change.value });
       persistAutoApplication(receipt);
     }
@@ -618,7 +618,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         }, {})).map((changes) => {
           const lastChange = changes.at(-1);
           if (!lastChange) throw failure("本批对象状态回执为空；未开始回溯。", 409);
-          const projection = operations.readWorldStateN4({ projectId: project.id, objectId: lastChange.objectId, observedAt: now() });
+          const projection = operations.readWorldStateN4({ projectId: project.id, objectId: lastChange.objectId, workVersionId: application.resultVersion.workVersionId, observedAt: now() });
           const recordedIds = changes.map((change) => change.changeId);
           const tailIds = projection.history.slice(-recordedIds.length).map((change) => change.changeId);
           if (tailIds.length !== recordedIds.length || tailIds.some((changeId, index) => changeId !== recordedIds[index])) throw failure("本批对象状态已有后续作者修改；为保护新状态，未开始回溯。", 409);
@@ -693,10 +693,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         for (const original of [...state.changes].reverse()) {
           if (rollback.worldStateChanges.some((change) => change.objectId === state.objectId && change.compensatesChangeId === original.changeId)) continue;
           const current = operations.readWorldObject({ projectId: project.id, objectId: state.objectId });
-          const currentState = operations.readWorldStateN4({ projectId: project.id, objectId: state.objectId, observedAt: now() });
+          const currentState = operations.readWorldStateN4({ projectId: project.id, objectId: state.objectId, workVersionId: preflight.baseVersion.workVersionId, observedAt: now() });
           const compensatedInThisRollback = rollback.worldStateChanges.some((change) => change.objectId === state.objectId && change.changeId === currentState.change?.changeId);
           if (!currentState.change || (currentState.change.changeId !== original.changeId && !compensatedInThisRollback)) throw failure("对象状态版本已变化；已停止回溯以保护后续作者修改。", 409);
-          const compensated = operations.compensateWorldStateN4({ projectId: project.id, objectId: state.objectId, expectedObjectRevision: current.revisionToken, expectedRevision: currentState.history.length, operationId: `${rollback.operationId}.world-state.${original.changeId}`, compensatesChangeId: original.changeId, effectiveAt: now(), evidence: { kind: "confirmed-event", event: { id: rollback.compensation.eventId, revision: operations.readWorldObject({ projectId: project.id, objectId: rollback.compensation.eventId }).revisionToken } }, now: now() });
+          const compensated = operations.compensateWorldStateN4({ projectId: project.id, objectId: state.objectId, workVersionId: preflight.baseVersion.workVersionId, expectedObjectRevision: current.revisionToken, expectedRevision: currentState.history.length, operationId: `${rollback.operationId}.world-state.${original.changeId}`, compensatesChangeId: original.changeId, effectiveAt: now(), evidence: { kind: "confirmed-event", event: { id: rollback.compensation.eventId, revision: operations.readWorldObject({ projectId: project.id, objectId: rollback.compensation.eventId }).revisionToken } }, now: now() });
           rollback.worldStateChanges.push({ objectId: state.objectId, changeId: compensated.change.changeId, compensatesChangeId: original.changeId, revision: compensated.change.revision });
           persistAutoApplication(receipt);
         }
@@ -885,7 +885,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       const visibleEventIds = new Set(projection.visibleEvents.filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState)).map((event) => event.eventId));
       const worldObjects = operations.listWorldObjects({ projectId }).filter((item) => item.status !== "archived" && ["location", "item"].includes(item.type));
       for (const object of worldObjects) {
-        const state = operations.readWorldStateN4?.({ projectId, objectId: object.id, observedAt: scene.observedAt });
+        const state = operations.readWorldStateN4?.({ projectId, objectId: object.id, workVersionId: sourceIdentity?.workVersionId ?? null, observedAt: scene.observedAt });
         if (state?.status !== "known" || !state.change || !visibleEventIds.has(state.change.evidence.event.id)) continue;
         const value = state.value.kind === "passage"
           ? `${object.title}通行状态：${state.value.state === "open" ? "开放" : state.value.state === "closed" ? "封闭" : "未知"}`

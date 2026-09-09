@@ -125,6 +125,38 @@ test("B1 C appends the selected target version only after its frozen target pref
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("B1 IF freezes N4 holder state in the existing WorldState Owner", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    const item = value.operations.createWorldObject({ projectId: value.projectId, type: "item", title: "铜钥匙" });
+    const root = port.createRoot(value.projectId);
+    const evidence = value.operations.createWorldObject({ projectId: value.projectId, type: "event", title: "钥匙已交接", status: "committed" });
+    const main = value.operations.applyWorldStateN4({
+      projectId: value.projectId, objectId: item.id, workVersionId: root.identity.workVersionId,
+      expectedObjectRevision: item.revisionToken, expectedRevision: 0, operationId: "multiverse-b1.root-key",
+      effectiveAt: "2026-09-09T12:00:00.000Z", value: { kind: "holder", state: "held", holder: { id: value.event.id, revision: value.event.revisionToken } },
+      evidence: { kind: "confirmed-event", event: { id: evidence.id, revision: evidence.revisionToken } }, now: "2026-09-09T12:00:00.000Z"
+    });
+    const derived = port.createDerivedWorkVersion(value.projectId, {
+      displayName: "阿芜持有铜钥匙", parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.multiverse-b1.state-if", idempotencyKey: "multiverse-b1:state-if", createdAt: "2026-09-09T12:01:00.000Z"
+    });
+    const frozenItem = value.operations.readWorldObject({ projectId: value.projectId, objectId: item.id });
+    value.operations.applyWorldStateN4({
+      projectId: value.projectId, objectId: item.id, workVersionId: derived.identity.workVersionId,
+      expectedObjectRevision: frozenItem.revisionToken, expectedRevision: main.store.revision, operationId: "multiverse-b1.if-key",
+      effectiveAt: "2026-09-09T12:01:00.000Z", value: { kind: "holder", state: "held", holder: { id: value.event.id, revision: value.event.revisionToken } },
+      evidence: { kind: "confirmed-event", event: { id: evidence.id, revision: evidence.revisionToken } }, now: "2026-09-09T12:01:00.000Z"
+    });
+    const rootState = value.operations.readWorldStateN4({ projectId: value.projectId, objectId: item.id, workVersionId: root.identity.workVersionId, observedAt: "2026-09-09T12:02:00.000Z" });
+    const ifState = value.operations.readWorldStateN4({ projectId: value.projectId, objectId: item.id, workVersionId: derived.identity.workVersionId, observedAt: "2026-09-09T12:02:00.000Z" });
+    assert.equal(rootState.history.length, 1, "IF mutation must not rewrite mainline history");
+    assert.equal(ifState.history.length, 2, "IF retains frozen baseline plus its own mutation");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("pinned artifact export keeps the exact saved package after its Story Unit changes", async () => {
   const value = fixture();
   try {

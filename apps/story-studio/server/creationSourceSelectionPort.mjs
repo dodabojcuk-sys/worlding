@@ -816,7 +816,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     if (parent.identity.currentRevision !== input.expectedParentRevision || parent.identity.headManifestId !== input.expectedParentManifestId) {
       throw new Error("主故事版本在创建 IF 前已变化；请刷新后重新选择分叉点。");
     }
-    return versionAuthority.createDerivedVersion({
+    const created = versionAuthority.createDerivedVersion({
       displayName: input.displayName,
       parentVersionId: parent.identity.workVersionId,
       parentBaseRevision: parent.identity.currentRevision,
@@ -828,6 +828,16 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: parent.identity.currentRevision }),
       optionalNuwaProvenanceRefs: []
     });
+    // Freeze N4's deliberately narrow state slices inside their existing
+    // WorldState Owner.  Later IF writes select the child WorkVersion key and
+    // therefore cannot leak back to the parent/mainline object field.
+    operations.forkWorldStateN4({
+      projectId,
+      parentWorkVersionId: parent.identity.workVersionId,
+      childWorkVersionId: created.identity.workVersionId,
+      operationId: `${input.idempotencyKey}.world-state-fork`
+    });
+    return created;
   }
 
   return Object.freeze({
