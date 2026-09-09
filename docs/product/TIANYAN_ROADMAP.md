@@ -17,7 +17,7 @@
 | MAP-M1 | 回答地点由谁控制、谁与此有关、发生过什么、依据是什么 | 世界入口、现有地点/Relation/Event 投影与 `storyStudioLocationTopology.ts` | 已规划；本轮暂不建模 | N1 后再做“雾港断桥”二维示意/自定义底图、地点—势力—人物—事件与来源往返；布局坐标不写事实，目击不等于现居 |
 | MEM-A1 | 长会话知道当前任务范围、来源和不知道什么 | `storyContinuity`、ContextPack、停止点和回执 | 已有基础 | 版本/权限/时点感知检索与摘要；比较事实命中、泄密、未来信息与恢复一致性 |
 | NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、Action Permission Broker、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；高权限应用/回溯已接通；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 次真实模型发送上限、暂停/刷新/恢复/停止/回放/新建、普通候选交接，以及授权范围内经既有 Owner 完成 Event/Relation/资料/编排应用、固定稿与补偿回溯。真实调用仍为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
-| NUWA-N2A | 让每位角色按自己的核心、底线和本场目标行动 | 既有 Character WorldObject/Profile、Nuwa RunPack、`read_role_context` | 本地通过；真实模型未运行；作者待验 | 角色编辑器可写作者确认的“角色核心/底线”，排演准备要求逐角色本场目标；创建 Run 时冻结人物修订和实际输入，人物后续编辑不改旧 Run。检查器与 Pi adapter 读取同一冻结上下文，正文及未选中的私密 Profile 字段不会进入发送范围。 |
+| NUWA-N2A | 让每位角色按自己的核心、底线和本场目标行动 | 既有 Character WorldObject/Profile、Nuwa RunPack、`read_role_context` | 本地与浏览器通过；真实模型未运行；作者待验 | 角色编辑器可写作者确认的“角色核心/底线”，排演准备要求逐角色本场目标；创建 Run 时冻结人物修订和实际输入，人物后续编辑不改旧 Run。检查器与 Pi adapter 读取同一冻结上下文，正文及未选中的私密 Profile 字段不会进入发送范围。 |
 | NUWA-N2B | 在同一角色的允许材料内稳定选择最相关注意力 | Nuwa role context、权限/可知投影、`nuwaN1Attention` | 本地与浏览器通过；真实模型未运行；作者待验 | 先在项目/稳定人物/版本/时点/知情边界得到已授权集合，再保留当前场景必需项，并按角色目标、场景词项和稳定 ID 排序；UTF-8 字节上界覆盖完整请求，必需项超限时发送前阻断。检查器与 Pi 输入显示同一入选来源、原因和预算，权限排除项只显示数量而不泄漏身份。 |
 | NUWA-N2C | 跨场景保持可追溯的人物连续性记忆 | `storyContinuity/characterMemoryRepository`、Nuwa RunPack 只读/冻结投影 | 本地与浏览器通过；真实模型未运行；作者待验 | 原始 `heard` 递送按项目和稳定接收者写入 Story Continuity owner，保留说话者、原话、Run/step、场景、时间、作品版本和 owner 修订；后续场景只召回当前项目/版本链/可见时间内的有效记录，未接收角色、IF/其他项目和未来记录均排除。回溯以失效元数据阻止当前使用但不删历史；RunPack 不成为第二个永久人物记忆库。 |
 | PRED-P1 | 比较平淡、意外、深远后果等候选路径 | 多节点预测、Story Unit、NarrativeArrangement | 本地通过；作者待验 | 明示依据、代价、冲突和后果；创作探索不伪装统计概率 |
@@ -47,7 +47,8 @@
 
 1. **N2A：角色驱动依据与逐角色目标。**既有角色 Profile 是唯一人物资料写入者；Run 创建时冻结角色核心、底线、人物修订与逐角色本场目标。人物更新后旧 Run 不漂移，检查器与实际 Pi 工具输入同源，非白名单正文/私密字段不发送。本地类型、lint、构建、运行时/API、Pi adapter 与 `nuwa-n1` 浏览器闭环通过；真实 Provider 0 次，作者体验未验收。
 2. **N2B：注意力选择。**已在角色权限过滤后的集合内实现确定性词项排序与完整请求预算门；当前场景必需项不可被静默截断，早期目标相关线索优先于冗长无关历史，更换合法目标会改变排序，相同冻结输入可复现。实际 Pi 工具输入与检查器同源，权限排除身份不发送。本地领域/API/Pi/typecheck/lint/build 通过；当前 N2C 提交上的 `TIANYAN_E2E_SCOPE=nuwa-n1` 浏览器闭环亦已通过，先前三次宿主资源超时不再作为当前阻断；真实 Provider 0 次。
-3. **N2C：跨场景人物连续性记忆。**已新增 Story Continuity 项目级、逐角色 `character-memory-ledger` owner；每个已提交的明确递送先保存原话与说话者/接收者/Run/step/场景/时间/作品版本，再以确定性身份幂等追加。新 Run 只冻结当前项目、相同作品版本链且不晚于场景时点的 active `heard` 投影，B 可跨服务重启在第二场召回 A 的说法，未被递送的 C 不可见；回溯写失效修订并保留历史。检查器显示来源与有效性，实际角色工具上下文复用同一投影；59 项 N2 定向测试、完整 unit 1139/1139、integration 55/55、typecheck、lint、build 与 `nuwa-n1` 浏览器闭环已通过，真实 Provider 0 次，作者体验未验收。
+3. **N2C：跨场景人物连续性记忆。**已新增 Story Continuity 项目级、逐角色 `character-memory-ledger` owner；每个已提交的明确递送先保存原话与说话者/接收者/Run/step/场景/时间/作品版本，再以确定性身份幂等追加。新 Run 只冻结当前项目、相同作品版本链且不晚于场景时点的 active `heard` 投影，B 可跨服务重启在第二场召回 A 的说法，未被递送的 C 不可见；回溯写失效修订并保留历史。检查器显示来源与有效性，实际角色工具上下文复用同一投影；59 项 N2 定向测试、完整 unit 1144/1144、integration 55/55、typecheck、lint、build 与同一浏览器运行内的 N2A→N2B→N2C 跨场景闭环已通过，截图和连续录屏位于 `data/2026-09-09_天衍N2人物注意力跨场景连续证据/`。真实 Provider 0 次，Founder 人工体验未验收。
+4. **全量门边界：**本次 `npm run verify` 在 typecheck、lint、unit、integration 与 build 通过后，于默认 `full-shell` 的既有关系图/时间线同步断言失败；相同失败可在本次连续证据改动前的 `584d843` 基线独立复现。N2 专属 `nuwa-n1` scope 连续两次通过，因此当前准确状态是“N2 局部与连续浏览器证据通过、全量门仍有独立既有失败”，不能写成全量通过。
 
 ## 设计与研究边界
 
