@@ -2388,6 +2388,10 @@ export async function getNuwaN1Latest(projectId: string): Promise<NuwaN1ReadMode
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/latest?projectId=${encodeURIComponent(projectId)}`);
 }
 
+export async function getNuwaN1Run(projectId: string, runId: string): Promise<NuwaN1ReadModel> {
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
+}
+
 export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; operationId: string; token: string }): Promise<NuwaN1Setup> {
   const { token, ...body } = input;
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });

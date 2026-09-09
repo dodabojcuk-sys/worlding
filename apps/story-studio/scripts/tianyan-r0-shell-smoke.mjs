@@ -1218,7 +1218,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("在旧桥钟声中核对彼此知情，不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
-  await workspace.getByText("已核对角色上下文", { exact: true }).waitFor();
+  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
   const contextCards = workspace.locator(".nuwa-n1-context-list article");
   assert.equal(await contextCards.count(), 2, "The inspector shows both isolated role contexts before execution.");
   const visibleContexts = await contextCards.allTextContents();
@@ -1227,7 +1227,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /确保退路不被切断/u, "The inspector shows A-Wu's actual actor goal independent of directory order.");
   assert.match(await contextCards.filter({ hasText: "林昭" }).innerText(), /谨慎求证[\s\S]*不伤害无辜/u, "N2A exposes Lin Zhao's author-confirmed core and boundary in the actual role input.");
   assert.match(await contextCards.filter({ hasText: "阿芜" }).innerText(), /重视同伴安全[\s\S]*不独自追击未知目标/u, "N2A exposes A-Wu's distinct author-confirmed core and boundary in the actual role input.");
-  assert.match(await contextCards.first().innerText(), /保守预算/u, "The existing inspector exposes the deterministic request budget estimate.");
+  assert.match(await contextCards.first().innerText(), /UTF-8 保守估算/u, "The existing inspector exposes the deterministic request budget estimate.");
   assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
@@ -1297,7 +1297,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   const linMemoryLedger = await readCharacterMemoryLedger({ rootPath: fixtureRoot, agentId: "agent.nuwa", scope: "project", projectId: fixtureProjectId }, deliveredRecipientId);
   assert.ok(linMemoryLedger, "The first scene persists Lin Zhao's delivered statement through the Story Continuity owner.");
   assert.equal(linMemoryLedger.value.records.some((record) => record.sourceRunId === firstSceneRunId && record.statement === deliveredStatement && record.validity.state === "active"), true, "The persisted heard record remains active before the later scene begins.");
-  await workspace.getByRole("button", { name: "新建排演", exact: true }).click();
+  await workspace.getByRole("button", { name: "继续下一场", exact: true }).click();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").uncheck();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在第二场回忆阿芜告知的钟声线索并谨慎求证");
@@ -1305,15 +1305,15 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "灯塔支线" });
   await workspace.locator(".nuwa-n1-goal input").fill("在第二场依据各自实际听闻继续调查钟声，不得共享未被递送的记忆。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
-  await workspace.getByText("已核对角色上下文", { exact: true }).waitFor();
+  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
   const secondSceneContexts = workspace.locator(".nuwa-n1-context-list article");
   assert.equal(await secondSceneContexts.count(), 2, "The later scene previews only Lin Zhao and Lu Yan.");
   const linSecondScene = secondSceneContexts.filter({ hasText: "林昭" });
   const luSecondScene = secondSceneContexts.filter({ hasText: "陆衍" });
-  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*跨场景听闻记忆[\s\S]*我只把钟声的线索告诉你/u, "N2C shows Lin Zhao's source-scoped heard memory alongside the N2A profile basis in the later scene.");
-  assert.match(await linSecondScene.innerText(), /匹配角色目标[\s\S]*保守预算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
+  assert.match(await linSecondScene.innerText(), /谨慎求证[\s\S]*听闻[\s\S]*我只把钟声的线索告诉你/u, "N2C shows Lin Zhao's source-scoped heard memory alongside the N2A profile basis in the later scene.");
+  assert.match(await linSecondScene.innerText(), /匹配角色目标[\s\S]*UTF-8 保守估算/u, "N2B visibly selects Lin Zhao's goal-relevant memory within the bounded attention budget.");
   assert.doesNotMatch(await linSecondScene.innerText(), /本回合未进入注意力/u, "The recalled statement is part of Lin Zhao's actual selected attention input.");
-  assert.doesNotMatch(await luSecondScene.innerText(), /跨场景听闻记忆|我只把钟声的线索告诉你/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
+  assert.doesNotMatch(await luSecondScene.innerText(), /听闻 ·|我只把钟声的线索告诉你/u, "Lu Yan remains unaware because the earlier statement was never delivered to him.");
   assert.doesNotMatch((await secondSceneContexts.allTextContents()).join("\n"), /N2_PRIVATE_/u, "The second scene still excludes author-private profile fields.");
   await page.setViewportSize({ width: 1440, height: 900 });
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
@@ -1487,9 +1487,9 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   await workspace.waitFor();
   await page.waitForFunction(() => {
     const root = document.querySelector('[data-testid="nuwa-n1-workspace"]');
-    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("新建排演")));
+    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("继续下一场")));
   });
-  const newRun = workspace.getByRole("button", { name: "新建排演", exact: true });
+  const newRun = workspace.getByRole("button", { name: "继续下一场", exact: true });
   if (await newRun.count()) await newRun.click();
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="nuwa-n1-workspace"] .nuwa-n1-participant-options label').length >= 3);
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();

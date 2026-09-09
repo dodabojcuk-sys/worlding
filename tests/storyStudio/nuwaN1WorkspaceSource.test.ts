@@ -18,13 +18,14 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(workspace, /送入待确认/u);
   assert.match(workspace, /加入后续步骤/u);
   assert.match(workspace, /开始第一步/u, "a newly-created ready Run has a reachable first transition");
-  assert.match(workspace, /新建排演/u, "a terminal Run can be preserved while the author starts another bounded rehearsal");
+  assert.match(workspace, /继续下一场/u, "a terminal Run can be preserved while the author starts another bounded rehearsal");
   assert.match(workspace, /disabled=\{interrupting\}[^>]*onClick=\{\(\) => runAction\("stop"\)\}/u, "stop remains reachable while a long step request is busy");
   assert.match(workspace, /技术详情/u, "稳定 Run identity only appears in progressive disclosure");
   assert.match(workspace, /props\.runtime\.withConnection/u);
   assert.doesNotMatch(workspace, /fetch\(|Provider Gateway|apiKey|Authorization/u);
   assert.match(transport, /\/nuwa-n1\/bootstrap/u);
   assert.match(transport, /\/nuwa-n1\/latest/u);
+  assert.match(transport, /\/nuwa-n1\/read/u, "a Relation receipt can return to the exact originating Run");
   assert.match(transport, /\/nuwa-n1\/candidate/u);
   assert.match(transport, /operationId: string/u, "mutating Nuwa operations carry an idempotency identity");
   assert.match(transport, /selectedStepIds/u, "candidate handoff is limited to author-selected results");
@@ -90,7 +91,7 @@ test("Nuwa N2B keeps attention permission-first, deterministic and visible at th
   assert.match(runtime, /required attention sources exceed budget before dispatch/u);
   assert.match(runtime, /excludedKnowledgeCount: canonicalActor\.unknownFactIds\.length/u);
   assert.match(adapter, /attention: context\.attention/u);
-  assert.match(workspace, /保守预算/u);
+  assert.match(workspace, /UTF-8 保守估算/u);
   assert.match(workspace, /权限排除（身份隐藏）/u);
 });
 
@@ -107,6 +108,24 @@ test("Nuwa N2C shows cross-scene heard provenance without making the RunPack its
   assert.match(port, /synchronizeCharacterHeardMemories/u);
   assert.match(port, /listRecallableCharacterMemories/u);
   assert.match(runtime, /fact\.memorySource/u, "the Run keeps only a frozen recall projection");
-  assert.match(workspace, /跨场景听闻记忆（仍是 heard，不是世界事实）/u);
+  assert.match(workspace, /听闻 · 与正式关系、已确认事实分开/u);
   assert.match(workspace, /当前有效/u);
+});
+
+test("Nuwa N3A keeps author content primary while preserving exact permission and receipt boundaries", () => {
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+
+  assert.match(workspace, /本轮上下文预览/u);
+  assert.match(workspace, /本步骤使用的依据/u);
+  assert.match(workspace, /假服务用于验证数据流；真实 Provider 0 次/u);
+  assert.match(workspace, /已授权自动应用/u);
+  assert.match(workspace, /普通候选/u);
+  assert.match(workspace, /发生的结果/u);
+  assert.match(workspace, /查看本步骤依据与执行详情/u);
+  assert.match(workspace, /不是实际计费 token/u);
+  assert.match(workspace, /本次排演方式/u);
+  assert.match(workspace, /本批未配置合法关系类型，没有补造关系/u);
+  assert.match(workspace, /查看并下载固定稿/u);
+  assert.match(workspace, /继续下一场/u);
+  assert.match(workspace, /nuwaRunId=\$\{encodeURIComponent\(run\.run\.runId\)\}/u, "the relation handoff preserves the exact Nuwa Run identity");
 });
