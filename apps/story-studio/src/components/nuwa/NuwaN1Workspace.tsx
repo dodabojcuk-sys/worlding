@@ -28,6 +28,11 @@ import type { TianyanShellRuntimeState } from "../../product-shell/runtime/Tiany
 const MAX_PARTICIPANTS = 3;
 const MIN_PARTICIPANTS = 2;
 
+function isSelectableWorkVersion(version: MultiverseWorkVersion) {
+  return version.identity.status === "active"
+    && (version.identity.kind === "root" || version.identity.kind === "derived");
+}
+
 export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
   const projectIdRef = useRef(projectId);
@@ -64,7 +69,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (!active) return;
       setBootstrap(nextBootstrap);
       setWorkVersions(versions);
-      setWorkVersionId(versions.find((version) => version.identity.kind === "root" && version.identity.status === "active")?.identity.workVersionId ?? "");
+      setWorkVersionId(versions.find((version) => isSelectableWorkVersion(version) && version.identity.kind === "root")?.identity.workVersionId ?? "");
       setRun(latest.run ? latest : null);
       const requestedParticipantId = window.sessionStorage.getItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       const requestedParticipant = requestedParticipantId && nextBootstrap.participants.some((participant) => participant.id === requestedParticipantId) ? requestedParticipantId : null;
@@ -88,6 +93,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   }, [projectId]);
 
   const canPrepare = participantIds.length >= MIN_PARTICIPANTS && Boolean(storyUnitId) && Boolean(goal.trim()) && participantIds.every((id) => Boolean(participantGoals[id]?.trim()));
+  const selectableWorkVersions = useMemo(() => workVersions.filter(isSelectableWorkVersion), [workVersions]);
   const selectedStep = run?.run?.steps.find((step) => step.stepId === selectedStepId) ?? null;
   const actorContext = useMemo(() => {
     if (run?.contextInspector && run.run) {
@@ -311,7 +317,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       </section>
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
-        <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !workVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{workVersions.filter((version) => version.identity.status === "active").map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>)}</select></label>
+        <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !selectableWorkVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{selectableWorkVersions.length ? selectableWorkVersions.map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>) : <option value="">尚未建立正式版本 · 仅候选排演</option>}</select></label>
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
         <label><span>自动关系类型</span><select value={relationTypeId ?? ""} disabled={Boolean(run) || busy || !bootstrap?.relationTypes.length} onChange={(event) => setRelationTypeId(event.target.value || null)}><option value="">不写关系</option>{bootstrap?.relationTypes.map((type) => <option key={type.id} value={type.id}>{type.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>

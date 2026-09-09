@@ -42,10 +42,14 @@ test("MULTI-B1 lets an author bind a Nuwa Run to an explicit active IF version",
 
   assert.match(workspace, /作品版本/u);
   assert.match(workspace, /getMultiverseWorkVersions/u);
+  assert.match(workspace, /version\.identity\.kind === "root" \|\| version\.identity\.kind === "derived"/u, "synthetic unversioned records never cross the strict WorkVersion boundary");
+  assert.match(workspace, /尚未建立正式版本 · 仅候选排演/u, "a candidate-only project keeps the version request null instead of inventing a formal version");
   assert.match(workspace, /workVersionId: workVersionId \|\| null/u);
   assert.match(transport, /workVersionId\?: string \| null/u);
   assert.match(server, /"workVersionId"/u);
   assert.match(server, /resolveWorkVersion\(projectId, requestedWorkVersionId\)/u);
+  assert.match(source("apps/story-studio/server/nuwaN1Port.mjs"), /const ownerWorkVersionId = \["root", "derived"\]\.includes\(sourceIdentity\?\.kind\)/u, "candidate-only RunPack identity is normalized before formal Owner reads");
+  assert.match(source("apps/story-studio/server/nuwaN1Port.mjs"), /listRelations\(\{ projectId, workVersionId: ownerWorkVersionId, reviewState: "confirmed" \}\)/u, "role context reads Relation Owner through the selected version scope");
   assert.match(runtime, /"root" \| "derived" \| "unversioned-draft"/u);
   assert.match(source("apps/story-studio/server/nuwaN1Port.mjs"), /正式 Event\/Relation 仍未具备版本作用域/u, "derived automatic apply must fail closed until those Owners are version-scoped");
 });

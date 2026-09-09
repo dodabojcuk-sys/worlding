@@ -861,12 +861,19 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   async function resolveActors(projectId, refs, scene, sourceIdentity) {
     if (!Array.isArray(refs) || refs.length < 2 || refs.length > 3) throw failure("女娲 N1 需要选择两到三个正式角色。", 400);
     const seen = new Set();
+    // RunPack needs a stable synthetic identity for a candidate-only project,
+    // but that string is not a WorkVersion Authority identity.  Normalize at
+    // every formal Owner boundary instead of making an unversioned Run look
+    // like a root or IF version.
+    const ownerWorkVersionId = ["root", "derived"].includes(sourceIdentity?.kind)
+      ? sourceIdentity.workVersionId
+      : null;
     const linkedEntityIds = new Set(operations.readStoryUnit({ projectId, unitId: scene.storyUnit.id }).linkedEntityIds);
     const verifiedEventIds = new Set(authorControl.listVerifiedCanonEventIds({
       projectId,
       // An IF Run may read its own formal Event results, but never a sibling
       // or mainline Run merely because the Event Owner is shared.
-      workVersionId: sourceIdentity?.workVersionId ?? null
+      workVersionId: ownerWorkVersionId
     }));
     const sceneEvidence = operations.listWorldObjects({ projectId, type: "event" })
       .filter((item) => item.status !== "archived" && linkedEntityIds.has(item.id) && verifiedEventIds.has(item.id))
@@ -894,7 +901,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       const visibleEventIds = new Set(projection.visibleEvents.filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState)).map((event) => event.eventId));
       const worldObjects = operations.listWorldObjects({ projectId }).filter((item) => item.status !== "archived" && ["location", "item"].includes(item.type));
       for (const object of worldObjects) {
-        const state = operations.readWorldStateN4?.({ projectId, objectId: object.id, workVersionId: sourceIdentity?.workVersionId ?? null, observedAt: scene.observedAt });
+        const state = operations.readWorldStateN4?.({ projectId, objectId: object.id, workVersionId: ownerWorkVersionId, observedAt: scene.observedAt });
         if (state?.status !== "known" || !state.change || !visibleEventIds.has(state.change.evidence.event.id)) continue;
         const value = state.value.kind === "passage"
           ? `${object.title}通行状态：${state.value.state === "open" ? "开放" : state.value.state === "closed" ? "封闭" : "未知"}`
@@ -904,7 +911,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         // only two state kinds, keeping this required input small.
         knownFacts.push({ factId: `world-state.${object.id}.${state.change.changeId}`, summary: value, sourceRef: { id: state.change.evidence.event.id, revision: state.change.evidence.event.revision }, visibility: "world-state", worldStateObjectId: object.id, attentionRequired: true });
       }
-      const relations = relationOperations?.listRelations({ projectId, reviewState: "confirmed" }).relations ?? [];
+      const relations = relationOperations?.listRelations({ projectId, workVersionId: ownerWorkVersionId, reviewState: "confirmed" }).relations ?? [];
       for (const relation of relations) {
         if (relation.sourceObjectId !== summary.id && relation.targetObjectId !== summary.id) continue;
         const evidence = relation.evidenceRefs.find((item) => item.kind === "confirmed-event")?.reference;

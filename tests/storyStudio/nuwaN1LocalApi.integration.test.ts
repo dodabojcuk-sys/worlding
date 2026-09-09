@@ -136,6 +136,17 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   });
   assert.equal(crossProject.status, 409);
 
+  const unversionedSetup = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", {
+    projectId: value.otherProject.id,
+    participants: value.otherCharacters.map((character) => ({ id: character.id, revision: character.revisionToken })),
+    storyUnit: { id: value.otherUnit.id, revision: value.otherUnit.version },
+    goal: "候选排演不得把内部草稿标识送入正式版本 Owner。",
+    workVersionId: null,
+    operationId: "unversioned-candidate-setup"
+  });
+  assert.equal(unversionedSetup.status, 200, JSON.stringify(unversionedSetup.payload));
+  assert.equal((unversionedSetup.payload.data as { setup: { contextPreview: unknown[] } }).setup.contextPreview.length, 2, "candidate-only setup remains usable without manufacturing a formal WorkVersion");
+
   assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.otherProject.id, profile: "full-access" })).status, 200);
   const otherCurrentCharacters = value.otherCharacters.map((character) => value.operations.readWorldObject({ projectId: value.otherProject.id, objectId: character.id }));
   const otherCurrentUnit = value.operations.readStoryUnit({ projectId: value.otherProject.id, unitId: value.otherUnit.id });

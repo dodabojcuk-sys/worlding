@@ -1218,7 +1218,16 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
-  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
+  await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor().catch(async (cause) => {
+    const failureEvidenceDirectory = diagnosticEvidenceDirectory || evidenceDirectory;
+    if (failureEvidenceDirectory) await page.screenshot({ path: path.join(failureEvidenceDirectory, "00-failed-context-preview.png"), fullPage: false });
+    const diagnostics = {
+      previewCount: await workspace.locator(".nuwa-n1-context-preview").count(),
+      runStatus: await workspace.getAttribute("data-run-status"),
+      notices: (await workspace.locator('[role="alert"], [role="status"]').allTextContents()).map((value) => value.slice(0, 240))
+    };
+    throw new Error(`Nuwa N1 context preview did not appear: ${JSON.stringify(diagnostics)}`, { cause });
+  });
   const contextCards = workspace.locator(".nuwa-n1-context-list article");
   assert.equal(await contextCards.count(), 2, "The inspector shows both isolated role contexts before execution.");
   const visibleContexts = await contextCards.allTextContents();
