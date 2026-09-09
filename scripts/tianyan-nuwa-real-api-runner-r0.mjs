@@ -71,6 +71,8 @@ try {
     } else if (!Array.isArray(bootstrap.participants) || bootstrap.participants.length < 2 || !Array.isArray(bootstrap.storyUnits) || bootstrap.storyUnits.length === 0) {
       finish("external-condition-missing", 0, "隔离作品缺少至少两位正式角色或一个 Story Unit；没有建立 Run。", "isolated-story-fixture-incomplete");
     } else {
+      const authorization = await postJson("/model-service/nuwa-api-test-authorize", { maxProviderDispatches: maxDispatches }, session);
+      if (!authorization?.receiptId) throw new Error("女娲 API 实验授权没有返回可审计回执。");
       // The host derives the selected Provider identity and enforces its own
       // lower budget.  The script never attempts a second run or retry.
       result.stage = "creating-run";

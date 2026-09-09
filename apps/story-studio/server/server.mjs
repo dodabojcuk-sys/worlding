@@ -226,6 +226,7 @@ const nuwaN1Port = createNuwaN1Port({
             // reuses its key while another actor gets an independent key.
             idempotencyKey: requestKey,
             budgetScope: `nuwa-n1:${projectId}`,
+            ...(nuwaApiTestAuthorizationReceipt() ? { authorizationReceiptId: nuwaApiTestAuthorizationReceipt() } : {}),
             toolLoopTurn: providerInput.providerCall > 1,
             retry: providerInput.retry,
             // The envelope carries only durable identities and no prompt,
@@ -2717,6 +2718,13 @@ async function handleModelServiceRequest(request, response, url) {
     sendJson(response, 200, { data: { providerInstanceId: active.id, apiKey } });
     return;
   }
+  if (request.method === "POST" && route === "nuwa-api-test-authorize") {
+    const body = await readJsonBody(request, 512);
+    requireAllowedKeys(body, ["maxProviderDispatches"]);
+    const authorization = authorizeNuwaApiTestBudget(body.maxProviderDispatches);
+    sendJson(response, 200, { data: { receiptId: authorization.receiptId, scope: authorization.scope, limits: authorization.limits } });
+    return;
+  }
   if (request.method === "POST" && route === "models") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, []);
@@ -3290,6 +3298,7 @@ function shouldInstallHistoricalProviderIncident() {
 }
 
 const SETTINGS_DIAGNOSTIC_TOTAL_CALL_CAP = 4;
+const NUWA_API_TEST_MAX_PROVIDER_DISPATCHES = 12;
 
 /**
  * A user-clicked settings operation may add one bounded reservation to the
@@ -3323,6 +3332,32 @@ function reserveSettingsDiagnosticBudget({ active, kind, generationCalls, totalC
     issuedAt: new Date().toISOString()
   });
   return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+}
+
+function authorizeNuwaApiTestBudget(maxProviderDispatches) {
+  const requested = Number(maxProviderDispatches);
+  if (!Number.isSafeInteger(requested) || requested < 1 || requested > NUWA_API_TEST_MAX_PROVIDER_DISPATCHES) {
+    throw productError(`女娲 API 实验最多允许 ${NUWA_API_TEST_MAX_PROVIDER_DISPATCHES} 次实际发送。`, 400);
+  }
+  const receiptId = `nuwa-api-test.r0.${requested}`;
+  const existing = providerBudgetLedger.authorization(receiptId);
+  if (existing) return existing;
+  const snapshot = providerBudgetLedger.snapshot();
+  return providerBudgetLedger.authorize({
+    receiptId,
+    authorizedBy: "explicit-nuwa-api-test-runner",
+    reason: "Explicit isolated Nuwa API experiment with a bounded real Provider dispatch budget.",
+    scope: "nuwa-api-test-r0",
+    limits: {
+      generationCalls: snapshot.counts.generationCalls + requested,
+      totalCalls: snapshot.counts.totalCalls + requested
+    },
+    issuedAt: new Date().toISOString()
+  }).authorization;
+}
+
+function nuwaApiTestAuthorizationReceipt() {
+  return providerBudgetLedger.authorization(`nuwa-api-test.r0.${NUWA_API_TEST_MAX_PROVIDER_DISPATCHES}`)?.receiptId ?? null;
 }
 
 function settingsDiagnosticErrorMessage(error) {
