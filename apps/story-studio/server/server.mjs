@@ -886,6 +886,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/storage/status") {
     requireToken(request);
     const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     const project = requireProject(projectId);
     const projectPath = path.join(rootPath, project.id);
     const reveal = fileManagerCommand(projectPath);
@@ -1016,11 +1017,13 @@ async function handleProductRequest(request, response, url) {
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations") {
     const projectId = requireQueryValue(url, "projectId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
     const reviewState = url.searchParams.get("reviewState") || undefined;
     const direction = url.searchParams.get("direction") || undefined;
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.listRelations({
       projectId,
+      ...(workVersionId ? { workVersionId } : {}),
       includeArchived: url.searchParams.get("includeArchived") === "true",
       ...(reviewState ? { reviewState } : {}),
       ...(url.searchParams.get("objectId") ? { objectId: url.searchParams.get("objectId") } : {}),
@@ -1033,8 +1036,9 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/relation") {
     const projectId = requireQueryValue(url, "projectId");
     const relationId = requireQueryValue(url, "relationId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.readRelation({ projectId, relationId })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.readRelation({ projectId, relationId, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/types") {
@@ -1057,15 +1061,17 @@ async function handleProductRequest(request, response, url) {
     const relationTypeId = requireQueryValue(url, "relationTypeId");
     const direction = requireQueryValue(url, "direction");
     const relationLabelSnapshot = requireQueryValue(url, "relationLabelSnapshot");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.duplicateSuggestions({ projectId, sourceObjectId, targetObjectId, relationTypeId, direction, relationLabelSnapshot })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.duplicateSuggestions({ projectId, sourceObjectId, targetObjectId, relationTypeId, direction, relationLabelSnapshot, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/evidence") {
     const projectId = requireQueryValue(url, "projectId");
     const relationId = requireQueryValue(url, "relationId");
+    const workVersionId = url.searchParams.get("workVersionId") || undefined;
     requireProject(projectId);
-    sendJson(response, 200, { data: runProductOperation(() => relationOperations.relationEvidence({ projectId, relationId })) });
+    sendJson(response, 200, { data: runProductOperation(() => relationOperations.relationEvidence({ projectId, relationId, ...(workVersionId ? { workVersionId } : {}) })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations/types/legacy-preview") {
@@ -1114,7 +1120,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.sourceObjectId, body.targetObjectId]);
     sendJson(response, 201, { data: runProductOperation(() => relationOperations.createRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1123,7 +1129,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/update") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "relationTypeId", "direction", "evidenceRefs", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "relationTypeId", "direction", "evidenceRefs", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.updateRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1132,7 +1138,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/confirm") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.confirmRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1141,7 +1147,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/reject") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.rejectRelationCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1150,7 +1156,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/archive") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.archiveConfirmedRelation({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1159,7 +1165,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/evidence/append") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "expectedRelationRevision", "evidenceRefs", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "expectedRelationRevision", "evidenceRefs", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 200, { data: runProductOperation(() => relationOperations.appendRelationEvidence({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
@@ -1168,7 +1174,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/relations/correction/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "relationId", "supersedesRelationId", "correctionRelationId", "expectedRelationRevision", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "relationId", "supersedesRelationId", "correctionRelationId", "expectedRelationRevision", "sourceObjectId", "targetObjectId", "relationTypeId", "relationLabelSnapshot", "direction", "evidenceRefs", "sourceRevision", "sourceRef", "temporal", "operationId", "now"]);
     const project = requireProject(body.projectId);
     const action = recordAuthorInitiatedAction(project.id, "library-write", "relation", [body.relationId]);
     sendJson(response, 201, { data: runProductOperation(() => relationOperations.createRelationCorrectionCandidate({ ...body, projectId: project.id, authorActionReceiptId: action.id })) });
