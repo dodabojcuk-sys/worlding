@@ -475,7 +475,11 @@ function validateMessages(value) {
     // An explicit empty string preserves the same semantics and lets the
     // following tool result remain a standards-shaped message sequence.
     if (message.role === "assistant" && toolCalls.length) return Object.freeze({ role: "assistant", content, tool_calls: toolCalls });
-    if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, name, content });
+    // Tool-result `name` was used by the older function-calling shape.  The
+    // native tool_calls continuation is identified by tool_call_id; omitting
+    // the legacy field keeps strict OpenAI-compatible endpoints from
+    // rejecting an otherwise valid second turn.
+    if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, content });
     return Object.freeze({ role: message.role, content });
   });
   if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
