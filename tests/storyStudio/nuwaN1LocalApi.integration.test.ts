@@ -13,6 +13,7 @@ import { createStoryStudioRelationOperations } from "../../src/storyControlSurfa
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
+import { readNuwaN1Run } from "../../src/storyIntelligence/nuwaN1Runtime.ts";
 
 const TOKEN = "nuwa-n1-local-test-token";
 
@@ -180,6 +181,71 @@ test("Nuwa N1 idempotent create reconciles a missing full-access authorization",
   assert.equal(replayed.status, 201, JSON.stringify(replayed.payload));
   assert.equal((replayed.payload.data as NuwaReadModel).authorization?.status, "active");
   assert.deepEqual((replayed.payload.data as NuwaReadModel).authorization?.actorIds, value.characters.map((character) => character.id));
+});
+
+test("Nuwa N4 only gives a role world state and formal relation evidence it legally knows, without rewriting an existing Run", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+
+  const server = await start(value, true);
+  child = server.child;
+  const before = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("n4-frozen-before-state"));
+  assert.equal(before.status, 201, JSON.stringify(before.payload));
+  const frozen = before.payload.data as NuwaReadModel;
+  assert.equal(frozen.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true);
+
+  const northGate = value.operations.createWorldObject({ projectId: value.project.id, type: "location", title: "北闸" });
+  const copperKey = value.operations.createWorldObject({ projectId: value.project.id, type: "item", title: "铜钥匙" });
+  const knownEvent = value.operations.readWorldObject({ projectId: value.project.id, objectId: value.knownEvent.id });
+  const eventEvidence = { kind: "confirmed-event" as const, event: { id: knownEvent.id, revision: knownEvent.revisionToken } };
+  value.operations.applyWorldStateN4({
+    projectId: value.project.id, objectId: northGate.id, expectedObjectRevision: northGate.revisionToken, expectedRevision: 0,
+    operationId: "n4.north-gate.closed", effectiveAt: "2000-01-01T00:00:00Z", now: "2000-01-01T00:00:01Z",
+    value: { kind: "passage", state: "closed" }, evidence: eventEvidence
+  });
+  value.operations.applyWorldStateN4({
+    projectId: value.project.id, objectId: copperKey.id, expectedObjectRevision: copperKey.revisionToken, expectedRevision: 1,
+    operationId: "n4.copper-key.held", effectiveAt: "2000-01-01T00:00:00Z", now: "2000-01-01T00:00:02Z",
+    value: { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.characters[0]!.revisionToken } }, evidence: eventEvidence
+  });
+  const relationCandidate = value.relations.createRelationCandidate({
+    projectId: value.project.id, operationId: "n4.formal-relationship", sourceObjectId: value.characters[0]!.id, targetObjectId: value.characters[1]!.id,
+    relationTypeId: value.sceneRelationType.type.relationTypeId, direction: "forward",
+    evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: value.project.id, eventId: knownEvent.id, revisionToken: knownEvent.revisionToken, state: "committed", requestedUse: "constraint" } }]
+  });
+  value.relations.confirmRelationCandidate({ projectId: value.project.id, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: "n4.formal-relationship.confirm" });
+
+  child.kill("SIGTERM");
+  await once(child, "exit");
+  const restarted = await start(value, true);
+  child = restarted.child;
+  const preserved = await getJson(restarted.baseUrl, `/__local/story-studio/nuwa-n1/latest?projectId=${value.project.id}`);
+  assert.equal(preserved.status, 200);
+  const frozenAfterState = preserved.payload.data as NuwaReadModel;
+  assert.equal(frozenAfterState.run.runId, frozen.run.runId);
+  assert.equal(frozenAfterState.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true, "a previously created Run keeps its frozen context");
+
+  const after = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/create", {
+    ...value.request("n4-new-state-context"),
+    goal: "北闸已封，林昭持有铜钥匙；林昭需要考虑与阿芜的正式关系后寻找替代路线。"
+  });
+  assert.equal(after.status, 201, JSON.stringify(after.payload));
+  const next = after.payload.data as NuwaReadModel;
+  const linzhao = next.contextInspector.actors.find((actor) => actor.actorId === value.characters[0]!.id)!;
+  const awu = next.contextInspector.actors.find((actor) => actor.actorId === value.characters[1]!.id)!;
+  assert.equal(linzhao.knowledgeItems.filter((item) => item.visibility === "world-state").length, 2, JSON.stringify(linzhao.knowledgeItems));
+  assert.equal(linzhao.knowledgeItems.some((item) => item.visibility === "world-state" && item.summary.includes("北闸通行状态：封闭")), true);
+  assert.equal(linzhao.knowledgeItems.some((item) => item.visibility === "world-state" && item.summary.includes("铜钥匙持有状态")), true);
+  const stored = readNuwaN1Run(value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }), next.run.runId)!;
+  const storedLinzhao = stored.actors.find((actor) => actor.character.id === value.characters[0]!.id)!;
+  const storedAwu = stored.actors.find((actor) => actor.character.id === value.characters[1]!.id)!;
+  assert.equal(storedLinzhao.knownFacts.filter((item) => item.visibility === "relation").length, 1, "the relation remains a traceable legal source even when the N1 attention budget concentrates on the two state facts");
+  assert.equal(storedAwu.knownFacts.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false, "attention and participation do not disclose an Event-backed world fact to another role");
+  assert.equal(awu.knowledgeItems.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false);
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {
@@ -700,7 +766,7 @@ function fixture(options: { threeActors?: boolean } = {}) {
   ];
   const otherUnit = operations.createStoryUnit({ projectId: otherProject.id, title: "另一座旧桥" });
   return {
-    root, rootPath, stateFilePath, operations, authorControl, relations, sceneRelationType, project, otherProject, characters, otherCharacters, unit, otherUnit,
+    root, rootPath, stateFilePath, operations, authorControl, relations, sceneRelationType, project, otherProject, characters, otherCharacters, knownEvent, unit, otherUnit,
     request(operationId: string) {
       const current = characters.map((character) => operations.readWorldObject({ projectId: project.id, objectId: character.id }));
       const currentUnit = operations.readStoryUnit({ projectId: project.id, unitId: unit.id });

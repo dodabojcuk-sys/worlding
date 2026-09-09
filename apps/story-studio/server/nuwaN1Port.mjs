@@ -829,6 +829,28 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       const knownFacts = projection.visibleEvents
         .filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState))
         .map((event) => ({ factId: event.eventId, summary: `${event.knowledgeLabel}：${event.title}`, sourceRef: { id: event.eventId, revision: event.revisionToken }, visibility: event.knowledgeState, attentionRequired: true }));
+      const visibleEventIds = new Set(projection.visibleEvents.filter((event) => ["experienced", "witnessed", "informed"].includes(event.knowledgeState)).map((event) => event.eventId));
+      const worldObjects = operations.listWorldObjects({ projectId }).filter((item) => item.status !== "archived" && ["location", "item"].includes(item.type));
+      for (const object of worldObjects) {
+        const state = operations.readWorldStateN4?.({ projectId, objectId: object.id, observedAt: scene.observedAt });
+        if (state?.status !== "known" || !state.change || !visibleEventIds.has(state.change.evidence.event.id)) continue;
+        const value = state.value.kind === "passage"
+          ? `${object.title}通行状态：${state.value.state === "open" ? "开放" : state.value.state === "closed" ? "封闭" : "未知"}`
+          : `${object.title}持有状态：${state.value.state === "held" ? `由 ${state.value.holder.id} 持有` : state.value.state === "unheld" ? "明确无人持有" : "未知"}`;
+        // Authorization decides this source set first.  A current state is
+        // still indispensable scene evidence; the bounded N4 model permits
+        // only two state kinds, keeping this required input small.
+        knownFacts.push({ factId: `world-state.${object.id}.${state.change.changeId}`, summary: value, sourceRef: { id: state.change.evidence.event.id, revision: state.change.evidence.event.revision }, visibility: "world-state", attentionRequired: true });
+      }
+      const relations = relationOperations?.listRelations({ projectId, reviewState: "confirmed" }).relations ?? [];
+      for (const relation of relations) {
+        if (relation.sourceObjectId !== summary.id && relation.targetObjectId !== summary.id) continue;
+        const evidence = relation.evidenceRefs.find((item) => item.kind === "confirmed-event")?.reference;
+        if (!evidence?.eventId || !evidence?.revisionToken || !visibleEventIds.has(evidence.eventId)) continue;
+        const otherId = relation.sourceObjectId === summary.id ? relation.targetObjectId : relation.sourceObjectId;
+        const other = formalCharacters.find((character) => character.id === otherId);
+        knownFacts.push({ factId: `relation.${relation.relationId}`, summary: `正式关系：${summary.title}与 ${other?.label ?? otherId} 为${relation.currentTypeLabel ?? relation.relationLabelSnapshot}。`, sourceRef: { id: evidence.eventId, revision: evidence.revisionToken }, visibility: "relation" });
+      }
       const recalledMemories = await listRecallableCharacterMemories(continuityContext(projectId), { recipientId: summary.id, sourceIdentity, observedAt: scene.observedAt });
       knownFacts.push(...recalledMemories.map((memory) => ({
         factId: memory.id,

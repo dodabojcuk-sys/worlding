@@ -17,7 +17,7 @@ export const NUWA_N1_MAX_DISPATCHES = 12;
 export type NuwaN1StableRef = { id: string; revision: string };
 export type NuwaN1Lifecycle = "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
 export type NuwaN1MemorySource = { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: "active" };
-export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public"; attentionRequired?: boolean; memorySource?: NuwaN1MemorySource };
+export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public" | "relation" | "world-state"; attentionRequired?: boolean; memorySource?: NuwaN1MemorySource };
 /** A belief remains role-local, but its evidence provenance must stay visible
  * so that a suspicion is never silently upgraded to a shared story fact. */
 export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef; attentionRequired?: boolean };
