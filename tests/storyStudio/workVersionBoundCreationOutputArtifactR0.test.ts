@@ -100,6 +100,19 @@ test("B1 creates one named IF from the frozen root identity without copying stor
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("root WorkVersion records a hashable empty verified-Canon Event slice", () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({
+      operations: value.operations,
+      canonReadProjection: { listVerifiedCanonEvents: () => ({ status: "ready", eventIds: [], invalidRecordCount: 0 }) }
+    });
+    const root = port.createRoot(value.projectId);
+    assert.equal(root.identity.kind, "root");
+    assert.ok(root.manifest.canonicalDigest);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("B1 C appends the selected target version only after its frozen target preflight", () => {
   const value = fixture();
   try {
