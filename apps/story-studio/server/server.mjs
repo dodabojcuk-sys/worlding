@@ -1342,7 +1342,8 @@ async function handleProductRequest(request, response, url) {
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/verified-events") {
     const projectId = requireQueryValue(url, "projectId");
-    sendJson(response, 200, { data: canonReadProjection.listVerifiedCanonEvents({ projectId }) });
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim();
+    sendJson(response, 200, { data: canonReadProjection.listVerifiedCanonEvents({ projectId, ...(workVersionId ? { workVersionId } : {}) }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/knowledge-view") {
@@ -1355,7 +1356,8 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/event") {
     const projectId = requireQueryValue(url, "projectId");
     const eventId = requireQueryValue(url, "eventId");
-    sendJson(response, 200, { data: canonReadProjection.readVerifiedCanonEvent({ projectId, eventId }) });
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim();
+    sendJson(response, 200, { data: canonReadProjection.readVerifiedCanonEvent({ projectId, eventId, ...(workVersionId ? { workVersionId } : {}) }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/normal-creation") {
