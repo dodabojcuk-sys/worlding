@@ -14,6 +14,7 @@ import {
   cueNuwaN1Run,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderPreflightFailure,
   readNuwaN1Run,
   resumeNuwaN1Run,
   startNuwaN1Run,
@@ -93,6 +94,52 @@ test("N1 compiles role-local context by stable ID and never leaks author secret 
     assert.equal(JSON.stringify(second).includes("AUTHOR_SECRET_CANARY"), false);
     assert.equal(JSON.stringify(first).includes("顾澜"), false, "another actor's belief does not enter the request");
     assert.equal(readNuwaN1Run(workspace, run.runId)?.revision, 1);
+  });
+});
+
+test("N1 durably records a local Provider validation failure without reserving or consuming a send", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const started = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.n1.preflight.start" });
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const base = adapter(observed);
+    const blocked = await advanceNuwaN1Run({
+      workspacePath: workspace,
+      runId: run.runId,
+      expectedRevision: started.revision,
+      operationId: "operation.n1.preflight",
+      adapter: {
+        ...base,
+        async continueAfterTool({ context }) {
+          recordNuwaN1ProviderPreflightFailure({
+            workspacePath: workspace,
+            runId: run.runId,
+            operationId: "operation.n1.preflight",
+            providerCall: 2,
+            requestKey: "nuwa-n1.fixture.preflight.2",
+            detail: "request-validation:tool-result-id",
+            provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" },
+            now: "2026-09-09T14:00:00.000Z"
+          });
+          throw new Error("当前模型请求内容无效。");
+        }
+      }
+    });
+    const persisted = readNuwaN1Run(workspace, run.runId)!;
+    const providerDispatch = persisted.attempts[0]!.dispatches.find((item) => item.phase === "provider");
+
+    assert.equal(blocked.lifecycle, "blocked");
+    assert.equal(persisted.providerDispatches, 0, "a local validation rejection cannot consume the real Provider send budget");
+    assert.deepEqual(providerDispatch, {
+      phase: "provider",
+      status: "failed",
+      recordedAt: "2026-09-09T14:00:00.000Z",
+      detail: "request-validation:tool-result-id",
+      providerCall: 2,
+      requestKey: "nuwa-n1.fixture.preflight.2",
+      reservationId: null,
+      receiptEnvelopeId: null,
+      provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" }
+    });
   });
 });
 

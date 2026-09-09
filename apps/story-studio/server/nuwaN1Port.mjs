@@ -14,6 +14,7 @@ import {
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderPreflightFailure,
   recordNuwaN1ProviderReservation,
   readLatestNuwaRun,
   readNuwaN1Run,
@@ -992,6 +993,15 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       actorIds,
       onProviderLifecycle(event) {
         const base = { workspacePath: workspacePath(projectId), runId, operationId, requestKey: event.requestKey, now: now() };
+        if (event.phase === "failed" && typeof event.detail === "string" && event.detail.startsWith("request-validation:")) {
+          recordNuwaN1ProviderPreflightFailure({
+            ...base,
+            providerCall: event.providerCall,
+            detail: event.detail,
+            provider: event.provider
+          });
+          return;
+        }
         if (event.phase === "reserved") {
           recordNuwaN1ProviderReservation({
             ...base,

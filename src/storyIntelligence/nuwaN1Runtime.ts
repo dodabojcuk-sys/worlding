@@ -405,6 +405,34 @@ export function recordNuwaN1ProviderReservation(input: { workspacePath: string; 
   }));
 }
 
+/**
+ * Records a Gateway rejection that occurred before a budget reservation or
+ * model-boundary send. It is intentionally separate from a reservation:
+ * callers can recover the exact safe validation class without treating a
+ * zero-send failure as an unknown or consuming the N1 send budget.
+ */
+export function recordNuwaN1ProviderPreflightFailure(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; requestKey: string; detail: string; provider: { providerId: string; profileId: string; modelId: string }; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const attemptId = safeOperation(input.operationId);
+  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider preflight validation.");
+  if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
+  const requestKey = safeRequestKey(input.requestKey);
+  const detail = providerPreflightDiagnostic(input.detail);
+  const found = current.attempts.find((attempt) => attempt.operationId === attemptId);
+  if (!found) throw new Error("Nuwa N1 Provider preflight failure has no matching execution attempt.");
+  const prior = found.dispatches.find((dispatch) => dispatch.phase === "provider" && dispatch.requestKey === requestKey);
+  if (prior) return current;
+  return updateAttempt(input, current, attemptId, (attempt) => ({
+    ...attempt,
+    dispatches: [...attempt.dispatches, {
+      phase: "provider", status: "failed", recordedAt: recordedAt(input), detail,
+      providerCall: input.providerCall, requestKey, reservationId: null, receiptEnvelopeId: null,
+      provider: normalizeProviderIdentity(input.provider)
+    }],
+    updatedAt: recordedAt(input)
+  }));
+}
+
 /** The Gateway calls this only after its transport has accepted the request.
  * A reservation alone deliberately does not consume N1's actual-send count. */
 export function recordNuwaN1ProviderDispatch(input: { workspacePath: string; runId: string; operationId: string; requestKey: string; now?: string }): NuwaN1Run {
@@ -571,6 +599,12 @@ function normalizeAttempt(value: NuwaN1Attempt): NuwaN1Attempt {
 
 function safeRequestKey(value: string): string {
   return text(value, "Provider request key", 240);
+}
+
+function providerPreflightDiagnostic(value: string): string {
+  const detail = text(value, "Provider preflight diagnostic", 120);
+  if (!/^request-validation:[a-z0-9-]{1,80}$/u.test(detail)) throw new Error("Nuwa N1 Provider preflight diagnostic is invalid.");
+  return detail;
 }
 
 function normalizeProviderIdentity(value: { providerId: string; profileId: string; modelId: string }) {

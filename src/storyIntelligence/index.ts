@@ -170,6 +170,7 @@ export {
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderPreflightFailure,
   recordNuwaN1ProviderReservation,
   readNuwaN1Run,
   resolveNuwaN1ProviderDispatch,
