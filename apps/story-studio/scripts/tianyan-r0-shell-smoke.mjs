@@ -1170,7 +1170,11 @@ async function assertDevelopmentRuntimeMode() {
 
   const health = await fetch(`${apiUrl}/__local/story-studio/health`);
   assert.equal(health.status, 200, "api-only mode keeps the local health endpoint available.");
-  assert.deepEqual(await health.json(), { data: { status: "healthy", runtimeMode: "api-only" } });
+  const healthBody = await health.json();
+  assert.equal(healthBody?.data?.status, "healthy");
+  assert.equal(healthBody?.data?.runtimeMode, "api-only");
+  assert.match(String(healthBody?.data?.codeRevision || ""), /^(?:[0-9a-f]{40}|unknown)$/u, "Health must expose the code revision captured when this service started.");
+  assert.equal(Number.isNaN(Date.parse(String(healthBody?.data?.startedAt || ""))), false, "Health must expose the service start time.");
 
   const missingApi = await fetch(`${apiUrl}/__local/story-studio/runtime-mode-missing`);
   assert.equal(missingApi.status, 404);
@@ -1183,7 +1187,7 @@ async function assertDevelopmentRuntimeMode() {
     developmentUi: { entry: `${baseUrl}/event-line`, status: vitePage.status, sourceMarkers: ["/@vite/client", "/src/main.tsx"] },
     directApiUiRequest: { entry: `${apiUrl}/event-line`, status: apiUiRequest.status, body: apiUiHtml },
     proxiedApi: { entry: `${baseUrl}/__local/story-studio/bootstrap`, status: proxiedBootstrap.status },
-    health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: { data: { status: "healthy", runtimeMode: "api-only" } } },
+    health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: healthBody },
     unknownApi: { status: missingApi.status, contentType: missingApi.headers.get("content-type"), body: JSON.parse(missingApiBody) }
   }, null, 2));
 }
