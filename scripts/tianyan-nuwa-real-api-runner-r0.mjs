@@ -105,7 +105,8 @@ try {
       result.run.receiptIds = Array.isArray(finalRun?.dispatches)
         ? finalRun.dispatches.map((item) => item?.receiptEnvelopeId).filter((item) => typeof item === "string")
         : [];
-      result.provider = providerIdentity(finalRun);
+      const dispatchedProvider = providerIdentity(finalRun);
+      if (dispatchedProvider.profileId || dispatchedProvider.providerId || dispatchedProvider.modelId) result.provider = dispatchedProvider;
       if (dispatches === 0 || result.run.status === "blocked") {
         finish("external-condition-missing", 0, "女娲 Run 在真实 Provider 发送前被阻断；已保存隔离样例与宿主状态。", "nuwa-run-blocked-before-provider-dispatch");
       } else {
