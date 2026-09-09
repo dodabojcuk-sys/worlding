@@ -260,7 +260,7 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
     ? { projectionSalt: ({ projectId, sourceGeneration }) => `disposable-e2e-source:${projectId}:generation-${sourceGeneration}` }
     : {})
 });
-const multiverseB1Fixture = createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort });
+const multiverseB1Fixture = createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort, authorControl });
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
 const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl, creationSourceSelectionPort });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });

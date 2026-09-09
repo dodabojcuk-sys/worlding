@@ -24,7 +24,7 @@ type ExecutionEnvelope = {
 type MergeRequest = { comparison: MultiverseComparison; selectedChangeIds: string[]; operationId: string; idempotencyKey: string; authorActionId: string; createdAt: string };
 
 /** An orchestration receipt only: all story facts stay in their existing Owner. */
-export function createMultiverseB1MergeCoordinator(input: { operations: AnyRecord; relationOperations: AnyRecord; creationSourcePort: AnyRecord }) {
+export function createMultiverseB1MergeCoordinator(input: { operations: AnyRecord; relationOperations: AnyRecord; creationSourcePort: AnyRecord; eventMaterializer?: (value: { projectId: string; workVersionId: string; source: AnyRecord; plan: AnyRecord; difference: MultiverseDifference; operationId: string }) => any }) {
   function executionPath(projectId: string, idempotencyKey: string): string {
     return path.join(input.operations.resolveProjectWorkspacePath({ projectId }), ".world-os", "workspace", "multiverse-b1", "merges", `${digest(idempotencyKey)}.json`);
   }
@@ -68,7 +68,9 @@ export function createMultiverseB1MergeCoordinator(input: { operations: AnyRecor
           if (hasReceipt(envelope.execution, difference.changeId)) continue;
           const source = sourceValue(difference);
           const targetEventRef = `event.author-confirmed-${digest(`${plan.receiptId}:${difference.objectId}`).slice(0, 24)}`;
-          const saved = input.operations.createConfirmedEventOnce({ projectId: plan.target.projectId, workVersionId: plan.target.workVersionId, targetEventRef, title: text(source.title, "B1 source Event title"), body: text(source.body, "B1 source Event body"), provenance: eventProvenance(source, plan), operationId: `${plan.operationId}.event.${difference.objectId}` });
+          const saved = input.eventMaterializer
+            ? { conflict: false, event: input.eventMaterializer({ projectId: plan.target.projectId, workVersionId: plan.target.workVersionId, source, plan, difference, operationId: `${plan.operationId}.event.${difference.objectId}` }) }
+            : input.operations.createConfirmedEventOnce({ projectId: plan.target.projectId, workVersionId: plan.target.workVersionId, targetEventRef, title: text(source.title, "B1 source Event title"), body: text(source.body, "B1 source Event body"), provenance: eventProvenance(source, plan), operationId: `${plan.operationId}.event.${difference.objectId}` });
           if (saved.conflict || !saved.event) throw new Error(`B1 Event write conflicts for ${difference.objectId}; no later Owner was written.`);
           events.set(difference.objectId, saved.event.id);
           envelope.detail.events[difference.objectId] = saved.event.id;

@@ -7,13 +7,31 @@ const MERGE_KEY = "multiverse-b1-fixture.merge";
 
 /** Explicitly isolated local fixture. It is never available for ordinary user
  * works, and writes every fact through the production Owner operations. */
-export function createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort, now = () => new Date().toISOString() }) {
-  const coordinator = createMultiverseB1MergeCoordinator({ operations, relationOperations, creationSourcePort: creationSourceSelectionPort });
+export function createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort, authorControl = null, now = () => new Date().toISOString() }) {
+  const coordinator = createMultiverseB1MergeCoordinator({ operations, relationOperations, creationSourcePort: creationSourceSelectionPort, ...(authorControl ? { eventMaterializer: materializeAuthorControlledEvent } : {}) });
   function project(projectId) {
     const value = operations.listProjects().find((item) => item.id === projectId);
     if (!value) throw new Error("MULTI-B1 Fixture Project does not exist.");
     if (!/B1 融入隔离|multiverse[ .-]?b1[ .-]?fixture/i.test(value.title)) throw new Error("MULTI-B1 Fixture writes require an explicitly isolated Project.");
     return value;
+  }
+  function materializeAuthorControlledEvent({ projectId, source, plan, operationId }) {
+    const marker = `multiverse-b1:${plan.receiptId}`;
+    const existing = operations.listWorldObjects({ projectId, type: "event" })
+      .filter((item) => item.status === "planned" && item.tags.includes(marker))
+      .map((item) => operations.readWorldObject({ projectId, objectId: item.id }))[0] || null;
+    const planning = existing || operations.createPlanningEvent({ projectId, title: text(source.title), tags: ["MULTI-B1 融入", marker], body: text(source.body) });
+    let impact = authorControl.createPlanningEventImpactReview({ projectId, planningEventId: planning.id });
+    if (impact.status === "pending") {
+      const option = impact.options[0];
+      if (!option) throw new Error("MULTI-B1 Event lacks an Author Control impact route.");
+      impact = authorControl.chooseImpactRoute({ projectId, reviewId: impact.id, optionId: option.id, action: "adopt" });
+    }
+    if (impact.status !== "selected") throw new Error("MULTI-B1 Event has no selected Author Control impact route.");
+    const changeSet = authorControl.createAuthorChangeSet({ projectId, reviewId: impact.id, decisionSource: "multiverse-b1-fixture", authorizationId: operationId });
+    const applied = authorControl.applyAuthorChangeSet({ projectId, changeSetId: changeSet.id });
+    if (!applied.application.appliedEventId) throw new Error("MULTI-B1 Author Control did not materialize a Canon Event.");
+    return operations.readWorldObject({ projectId, objectId: applied.application.appliedEventId });
   }
   function object(projectId, title) {
     const found = operations.listWorldObjects({ projectId }).find((item) => item.title === title);
@@ -94,8 +112,28 @@ export function createMultiverseB1FixtureAdapter({ operations, relationOperation
     } };
     return compareMultiverseB1Versions({ base, source, target: { ...base, objects: empty() } });
   }
-  function merge(projectId) { const compared = comparison(projectId); return coordinator.apply({ comparison: compared, selectedChangeIds: compared.differences.filter((item) => item.selection === "available").map((item) => item.changeId), operationId: "multiverse-b1-fixture.merge", idempotencyKey: MERGE_KEY, authorActionId: "author.multiverse-b1-fixture.merge", createdAt: now() }); }
-  function compensate(projectId) { return coordinator.compensate({ projectId, idempotencyKey: MERGE_KEY, operationId: "multiverse-b1-fixture.compensate", authorActionId: "author.multiverse-b1-fixture.compensate", createdAt: now() }); }
+  function mergedEventId(execution) { return execution.ownerReceipts.find((item) => item.ownerKind === "Event")?.targetRef.replace(/^event:/u, "") || null; }
+  function merge(projectId) {
+    const compared = comparison(projectId);
+    const execution = coordinator.apply({ comparison: compared, selectedChangeIds: compared.differences.filter((item) => item.selection === "available").map((item) => item.changeId), operationId: "multiverse-b1-fixture.merge", idempotencyKey: MERGE_KEY, authorActionId: "author.multiverse-b1-fixture.merge", createdAt: now() });
+    const eventId = mergedEventId(execution); const current = unit(projectId);
+    if (eventId && !current.linkedEntityIds.includes(eventId)) {
+      const saved = operations.updateStoryUnit({ projectId, unitId: current.id, expectedVersion: current.version, linkedEntityIds: [...current.linkedEntityIds, eventId] });
+      if (saved.conflict) throw new Error("MULTI-B1 Fixture Story Unit changed before linking the selected Canon Event.");
+    }
+    return execution;
+  }
+  function compensate(projectId) {
+    const execution = coordinator.compensate({ projectId, idempotencyKey: MERGE_KEY, operationId: "multiverse-b1-fixture.compensate", authorActionId: "author.multiverse-b1-fixture.compensate", createdAt: now() });
+    const eventId = mergedEventId(execution); const current = unit(projectId);
+    if (eventId && current.linkedEntityIds.includes(eventId)) {
+      const saved = operations.updateStoryUnit({ projectId, unitId: current.id, expectedVersion: current.version, linkedEntityIds: current.linkedEntityIds.filter((item) => item !== eventId) });
+      if (saved.conflict) throw new Error("MULTI-B1 Fixture Story Unit changed before compensation link removal.");
+    }
+    return execution;
+  }
   function read(projectId) { project(projectId); const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId); const derived = creationSourceSelectionPort.listWorkVersions(projectId).find((item) => item.identity.kind === "derived") || null; return { version: "tianyan-multiverse-b1-fixture/v1", root: root ? { workVersionId: root.identity.workVersionId, revision: root.identity.currentRevision, manifestDigest: root.manifest.canonicalDigest } : null, derived: derived ? { workVersionId: derived.identity.workVersionId, revision: derived.identity.currentRevision, parentBaseRevision: derived.identity.parentBaseRevision } : null, execution: coordinator.read({ projectId, idempotencyKey: MERGE_KEY }) }; }
   return Object.freeze({ setup, read, comparison, merge, compensate });
 }
+
+function text(value) { const result = String(value || "").trim(); if (!result) throw new Error("MULTI-B1 Event source text is required."); return result; }
