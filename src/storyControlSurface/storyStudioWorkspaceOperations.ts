@@ -1048,6 +1048,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       tags?: string[];
       aliases?: string[];
       body?: string;
+      knowledgeSubjects?: string[];
       plannedFrom?: string;
       agentTypeId?: string;
       agentTypeFieldValues?: Record<string, unknown>;
@@ -1060,6 +1061,8 @@ export function createStoryStudioWorkspaceOperations(input: {
       const id = uniqueObjectId(type, title, new Set(existing.map((item) => item.id)));
       const plannedFrom = objectInput.plannedFrom == null ? null : requirePlanningSource(projectPath, objectInput.plannedFrom);
       if (plannedFrom && type !== "event") throw new Error("Only event notes can reference a planning event.");
+      const knowledgeSubjects = requireStringList(objectInput.knowledgeSubjects, "knowledge subjects");
+      if (type !== "event" && knowledgeSubjects.length) throw new Error("Only event notes can declare knowledge subjects.");
       const agentTypeFrontmatter = prepareAgentTypeBindingFrontmatter(projectPath, type, null, objectInput.agentTypeId, objectInput.agentTypeFieldValues, true);
       const profile = normalizeOptionalObjectProfile(objectInput.profile, type);
       const note = createWorkspaceNote(projectPath, {
@@ -1072,6 +1075,7 @@ export function createStoryStudioWorkspaceOperations(input: {
           tags: requireStringList(objectInput.tags, "tags"),
           card_layout: "horizontal",
           card_blocks: defaultObjectCardBlocks(type),
+          ...(knowledgeSubjects.length ? { knowledge_subjects: knowledgeSubjects } : {}),
           ...agentTypeFrontmatter.frontmatter,
           ...(profile ? { [OBJECT_PROFILE_FRONTMATTER_KEY]: serializeStoryStudioObjectProfile(profile) } : {}),
           ...(plannedFrom ? { planned_from: plannedFrom.id } : {})
@@ -1165,6 +1169,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       tags?: string[];
       aliases?: string[];
       body?: string;
+      knowledgeSubjects?: string[];
       profile?: StoryStudioObjectProfileInput | StoryStudioObjectProfile | null;
     }): StoryStudioWorldObject {
       assertGenericObjectCreationAuthorityBoundary(objectInput);
@@ -1752,6 +1757,7 @@ export function createStoryStudioWorkspaceOperations(input: {
         status: current.type === "event" ? "possible" : "active",
         tags,
         aliases: stringList(current.frontmatter.aliases),
+        knowledgeSubjects: stringList(current.frontmatter.knowledge_subjects),
         body: current.body
       });
     },

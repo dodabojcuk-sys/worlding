@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -95,6 +95,25 @@ test("pinned artifact export keeps the exact saved package after its Story Unit 
     assert.doesNotMatch(pinned.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u);
     assert.equal(current.packageMode, "current-selection");
     assert.doesNotMatch(current.package?.storyMarkdown || "", /R5R1_CURRENT_CANARY/u, "Story Unit summary is not an exportable Event-content authority.");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("pinned artifact export rejects a snapshot whose Markdown no longer matches its saved digest", async () => {
+  const value = fixture();
+  try {
+    value.adapter.createRoot(value.projectId);
+    const created = await value.adapter.createArtifact(value.projectId);
+    const source = created.provenance.workVersionSource!;
+    assert.ok(source.pinnedPackageSnapshot?.snapshotDigest);
+    const artifactPath = path.join(value.rootPath, value.projectId, created.relativeId);
+    const stored = readFileSync(artifactPath, "utf8");
+    const corrupted = stored.replace(source.pinnedPackageSnapshot!.snapshotDigest!, `sha256:${"0".repeat(64)}`);
+    assert.notEqual(corrupted, stored, "the fixture must corrupt the persisted snapshot outside the protected write API");
+    writeFileSync(artifactPath, corrupted, "utf8");
+    const blocked = await value.adapter.read(value.projectId, { view: "pinned", artifactId: created.id });
+    assert.equal(blocked.packageMode, "blocked");
+    assert.equal(blocked.package, null);
+    assert.match(blocked.sourceRequestBlocker?.authorMessage || "", /摘要不匹配/u);
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 

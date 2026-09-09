@@ -988,13 +988,21 @@ function candidateReviewResult(project, run, handoff) {
   const executionSummary = providerCalls.length
     ? `本次 Run 记录了 ${providerCalls.length} 次模型边界发送；候选仍须作者采纳。`
     : "本次 Run 没有模型边界发送记录；候选仍须作者采纳。";
+  const selectedContextRefs = handoff.candidates.flatMap((candidate) => run.steps
+    .find((step) => step.stepId === candidate.sourceStepId)?.contextEvidenceRefs ?? []);
+  const contextSources = [...new Map(selectedContextRefs.map((ref) => [ref.sourceId, {
+    id: ref.sourceId,
+    type: `nuwa-step-${ref.visibility}`,
+    label: ref.sourceId,
+    content: ref.summary
+  }])).values()];
   const candidates = handoff.candidates.map((candidate) => ({
     id: candidate.candidateId,
     title: candidate.title,
     change: candidate.summary,
     after: candidate.observedResult,
     causes: [`Nuwa N1 Run ${run.runId} / Step ${candidate.sourceStepId}`],
-    evidence: run.actors.find((actor) => actor.character.id === candidate.affectedCharacterIds[0])?.knownFacts.map((fact) => fact.sourceRef.id) ?? [],
+    evidence: [...new Set(run.steps.find((step) => step.stepId === candidate.sourceStepId)?.contextEvidenceRefs.map((ref) => ref.sourceId) ?? [])],
     affectedObjects: candidate.affectedCharacterIds,
     uncertainty: "本次排演结果尚未成为正式故事事实。",
     impact: "仅进入既有 Candidate Review；正式写入为 0。",
@@ -1009,7 +1017,7 @@ function candidateReviewResult(project, run, handoff) {
       contextReceiptId: handoff.handoffId,
       project: { id: project.id, title: project.title },
       authorIntent: "审阅女娲 N1 的受限场景候选；不会直接写入故事事实。",
-      sources: run.actors.flatMap((actor) => actor.knownFacts.map((fact) => ({ id: fact.sourceRef.id, type: "authorized-character-evidence", label: fact.sourceRef.id, content: fact.summary }))),
+      sources: contextSources,
       unknowns: ["未选定的角色知识、作者未来安排和其他角色秘密没有进入本次候选。"],
       budgets: { maximumSources: 16, maximumCharacters: 16_000 },
       excluded: run.actors.flatMap((actor) => actor.unknownFactIds.map((id) => ({ id, reason: "not-known-by-selected-actor" })))

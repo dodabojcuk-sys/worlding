@@ -1444,7 +1444,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/world-objects/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "type", "title", "status", "tags", "aliases", "body", "agentTypeId", "agentTypeFieldValues", "profile"]);
+    requireAllowedKeys(body, ["projectId", "type", "title", "status", "tags", "aliases", "body", "knowledgeSubjects", "agentTypeId", "agentTypeFieldValues", "profile"]);
     recordAuthorInitiatedAction(body.projectId, "library-write", body.type, [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createGenericWorldObject(body)) });
     return;

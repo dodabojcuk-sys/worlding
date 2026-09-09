@@ -39,6 +39,7 @@ export type WorkVersionOutputArtifactSourceStatus =
 export type WorkVersionOutputArtifactPackageSnapshotR0 = {
   packageId: string;
   contentHash: `sha256:${string}`;
+  snapshotDigest?: `sha256:${string}`;
   scope: { kind: "unit"; unitIds: string[]; label: string };
   sourceAnchors: Array<{ anchorId: string; sourceKind: string; ownerId: string; entityId: string; entityVersion: string | null; capturedAt: string; staleState: string }>;
   warnings: string[];
@@ -159,7 +160,7 @@ export function normalizeWorkVersionOutputArtifactSource(value: unknown): WorkVe
 }
 
 function normalizePinnedPackageSnapshot(value: unknown): WorkVersionOutputArtifactPackageSnapshotR0 {
-  const snapshot = exactRecord(value, ["packageId", "contentHash", "scope", "sourceAnchors", "warnings", "storyMarkdown"], "Pinned Neutral Story Package snapshot");
+  const snapshot = exactRecord(value, ["packageId", "contentHash", "snapshotDigest", "scope", "sourceAnchors", "warnings", "storyMarkdown"], "Pinned Neutral Story Package snapshot", ["snapshotDigest"]);
   const scope = exactRecord(snapshot.scope, ["kind", "unitIds", "label"], "Pinned Neutral Story Package scope");
   if (scope.kind !== "unit") throw new Error("Pinned Neutral Story Package scope must be a Story Unit.");
   const unitIds = requireTextList(scope.unitIds, "Pinned Neutral Story Package unit", true);
@@ -175,6 +176,7 @@ function normalizePinnedPackageSnapshot(value: unknown): WorkVersionOutputArtifa
   return {
     packageId: requireText(snapshot.packageId, "Pinned Neutral Story Package identifier", 180),
     contentHash: requirePrefixedDigest(snapshot.contentHash, "Pinned Neutral Story Package digest"),
+    ...(snapshot.snapshotDigest == null ? {} : { snapshotDigest: requirePrefixedDigest(snapshot.snapshotDigest, "Pinned Neutral Story Package snapshot digest") }),
     scope: { kind: "unit", unitIds, label: requireText(scope.label, "Pinned Neutral Story Package label", 240) },
     sourceAnchors,
     warnings: requireTextList(snapshot.warnings, "Pinned Neutral Story Package warning", false),

@@ -90,6 +90,11 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   model = candidate.payload.data as NuwaReadModel;
   assert.equal(model.candidate.formalWrites, 0);
   assert.equal(model.review.status, "awaiting");
+  const storedReview = value.authorControl.listCandidateReviews({ projectId: value.project.id })[0]!;
+  const storedCandidate = (storedReview.result.nuwa as { candidates: Array<{ evidence: string[] }> }).candidates[0]!;
+  const expectedEvidenceIds = model.run.steps[0]!.contextEvidenceRefs.map((ref) => ref.sourceId);
+  assert.deepEqual(storedCandidate.evidence, expectedEvidenceIds, "Candidate Review keeps the selected step's exact persisted context evidence");
+  assert.deepEqual((storedReview.result.contextPack as { sources: Array<{ id: string }> }).sources.map((source) => source.id), expectedEvidenceIds, "Candidate Review ContextPack excludes unused initial facts and unselected-step evidence");
   assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectsBefore, "candidate handoff cannot create a formal world object");
   assert.equal(buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash, formalSnapshotBefore, "candidate handoff cannot mutate formal Event, World, Canon, or narrative source content");
   assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).version, storyUnitVersionBefore, "candidate handoff cannot mutate the formal Story Unit or arrangement binding");

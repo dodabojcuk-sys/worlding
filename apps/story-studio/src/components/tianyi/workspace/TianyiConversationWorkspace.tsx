@@ -322,37 +322,44 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     } catch { setSelectedIntakeCandidateIds([]); }
   }, [intakeRun?.runId, intakeRun?.storyIntakeEnvelope?.envelopeId, project]);
 
-  const streamIntakeRun = async (sessionId: string, runId: string, label: string, prepareContext = true) => {
-    if (!project) return;
+  const streamIntakeRun = async (sessionId: string, runId: string, label: string, prepareContext = true, visit = conversationProjectVisit.current) => {
+    if (!project || visit.projectId !== project.id || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+    const projectId = project.id;
+    const frozenWorkVersionId = workVersionId;
     const controller = new AbortController();
     intakeAbort.current = controller;
     setIntakeStreamText("");
     const next = await runtime.withConnection(async (token) => {
       if (prepareContext) {
-        const contextualized = await continueTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, runId, operationId: operationId(`${label}.context`), token });
+        const contextualized = await continueTianyiAgentRun({ projectId, workVersionId: frozenWorkVersionId, sessionId, runId, operationId: operationId(`${label}.context`), token });
+        if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
         setIntakeRun(contextualized);
       }
       return streamTianyiAgentRun({
-        projectId: project.id, workVersionId, sessionId, runId,
+        projectId, workVersionId: frozenWorkVersionId, sessionId, runId,
         operationId: operationId(`${label}.stream`), token, signal: controller.signal,
-        onEvent(event) { if (event.type === "text-delta") setIntakeStreamText((value) => value + event.delta); }
+        onEvent(event) { if (event.type === "text-delta" && sameConversationProjectVisit(conversationProjectVisit.current, visit)) setIntakeStreamText((value) => value + event.delta); }
       });
     });
+    if (!next || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
     setIntakeRun(next);
     if (next.storyIntakeEnvelope) window.dispatchEvent(new Event("story-studio-pending-review-changed"));
-    intakeAbort.current = null;
+    if (intakeAbort.current === controller) intakeAbort.current = null;
   };
 
   const submitCreative = async () => {
     const text = runtime.creativeComposerDraft.trim();
     if (!text || !project || busy) return;
+    const visit = conversationProjectVisit.current;
+    const projectId = project.id;
+    const frozenWorkVersionId = workVersionId;
     setBusy(true); setError("");
     try {
-      const sessionId = await ensureConversation();
-      if (!sessionId) return;
+      const sessionId = await ensureConversation(visit);
+      if (!sessionId || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       const captureOperationId = operationId("capture");
       const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
-        projectId: project.id,
+        projectId,
         sessionId,
         operationId: captureOperationId,
         submissionId: operationId("submission"),
@@ -360,25 +367,28 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         collaborate: false,
         token
       }));
+      if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       runtime.setCreativeComposerDraft("");
       if (legacyFixture) {
-        const extracted = await runtime.withConnection((token) => extractTianyiCreativeProjection({ projectId: project.id, sessionId, operationId: operationId("extract"), source: captured.source, fixture: deterministicThreeCandidates(text, t), token }));
+        const extracted = await runtime.withConnection((token) => extractTianyiCreativeProjection({ projectId, sessionId, operationId: operationId("extract"), source: captured.source, fixture: deterministicThreeCandidates(text, t), token }));
+        if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
         setProjection(extracted.projection);
-        await refresh(sessionId);
+        await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
       } else {
         const run = await runtime.withConnection((token) => startTianyiAgentRun({
-          projectId: project.id, workVersionId, sessionId, currentPage: "/tianyi",
+          projectId, workVersionId: frozenWorkVersionId, sessionId, currentPage: "/tianyi",
           task: "把本轮已保存的作者原话整理为带精确来源的结构化故事候选。",
           contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: captured.source } },
           permissionProfile: "conservative", operationId: operationId("story-intake.start"), token
         }));
-        window.sessionStorage.setItem(tianyiStoryIntakeRunStorageKey(project.id, workVersionId, sessionId), run.runId);
+        if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+        window.sessionStorage.setItem(tianyiStoryIntakeRunStorageKey(projectId, frozenWorkVersionId, sessionId), run.runId);
         setIntakeRun(run);
-        await refresh(sessionId);
-        await streamIntakeRun(sessionId, run.runId, "story-intake");
+        await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
+        await streamIntakeRun(sessionId, run.runId, "story-intake", true, visit);
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.workspace.prepareFailed")); }
-    finally { setBusy(false); }
+    } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : t("tianyi.workspace.prepareFailed")); }
+    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const submitConversation = async (conversationLane: "creative" | "work") => {
@@ -453,10 +463,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
 
   const retryStoryIntake = async () => {
     if (!runtime.tianyiConversationId || !intakeRun || busy) return;
+    const visit = conversationProjectVisit.current;
     setBusy(true); setError("");
-    try { await streamIntakeRun(runtime.tianyiConversationId, intakeRun.runId, "story-intake.retry", false); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Story Intake 重试失败。"); }
-    finally { setBusy(false); }
+    try { await streamIntakeRun(runtime.tianyiConversationId, intakeRun.runId, "story-intake.retry", false, visit); }
+    catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "Story Intake 重试失败。"); }
+    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const decideIntakeCandidate = async (candidateId: string, lifecycleStatus: StoryIntakeLifecycleStatusProjection) => {
