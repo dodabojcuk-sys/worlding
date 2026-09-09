@@ -169,6 +169,27 @@ export type MultiverseWorkVersion = {
   staleness: { state: "current" | "stale" | "blocked_missing_reference" };
 };
 
+/** Development-only, explicitly isolated B1 rehearsal projection.  It is
+ * intentionally an Owner-receipt view, not a second Relation/Event store. */
+export type MultiverseB1Fixture = {
+  version: "tianyan-multiverse-b1-fixture/v1";
+  root: { workVersionId: string; revision: number; manifestDigest: string } | null;
+  derived: { workVersionId: string; revision: number; parentBaseRevision: number | null } | null;
+  comparison: {
+    compareDigest: string;
+    source: { workVersionId: string; revision: number; manifestDigest: string };
+    target: { workVersionId: string; revision: number; manifestDigest: string };
+    differences: Array<{ changeId: string; ownerKind: "Event" | "Relation" | "WorldState" | "NarrativePlacement"; state: string; selection: string; summary: string; dependencyIds: string[] }>;
+  } | null;
+  execution: {
+    status: string;
+    ownerReceipts: Array<{ ownerKind: string; changeId: string; receiptRef: string; targetRef: string }>;
+    resultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+    compensationResultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+    failure: string | null;
+  } | null;
+};
+
 export type StorageProviderConnection = {
   providerId: "local-folder";
   kind: "local-folder";
@@ -2087,6 +2108,15 @@ export async function getMultiverseWorkVersions(projectId: string): Promise<Mult
 export async function createMultiverseWorkVersion(input: { projectId: string; displayName: string; parentVersionId: string; expectedParentRevision: number; expectedParentManifestId: string; idempotencyKey: string; token: string }): Promise<{ created: unknown; versions: MultiverseWorkVersion[] }> {
   const { token, ...body } = input;
   return request<{ created: unknown; versions: MultiverseWorkVersion[] }>(`${basePath}/multiverse/versions/create`, { method: "POST", token, body });
+}
+
+export async function getMultiverseB1Fixture(projectId: string): Promise<MultiverseB1Fixture> {
+  return request<MultiverseB1Fixture>(`${basePath}/multiverse/b1-fixture?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function runMultiverseB1Fixture(input: { projectId: string; action: "setup" | "merge" | "compensate"; token: string }): Promise<{ result: unknown; view: MultiverseB1Fixture }> {
+  const { token, action, ...body } = input;
+  return request<{ result: unknown; view: MultiverseB1Fixture }>(`${basePath}/multiverse/b1-fixture/${action}`, { method: "POST", token, body });
 }
 
 export async function runMultiverseSingleDerivedFixture(input: {
