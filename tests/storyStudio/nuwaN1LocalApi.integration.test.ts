@@ -229,9 +229,10 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(frozenAfterState.run.runId, frozen.run.runId);
   assert.equal(frozenAfterState.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true, "a previously created Run keeps its frozen context");
 
+  assert.equal((await postJson(restarted.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
   const after = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/create", {
     ...value.request("n4-new-state-context"),
-    goal: "北闸已封，林昭持有铜钥匙；林昭需要考虑与阿芜的正式关系后寻找替代路线。"
+    goal: "北闸已封，林昭持有铜钥匙；林昭需要考虑与阿芜的正式关系后交接钥匙并寻找替代路线。"
   });
   assert.equal(after.status, 201, JSON.stringify(after.payload));
   const next = after.payload.data as NuwaReadModel;
@@ -246,6 +247,16 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(storedLinzhao.knownFacts.filter((item) => item.visibility === "relation").length, 1, "the relation remains a traceable legal source even when the N1 attention budget concentrates on the two state facts");
   assert.equal(storedAwu.knownFacts.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false, "attention and participation do not disclose an Event-backed world fact to another role");
   assert.equal(awu.knowledgeItems.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false);
+  const firstStateStep = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: next.run.runId, expectedRevision: next.run.revision, operationId: "n4-state-handoff-step" });
+  assert.equal(firstStateStep.status, 200, JSON.stringify(firstStateStep.payload));
+  const stepped = firstStateStep.payload.data as NuwaReadModel;
+  assert.ok(stepped.run.steps[0], JSON.stringify(firstStateStep.payload));
+  const autoApplied = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-apply", selectedStepIds: [stepped.run.steps[0]!.stepId] });
+  assert.equal(autoApplied.status, 201, JSON.stringify(autoApplied.payload));
+  const automatic = autoApplied.payload.data as NuwaReadModel & { automaticApplication: { worldStateChanges: Array<{ objectId: string; changeId: string }> } };
+  assert.equal(automatic.automaticApplication.worldStateChanges.length, 1);
+  const transferred = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
+  assert.deepEqual(transferred.value, { kind: "holder", state: "held", holder: { id: value.characters[1]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[1]!.id }).revisionToken } });
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {

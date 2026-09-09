@@ -338,7 +338,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         relationTypeId: prepared.relationType?.relationTypeId ?? null,
         relationTypeRevision: prepared.relationType?.typeRevision ?? null,
         status: "applying",
-        application: { permissionReceiptId: null, impactPermissionReceiptId: null, candidate: null, review: null, planningEventId: null, impactReviewId: null, changeSetId: null, eventId: null, storyUnitLinkedVersion: null, narrativePlacementIds: [], materialObjectId: null, relationId: null, workVersionReceiptId: null, resultVersion: null, fixedDraft: null, rollback: null },
+        application: { permissionReceiptId: null, impactPermissionReceiptId: null, candidate: null, review: null, planningEventId: null, impactReviewId: null, changeSetId: null, eventId: null, storyUnitLinkedVersion: null, narrativePlacementIds: [], materialObjectId: null, relationId: null, worldStateChanges: [], workVersionReceiptId: null, resultVersion: null, fixedDraft: null, rollback: null },
         failure: null,
         recordedAt: now(),
         updatedAt: now()
@@ -491,8 +491,25 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       application.relationId = relation.relation.relationId;
       persistAutoApplication(receipt);
     }
+    if (!Array.isArray(application.worldStateChanges)) application.worldStateChanges = [];
+    const eventForState = operations.readWorldObject({ projectId: project.id, objectId: application.eventId });
+    for (const step of current.steps.filter((item) => selectedStepIds.includes(item.stepId))) {
+      const command = step.action?.worldState;
+      if (!command) continue;
+      const commandKey = `${receipt.receiptId}.world-state.${step.stepId}`;
+      if (application.worldStateChanges.some((change) => change.operationId === commandKey)) continue;
+      if (!step.contextEvidenceRefs.some((ref) => ref.visibility === "world-state" && ref.id.startsWith(`world-state.${command.objectId}.`))) throw failure("女娲状态动作没有来自该角色已知状态的精确依据。", 409);
+      const subject = operations.readWorldObject({ projectId: project.id, objectId: command.objectId });
+      const value = command.kind === "passage"
+        ? { kind: "passage", state: command.state }
+        : { kind: "holder", state: command.state, holder: command.holderId == null ? null : (() => { const holder = operations.readWorldObject({ projectId: project.id, objectId: command.holderId }); return { id: holder.id, revision: holder.revisionToken }; })() };
+      const currentState = operations.readWorldStateN4({ projectId: project.id, objectId: subject.id, observedAt: now() });
+      const appliedState = operations.applyWorldStateN4({ projectId: project.id, objectId: subject.id, expectedObjectRevision: subject.revisionToken, expectedRevision: currentState.history.length, operationId: commandKey, effectiveAt: now(), value, evidence: { kind: "confirmed-event", event: { id: eventForState.id, revision: eventForState.revisionToken } }, now: now() });
+      application.worldStateChanges.push({ operationId: commandKey, sourceStepId: step.stepId, objectId: subject.id, changeId: appliedState.change.changeId, revision: appliedState.change.revision, value: appliedState.change.value });
+      persistAutoApplication(receipt);
+    }
     if (!application.workVersionReceiptId) {
-      const result = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: Number(current.sourceIdentity.revision), authorActionId: `${receipt.receiptId}.author`, idempotencyKey: `${receipt.receiptId}.result-version`, createdAt: now(), semanticDeltaRefs: [`nuwa-run:${current.runId}`, `changeset:${application.changeSetId}`, `event:${application.eventId}`, `narrative-placement:${application.narrativePlacementIds.join(",")}`, `material:${application.materialObjectId}`, ...(application.relationId ? [`relation:${application.relationId}`] : [])] });
+      const result = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: Number(current.sourceIdentity.revision), authorActionId: `${receipt.receiptId}.author`, idempotencyKey: `${receipt.receiptId}.result-version`, createdAt: now(), semanticDeltaRefs: [`nuwa-run:${current.runId}`, `changeset:${application.changeSetId}`, `event:${application.eventId}`, `narrative-placement:${application.narrativePlacementIds.join(",")}`, `material:${application.materialObjectId}`, ...(application.relationId ? [`relation:${application.relationId}`] : []), ...application.worldStateChanges.map((change) => `world-state:${change.objectId}:${change.changeId}`)] });
       application.workVersionReceiptId = result.receipt.receiptId;
       application.resultVersion = { workVersionId: result.identity.workVersionId, revision: result.identity.currentRevision };
       persistAutoApplication(receipt);
@@ -510,7 +527,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
 
   function presentAutomaticApplication(receipt) {
     const application = receipt.application;
-    return { status: application.rollback?.status === "active" ? "rolled-back" : receipt.status === "active" ? "applied" : "recovery-required", decisionSource: "nuwa-scope-authorization", receiptId: receipt.receiptId, authorizationId: receipt.authorizationId, permissionReceiptId: application.permissionReceiptId, planningEventId: application.planningEventId, impactReviewId: application.impactReviewId, changeSetId: application.changeSetId, eventId: application.eventId, storyUnitId: receipt.storyUnitId, storyUnitVersion: application.storyUnitLinkedVersion, narrativePlacementIds: application.narrativePlacementIds, materialObjectId: application.materialObjectId, relationId: application.relationId, relationStatus: receipt.relationTypeId ? (application.relationId ? "confirmed" : "recovery-required") : "not-configured", workVersionReceiptId: application.workVersionReceiptId, resultVersion: application.resultVersion, sourceSnapshotHash: receipt.sourceSnapshotHash, fixedDraft: application.fixedDraft ?? null, rollback: application.rollback ?? null };
+    return { status: application.rollback?.status === "active" ? "rolled-back" : receipt.status === "active" ? "applied" : "recovery-required", decisionSource: "nuwa-scope-authorization", receiptId: receipt.receiptId, authorizationId: receipt.authorizationId, permissionReceiptId: application.permissionReceiptId, planningEventId: application.planningEventId, impactReviewId: application.impactReviewId, changeSetId: application.changeSetId, eventId: application.eventId, storyUnitId: receipt.storyUnitId, storyUnitVersion: application.storyUnitLinkedVersion, narrativePlacementIds: application.narrativePlacementIds, materialObjectId: application.materialObjectId, relationId: application.relationId, relationStatus: receipt.relationTypeId ? (application.relationId ? "confirmed" : "recovery-required") : "not-configured", worldStateChanges: application.worldStateChanges ?? [], workVersionReceiptId: application.workVersionReceiptId, resultVersion: application.resultVersion, sourceSnapshotHash: receipt.sourceSnapshotHash, fixedDraft: application.fixedDraft ?? null, rollback: application.rollback ?? null };
   }
 
   async function freezeAutoApplicationDraft(input) {
@@ -840,7 +857,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         // Authorization decides this source set first.  A current state is
         // still indispensable scene evidence; the bounded N4 model permits
         // only two state kinds, keeping this required input small.
-        knownFacts.push({ factId: `world-state.${object.id}.${state.change.changeId}`, summary: value, sourceRef: { id: state.change.evidence.event.id, revision: state.change.evidence.event.revision }, visibility: "world-state", attentionRequired: true });
+        knownFacts.push({ factId: `world-state.${object.id}.${state.change.changeId}`, summary: value, sourceRef: { id: state.change.evidence.event.id, revision: state.change.evidence.event.revision }, visibility: "world-state", worldStateObjectId: object.id, attentionRequired: true });
       }
       const relations = relationOperations?.listRelations({ projectId, reviewState: "confirmed" }).relations ?? [];
       for (const relation of relations) {
@@ -888,7 +905,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         knownFacts,
         beliefs,
         unknownFactIds,
-        allowedActions: ["speak", "observe", "ask"]
+        // State actions remain server-validated against the exact legal
+        // world-state source below; declaring them here is not permission to
+        // mutate an arbitrary object.
+        allowedActions: ["speak", "observe", "ask", "handoff-item", "change-passage"]
       };
     }));
   }
@@ -972,13 +992,16 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         const current = requireRun(workspacePath(projectId), runId);
         const heard = context.recentDialogue.at(-1)?.text || null;
         const evidence = context.knownFacts[0]?.summary || "当前没有额外可知事件；保持未知。";
+        const knownKey = context.knownFacts.find((fact) => fact.visibility === "world-state" && fact.worldStateObjectId && fact.summary.includes("持有状态"));
+        const recipient = current.actors.find((actor) => actor.character.id !== context.actor.id) ?? null;
+        const rehearsalHandoff = Boolean(knownKey && recipient && current.authorGoal.includes("交接钥匙"));
         return {
           type: "actor-result",
           actor: context.actor,
           intent: `依据受限上下文核对：${evidence}`,
           speech: heard ? `我听到了这句话；我只按自己可知的信息继续观察。` : `我只依据当前可知信息继续观察。`,
-          action: { action: "observe", targetId: null },
-          observableResult: "角色完成一次受限观察；结果仍属于本次女娲 Run。",
+          action: rehearsalHandoff ? { action: "handoff-item", targetId: knownKey.worldStateObjectId, worldState: { kind: "holder", objectId: knownKey.worldStateObjectId, state: "held", holderId: recipient.character.id } } : { action: "observe", targetId: null },
+          observableResult: rehearsalHandoff ? "角色依据自己合法获知的持有状态，提出将关键物件正式交给同场角色。" : "角色完成一次受限观察；结果仍属于本次女娲 Run。",
           ...(context.step === 1 && current.actors[1] ? { speech: current.authorGoal.includes("北闸已封") ? "北闸已封。" : "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
           usage: { inputTokens: null, outputTokens: null }
         };
