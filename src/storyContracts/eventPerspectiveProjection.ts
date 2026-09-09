@@ -128,4 +128,10 @@ const PREFIXES: Record<PerspectiveObjectType, readonly string[]> = { character: 
 function taggedValues(tags: readonly string[], prefixes: readonly string[]): string[] { const values: string[] = []; for (const tag of tags) for (const prefix of prefixes) { const value = new RegExp(`^${prefix}[\uff1a:]\\s*(.+)$`, "iu").exec(tag)?.[1]?.trim(); if (value && !values.includes(value)) values.push(value); } return values; }
 function slug(value: string): string { return value.normalize("NFKC").toLocaleLowerCase("zh-CN").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/gu, "") || "unnamed"; }
 function knowledgeState(tags: readonly string[], object: PerspectiveObjectRef): PerspectiveMatch["knowledgeState"] { const value = taggedValues(tags, ["知情主体", "KnowledgeSubject"]).find((item) => item.startsWith(`${object.id}=`))?.split("=")[1]?.trim(); return value === "已知" || value === "known" ? "known" : value === "误解" || value === "misunderstood" ? "misunderstood" : value === "未知" || value === "unknown" ? "unknown" : "not-applicable"; }
-function perspectiveKnowledgeState(state: EventKnowledgeState): PerspectiveMatch["knowledgeState"] { return state === "experienced" || state === "witnessed" || state === "informed" ? "known" : state === "misled" ? "misunderstood" : "unknown"; }
+function perspectiveKnowledgeState(state: EventKnowledgeState): PerspectiveMatch["knowledgeState"] {
+  if (state === "misled") return "misunderstood";
+  // The legacy PerspectiveMatch contract has no distinct belief/suspicion
+  // value. Preserve Owner-approved cognitive evidence as visible rather than
+  // collapsing it into an unknown blind spot.
+  return state === "unknown" ? "unknown" : "known";
+}

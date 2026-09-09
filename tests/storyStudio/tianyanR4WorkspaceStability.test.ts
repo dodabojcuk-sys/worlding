@@ -43,8 +43,11 @@ test("R4 review follow-up keeps directory ownership and async project fences in 
   assert.match(tianyi, /library\.project\.id !== projectId/u);
   assert.match(tianyi, /conversationProjectVisit/u);
   assert.match(tianyi, /sameConversationProjectVisit/u, "a delayed work-lane reply cannot clear or refresh the next project's composer");
+  assert.match(tianyi, /const submitCreative = async \(\) => \{[\s\S]*?const visit = conversationProjectVisit\.current;[\s\S]*?ensureConversation\(visit\)/u, "Story Intake captures the initiating project generation before any asynchronous write");
+  assert.match(tianyi, /streamIntakeRun\(sessionId, run\.runId, "story-intake", true, visit\)/u, "Story Intake streaming keeps the same project fence through Provider completion");
   assert.match(eventLine, /eventRevisionKey/u);
   assert.match(eventLine, /loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey/u);
+  assert.match(eventLine, /knowledgeProjectionState !== "ready" \|\| !knowledgeProjection\) return \[\]/u, "advanced canvases render no raw Events while the matching Owner projection reloads");
   assert.match(shell, /locationRevision=\{locationRevision\}/u);
   assert.match(outlet, /key=\{`event-line:\$\{props\.locationRevision\}`\}/u, "same-route character knowledge navigation must remount the route-owned Event workspace");
 });

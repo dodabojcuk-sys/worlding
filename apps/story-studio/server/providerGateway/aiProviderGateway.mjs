@@ -296,8 +296,8 @@ async function* budgetedEvents(events, ledger, reservationId, traceId, receiptEn
     }
     freezeReceiptResponse(receiptEnvelopeStore, receipt, { responseBody, traceId, usage, finishReason });
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: "success", traceId });
-    await notifyProviderLifecycle(onProviderLifecycle, { phase: "completed", ...lifecycleIdentity });
     completed = true;
+    await notifyProviderLifecycleSafely(onProviderLifecycle, { phase: "completed", ...lifecycleIdentity });
   } catch (error) {
     if (ledger && reservationId) ledger.complete({ reservationId, outcome: budgetOutcome(error), traceId });
     persistReceiptFailure(receiptEnvelopeStore, receipt, error);
@@ -317,6 +317,16 @@ async function notifyProviderLifecycle(callback, event) {
   if (typeof callback !== "function") return;
   if (typeof event?.requestKey !== "string" || !event.requestKey.trim()) return;
   await callback(Object.freeze({ ...event }));
+}
+
+async function notifyProviderLifecycleSafely(callback, event) {
+  try {
+    await notifyProviderLifecycle(callback, event);
+  } catch {
+    // Lifecycle persistence is recovery metadata. It must never rewrite a
+    // transport result whose response receipt and budget outcome are already
+    // durably known.
+  }
 }
 
 function lifecycleFailureStatus(error) {

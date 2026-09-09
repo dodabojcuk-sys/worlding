@@ -163,7 +163,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   }
 
   function pinnedPackageSnapshot(packageValue) {
-    return {
+    const snapshot = {
       packageId: packageValue.packageId,
       contentHash: packageValue.contentHash,
       scope: packageValue.scope,
@@ -171,6 +171,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       warnings: packageValue.warnings,
       storyMarkdown: packageValue.storyMarkdown
     };
+    return { ...snapshot, snapshotDigest: pinnedPackageSnapshotDigest(snapshot) };
   }
 
   async function createArtifact(projectId, input = {}) {
@@ -541,6 +542,15 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
           });
         }
         const snapshot = binding.pinnedPackageSnapshot;
+        if (!snapshot.snapshotDigest || snapshot.snapshotDigest !== pinnedPackageSnapshotDigest(snapshot)) {
+          return blockedReadProjection({
+            project,
+            root,
+            derivedVersionCount: derived.length,
+            artifacts,
+            sourceRequestBlocker: { kind: "pinned-source-corrupt", authorMessage: snapshot.snapshotDigest ? "这份固定创作稿的来源快照摘要不匹配；已阻止读取和下载，历史记录仍保留。" : "这份旧固定创作稿缺少可复核的快照摘要；已阻止读取和下载。请从可验证来源建立新的固定稿。" }
+          });
+        }
         packageValue = {
           packageId: snapshot.packageId,
           contentHash: snapshot.contentHash,
@@ -856,6 +866,11 @@ function normalizedCreationKey(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function pinnedPackageSnapshotDigest(snapshot) {
+  const { snapshotDigest: _ignored, ...payload } = snapshot;
+  return `sha256:${sha256(stableJson(payload))}`;
 }
 
 function ownerDigestMap(refs) {

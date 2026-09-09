@@ -107,8 +107,8 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     return <section className="event-line-unavailable" data-testid="event-line-no-project"><strong>{t("eventLine.noProject")}</strong><p>{t("eventLine.noProjectHint")}</p></section>;
   }
   const saveDraftEvent = async (input: EventDraftInput): Promise<WorldObject> => {
-    const { tags, body } = eventDraftPayload(input);
-    const created = await props.runtime.withConnection((token) => createWorldObject({ projectId: state.projectId!, type: "event", title: input.title, status: "draft", tags, body, token }));
+    const { tags, body, knowledgeSubjects } = eventDraftPayload(input);
+    const created = await props.runtime.withConnection((token) => createWorldObject({ projectId: state.projectId!, type: "event", title: input.title, status: "draft", tags, body, knowledgeSubjects, token }));
     await load();
     return created;
   };

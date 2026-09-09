@@ -128,3 +128,29 @@ test("advanced perspective consumes stable Owner projection ids instead of filte
   assert.equal(projection[0]?.matches.find((match) => match.object.id === cartographer.id)?.relationKind, "none");
   assert.equal(projection[0]?.shared, false);
 });
+
+test("advanced perspective keeps Owner belief, suspicion, denial, and contradiction visible", () => {
+  const character = { id: "character.lin", type: "character" as const, label: "林昭", ownerId: "characters", version: "lin.r1", formal: true };
+  const cognitiveStates = ["believes", "suspects", "denied", "contradicted"] as const;
+  for (const state of cognitiveStates) {
+    const ownerProjection = {
+      version: "tianyan-event-story-crossing-knowledge/v2",
+      owner: "Event+NarrativeArrangement+CharacterStateProjectionPort",
+      writes: 0,
+      providerCalls: 0,
+      projectId: "project.beliefs",
+      observer: { id: "author", label: "作者全知", kind: "author" },
+      observers: [{ id: "author", label: "作者全知", kind: "author" }],
+      mode: "single",
+      audience: "author",
+      storylines: [],
+      visibleEvents: [{ eventId: `event.${state}`, title: state, status: "committed", revisionToken: "event.r1", relativeId: `event.${state}`, storylineIds: [], storylineLabels: [], knowledgeState: state, knowledgeLabel: state, sourceEventIds: [], body: null, perspectives: [{ observerId: character.id, observerLabel: character.label, state, stateLabel: state }] }],
+      hiddenEventIds: [],
+      hiddenCount: 0,
+      characterStateProjectionRevision: "projection.r1"
+    } satisfies EventStoryCrossingKnowledgeProjection;
+    const events = perspectiveEventsFromKnowledgeProjection([{ id: `event.${state}`, title: state, tags: [] }], ownerProjection);
+    const projected = buildSinglePerspectiveProjection({ events, relations: [], selected: character });
+    assert.equal(projected[0]?.matches[0]?.visibility, "known", `${state} must remain visible in the legacy lens contract`);
+  }
+});

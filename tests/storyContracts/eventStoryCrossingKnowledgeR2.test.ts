@@ -80,6 +80,14 @@ test("same-name formal characters are isolated by stable id and labels never cho
   assert.equal(ambiguous.visibleEvents.length, 0);
 });
 
+test("a legacy display-name Event remains readable only when that name is unique", () => {
+  const legacyEvent = [{ id: "event.legacy", title: "林昭进入灯塔", status: "committed", revisionToken: "e1", tags: ["人物：林昭"], body: "旧事件仍保留显示名证据。" }];
+  const unique = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "character.lin", events: legacyEvent, characters: [{ id: "character.lin", label: "林昭", revisionToken: "c1" }] });
+  assert.equal(unique.visibleEvents[0]?.knowledgeState, "experienced");
+  const ambiguous = buildEventStoryCrossingKnowledgeProjection({ projectId: "p1", observerId: "character.lin", events: legacyEvent, characters: [{ id: "character.lin", label: "林昭", revisionToken: "c1" }, { id: "character.other", label: "林昭", revisionToken: "c2" }] });
+  assert.equal(ambiguous.visibleEvents.length, 0, "a duplicate legacy label must not select one formal character");
+});
+
 test("knowledge subject access without explicit evidence is informed, not experienced", () => {
   const projection = buildEventStoryCrossingKnowledgeProjection({
     projectId: "project.knowledge-access",
