@@ -1417,6 +1417,7 @@ export function createStoryStudioWorkspaceOperations(input: {
 
     createConfirmedEventOnce(eventInput: {
       projectId: string;
+      workVersionId?: string | null;
       targetEventRef: string;
       title: string;
       body: string;
@@ -1439,6 +1440,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       ) => void;
     }): { created: boolean; conflict: boolean; event: StoryStudioWorldObject | null } {
       const projectPath = resolveProjectPath(rootPath, eventInput.projectId);
+      const eventWorkVersion = eventInput.workVersionId == null ? null : readNarrativeWorkVersion(projectPath, eventInput.workVersionId);
       const targetEventRef = requireStableConfirmedEventRef(eventInput.targetEventRef);
       const plannedFrom = eventInput.plannedFrom == null ? null : requirePlanningSource(projectPath, eventInput.plannedFrom);
       const result = createWorkspaceNoteOnce(projectPath, {
@@ -1452,6 +1454,7 @@ export function createStoryStudioWorkspaceOperations(input: {
           tags: ["作者确认"],
           card_layout: "horizontal",
           card_blocks: defaultObjectCardBlocks("event"),
+          ...(eventWorkVersion ? { story_work_version_id: eventWorkVersion.identity.workVersionId } : {}),
           ...(plannedFrom ? { planned_from: plannedFrom.id } : {}),
           source_change_set_id: requireText(eventInput.provenance.sourceChangeSetId, "Source Change Set", 160),
           source_change_set_revision: requireHash(eventInput.provenance.sourceChangeSetRevision, "Source Change Set revision"),
@@ -3070,6 +3073,10 @@ export function createStoryStudioWorkspaceOperations(input: {
       const event = findObjectNote(projectPath, requireText(projectionInput.eventId, "Confirmed Event", 160));
       if (event.type !== "event" || !hasCompleteCanonProvenance(event.frontmatter)) {
         throw new Error("Timeline auto projection only accepts an author-confirmed Canon event.");
+      }
+      if (typeof event.frontmatter.story_work_version_id === "string") {
+        const version = readNarrativeWorkVersion(projectPath, event.frontmatter.story_work_version_id);
+        if (version.identity.kind === "derived") throw new Error("IF confirmed Event must stay in its version narrative; it cannot enter the mainline timeline.");
       }
       let timeline = (listVisualDocumentFiles(projectPath) as StoryStudioVisualDocument[])
         .filter((document) => document.type === "timeline")
