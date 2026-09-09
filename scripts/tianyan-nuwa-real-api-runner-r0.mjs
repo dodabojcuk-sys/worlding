@@ -15,7 +15,8 @@ import path from "node:path";
 const startedAt = new Date().toISOString();
 const taskId = `nuwa-api-test.${randomUUID()}`;
 const baseUrl = String(process.env.TIANYAN_NUWA_API_TEST_BASE_URL || "http://127.0.0.1:4192/__local/story-studio").replace(/\/$/u, "");
-const projectId = String(process.env.TIANYAN_NUWA_API_TEST_PROJECT_ID || "").trim();
+let projectId = String(process.env.TIANYAN_NUWA_API_TEST_PROJECT_ID || "").trim();
+const createIsolatedFixture = process.env.TIANYAN_NUWA_API_TEST_CREATE_ISOLATED_FIXTURE === "1";
 const outputPath = path.resolve(process.env.TIANYAN_NUWA_API_TEST_OUTPUT || path.join("data", "api-test-runs", `${taskId}.json`));
 const confirmed = process.argv.includes("--confirm-real-provider");
 const noProgressTimeoutMs = positiveInteger(process.env.TIANYAN_NUWA_API_TEST_NO_PROGRESS_TIMEOUT_MS, 90_000, "TIANYAN_NUWA_API_TEST_NO_PROGRESS_TIMEOUT_MS");
@@ -43,7 +44,7 @@ const result = {
 try {
   if (!confirmed) {
     finish("not-started-confirmation-required", 0, "需要显式 --confirm-real-provider；未访问本地宿主，也没有发送模型请求。");
-  } else if (!projectId) {
+  } else if (!projectId && !createIsolatedFixture) {
     finish("external-condition-missing", 0, "缺少 TIANYAN_NUWA_API_TEST_PROJECT_ID；请指定专用于这次测试的隔离作品。", "missing-isolated-project-id");
   } else {
     result.stage = "checking-host";
@@ -52,6 +53,13 @@ try {
     if (health?.status !== "healthy") throw new Error("本地 Story Studio API 健康响应无效。");
 
     const session = await openLocalSession();
+    if (createIsolatedFixture) {
+      if (projectId) throw new Error("自动建立隔离样例时不能同时指定既有项目；避免误写作者作品。");
+      projectId = await createIsolatedStoryFixture(session);
+      result.isolation.projectId = projectId;
+      result.isolation.createdByThisScript = true;
+      result.latestProgress = "已通过正式宿主入口建立隔离作品、角色与故事单元。";
+    }
     const modelStatus = await getJson("/model-service/status", session);
     result.provider = providerIdentityFromStatus(modelStatus);
     result.stage = "checking-nuwa-availability";
@@ -164,6 +172,26 @@ function providerIdentity(run) {
 function providerIdentityFromStatus(status) {
   const profile = status?.profile?.profile || null;
   return { profileId: profile?.id || profile?.providerInstanceId || null, providerId: profile?.provider || null, modelId: profile?.modelId || null };
+}
+
+async function createIsolatedStoryFixture(cookie) {
+  const suffix = taskId.slice(-12).replace(/[^a-z0-9]/giu, "").toLowerCase();
+  const project = await postJson("/projects/create", { title: `API 隔离样例 · 北闸铜钥匙 ${suffix}`, folderSlug: `api-nuwa-${suffix}` }, cookie);
+  const fixtureProjectId = String(project?.id || "").trim();
+  if (!fixtureProjectId) throw new Error("隔离项目创建响应缺少项目身份。");
+  const characters = await Promise.all([
+    ["阿芜", "守住北闸的秘密，只向林昭说明封闸。"],
+    ["林昭", "根据已获知的消息寻找替代路线。"],
+    ["陆衍", "只按仓库职责行动，不知道私下说法。"]
+  ].map(async ([title, body]) => postJson("/world-objects/create", { projectId: fixtureProjectId, type: "character", title, body, status: "active", tags: ["API 隔离样例"] }, cookie)));
+  await postJson("/story-units/create", {
+    projectId: fixtureProjectId,
+    title: "北闸与铜钥匙",
+    summary: "阿芜仅向林昭传递北闸已封的消息；铜钥匙的去向需要在正式动作中决定。",
+    linkedEntityIds: characters.map((character) => character.id),
+    items: [], sourceRefs: [], unresolvedQuestionIds: ["key-holder"]
+  }, cookie);
+  return fixtureProjectId;
 }
 
 function originFor(url) { return new URL(url).origin; }
