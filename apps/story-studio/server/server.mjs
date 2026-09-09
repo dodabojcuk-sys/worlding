@@ -114,6 +114,7 @@ import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFi
 import { createNuwaN1Port } from "./nuwaN1Port.mjs";
 import { NUWA_N1_PI_ADAPTER_ID, createNuwaN1PiAdapter } from "./nuwaN1PiAdapter.mjs";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
+import { createMultiverseB1FixtureAdapter } from "./multiverseB1Fixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
@@ -259,6 +260,7 @@ const creationSourceSelectionPort = createCreationSourceSelectionPort({
     ? { projectionSalt: ({ projectId, sourceGeneration }) => `disposable-e2e-source:${projectId}:generation-${sourceGeneration}` }
     : {})
 });
+const multiverseB1Fixture = createMultiverseB1FixtureAdapter({ operations, relationOperations, creationSourceSelectionPort });
 const normalEventCreationPort = createNormalEventCreationPort({ operations, authorControl });
 const tianyiCreativeEventPort = createTianyiCreativeEventPort({ operations, authorControl, creationSourceSelectionPort });
 const workVersionBoundCreationFixture = createWorkVersionBoundCreationFixtureAdapter({ operations });
@@ -2294,6 +2296,12 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => multiverseSingleDerivedFixture.read(projectId, { ensureNuwa, missingSource, staleSelection })) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/multiverse/b1-fixture") {
+    if (process.env.TIANYAN_MULTIVERSE_B1_FIXTURE !== "1") throw productError("MULTI-B1 Fixture is disabled for this runtime.", 404);
+    const projectId = requireQueryValue(url, "projectId");
+    sendJson(response, 200, { data: runProductOperation(() => multiverseB1Fixture.read(projectId)) });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/multiverse/versions") {
     const projectId = requireQueryValue(url, "projectId");
     requireProject(projectId);
@@ -2312,6 +2320,19 @@ async function handleProductRequest(request, response, url) {
       createdAt: new Date().toISOString()
     }));
     sendJson(response, 201, { data: { created, versions: runProductOperation(() => creationSourceSelectionPort.listWorkVersions(project.id)) } });
+    return;
+  }
+  if (request.method === "POST" && pathname.startsWith("/__local/story-studio/multiverse/b1-fixture/")) {
+    requireToken(request);
+    if (process.env.TIANYAN_MULTIVERSE_B1_FIXTURE !== "1") throw productError("MULTI-B1 Fixture is disabled for this runtime.", 404);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId"]);
+    const action = pathname.slice("/__local/story-studio/multiverse/b1-fixture/".length);
+    if (!new Set(["setup", "merge", "compensate"]).has(action)) throw productError("MULTI-B1 Fixture action does not exist.", 404);
+    const project = requireProject(body.projectId);
+    recordAuthorInitiatedAction(project.id, action === "setup" ? "rehearsal-run" : "branch-merge", `multiverse-b1-fixture-${action}`, [action], "author");
+    const result = runProductOperation(() => action === "setup" ? multiverseB1Fixture.setup(project.id) : action === "merge" ? multiverseB1Fixture.merge(project.id) : multiverseB1Fixture.compensate(project.id));
+    sendJson(response, 200, { data: { result, view: runProductOperation(() => multiverseB1Fixture.read(project.id)) } });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/creation/source") {

@@ -737,7 +737,10 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const slices = {
       project: projectionSlice("project", [`project:${project.id}`], { projectId: project.id, title: project.title }),
       "story-structure": projectionSlice("story-structure", storyUnits.length ? storyUnits.map((unit) => `story-unit:${unit.id}`) : [`story-structure:${project.id}:empty`], { storyUnits: storyUnits.map((unit) => ({ id: unit.id, version: unit.version })), ...(salt ? { projectionSalt: salt } : {}) }),
-      "event-hierarchy": projectionSlice("event-hierarchy", events.length ? events.map((event) => `event:${event.id}`) : [`event-hierarchy:${project.id}:empty`], { events: events.map((event) => ({ id: event.id, revision: event.revisionToken })), ...(salt ? { projectionSalt: salt } : {}) }),
+      // Canon verification can legitimately yield no Event on a new project.
+      // Keep that explicit empty slice hashable; an empty array alone has no
+      // scalar evidence for the strict snapshot resolver.
+      "event-hierarchy": projectionSlice("event-hierarchy", events.length ? events.map((event) => `event:${event.id}`) : [`event-hierarchy:${project.id}:empty`], { state: events.length ? "present" : "empty", events: events.map((event) => ({ id: event.id, revision: event.revisionToken })), ...(salt ? { projectionSalt: salt } : {}) }),
       // An ordinary new project may legitimately have no character yet.  The
       // existing Character State owner still supplies a complete, explicit
       // empty projection; an empty array alone is not a valid digest input.
