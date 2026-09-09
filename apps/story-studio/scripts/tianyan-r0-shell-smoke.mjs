@@ -458,7 +458,7 @@ async function assertProviderCatalogSettingsR0(page) {
     await provider.locator('input[name="llmModelId"]').fill("fixture/chat:latest");
     await provider.locator('input[name="embeddingModelId"]').fill("fixture/embed:latest");
     await provider.getByRole("button", { name: "保存 Provider 配置", exact: true }).click();
-    await provider.getByText(/未发起外部请求/u).waitFor();
+    await provider.getByText(/Provider 配置已保存。凭据保持在服务器 owner；保存不会发起外部请求。/u).waitFor();
     assert.equal(ollamaFixture.calls.tags, 0, "saving and selecting a Provider must not discover models");
 
     const getModels = provider.getByRole("button", { name: "获取模型", exact: true });
