@@ -67,7 +67,10 @@ export function CreationSourceWorkspace(props: { runtime: TianyanShellRuntimeSta
     const handoffArtifactId = projectId ? window.sessionStorage.getItem(`tianyan-creation-source-artifact:${projectId}`) : null;
     const requestedArtifactId = handoffArtifactId || projectScopedRouteArtifactId;
     if (handoffArtifactId && projectId) window.sessionStorage.removeItem(`tianyan-creation-source-artifact:${projectId}`);
-    if (routeArtifactId && !projectScopedRouteArtifactId) {
+    // During shell bootstrap the active Project is briefly null. Retain a
+    // bound artifact route through that window; only a known, different
+    // Project may invalidate it.
+    if (projectId && routeArtifactId && !projectScopedRouteArtifactId) {
       const nextRoute = new URL(window.location.href);
       nextRoute.searchParams.delete("artifactId");
       nextRoute.searchParams.delete("projectId");

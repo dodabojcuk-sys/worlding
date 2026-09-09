@@ -1,0 +1,10 @@
+
+> world-os-deterministic-kernel@0.1.0 test:e2e
+> node scripts/run-with-canonical-runtime.mjs --experimental-strip-types apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs
+
+[tianyan runtime] node=22.22.0 (/home/beelink/.cache/tianyan-runtime/node-v22.22.0-linux-x64/bin/node); npm=10
+[tianyan runtime] node=22.22.0 (/home/beelink/.cache/tianyan-runtime/node-v22.22.0-linux-x64/bin/node); npm=10
+B1 rehearsal: fixed draft download is enabled.
+B1 rehearsal: reopening artifact=novel.B1-融入隔离-铜钥匙-创作稿-023f58a16b; 创作来源 · 当前作品 | 创作 |  | 默认只读取可验证的故事单元与已确认事件；中性故事包不会写入 Canon，也不会调用 Provider。 |  | 刷新来源 | 主故事版本 | 当前作品主线 · r3 | 版本来源可追溯 | 固定稿范围 | 北闸替代路线 | 1 个已确认事件 | 创作稿 | B1 融入隔离 · 铜钥匙 · 创作稿 · 023f58a16b | 已绑定 neutral-story-package-1948f53b625f35ad8658 | 作品版本 | 当前作品主线 · r3 | 此切片只允许当前正式主版本，派生版本和候选不会被静默混入。 |  | 当前显示的是固定创作稿在建立时保存的只读来源包。查看当前选择 |  | 固定创作稿 | 查看当前选择 | B1 融入隔离 · 铜钥匙 · 创作稿 · 023f58a16b · novel.B1-融入隔离-铜钥匙-创作稿-023f58a16b | 故事单元 | 选择故事单元 | 北闸替代路线 · draft | 已确认事件（至少一项） | 阿芜把铜钥匙交给林昭 · 立即揭示 · c64d9cb2c6d03eab10258813a7163b63bef817d52b8786698c9c5a760067fb08 | 候选事件、作者意图、含未选来源的混合片段和单元摘要不会进入默认包。 | 固定创作稿 · 作者阅读版预览 | 北闸替代路线 · 1 个已确认事件 |  | neutral-story-package-1948f53b625f35ad8658 · sha256:1948f53b625f35ad8658bc8ec495ace20a74c8859d2605ea682b4d68155c9f1f |  | 下载 Markdown |  | 下载内容严格来自这份创作稿建立时保存的快照。 预览与下载共用同一份冻结 Markdown；来源说明位于正文之后，下载文件另附包标识、内容摘要与来源回执索引。 |  | # B1 融入隔离 · 铜钥匙 |  | > 天衍中性故事稿 · 
+B1 rehearsal: fixed draft download is enabled.
+tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector

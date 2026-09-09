@@ -90,6 +90,8 @@ const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream
 const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
 const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
+const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
+const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -143,7 +145,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -210,6 +212,8 @@ try {
     await setupNarrativeFixture({ createRoot: false });
     await setupR1CausalFixture();
     await assertR5ContinuousAuthorLoop(page, consoleProblems);
+  } else if (multiverseB1RehearsalOnly) {
+    await assertMultiverseB1Rehearsal(page);
   } else if (r4CharacterObservationOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -1781,6 +1785,76 @@ async function setupN3TemporalRelationHistory() {
   });
   return { beforeRelationId: confirmed.data.relation.relationId, correctionRelationId: correctionConfirmed.data.relation.relationId };
 }
+
+async function assertMultiverseB1Rehearsal(page) {
+  await postFixture(`${apiUrl}/__local/story-studio/projects/create`, { title: "B1 融入隔离 · 铜钥匙", folderSlug: fixtureProjectId });
+  await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  await gotoProduct(page, `${baseUrl}/multiverse?locale=zh-CN&b1Fixture=1`);
+  const rehearsal = page.getByTestId("multiverse-b1-rehearsal");
+  await rehearsal.waitFor();
+  await rehearsal.getByRole("button", { name: "建立隔离故事与 IF", exact: true }).click();
+  await rehearsal.getByRole("heading", { name: "IF 与主线的差异", exact: true }).waitFor();
+  const sourceIfBeforeMerge = (await rehearsal.innerText()).match(/源 IF\n([^\n]+)/u)?.[1] || "";
+  assert.ok(sourceIfBeforeMerge, "B1 setup must show the source IF identity and frozen baseline.");
+  assert.match(await rehearsal.innerText(), /Event[\s\S]*Relation[\s\S]*WorldState[\s\S]*NarrativePlacement/u, "B1 comparison must expose all Owner categories.");
+  if (multiverseB1EvidenceDirectory) {
+    mkdirSync(multiverseB1EvidenceDirectory, { recursive: true });
+    await rehearsal.screenshot({ path: path.join(multiverseB1EvidenceDirectory, "01-if-difference.png") });
+  }
+  await rehearsal.getByRole("button", { name: "融入全部可用差异", exact: true }).click();
+  await rehearsal.getByText("applied", { exact: true }).waitFor();
+  assert.match(await rehearsal.innerText(), /Event[\s\S]*Relation[\s\S]*WorldState[\s\S]*NarrativePlacement/u, "Applied B1 merge must retain per-Owner receipts.");
+  if (multiverseB1EvidenceDirectory) await rehearsal.screenshot({ path: path.join(multiverseB1EvidenceDirectory, "02-owner-receipts.png") });
+  await gotoProduct(page, `${baseUrl}/creation?locale=zh-CN`);
+  const storyUnitSelect = page.getByLabel("故事单元", { exact: true });
+  const storyUnitId = await storyUnitSelect.locator("option").filter({ hasText: "北闸替代路线" }).getAttribute("value");
+  assert.ok(storyUnitId, "B1 fixture must expose its linked Story Unit to fixed-draft creation.");
+  await storyUnitSelect.selectOption(storyUnitId);
+  const sourceEvent = page.getByRole("checkbox", { name: /阿芜把铜钥匙交给林昭/u });
+  await sourceEvent.check();
+  await page.getByRole("button", { name: "建立新的固定创作稿", exact: true }).click();
+  const fixedDraftSelect = page.getByLabel("固定创作稿", { exact: true });
+  await fixedDraftSelect.waitFor();
+  const artifactId = await fixedDraftSelect.inputValue();
+  assert.ok(artifactId, "B1 merged story must create a distinct fixed draft artifact.");
+  const firstDownload = await downloadCreationMarkdown(page, multiverseB1EvidenceDirectory ? path.join(multiverseB1EvidenceDirectory, "04-fixed-draft-before-compensation.md") : null);
+  if (multiverseB1EvidenceDirectory) await page.locator('[aria-label="中性故事包"]').screenshot({ path: path.join(multiverseB1EvidenceDirectory, "04-fixed-draft.png") });
+  await gotoProduct(page, `${baseUrl}/multiverse?locale=zh-CN&b1Fixture=1`);
+  const compensatedRehearsal = page.getByTestId("multiverse-b1-rehearsal");
+  await compensatedRehearsal.waitFor();
+  await compensatedRehearsal.getByRole("button", { name: "补偿本批融入", exact: true }).click();
+  await compensatedRehearsal.getByText("compensated", { exact: true }).waitFor();
+  assert.match(await compensatedRehearsal.innerText(), new RegExp(`源 IF\\n${escapeRegex(sourceIfBeforeMerge)}`, "u"), "Compensation must retain the same source IF and its frozen baseline.");
+  if (multiverseB1EvidenceDirectory) await compensatedRehearsal.screenshot({ path: path.join(multiverseB1EvidenceDirectory, "03-compensated.png") });
+  await gotoProduct(page, `${baseUrl}/creation?locale=zh-CN&projectId=${encodeURIComponent(fixtureProjectId)}&artifactId=${encodeURIComponent(artifactId)}`);
+  await page.getByLabel("固定创作稿", { exact: true }).waitFor({ timeout: 10_000 });
+  console.log(`B1 rehearsal: reopening artifact=${artifactId}; ${((await page.locator('[data-testid="creation-source-workspace"]').innerText()).slice(0, 800)).replaceAll("\n", " | ")}`);
+  if (multiverseB1EvidenceDirectory) await page.locator('[data-testid="creation-source-workspace"]').screenshot({ path: path.join(multiverseB1EvidenceDirectory, "05-fixed-draft-reopen-debug.png") });
+  const secondDownload = await downloadCreationMarkdown(page, multiverseB1EvidenceDirectory ? path.join(multiverseB1EvidenceDirectory, "05-fixed-draft-after-compensation.md") : null);
+  assert.deepEqual(secondDownload.content, firstDownload.content, "The same pinned B1 fixed draft must download byte-for-byte identically after compensation.");
+  const finalView = (await getFixture(`${apiUrl}/__local/story-studio/multiverse/b1-fixture?projectId=${encodeURIComponent(fixtureProjectId)}`)).data;
+  assert.equal(finalView.execution?.status, "compensated");
+  if (multiverseB1EvidenceDirectory) writeFileSync(path.join(multiverseB1EvidenceDirectory, "b1-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, rootAfterCompensation: finalView.root, sourceIfAfterCompensation: finalView.derived, frozenMergePlan: finalView.execution?.plan ?? null, currentComparisonAfterCompensation: finalView.comparison, merge: finalView.execution, fixedDraft: { artifactId, beforeCompensation: downloadSummary(firstDownload), afterCompensation: downloadSummary(secondDownload) } }, null, 2)}\n`, "utf8");
+}
+
+function escapeRegex(value) { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }
+
+async function downloadCreationMarkdown(page, targetPath) {
+  const button = page.getByRole("button", { name: "下载 Markdown", exact: true });
+  await page.waitForFunction(() => {
+    const candidate = [...document.querySelectorAll("button")].find((item) => item.textContent?.trim() === "下载 Markdown");
+    return Boolean(candidate && !candidate.hasAttribute("disabled"));
+  }, undefined, { timeout: 10_000 });
+  console.log("B1 rehearsal: fixed draft download is enabled.");
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 10_000 }), button.click()]);
+  const sourcePath = await download.path();
+  assert.ok(sourcePath, "Creation download must resolve to a file.");
+  const content = readFileSync(sourcePath);
+  if (targetPath) await download.saveAs(targetPath);
+  return { filename: download.suggestedFilename(), sha256: createHash("sha256").update(content).digest("hex"), bytes: content.byteLength, content };
+}
+
+function downloadSummary(value) { return { filename: value.filename, sha256: value.sha256, bytes: value.bytes }; }
 
 async function setupCharacterFixture() {
   const base = `${apiUrl}/__local/story-studio`;
