@@ -114,6 +114,14 @@ test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without 
   assert.equal(second.actor.id, "character.awu");
   assert.deepEqual(providerCalls.map((call) => call.providerCall), [1, 2, 1, 2]);
   assert.notEqual(providerCalls[0]?.agentRunId, providerCalls[2]?.agentRunId, "each durable N1 attempt supplies a distinct Agent Run identity to the Provider bridge");
+  const firstContinuation = providerCalls[1]?.messages as Array<Record<string, unknown>>;
+  const toolResult = firstContinuation.find((message) => message.role === "tool");
+  const toolCall = firstContinuation.find((message) => message.role === "assistant");
+  assert.equal(toolCall?.content, null, "the Pi adapter retains native null assistant content and leaves wire normalization to the gateway");
+  assert.equal(Array.isArray(toolCall?.toolCalls), true, "the Pi adapter preserves the native assistant tool-call envelope");
+  assert.equal(typeof toolResult?.toolCallId, "string", "the Pi continuation supplies the local tool-call identity expected by the gateway");
+  assert.equal(toolResult?.name, "read_role_context", "the Pi continuation retains tool provenance before gateway normalization");
+  assert.equal("tool_call_id" in (toolResult ?? {}), false, "wire naming belongs only to the gateway boundary");
   assert.match(JSON.stringify(providerCalls[1]?.messages), /谨慎求证/u, "the first actor's actual Provider input contains its frozen profile basis");
   assert.match(JSON.stringify(providerCalls[3]?.messages), /先保护同伴/u, "the second actor receives a different actual Provider input");
   assert.equal(JSON.stringify(providerCalls[1]?.messages).includes("先保护同伴"), false, "another actor's profile basis is not included in the first actor input");

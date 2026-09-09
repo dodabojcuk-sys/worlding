@@ -90,12 +90,30 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const profile = activeProfiles.find((candidate) => candidate.id === input?.profileId);
       if (!profile) throw providerGatewayError("invalid-request");
       const adapter = adapterMap.get(profile.providerId);
-      const messages = validateMessages(input?.messages);
-      const tools = validateTools(input?.tools);
-      const toolChoice = validateToolChoice(input?.toolChoice, tools);
+      const onProviderLifecycle = typeof input?.onProviderLifecycle === "function" ? input.onProviderLifecycle : null;
+      let messages;
+      let tools;
+      let toolChoice;
+      try {
+        messages = validateMessages(input?.messages);
+        tools = validateTools(input?.tools);
+        toolChoice = validateToolChoice(input?.toolChoice, tools);
+      } catch (error) {
+        // Validation happens before a budget reservation or transport dispatch.
+        // Persist only a bounded shape label so a durable Run can distinguish a
+        // local protocol mismatch from an upstream rejection without exposing
+        // prompt, tool-result, or credential content.
+        await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "failed",
+          requestKey: input?.idempotencyKey ?? null,
+          reservationId: null,
+          receiptEnvelopeId: null,
+          detail: lifecycleDiagnostic(error)
+        });
+        throw error;
+      }
       const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
-      const onProviderLifecycle = typeof input?.onProviderLifecycle === "function" ? input.onProviderLifecycle : null;
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
@@ -337,6 +355,7 @@ function lifecycleFailureStatus(error) {
 }
 
 function lifecycleDiagnostic(error) {
+  if (typeof error?.validationStage === "string") return `request-validation:${error.validationStage}`;
   const value = String(error instanceof Error ? error.message : error || "transport-failed").trim();
   return value.slice(0, 240) || "transport-failed";
 }
@@ -458,19 +477,19 @@ function publicProfile(profile) {
 
 function validateMessages(value) {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_MESSAGES) {
-    throw providerGatewayError("invalid-request");
+    throw invalidMessage("messages-shape");
   }
   let totalCharacters = 0;
   const messages = value.map((message) => {
-    if (!message || typeof message !== "object") throw providerGatewayError("invalid-request");
-    if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw providerGatewayError("invalid-request");
+    if (!message || typeof message !== "object") throw invalidMessage("message-shape");
+    if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw invalidMessage("message-role");
     const content = typeof message.content === "string" ? message.content.trim() : "";
     const toolCalls = message.role === "assistant" ? validateAssistantToolCalls(message.toolCalls) : [];
-    const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160) : null;
+    const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160, "tool-result-id") : null;
     // Native tool-call continuations are keyed solely by tool_call_id.  Do
     // not require the retired function-calling `name` field while deliberately
     // omitting it from the outbound OpenAI-compatible payload.
-    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
+    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw invalidMessage(message.role === "tool" ? "tool-result-content" : "message-content");
     totalCharacters += content.length;
     // OpenAI permits null assistant content beside tool_calls, but several
     // OpenAI-compatible endpoints reject that exact continuation payload.
@@ -484,7 +503,7 @@ function validateMessages(value) {
     if (message.role === "tool") return Object.freeze({ role: "tool", tool_call_id: toolCallId, content });
     return Object.freeze({ role: message.role, content });
   });
-  if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw providerGatewayError("invalid-request");
+  if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw invalidMessage("message-total-content");
   return Object.freeze(messages);
 }
 
@@ -520,26 +539,32 @@ function validateToolChoice(value, tools) {
 
 function validateAssistantToolCalls(value) {
   if (value == null) return Object.freeze([]);
-  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw providerGatewayError("invalid-request");
+  if (!Array.isArray(value) || value.length > MAX_TOOLS) throw invalidMessage("assistant-tool-calls");
   return Object.freeze(value.map((call) => Object.freeze({
-    id: boundedToolString(call?.id, 160),
+    id: boundedToolString(call?.id, 160, "assistant-tool-id"),
     type: "function",
     function: Object.freeze({
-      name: boundedToolName(call?.name ?? call?.function?.name),
-      arguments: boundedToolString(call?.argumentsJson ?? call?.function?.arguments, MAX_MESSAGE_CHARACTERS)
+      name: boundedToolName(call?.name ?? call?.function?.name, "assistant-tool-name"),
+      arguments: boundedToolString(call?.argumentsJson ?? call?.function?.arguments, MAX_MESSAGE_CHARACTERS, "assistant-tool-arguments")
     })
   })));
 }
 
-function boundedToolName(value) {
-  const name = boundedToolString(value, 96);
-  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) throw providerGatewayError("invalid-request");
+function boundedToolName(value, validationStage = null) {
+  const name = boundedToolString(value, 96, validationStage);
+  if (!/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(name)) throw validationStage ? invalidMessage(validationStage) : providerGatewayError("invalid-request");
   return name;
 }
 
-function boundedToolString(value, maximum) {
-  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw providerGatewayError("invalid-request");
+function boundedToolString(value, maximum, validationStage = null) {
+  if (typeof value !== "string" || !value.trim() || value.length > maximum) throw validationStage ? invalidMessage(validationStage) : providerGatewayError("invalid-request");
   return value.trim();
+}
+
+function invalidMessage(validationStage) {
+  const error = providerGatewayError("invalid-request");
+  error.validationStage = validationStage;
+  return error;
 }
 
 function requiredString(value) {
