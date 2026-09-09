@@ -177,7 +177,9 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   async function createArtifact(projectId, input = {}) {
     const versionAuthority = authority(projectId);
     const versions = versionAuthority.listVersions();
-    if (versions.some((item) => item.identity.kind === "derived")) throw new Error("Derived WorkVersion sources are rejected in this Creation slice.");
+    // An IF may coexist with the root.  Rejecting its *selection* is correct;
+    // rejecting a root-bound fixed draft merely because an IF exists makes a
+    // completed B1 merge impossible to export or compensate visibly.
     const root = versions.find((item) => item.identity.kind === "root");
     if (!root) throw new Error("Create the root WorkVersion explicitly before creating an artifact.");
     assertRequestedRoot(versionAuthority, root, input.workVersionId);

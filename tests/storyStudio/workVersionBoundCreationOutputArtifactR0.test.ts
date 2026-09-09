@@ -138,6 +138,17 @@ test("B1 C appends the selected target version only after its frozen target pref
   } finally { rmSync(value.root, { recursive: true, force: true }); }
 });
 
+test("a root-bound fixed artifact remains available when the project also has an IF", async () => {
+  const value = fixture();
+  try {
+    const port = createCreationSourceSelectionPort({ operations: value.operations });
+    const root = port.createRoot(value.projectId);
+    port.createDerivedWorkVersion(value.projectId, { displayName: "铜钥匙 IF", parentVersionId: root.identity.workVersionId, expectedParentRevision: root.identity.currentRevision, expectedParentManifestId: root.identity.headManifestId, authorActionId: "author.root-export.if", idempotencyKey: "root-export-if", createdAt: "2026-09-09T16:00:00.000Z" });
+    const artifact = await port.createArtifact(value.projectId, { workVersionId: root.identity.workVersionId, storyUnitId: value.storyUnit.id, eventIds: [value.event.id], creationKey: "root-export-with-if" });
+    assert.equal(artifact.provenance.workVersionSource?.workVersionId, root.identity.workVersionId);
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
 test("B1 IF freezes N4 holder state in the existing WorldState Owner", () => {
   const value = fixture();
   try {
