@@ -10,6 +10,7 @@ import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/T
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
+import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -46,6 +47,10 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "nuwa") {
     return <NuwaN1Workspace runtime={props.runtime} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "multiverse") {
+    return <MultiverseB1Workspace runtime={props.runtime} />;
   }
 
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">
