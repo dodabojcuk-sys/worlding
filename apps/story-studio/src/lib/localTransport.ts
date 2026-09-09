@@ -276,7 +276,9 @@ export type ModelServiceStatus = {
     label: string;
     providerInstanceId: string | null;
     modelId: string | null;
+    hostGates: { piAdapterEnabled: boolean; realProviderProductPathEnabled: boolean };
   };
+  runtime?: { startedAt: string; codeRevision: string };
   agentRuntime?: {
     state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";
     requestedPluginId: string | null;

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
@@ -123,6 +124,8 @@ import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const serverStartedAt = new Date().toISOString();
+const startupCodeRevision = resolveStartupCodeRevision(appRoot);
 const distRoot = path.join(appRoot, "dist");
 const runtimeMode = resolveStoryStudioRuntimeMode();
 if (runtimeMode.staticSiteEnabled && (!existsSync(path.join(distRoot, "index.html")) || !statSync(path.join(distRoot, "index.html")).isFile())) {
@@ -877,7 +880,7 @@ function recordAuthorInitiatedAction(projectId, action, targetType, targets, act
 async function handleProductRequest(request, response, url) {
   const pathname = url.pathname;
   if (request.method === "GET" && pathname === "/__local/story-studio/health") {
-    sendJson(response, 200, { data: { status: "healthy", runtimeMode: runtimeMode.mode } });
+    sendJson(response, 200, { data: { status: "healthy", runtimeMode: runtimeMode.mode, startedAt: serverStartedAt, codeRevision: startupCodeRevision } });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/storage/session") {
@@ -3277,9 +3280,14 @@ async function handleModelServiceRequest(request, response, url) {
             reason: availability.reason || null,
             label: availability.label,
             providerInstanceId: activeProfile?.id || null,
-            modelId: activeProfile?.modelId || null
+            modelId: activeProfile?.modelId || null,
+            hostGates: {
+              piAdapterEnabled: process.env.TIANYAN_NUWA_N1_PI_ADAPTER === "1",
+              realProviderProductPathEnabled: productPathRealProviderAllowed
+            }
           };
         })(),
+        runtime: { startedAt: serverStartedAt, codeRevision: startupCodeRevision },
         agentRuntime: {
           ...agentRuntimePluginStatusProjection(agentRuntimePluginResolution),
           health: await agentRuntimePluginRegistry.health()
@@ -4625,6 +4633,17 @@ function productError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+function resolveStartupCodeRevision(worktreePath) {
+  const configured = String(process.env.TIANYAN_RUNTIME_CODE_REVISION || "").trim();
+  if (/^[0-9a-f]{7,64}$/iu.test(configured)) return configured;
+  try {
+    const revision = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return /^[0-9a-f]{40}$/iu.test(revision) ? revision : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function readConfiguredLivePriceUsd() {

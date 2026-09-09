@@ -29,6 +29,13 @@ test("Provider settings preserve normal secret opacity while providing an explic
   assert.match(settings, /onDiscoverProviderModels/);
   assert.match(settings, /保存 Provider 配置/);
   assert.match(settings, /测试连接/);
+  assert.match(settings, /正在获取模型…/);
+  assert.match(settings, /正在测试连接…/);
+  assert.match(settings, /最近验证/);
+  assert.match(settings, /当前宿主：Pi 适配器/);
+  assert.match(settings, /本服务启动版本/);
+  assert.match(settings, /agent-provider-operation-status/);
+  assert.match(settings, /agent-provider-secret-control/);
   assert.match(settings, /验证 Embedding/);
   assert.match(route, /saveProviderProfile/);
   assert.match(route, /discoverProviderModels/);
@@ -53,6 +60,9 @@ test("Tianyi blocks unconfigured Providers before a request and opens Shell sett
   assert.match(server, /const tianyiDialogueReady = selectedModelReady \|\| agentFakeProviderStreamAllowed/);
   assert.match(server, /"model-unselected"/);
   assert.match(server, /process\.env\.NODE_ENV !== "production" && process\.env\.TIANYAN_AGENT_FAKE_PROVIDER_STREAM === "1"/);
+  assert.match(server, /hostGates/);
+  assert.match(server, /startupCodeRevision/);
+  assert.match(server, /resolveStartupCodeRevision/);
 });
 
 test("Settings expose the selected built-in Agent Runtime ABI without enabling external loading", () => {
