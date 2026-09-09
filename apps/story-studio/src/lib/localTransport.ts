@@ -2421,12 +2421,12 @@ export async function getNuwaN1Run(projectId: string, runId: string): Promise<Nu
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
-export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; operationId: string; token: string }): Promise<NuwaN1Setup> {
+export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
   const { token, ...body } = input;
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
 }
 
-export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
 }

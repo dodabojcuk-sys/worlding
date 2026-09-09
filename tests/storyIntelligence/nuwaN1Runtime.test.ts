@@ -69,6 +69,19 @@ function adapter(observed: { contexts: unknown[]; calls: number[] }): NuwaN1Exec
   };
 }
 
+test("N1 persists a derived IF source identity without collapsing it into mainline", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-derived-source-"));
+  const workspace = path.join(root, "project");
+  try {
+    cpSync(sourceFixture, workspace, { recursive: true });
+    const snapshot = buildStorySnapshot({ workspacePath: workspace });
+    const plan = createNuwaPlan({ snapshot, authorGoal: "IF 铜钥匙交接" });
+    createNuwaRunPack({ workspacePath: workspace, plan, snapshot });
+    const run = createNuwaN1Run({ workspacePath: workspace, runId: plan.runId, sourceSnapshotHash: snapshot.snapshotHash, sourceIdentity: { kind: "derived", workVersionId: "work-version.derived.north-gate", revision: "2" }, scene: { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" }, authorGoal: "只在 IF 中决定钥匙去向。", actors: fixtureActors(), operationId: "operation.n1.derived.create", now: "2026-09-09T12:00:00.000Z" });
+    assert.deepEqual(run.sourceIdentity, { kind: "derived", workVersionId: "work-version.derived.north-gate", revision: "2" });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("N1 compiles role-local context by stable ID and never leaks author secret material", async () => {
   await withRun(({ workspace, run }) => {
     const first = compileNuwaN1Context(run, run.actors[0]!, "operation.n1.context");

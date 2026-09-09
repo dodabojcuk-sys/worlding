@@ -78,7 +78,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     };
   }
 
-  async function setup(input, frozenSourceIdentity = sourceIdentityForProject(input.projectId)) {
+  async function setup(input, frozenSourceIdentity = sourceIdentityForProject(input.projectId, input.workVersionId ?? null)) {
     const project = requireProject(input.projectId);
     const scene = resolveScene(input.projectId, input.storyUnit);
     const actors = await resolveActors(input.projectId, input.participants, scene, frozenSourceIdentity);
@@ -113,10 +113,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
 
   async function create(input) {
     requireExecutionAvailability();
-    const sourceIdentity = sourceIdentityForProject(input.projectId);
+    const sourceIdentity = sourceIdentityForProject(input.projectId, input.workVersionId ?? null);
     const prepared = await setup(input, sourceIdentity);
-    if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && (sourceIdentity?.kind !== "root" || !Number.isSafeInteger(Number(sourceIdentity.revision)))) {
-      throw failure("女娲高权限排演必须先绑定当前作品的正式主版本；未建立主版本时不会建立 Run 或授权。", 409);
+    if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && (!["root", "derived"].includes(sourceIdentity?.kind) || !Number.isSafeInteger(Number(sourceIdentity?.revision)))) {
+      throw failure("女娲高权限排演必须先绑定当前正式主版本或 IF 版本；未建立版本时不会建立 Run 或授权。", 409);
     }
     const relationType = resolveRelationType(input.projectId, input);
     const workspace = workspacePath(input.projectId);
@@ -164,8 +164,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   function ensureFullAccessAuthorization(projectId, runId, prepared, relationType, operationId) {
     if (actionPermissionBroker?.read(projectId).profile !== "full-access") return;
     const sourceIdentity = requireRun(workspacePath(projectId), runId).sourceIdentity;
-    if (sourceIdentity?.kind !== "root" || !Number.isSafeInteger(Number(sourceIdentity.revision))) {
-      throw failure("这份排演没有冻结正式主版本身份；已拒绝补发高权限授权。", 409);
+    if (!(["root", "derived"].includes(sourceIdentity?.kind) && Number.isSafeInteger(Number(sourceIdentity.revision)))) {
+      throw failure("这份排演没有冻结正式作品版本身份；已拒绝补发高权限授权。", 409);
     }
     const expectedActorIds = prepared.setup.participants.map((actor) => actor.id);
     const authorization = actionPermissionBroker.grantNuwaFullAccess({
@@ -367,16 +367,16 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     const storyUnit = operations.readStoryUnit({ projectId: project.id, unitId: authorization.storyUnitId });
     if (!storyUnit || storyUnit.version !== (recoveredStoryUnitVersion || authorization.storyUnitRevision)) throw failure("目标故事单元已变化；没有执行任何正式写入。", 409);
     const sourceSelection = creationSourcePort();
-    if (!current.sourceIdentity || current.sourceIdentity.kind !== "root" || !Number.isSafeInteger(Number(current.sourceIdentity.revision)) || !sourceSelection) {
-      throw failure("本次排演缺少可验证的主故事版本；没有执行任何正式写入。", 409);
+    if (!current.sourceIdentity || !["root", "derived"].includes(current.sourceIdentity.kind) || !Number.isSafeInteger(Number(current.sourceIdentity.revision)) || !sourceSelection) {
+      throw failure("本次排演缺少可验证的正式作品版本；没有执行任何正式写入。", 409);
     }
-    const root = sourceSelection.resolveRootWorkVersion(project.id);
-    if (!root || root.identity.workVersionId !== current.sourceIdentity.workVersionId || root.identity.currentRevision !== Number(current.sourceIdentity.revision)) {
+    const sourceVersion = sourceSelection.resolveWorkVersion(project.id, current.sourceIdentity.workVersionId);
+    if (!sourceVersion || sourceVersion.identity.workVersionId !== current.sourceIdentity.workVersionId || sourceVersion.identity.currentRevision !== Number(current.sourceIdentity.revision)) {
       throw failure("排演来源版本已变化；没有执行任何正式写入。", 409);
     }
     const relationType = authorization.relationTypeId ? relationOperations?.resolveRelationType({ projectId: project.id, relationTypeId: authorization.relationTypeId }) : null;
     if (authorization.relationTypeId && (!relationType || relationType.lifecycle !== "active" || relationType.typeRevision !== authorization.relationTypeRevision)) throw failure("已授权的关系类型已变更或停用；已阻止本次自动关系写入。", 409);
-    return { authorization, storyUnit, relationType };
+    return { authorization, storyUnit, relationType, sourceVersion };
   }
 
   function continueAutoApplication(project, current, input, receipt) {
@@ -519,7 +519,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       persistAutoApplication(receipt);
     }
     if (!application.workVersionReceiptId) {
-      const result = creationSourcePort().appendStructuredStoryRevision(project.id, { expectedRevision: Number(current.sourceIdentity.revision), authorActionId: `${receipt.receiptId}.author`, idempotencyKey: `${receipt.receiptId}.result-version`, createdAt: now(), semanticDeltaRefs: [`nuwa-run:${current.runId}`, `changeset:${application.changeSetId}`, `event:${application.eventId}`, `narrative-placement:${application.narrativePlacementIds.join(",")}`, `material:${application.materialObjectId}`, ...(application.relationId ? [`relation:${application.relationId}`] : []), ...application.worldStateChanges.map((change) => `world-state:${change.objectId}:${change.changeId}`)] });
+      const result = creationSourcePort().appendTargetWorkVersionRevision(project.id, { workVersionId: current.sourceIdentity.workVersionId, expectedRevision: Number(current.sourceIdentity.revision), expectedManifestDigest: prepared.sourceVersion.manifest.canonicalDigest, authorActionId: `${receipt.receiptId}.author`, idempotencyKey: `${receipt.receiptId}.result-version`, createdAt: now(), semanticDeltaRefs: [`nuwa-run:${current.runId}`, `changeset:${application.changeSetId}`, `event:${application.eventId}`, `narrative-placement:${application.narrativePlacementIds.join(",")}`, `material:${application.materialObjectId}`, ...(application.relationId ? [`relation:${application.relationId}`] : []), ...application.worldStateChanges.map((change) => `world-state:${change.objectId}:${change.changeId}`)] });
       application.workVersionReceiptId = result.receipt.receiptId;
       application.resultVersion = { workVersionId: result.identity.workVersionId, revision: result.identity.currentRevision };
       persistAutoApplication(receipt);

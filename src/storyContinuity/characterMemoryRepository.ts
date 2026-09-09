@@ -226,7 +226,7 @@ function normalizeScene(value: unknown) {
 function normalizeSourceIdentity(value: unknown): CharacterMemorySourceIdentity {
   const input = plainObject(value, "Character Memory source identity");
   exactFields(input, ["kind", "workVersionId", "revision"], "Character Memory source identity");
-  if (input.kind !== "root" && input.kind !== "unversioned-draft") throw new Error("Character Memory source kind is invalid.");
+  if (input.kind !== "root" && input.kind !== "derived" && input.kind !== "unversioned-draft") throw new Error("Character Memory source kind is invalid.");
   return { kind: input.kind, workVersionId: foreignId(input.workVersionId, "Work version identifier"), revision: foreignId(input.revision, "Work version revision") };
 }
 

@@ -34,6 +34,21 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(styles, /@media \(max-width: 84rem\)/u);
 });
 
+test("MULTI-B1 lets an author bind a Nuwa Run to an explicit active IF version", () => {
+  const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
+  const transport = source("apps/story-studio/src/lib/localTransport.ts");
+  const server = source("apps/story-studio/server/server.mjs");
+  const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
+
+  assert.match(workspace, /作品版本/u);
+  assert.match(workspace, /getMultiverseWorkVersions/u);
+  assert.match(workspace, /workVersionId: workVersionId \|\| null/u);
+  assert.match(transport, /workVersionId\?: string \| null/u);
+  assert.match(server, /"workVersionId"/u);
+  assert.match(server, /resolveWorkVersion\(projectId, requestedWorkVersionId\)/u);
+  assert.match(runtime, /"root" \| "derived" \| "unversioned-draft"/u);
+});
+
 test("Nuwa N1 follow-up derives completion copy from returned state and revalidates durable authorization", () => {
   const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
   const port = source("apps/story-studio/server/nuwaN1Port.mjs");

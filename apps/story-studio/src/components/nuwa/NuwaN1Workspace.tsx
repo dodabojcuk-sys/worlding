@@ -10,6 +10,7 @@ import {
   getNuwaN1Bootstrap,
   getNuwaN1Latest,
   getNuwaN1Run,
+  getMultiverseWorkVersions,
   replayNuwaN1Run,
   rollbackNuwaN1AutomaticApplication,
   runNuwaN1Action,
@@ -19,7 +20,8 @@ import {
   type NuwaN1ReadModel,
   type NuwaN1Run,
   type NuwaN1Setup,
-  type NuwaN1Step
+  type NuwaN1Step,
+  type MultiverseWorkVersion
 } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
@@ -38,6 +40,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [participantGoals, setParticipantGoals] = useState<Record<string, string>>({});
   const [storyUnitId, setStoryUnitId] = useState("");
   const [relationTypeId, setRelationTypeId] = useState<string | null>(null);
+  const [workVersions, setWorkVersions] = useState<MultiverseWorkVersion[]>([]);
+  const [workVersionId, setWorkVersionId] = useState("");
   const [goal, setGoal] = useState("");
   const [cue, setCue] = useState("");
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
@@ -53,12 +57,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setRelationTypeId(null); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
     if (!projectId) return () => { active = false; };
     const requestedRunId = new URLSearchParams(window.location.search).get("runId")?.trim() || null;
-    void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId)]).then(([nextBootstrap, latest]) => {
+    void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId), getMultiverseWorkVersions(projectId)]).then(([nextBootstrap, latest, versions]) => {
       if (!active) return;
       setBootstrap(nextBootstrap);
+      setWorkVersions(versions);
+      setWorkVersionId(versions.find((version) => version.identity.kind === "root" && version.identity.status === "active")?.identity.workVersionId ?? "");
       setRun(latest.run ? latest : null);
       const requestedParticipantId = window.sessionStorage.getItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       const requestedParticipant = requestedParticipantId && nextBootstrap.participants.some((participant) => participant.id === requestedParticipantId) ? requestedParticipantId : null;
@@ -141,7 +147,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
       const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
       if (!storyUnit) throw new Error("当前故事单元已不可用，请重新选择后再准备。");
-      const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, goal: goal.trim(), operationId: newOperationId(), token }));
+      const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, goal: goal.trim(), workVersionId: workVersionId || null, operationId: newOperationId(), token }));
       if (!isCurrentOperation(scope)) return;
       setSetup(next); setNotice("上下文预览已生成；角色只会收到各自允许的依据。"); setInspectorOpen(true); setInspectorTab("context");
     } catch (reason) { if (isCurrentOperation(scope)) setError(messageFor(reason, "准备上下文失败；没有启动排演。")); }
@@ -152,7 +158,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
     const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
     if (!storyUnit) return;
-    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), relationTypeId, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
+    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), relationTypeId, workVersionId: workVersionId || null, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
   };
   const runAction = (action: "step" | "pause" | "resume" | "stop" | "replay") => {
     if (!projectId || !run) return;
@@ -305,6 +311,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       </section>
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
+        <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !workVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{workVersions.filter((version) => version.identity.status === "active").map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>)}</select></label>
         <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
         <label><span>自动关系类型</span><select value={relationTypeId ?? ""} disabled={Boolean(run) || busy || !bootstrap?.relationTypes.length} onChange={(event) => setRelationTypeId(event.target.value || null)}><option value="">不写关系</option>{bootstrap?.relationTypes.map((type) => <option key={type.id} value={type.id}>{type.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>

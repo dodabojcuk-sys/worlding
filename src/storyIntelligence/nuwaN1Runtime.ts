@@ -141,7 +141,7 @@ export type NuwaN1Run = {
   runId: string;
   sourceSnapshotHash: string;
   /** Frozen at author create time; execution must not re-read the current root. */
-  sourceIdentity: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null;
+  sourceIdentity: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null;
   scene: NuwaN1Scene;
   authorGoal: string;
   actors: NuwaN1Actor[];
@@ -174,7 +174,7 @@ export type NuwaN1CandidateHandoff = {
   formalWrites: 0;
 };
 
-export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
+export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
   assertRunPack(input.workspacePath, input.runId, input.sourceSnapshotHash);
   assertSetup(input);
   if (readNuwaN1Run(input.workspacePath, input.runId)) {
@@ -663,7 +663,7 @@ function normalizeSourceIdentity(value: unknown): NuwaN1Run["sourceIdentity"] {
   if (value == null) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 source identity is invalid.");
   const identity = value as Record<string, unknown>;
-  if (identity.kind !== "root" && identity.kind !== "unversioned-draft") throw new Error("Nuwa N1 source identity kind is invalid.");
+  if (identity.kind !== "root" && identity.kind !== "derived" && identity.kind !== "unversioned-draft") throw new Error("Nuwa N1 source identity kind is invalid.");
   return { kind: identity.kind, workVersionId: safeId(String(identity.workVersionId || "")), revision: text(String(identity.revision || ""), "sourceIdentity revision", 180) };
 }
 

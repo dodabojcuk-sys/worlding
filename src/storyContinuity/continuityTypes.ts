@@ -92,7 +92,7 @@ export type MemoryItem = {
 };
 
 export type CharacterMemorySourceIdentity = {
-  kind: "root" | "unversioned-draft";
+  kind: "root" | "derived" | "unversioned-draft";
   workVersionId: string;
   revision: string;
 };

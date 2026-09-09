@@ -843,6 +843,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   return Object.freeze({
     resolveActiveProject,
     resolveRootWorkVersion: (projectId) => authority(projectId).listVersions().find((item) => item.identity.kind === "root") || null,
+    resolveWorkVersion: (projectId, workVersionId) => authority(projectId).getVersion(workVersionId),
     listWorkVersions,
     createDerivedWorkVersion,
     appendStructuredStoryRevision,

@@ -3359,10 +3359,12 @@ function nuwaN1PiAvailability() {
   return { kind: "pi-agent", label: "Pi Agent 已配置；开始排演才会执行", adapterId: NUWA_N1_PI_ADAPTER_ID, providerCalls: 0 };
 }
 
-function nuwaN1SourceIdentity(projectId) {
-  const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId);
-  return root
-    ? { kind: "root", workVersionId: root.identity.workVersionId, revision: String(root.identity.currentRevision) }
+function nuwaN1SourceIdentity(projectId, requestedWorkVersionId = null) {
+  const version = requestedWorkVersionId
+    ? creationSourceSelectionPort.resolveWorkVersion(projectId, requestedWorkVersionId)
+    : creationSourceSelectionPort.resolveRootWorkVersion(projectId);
+  return version
+    ? { kind: version.identity.kind, workVersionId: version.identity.workVersionId, revision: String(version.identity.currentRevision) }
     : { kind: "unversioned-draft", workVersionId: `work-version.unversioned.${projectId}`, revision: "unversioned" };
 }
 
@@ -3653,7 +3655,7 @@ async function handleNuwaN1Request(request, response, url) {
   requireToken(request);
   const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
   if (route === "setup" || route === "create") {
-    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "relationTypeId", "operationId"]);
+    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "relationTypeId", "operationId", "workVersionId"]);
     const result = await runAsyncProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
     if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
     sendJson(response, route === "create" ? 201 : 200, { data: result });
