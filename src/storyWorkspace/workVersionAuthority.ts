@@ -3,7 +3,14 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSyn
 import path from "node:path";
 
 import { publishFileNoReplace } from "../storyControlSurface/atomicNoReplaceFile.ts";
-import { openStoryWorkspace } from "./storyWorkspaceRepository.mjs";
+import * as storyWorkspaceRepositoryModule from "./storyWorkspaceRepository.mjs";
+
+// Apps compile `.mjs` modules through a deliberately minimal declaration.
+// Keep this narrow adapter here instead of weakening WorkVersion callers to
+// untyped filesystem reads.
+const { openStoryWorkspace } = storyWorkspaceRepositoryModule as unknown as {
+  openStoryWorkspace(rootPath: string): { rootPath: string; project: { id: string } };
+};
 
 export const WORK_VERSION_IDENTITY_SCHEMA = "story-work-version-identity/v1" as const;
 export const WORK_VERSION_MANIFEST_SCHEMA = "story-work-version-snapshot-manifest/v1" as const;
