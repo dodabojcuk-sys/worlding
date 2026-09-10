@@ -118,10 +118,12 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     }
   };
   const testConnection = async (input: { modelId?: string; operationId: string }) => {
-    const result = await withToken((token) => testProviderConnection(token, input));
-    await refreshRuntime(project);
-    window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
-    return result;
+    try {
+      return await withToken((token) => testProviderConnection(token, input));
+    } finally {
+      await refreshRuntime(project);
+      window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
+    }
   };
   const revealCredential = async (providerInstanceId: string) => withToken((token) => revealProviderCredential({ providerInstanceId, token }));
   const probeEmbedding = async (modelId: string) => {

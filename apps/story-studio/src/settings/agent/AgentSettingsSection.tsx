@@ -1,6 +1,6 @@
 import { Bot, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { AgentPermissionProfile, AgentPermissionState, ModelCatalogEntry, ModelCatalogSnapshot, ModelServiceStatus, ProviderConnectionTestResult, ProviderInstanceProjection, ProviderPresetId } from "../../lib/localTransport";
+import { LocalTransportError, type AgentPermissionProfile, type AgentPermissionState, type ModelCatalogEntry, type ModelCatalogSnapshot, type ModelServiceStatus, type ProviderConnectionTestResult, type ProviderInstanceProjection, type ProviderPresetId } from "../../lib/localTransport";
 
 export type ProviderProfileUpdate = {
   expectedRevision: number;
@@ -170,7 +170,9 @@ export function AgentSettingsSection(props: {
     try {
       await runConnectionTest(operation);
     } catch (cause) {
-      const detail = `${cause instanceof Error ? cause.message : "连接测试失败。"} 可恢复本次操作，不会新发 Provider 请求。`;
+      const detail = connectionTestFailureDetail(cause);
+      if (!(cause instanceof LocalTransportError) || cause.status === 0) rememberConnectionOperation(operation);
+      else rememberConnectionOperation(null);
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
     finally { setProviderBusy(false); setProviderAction(null); }
@@ -179,14 +181,17 @@ export function AgentSettingsSection(props: {
     if (!props.onSaveProviderProfile || !props.onTestProviderConnection) return;
     setProviderBusy(true); setProviderAction("connection"); setProviderNotice("");
     setConnectionOperation({ phase: "running", detail: "正在保存并用新配置测试连接…" });
+    let testStarted = false;
     try {
       const modelId = selectedModelDraft.trim() || undefined;
       await persistProvider();
       const operation = { operationId: createConnectionTestOperationId(), ...(modelId ? { modelId } : {}) };
       rememberConnectionOperation(operation);
+      testStarted = true;
       await runConnectionTest(operation);
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "保存或连接测试失败。此前已保存配置未被清除。";
+      const detail = testStarted ? connectionTestFailureDetail(cause) : `保存失败：${cause instanceof Error ? cause.message : "此前已保存配置未被清除。"} 未发送 Provider 请求。`;
+      if (cause instanceof LocalTransportError && cause.status !== 0) rememberConnectionOperation(null);
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
     finally { setProviderBusy(false); setProviderAction(null); }
@@ -378,6 +383,13 @@ function formatCatalogTime(value: string | null): string { return value ? new Da
 function createConnectionTestOperationId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `connection-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function connectionTestFailureDetail(cause: unknown, fallback = "连接测试失败。") {
+  const message = cause instanceof Error ? cause.message : fallback;
+  if (cause instanceof LocalTransportError && cause.status === 0) return `结果未知：${message} 可恢复本次操作，不会新发 Provider 请求。`;
+  if (/未(?:发送|发起)|预算已用尽/u.test(message)) return `本次未发送：${message}`;
+  return `本次已发送但失败：${message} 不会自动重试。`;
 }
 
 function hasUnsavedProviderChanges(form: HTMLFormElement | null, input: {
