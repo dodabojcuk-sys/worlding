@@ -555,6 +555,17 @@ export type WorldObject = WorldObjectSummary & {
   worldProjection: CharacterCardWorldProjection | null;
 };
 
+/** Read-only browser projection of the existing N4 WorldState owner. */
+export type WorldStateN4ReadProjection = {
+  subjectId: string;
+  observedAt: string;
+  status: "known" | "unknown";
+  value: { kind: "passage"; state: "open" | "closed" | "unknown" } | { kind: "holder"; state: "held" | "unheld" | "unknown"; holder: { id: string; revision: string } | null } | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  change: { changeId: string; effectiveAt: string; evidence: { kind: "confirmed-event"; event: { id: string; revision: string } } } | null;
+};
+
 /** Browser transport projection of the durable, pre-confirmation Agent proposal owner. */
 export type AgentRecognitionProposalValue = null | boolean | number | string | AgentRecognitionProposalValue[] | { [key: string]: AgentRecognitionProposalValue };
 export type AgentRecognitionProposalStatus = "pending" | "edited" | "confirming" | "confirmed" | "merging" | "merged" | "ignored";
@@ -1813,8 +1824,10 @@ export async function mergeAgentRecognitionProposal(input: {
   return request(`${basePath}/agent-recognition/proposals/merge`, { method: "POST", token, body });
 }
 
-export async function getVerifiedCanonEventList(projectId: string): Promise<VerifiedCanonEventListRead> {
-  return request<VerifiedCanonEventListRead>(`${basePath}/event-line/verified-events?projectId=${encodeURIComponent(projectId)}`);
+export async function getVerifiedCanonEventList(projectId: string, workVersionId?: string | null): Promise<VerifiedCanonEventListRead> {
+  const parameters = new URLSearchParams({ projectId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<VerifiedCanonEventListRead>(`${basePath}/event-line/verified-events?${parameters.toString()}`);
 }
 
 export async function getVerifiedCanonEvent(projectId: string, eventId: string): Promise<VerifiedCanonEventDetailRead> {
@@ -2708,6 +2721,14 @@ export async function createCharacterCard(input: {
 
 export async function readWorldObject(projectId: string, objectId: string): Promise<WorldObject> {
   return request<WorldObject>(`${basePath}/world-object?projectId=${encodeURIComponent(projectId)}&objectId=${encodeURIComponent(objectId)}`);
+}
+
+/** Read-only N4 state. A map layout never writes or infers this projection. */
+export async function readWorldStateN4(input: { projectId: string; objectId: string; workVersionId: string | null; observedAt?: string }): Promise<{ projectId: string; objectId: string; workVersionId: string | null; projection: WorldStateN4ReadProjection }> {
+  const parameters = new URLSearchParams({ projectId: input.projectId, objectId: input.objectId });
+  if (input.workVersionId) parameters.set("workVersionId", input.workVersionId);
+  if (input.observedAt) parameters.set("observedAt", input.observedAt);
+  return request(`${basePath}/world-state?${parameters.toString()}`);
 }
 
 export async function rememberWorldObject(projectId: string, objectId: string, token: string): Promise<WorldObject> {

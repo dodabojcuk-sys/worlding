@@ -246,6 +246,14 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(frozenAfterState.run.runId, frozen.run.runId);
   assert.equal(frozenAfterState.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true, "a previously created Run keeps its frozen context");
 
+  const mapState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observedAt=2000-01-01T00%3A01%3A00Z`);
+  assert.equal(mapState.status, 200, JSON.stringify(mapState.payload));
+  assert.deepEqual((mapState.payload.data as { objectId: string; projection: { value: unknown } }).objectId, northGate.id);
+  assert.deepEqual((mapState.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" }, "the ordinary read endpoint returns the existing WorldState Owner projection");
+  const nonLocationState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(value.characters[0]!.id)}`);
+  assert.equal(nonLocationState.status, 400, JSON.stringify(nonLocationState.payload));
+  assert.match(String(nonLocationState.payload.error || ""), /正式地点/u);
+
   assert.equal((await postJson(restarted.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
   const after = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/create", {
     ...value.request("n4-new-state-context"),

@@ -1562,6 +1562,28 @@ async function handleProductRequest(request, response, url) {
     })) });
     return;
   }
+  // A map marker is only a visual placement. This route deliberately reads the
+  // existing N4 owner for the selected formal location; it owns neither state
+  // nor a second map-specific fact projection.
+  if (request.method === "GET" && pathname === "/__local/story-studio/world-state") {
+    const projectId = requireQueryValue(url, "projectId");
+    const objectId = requireQueryValue(url, "objectId");
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim() || null;
+    const observedAt = String(url.searchParams.get("observedAt") || "").trim() || new Date().toISOString();
+    requireProject(projectId);
+    if (workVersionId) creationSourceSelectionPort.resolveWorkVersion(projectId, workVersionId);
+    sendJson(response, 200, { data: runProductOperation(() => {
+      const object = operations.readWorldObject({ projectId, objectId });
+      if (object.type !== "location") throw new Error("地点地图只能读取正式地点的状态。");
+      return {
+        projectId,
+        objectId: object.id,
+        workVersionId,
+        projection: operations.readWorldStateN4({ projectId, objectId: object.id, workVersionId, observedAt })
+      };
+    }) });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/object-catalog") {
     const projectId = requireQueryValue(url, "projectId");
     const workVersionId = requireQueryValue(url, "workVersionId");
