@@ -2134,6 +2134,8 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.match(page.url(), /mapPanX=/u, "A source return must recover the map pan.");
   await page.reload();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1152, height: 720 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The normal map controls must remain usable without page-level horizontal overflow at 1152px.");
   if (mapM2EvidenceDirectory) {
     await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-return-restored.png"), fullPage: true });
     writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, relationId: mapM2Fixture.relationId, providerDispatches: 0 }, null, 2)}\n`, "utf8");
