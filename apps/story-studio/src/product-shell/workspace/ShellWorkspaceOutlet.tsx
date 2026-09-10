@@ -12,6 +12,7 @@ import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
 import { MapM1Workspace } from "../../components/world/MapM1Workspace";
+import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -22,6 +23,10 @@ export function ShellWorkspaceOutlet(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
   onOpenPendingReview(): void;
   directoryObjectId: string | null;
+  characterObjectId: string | null;
+  onEditCharacter(): void;
+  onAddCharacterToNuwa(objectId: string): void;
+  onCloseCharacterWorkspace(): void;
   locationRevision: number;
 }) {
   const { t } = useI18n();
@@ -56,6 +61,10 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
     return <MapM1Workspace runtime={props.runtime} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "character" && props.characterObjectId) {
+    return <CharacterWorkspace runtime={props.runtime} objectId={props.characterObjectId} onEdit={props.onEditCharacter} onAddToNuwa={() => props.onAddCharacterToNuwa(props.characterObjectId!)} onClose={props.onCloseCharacterWorkspace} />;
   }
 
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">

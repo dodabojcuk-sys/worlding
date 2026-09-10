@@ -1541,8 +1541,9 @@ export async function updateObjectCatalog(input: { projectId: string; workVersio
   return request<ObjectCatalogState>(`${basePath}/object-catalog/update`, { method: "POST", token, body });
 }
 
-export async function listRelations(input: { projectId: string; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
+export async function listRelations(input: { projectId: string; workVersionId?: string | null; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
   const params = new URLSearchParams({ projectId: input.projectId });
+  if (input.workVersionId) params.set("workVersionId", input.workVersionId);
   if (input.includeArchived) params.set("includeArchived", "true");
   if (input.reviewState) params.set("reviewState", input.reviewState);
   if (input.objectId) params.set("objectId", input.objectId);

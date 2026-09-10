@@ -1413,17 +1413,17 @@ async function assertCharacterMemoryQuery(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   const linId = characterFixture?.["林昭"]?.id;
   assert.ok(linId, "Character memory query needs the stable 林昭 fixture identity.");
-  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
-  const inspector = page.getByTestId("character-inspector");
-  await inspector.waitFor();
-  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+  const workspace = page.getByTestId("character-workspace");
+  await workspace.waitFor();
   const query = page.getByTestId("character-memory-query");
   await query.waitFor();
   assert.equal(await query.getAttribute("data-provider-calls"), "0", "Author memory lookup must remain zero-Provider.");
   assert.match(await query.innerText(), /经历与记忆记录[\s\S]*版本：[\s\S]*听闻/u);
   assert.match(await query.innerText(), /北闸已封/u, "The normal character entry exposes the persisted recipient-specific heard statement.");
   assert.doesNotMatch(await query.innerText(), /N2_PRIVATE_|CANARY|陆衍保持未知/u, "Private profile and a non-recipient's context do not enter the author query payload.");
-  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "01-1440-character-memory-query.png"), fullPage: false });
+  assert.match(await workspace.innerText(), /听闻记录[\s\S]*正式关系依据/u, "The central workspace explains that ledger records and Relation evidence use distinct counts.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "01-1440-character-workspace.png"), fullPage: false });
 
   await query.getByLabel("搜索经历与记忆").fill("北闸");
   assert.equal(await query.locator("li[data-memory-kind='heard']").count(), 1, "Search filters the same scoped provenance records rather than creating a second query source.");
@@ -1432,11 +1432,23 @@ async function assertCharacterMemoryQuery(page, consoleProblems) {
   assert.ok(heardRunId, "A heard record exposes its durable Nuwa Run identity before navigation.");
   await query.getByRole("button", { name: "打开女娲步骤", exact: true }).click();
   assert.match(page.url(), new RegExp(`/nuwa\\?runId=${escapeRegex(heardRunId)}`), "A heard record routes to its precise Nuwa Run identity.");
-  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
-  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  const returnToCharacter = page.getByRole("button", { name: /返回林昭的角色工作面/u });
+  await returnToCharacter.waitFor();
+  await returnToCharacter.click();
   const reopened = page.getByTestId("character-memory-query");
   await reopened.waitFor();
-  assert.match(await reopened.innerText(), /北闸已封/u, "Refreshing/reopening preserves the same project and work-version scoped read.");
+  assert.equal(await reopened.getByLabel("搜索经历与记忆").inputValue(), "北闸", "Returning from the precise Nuwa step preserves the central query state.");
+  assert.match(await reopened.innerText(), /北闸已封/u, "Returning preserves the same project and work-version scoped read.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=map&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  const quickInspector = page.getByTestId("character-inspector");
+  await quickInspector.waitFor();
+  assert.match(await quickInspector.innerText(), /快速查看[\s\S]*展开角色工作面/u, "Map context keeps the compact character preview instead of replacing the active workspace.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "03-1440-character-map-quick-view.png"), fullPage: false });
+  await quickInspector.getByRole("button", { name: "展开角色工作面", exact: true }).click();
+  await page.getByTestId("character-workspace").waitFor();
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
+  assert.match(page.url(), /worldView=map/u, "Returning from an explicitly expanded inspector restores the map URL and its local context.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "04-1440-character-map-return.png"), fullPage: false });
   assert.deepEqual(consoleProblems, [], "Character memory query must not produce browser warnings or errors.");
 }
 
