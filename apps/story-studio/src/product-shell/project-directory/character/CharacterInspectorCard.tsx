@@ -30,10 +30,13 @@ export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeSt
       setRecord({ object, categoryId: metadata?.categoryId ?? null, categoryName: metadata?.categoryId ? categories.get(metadata.categoryId) ?? null : null, trashedAt: metadata?.trashedAt ?? null, trashedFrom: metadata?.trashedFrom ?? null, eventCount: eventIds.size, manualOrder: metadata?.displayOrder ?? null });
       setKnowledge(projection.observer.id === object.id ? projection : null);
       setFormalRelations(relationRead.relations);
+      // The compact inspector can persist while the Shell changes project.
+      // Gate its optional memory read on the preceding project-scoped object
+      // identity check so a stale ID never issues a cross-scope request.
+      void getCharacterMemoryQuery(projectId, props.objectId, props.runtime.workVersionId).then((query) => {
+        if (active) setMemoryQuery(query);
+      }).catch(() => { if (active) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。"); });
     }).catch(() => { if (active) props.onClose(); });
-    void getCharacterMemoryQuery(projectId, props.objectId, props.runtime.workVersionId).then((query) => {
-      if (active) setMemoryQuery(query);
-    }).catch(() => { if (active) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。") });
     return () => { active = false; };
   }, [props.objectId, props.runtime.project?.id, props.runtime.workVersionId]);
   return record ? <CharacterInspectorCard record={record} knowledge={knowledge} memoryQuery={memoryQuery} memoryError={memoryError} formalRelations={formalRelations} onClose={props.onClose} onOpenFull={props.onOpenFull} onOpenKnowledge={props.onOpenKnowledge} onAddToNuwa={props.onAddToNuwa} /> : null;
