@@ -2121,9 +2121,12 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-reopened.png"), fullPage: true });
+  const sourceReadRequest = page.waitForRequest((request) => request.url().includes("/event-line/event?") && request.url().includes(encodeURIComponent(mapM2Fixture.reopened.id)));
   await page.getByRole("button", { name: "查看支持事件", exact: true }).last().click();
+  await sourceReadRequest;
   await page.getByRole("button", { name: "返回地点地图", exact: true }).waitFor();
   await page.getByText(/北闸恢复通行/u).first().waitFor();
+  await page.getByTestId("event-line-detail-loading").waitFor({ state: "hidden" });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-event-source.png"), fullPage: true });
   await page.getByRole("button", { name: "返回地点地图", exact: true }).click();
   await page.getByTestId("map-m2-inspector").waitFor();
