@@ -460,6 +460,10 @@ function normalizeProviderHistoryEntry(value) {
   if (!id || !occurredAt) throw profileStoreError("provider-profile-schema");
   return {
     id,
+    operationId: boundedText(value.operationId, 96) || null,
+    providerInstanceId: boundedText(value.providerInstanceId, 96) || null,
+    configRevision: Number.isInteger(value.configRevision) && value.configRevision >= 0 ? value.configRevision : null,
+    endpointIdentity: boundedText(value.endpointIdentity, 64) || null,
     kind,
     status,
     occurredAt,
@@ -467,6 +471,7 @@ function normalizeProviderHistoryEntry(value) {
     modelCount: Number.isInteger(value.modelCount) && value.modelCount >= 0 ? Math.min(value.modelCount, MAX_PROVIDER_MODELS) : null,
     latencyMs: Number.isFinite(value.latencyMs) && value.latencyMs >= 0 ? Math.min(Math.round(value.latencyMs), 86_400_000) : null,
     error: value.error ? String(value.error).replace(/Bearer\s+[^\s]+/giu, "Bearer [已隐藏]").slice(0, 240) : null,
+    responsePreview: value.responsePreview ? String(value.responsePreview).replace(/(?:Bearer|api[_-]?key)\s*[:=]?\s*[^\s,;]+/giu, "$1 [已隐藏]").replace(/\s+/gu, " ").trim().slice(0, 160) : null,
     traceId: boundedText(value.traceId, 160) || null
   };
 }

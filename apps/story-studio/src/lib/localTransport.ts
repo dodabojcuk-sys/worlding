@@ -343,6 +343,10 @@ export type ProviderProfileProjection = {
 
 export type ProviderOperationHistoryEntry = {
   id: string;
+  operationId: string | null;
+  providerInstanceId: string | null;
+  configRevision: number | null;
+  endpointIdentity: string | null;
   kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference" | "embedding";
   status: "success" | "failed";
   occurredAt: string;
@@ -350,6 +354,7 @@ export type ProviderOperationHistoryEntry = {
   modelCount: number | null;
   latencyMs: number | null;
   error: string | null;
+  responsePreview: string | null;
   traceId: string | null;
 };
 
@@ -1356,8 +1361,27 @@ export async function discoverProviderModels(token: string): Promise<{ providerI
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; replayed?: boolean; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; replayed?: boolean; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export type ProviderConnectionTestResult = {
+  gate: "connection";
+  operationId: string;
+  providerId: string;
+  modelId: string;
+  testedAt: string;
+  latencyMs: number;
+  outcome: "success" | "failed";
+  sent: boolean;
+  recovered: boolean;
+  responsePreview: string | null;
+  error: string | null;
+  configurationSnapshot: { providerInstanceId: string; configRevision: number; endpointIdentity: string; modelId: string };
+  availableModelCount: number;
+  models: string[];
+  profile: ProviderProfileProjection;
+};
+
+export async function testProviderConnection(token: string, input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult> {
+  const body = { operationId: input.operationId, ...(input.modelId?.trim() ? { modelId: input.modelId.trim() } : {}) };
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test`, { method: "POST", token, body });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {

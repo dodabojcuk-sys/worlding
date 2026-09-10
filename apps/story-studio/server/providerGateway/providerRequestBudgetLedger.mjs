@@ -171,6 +171,13 @@ export function createProviderRequestBudgetLedger(options) {
       return reservation ? publicReservation(reservation) : null;
     },
 
+    reservationForSettingsOperation(operationId) {
+      const normalized = requiredText(operationId, 96);
+      state = readState(target);
+      const reservation = state.reservations.find((item) => item.idempotencyKey.endsWith(`.${normalized}.dispatch`)) || null;
+      return reservation ? Object.freeze({ idempotencyKey: reservation.idempotencyKey, ...publicReservation(reservation) }) : null;
+    },
+
     snapshot() {
       state = readState(target);
       return publicLedger(state);

@@ -117,8 +117,8 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
       window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     }
   };
-  const testConnection = async (modelId?: string) => {
-    const result = await withToken((token) => testProviderConnection(token, modelId));
+  const testConnection = async (input: { modelId?: string; operationId: string }) => {
+    const result = await withToken((token) => testProviderConnection(token, input));
     await refreshRuntime(project);
     window.dispatchEvent(new Event("story-studio-model-service-status-changed"));
     return result;
