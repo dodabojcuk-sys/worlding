@@ -87,8 +87,12 @@ function useCharacterWorkspaceData(runtime: TianyanShellRuntimeState, objectId: 
       const categories = new Map(library.folders.filter((folder) => folder.kind === "custom-category").map((folder) => [folder.id, folder.title]));
       const eventIds = new Set([...(object.worldProjection?.timelineParticipations.map((item) => item.eventId) ?? []), ...object.linkedObjects.filter((item) => item.type === "event").map((item) => item.id)]);
       setData((current) => ({ ...current, record: { object, categoryId: metadata?.categoryId ?? null, categoryName: metadata?.categoryId ? categories.get(metadata.categoryId) ?? null : null, trashedAt: metadata?.trashedAt ?? null, trashedFrom: metadata?.trashedFrom ?? null, eventCount: eventIds.size, manualOrder: metadata?.displayOrder ?? null }, knowledge: knowledge.observer.id === object.id ? knowledge : null, relations: relationRead.relations, labels: new Map(library.objects.map((item) => [item.id, item.title])) }));
+      // A project switch can leave a stale directory reference on screen for
+      // one render. Do not send a memory read until this object has passed the
+      // project-scoped WorldObject read above; a failed memory read remains a
+      // visible query error instead of a silent "no experience" result.
+      void getCharacterMemoryQuery(projectId, objectId, runtime.workVersionId).then((memoryQuery) => { if (active) setData((current) => ({ ...current, memoryQuery })); }).catch(() => { if (active) setData((current) => ({ ...current, memoryError: "角色记忆记录暂时无法读取；没有把读取失败当成没有经历。" })); });
     }).catch((error: unknown) => { if (active) setData((current) => ({ ...current, error: error instanceof Error ? error.message : "角色资料读取失败。" })); });
-    void getCharacterMemoryQuery(projectId, objectId, runtime.workVersionId).then((memoryQuery) => { if (active) setData((current) => ({ ...current, memoryQuery })); }).catch(() => { if (active) setData((current) => ({ ...current, memoryError: "角色记忆记录暂时无法读取；没有把读取失败当成没有经历。" })); });
     return () => { active = false; };
   }, [objectId, runtime.project?.id, runtime.workVersionId]);
   return data;
