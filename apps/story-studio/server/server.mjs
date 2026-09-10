@@ -1383,7 +1383,7 @@ async function handleProductRequest(request, response, url) {
     const character = runProductOperation(() => operations.readWorldObject({ projectId, objectId: characterId }));
     if (character.type !== "character" || character.status === "archived") throw productError("当前角色不在可查询范围内。", 404);
     const sourceIdentity = runProductOperation(() => nuwaN1SourceIdentity(projectId, workVersionId));
-    const knowledge = runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, characterId));
+    const knowledge = runProductOperation(() => projectFormalCharacterMemoryKnowledge(projectId, characterId, sourceIdentity.kind === "unversioned-draft" ? null : sourceIdentity.workVersionId));
     const ledger = await runAsyncProductOperation(() => readCharacterMemoryLedger({ rootPath, agentId: "agent.nuwa", scope: "project", projectId }, characterId));
     sendJson(response, 200, { data: buildCharacterMemoryQueryProjection({ projectId, characterId, sourceIdentity, knowledge, ledger: ledger?.value ?? null }) });
     return;
@@ -4524,6 +4524,27 @@ function projectEventStoryCrossingKnowledge(projectId, observerId, observerIds =
     .filter((character) => character.status !== "archived")
     .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));
   return buildEventStoryCrossingKnowledgeProjection({ projectId, observerId, observerIds, events, characters });
+}
+
+/**
+ * The author memory query reads only Canon-verified Events of one explicit
+ * work version.  The broader EventLine knowledge view intentionally retains
+ * its existing review projection and must not be repurposed as this scope.
+ */
+function projectFormalCharacterMemoryKnowledge(projectId, characterId, workVersionId) {
+  requireProject(projectId);
+  const verified = canonReadProjection.listVerifiedCanonEvents({ projectId, ...(workVersionId ? { workVersionId } : {}) });
+  if (verified.status !== "ready") throw new Error(verified.error.message);
+  const events = verified.eventIds.flatMap((eventId) => {
+    const read = canonReadProjection.readVerifiedCanonEvent({ projectId, eventId, ...(workVersionId ? { workVersionId } : {}) });
+    if (read.status !== "ready") throw new Error(read.error.message);
+    const event = read.event;
+    return [{ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, relativeId: event.relativeId, tags: event.tags, knowledgeSubjectIds: event.knowledgeSubjects, body: event.body }];
+  });
+  const characters = operations.listWorldObjects({ projectId, type: "character" })
+    .filter((character) => character.status !== "archived")
+    .map((character) => ({ id: character.id, label: character.title, revisionToken: character.revisionToken }));
+  return buildEventStoryCrossingKnowledgeProjection({ projectId, observerId: characterId, events, characters });
 }
 
 function referencesHiddenEvent(value, hiddenEventIds) {
