@@ -250,6 +250,11 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   assert.equal(mapState.status, 200, JSON.stringify(mapState.payload));
   assert.deepEqual((mapState.payload.data as { objectId: string; projection: { value: unknown } }).objectId, northGate.id);
   assert.deepEqual((mapState.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" }, "the ordinary read endpoint returns the existing WorldState Owner projection");
+  const mapCurrent = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observation=current`);
+  assert.equal(mapCurrent.status, 200, JSON.stringify(mapCurrent.payload));
+  assert.equal((mapCurrent.payload.data as { observation: string }).observation, "current", "Map M2 reads an explicit Owner-current projection instead of treating the system clock as story time");
+  assert.deepEqual((mapCurrent.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" });
+  assert.equal((mapCurrent.payload.data as { projection: { history: unknown[] } }).projection.history.length, 1, "the existing Owner history supplies discrete map observation choices without a map fact store");
   const nonLocationState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(value.characters[0]!.id)}`);
   assert.equal(nonLocationState.status, 400, JSON.stringify(nonLocationState.payload));
   assert.match(String(nonLocationState.payload.error || ""), /正式地点/u);

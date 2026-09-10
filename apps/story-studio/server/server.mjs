@@ -1569,16 +1569,25 @@ async function handleProductRequest(request, response, url) {
     const projectId = requireQueryValue(url, "projectId");
     const objectId = requireQueryValue(url, "objectId");
     const workVersionId = String(url.searchParams.get("workVersionId") || "").trim() || null;
-    const observedAt = String(url.searchParams.get("observedAt") || "").trim() || new Date().toISOString();
+    const requestedObservation = String(url.searchParams.get("observation") || "").trim() || (url.searchParams.get("observedAt") ? "" : "current");
+    const requestedObservedAt = String(url.searchParams.get("observedAt") || "").trim();
+    if (requestedObservation && requestedObservation !== "current") throw productError("地图观察位置无效。", 400);
+    if (requestedObservation === "current" && requestedObservedAt) throw productError("当前观察位置不能同时伪装为一个故事时间。", 400);
     requireProject(projectId);
     if (workVersionId) creationSourceSelectionPort.resolveWorkVersion(projectId, workVersionId);
     sendJson(response, 200, { data: runProductOperation(() => {
       const object = operations.readWorldObject({ projectId, objectId });
       if (object.type !== "location") throw new Error("地点地图只能读取正式地点的状态。");
+      // "current" is an explicit owner-current projection, not the computer
+      // clock being represented as story time.  Discrete event observations
+      // must supply their confirmed effective time.
+      const observedAt = requestedObservation === "current" ? "9999-12-31T23:59:59.999Z" : requestedObservedAt;
+      if (!observedAt) throw productError("地图需要选择当前状态或一个已确认故事节点；不会以系统时间代替故事时间。", 400);
       return {
         projectId,
         objectId: object.id,
         workVersionId,
+        observation: requestedObservation === "current" ? "current" : "event",
         projection: operations.readWorldStateN4({ projectId, objectId: object.id, workVersionId, observedAt })
       };
     }) });

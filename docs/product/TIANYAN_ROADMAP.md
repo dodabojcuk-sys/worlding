@@ -14,7 +14,7 @@
 | OBS-1 | 从一次动作查到结果、失败与既有回执 | `EngineeringLogPanel`、Agent Run、关系回执、continuity receipt | 本地通过；作者待验 | 当前作品只读回执投影已支持操作/结果/对象/关键词筛选、逐条安全详情和脱敏导出；连续隔离链覆盖女娲开始、单步、暂停、恢复、停止与候选回执。硬保护或范围失败仍保留 `requires-author`/`blocked` 原状态，不伪装成执行失败。 |
 | TIAN-YI-R1 | 在同一会话的创意/工作泳道中持续整理、审阅与采纳 | `TianyiConversation`、Story Intake Envelope、batch adapter | 本地通过；真实模型待验；作者待验 | 验证真实 Provider 前先保留来源、范围、回执、撤销和跨项目隔离；不得把假服务称为真实 Pi |
 | REL-N3B | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 双时点比较本地与浏览器通过；作者待验 | 当前作品与明确正式版本范围选择人物/对象、T1/T2，显示新增、结束、改变、保持；未知与冲突单列。系统回执时间、归档、人物听闻及图形位置不作为世界时间，来源可定位 Event 与精确 Nuwa Run。 |
-| MAP-M1 | 回答地点由谁控制、谁与此有关、发生过什么、依据是什么 | 世界入口、现有地点/Relation/Event 投影与 `storyStudioLocationTopology.ts` | 已规划；本轮暂不建模 | N1 后再做“雾港断桥”二维示意/自定义底图、地点—势力—人物—事件与来源往返；布局坐标不写事实，目击不等于现居 |
+| MAP-M2 | 在同一版本内按故事节点观察地点状态与局部关系，并能回到来源 | 世界入口、`visualDocumentRepository`、WorldState/Relation/Canon Read Owner | 实现中；定向本地验证通过；作者待验 | 当前入口已支持默认浏览、显式布局编辑、地点/地图/观察位置 URL 恢复；观察节点只由已有 WorldState 的已确认 Event 依据派生，`current` 不等于系统时间。下一步补隔离浏览器链的北闸“封闭→恢复通行”录屏；布局坐标不写事实，人物出现不等于现居或知情。 |
 | MEM-A1 | 长会话知道当前任务范围、来源和不知道什么 | `storyContinuity`、ContextPack、停止点和回执 | 已有基础 | 版本/权限/时点感知检索与摘要；比较事实命中、泄密、未来信息与恢复一致性 |
 | NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、Action Permission Broker、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；高权限应用/回溯已接通；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 次真实模型发送上限、暂停/刷新/恢复/停止/回放/新建、普通候选交接，以及授权范围内经既有 Owner 完成 Event/Relation/资料/编排应用、固定稿与补偿回溯。真实调用仍为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
 | NUWA-N2A | 让每位角色按自己的核心、底线和本场目标行动 | 既有 Character WorldObject/Profile、Nuwa RunPack、`read_role_context` | 本地与浏览器通过；真实模型未运行；作者待验 | 角色编辑器可写作者确认的“角色核心/底线”，排演准备要求逐角色本场目标；创建 Run 时冻结人物修订和实际输入，人物后续编辑不改旧 Run。检查器与 Pi adapter 读取同一冻结上下文，正文及未选中的私密 Profile 字段不会进入发送范围。 |

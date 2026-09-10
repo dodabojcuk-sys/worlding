@@ -564,6 +564,8 @@ export type WorldStateN4ReadProjection = {
   effectiveFrom: string | null;
   effectiveTo: string | null;
   change: { changeId: string; effectiveAt: string; evidence: { kind: "confirmed-event"; event: { id: string; revision: string } } } | null;
+  /** The formal Owner history is read-only; Map M2 derives discrete observation choices from it. */
+  history: Array<{ changeId: string; effectiveAt: string; revision: number; value: WorldStateN4ReadProjection["value"]; evidence: { kind: "confirmed-event"; event: { id: string; revision: string } } }>;
 };
 
 /** Browser transport projection of the durable, pre-confirmation Agent proposal owner. */
@@ -1830,8 +1832,10 @@ export async function getVerifiedCanonEventList(projectId: string, workVersionId
   return request<VerifiedCanonEventListRead>(`${basePath}/event-line/verified-events?${parameters.toString()}`);
 }
 
-export async function getVerifiedCanonEvent(projectId: string, eventId: string): Promise<VerifiedCanonEventDetailRead> {
-  return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?projectId=${encodeURIComponent(projectId)}&eventId=${encodeURIComponent(eventId)}`);
+export async function getVerifiedCanonEvent(projectId: string, eventId: string, workVersionId?: string | null): Promise<VerifiedCanonEventDetailRead> {
+  const parameters = new URLSearchParams({ projectId, eventId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?${parameters.toString()}`);
 }
 
 export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string, observerIds: readonly string[] = []): Promise<EventStoryCrossingKnowledgeProjection> {
@@ -2724,10 +2728,11 @@ export async function readWorldObject(projectId: string, objectId: string): Prom
 }
 
 /** Read-only N4 state. A map layout never writes or infers this projection. */
-export async function readWorldStateN4(input: { projectId: string; objectId: string; workVersionId: string | null; observedAt?: string }): Promise<{ projectId: string; objectId: string; workVersionId: string | null; projection: WorldStateN4ReadProjection }> {
+export async function readWorldStateN4(input: { projectId: string; objectId: string; workVersionId: string | null; observedAt?: string; observation?: "current" }): Promise<{ projectId: string; objectId: string; workVersionId: string | null; observation: "current" | "event"; projection: WorldStateN4ReadProjection }> {
   const parameters = new URLSearchParams({ projectId: input.projectId, objectId: input.objectId });
   if (input.workVersionId) parameters.set("workVersionId", input.workVersionId);
   if (input.observedAt) parameters.set("observedAt", input.observedAt);
+  if (input.observation === "current") parameters.set("observation", "current");
   return request(`${basePath}/world-state?${parameters.toString()}`);
 }
 
