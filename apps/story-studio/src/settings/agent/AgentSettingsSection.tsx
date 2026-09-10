@@ -147,6 +147,12 @@ export function AgentSettingsSection(props: {
       else window.sessionStorage.removeItem("tianyan.provider.connection-test-operation");
     } catch { /* The operation remains recoverable for this mounted page. */ }
   };
+  useEffect(() => {
+    if (!recoverableConnectionOperation) return;
+    if ((props.status?.profile.history ?? []).some((entry) => entry.kind === "connection" && entry.operationId === recoverableConnectionOperation.operationId)) {
+      rememberConnectionOperation(null);
+    }
+  }, [props.status?.profile.history, recoverableConnectionOperation]);
   const runConnectionTest = async (operation: { operationId: string; modelId?: string }) => {
     if (!props.onTestProviderConnection) return;
     const result = await props.onTestProviderConnection(operation);
