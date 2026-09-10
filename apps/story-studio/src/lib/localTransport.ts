@@ -5,6 +5,7 @@ import type { StoryObservationProposalPatch } from "../../../../src/storyContrac
 import type { StoryStudioObjectProfile } from "../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import type { StoryStudioAgentDraftMode } from "../../../../src/storyContracts/storyStudioAgentDraft.ts";
 import type { EventStoryCrossingKnowledgeProjection } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import type { CharacterMemoryQueryProjection } from "../../../../src/storyContinuity/characterMemoryQuery.ts";
 import type { GoldenLoopCandidateReview, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 import type { NuwaSceneCandidateR0, NuwaSceneComparisonR0, NuwaSceneReplayR0, NuwaSceneSimulationReadModelR0 } from "../../../../src/nuwaSceneRuntimeContracts.ts";
 import type { NuwaBoundedProjection } from "./nuwaBoundedContract";
@@ -1785,6 +1786,12 @@ export async function getEventStoryCrossingKnowledgeProjection(projectId: string
   const parameters = new URLSearchParams({ projectId, observerId });
   if (observerIds.length) parameters.set("observerIds", observerIds.slice(0, 5).join(","));
   return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?${parameters.toString()}`);
+}
+
+export async function getCharacterMemoryQuery(projectId: string, characterId: string, workVersionId: string | null): Promise<CharacterMemoryQueryProjection> {
+  const parameters = new URLSearchParams({ projectId, characterId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<CharacterMemoryQueryProjection>(`${basePath}/characters/memory-query?${parameters.toString()}`);
 }
 
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {

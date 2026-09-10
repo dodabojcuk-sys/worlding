@@ -86,6 +86,12 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_PROFILE_SECRET"), false);
 
+  const memoryQuery = await getJson(enabled.baseUrl, `/__local/story-studio/characters/memory-query?projectId=${encodeURIComponent(value.project.id)}&characterId=${encodeURIComponent(value.characters[1]!.id)}`);
+  assert.equal(memoryQuery.status, 200, JSON.stringify(memoryQuery.payload));
+  const queriedRecords = (memoryQuery.payload.data as { records: Array<{ kind: string; source: { runId?: string }; validity: string }>; providerCalls: number }).records;
+  assert.equal(queriedRecords.some((record) => record.kind === "heard" && record.source.runId === model.run.runId && record.validity === "active"), true, "the author query reads the persisted recipient ledger through the normal local API");
+  assert.equal((memoryQuery.payload.data as { providerCalls: number }).providerCalls, 0, "opening a memory query must not send a Provider request");
+
   const candidate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/candidate", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "candidate-first", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(candidate.status, 201, JSON.stringify(candidate.payload));
   model = candidate.payload.data as NuwaReadModel;

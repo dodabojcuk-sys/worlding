@@ -91,7 +91,9 @@ const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
 const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
 const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
+const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
+const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -145,7 +147,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -165,7 +167,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -212,6 +214,12 @@ try {
     await setupNarrativeFixture({ createRoot: false });
     await setupR1CausalFixture();
     await assertR5ContinuousAuthorLoop(page, consoleProblems);
+  } else if (characterMemoryQueryOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertNuwaN1BoundedLoop(page, consoleProblems);
+    await assertCharacterMemoryQuery(page, consoleProblems);
   } else if (multiverseB1RehearsalOnly) {
     await assertMultiverseB1Rehearsal(page);
   } else if (r4CharacterObservationOnly) {
@@ -1398,6 +1406,38 @@ async function assertRelationshipReaderR1(page, consoleProblems) {
   assert.ok(await relationButtons.count() >= 5, "Returning to confirmed relations restores the same read-only neighborhood.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-relation-reader-r1.png"), fullPage: false });
   assert.deepEqual(consoleProblems, [], "Relation Reader must not produce browser warnings or errors.");
+}
+
+async function assertCharacterMemoryQuery(page, consoleProblems) {
+  if (characterMemoryEvidenceDirectory) mkdirSync(characterMemoryEvidenceDirectory, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const linId = characterFixture?.["林昭"]?.id;
+  assert.ok(linId, "Character memory query needs the stable 林昭 fixture identity.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  const inspector = page.getByTestId("character-inspector");
+  await inspector.waitFor();
+  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  const query = page.getByTestId("character-memory-query");
+  await query.waitFor();
+  assert.equal(await query.getAttribute("data-provider-calls"), "0", "Author memory lookup must remain zero-Provider.");
+  assert.match(await query.innerText(), /经历与记忆记录[\s\S]*版本：[\s\S]*听闻/u);
+  assert.match(await query.innerText(), /北闸已封/u, "The normal character entry exposes the persisted recipient-specific heard statement.");
+  assert.doesNotMatch(await query.innerText(), /N2_PRIVATE_|CANARY|陆衍保持未知/u, "Private profile and a non-recipient's context do not enter the author query payload.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "01-1440-character-memory-query.png"), fullPage: false });
+
+  await query.getByLabel("搜索经历与记忆").fill("北闸");
+  assert.equal(await query.locator("li[data-memory-kind='heard']").count(), 1, "Search filters the same scoped provenance records rather than creating a second query source.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "02-1440-character-memory-search.png"), fullPage: false });
+  const heardRunId = await query.locator("li[data-memory-kind='heard'] small").first().evaluate((node) => node.textContent?.match(/女娲步骤 · ([^\s/]+)/u)?.[1] ?? null);
+  assert.ok(heardRunId, "A heard record exposes its durable Nuwa Run identity before navigation.");
+  await query.getByRole("button", { name: "打开女娲步骤", exact: true }).click();
+  assert.match(page.url(), new RegExp(`/nuwa\\?runId=${escapeRegex(heardRunId)}`), "A heard record routes to its precise Nuwa Run identity.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  const reopened = page.getByTestId("character-memory-query");
+  await reopened.waitFor();
+  assert.match(await reopened.innerText(), /北闸已封/u, "Refreshing/reopening preserves the same project and work-version scoped read.");
+  assert.deepEqual(consoleProblems, [], "Character memory query must not produce browser warnings or errors.");
 }
 
 async function assertR5ContinuousAuthorLoop(page, consoleProblems) {

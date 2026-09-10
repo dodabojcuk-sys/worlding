@@ -1,9 +1,10 @@
 import { BookOpen, ChevronLeft, ChevronRight, Link2, Pencil, UserRound, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { getEventStoryCrossingKnowledgeProjection, getObjectCatalog, getWorldLibrary, listRelations, readWorldObject } from "../../../lib/localTransport";
+import { getCharacterMemoryQuery, getEventStoryCrossingKnowledgeProjection, getObjectCatalog, getWorldLibrary, listRelations, readWorldObject } from "../../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { EventStoryCrossingKnowledgeProjection } from "../../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import type { CharacterMemoryQueryProjection } from "../../../../../../src/storyContinuity/characterMemoryQuery.ts";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../../runtime/TianyanShellRuntime";
 import { characterRoleLabel } from "./CharacterCreateDialog";
@@ -14,10 +15,13 @@ export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeSt
   const [record, setRecord] = useState<CharacterDirectoryRecord | null>(null);
   const [knowledge, setKnowledge] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const [formalRelations, setFormalRelations] = useState<RelationReadProjectionR0[]>([]);
+  const [memoryQuery, setMemoryQuery] = useState<CharacterMemoryQueryProjection | null>(null);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
   useEffect(() => {
-    let active = true; setRecord(null); setKnowledge(null); setFormalRelations([]); if (!props.runtime.project) return;
+    let active = true; setRecord(null); setKnowledge(null); setFormalRelations([]); setMemoryQuery(null); setMemoryError(null); if (!props.runtime.project) return;
     const workVersionId = props.runtime.workVersionId ?? UNVERSIONED_CATALOG_SCOPE;
-    void Promise.all([readWorldObject(props.runtime.project.id, props.objectId), getObjectCatalog(props.runtime.project.id, workVersionId), getWorldLibrary(props.runtime.project.id), getEventStoryCrossingKnowledgeProjection(props.runtime.project.id, props.objectId), listRelations({ projectId: props.runtime.project.id, objectId: props.objectId, reviewState: "confirmed" })]).then(([object, catalog, library, projection, relationRead]) => {
+    const projectId = props.runtime.project.id;
+    void Promise.all([readWorldObject(projectId, props.objectId), getObjectCatalog(projectId, workVersionId), getWorldLibrary(projectId), getEventStoryCrossingKnowledgeProjection(projectId, props.objectId), listRelations({ projectId, objectId: props.objectId, reviewState: "confirmed" })]).then(([object, catalog, library, projection, relationRead]) => {
       if (!active) return;
       if (object.type !== "character") { props.onClose(); return; }
       const metadata = catalog.records.find((item) => item.objectId === object.id && item.objectType === "character");
@@ -27,12 +31,15 @@ export function CharacterInspectorLoader(props: { runtime: TianyanShellRuntimeSt
       setKnowledge(projection.observer.id === object.id ? projection : null);
       setFormalRelations(relationRead.relations);
     }).catch(() => { if (active) props.onClose(); });
+    void getCharacterMemoryQuery(projectId, props.objectId, props.runtime.workVersionId).then((query) => {
+      if (active) setMemoryQuery(query);
+    }).catch(() => { if (active) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。") });
     return () => { active = false; };
   }, [props.objectId, props.runtime.project?.id, props.runtime.workVersionId]);
-  return record ? <CharacterInspectorCard record={record} knowledge={knowledge} formalRelations={formalRelations} onClose={props.onClose} onOpenFull={props.onOpenFull} onOpenKnowledge={props.onOpenKnowledge} onAddToNuwa={props.onAddToNuwa} /> : null;
+  return record ? <CharacterInspectorCard record={record} knowledge={knowledge} memoryQuery={memoryQuery} memoryError={memoryError} formalRelations={formalRelations} onClose={props.onClose} onOpenFull={props.onOpenFull} onOpenKnowledge={props.onOpenKnowledge} onAddToNuwa={props.onAddToNuwa} /> : null;
 }
 
-export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord; knowledge: EventStoryCrossingKnowledgeProjection | null; formalRelations: readonly RelationReadProjectionR0[]; onClose(): void; onOpenFull(): void; onOpenKnowledge(objectId: string): void; onAddToNuwa(objectId: string): void }) {
+export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord; knowledge: EventStoryCrossingKnowledgeProjection | null; memoryQuery: CharacterMemoryQueryProjection | null; memoryError: string | null; formalRelations: readonly RelationReadProjectionR0[]; onClose(): void; onOpenFull(): void; onOpenKnowledge(objectId: string): void; onAddToNuwa(objectId: string): void }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<"basic" | "knowledge" | "story" | "relations">("basic");
   const [expanded, setExpanded] = useState(false);
@@ -61,12 +68,29 @@ export function CharacterInspectorCard(props: { record: CharacterDirectoryRecord
     <div className="character-inspector-tabs" role="tablist">{(["basic", "knowledge", "story", "relations"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>{value === "knowledge" ? "知情" : t(`character.tab.${value}`)}</button>)}</div>
     <section>
       {tab === "basic" && <><div className="character-inspector-summary"><div><p>{t("character.summary")}</p>{edit(t("character.profileBody"))}</div><h3>{summary}</h3></div><dl className="character-inspector-agent-basis"><div><dt>角色核心</dt><dd><span>{characterCore ?? "未设置"}</span>{edit("角色核心")}</dd></div><div><dt>底线</dt><dd><span>{boundaries ?? "未设置"}</span>{edit("底线")}</dd></div><div><dt>依据修订</dt><dd>{object.revisionToken}</dd></div></dl><dl className="character-inspector-facts"><div><dt>{t("character.aliases")}</dt><dd><span>{object.aliases.join("、") || t("common.none")}</span>{edit(t("character.aliases"))}</dd></div><div><dt>{t("character.category")}</dt><dd>{props.record.categoryId ? props.record.categoryName || t("character.unknownCategory") : t("character.uncategorized")}</dd></div><div><dt>{t("character.tag")}</dt><dd><span>{object.tags.join("、") || t("common.none")}</span>{edit(t("character.tag"))}</dd></div><div><dt>{t("character.volumeState")}</dt><dd><span>{object.status === "archived" ? t("character.archived") : t("character.confirmed")}</span>{edit(t("character.volumeState"))}</dd></div></dl><div className="character-inspector-snapshot"><div><p>{t("character.eventCount")}</p><strong>{events.length}</strong><span>{events.length ? events.slice(0, 2).map((event) => event.eventId).join(" · ") : t("character.noEvents")}</span></div><div><p>{t("character.relationCount")}</p><strong>{relations.length}</strong><span>{relations.length ? `${relations.length} 条正式 Relation` : t("character.noRelations")}</span></div></div>{expanded && <div className="character-inspector-details"><h3>{t("character.readOnlyDetails")}</h3>{details.length ? details.map((detail) => <article key={detail.heading}><h4>{detail.heading}</h4><p>{detail.content}</p></article>) : <p>{t("character.noAdditionalDetails")}</p>}</div>}</>}
-      {tab === "knowledge" && <CharacterKnowledgePreview projection={props.knowledge} />}
+      {tab === "knowledge" && <><CharacterMemoryQuery query={props.memoryQuery} error={props.memoryError} /><CharacterKnowledgePreview projection={props.knowledge} /></>}
       {tab === "story" && <><h3><BookOpen aria-hidden="true" />{t("character.participatingEvents")}</h3>{events.length ? <ul>{events.map((event) => <li key={event.eventId}>{event.eventId}</li>)}</ul> : <p>{t("character.noEvents")}</p>}</>}
       {tab === "relations" && <FormalRelations objectId={object.id} relations={relations} graphRelationCount={graphRelations.length} />}
     </section>
     <footer><button type="button" onClick={() => props.onOpenKnowledge(object.id)}><BookOpen aria-hidden="true" />查看知情依据</button><button type="button" onClick={() => props.onAddToNuwa(object.id)}><Link2 aria-hidden="true" />加入女娲</button><button type="button" onClick={props.onOpenFull}><Pencil aria-hidden="true" />{t("character.openFull")}</button></footer>
   </aside>;
+}
+
+function CharacterMemoryQuery(props: { query: CharacterMemoryQueryProjection | null; error: string | null }) {
+  const [search, setSearch] = useState("");
+  const [kind, setKind] = useState<"all" | "experienced" | "witnessed" | "informed" | "belief" | "heard">("all");
+  if (props.error) return <section className="character-memory-query" data-testid="character-memory-query-error"><h3>经历与记忆记录</h3><p role="alert">{props.error}</p></section>;
+  if (!props.query) return <section className="character-memory-query" aria-busy="true"><h3>经历与记忆记录</h3><p>正在读取当前角色、项目与作品版本的记录……</p></section>;
+  const needle = search.trim().toLocaleLowerCase("zh-CN");
+  const records = props.query.records.filter((record) => (kind === "all" || record.kind === kind) && (!needle || `${record.title}\n${record.summary}\n${record.label}`.toLocaleLowerCase("zh-CN").includes(needle)));
+  return <section className="character-memory-query" data-testid="character-memory-query" data-provider-calls={props.query.providerCalls}>
+    <h3>经历与记忆记录</h3>
+    <p>只读取当前角色在当前作品版本可追溯的正式事件与听闻账本。正式事实不会让所有角色自动知情；已回溯的听闻保留失效记录，不再作为可用记忆。</p>
+    <small>版本：{props.query.scope.sourceIdentity.kind} · {props.query.scope.sourceIdentity.workVersionId} @ {props.query.scope.sourceIdentity.revision}</small>
+    <div className="character-memory-query-controls"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索经历、说法或来源" aria-label="搜索经历与记忆" /><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} aria-label="筛选经历与记忆类型"><option value="all">全部记录</option><option value="experienced">亲历</option><option value="witnessed">目击</option><option value="informed">获知</option><option value="belief">信念</option><option value="heard">听闻</option></select></div>
+    <dl className="character-memory-query-counts"><div><dt>亲历</dt><dd>{props.query.counts.experienced}</dd></div><div><dt>目击</dt><dd>{props.query.counts.witnessed}</dd></div><div><dt>听闻</dt><dd>{props.query.counts.heard}</dd></div><div><dt>信念</dt><dd>{props.query.counts.belief}</dd></div></dl>
+    {records.length ? <ol>{records.map((record) => <li key={record.id} data-memory-kind={record.kind} data-validity={record.validity}><div><b>{record.label}</b>{record.validity === "invalidated" ? <em>已失效：来源已回溯</em> : null}</div><strong>{record.title}</strong><p>{record.summary}</p><small>{record.source.eventId ? `正式事件 · ${record.source.eventId} · 修订 ${record.source.eventRevision}` : `女娲步骤 · ${record.source.runId} / ${record.source.stepId} · 记录于 ${record.occurredAt}`}</small><div className="character-memory-query-links">{record.source.eventId ? <button type="button" onClick={() => window.location.assign(`/event-line?eventId=${encodeURIComponent(record.source.eventId!)}`)}>打开事件</button> : null}{record.source.runId ? <button type="button" onClick={() => window.location.assign(`/nuwa?runId=${encodeURIComponent(record.source.runId!)}`)}>打开女娲步骤</button> : null}</div></li>)}</ol> : <p data-testid="character-memory-query-empty">当前筛选没有可显示的记录；这不代表角色从未经历任何事情。</p>}
+  </section>;
 }
 
 function FormalRelations(props: { objectId: string; relations: readonly RelationReadProjectionR0[]; graphRelationCount: number }) {

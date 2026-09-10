@@ -111,6 +111,8 @@ import { agentRuntimePluginStatusProjection, createAgentRuntimePluginRegistry } 
 import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin } from "../../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
 import { buildEventStoryCrossingKnowledgeProjection } from "../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import { buildCharacterMemoryQueryProjection } from "../../../src/storyContinuity/characterMemoryQuery.ts";
+import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
 import { createNuwaN1Port } from "./nuwaN1Port.mjs";
 import { NUWA_N1_PI_ADAPTER_ID, createNuwaN1PiAdapter } from "./nuwaN1PiAdapter.mjs";
@@ -1372,6 +1374,18 @@ async function handleProductRequest(request, response, url) {
     const observerId = url.searchParams.get("observerId") || "author";
     const observerIds = (url.searchParams.get("observerIds") || "").split(",").map((value) => value.trim()).filter(Boolean).slice(0, 5);
     sendJson(response, 200, { data: runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, observerId, observerIds)) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/characters/memory-query") {
+    const projectId = requireQueryValue(url, "projectId");
+    const characterId = requireQueryValue(url, "characterId");
+    const workVersionId = String(url.searchParams.get("workVersionId") || "").trim() || null;
+    const character = runProductOperation(() => operations.readWorldObject({ projectId, objectId: characterId }));
+    if (character.type !== "character" || character.status === "archived") throw productError("当前角色不在可查询范围内。", 404);
+    const sourceIdentity = runProductOperation(() => nuwaN1SourceIdentity(projectId, workVersionId));
+    const knowledge = runProductOperation(() => projectEventStoryCrossingKnowledge(projectId, characterId));
+    const ledger = await runAsyncProductOperation(() => readCharacterMemoryLedger({ rootPath, agentId: "agent.nuwa", scope: "project", projectId }, characterId));
+    sendJson(response, 200, { data: buildCharacterMemoryQueryProjection({ projectId, characterId, sourceIdentity, knowledge, ledger: ledger?.value ?? null }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/event-line/event") {
