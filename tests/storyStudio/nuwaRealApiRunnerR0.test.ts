@@ -72,6 +72,13 @@ test("Nuwa real API runner persists a missing external condition without posting
 test("Nuwa real API runner creates an isolated, author-confirmed knowledge fixture through host APIs", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
   let characterSequence = 0;
+  const characterIdsByTitle = new Map<string, string>();
+  const createCharacterResponse = (body: Record<string, unknown> | null) => {
+    const id = `character-${++characterSequence}`;
+    const title = typeof body?.title === "string" ? body.title : "";
+    characterIdsByTitle.set(title, id);
+    return { data: { id, title: body?.title } };
+  };
   const host = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -80,11 +87,11 @@ test("Nuwa real API runner creates an isolated, author-confirmed knowledge fixtu
     const payload = request.url === "/__local/story-studio/health"
       ? { data: { status: "healthy", runtimeMode: "api-only" } }
       : request.url === "/__local/story-studio/storage/session"
-        ? { data: { granted: true } }
+          ? { data: { granted: true } }
         : request.url === "/__local/story-studio/projects/create"
           ? { data: { id: "api-isolated-project" } }
           : request.url === "/__local/story-studio/world-objects/create" && body?.type === "character"
-            ? { data: { id: `character-${++characterSequence}`, title: body.title } }
+            ? createCharacterResponse(body)
             : request.url === "/__local/story-studio/world-objects/create"
               ? { data: { id: body?.type === "event" ? "event-planning" : `object-${String(body?.type)}` } }
               : request.url === "/__local/story-studio/author-control/impact-review/create-from-planning-event"
@@ -126,7 +133,9 @@ test("Nuwa real API runner creates an isolated, author-confirmed knowledge fixtu
     assert.equal(characters.length, 3);
     assert.ok(characters.every((request) => (request.body?.profile as { authorConfirmed?: boolean } | undefined)?.authorConfirmed === true));
     const planning = requests.find((request) => request.url.endsWith("/world-objects/create") && request.body?.type === "event");
-    assert.deepEqual(planning?.body?.knowledgeSubjects, ["character-2"]);
+    const linId = characterIdsByTitle.get("林昭");
+    assert.ok(linId, "the fixture host must retain the generated identity for 林昭");
+    assert.deepEqual(planning?.body?.knowledgeSubjects, [linId]);
     assert.ok(requests.some((request) => request.url.endsWith("/author-control/change-set/apply")), "the fixture uses the existing Author Control path to materialize its evidence");
     const unit = requests.find((request) => request.url.endsWith("/story-units/create"));
     assert.ok((unit?.body?.linkedEntityIds as string[]).includes("event-confirmed"));

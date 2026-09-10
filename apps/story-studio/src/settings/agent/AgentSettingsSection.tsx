@@ -1,6 +1,6 @@
 import { Bot, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { AgentPermissionProfile, AgentPermissionState, ModelCatalogEntry, ModelCatalogSnapshot, ModelServiceStatus, ProviderInstanceProjection, ProviderPresetId } from "../../lib/localTransport";
+import { type AgentPermissionProfile, type AgentPermissionState, type ModelCatalogEntry, type ModelCatalogSnapshot, type ModelServiceStatus, type ProviderConnectionTestResult, type ProviderInstanceProjection, type ProviderPresetId } from "../../lib/localTransport";
 
 export type ProviderProfileUpdate = {
   expectedRevision: number;
@@ -32,7 +32,8 @@ export function AgentSettingsSection(props: {
   onPermissionProfile?(profile: AgentPermissionProfile): Promise<void>;
   onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult>;
   onDiscoverProviderModels?(): Promise<string[]>;
-  onTestProviderConnection?(modelId?: string): Promise<{ modelId: string; testedAt: string; latencyMs: number; availableModelCount: number }>;
+  onTestProviderConnection?(input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult>;
+  onReadProviderConnectionDiagnostic?(operationId: string): Promise<ProviderConnectionTestResult>;
   onRevealProviderCredential?(providerInstanceId: string): Promise<{ providerInstanceId: string; apiKey: string }>;
   onProbeEmbedding?(modelId: string): Promise<{ modelId: string; dimensions: number; latencyMs: number }>;
   onDisableProviderProfile?(expectedRevision: number): Promise<void>;
@@ -49,9 +50,11 @@ export function AgentSettingsSection(props: {
   const llmModelInput = useRef<HTMLInputElement>(null);
   const embeddingModelInput = useRef<HTMLInputElement>(null);
   const [providerBusy, setProviderBusy] = useState(false);
+  const [providerAction, setProviderAction] = useState<"save" | "catalog" | "connection" | "embedding" | "reveal" | "disable" | null>(null);
   const [providerNotice, setProviderNotice] = useState("");
   const [catalogOperation, setCatalogOperation] = useState<ProviderOperationState>(idleProviderOperation);
   const [connectionOperation, setConnectionOperation] = useState<ProviderOperationState>(idleProviderOperation);
+  const [recoverableConnectionOperation, setRecoverableConnectionOperation] = useState<{ operationId: string; modelId?: string } | null>(null);
   const [showCredentialDraft, setShowCredentialDraft] = useState(false);
   const [replaceCredential, setReplaceCredential] = useState(false);
   const [revealedCredential, setRevealedCredential] = useState<string | null>(null);
@@ -76,6 +79,14 @@ export function AgentSettingsSection(props: {
   };
 
   useEffect(() => () => { if (revealTimer.current !== null) window.clearTimeout(revealTimer.current); }, []);
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem("tianyan.provider.connection-test-operation");
+      if (!raw) return;
+      const stored = JSON.parse(raw);
+      if (typeof stored?.operationId === "string") setRecoverableConnectionOperation({ operationId: stored.operationId, ...(typeof stored.modelId === "string" ? { modelId: stored.modelId } : {}) });
+    } catch { /* A malformed browser-only recovery marker is not a Provider request. */ }
+  }, []);
   useEffect(() => {
     clearRevealedCredential();
     setReplaceCredential(false);
@@ -105,16 +116,16 @@ export function AgentSettingsSection(props: {
   };
   const saveProvider = (event: FormEvent<HTMLFormElement>) => void (async () => {
     event.preventDefault();
-    setProviderBusy(true); setProviderNotice("");
+    setProviderBusy(true); setProviderAction("save"); setProviderNotice("");
     try {
       await persistProvider();
       setProviderNotice("Provider 配置已保存。凭据保持在服务器 owner；保存不会发起外部请求。");
     } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "保存 Provider 配置失败。此前已保存配置保持不变。"); }
-    finally { setProviderBusy(false); }
+    finally { setProviderBusy(false); setProviderAction(null); }
   })();
   const discoverModels = () => void (async () => {
     if (!props.onDiscoverProviderModels) return;
-    setProviderBusy(true);
+    setProviderBusy(true); setProviderAction("catalog");
     setProviderNotice("");
     setCatalogOperation({ phase: "running", detail: "正在获取当前已保存实例的模型目录…" });
     try {
@@ -128,14 +139,37 @@ export function AgentSettingsSection(props: {
       const detail = cause instanceof Error ? cause.message : "获取模型失败，可以手动填写模型 ID。";
       setCatalogOperation({ phase: "failed", detail });
       setProviderNotice(detail);
-    } finally { setProviderBusy(false); }
+    } finally { setProviderBusy(false); setProviderAction(null); }
   })();
-  const runConnectionTest = async (modelId?: string) => {
+  const rememberConnectionOperation = (operation: { operationId: string; modelId?: string } | null) => {
+    setRecoverableConnectionOperation(operation);
+    try {
+      if (operation) window.sessionStorage.setItem("tianyan.provider.connection-test-operation", JSON.stringify(operation));
+      else window.sessionStorage.removeItem("tianyan.provider.connection-test-operation");
+    } catch { /* The operation remains recoverable for this mounted page. */ }
+  };
+  useEffect(() => {
+    if (!recoverableConnectionOperation) return;
+    if ((props.status?.profile.history ?? []).some((entry) => entry.kind === "connection" && entry.operationId === recoverableConnectionOperation.operationId && entry.status !== "running")) {
+      rememberConnectionOperation(null);
+    }
+  }, [props.status?.profile.history, recoverableConnectionOperation]);
+  const presentConnectionDiagnostic = (result: ProviderConnectionTestResult) => {
+    const dispatch = result.dispatchState === "sent" ? "已发送一次合成聊天探测。" : result.dispatchState === "not-sent" ? "本次未发送 Provider 请求。" : "发送状态未知；恢复只读取原回执，不会重试。";
+    const historical = result.readOnly ? "只读回执" : result.recovered ? "已恢复同一次测试" : "本次连接测试";
+    if (result.state === "missing") return `${historical}：${result.error || "未找到操作。"}`;
+    const detail = result.outcome === "success"
+      ? `${historical}成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。${dispatch}${result.responsePreview ? ` 响应：${result.responsePreview}` : ""}`
+      : `${historical}失败：${result.error || "上游未返回可用响应。"} ${dispatch}`;
+    return detail;
+  };
+  const runConnectionTest = async (operation: { operationId: string; modelId?: string }) => {
     if (!props.onTestProviderConnection) return;
-    const result = await props.onTestProviderConnection(modelId);
-    const detail = `连接测试成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。已发送一次合成聊天探测。`;
-    setConnectionOperation({ phase: "succeeded", detail });
+    const result = await props.onTestProviderConnection(operation);
+    const detail = presentConnectionDiagnostic(result);
+    setConnectionOperation({ phase: result.outcome === "success" ? "succeeded" : "failed", detail });
     setProviderNotice(detail);
+    if (result.state === "completed" || result.state === "missing") rememberConnectionOperation(null);
   };
   const testConnection = () => void (async () => {
     if (!props.onTestProviderConnection) return;
@@ -143,62 +177,69 @@ export function AgentSettingsSection(props: {
       setProviderNotice("配置有未保存修改。请点击“保存并测试”，避免用旧地址、旧凭据或旧模型误判结果。");
       return;
     }
-    setProviderBusy(true); setProviderNotice("");
+    setProviderBusy(true); setProviderAction("connection"); setProviderNotice("");
     setConnectionOperation({ phase: "running", detail: "正在用已保存的实例与当前聊天模型测试连接…" });
+    const operation = { operationId: createConnectionTestOperationId(), ...(selectedModelDraft.trim() ? { modelId: selectedModelDraft.trim() } : {}) };
+    rememberConnectionOperation(operation);
     try {
-      await runConnectionTest(selectedModelDraft || undefined);
+      await runConnectionTest(operation);
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "连接测试失败。";
+      const detail = `结果未知：${cause instanceof Error ? cause.message : "本地读取失败。"} 可恢复本次操作，不会新发 Provider 请求。`;
+      rememberConnectionOperation(operation);
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
-    finally { setProviderBusy(false); }
+    finally { setProviderBusy(false); setProviderAction(null); }
   })();
   const saveAndTest = () => void (async () => {
     if (!props.onSaveProviderProfile || !props.onTestProviderConnection) return;
-    setProviderBusy(true); setProviderNotice("");
+    setProviderBusy(true); setProviderAction("connection"); setProviderNotice("");
     setConnectionOperation({ phase: "running", detail: "正在保存并用新配置测试连接…" });
+    let testStarted = false;
     try {
       const modelId = selectedModelDraft.trim() || undefined;
       await persistProvider();
-      await runConnectionTest(modelId);
+      const operation = { operationId: createConnectionTestOperationId(), ...(modelId ? { modelId } : {}) };
+      rememberConnectionOperation(operation);
+      testStarted = true;
+      await runConnectionTest(operation);
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "保存或连接测试失败。此前已保存配置未被清除。";
+      const detail = testStarted ? `结果未知：${cause instanceof Error ? cause.message : "本地读取失败。"} 可恢复本次操作，不会新发 Provider 请求。` : `保存失败：${cause instanceof Error ? cause.message : "此前已保存配置未被清除。"} 未发送 Provider 请求。`;
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
-    finally { setProviderBusy(false); }
+    finally { setProviderBusy(false); setProviderAction(null); }
   })();
   const revealCredential = () => void (async () => {
     if (!props.onRevealProviderCredential || !providerInstance) return;
     if (revealedCredential) { clearRevealedCredential(); return; }
-    setProviderBusy(true); setProviderNotice("");
+    setProviderBusy(true); setProviderAction("reveal"); setProviderNotice("");
     try {
       const result = await props.onRevealProviderCredential(providerInstance.id);
       setRevealedCredential(result.apiKey);
       revealTimer.current = window.setTimeout(clearRevealedCredential, 20_000);
       setProviderNotice("已在当前设置页暂时显示保存的密钥；20 秒后会自动隐藏，不会复制或持久化。 ");
     } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "无法显示已保存密钥。"); }
-    finally { setProviderBusy(false); }
+    finally { setProviderBusy(false); setProviderAction(null); }
   })();
   const probeEmbedding = () => void (async () => {
     const modelId = embeddingModelInput.current?.value.trim() || "";
     if (!props.onProbeEmbedding || !modelId) { setProviderNotice("请先填写 Embedding 模型 ID。"); return; }
-    setProviderBusy(true); setProviderNotice("");
+    setProviderBusy(true); setProviderAction("embedding"); setProviderNotice("");
     try {
       const result = await props.onProbeEmbedding(modelId);
       setProviderNotice(`Embedding 验证成功：${result.modelId} · ${result.dimensions} 维 · ${result.latencyMs} ms。`);
     } catch (cause) { setProviderNotice(cause instanceof Error ? cause.message : "Embedding 验证失败。"); }
-    finally { setProviderBusy(false); }
+    finally { setProviderBusy(false); setProviderAction(null); }
   })();
   const disableProvider = () => void (async () => {
     if (!props.onDisableProviderProfile) return;
-    setProviderBusy(true);
+    setProviderBusy(true); setProviderAction("disable");
     setProviderNotice("");
     try {
       await props.onDisableProviderProfile(props.status?.profile.revision ?? 0);
       setProviderNotice("Provider 已停用；天意不会以 fixture 代替真实响应。");
     } catch (cause) {
       setProviderNotice(cause instanceof Error ? cause.message : "停用 Provider 失败。");
-    } finally { setProviderBusy(false); }
+    } finally { setProviderBusy(false); setProviderAction(null); }
   })();
 
   return <section id="settings-agent-overview" className="settings-card agent-settings-section" aria-labelledby="agent-settings-title" data-agent-runtime="pi">
@@ -282,17 +323,32 @@ export function AgentSettingsSection(props: {
       </div>
       <label className="agent-provider-enabled"><input name="enabled" type="checkbox" defaultChecked={providerInstance?.enabled ?? true} disabled={providerBusy || props.busy || !props.onSaveProviderProfile} />启用此 Provider</label>
       <div className="agent-provider-actions">
-        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerBusy ? "正在保存…" : "保存 Provider 配置"}</button>
+        <button type="submit" disabled={providerBusy || props.busy || !props.onSaveProviderProfile}>{providerAction === "save" ? "正在保存…" : "保存 Provider 配置"}</button>
         <button type="button" className={networkReady && catalog?.status === "never_fetched" ? "settings-primary-action" : undefined} disabled={providerBusy || props.busy || !networkReady || !props.onDiscoverProviderModels} onClick={discoverModels}>{catalogOperation.phase === "running" ? "正在获取模型…" : endpointEntries.length ? "重新获取模型" : "获取模型"}</button>
         <button type="button" disabled={providerBusy || props.busy || !networkReady || !props.onTestProviderConnection} onClick={testConnection}>{connectionOperation.phase === "running" ? "正在测试连接…" : "测试连接"}</button>
-        <button type="button" disabled={providerBusy || props.busy || !props.onSaveProviderProfile || !props.onTestProviderConnection} onClick={saveAndTest}>保存并测试</button>
+        <button type="button" disabled={providerBusy || props.busy || !props.onSaveProviderProfile || !props.onTestProviderConnection} onClick={saveAndTest}>{providerAction === "connection" ? "正在保存并测试…" : "保存并测试"}</button>
         <button type="button" disabled={providerBusy || props.busy || !networkReady || !props.onProbeEmbedding} onClick={probeEmbedding}>验证 Embedding</button>
         <button type="reset" disabled={providerBusy || props.busy} onClick={() => { clearRevealedCredential(); setReplaceCredential(false); setProviderId(selected?.provider ?? "siliconflow"); setProviderNotice(""); }}>取消未保存更改</button>
         <button type="button" disabled={providerBusy || props.busy || !selected?.enabled || !props.onDisableProviderProfile} onClick={disableProvider}>停用 Provider</button>
       </div>
       <div className="agent-provider-operation-status" aria-live="polite">
-        <p data-state={catalogOperation.phase}>模型目录：{catalogOperation.detail}</p>
+        <p data-state={catalogOperation.phase}>模型目录：{catalogOperation.phase === "idle" && catalog?.status === "ready" ? `最近获取成功 · ${formatCatalogTime(catalog.lastSuccessAt)}（本页未刷新）` : catalogOperation.detail}</p>
         <p data-state={connectionOperation.phase}>连接测试：{connectionOperation.detail}</p>
+        {recoverableConnectionOperation && <button type="button" disabled={providerBusy || props.busy || !props.onReadProviderConnectionDiagnostic} onClick={() => void (async () => {
+          setProviderBusy(true); setProviderAction("connection");
+          setConnectionOperation({ phase: "running", detail: "正在恢复同一次连接测试回执；不会重新发送 Provider 请求…" });
+          try {
+            const result = await props.onReadProviderConnectionDiagnostic?.(recoverableConnectionOperation.operationId);
+            if (!result) throw new Error("只读回执入口不可用。");
+            const detail = presentConnectionDiagnostic(result);
+            setConnectionOperation({ phase: result.outcome === "success" ? "succeeded" : "failed", detail });
+            setProviderNotice(detail);
+            if (result.state === "completed" || result.state === "missing") rememberConnectionOperation(null);
+          }
+          catch (cause) { const detail = cause instanceof Error ? cause.message : "无法恢复本次连接测试。"; setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail); }
+          finally { setProviderBusy(false); setProviderAction(null); }
+        })()}>恢复本次测试</button>}
+        <details><summary>上次测试（只读，不发送请求）</summary>{(props.status?.profile.history ?? []).filter((entry) => entry.kind === "connection").slice(-5).reverse().map((entry) => <p key={entry.id}>{entry.status === "success" ? "成功" : "失败"} · {entry.modelId || "未记录模型"} · {new Date(entry.occurredAt).toLocaleString()} · {entry.latencyMs == null ? "耗时未记录" : `${entry.latencyMs} ms`}{entry.responsePreview ? ` · 响应：${entry.responsePreview}` : ""}{entry.error ? ` · ${entry.error}` : ""}</p>)}</details>
       </div>
       <p className="agent-provider-index-gate" role="note"><strong>索引绑定门禁：</strong>更改“默认 Embedding”只影响未来新索引。已有数据集继续绑定原 index generation；配置不兼容时必须重建，不会静默迁移或混用向量。</p>
       {providerNotice && <p role={providerNotice.includes("失败") ? "alert" : "status"}>{providerNotice}</p>}
@@ -342,6 +398,12 @@ function catalogSummary(catalog: ModelCatalogSnapshot | undefined, endpointCount
 }
 
 function formatCatalogTime(value: string | null): string { return value ? new Date(value).toLocaleString("zh-CN") : "时间未记录"; }
+
+function createConnectionTestOperationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `connection-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 
 function hasUnsavedProviderChanges(form: HTMLFormElement | null, input: {
   providerId: ProviderPresetId;

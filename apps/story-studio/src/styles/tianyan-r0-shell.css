@@ -873,3 +873,10 @@ input:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+.map-m1-layout { display: grid; grid-template-columns: minmax(28rem, 1fr) minmax(16rem, .42fr); gap: 1rem; margin: 1rem 0; }
+.map-m1-canvas { position: relative; min-height: 26rem; border: 1px solid var(--color-border); border-radius: .85rem; background: linear-gradient(135deg, var(--color-surface-muted), var(--color-workspace-background)); overflow: hidden; cursor: crosshair; }
+.map-m1-canvas > p { margin: 1rem; color: var(--color-text-muted); }
+.map-m1-canvas > button { position: absolute; transform: translate(-50%, -50%); border-radius: 999px; }
+.map-m1-inspector { border: 1px solid var(--color-border); border-radius: .85rem; padding: 1rem; background: var(--color-surface); }
+@media (max-width: 76rem) { .map-m1-layout { grid-template-columns: 1fr; } }

@@ -94,7 +94,7 @@ export async function listRecallableCharacterMemories(context: ContinuityContext
   const targetIdentity = normalizeSourceIdentity(input.sourceIdentity);
   const observedAt = timestamp(input.observedAt, "Character Memory recall timestamp");
   return ledger.value.records
-    .filter((record) => record.validity.state === "active" && visibleInSource(record.sourceIdentity, targetIdentity) && record.sourceScene.observedAt <= observedAt)
+    .filter((record) => record.validity.state === "active" && isCharacterMemoryVisibleInSource(record.sourceIdentity, targetIdentity) && record.sourceScene.observedAt <= observedAt)
     .map((record) => structuredClone(record));
 }
 
@@ -230,7 +230,13 @@ function normalizeSourceIdentity(value: unknown): CharacterMemorySourceIdentity 
   return { kind: input.kind, workVersionId: foreignId(input.workVersionId, "Work version identifier"), revision: foreignId(input.revision, "Work version revision") };
 }
 
-function visibleInSource(source: CharacterMemorySourceIdentity, target: CharacterMemorySourceIdentity): boolean {
+/**
+ * Version compatibility is shared by role recall and author-facing history.
+ * Callers must still apply their own recipient/project boundary before exposing
+ * a record.  Derived work versions deliberately require an exact revision so
+ * an IF cannot drift with later parent changes.
+ */
+export function isCharacterMemoryVisibleInSource(source: CharacterMemorySourceIdentity, target: CharacterMemorySourceIdentity): boolean {
   if (source.kind !== target.kind || source.workVersionId !== target.workVersionId) return false;
   if (source.kind !== "root") return source.revision === target.revision;
   const left = Number(source.revision);

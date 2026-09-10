@@ -91,7 +91,9 @@ const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
 const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
 const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
+const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
+const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -145,7 +147,7 @@ try {
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -165,7 +167,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -212,6 +214,12 @@ try {
     await setupNarrativeFixture({ createRoot: false });
     await setupR1CausalFixture();
     await assertR5ContinuousAuthorLoop(page, consoleProblems);
+  } else if (characterMemoryQueryOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertNuwaN1BoundedLoop(page, consoleProblems);
+    await assertCharacterMemoryQuery(page, consoleProblems);
   } else if (multiverseB1RehearsalOnly) {
     await assertMultiverseB1Rehearsal(page);
   } else if (r4CharacterObservationOnly) {
@@ -632,7 +640,6 @@ async function ensureProjectDirectoryOpen(page) {
 async function assertCharacterDirectoryAndInspector(page) {
   await openCharacterDirectory(page);
   await page.getByTestId("character-directory").waitFor();
-  const workspaceBefore = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
   assert.equal(await page.locator(".character-directory-list input[type=checkbox]").count(), 0, "Default directory has no selection checkboxes");
   assert.equal(await page.locator(".character-directory-list h3").count(), 0, "The default character directory must be a flat list without role group headings");
   assert.doesNotMatch(await page.getByTestId("character-directory").textContent(), /main-characters/u, "Internal category IDs must not leak into the directory");
@@ -654,26 +661,13 @@ async function assertCharacterDirectoryAndInspector(page) {
   await page.getByRole("button", { name: /主要角色/u }).click();
   assert.equal(await page.locator(".character-directory-filter-chips").count(), 0, "Removing the final filter must remove its chip row");
   await page.getByRole("option", { name: /林昭/u }).click();
-  await page.getByTestId("character-inspector").waitFor();
-  const workspaceAfter = await page.locator(".shell-workspace").evaluate((element) => ({ text: element.textContent, rect: element.getBoundingClientRect().toJSON() }));
-  assert.equal(workspaceAfter.text, workspaceBefore.text, "Opening the inspector must not remount the central workspace");
-  for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
-    assert.ok(Math.abs(workspaceAfter.rect[key] - workspaceBefore.rect[key]) <= 0.5, `Opening the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceAfter.rect[key]})`);
-  }
-  assert.match(page.url(), /directoryObject=character\./u);
-  assert.equal(await page.getByRole("button", { name: "打开完整资料" }).count(), 1);
-  await page.getByRole("button", { name: "打开完整资料" }).click();
-  await page.getByRole("form", { name: "完整角色资料" }).waitFor();
-  assert.match(page.url(), /directoryEdit=character/u, "Full profile opens through the stable character URL");
-  await page.getByRole("form", { name: "完整角色资料" }).getByRole("button", { name: "取消", exact: true }).click();
-  await page.getByRole("button", { name: "展开角色检查器" }).click();
-  assert.equal(await page.getByTestId("character-inspector").getAttribute("aria-expanded"), "true", "The inspector expands as an overlay without moving the workspace");
-  const workspaceExpanded = await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().toJSON());
-  for (const key of ["x", "y", "width", "height", "top", "right", "bottom", "left"]) {
-    assert.ok(Math.abs(workspaceExpanded[key] - workspaceBefore.rect[key]) <= 0.5, `Expanding the inspector must not resize the central workspace (${key}: ${workspaceBefore.rect[key]} -> ${workspaceExpanded[key]})`);
-  }
-  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  // The normal World overview now opens the central author workspace. The
+  // compact inspector is reserved for map, event-line and Nuwa context, where
+  // it does not interrupt the active work surface.
+  await page.getByTestId("character-workspace").waitFor();
+  assert.match(page.url(), /worldView=character/u, "World overview must open the central character workspace rather than the contextual inspector");
+  assert.match(await page.getByTestId("character-workspace").innerText(), /林昭[\s\S]*经历与记忆记录/u, "The central workspace carries the character's readable records.");
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
   await page.getByTestId("character-directory").waitFor();
   await page.getByRole("button", { name: "多选", exact: true }).click();
   await page.locator(".character-directory-list input[type=checkbox]").first().waitFor();
@@ -704,13 +698,11 @@ async function assertCharacterCreationDurability(page) {
   assert.notEqual(await page.locator(".character-create-more select").inputValue(), "", "The newly created category must become the selected creation value");
   await page.getByRole("textbox", { name: "标签", exact: true }).fill("调查, 主线");
   await page.getByRole("button", { name: "创建角色", exact: true }).dblclick();
-  await page.getByTestId("character-inspector").waitFor();
-  await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("沈砚"));
-  assert.match(page.url(), /directoryObject=character\./u, "The created object must be selected through its stable object ID in the URL");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /主要人物/u, "Created categories must render their user-facing names rather than persistence IDs");
-  assert.match(await page.getByTestId("character-inspector").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
-  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.getByTestId("character-workspace").waitFor();
+  await page.waitForFunction(() => document.querySelector("[data-testid='character-workspace'] h1")?.textContent?.includes("沈砚"));
+  assert.match(page.url(), /worldView=character[\s\S]*characterId=character\./u, "The created object must be selected through its stable object ID in the central workspace URL");
+  assert.match(await page.getByTestId("character-workspace").textContent(), /负责追查旧港失踪案/u, "The saved summary must be rendered from the durable character card");
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
   await page.getByTestId("character-directory").waitFor();
   const createdOption = page.locator(".character-directory-list [role='option']").filter({ hasText: "沈砚" });
   await waitForCharacterDirectoryIdle(page);
@@ -741,10 +733,10 @@ async function assertCharacterCreationDurability(page) {
   await page.getByLabel("姓名").fill("自定义层级角色");
   await page.getByLabel("角色层级").fill("夜航人");
   await page.getByRole("button", { name: "创建角色", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("[data-testid='character-inspector'] h2")?.textContent?.includes("自定义层级角色"));
-  assert.match(await page.getByTestId("character-inspector").textContent(), /夜航人/u, "A custom role level must survive the create projection");
-  await page.getByTestId("character-inspector").getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByTestId("character-inspector").waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.querySelector("[data-testid='character-workspace'] h1")?.textContent?.includes("自定义层级角色"));
+  assert.match(await page.getByTestId("character-workspace").textContent(), /夜航人/u, "A custom role level must survive the central creation projection");
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
+  await page.getByTestId("character-directory").waitFor();
   await reloadProduct(page);
   await page.getByTestId("character-directory").waitFor();
   await waitForCharacterDirectoryIdle(page);
@@ -1363,17 +1355,16 @@ async function assertRelationshipReaderR1(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   const linId = characterFixture?.["林昭"]?.id;
   assert.ok(linId, "R5 character handoff needs the stable 林昭 fixture identity.");
-  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
-  const inspector = page.getByTestId("character-inspector");
-  await inspector.waitFor();
-  await inspector.getByRole("tab", { name: "知情", exact: true }).click();
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+  const workspace = page.getByTestId("character-workspace");
+  await workspace.waitFor();
   const knowledge = page.getByTestId("character-knowledge-preview");
   await knowledge.waitFor();
   assert.equal(await knowledge.getAttribute("data-provider-calls"), "0", "Character knowledge reads the established zero-Provider projection.");
   assert.match(await knowledge.innerText(), /可见依据[\s\S]*已排除/u);
   assert.doesNotMatch(await knowledge.innerText(), /R2_SECRET_CLAIM/u, "Author-only secret prose never reaches the character panel.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "00-1440-character-knowledge.png"), fullPage: false });
-  await inspector.getByRole("button", { name: "加入女娲", exact: true }).click();
+  await workspace.getByRole("button", { name: "加入女娲", exact: true }).click();
   const nuwa = page.getByTestId("nuwa-n1-workspace");
   await nuwa.waitFor();
   assert.equal(await nuwa.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").isChecked(), true, "Joining Nuwa carries the stable character identity as a one-time setup choice.");
@@ -1398,6 +1389,50 @@ async function assertRelationshipReaderR1(page, consoleProblems) {
   assert.ok(await relationButtons.count() >= 5, "Returning to confirmed relations restores the same read-only neighborhood.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-relation-reader-r1.png"), fullPage: false });
   assert.deepEqual(consoleProblems, [], "Relation Reader must not produce browser warnings or errors.");
+}
+
+async function assertCharacterMemoryQuery(page, consoleProblems) {
+  if (characterMemoryEvidenceDirectory) mkdirSync(characterMemoryEvidenceDirectory, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const linId = characterFixture?.["林昭"]?.id;
+  assert.ok(linId, "Character memory query needs the stable 林昭 fixture identity.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+  const workspace = page.getByTestId("character-workspace");
+  await workspace.waitFor();
+  const query = page.getByTestId("character-memory-query");
+  await query.waitFor();
+  assert.equal(await query.getAttribute("data-provider-calls"), "0", "Author memory lookup must remain zero-Provider.");
+  assert.match(await query.innerText(), /经历与记忆记录[\s\S]*版本：[\s\S]*听闻/u);
+  assert.match(await query.innerText(), /北闸已封/u, "The normal character entry exposes the persisted recipient-specific heard statement.");
+  assert.doesNotMatch(await query.innerText(), /N2_PRIVATE_|CANARY|陆衍保持未知/u, "Private profile and a non-recipient's context do not enter the author query payload.");
+  assert.match(await workspace.innerText(), /听闻记录[\s\S]*正式关系依据/u, "The central workspace explains that ledger records and Relation evidence use distinct counts.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "01-1440-character-workspace.png"), fullPage: false });
+
+  await query.getByLabel("搜索经历与记忆").fill("北闸");
+  assert.equal(await query.locator("li[data-memory-kind='heard']").count(), 1, "Search filters the same scoped provenance records rather than creating a second query source.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "02-1440-character-memory-search.png"), fullPage: false });
+  const heardRunId = await query.locator("li[data-memory-kind='heard'] small").first().evaluate((node) => node.textContent?.match(/女娲步骤 · ([^\s/]+)/u)?.[1] ?? null);
+  assert.ok(heardRunId, "A heard record exposes its durable Nuwa Run identity before navigation.");
+  await query.getByRole("button", { name: "打开女娲步骤", exact: true }).click();
+  assert.match(page.url(), new RegExp(`/nuwa\\?runId=${escapeRegex(heardRunId)}`), "A heard record routes to its precise Nuwa Run identity.");
+  const returnToCharacter = page.getByRole("button", { name: /返回林昭的角色工作面/u });
+  await returnToCharacter.waitFor();
+  await returnToCharacter.click();
+  const reopened = page.getByTestId("character-memory-query");
+  await reopened.waitFor();
+  assert.equal(await reopened.getByLabel("搜索经历与记忆").inputValue(), "北闸", "Returning from the precise Nuwa step preserves the central query state.");
+  assert.match(await reopened.innerText(), /北闸已封/u, "Returning preserves the same project and work-version scoped read.");
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=map&directoryView=characters&directoryObject=${encodeURIComponent(linId)}&directoryType=character`);
+  const quickInspector = page.getByTestId("character-inspector");
+  await quickInspector.waitFor();
+  assert.match(await quickInspector.innerText(), /快速查看[\s\S]*展开角色工作面/u, "Map context keeps the compact character preview instead of replacing the active workspace.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "03-1440-character-map-quick-view.png"), fullPage: false });
+  await quickInspector.getByRole("button", { name: "展开角色工作面", exact: true }).click();
+  await page.getByTestId("character-workspace").waitFor();
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
+  assert.match(page.url(), /worldView=map/u, "Returning from an explicitly expanded inspector restores the map URL and its local context.");
+  if (characterMemoryEvidenceDirectory) await page.screenshot({ path: path.join(characterMemoryEvidenceDirectory, "04-1440-character-map-return.png"), fullPage: false });
+  assert.deepEqual(consoleProblems, [], "Character memory query must not produce browser warnings or errors.");
 }
 
 async function assertR5ContinuousAuthorLoop(page, consoleProblems) {

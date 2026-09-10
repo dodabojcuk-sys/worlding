@@ -5,6 +5,7 @@ import type { StoryObservationProposalPatch } from "../../../../src/storyContrac
 import type { StoryStudioObjectProfile } from "../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import type { StoryStudioAgentDraftMode } from "../../../../src/storyContracts/storyStudioAgentDraft.ts";
 import type { EventStoryCrossingKnowledgeProjection } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import type { CharacterMemoryQueryProjection } from "../../../../src/storyContinuity/characterMemoryQuery.ts";
 import type { GoldenLoopCandidateReview, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 import type { NuwaSceneCandidateR0, NuwaSceneComparisonR0, NuwaSceneReplayR0, NuwaSceneSimulationReadModelR0 } from "../../../../src/nuwaSceneRuntimeContracts.ts";
 import type { NuwaBoundedProjection } from "./nuwaBoundedContract";
@@ -244,6 +245,7 @@ export type ProviderInstanceProjection = {
   enabled: boolean;
   credentialRef: string;
   configRevision: number;
+  credentialRevision: number;
   connectionStatus: "unknown" | "verified" | "failed" | "disabled";
   lastVerifiedAt: string | null;
   lastError: string | null;
@@ -342,14 +344,25 @@ export type ProviderProfileProjection = {
 
 export type ProviderOperationHistoryEntry = {
   id: string;
+  operationId: string | null;
+  providerInstanceId: string | null;
+  configRevision: number | null;
+  credentialRevision: number | null;
+  protocolAdapter: string | null;
+  endpointIdentity: string | null;
   kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference" | "embedding";
-  status: "success" | "failed";
+  status: "running" | "success" | "failed";
   occurredAt: string;
   modelId: string | null;
   modelCount: number | null;
   latencyMs: number | null;
   error: string | null;
+  responsePreview: string | null;
   traceId: string | null;
+  dispatchState: "sent" | "not-sent" | "unknown" | null;
+  phase: "preflight" | "running" | "completed" | "failed" | "unknown" | null;
+  errorOrigin: "local" | "upstream" | "unknown" | null;
+  errorCategory: string | null;
 };
 
 export type ProviderSessionConnection = {
@@ -1355,8 +1368,34 @@ export async function discoverProviderModels(token: string): Promise<{ providerI
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export type ProviderConnectionTestResult = {
+  gate: "connection";
+  operationId: string;
+  providerId: string;
+  modelId: string;
+  testedAt: string;
+  latencyMs: number;
+  state: "completed" | "in-progress" | "missing";
+  outcome: "success" | "failed";
+  dispatchState: "sent" | "not-sent" | "unknown";
+  sent: boolean;
+  recovered: boolean;
+  responsePreview: string | null;
+  error: string | null;
+  readOnly: boolean;
+  configurationSnapshot: { providerInstanceId: string; configRevision: number; credentialRevision: number; protocolAdapter: string; endpointIdentity: string; modelId: string } | null;
+  availableModelCount: number;
+  models: string[];
+  profile: ProviderProfileProjection;
+};
+
+export async function testProviderConnection(token: string, input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult> {
+  const body = { operationId: input.operationId, ...(input.modelId?.trim() ? { modelId: input.modelId.trim() } : {}) };
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test`, { method: "POST", token, body });
+}
+
+export async function readProviderConnectionDiagnostic(token: string, operationId: string): Promise<ProviderConnectionTestResult> {
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test?operationId=${encodeURIComponent(operationId)}`, { method: "GET", token });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {
@@ -1540,8 +1579,9 @@ export async function updateObjectCatalog(input: { projectId: string; workVersio
   return request<ObjectCatalogState>(`${basePath}/object-catalog/update`, { method: "POST", token, body });
 }
 
-export async function listRelations(input: { projectId: string; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
+export async function listRelations(input: { projectId: string; workVersionId?: string | null; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
   const params = new URLSearchParams({ projectId: input.projectId });
+  if (input.workVersionId) params.set("workVersionId", input.workVersionId);
   if (input.includeArchived) params.set("includeArchived", "true");
   if (input.reviewState) params.set("reviewState", input.reviewState);
   if (input.objectId) params.set("objectId", input.objectId);
@@ -1785,6 +1825,12 @@ export async function getEventStoryCrossingKnowledgeProjection(projectId: string
   const parameters = new URLSearchParams({ projectId, observerId });
   if (observerIds.length) parameters.set("observerIds", observerIds.slice(0, 5).join(","));
   return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?${parameters.toString()}`);
+}
+
+export async function getCharacterMemoryQuery(projectId: string, characterId: string, workVersionId: string | null): Promise<CharacterMemoryQueryProjection> {
+  const parameters = new URLSearchParams({ projectId, characterId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<CharacterMemoryQueryProjection>(`${basePath}/characters/memory-query?${parameters.toString()}`);
 }
 
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {
@@ -3416,7 +3462,7 @@ async function readProjectProjection<T>(url: string): Promise<T> {
 
 async function request<T>(
   url: string,
-  input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+  input: { method?: "GET" | "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
   const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;

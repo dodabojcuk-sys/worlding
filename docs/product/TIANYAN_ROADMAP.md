@@ -20,6 +20,7 @@
 | NUWA-N2A | 让每位角色按自己的核心、底线和本场目标行动 | 既有 Character WorldObject/Profile、Nuwa RunPack、`read_role_context` | 本地与浏览器通过；真实模型未运行；作者待验 | 角色编辑器可写作者确认的“角色核心/底线”，排演准备要求逐角色本场目标；创建 Run 时冻结人物修订和实际输入，人物后续编辑不改旧 Run。检查器与 Pi adapter 读取同一冻结上下文，正文及未选中的私密 Profile 字段不会进入发送范围。 |
 | NUWA-N2B | 在同一角色的允许材料内稳定选择最相关注意力 | Nuwa role context、权限/可知投影、`nuwaN1Attention` | 本地与浏览器通过；真实模型未运行；作者待验 | 先在项目/稳定人物/版本/时点/知情边界得到已授权集合，再保留当前场景必需项，并按角色目标、场景词项和稳定 ID 排序；UTF-8 字节上界覆盖完整请求，必需项超限时发送前阻断。检查器与 Pi 输入显示同一入选来源、原因和预算，权限排除项只显示数量而不泄漏身份。 |
 | NUWA-N2C | 跨场景保持可追溯的人物连续性记忆 | `storyContinuity/characterMemoryRepository`、Nuwa RunPack 只读/冻结投影 | 本地与浏览器通过；真实模型未运行；作者待验 | 原始 `heard` 递送按项目和稳定接收者写入 Story Continuity owner，保留说话者、原话、Run/step、场景、时间、作品版本和 owner 修订；后续场景只召回当前项目/版本链/可见时间内的有效记录，未接收角色、IF/其他项目和未来记录均排除。回溯以失效元数据阻止当前使用但不删历史；RunPack 不成为第二个永久人物记忆库。 |
+| MEM-Q1 | 从正常角色入口查询经历、目击、听闻与信念，并回到原始依据 | `CharacterInspectorCard`、Event 知情投影、`character-memory-ledger` | 本地与浏览器通过；真实模型不需要；作者待验 | 查询只读当前角色、项目和 WorkVersion identity；正式 Event 与逐接收者 heard 保持不同来源与状态，失效听闻可查但不可作为当前记忆。每项定位到 Event 或精确 Nuwa Run/step；空结果、读取失败和版本不兼容不混写。 |
 | NUWA-N3A | 让作者先读懂人物行动、上下文和正式变化，再按需查看协议细节 | `/nuwa`、既有 Run/Continuity/Permission/Owner 回执 | 本地与浏览器通过；真实模型未运行；作者待验 | 普通候选与已授权自动应用的范围首层区分；人物核心、底线、本场目标及“谁在何场告诉谁什么”先显示，可复制来源/修订/预算折叠；完成后分别显示正式 Event、Relation、叙事位置与新增听闻，入口通向同一 Run、关系比较、固定稿和回溯。 |
 | PRED-P1 | 比较平淡、意外、深远后果等候选路径 | 多节点预测、Story Unit、NarrativeArrangement | 本地通过；作者待验 | 明示依据、代价、冲突和后果；创作探索不伪装统计概率 |
 | MULTI-B1 | 对照 IF/改版/女娲结果并选择范围融入 | WorkVersion、候选/影响/回执边界 | 已有基础 | 差异、冲突、合并回执与撤销；区分普通支线和版本分支 |
