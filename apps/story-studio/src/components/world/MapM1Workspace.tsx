@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
+import { CircleHelp, DoorOpen, Eye, FileText, LocateFixed, LockKeyhole, MapPin, Minus, PanelRight, PencilRuler, Plus } from "lucide-react";
 
 import { createVisualDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, listRelations, readWorldStateN4, updateVisualDocument, type MapDocument, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
@@ -30,7 +31,9 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [inspectorError, setInspectorError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingLayout, setEditingLayout] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const [message, setMessage] = useState("");
+  const drag = useRef<{ pointerId: number; x: number; y: number; viewport: MapViewport; moved: boolean } | null>(null);
   const map = maps.find((item) => item.id === mapId) ?? null;
 
   const refresh = async (id: string) => {
@@ -87,12 +90,81 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const document: MapDocument = { ...map, content: { ...map.content, markers: marker ? map.content.markers.map((item) => item.id === marker.id ? { ...item, x, y } : item) : [...map.content.markers, { id: `marker.${location.id}`, objectId: location.id, layerId: "layer.main", x, y, color: "#147d78", labelMode: "always" }] } };
     setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId: projectId!, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("布局已保存；地点事实、关系与角色记忆未被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。")).finally(() => setBusy(false));
   };
+  const startPan = (event: PointerEvent<HTMLElement>) => {
+    if (editingLayout || event.button !== 0) return;
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, viewport, moved: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const pan = (event: PointerEvent<HTMLElement>) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const x = active.viewport.x + event.clientX - active.x;
+    const y = active.viewport.y + event.clientY - active.y;
+    active.moved ||= Math.abs(event.clientX - active.x) > 3 || Math.abs(event.clientY - active.y) > 3;
+    setViewport(normalizeViewport({ ...viewport, x, y }));
+  };
+  const endPan = (event: PointerEvent<HTMLElement>) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (active.moved) moveViewport({ ...active.viewport, x: active.viewport.x + event.clientX - active.x, y: active.viewport.y + event.clientY - active.y });
+  };
+  const zoomCanvas = (event: WheelEvent<HTMLElement>) => {
+    if (editingLayout || event.ctrlKey || event.metaKey) return;
+    moveViewport({ ...viewport, zoom: viewport.zoom + (event.deltaY < 0 ? .1 : -.1) });
+  };
 
   if (!projectId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
   const selected = locations.find((item) => item.id === selectedId) || null;
-  return <main className="shell-workspace" aria-label="地点地图"><section className="shell-workspace-stage" data-testid="map-m2-workspace"><p className="shell-workspace-eyebrow">世界 · 地点地图</p><h1>地点地图</h1><p className="shell-workspace-summary">默认浏览。只有进入布局编辑后才会移动地点；地图读取不会改变世界事实或角色知情范围。</p>{message ? <p className="creation-source-message" role="status">{message}</p> : null}
-    {!maps.length ? <button type="button" className="primary-action" disabled={busy} onClick={create}>建立地点示意图</button> : <><div className="map-m2-toolbar"><label>地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><label>故事观察位置<select aria-label="选择故事观察位置" value={observationKey(observation)} onChange={(event) => { const next = nodes.find((item) => observationKey(item) === event.target.value); if (next) selectObservation(next); }}><option value="current">当前状态（不是系统时间）</option>{nodes.map((node) => <option key={observationKey(node)} value={observationKey(node)}>事件之后 · {eventLabel(inspector?.events ?? [], node.eventId)}</option>)}</select></label><div className="map-m2-viewport-controls" aria-label="地图视角"><span>视角</span><button type="button" onClick={() => moveViewport({ ...viewport, y: viewport.y + 36 })}>↑</button><button type="button" onClick={() => moveViewport({ ...viewport, x: viewport.x + 36 })}>←</button><button type="button" onClick={() => moveViewport({ ...viewport, x: viewport.x - 36 })}>→</button><button type="button" onClick={() => moveViewport({ ...viewport, y: viewport.y - 36 })}>↓</button><button type="button" onClick={() => moveViewport({ ...viewport, zoom: viewport.zoom + .15 })}>放大</button><button type="button" onClick={() => moveViewport({ ...viewport, zoom: viewport.zoom - .15 })}>缩小</button><button type="button" onClick={() => moveViewport({ x: 0, y: 0, zoom: 1 })}>居中</button></div><button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)}>{editingLayout ? "完成布局编辑" : "编辑布局"}</button></div>
-      {!map ? <p role="alert">请选择一张可用地图；没有自动跳转到第一张地图。</p> : <><div className="creation-source-summary"><article><div><small>当前地图</small><strong>{map.title}</strong><span>{map.content.markers.length} 个已放置地点</span></div></article><article><div><small>正式地点</small><strong>{locations.length}</strong><span>未放置地点仍可选择</span></div></article><article><div><small>读取范围</small><strong>{props.runtime.workVersionLabel ?? "正在读取版本"}</strong><span>{observation.kind === "current" ? "当前 Owner 状态" : "所选已确认事件之后"}</span></div></article></div><div className="map-m1-layout"><section className={`map-m1-canvas ${editingLayout ? "is-editing" : "is-browsing"}`} aria-label="地点示意图画布" onClick={(event) => selected && place(selected, event)}><div className="map-m2-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>{map.content.markers.map((marker) => { const location = locations.find((item) => item.id === marker.objectId); return location ? <button key={marker.id} type="button" style={{ left: `${marker.x}%`, top: `${marker.y}%` }} aria-pressed={selectedId === location.id} onClick={(event) => { event.stopPropagation(); selectPlace(location.id); }}>{location.title}</button> : null; })}</div><p>{editingLayout ? "选择地点后点击画布保存布局位置。" : "浏览模式：点击地点查看；点击空白不会移动地点。"}</p></section><MapInspector selected={selected} data={inspector} error={inspectorError} versionReady={Boolean(workVersionId)} projectId={projectId} workVersionId={workVersionId} mapId={map.id} observation={observation} /></div><section className="creation-source-package" aria-label="地点"><h2>地点</h2><ul>{locations.map((location) => <li key={location.id}><button type="button" onClick={() => selectPlace(location.id)}>选择 {location.title}</button>{map.content.markers.some((marker) => marker.objectId === location.id) ? " · 已放置" : " · 尚未放置"}</li>)}</ul></section></>}</>}</section></main>;
+  const state = markerState(selected, inspector);
+  return <main className="shell-workspace map-workbench-shell" aria-label="地点地图">
+    <section className="map-workbench" data-testid="map-m2-workspace">
+      <header className="map-workbench-toolbar">
+        <div className="map-workbench-title"><MapPin aria-hidden="true" /><div><strong>地点地图</strong><span>{map?.content.markers.length ?? 0} 个已放置地点 · {props.runtime.workVersionLabel ?? "正在读取版本"}</span></div></div>
+        <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+        <div className="map-workbench-toolbar-actions">
+          <button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)}>{editingLayout ? <><Eye aria-hidden="true" />浏览地图</> : <><PencilRuler aria-hidden="true" />编辑布局</>}</button>
+          <button type="button" aria-expanded={inspectorOpen} aria-controls="map-m2-inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" />{inspectorOpen ? "收起检查器" : "打开检查器"}</button>
+        </div>
+      </header>
+      {message ? <p className="map-workbench-message" role="status">{message}</p> : null}
+      {!maps.length ? <section className="map-workbench-empty"><h1>建立第一张地点地图</h1><p>地点布局只保存到地图，不会改变地点、关系或角色知情。</p><button type="button" className="primary-action" disabled={busy} onClick={create}>建立地点示意图</button></section> : !map ? <p className="map-workbench-message" role="alert">请选择一张可用地图；没有自动跳转到第一张地图。</p> : <>
+        <div className={`map-workbench-body ${inspectorOpen ? "" : "is-inspector-collapsed"}`}>
+          <section className={`map-m1-canvas map-workbench-canvas ${editingLayout ? "is-editing" : "is-browsing"}`} aria-label="地点示意图画布" onClick={(event) => selected && place(selected, event)} onPointerDown={startPan} onPointerMove={pan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={zoomCanvas}>
+            <div className="map-workbench-grid" aria-hidden="true" />
+            <div className="map-m2-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>
+              {map.content.markers.map((marker) => {
+                const location = locations.find((item) => item.id === marker.objectId);
+                const markerStateValue = location?.id === selected?.id ? state : "unloaded";
+                return location ? <button key={marker.id} className={`map-workbench-marker is-${markerStateValue}`} data-state={markerStateValue} type="button" style={{ left: `${marker.x}%`, top: `${marker.y}%` }} aria-pressed={selectedId === location.id} onClick={(event) => { event.stopPropagation(); selectPlace(location.id); setInspectorOpen(true); }}>
+                  <MarkerIcon state={markerStateValue} /><span>{location.title}</span><small>{markerStateLabel(markerStateValue)}</small>
+                </button> : null;
+              })}
+            </div>
+            <div className="map-workbench-canvas-controls" aria-label="地图视角">
+              <button type="button" onClick={() => moveViewport({ ...viewport, zoom: viewport.zoom + .15 })} aria-label="放大地图"><Plus aria-hidden="true" /></button>
+              <span>{Math.round(viewport.zoom * 100)}%</span>
+              <button type="button" onClick={() => moveViewport({ ...viewport, zoom: viewport.zoom - .15 })} aria-label="缩小地图"><Minus aria-hidden="true" /></button>
+              <button type="button" onClick={() => moveViewport({ x: 0, y: 0, zoom: 1 })}><LocateFixed aria-hidden="true" />适配</button>
+            </div>
+            <p className="map-workbench-canvas-hint">{editingLayout ? "布局编辑：选择地点后点击画布保存位置。" : "浏览：拖动平移、滚轮缩放，点击地点查看。"}</p>
+          </section>
+          {inspectorOpen ? <MapInspector selected={selected} data={inspector} error={inspectorError} versionReady={Boolean(workVersionId)} projectId={projectId} workVersionId={workVersionId} mapId={map.id} observation={observation} /> : null}
+        </div>
+        <footer className="map-workbench-story-strip" aria-label="故事观察位置">
+          <div><span>故事节点</span><strong>{observation.kind === "current" ? "当前状态" : `${eventLabel(inspector?.events ?? [], observation.eventId)}之后`}</strong></div>
+          <div className="map-workbench-story-nodes" role="tablist" aria-label="选择故事观察位置">
+            <button type="button" role="tab" aria-selected={observation.kind === "current"} onClick={() => selectObservation({ kind: "current" })}>当前</button>
+            {nodes.map((node) => <button key={observationKey(node)} type="button" role="tab" aria-selected={observationKey(node) === observationKey(observation)} onClick={() => selectObservation(node)}>{eventLabel(inspector?.events ?? [], node.eventId)}之后</button>)}
+          </div>
+          <label className="map-workbench-more-nodes">更多节点<select aria-label="选择故事观察位置" value={observationKey(observation)} onChange={(event) => { const next = event.target.value === "current" ? { kind: "current" } as Observation : nodes.find((item) => observationKey(item) === event.target.value); if (next) selectObservation(next); }}><option value="current">当前状态</option>{nodes.map((node) => <option key={observationKey(node)} value={observationKey(node)}>{eventLabel(inspector?.events ?? [], node.eventId)}之后</option>)}</select></label>
+        </footer>
+        <section className="map-workbench-places" aria-label="地点"><span>地点</span>{locations.map((location) => <button key={location.id} type="button" aria-pressed={location.id === selectedId} onClick={() => { selectPlace(location.id); setInspectorOpen(true); }}>{location.title}{map.content.markers.some((marker) => marker.objectId === location.id) ? "" : " · 未放置"}</button>)}</section>
+        <details className="map-workbench-help"><summary>地图阅读与编辑说明</summary><p>观察位置只读取当前作品版本的既有事实；浏览、平移和缩放不会写入世界。只有“编辑布局”会保存地点在这张示意图中的位置。</p></details>
+      </>}
+    </section>
+  </main>;
 }
 
 async function readMapInspector(input: { projectId: string; workVersionId: string; locationId: string; observation: Observation }): Promise<MapInspectorData> {
@@ -111,13 +183,19 @@ async function readMapInspector(input: { projectId: string; workVersionId: strin
 
 function MapInspector(props: { selected: WorldObjectSummary | null; data: MapInspectorData | null; error: string | null; versionReady: boolean; projectId: string; workVersionId: string | null; mapId: string; observation: Observation }) {
   const openSource = (eventId: string, relationId?: string) => { const parameters = new URLSearchParams({ projectId: props.projectId, ...(props.workVersionId ? { workVersionId: props.workVersionId } : {}), mapReturn: `${window.location.pathname}${window.location.search}`, ...(relationId ? { eventTask: "relationship", relationId } : { directoryObject: eventId }) }); window.location.assign(`/event-line?${parameters.toString()}`); };
-  if (!props.selected) return <aside className="map-m1-inspector" aria-label="地点检查器"><h2>选择地点</h2><p>选择一个正式地点后查看此版本、此故事位置的已有资料。</p></aside>;
-  if (!props.versionReady) return <aside className="map-m1-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在确定当前作品版本；不会以另一个版本的状态替代。</p></aside>;
-  if (props.error) return <aside className="map-m1-inspector" aria-label="地点检查器" role="alert"><h2>{props.selected.title}</h2><p>{props.error}</p></aside>;
-  if (!props.data) return <aside className="map-m1-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在读取同一版本、同一观察位置的状态、关系与来源……</p></aside>;
+  if (!props.selected) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器"><h2>选择地点</h2><p>选择一个正式地点后查看此版本、此故事位置的已有资料。</p></aside>;
+  if (!props.versionReady) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在确定当前作品版本；不会以另一个版本的状态替代。</p></aside>;
+  if (props.error) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" role="alert"><h2>{props.selected.title}</h2><p>{props.error}</p></aside>;
+  if (!props.data) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在读取同一版本、同一观察位置的状态、关系与来源……</p></aside>;
   const data = props.data;
   const stateText = data.state.status === "unknown" ? "无法确定该观察位置的状态：尚无可用正式记录。" : describeWorldState(data.state.value, data.labels);
-  return <aside className="map-m1-inspector" aria-label="地点检查器" data-testid="map-m2-inspector"><h2>{props.selected.title}</h2><section><h3>{props.observation.kind === "current" ? "当前状态" : "所选事件之后的状态"}</h3><p>{stateText}</p>{data.state.change ? <p><small>依据生效于 {data.state.effectiveFrom} · <button type="button" onClick={() => openSource(data.state.change!.evidence.event.id)}>查看支持事件</button></small></p> : null}</section><section><h3>局部正式关系</h3>{data.relations.length ? <ul>{data.relations.map((relation) => { const otherId = relation.sourceObjectId === props.selected!.id ? relation.targetObjectId : relation.sourceObjectId; return <li key={relation.relationId}><button type="button" onClick={() => openSource("", relation.relationId)}>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</button><small> · {data.labels.get(otherId) ?? "关联对象"}</small></li>; })}</ul> : <p>此观察位置没有可定位的已确认正式关系。</p>}{data.unlocatedRelationCount ? <small>{data.unlocatedRelationCount} 条关系缺少故事生效时间，未伪装成该节点的历史状态。</small> : null}</section><section><h3>支持事件</h3>{data.events.length ? <ul>{data.events.map((event) => <li key={event.id}><button type="button" onClick={() => openSource(event.id)}>{event.title}</button></li>)}</ul> : <p>当前范围没有可精确定位的正式事件。</p>}{data.unavailableEventCount ? <small>有 {data.unavailableEventCount} 条依据的版本修订无法在当前范围精确读取，未显示为另一版本正文。</small> : null}</section><section><h3>角色知情边界</h3><p>地图是作者视图。打开或切换观察位置不会写入任何角色的听闻、信念或记忆。</p></section><details><summary>技术详情</summary><code>{props.selected.id}</code><code>{props.mapId}</code><code>{observationKey(props.observation)}</code></details></aside>;
+  return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" data-testid="map-m2-inspector">
+    <header><div><span>地点检查器</span><h2>{props.selected.title}</h2></div><span className={`map-workbench-state-chip is-${markerState(props.selected, data)}`}>{markerStateLabel(markerState(props.selected, data))}</span></header>
+    <section><h3>{props.observation.kind === "current" ? "当前状态" : "所选节点之后"}</h3><p>{stateText}</p>{data.state.change ? <button className="map-workbench-source-link" type="button" onClick={() => openSource(data.state.change!.evidence.event.id)}><FileText aria-hidden="true" />查看状态依据</button> : null}</section>
+    <section><h3>依据预览</h3>{data.events.length ? <div className="map-workbench-source-preview">{data.events.map((event) => <article key={event.id}><strong>{event.title}</strong><p>{event.body ? event.body.slice(0, 140) : "此事件没有可预览的正文。"}</p><button type="button" onClick={() => openSource(event.id)}>打开完整事件</button></article>)}</div> : <p>当前范围没有可精确定位的正式事件。</p>}{data.unavailableEventCount ? <small>有 {data.unavailableEventCount} 条依据的版本修订无法在当前范围精确读取，未显示为另一版本正文。</small> : null}</section>
+    <section><h3>局部正式关系</h3>{data.relations.length ? <ul>{data.relations.map((relation) => { const otherId = relation.sourceObjectId === props.selected!.id ? relation.targetObjectId : relation.sourceObjectId; return <li key={relation.relationId}><button type="button" onClick={() => openSource("", relation.relationId)}>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</button><small>{data.labels.get(otherId) ?? "关联对象"}</small></li>; })}</ul> : <p>此观察位置没有可定位的已确认正式关系。</p>}{data.unlocatedRelationCount ? <small>{data.unlocatedRelationCount} 条关系缺少故事生效时间，未伪装成该节点的历史状态。</small> : null}</section>
+    <details><summary>阅读范围与技术详情</summary><p>地图是作者视图；切换节点不会写入角色的听闻、信念或记忆。</p><code>{props.selected.id}</code><code>{props.mapId}</code><code>{observationKey(props.observation)}</code></details>
+  </aside>;
 }
 
 function observationNodes(history: MapInspectorData["state"]["history"]): EventObservation[] { return history.map((change) => ({ kind: "event" as const, eventId: change.evidence.event.id, eventRevision: change.evidence.event.revision, observedAt: change.effectiveAt })).filter((item, index, all) => all.findIndex((other) => observationKey(other) === observationKey(item)) === index); }
@@ -133,3 +211,12 @@ function eventLabel(events: readonly WorldObject[], eventId: string): string { r
 function relationAt(relation: RelationReadProjectionR0, observedAt: string): boolean { const temporal = relation.temporal; return Boolean(temporal?.validFrom && temporal.validFrom <= observedAt && (!temporal.validTo || temporal.validTo > observedAt) && !relation.archived); }
 function uniqueEventRefs(values: Array<{ id: string; revision: string }>): Array<{ id: string; revision: string }> { return values.filter((value, index) => values.findIndex((other) => other.id === value.id && other.revision === value.revision) === index); }
 function describeWorldState(value: MapInspectorData["state"]["value"], labels: ReadonlyMap<string, string>): string { if (!value) return "无法确定该观察位置的状态：尚无可用正式记录。"; if (value.kind === "passage") return value.state === "open" ? "通行状态：可通行。" : value.state === "closed" ? "通行状态：封闭。" : "通行状态：未知。"; if (value.state === "held" && value.holder) return `持有状态：由 ${labels.get(value.holder.id) ?? "已记录对象"} 持有。`; return value.state === "unheld" ? "持有状态：未持有。" : "持有状态：未知。"; }
+
+type MarkerState = "open" | "closed" | "unknown" | "unloaded";
+function markerState(_selected: WorldObjectSummary | null, data: MapInspectorData | null): MarkerState {
+  if (!data || data.state.status === "unknown" || !data.state.value) return data ? "unknown" : "unloaded";
+  if (data.state.value.kind !== "passage") return "unknown";
+  return data.state.value.state === "open" ? "open" : data.state.value.state === "closed" ? "closed" : "unknown";
+}
+function markerStateLabel(state: MarkerState): string { return state === "open" ? "可通行" : state === "closed" ? "封闭" : state === "unknown" ? "未知" : "未读取"; }
+function MarkerIcon(props: { state: MarkerState }) { return props.state === "open" ? <DoorOpen aria-hidden="true" /> : props.state === "closed" ? <LockKeyhole aria-hidden="true" /> : props.state === "unknown" ? <CircleHelp aria-hidden="true" /> : <MapPin aria-hidden="true" />; }
