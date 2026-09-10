@@ -2835,8 +2835,48 @@ async function handleModelServiceRequest(request, response, url) {
     if (!requestedModelId) throw productError("请先选择或手工填写默认对话模型；未发起 Provider 请求。", 400);
     assertProviderModelId(requestedModelId, "默认对话模型");
     const startedAt = Date.now();
+    let replayedDiagnostic = null;
     try {
       const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "connection-test", generationCalls: 1, totalCalls: 1 });
+      replayedDiagnostic = diagnostic.replayedReservation;
+      if (replayedDiagnostic) {
+        if (replayedDiagnostic.outcome !== "success") {
+          const error = new Error(`Provider connection test was already dispatched with outcome ${replayedDiagnostic.outcome}; replay its durable result instead of dispatching again.`);
+          error.code = "PROVIDER_IDEMPOTENT_REPLAY_REQUIRED";
+          error.statusCode = 409;
+          throw error;
+        }
+        const verifiedAt = replayedDiagnostic.completedAt || replayedDiagnostic.reservedAt;
+        providerProfileState = providerProfileStore.markConnection({
+          expectedRevision: providerProfileState.revision,
+          connectionStatus: "verified",
+          lastVerifiedAt: verifiedAt,
+          lastError: null,
+          historyEntry: {
+            id: randomUUID(),
+            kind: "connection",
+            status: "success",
+            occurredAt: verifiedAt,
+            modelId: requestedModelId,
+            latencyMs: 0,
+            traceId: replayedDiagnostic.traceId
+          }
+        });
+        sendJson(response, 200, {
+          data: {
+            gate: "connection",
+            providerId: active.provider,
+            modelId: requestedModelId,
+            testedAt: verifiedAt,
+            latencyMs: 0,
+            replayed: true,
+            availableModelCount: active.catalog.entries.filter((entry) => entry.source === "endpoint").length,
+            models: active.catalog.entries.filter((entry) => entry.source === "endpoint").map((entry) => entry.id),
+            profile: readProviderProfileProjection()
+          }
+        });
+        return;
+      }
       syncProviderGatewayProfile(requestedModelId);
       const profile = providerGateway.metadata().profiles[0];
       if (!profile) throw productError("当前 Provider 没有可执行的对话模型档案。", 412);
@@ -2878,6 +2918,10 @@ async function handleModelServiceRequest(request, response, url) {
         }
       });
     } catch (error) {
+      // A duplicate request has a durable result already.  It is neither a
+      // fresh transport failure nor evidence that the previous successful
+      // connection became invalid, so never overwrite the saved projection.
+      if (replayedDiagnostic) throw error;
       try {
         providerProfileState = providerProfileStore.markConnection({
           expectedRevision: providerProfileState.revision,
@@ -3370,8 +3414,10 @@ function reserveSettingsDiagnosticBudget({ active, kind, generationCalls, totalC
     throw error;
   }
   const receiptId = `settings-diagnostic.${active.id}.${active.configRevision}.${kind}`;
+  const idempotencyKey = `${receiptId}.dispatch`;
+  const replayedReservation = providerBudgetLedger.reservationForIdempotencyKey(idempotencyKey);
   const existing = providerBudgetLedger.authorization(receiptId);
-  if (existing) return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+  if (existing) return { receiptId, scope, idempotencyKey, replayedReservation };
   providerBudgetLedger.authorize({
     receiptId,
     authorizedBy: "current-provider-management-session",
@@ -3383,7 +3429,7 @@ function reserveSettingsDiagnosticBudget({ active, kind, generationCalls, totalC
     },
     issuedAt: new Date().toISOString()
   });
-  return { receiptId, scope, idempotencyKey: `${receiptId}.dispatch` };
+  return { receiptId, scope, idempotencyKey, replayedReservation };
 }
 
 function authorizeNuwaApiTestBudget(maxProviderDispatches) {

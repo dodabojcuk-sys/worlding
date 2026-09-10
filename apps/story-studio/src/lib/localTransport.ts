@@ -1356,8 +1356,8 @@ export async function discoverProviderModels(token: string): Promise<{ providerI
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; replayed?: boolean; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
+  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; replayed?: boolean; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {

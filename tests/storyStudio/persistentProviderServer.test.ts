@@ -170,6 +170,11 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(typeof connection.data.latencyMs, "number");
     assert.equal(connection.data.profile.profile.connectionStatus, "verified");
     assert.equal(connection.data.profile.profile.modelId, "fixture/alternate-model");
+    const replayedConnection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model" }, activeHeaders);
+    assert.equal(replayedConnection.status, 200);
+    assert.equal(replayedConnection.data.replayed, true);
+    assert.equal(replayedConnection.data.profile.profile.connectionStatus, "verified");
+    assert.equal(fakeProvider.calls.completions, 1, "a replay restores the completed connection status without another Provider request");
     const inference = await jsonPost(base, "model-service/minimal-inference", {}, activeHeaders);
     assert.equal(inference.status, 200);
     assert.equal(inference.data.modelId, "fixture/alternate-model");

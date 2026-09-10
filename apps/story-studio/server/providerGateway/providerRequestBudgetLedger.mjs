@@ -164,6 +164,13 @@ export function createProviderRequestBudgetLedger(options) {
       return authorization ? structuredClone(authorization) : null;
     },
 
+    reservationForIdempotencyKey(idempotencyKey) {
+      const normalized = requiredText(idempotencyKey, 240);
+      state = readState(target);
+      const reservation = state.reservations.find((item) => item.idempotencyKey === normalized) || null;
+      return reservation ? publicReservation(reservation) : null;
+    },
+
     snapshot() {
       state = readState(target);
       return publicLedger(state);

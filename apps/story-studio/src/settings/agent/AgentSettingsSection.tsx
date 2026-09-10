@@ -32,7 +32,7 @@ export function AgentSettingsSection(props: {
   onPermissionProfile?(profile: AgentPermissionProfile): Promise<void>;
   onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult>;
   onDiscoverProviderModels?(): Promise<string[]>;
-  onTestProviderConnection?(modelId?: string): Promise<{ modelId: string; testedAt: string; latencyMs: number; availableModelCount: number }>;
+  onTestProviderConnection?(modelId?: string): Promise<{ modelId: string; testedAt: string; latencyMs: number; replayed?: boolean; availableModelCount: number }>;
   onRevealProviderCredential?(providerInstanceId: string): Promise<{ providerInstanceId: string; apiKey: string }>;
   onProbeEmbedding?(modelId: string): Promise<{ modelId: string; dimensions: number; latencyMs: number }>;
   onDisableProviderProfile?(expectedRevision: number): Promise<void>;
@@ -133,7 +133,9 @@ export function AgentSettingsSection(props: {
   const runConnectionTest = async (modelId?: string) => {
     if (!props.onTestProviderConnection) return;
     const result = await props.onTestProviderConnection(modelId);
-    const detail = `连接测试成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。已发送一次合成聊天探测。`;
+    const detail = result.replayed
+      ? `连接测试已回放：${result.modelId} · 原始验证 ${new Date(result.testedAt).toLocaleString()}。未重新发送 Provider 请求。`
+      : `连接测试成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。已发送一次合成聊天探测。`;
     setConnectionOperation({ phase: "succeeded", detail });
     setProviderNotice(detail);
   };
