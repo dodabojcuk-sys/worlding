@@ -16,6 +16,8 @@ import { resolveWorkVersionOwnerSnapshotRefs } from "../../../src/storyWorkspace
 import { projectNarrativeArrangement } from "../../../src/storyContracts/narrativeArrangement.ts";
 import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts";
 import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
+import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createStoryStudioRelationOperations } from "../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
@@ -23,7 +25,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -92,8 +94,10 @@ const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1
 const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
 const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
 const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
+const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
+const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -103,6 +107,7 @@ let observationFixture = null;
 let narrativeFixture = null;
 let r1CausalFixture = null;
 let characterFixture = null;
+let mapM2Fixture = null;
 let server;
 let apiServer;
 let browser;
@@ -167,7 +172,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -193,6 +198,9 @@ try {
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
     await assertTianyiStoryIntake(page, consoleProblems);
+  } else if (mapM2StoryObservationOnly) {
+    await setupMapM2Fixture();
+    await assertMapM2StoryObservation(page, consoleProblems);
   } else if (agentFakeStreamOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -2013,6 +2021,124 @@ function createNarrativeFixtureRoot() {
     ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle),
     optionalNuwaProvenanceRefs: []
   });
+}
+
+async function setupMapM2Fixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  await postFixture(`${base}/projects/create`, { title: "北闸地图观察 · 隔离验收", folderSlug: fixtureProjectId });
+  await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
+  const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", tags: ["地点", "通行状态"] })).data;
+  const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
+  const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
+  await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
+  const unit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, { projectId: fixtureProjectId, title: "北闸通行", summary: "地图故事位置的隔离作者验收。" });
+  const makeConfirmedEvent = async (title) => {
+    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, title, body: `${title}是地图故事位置验收中经作者确认的事实。` });
+    await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
+    await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
+  };
+  await makeConfirmedEvent("北闸开放");
+  await makeConfirmedEvent("北闸封闭");
+  await makeConfirmedEvent("北闸恢复通行");
+  const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const events = await Promise.all(verified.data.eventIds.map(async (eventId) => (await getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)).data.event));
+  const eventByTitle = (title) => {
+    const event = events.find((item) => String(item.title).startsWith(title));
+    assert.ok(event, `Map M2 fixture must retain ${title} as a confirmed Canon Event.`);
+    return event;
+  };
+  const opened = eventByTitle("北闸开放");
+  const closed = eventByTitle("北闸封闭");
+  const reopened = eventByTitle("北闸恢复通行");
+  const root = createMapM2FixtureRoot();
+  const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, ".story-studio", "state.json") });
+  const apply = (expectedRevision, effectiveAt, value, event, operationId) => operations.applyWorldStateN4({
+    projectId: fixtureProjectId, objectId: northGate.id, workVersionId: root.identity.workVersionId,
+    expectedObjectRevision: operations.readWorldObject({ projectId: fixtureProjectId, objectId: northGate.id }).revisionToken,
+    expectedRevision, effectiveAt, value, operationId, now: effectiveAt,
+    evidence: { kind: "confirmed-event", event: { id: event.id, revision: event.revisionToken } }
+  });
+  apply(0, "2000-01-01T00:00:00Z", { kind: "passage", state: "open" }, opened, `map-m2-open-${fixture.fixtureId}`);
+  apply(1, "2000-01-02T00:00:00Z", { kind: "passage", state: "closed" }, closed, `map-m2-closed-${fixture.fixtureId}`);
+  apply(2, "2000-01-03T00:00:00Z", { kind: "passage", state: "open" }, reopened, `map-m2-reopened-${fixture.fixtureId}`);
+  const relations = createStoryStudioRelationOperations({ workspaceOperations: operations, verifyCanonEventRead: () => true });
+  const relationType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-relation-type-${fixture.fixtureId}`, label: "通行协作" });
+  const relationCandidate = relations.createRelationCandidate({
+    projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId: `map-m2-relation-${fixture.fixtureId}`,
+    sourceObjectId: northGate.id, targetObjectId: lin.id, relationTypeId: relationType.type.relationTypeId, direction: "both",
+    temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-03T00:00:00Z", confidence: "high", sourceAnchors: [closed.id] },
+    evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
+  });
+  relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `map-m2-relation-confirm-${fixture.fixtureId}` });
+  mapM2Fixture = { northGate, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId };
+}
+
+function createMapM2FixtureRoot() {
+  const bundle = Object.fromEntries(WORK_VERSION_REQUIRED_OWNER_KINDS.map((ownerKind, index) => [ownerKind, {
+    ownerIdentity: `${ownerKind}.${fixture.fixtureId}`,
+    projectionSchemaVersion: `${ownerKind}/map-m2-e2e-v1`,
+    revisionToken: `map-m2-e2e.${index + 1}`,
+    stableReferenceIds: [`${ownerKind}.ref.${fixture.fixtureId}`],
+    provenanceReceiptIds: [`receipt.${ownerKind}.${fixture.fixtureId}`],
+    canonicalProjection: { ownerKind, fixture: "map-m2-story-observation" }
+  }]));
+  return createStoryStudioWorkVersionAuthority({ projectRoot: path.join(fixtureRoot, fixtureProjectId) }).createRootCheckpoint({
+    displayName: "北闸主线", authorActionId: `author.map-m2-root.${fixture.fixtureId}`, idempotencyKey: `idempotency.map-m2-root.${fixture.fixtureId}`,
+    expectedRevision: 0, createdAt: "2000-01-01T00:00:00.000Z", ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle), optionalNuwaProvenanceRefs: []
+  });
+}
+
+async function assertMapM2StoryObservation(page, consoleProblems) {
+  assert.ok(mapM2Fixture, "Map M2 browser assertion needs its formal isolated fixture.");
+  const base = `${apiUrl}/__local/story-studio`;
+  await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
+  await page.getByRole("button", { name: "选择 北闸", exact: true }).click();
+  const canvas = page.locator('[aria-label="地点示意图画布"]');
+  await canvas.waitFor();
+  await page.getByTestId("map-m2-inspector").waitFor();
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  const beforeBrowse = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  await canvas.click({ position: { x: 180, y: 180 } });
+  const afterBrowse = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
+  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await canvas.click({ position: { x: 220, y: 190 } });
+  await page.getByRole("status").getByText(/布局已保存/u).waitFor();
+  await page.getByRole("button", { name: "完成布局编辑", exact: true }).click();
+  await page.getByRole("button", { name: "放大", exact: true }).click();
+  await page.getByRole("button", { name: "→", exact: true }).click();
+  const observationSelect = page.getByRole("combobox", { name: "选择故事观察位置", exact: true });
+  const options = await observationSelect.locator("option").evaluateAll((values) => values.map((item) => ({ label: item.textContent, value: item.value })));
+  const closedOption = options.find((item) => /北闸封闭/u.test(item.label || ""));
+  const reopenedOption = options.find((item) => /北闸恢复通行/u.test(item.label || ""));
+  assert.ok(closedOption?.value && reopenedOption?.value, "Each formal WorldState history event must become a selectable M2 observation node.");
+  await observationSelect.selectOption(closedOption.value);
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
+  await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
+  if (mapM2EvidenceDirectory) { mkdirSync(mapM2EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-closed.png"), fullPage: true }); }
+  await observationSelect.selectOption(reopenedOption.value);
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-reopened.png"), fullPage: true });
+  await page.getByRole("button", { name: "查看支持事件", exact: true }).last().click();
+  await page.getByRole("button", { name: "返回地点地图", exact: true }).waitFor();
+  await page.getByText(/北闸恢复通行/u).first().waitFor();
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-event-source.png"), fullPage: true });
+  await page.getByRole("button", { name: "返回地点地图", exact: true }).click();
+  await page.getByTestId("map-m2-inspector").waitFor();
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  assert.match(page.url(), /mapPlace=/u, "A source return must recover the selected location.");
+  assert.match(page.url(), /mapObservationEvent=/u, "A source return must recover the story observation node.");
+  assert.match(page.url(), /mapZoom=/u, "A source return must recover the map zoom.");
+  assert.match(page.url(), /mapPanX=/u, "A source return must recover the map pan.");
+  await page.reload();
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  if (mapM2EvidenceDirectory) {
+    await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-return-restored.png"), fullPage: true });
+    writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, relationId: mapM2Fixture.relationId, providerDispatches: 0 }, null, 2)}\n`, "utf8");
+  }
+  assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
 }
 
 async function setupR1CausalFixture() {
