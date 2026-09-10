@@ -1,6 +1,6 @@
 import { Bot, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { LocalTransportError, type AgentPermissionProfile, type AgentPermissionState, type ModelCatalogEntry, type ModelCatalogSnapshot, type ModelServiceStatus, type ProviderConnectionTestResult, type ProviderInstanceProjection, type ProviderPresetId } from "../../lib/localTransport";
+import { type AgentPermissionProfile, type AgentPermissionState, type ModelCatalogEntry, type ModelCatalogSnapshot, type ModelServiceStatus, type ProviderConnectionTestResult, type ProviderInstanceProjection, type ProviderPresetId } from "../../lib/localTransport";
 
 export type ProviderProfileUpdate = {
   expectedRevision: number;
@@ -33,6 +33,7 @@ export function AgentSettingsSection(props: {
   onSaveProviderProfile?(input: ProviderProfileUpdate): Promise<ProviderProfileSaveResult>;
   onDiscoverProviderModels?(): Promise<string[]>;
   onTestProviderConnection?(input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult>;
+  onReadProviderConnectionDiagnostic?(operationId: string): Promise<ProviderConnectionTestResult>;
   onRevealProviderCredential?(providerInstanceId: string): Promise<{ providerInstanceId: string; apiKey: string }>;
   onProbeEmbedding?(modelId: string): Promise<{ modelId: string; dimensions: number; latencyMs: number }>;
   onDisableProviderProfile?(expectedRevision: number): Promise<void>;
@@ -149,19 +150,26 @@ export function AgentSettingsSection(props: {
   };
   useEffect(() => {
     if (!recoverableConnectionOperation) return;
-    if ((props.status?.profile.history ?? []).some((entry) => entry.kind === "connection" && entry.operationId === recoverableConnectionOperation.operationId)) {
+    if ((props.status?.profile.history ?? []).some((entry) => entry.kind === "connection" && entry.operationId === recoverableConnectionOperation.operationId && entry.status !== "running")) {
       rememberConnectionOperation(null);
     }
   }, [props.status?.profile.history, recoverableConnectionOperation]);
+  const presentConnectionDiagnostic = (result: ProviderConnectionTestResult) => {
+    const dispatch = result.dispatchState === "sent" ? "已发送一次合成聊天探测。" : result.dispatchState === "not-sent" ? "本次未发送 Provider 请求。" : "发送状态未知；恢复只读取原回执，不会重试。";
+    const historical = result.readOnly ? "只读回执" : result.recovered ? "已恢复同一次测试" : "本次连接测试";
+    if (result.state === "missing") return `${historical}：${result.error || "未找到操作。"}`;
+    const detail = result.outcome === "success"
+      ? `${historical}成功：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。${dispatch}${result.responsePreview ? ` 响应：${result.responsePreview}` : ""}`
+      : `${historical}失败：${result.error || "上游未返回可用响应。"} ${dispatch}`;
+    return detail;
+  };
   const runConnectionTest = async (operation: { operationId: string; modelId?: string }) => {
     if (!props.onTestProviderConnection) return;
     const result = await props.onTestProviderConnection(operation);
-    const detail = result.outcome === "success"
-      ? `${result.recovered ? "已恢复同一次测试" : "连接测试成功"}：${result.modelId} · ${new Date(result.testedAt).toLocaleString()} · ${result.latencyMs} ms。${result.sent ? "已发送一次合成聊天探测。" : "未发送 Provider 请求。"}${result.responsePreview ? ` 响应：${result.responsePreview}` : ""}`
-      : `连接测试失败：${result.error || "上游未返回可用响应。"}`;
+    const detail = presentConnectionDiagnostic(result);
     setConnectionOperation({ phase: result.outcome === "success" ? "succeeded" : "failed", detail });
     setProviderNotice(detail);
-    rememberConnectionOperation(null);
+    if (result.state === "completed" || result.state === "missing") rememberConnectionOperation(null);
   };
   const testConnection = () => void (async () => {
     if (!props.onTestProviderConnection) return;
@@ -176,9 +184,8 @@ export function AgentSettingsSection(props: {
     try {
       await runConnectionTest(operation);
     } catch (cause) {
-      const detail = connectionTestFailureDetail(cause);
-      if (!(cause instanceof LocalTransportError) || cause.status === 0) rememberConnectionOperation(operation);
-      else rememberConnectionOperation(null);
+      const detail = `结果未知：${cause instanceof Error ? cause.message : "本地读取失败。"} 可恢复本次操作，不会新发 Provider 请求。`;
+      rememberConnectionOperation(operation);
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
     finally { setProviderBusy(false); setProviderAction(null); }
@@ -196,8 +203,7 @@ export function AgentSettingsSection(props: {
       testStarted = true;
       await runConnectionTest(operation);
     } catch (cause) {
-      const detail = testStarted ? connectionTestFailureDetail(cause) : `保存失败：${cause instanceof Error ? cause.message : "此前已保存配置未被清除。"} 未发送 Provider 请求。`;
-      if (cause instanceof LocalTransportError && cause.status !== 0) rememberConnectionOperation(null);
+      const detail = testStarted ? `结果未知：${cause instanceof Error ? cause.message : "本地读取失败。"} 可恢复本次操作，不会新发 Provider 请求。` : `保存失败：${cause instanceof Error ? cause.message : "此前已保存配置未被清除。"} 未发送 Provider 请求。`;
       setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail);
     }
     finally { setProviderBusy(false); setProviderAction(null); }
@@ -326,12 +332,19 @@ export function AgentSettingsSection(props: {
         <button type="button" disabled={providerBusy || props.busy || !selected?.enabled || !props.onDisableProviderProfile} onClick={disableProvider}>停用 Provider</button>
       </div>
       <div className="agent-provider-operation-status" aria-live="polite">
-        <p data-state={catalogOperation.phase}>模型目录：{catalogOperation.detail}</p>
+        <p data-state={catalogOperation.phase}>模型目录：{catalogOperation.phase === "idle" && catalog?.status === "ready" ? `最近获取成功 · ${formatCatalogTime(catalog.lastSuccessAt)}（本页未刷新）` : catalogOperation.detail}</p>
         <p data-state={connectionOperation.phase}>连接测试：{connectionOperation.detail}</p>
-        {recoverableConnectionOperation && <button type="button" disabled={providerBusy || props.busy || !props.onTestProviderConnection} onClick={() => void (async () => {
+        {recoverableConnectionOperation && <button type="button" disabled={providerBusy || props.busy || !props.onReadProviderConnectionDiagnostic} onClick={() => void (async () => {
           setProviderBusy(true); setProviderAction("connection");
           setConnectionOperation({ phase: "running", detail: "正在恢复同一次连接测试回执；不会重新发送 Provider 请求…" });
-          try { await runConnectionTest(recoverableConnectionOperation); }
+          try {
+            const result = await props.onReadProviderConnectionDiagnostic?.(recoverableConnectionOperation.operationId);
+            if (!result) throw new Error("只读回执入口不可用。");
+            const detail = presentConnectionDiagnostic(result);
+            setConnectionOperation({ phase: result.outcome === "success" ? "succeeded" : "failed", detail });
+            setProviderNotice(detail);
+            if (result.state === "completed" || result.state === "missing") rememberConnectionOperation(null);
+          }
           catch (cause) { const detail = cause instanceof Error ? cause.message : "无法恢复本次连接测试。"; setConnectionOperation({ phase: "failed", detail }); setProviderNotice(detail); }
           finally { setProviderBusy(false); setProviderAction(null); }
         })()}>恢复本次测试</button>}
@@ -391,12 +404,6 @@ function createConnectionTestOperationId(): string {
   return `connection-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function connectionTestFailureDetail(cause: unknown, fallback = "连接测试失败。") {
-  const message = cause instanceof Error ? cause.message : fallback;
-  if (cause instanceof LocalTransportError && cause.status === 0) return `结果未知：${message} 可恢复本次操作，不会新发 Provider 请求。`;
-  if (/未(?:发送|发起)|预算已用尽/u.test(message)) return `本次未发送：${message}`;
-  return `本次已发送但失败：${message} 不会自动重试。`;
-}
 
 function hasUnsavedProviderChanges(form: HTMLFormElement | null, input: {
   providerId: ProviderPresetId;

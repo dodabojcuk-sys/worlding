@@ -19,7 +19,7 @@ import {
 
 export { defaultProviderAppDataRoot } from "./providerAppDataRoot.mjs";
 
-export const PROVIDER_PROFILE_SCHEMA_VERSION = 3;
+export const PROVIDER_PROFILE_SCHEMA_VERSION = 4;
 export const DEFAULT_PROVIDER_PROFILE_ID = "siliconflow.default";
 export const RADEON_CLOUD_PROVIDER_PROFILE_ID = "radeon-cloud.default";
 export const MAX_PROVIDER_MODELS = 500;
@@ -57,6 +57,7 @@ function defaultProfileForPreset(preset, at) {
     enabled: true,
     credentialRef: id,
     configRevision: 0,
+    credentialRevision: 0,
     connectionStatus: "unknown",
     lastVerifiedAt: null,
     lastError: null,
@@ -126,6 +127,7 @@ export function createPersistentProviderProfileStore(options = {}) {
     const nextBaseUrl = input.baseUrl ?? target.baseUrl;
     const configChanged = input.invalidateCatalog === true || nextBaseUrl.replace(/\/$/u, "") !== target.baseUrl;
     const configRevision = configChanged ? target.configRevision + 1 : target.configRevision;
+    const credentialRevision = input.credentialChanged === true ? target.credentialRevision + 1 : target.credentialRevision;
     const llmModelId = boundedText(input.llmModelId ?? input.modelId ?? target.modelId, 240);
     const embeddingModelId = boundedText(input.embeddingModelId ?? target.embeddingModelId, 240);
     let catalog = configChanged ? invalidateCatalogSnapshot(target.catalog, configRevision) : target.catalog;
@@ -155,6 +157,7 @@ export function createPersistentProviderProfileStore(options = {}) {
       },
       enabled: input.enabled ?? target.enabled,
       configRevision,
+      credentialRevision,
       endpointIdentity: endpointIdentity(nextBaseUrl),
       connectionStatus: input.connectionStatus ?? target.connectionStatus,
       lastVerifiedAt: input.lastVerifiedAt === undefined ? target.lastVerifiedAt : input.lastVerifiedAt,
@@ -238,14 +241,26 @@ export function createPersistentProviderProfileStore(options = {}) {
     }, { historyEntry: input.historyEntry });
   }
 
-  function markConnection(input = {}) {
-    return save({
-      expectedRevision: input.expectedRevision,
-      connectionStatus: input.connectionStatus,
-      lastVerifiedAt: input.lastVerifiedAt,
-      lastError: input.lastError,
-      historyEntry: input.historyEntry
+  function recordConnectionDiagnostic(input = {}) {
+    const current = read();
+    const entry = normalizeProviderHistoryEntry(input.historyEntry);
+    const snapshot = normalizeDiagnosticSnapshot(input.snapshot || entry);
+    const history = current.history.some((item) => item.kind === "connection" && item.operationId === entry.operationId)
+      ? current.history.map((item) => item.kind === "connection" && item.operationId === entry.operationId ? entry : item)
+      : [...current.history, entry].slice(-MAX_PROVIDER_HISTORY);
+    const profiles = current.profiles.map((profile) => {
+      if (!input.updateCurrentStatus || profile.id !== current.activeProfileId || !sameDiagnosticSnapshot(profile, snapshot)) return profile;
+      return normalizeProviderProfileEntry({
+        ...profile,
+        connectionStatus: input.connectionStatus,
+        lastVerifiedAt: input.lastVerifiedAt,
+        lastError: input.lastError,
+        updatedAt: now().toISOString()
+      });
     });
+    const next = normalizeProviderProfile({ ...current, schemaVersion: PROVIDER_PROFILE_SCHEMA_VERSION, revision: current.revision + 1, profiles, history });
+    atomicWrite(next);
+    return next;
   }
 
   function recordHistory(input = {}) { return updateActive(input.expectedRevision, (profile) => profile, { historyEntry: input.historyEntry }); }
@@ -305,7 +320,7 @@ export function createPersistentProviderProfileStore(options = {}) {
     failCatalog,
     markCatalogUnsupported,
     recordEmbeddingProbe,
-    markConnection,
+    recordConnectionDiagnostic,
     recordHistory,
     disable,
     publicState,
@@ -321,6 +336,7 @@ function publicProfile(profile) {
 export function normalizeProviderProfile(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw profileStoreError("provider-profile-schema");
   if (value.schemaVersion === 1 || value.schemaVersion === 2) return migrateLegacyProviderProfile(value);
+  if (value.schemaVersion === 3) value = { ...value, schemaVersion: PROVIDER_PROFILE_SCHEMA_VERSION };
   if (value.schemaVersion !== PROVIDER_PROFILE_SCHEMA_VERSION) throw profileStoreError("provider-profile-schema");
   if (!Number.isInteger(value.revision) || value.revision < 0) throw profileStoreError("provider-profile-schema");
   if (!Array.isArray(value.profiles) || value.profiles.length < 1 || value.profiles.length > 16) throw profileStoreError("provider-profile-schema");
@@ -342,6 +358,7 @@ function normalizeProviderProfileEntry(value) {
   if (!id || !displayName || !baseUrl || !credentialRef || value.enabled !== true && value.enabled !== false) throw profileStoreError("provider-profile-schema");
   try { new URL(baseUrl); } catch { throw profileStoreError("provider-profile-schema"); }
   const configRevision = Number.isInteger(value.configRevision) && value.configRevision >= 0 ? value.configRevision : 0;
+  const credentialRevision = Number.isInteger(value.credentialRevision) && value.credentialRevision >= 0 ? value.credentialRevision : configRevision;
   const modelId = boundedText(value.modelId || value.defaultModels?.llm?.modelId, 240);
   const embeddingModelId = boundedText(value.embeddingModelId || value.defaultModels?.embedding?.modelId, 240);
   const catalog = normalizeCatalog(value.catalog, id, configRevision);
@@ -364,6 +381,7 @@ function normalizeProviderProfileEntry(value) {
     enabled: value.enabled,
     credentialRef,
     configRevision,
+    credentialRevision,
     connectionStatus: ["unknown", "verified", "failed", "disabled"].includes(value.connectionStatus) ? value.connectionStatus : "unknown",
     lastVerifiedAt: typeof value.lastVerifiedAt === "string" ? value.lastVerifiedAt : null,
     lastError: value.lastError ? String(value.lastError).replace(/Bearer\s+[^\s]+/giu, "Bearer [已隐藏]").slice(0, 240) : null,
@@ -455,7 +473,7 @@ function normalizeProviderHistoryEntry(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw profileStoreError("provider-profile-schema");
   const id = boundedText(value.id, 120);
   const kind = ["save", "reload", "models", "connection", "credential", "disable", "inference", "embedding"].includes(value.kind) ? value.kind : "connection";
-  const status = ["success", "failed"].includes(value.status) ? value.status : "success";
+  const status = ["running", "success", "failed"].includes(value.status) ? value.status : "success";
   const occurredAt = typeof value.occurredAt === "string" ? value.occurredAt : "";
   if (!id || !occurredAt) throw profileStoreError("provider-profile-schema");
   return {
@@ -463,6 +481,8 @@ function normalizeProviderHistoryEntry(value) {
     operationId: boundedText(value.operationId, 96) || null,
     providerInstanceId: boundedText(value.providerInstanceId, 96) || null,
     configRevision: Number.isInteger(value.configRevision) && value.configRevision >= 0 ? value.configRevision : null,
+    credentialRevision: Number.isInteger(value.credentialRevision) && value.credentialRevision >= 0 ? value.credentialRevision : null,
+    protocolAdapter: boundedText(value.protocolAdapter, 64) || null,
     endpointIdentity: boundedText(value.endpointIdentity, 64) || null,
     kind,
     status,
@@ -472,8 +492,32 @@ function normalizeProviderHistoryEntry(value) {
     latencyMs: Number.isFinite(value.latencyMs) && value.latencyMs >= 0 ? Math.min(Math.round(value.latencyMs), 86_400_000) : null,
     error: value.error ? String(value.error).replace(/Bearer\s+[^\s]+/giu, "Bearer [已隐藏]").slice(0, 240) : null,
     responsePreview: value.responsePreview ? String(value.responsePreview).replace(/(?:Bearer|api[_-]?key)\s*[:=]?\s*[^\s,;]+/giu, "$1 [已隐藏]").replace(/\s+/gu, " ").trim().slice(0, 160) : null,
-    traceId: boundedText(value.traceId, 160) || null
+    traceId: boundedText(value.traceId, 160) || null,
+    dispatchState: ["sent", "not-sent", "unknown"].includes(value.dispatchState) ? value.dispatchState : null,
+    phase: ["preflight", "running", "completed", "failed", "unknown"].includes(value.phase) ? value.phase : null,
+    errorOrigin: ["local", "upstream", "unknown"].includes(value.errorOrigin) ? value.errorOrigin : null,
+    errorCategory: boundedText(value.errorCategory, 96) || null
   };
+}
+
+function normalizeDiagnosticSnapshot(value) {
+  return {
+    providerInstanceId: boundedText(value.providerInstanceId, 96),
+    configRevision: Number.isInteger(value.configRevision) && value.configRevision >= 0 ? value.configRevision : -1,
+    credentialRevision: Number.isInteger(value.credentialRevision) && value.credentialRevision >= 0 ? value.credentialRevision : -1,
+    protocolAdapter: boundedText(value.protocolAdapter, 64),
+    endpointIdentity: boundedText(value.endpointIdentity, 64),
+    modelId: boundedText(value.modelId, 240)
+  };
+}
+
+function sameDiagnosticSnapshot(profile, snapshot) {
+  return profile.id === snapshot.providerInstanceId
+    && profile.configRevision === snapshot.configRevision
+    && profile.credentialRevision === snapshot.credentialRevision
+    && profile.protocolAdapter === snapshot.protocolAdapter
+    && profile.endpointIdentity === snapshot.endpointIdentity
+    && profile.modelId === snapshot.modelId;
 }
 
 function assertProviderModelIdentity(displayName, modelId) {

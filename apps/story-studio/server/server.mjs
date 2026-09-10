@@ -2701,8 +2701,9 @@ async function handleModelServiceRequest(request, response, url) {
         baseUrl: body.baseUrl,
         modelId: body.llmModelId ?? body.modelId,
         embeddingModelId: body.embeddingModelId,
-        enabled: body.enabled,
-        invalidateCatalog: Boolean(apiKey) || (body.baseUrl !== undefined && body.baseUrl.replace(/\/$/u, "") !== active?.baseUrl),
+      enabled: body.enabled,
+      invalidateCatalog: Boolean(apiKey) || (body.baseUrl !== undefined && body.baseUrl.replace(/\/$/u, "") !== active?.baseUrl),
+      credentialChanged: Boolean(apiKey),
         ...(profileChanged ? { connectionStatus: "unknown", lastVerifiedAt: null, lastError: null } : {}),
         historyEntry: {
           id: randomUUID(),
@@ -2746,6 +2747,7 @@ async function handleModelServiceRequest(request, response, url) {
     providerProfileState = providerProfileStore.save({
       expectedRevision: providerProfileState.revision,
       invalidateCatalog: true,
+      credentialChanged: true,
       connectionStatus: "unknown",
       lastVerifiedAt: null,
       lastError: null,
@@ -2830,46 +2832,58 @@ async function handleModelServiceRequest(request, response, url) {
     }
     return;
   }
+  if (request.method === "GET" && route === "test") {
+    const operationId = normalizeSettingsDiagnosticOperationId(requireQueryValue(url, "operationId"));
+    const entry = readConnectionDiagnosticHistory(operationId);
+    if (!entry) {
+      sendJson(response, 200, { data: missingConnectionDiagnosticResponse(operationId) });
+      return;
+    }
+    sendJson(response, 200, { data: connectionDiagnosticResponse({ active: readActiveProviderProfile(), modelId: entry.modelId, operationId, entry, recovered: true, readOnly: true }) });
+    return;
+  }
   if (request.method === "POST" && route === "test") {
     const body = await readJsonBody(request, 1 * 1024);
     requireAllowedKeys(body, ["modelId", "operationId"]);
-    const active = readActiveProviderProfile();
-    if (!active?.enabled) throw productError("当前 Provider 已禁用，未发起连接测试。", 412);
-    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) throw productError("当前 Provider 缺少已保存凭据，未发送连接测试。", 412);
-    const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
-    if (!requestedModelId) throw productError("请先选择或手工填写默认对话模型；未发起 Provider 请求。", 400);
-    assertProviderModelId(requestedModelId, "默认对话模型");
     const operationId = normalizeSettingsDiagnosticOperationId(body.operationId);
+    const active = readActiveProviderProfile();
+    if (!active?.enabled) { sendJson(response, 200, { data: preflightConnectionDiagnostic({ active, operationId, error: "当前 Provider 已禁用，未发起连接测试。" }) }); return; }
+    if (providerPreset(active.preset)?.credentialRequired !== false && !providerCredential.configured()) { sendJson(response, 200, { data: preflightConnectionDiagnostic({ active, operationId, error: "当前 Provider 缺少已保存凭据，未发送连接测试。" }) }); return; }
+    const requestedModelId = typeof body.modelId === "string" && body.modelId.trim() ? body.modelId.trim() : active.modelId;
+    if (!requestedModelId) { sendJson(response, 200, { data: preflightConnectionDiagnostic({ active, operationId, error: "请先选择或手工填写默认对话模型；未发起 Provider 请求。" }) }); return; }
+    assertProviderModelId(requestedModelId, "默认对话模型");
     const completedDiagnostic = readConnectionDiagnosticHistory(operationId);
     if (completedDiagnostic) {
-      if (completedDiagnostic.modelId && completedDiagnostic.modelId !== requestedModelId) throw productError("同一连接测试操作不能改用其他模型；未重新发送 Provider 请求。", 409);
+      assertConnectionDiagnosticSnapshot(completedDiagnostic, active, requestedModelId);
       sendJson(response, 200, { data: connectionDiagnosticResponse({ active, modelId: requestedModelId, operationId, entry: completedDiagnostic, recovered: true }) });
       return;
     }
     const inFlight = activeConnectionDiagnosticRuns.get(operationId);
     if (inFlight) {
-      if (inFlight.modelId !== requestedModelId) throw productError("同一连接测试操作不能改用其他模型；未重新发送 Provider 请求。", 409);
+      assertConnectionDiagnosticSnapshot(inFlight.snapshot, active, requestedModelId);
       const result = await inFlight.promise;
       sendJson(response, 200, { data: { ...result, recovered: true } });
       return;
     }
     const startedAt = Date.now();
-    const diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "connection-test", generationCalls: 1, totalCalls: 1, operationId, modelId: requestedModelId });
+    let diagnostic;
+    try { diagnostic = reserveSettingsDiagnosticBudget({ active, kind: "connection-test", generationCalls: 1, totalCalls: 1, operationId, modelId: requestedModelId }); }
+    catch (error) { sendJson(response, 200, { data: preflightConnectionDiagnostic({ active, operationId, modelId: requestedModelId, error: settingsDiagnosticErrorMessage(error), errorCode: error?.code || "local-preflight" }) }); return; }
     if (diagnostic.replayedReservation) {
       const completed = readConnectionDiagnosticHistory(operationId);
       if (completed) {
         sendJson(response, 200, { data: connectionDiagnosticResponse({ active, modelId: requestedModelId, operationId, entry: completed, recovered: true }) });
         return;
       }
-      throw productError("本次连接测试已预留但没有可恢复的完成回执；为避免重复发送，未重新请求 Provider。", 409);
+      sendJson(response, 200, { data: unknownConnectionDiagnosticResponse({ active, operationId, modelId: requestedModelId }) });
+      return;
     }
-    const run = runConnectionDiagnostic({ active, requestedModelId, operationId, diagnostic, startedAt });
-    activeConnectionDiagnosticRuns.set(operationId, { modelId: requestedModelId, promise: run });
+    const snapshot = connectionDiagnosticSnapshot(active, requestedModelId);
+    providerProfileState = providerProfileStore.recordConnectionDiagnostic({ historyEntry: connectionDiagnosticEntry({ operationId, snapshot, status: "running", occurredAt: new Date().toISOString(), modelId: requestedModelId }), snapshot, updateCurrentStatus: false });
+    const run = runConnectionDiagnostic({ active, requestedModelId, operationId, diagnostic, startedAt, snapshot });
+    activeConnectionDiagnosticRuns.set(operationId, { snapshot, promise: run });
     try {
       sendJson(response, 200, { data: await run });
-    } catch (error) {
-      if (error?.code === "PROVIDER_BUDGET_EXHAUSTED") throw productError(settingsDiagnosticErrorMessage(error), 429);
-      throw error;
     } finally {
       activeConnectionDiagnosticRuns.delete(operationId);
     }
@@ -3379,7 +3393,7 @@ function normalizeSettingsDiagnosticOperationId(value) {
   return value;
 }
 
-async function runConnectionDiagnostic({ active, requestedModelId, operationId, diagnostic, startedAt }) {
+async function runConnectionDiagnostic({ active, requestedModelId, operationId, diagnostic, startedAt, snapshot }) {
   try {
     syncProviderGatewayProfile(requestedModelId);
     const profile = providerGateway.metadata().profiles[0];
@@ -3394,53 +3408,19 @@ async function runConnectionDiagnostic({ active, requestedModelId, operationId, 
       budgetScope: diagnostic.scope
     });
     const verifiedAt = new Date().toISOString();
-    const entry = {
-      id: randomUUID(),
-      operationId,
-      providerInstanceId: active.id,
-      configRevision: active.configRevision,
-      endpointIdentity: active.endpointIdentity,
-      kind: "connection",
-      status: "success",
-      occurredAt: verifiedAt,
-      modelId: requestedModelId,
-      latencyMs: Date.now() - startedAt,
-      traceId: inference.traceId,
-      responsePreview: sanitizeSettingsDiagnosticPreview(inference.content)
-    };
-    providerProfileState = providerProfileStore.markConnection({
-      expectedRevision: providerProfileState.revision,
-      connectionStatus: "verified",
-      lastVerifiedAt: verifiedAt,
-      lastError: null,
-      historyEntry: entry
-    });
+    const entry = connectionDiagnosticEntry({ operationId, snapshot, status: "success", occurredAt: verifiedAt, modelId: requestedModelId, latencyMs: Date.now() - startedAt, traceId: inference.traceId, responsePreview: sanitizeSettingsDiagnosticPreview(inference.content), dispatchState: "sent", phase: "completed" });
+    providerProfileState = providerProfileStore.recordConnectionDiagnostic({ historyEntry: entry, snapshot, updateCurrentStatus: true, connectionStatus: "verified", lastVerifiedAt: verifiedAt, lastError: null });
     return connectionDiagnosticResponse({ active, modelId: requestedModelId, operationId, entry, recovered: false });
   } catch (error) {
+    const dispatchState = connectionDiagnosticDispatchState(diagnostic.idempotencyKey);
+    const detail = connectionDiagnosticErrorDetail(error, dispatchState);
+    const entry = connectionDiagnosticEntry({ operationId, snapshot, status: "failed", occurredAt: new Date().toISOString(), modelId: requestedModelId, latencyMs: Date.now() - startedAt, error: detail.message, dispatchState, phase: dispatchState === "sent" ? "failed" : dispatchState === "unknown" ? "unknown" : "preflight", errorOrigin: detail.origin, errorCategory: detail.category });
     try {
-      providerProfileState = providerProfileStore.markConnection({
-        expectedRevision: providerProfileState.revision,
-        connectionStatus: "failed",
-        lastVerifiedAt: null,
-        lastError: settingsDiagnosticErrorMessage(error),
-        historyEntry: {
-          id: randomUUID(),
-          operationId,
-          providerInstanceId: active.id,
-          configRevision: active.configRevision,
-          endpointIdentity: active.endpointIdentity,
-          kind: "connection",
-          status: "failed",
-          occurredAt: new Date().toISOString(),
-          modelId: requestedModelId,
-          latencyMs: Date.now() - startedAt,
-          error: settingsDiagnosticErrorMessage(error)
-        }
-      });
+      providerProfileState = providerProfileStore.recordConnectionDiagnostic({ historyEntry: entry, snapshot, updateCurrentStatus: dispatchState === "sent", connectionStatus: "failed", lastVerifiedAt: null, lastError: detail.message });
     } catch {
-      // A connection error must never hide the original Provider failure.
+      // The structured result remains useful even when its local history write fails.
     }
-    throw error;
+    return connectionDiagnosticResponse({ active, modelId: requestedModelId, operationId, entry, recovered: false });
   }
 }
 
@@ -3448,7 +3428,8 @@ function readConnectionDiagnosticHistory(operationId) {
   return providerProfileState.history.find((entry) => entry.kind === "connection" && entry.operationId === operationId) || null;
 }
 
-function connectionDiagnosticResponse({ active, modelId, operationId, entry, recovered }) {
+function connectionDiagnosticResponse({ active, modelId, operationId, entry, recovered, readOnly = false }) {
+  const snapshot = connectionDiagnosticSnapshotFromEntry(entry, active, modelId);
   return {
     gate: "connection",
     operationId,
@@ -3456,21 +3437,68 @@ function connectionDiagnosticResponse({ active, modelId, operationId, entry, rec
     modelId: entry.modelId || modelId,
     testedAt: entry.occurredAt,
     latencyMs: entry.latencyMs ?? 0,
-    outcome: entry.status,
-    sent: true,
+    state: entry.status === "running" ? "in-progress" : "completed",
+    outcome: entry.status === "success" ? "success" : "failed",
+    dispatchState: entry.dispatchState || (entry.status === "running" ? "unknown" : "sent"),
+    sent: (entry.dispatchState || (entry.status === "running" ? "unknown" : "sent")) === "sent",
     recovered,
+    readOnly,
     responsePreview: entry.responsePreview || null,
     error: entry.error || null,
-    configurationSnapshot: {
-      providerInstanceId: entry.providerInstanceId || active.id,
-      configRevision: entry.configRevision ?? active.configRevision,
-      endpointIdentity: entry.endpointIdentity || active.endpointIdentity,
-      modelId: entry.modelId || modelId
-    },
-    availableModelCount: active.catalog.entries.filter((item) => item.source === "endpoint").length,
-    models: active.catalog.entries.filter((item) => item.source === "endpoint").map((item) => item.id),
+    configurationSnapshot: snapshot,
+    availableModelCount: active?.catalog?.entries.filter((item) => item.source === "endpoint").length ?? 0,
+    models: active?.catalog?.entries.filter((item) => item.source === "endpoint").map((item) => item.id) ?? [],
     profile: readProviderProfileProjection()
   };
+}
+
+function connectionDiagnosticSnapshot(active, modelId) {
+  return { providerInstanceId: active.id, configRevision: active.configRevision, credentialRevision: active.credentialRevision, protocolAdapter: active.protocolAdapter, endpointIdentity: active.endpointIdentity, modelId };
+}
+
+function connectionDiagnosticSnapshotFromEntry(entry, active, modelId) {
+  return { providerInstanceId: entry.providerInstanceId || active?.id || "unknown", configRevision: entry.configRevision ?? active?.configRevision ?? 0, credentialRevision: entry.credentialRevision ?? entry.configRevision ?? active?.credentialRevision ?? 0, protocolAdapter: entry.protocolAdapter || active?.protocolAdapter || "unknown", endpointIdentity: entry.endpointIdentity || active?.endpointIdentity || "unknown", modelId: entry.modelId || modelId || "unknown" };
+}
+
+function assertConnectionDiagnosticSnapshot(entry, active, modelId) {
+  const stored = connectionDiagnosticSnapshotFromEntry(entry, active, modelId);
+  const requested = connectionDiagnosticSnapshot(active, modelId);
+  if (JSON.stringify(stored) !== JSON.stringify(requested)) throw productError("同一连接测试操作绑定的是另一份 Provider 配置快照；未重新发送 Provider 请求。", 409);
+}
+
+function connectionDiagnosticEntry(input) {
+  return { id: randomUUID(), operationId: input.operationId, providerInstanceId: input.snapshot.providerInstanceId, configRevision: input.snapshot.configRevision, credentialRevision: input.snapshot.credentialRevision, protocolAdapter: input.snapshot.protocolAdapter, endpointIdentity: input.snapshot.endpointIdentity, kind: "connection", status: input.status, occurredAt: input.occurredAt, modelId: input.modelId, latencyMs: input.latencyMs, traceId: input.traceId, responsePreview: input.responsePreview, error: input.error, dispatchState: input.dispatchState || "unknown", phase: input.phase || "running", errorOrigin: input.errorOrigin || null, errorCategory: input.errorCategory || null };
+}
+
+function preflightConnectionDiagnostic({ active, operationId, modelId = null, error, errorCode = "local-preflight" }) {
+  const safeActive = active || { id: "unavailable", configRevision: 0, credentialRevision: 0, protocolAdapter: "unknown", endpointIdentity: "unknown", provider: "unknown", catalog: { entries: [] } };
+  const resolvedModel = modelId || active?.modelId || "未选择模型";
+  const snapshot = connectionDiagnosticSnapshot(safeActive, resolvedModel);
+  const entry = connectionDiagnosticEntry({ operationId, snapshot, status: "failed", occurredAt: new Date().toISOString(), modelId: resolvedModel, latencyMs: 0, error, dispatchState: "not-sent", phase: "preflight", errorOrigin: "local", errorCategory: errorCode });
+  if (active) providerProfileState = providerProfileStore.recordConnectionDiagnostic({ historyEntry: entry, snapshot, updateCurrentStatus: false });
+  return connectionDiagnosticResponse({ active: safeActive, modelId: resolvedModel, operationId, entry, recovered: false });
+}
+
+function unknownConnectionDiagnosticResponse({ active, operationId, modelId }) {
+  const snapshot = connectionDiagnosticSnapshot(active, modelId);
+  const entry = connectionDiagnosticEntry({ operationId, snapshot, status: "failed", occurredAt: new Date().toISOString(), modelId, latencyMs: 0, error: "本次测试已有预留回执，但尚无法确认是否已发送；恢复只会读取该回执，不会重新请求 Provider。", dispatchState: "unknown", phase: "unknown", errorOrigin: "unknown", errorCategory: "receipt-pending" });
+  return connectionDiagnosticResponse({ active, modelId, operationId, entry, recovered: true, readOnly: true });
+}
+
+function missingConnectionDiagnosticResponse(operationId) {
+  return { gate: "connection", operationId, state: "missing", outcome: "failed", dispatchState: "not-sent", sent: false, recovered: true, readOnly: true, error: "未找到该次连接测试回执；恢复未发送 Provider 请求。", responsePreview: null, configurationSnapshot: null, availableModelCount: 0, models: [], profile: readProviderProfileProjection() };
+}
+
+function connectionDiagnosticDispatchState(idempotencyKey) {
+  const reservation = providerBudgetLedger.reservationForIdempotencyKey(idempotencyKey);
+  if (!reservation) return "not-sent";
+  return ["success", "malformed", "timeout", "cancelled-after-dispatch", "transport-failed"].includes(reservation.outcome) ? "sent" : "unknown";
+}
+
+function connectionDiagnosticErrorDetail(error, dispatchState) {
+  const category = String(error?.code || "unavailable");
+  const origin = error?.name === "ProviderGatewayError" ? "upstream" : dispatchState === "not-sent" ? "local" : "unknown";
+  return { origin, category, message: safeProviderErrorSummary(error) };
 }
 
 function sanitizeSettingsDiagnosticPreview(value) {

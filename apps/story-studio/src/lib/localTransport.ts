@@ -245,6 +245,7 @@ export type ProviderInstanceProjection = {
   enabled: boolean;
   credentialRef: string;
   configRevision: number;
+  credentialRevision: number;
   connectionStatus: "unknown" | "verified" | "failed" | "disabled";
   lastVerifiedAt: string | null;
   lastError: string | null;
@@ -346,9 +347,11 @@ export type ProviderOperationHistoryEntry = {
   operationId: string | null;
   providerInstanceId: string | null;
   configRevision: number | null;
+  credentialRevision: number | null;
+  protocolAdapter: string | null;
   endpointIdentity: string | null;
   kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference" | "embedding";
-  status: "success" | "failed";
+  status: "running" | "success" | "failed";
   occurredAt: string;
   modelId: string | null;
   modelCount: number | null;
@@ -356,6 +359,10 @@ export type ProviderOperationHistoryEntry = {
   error: string | null;
   responsePreview: string | null;
   traceId: string | null;
+  dispatchState: "sent" | "not-sent" | "unknown" | null;
+  phase: "preflight" | "running" | "completed" | "failed" | "unknown" | null;
+  errorOrigin: "local" | "upstream" | "unknown" | null;
+  errorCategory: string | null;
 };
 
 export type ProviderSessionConnection = {
@@ -1368,12 +1375,15 @@ export type ProviderConnectionTestResult = {
   modelId: string;
   testedAt: string;
   latencyMs: number;
+  state: "completed" | "in-progress" | "missing";
   outcome: "success" | "failed";
+  dispatchState: "sent" | "not-sent" | "unknown";
   sent: boolean;
   recovered: boolean;
   responsePreview: string | null;
   error: string | null;
-  configurationSnapshot: { providerInstanceId: string; configRevision: number; endpointIdentity: string; modelId: string };
+  readOnly: boolean;
+  configurationSnapshot: { providerInstanceId: string; configRevision: number; credentialRevision: number; protocolAdapter: string; endpointIdentity: string; modelId: string } | null;
   availableModelCount: number;
   models: string[];
   profile: ProviderProfileProjection;
@@ -1382,6 +1392,10 @@ export type ProviderConnectionTestResult = {
 export async function testProviderConnection(token: string, input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult> {
   const body = { operationId: input.operationId, ...(input.modelId?.trim() ? { modelId: input.modelId.trim() } : {}) };
   return request<ProviderConnectionTestResult>(`${basePath}/model-service/test`, { method: "POST", token, body });
+}
+
+export async function readProviderConnectionDiagnostic(token: string, operationId: string): Promise<ProviderConnectionTestResult> {
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test?operationId=${encodeURIComponent(operationId)}`, { method: "GET", token });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {
@@ -3448,7 +3462,7 @@ async function readProjectProjection<T>(url: string): Promise<T> {
 
 async function request<T>(
   url: string,
-  input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+  input: { method?: "GET" | "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
   const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;

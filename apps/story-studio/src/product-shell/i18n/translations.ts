@@ -638,7 +638,8 @@ export const zhCN = {
   "common.close": "关闭",
   "common.more": "更多",
   "common.none": "无",
-  "common.loading": "正在加载…"
+  "common.loading": "正在加载…",
+  "world.openLocationMap": "打开地点地图"
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
@@ -1284,7 +1285,8 @@ export const enUS: Record<TranslationKey, string> = {
   "common.close": "Close",
   "common.more": "More",
   "common.none": "None",
-  "common.loading": "Loading…"
+  "common.loading": "Loading…",
+  "world.openLocationMap": "Open location map"
 };
 
 export const translations: Record<Locale, Record<TranslationKey, string>> = {
