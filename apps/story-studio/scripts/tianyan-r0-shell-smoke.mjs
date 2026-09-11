@@ -3779,6 +3779,7 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   await receipt.waitFor({ timeout: 15_000 });
   assert.equal(await receipt.getByRole("button").count(), 6, "The frozen receipt must expose the six actual Event sources, not a fresh preview.");
   await page.setViewportSize({ width: 1440, height: 900 });
+  await receipt.scrollIntoViewIfNeeded();
   await capture("mem-a1a-1440-frozen-answer-receipt.png");
   await reloadProduct(page);
   await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
@@ -3795,6 +3796,7 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   await page.waitForURL(/\/tianyi\?/u);
   await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
   await page.setViewportSize({ width: 1152, height: 720 });
+  await page.getByLabel("本问来源回执").scrollIntoViewIfNeeded();
   await capture("mem-a1a-1152-source-return-recovery.png");
   assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "R4-R2 must not create fake attachment references.");
   assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "R4-R2 must not create fake source references.");
