@@ -2376,10 +2376,21 @@ export type NuwaN1AttentionReport = {
   budget: { estimator: "utf8-byte-upper-bound/v1"; maxInputTokens: number; baseBytes: number; sourceBudgetBytes: number; selectedSourceBytes: number; outputReserveTokens: number; requiredOverflow: boolean };
 };
 export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
+export type NuwaN1Scope = {
+  version: "tianyan-nuwa-n1-scope/v1";
+  mode: "bounded" | "continuous";
+  storylineKey: string;
+  storylineLabel: string;
+  currentSceneIndex: number;
+  scenes: Array<{ storyUnit: { id: string; revision: string }; sceneRef: { id: string; revision: string }; observedAt: string; label: string }>;
+};
+export type NuwaN1Storyline = { key: string; title: string; units: NuwaN1StoryUnit[] };
+export type NuwaN1ScopeSelection = { storylineKey: string; startStoryUnitId: string; endStoryUnitId?: string | null; mode: "bounded" | "continuous" };
 export type NuwaN1Step = {
   stepId: string;
   sequence: number;
   actorId: string;
+  scene: { storyUnitId: string; label: string; observedAt: string };
   intent: string;
   speech: string | null;
   action: { action: string; targetId: string | null } | null;
@@ -2395,6 +2406,7 @@ export type NuwaN1Run = {
   status: "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
   revision: number;
   scene: { storyUnitId: string; label: string; observedAt: string };
+  scope: NuwaN1Scope;
   participants: NuwaN1Participant[];
   goal: string;
   steps: NuwaN1Step[];
@@ -2468,6 +2480,7 @@ export type NuwaN1Bootstrap = {
   availability: NuwaN1Availability;
   participants: NuwaN1Participant[];
   storyUnits: NuwaN1StoryUnit[];
+  storylines: NuwaN1Storyline[];
   relationTypes: Array<{ id: string; title: string; revision: number }>;
   latestRunId: string | null;
 };
@@ -2476,6 +2489,7 @@ export type NuwaN1Setup = {
     projectId: string;
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
+    scope: NuwaN1Scope;
     goal: string;
     contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; memoryItems: NuwaN1MemoryItem[]; evidenceRefs: string[]; excludedCount: number }>;
   };
@@ -2528,12 +2542,12 @@ export async function getNuwaN1Run(projectId: string, runId: string): Promise<Nu
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
-export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
+export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
   const { token, ...body } = input;
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
 }
 
-export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
 }

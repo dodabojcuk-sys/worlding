@@ -13,6 +13,7 @@ import { stableHash, stableJson } from "./storySnapshotBuilder.ts";
 export const NUWA_N1_RUNTIME_VERSION = "tianyan-nuwa-n1-runtime/v1" as const;
 export const NUWA_N1_MAX_COMMITTED_STEPS = 6;
 export const NUWA_N1_MAX_DISPATCHES = 12;
+export const NUWA_N1_STEPS_PER_SCOPE_UNIT = 2;
 
 export type NuwaN1StableRef = { id: string; revision: string };
 export type NuwaN1Lifecycle = "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
@@ -40,6 +41,20 @@ export type NuwaN1Actor = {
   allowedActions: string[];
 };
 export type NuwaN1Scene = { storyUnit: NuwaN1StableRef; sceneRef: NuwaN1StableRef; observedAt: string; label: string };
+/**
+ * A Run owns a frozen reading scope, not a new Story Unit or Event owner.
+ * `scene` remains the current internal execution cursor so older RunPacks
+ * keep their exact meaning.  The author selects the range once; internal
+ * turns can advance this cursor without turning each unit into a new Run.
+ */
+export type NuwaN1Scope = {
+  version: "tianyan-nuwa-n1-scope/v1";
+  mode: "bounded" | "continuous";
+  storylineKey: string;
+  storylineLabel: string;
+  scenes: NuwaN1Scene[];
+  currentSceneIndex: number;
+};
 export type NuwaN1Context = {
   version: "tianyan-nuwa-n1-role-context/v1";
   runId: string;
@@ -88,6 +103,7 @@ export type NuwaN1Step = {
   operationId: string;
   sequence: number;
   actor: NuwaN1StableRef;
+  scene: NuwaN1Scene;
   intent: string;
   speech: string | null;
   action: { action: string; targetId: string | null; worldState?: NuwaN1WorldStateAction };
@@ -143,6 +159,7 @@ export type NuwaN1Run = {
   /** Frozen at author create time; execution must not re-read the current root. */
   sourceIdentity: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null;
   scene: NuwaN1Scene;
+  scope: NuwaN1Scope;
   authorGoal: string;
   actors: NuwaN1Actor[];
   lifecycle: NuwaN1Lifecycle;
@@ -174,7 +191,7 @@ export type NuwaN1CandidateHandoff = {
   formalWrites: 0;
 };
 
-export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
+export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; scope?: NuwaN1Scope; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
   assertRunPack(input.workspacePath, input.runId, input.sourceSnapshotHash);
   assertSetup(input);
   if (readNuwaN1Run(input.workspacePath, input.runId)) {
@@ -184,7 +201,7 @@ export function createNuwaN1Run(input: { workspacePath: string; runId: string; s
   }
   const now = input.now || new Date().toISOString();
   const run: NuwaN1Run = {
-    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, providerDispatchEvidence: "complete", dispatches: 0, steps: [], pendingCue: null, blocker: null,
+    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), scope: normalizeScope(input.scope, input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, providerDispatchEvidence: "complete", dispatches: 0, steps: [], pendingCue: null, blocker: null,
     receipts: [{ operationId: safeOperation(input.operationId), kind: "create", revision: 1, recordedAt: now }], attempts: [], createdAt: now, updatedAt: now
   };
   writeAtomically(input.workspacePath, input.runId, run);
@@ -257,9 +274,10 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     lifecycle: "blocked",
     blocker: "这份历史 Run 缺少可恢复的模型发送记录；为避免把未知发送当作零并重新取得预算，已阻止继续执行。"
   });
-  if (initial.steps.length >= NUWA_N1_MAX_COMMITTED_STEPS) return persist(input, initial, "step", { ...initial, lifecycle: "completed", blocker: null });
+  if (initial.steps.length >= maximumScopeSteps(initial)) return persist(input, initial, "step", { ...initial, lifecycle: "completed", blocker: null });
   if (initial.providerDispatches >= NUWA_N1_MAX_DISPATCHES) return persist(input, initial, "step", { ...initial, lifecycle: "blocked", blocker: "实际 Provider 发送预算已用尽；请结束或新建一次排演。" });
-  const actor = initial.actors[initial.steps.length % initial.actors.length]!;
+  const stepsInCurrentScene = initial.steps.filter((step) => sameRef(step.scene.storyUnit, initial.scene.storyUnit)).length;
+  const actor = initial.actors[stepsInCurrentScene % initial.actors.length]!;
   const context = compileNuwaN1Context(initial, actor, input.operationId);
   const attemptId = safeOperation(input.operationId);
   const preflightInputTokens = Buffer.byteLength(stableJson(context), "utf8");
@@ -340,7 +358,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
     step = {
       stepId,
-      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: normalizeAction(result.action), observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
+      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), scene: cloneScene(current.scene), intent: text(result.intent, "intent", 600), speech, action: normalizeAction(result.action), observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
       contextEvidenceRefs: contextEvidenceRefs(context),
       heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
       toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
@@ -348,7 +366,20 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   } catch (error) {
     return finishAttempt(input, current, attemptId, "failed", `actor result rejected: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色回合结果不符合 N1 边界；未提交场景步骤。" }, undefined, usage);
   }
-  const next: NuwaN1Run = { ...current, steps: [...current.steps, step], pendingCue: null, lifecycle: sequence >= NUWA_N1_MAX_COMMITTED_STEPS ? "completed" : "running", blocker: null, attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt) };
+  const nextScopeIndex = nextScopeSceneIndex(current, sequence);
+  const completed = sequence >= maximumScopeSteps(current);
+  const next: NuwaN1Run = {
+    ...current,
+    steps: [...current.steps, step],
+    ...(nextScopeIndex === current.scope.currentSceneIndex ? {} : {
+      scene: cloneScene(current.scope.scenes[nextScopeIndex]!),
+      scope: { ...current.scope, currentSceneIndex: nextScopeIndex }
+    }),
+    pendingCue: null,
+    lifecycle: completed ? "completed" : "running",
+    blocker: null,
+    attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt)
+  };
   return persist(input, current, "step", next);
 }
 
@@ -358,7 +389,7 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   const dialogue = run.steps.flatMap((step) => step.speech && (step.actor.id === actor.character.id || step.heardByActorIds.includes(actor.character.id)) ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
   const knownFacts = [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility, attentionRequired: fact.attentionRequired === true, ...(fact.worldStateObjectId ? { worldStateObjectId: fact.worldStateObjectId } : {}), ...(fact.memorySource ? { memorySource: structuredClone(fact.memorySource) } : {}) })), ...heardStatements(run, actor.character.id).map((fact) => ({ ...fact, attentionRequired: false }))];
   const beliefs = canonicalActor.beliefs.map((belief) => ({ beliefId: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceRef: structuredClone(belief.sourceRef), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision, attentionRequired: belief.attentionRequired === true }));
-  const remaining = { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096 as const, outputTokenBudget: 1024 as const };
+  const remaining = { committedSteps: maximumScopeSteps(run) - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096 as const, outputTokenBudget: 1024 as const };
   const fixedContext = { version: "tianyan-nuwa-n1-role-context/v1" as const, runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis), excludedKnowledgeCount: canonicalActor.unknownFactIds.length, recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining, authorCue: run.pendingCue?.instruction ?? null };
   const baseBytes = Buffer.byteLength(stableJson({ ...fixedContext, knownFacts: [], beliefs: [], attention: null }), "utf8");
   const attention = selectNuwaN1Attention({
@@ -674,6 +705,8 @@ function normalizeRun(value: unknown): NuwaN1Run {
   if (run.providerDispatchEvidence == null) run.providerDispatchEvidence = "complete";
   if (run.providerDispatchEvidence !== "complete" && run.providerDispatchEvidence !== "unknown") throw new Error("Nuwa N1 Provider dispatch evidence is invalid.");
   if (!["ready", "running", "paused", "completed", "cancelled", "blocked"].includes(run.lifecycle)) throw new Error("Nuwa N1 lifecycle is invalid.");
+  run.scope = normalizeScope(run.scope, run.scene);
+  run.scene = cloneScene(run.scope.scenes[run.scope.currentSceneIndex]!);
   if (!Array.isArray(run.attempts)) run.attempts = [];
   run.sourceIdentity = normalizeSourceIdentity(run.sourceIdentity);
   run.actors = run.actors.map(normalizeActor);
@@ -687,7 +720,7 @@ function normalizeRun(value: unknown): NuwaN1Run {
     const allowed = new Set(run.actors.map((actor) => actor.character.id));
     if (heardStatements.some((heard) => heard.speakerId !== step.actor.id || heard.sourceStepId !== step.stepId || heard.recipientId === step.actor.id || !allowed.has(heard.recipientId))) throw new Error("Nuwa N1 heard statement is outside its completed step or Run roster.");
     if (heardStatements.length !== heardByActorIds.length || heardStatements.some((heard) => !heardByActorIds.includes(heard.recipientId))) throw new Error("Nuwa N1 statement delivery ledger is inconsistent.");
-    return { ...step, speech, action: normalizeAction(step.action), heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
+    return { ...step, scene: step.scene ? cloneScene(step.scene) : cloneScene(run.scene), speech, action: normalizeAction(step.action), heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
   });
   run.attempts = run.attempts.map(normalizeAttempt);
   return structuredClone(run);
@@ -701,12 +734,13 @@ function normalizeSourceIdentity(value: unknown): NuwaN1Run["sourceIdentity"] {
   return { kind: identity.kind, workVersionId: safeId(String(identity.workVersionId || "")), revision: text(String(identity.revision || ""), "sourceIdentity revision", 180) };
 }
 
-function assertSetup(input: { sourceSnapshotHash: string; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[] }): void {
+function assertSetup(input: { sourceSnapshotHash: string; scene: NuwaN1Scene; scope?: NuwaN1Scope; authorGoal: string; actors: NuwaN1Actor[] }): void {
   checkedHash(input.sourceSnapshotHash); cloneScene(input.scene); text(input.authorGoal, "authorGoal", 1_000);
   if (!Array.isArray(input.actors) || input.actors.length < 2 || input.actors.length > 3) throw new Error("Nuwa N1 requires two or three formal characters.");
   const ids = new Set(input.actors.map((actor) => actor.character.id));
   if (ids.size !== input.actors.length) throw new Error("Nuwa N1 character identity must use distinct stable IDs.");
   input.actors.forEach(normalizeActor);
+  normalizeScope(input.scope, input.scene);
 }
 function normalizeActor(actor: NuwaN1Actor): NuwaN1Actor {
   const character = cloneRef(actor.character);
@@ -799,6 +833,25 @@ function writeAtomically(workspacePath: string, runId: string, value: NuwaN1Run)
 }
 function cloneRef(ref: NuwaN1StableRef): NuwaN1StableRef { return { id: stableObjectId(ref.id), revision: checkedHash(ref.revision) }; }
 function cloneScene(scene: NuwaN1Scene): NuwaN1Scene { return { storyUnit: cloneRef(scene.storyUnit), sceneRef: cloneRef(scene.sceneRef), observedAt: text(scene.observedAt, "observedAt", 80), label: text(scene.label, "scene label", 240) }; }
+function normalizeScope(value: NuwaN1Scope | undefined, fallbackScene: NuwaN1Scene): NuwaN1Scope {
+  if (value == null) return { version: "tianyan-nuwa-n1-scope/v1", mode: "bounded", storylineKey: "legacy-single-unit", storylineLabel: "历史单元范围", scenes: [cloneScene(fallbackScene)], currentSceneIndex: 0 };
+  if (value.version !== "tianyan-nuwa-n1-scope/v1" || (value.mode !== "bounded" && value.mode !== "continuous") || !Array.isArray(value.scenes) || value.scenes.length < 1 || value.scenes.length > Math.ceil(NUWA_N1_MAX_COMMITTED_STEPS / NUWA_N1_STEPS_PER_SCOPE_UNIT) || !Number.isSafeInteger(value.currentSceneIndex) || value.currentSceneIndex < 0 || value.currentSceneIndex >= value.scenes.length) throw new Error("Nuwa N1 scope is invalid.");
+  const scenes = value.scenes.map(cloneScene);
+  if (new Set(scenes.map((scene) => scene.storyUnit.id)).size !== scenes.length) throw new Error("Nuwa N1 scope repeats a Story Unit.");
+  return { version: "tianyan-nuwa-n1-scope/v1", mode: value.mode, storylineKey: text(value.storylineKey, "storyline key", 160), storylineLabel: text(value.storylineLabel, "storyline label", 240), scenes, currentSceneIndex: value.currentSceneIndex };
+}
+function maximumScopeSteps(run: NuwaN1Run): number {
+  // A one-unit N1 Run preserves its established six-step budget.  Once the
+  // author selects multiple units, the same fixed Run budget is distributed
+  // across the frozen range so no hidden second Run is created.
+  return run.scope.scenes.length === 1
+    ? NUWA_N1_MAX_COMMITTED_STEPS
+    : Math.min(NUWA_N1_MAX_COMMITTED_STEPS, run.scope.scenes.length * NUWA_N1_STEPS_PER_SCOPE_UNIT);
+}
+function nextScopeSceneIndex(run: NuwaN1Run, completedSteps: number): number {
+  const candidate = Math.floor(completedSteps / NUWA_N1_STEPS_PER_SCOPE_UNIT);
+  return Math.min(run.scope.scenes.length - 1, candidate);
+}
 function sameRef(left: NuwaN1StableRef, right: NuwaN1StableRef): boolean { return left.id === right.id && left.revision === right.revision; }
 function checkedHash(value: string): string { if (typeof value !== "string" || !/^[a-f0-9]{16,128}$/iu.test(value)) throw new Error("Nuwa N1 stable revision is invalid."); return value; }
 function safeId(value: string): string { if (typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,159}$/iu.test(value)) throw new Error("Nuwa N1 identity is invalid."); return value; }

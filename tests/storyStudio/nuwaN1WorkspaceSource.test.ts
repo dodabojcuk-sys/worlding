@@ -18,7 +18,7 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(workspace, /送入待确认/u);
   assert.match(workspace, /加入后续步骤/u);
   assert.match(workspace, /开始第一步/u, "a newly-created ready Run has a reachable first transition");
-  assert.match(workspace, /继续下一场/u, "a terminal Run can be preserved while the author starts another bounded rehearsal");
+  assert.match(workspace, /新建排演/u, "a terminal Run can be preserved while the author starts another selected-range rehearsal");
   assert.match(workspace, /disabled=\{interrupting\}[^>]*onClick=\{\(\) => runAction\("stop"\)\}/u, "stop remains reachable while a long step request is busy");
   assert.match(workspace, /技术详情/u, "稳定 Run identity only appears in progressive disclosure");
   assert.match(workspace, /props\.runtime\.withConnection/u);
@@ -146,6 +146,9 @@ test("Nuwa N3A keeps author content primary while preserving exact permission an
   assert.match(workspace, /本次排演方式/u);
   assert.match(workspace, /本批未配置合法关系类型，没有补造关系/u);
   assert.match(workspace, /查看并下载固定稿/u);
-  assert.match(workspace, /继续下一场/u);
+  assert.match(workspace, /事件线/u);
+  assert.match(workspace, /从单元开始/u);
+  assert.match(workspace, /持续推演（N1 预算内）/u);
+  assert.match(workspace, /新建排演/u);
   assert.match(workspace, /nuwaRunId=\$\{encodeURIComponent\(run\.run\.runId\)\}/u, "the relation handoff preserves the exact Nuwa Run identity");
 });

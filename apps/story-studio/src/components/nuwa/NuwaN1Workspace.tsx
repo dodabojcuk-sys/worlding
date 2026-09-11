@@ -20,6 +20,7 @@ import {
   type NuwaN1ReadModel,
   type NuwaN1Run,
   type NuwaN1Setup,
+  type NuwaN1ScopeSelection,
   type NuwaN1Step,
   type MultiverseWorkVersion
 } from "../../lib/localTransport";
@@ -44,6 +45,9 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [participantGoals, setParticipantGoals] = useState<Record<string, string>>({});
   const [storyUnitId, setStoryUnitId] = useState("");
+  const [storylineKey, setStorylineKey] = useState("");
+  const [scopeMode, setScopeMode] = useState<NuwaN1ScopeSelection["mode"]>("bounded");
+  const [endStoryUnitId, setEndStoryUnitId] = useState("");
   const [relationTypeId, setRelationTypeId] = useState<string | null>(null);
   const [workVersions, setWorkVersions] = useState<MultiverseWorkVersion[]>([]);
   const [workVersionId, setWorkVersionId] = useState("");
@@ -62,7 +66,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
+    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setStorylineKey(""); setScopeMode("bounded"); setEndStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
     if (!projectId) return () => { active = false; };
     const requestedRunId = new URLSearchParams(window.location.search).get("runId")?.trim() || null;
     void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId), getMultiverseWorkVersions(projectId)]).then(([nextBootstrap, latest, versions]) => {
@@ -78,7 +82,12 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       if (requestedParticipantId && (!requestedParticipant || !latest.run)) window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       setParticipantIds(latest.run?.participants.map((participant) => participant.id) ?? (requestedParticipant ? [requestedParticipant] : []));
       setParticipantGoals(Object.fromEntries(latest.run?.participants.map((participant) => [participant.id, participant.localGoal ?? ""]) ?? []));
-      setStoryUnitId(latest.run?.scene.storyUnitId ?? nextBootstrap.storyUnits[0]?.id ?? "");
+      const latestScope = latest.run?.scope;
+      const defaultStoryline = nextBootstrap.storylines[0];
+      setStorylineKey(latestScope?.storylineKey ?? defaultStoryline?.key ?? "");
+      setScopeMode(latestScope?.mode ?? "bounded");
+      setStoryUnitId(latestScope?.scenes[0]?.storyUnit.id ?? latest.run?.scene.storyUnitId ?? defaultStoryline?.units[0]?.id ?? "");
+      setEndStoryUnitId(latestScope?.mode === "bounded" ? (latestScope.scenes.at(-1)?.storyUnit.id ?? "") : "");
       setRelationTypeId(latest.authorization?.relationTypeId ?? (nextBootstrap.relationTypes.length === 1 ? nextBootstrap.relationTypes[0]!.id : null));
       setGoal(latest.run?.goal ?? "让两位角色在当前场景中决定下一步行动。");
       setSelectedStepIds(latest.run?.steps.slice(-1).map((step) => step.stepId) ?? []);
@@ -92,7 +101,10 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     return () => { active = false; };
   }, [projectId]);
 
-  const canPrepare = participantIds.length >= MIN_PARTICIPANTS && Boolean(storyUnitId) && Boolean(goal.trim()) && participantIds.every((id) => Boolean(participantGoals[id]?.trim()));
+  const selectedStoryline = useMemo(() => bootstrap?.storylines.find((line) => line.key === storylineKey) ?? null, [bootstrap?.storylines, storylineKey]);
+  const scopeUnits = selectedStoryline?.units ?? [];
+  const selectedScope = useMemo<NuwaN1ScopeSelection | null>(() => storyUnitId && storylineKey && (scopeMode === "continuous" || endStoryUnitId) ? { storylineKey, startStoryUnitId: storyUnitId, endStoryUnitId: scopeMode === "bounded" ? endStoryUnitId : null, mode: scopeMode } : null, [endStoryUnitId, scopeMode, storyUnitId, storylineKey]);
+  const canPrepare = participantIds.length >= MIN_PARTICIPANTS && Boolean(selectedScope) && Boolean(goal.trim()) && participantIds.every((id) => Boolean(participantGoals[id]?.trim()));
   const selectableWorkVersions = useMemo(() => workVersions.filter(isSelectableWorkVersion), [workVersions]);
   const selectedStep = run?.run?.steps.find((step) => step.stepId === selectedStepId) ?? null;
   const actorContext = useMemo(() => {
@@ -152,8 +164,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     try {
       const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
       const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
-      if (!storyUnit) throw new Error("当前故事单元已不可用，请重新选择后再准备。");
-      const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, goal: goal.trim(), workVersionId: workVersionId || null, operationId: newOperationId(), token }));
+      if (!storyUnit || !selectedScope) throw new Error("当前事件线范围已不可用，请重新选择后再准备。");
+      const next = await props.runtime.withConnection((token) => setupNuwaN1({ projectId, participants, storyUnit, scope: selectedScope, goal: goal.trim(), workVersionId: workVersionId || null, operationId: newOperationId(), token }));
       if (!isCurrentOperation(scope)) return;
       setSetup(next); setNotice("上下文预览已生成；角色只会收到各自允许的依据。"); setInspectorOpen(true); setInspectorTab("context");
     } catch (reason) { if (isCurrentOperation(scope)) setError(messageFor(reason, "准备上下文失败；没有启动排演。")); }
@@ -163,8 +175,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     if (!projectId || !canPrepare) return;
     const participants = selectedParticipants(bootstrap, participantIds, participantGoals);
     const storyUnit = selectedStoryUnit(bootstrap, storyUnitId);
-    if (!storyUnit) return;
-    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, goal: goal.trim(), relationTypeId, workVersionId: workVersionId || null, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
+    if (!storyUnit || !selectedScope) return;
+    void act(() => props.runtime.withConnection((token) => createNuwaN1Run({ projectId, participants, storyUnit, scope: selectedScope, goal: goal.trim(), relationTypeId, workVersionId: workVersionId || null, operationId: newOperationId(), token })), "已建立本地工程演练；尚未调用真实 Provider。");
   };
   const runAction = (action: "step" | "pause" | "resume" | "stop" | "replay") => {
     if (!projectId || !run) return;
@@ -205,10 +217,10 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       window.sessionStorage.removeItem(`tianyan-nuwa-n1-preselect:${projectId}`);
       const participant = bootstrap?.participants.find((item) => item.id === queuedParticipantId);
       setQueuedParticipantId(null);
-      setNotice(`旧 Run 仍可从运行记录回看；已将 ${participant?.title ?? "角色档案中的角色"} 加入新排演。`);
+      setNotice(`旧 Run 仍可从运行记录回看；已将 ${participant?.title ?? "角色档案中的角色"} 加入新的范围排演。`);
       return;
     }
-    setNotice("旧 Run 仍可从运行记录回看；现在可以按当前作品范围建立新排演。");
+    setNotice("旧 Run 仍可从运行记录回看；现在可以选择新的事件线与单元范围建立排演。");
   };
   const sendCue = (event: FormEvent) => {
     event.preventDefault();
@@ -303,7 +315,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   return <main className="shell-workspace shell-workspace-nuwa" aria-label="女娲">
     <section className="nuwa-n1-workspace" data-testid="nuwa-n1-workspace" data-run-id={run?.run?.runId ?? ""} data-run-status={status} data-provider-calls={availability?.providerCalls ?? 0}>
       <header className="nuwa-n1-header">
-        <div><small>有界排演 · 当前作品</small><h1>女娲</h1><p>{run?.run ? run.authorization?.status === "active" ? `围绕“${run.run.scene.label}”持续运行；当前高权限范围可自动执行并保留回溯。` : `围绕“${run.run.scene.label}”继续读取 Run 内变化；结果需走待确认。` : "先选定一个故事单元与 2–3 位正式角色，建立可恢复的局部排演。"}</p></div>
+        <div><small>独立工作区 · 当前作品</small><h1>女娲</h1><p>{run?.run ? run.authorization?.status === "active" ? `正在“${run.run.scope.storylineLabel}”的已授权单元范围内排演；正式写入仍保留回溯。` : `正在“${run.run.scope.storylineLabel}”的 ${run.run.scope.mode === "continuous" ? "持续" : "指定"}范围内排演；结果需走待确认。` : "先选事件线和单元范围，再选择 2–3 位正式角色；系统在范围内自行分步骤。"}</p></div>
         <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : executable ? "已配置执行器；开始排演才会发送明确授权的请求。" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
       </header>
 
@@ -318,15 +330,18 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
         <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !selectableWorkVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{selectableWorkVersions.length ? selectableWorkVersions.map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>) : <option value="">尚未建立正式版本 · 仅候选排演</option>}</select></label>
-        <label><span>当前场景</span><select value={storyUnitId} disabled={Boolean(run) || busy} onChange={(event) => { setStoryUnitId(event.target.value); setSetup(null); }}>{bootstrap?.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
+        <label><span>事件线</span><select aria-label="事件线" value={storylineKey} disabled={Boolean(run) || busy} onChange={(event) => { const next = bootstrap?.storylines.find((line) => line.key === event.target.value); setStorylineKey(event.target.value); setStoryUnitId(next?.units[0]?.id ?? ""); setEndStoryUnitId(next?.units[0]?.id ?? ""); setSetup(null); }}>{bootstrap?.storylines.map((line) => <option key={line.key} value={line.key}>{line.title}</option>)}</select></label>
+        <label><span>从单元开始</span><select aria-label="从单元开始" value={storyUnitId} disabled={Boolean(run) || busy || !scopeUnits.length} onChange={(event) => { const next = event.target.value; setStoryUnitId(next); if (scopeMode === "bounded" && (!endStoryUnitId || scopeUnits.findIndex((unit) => unit.id === endStoryUnitId) < scopeUnits.findIndex((unit) => unit.id === next))) setEndStoryUnitId(next); setSetup(null); }}>{scopeUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
+        <label><span>推演范围</span><select aria-label="推演范围" value={scopeMode} disabled={Boolean(run) || busy} onChange={(event) => { setScopeMode(event.target.value as NuwaN1ScopeSelection["mode"]); setSetup(null); }}><option value="bounded">到指定单元</option><option value="continuous">持续推演（N1 预算内）</option></select></label>
+        {scopeMode === "bounded" ? <label><span>到单元结束</span><select aria-label="到单元结束" value={endStoryUnitId} disabled={Boolean(run) || busy || !scopeUnits.length} onChange={(event) => { setEndStoryUnitId(event.target.value); setSetup(null); }}>{scopeUnits.slice(Math.max(0, scopeUnits.findIndex((unit) => unit.id === storyUnitId))).map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : <span className="nuwa-n1-scope-hint">持续模式会从开始单元依序推进；N1 本轮最多覆盖 3 个单元 / 6 步，可暂停并恢复。</span>}
         <label><span>自动关系类型</span><select value={relationTypeId ?? ""} disabled={Boolean(run) || busy || !bootstrap?.relationTypes.length} onChange={(event) => setRelationTypeId(event.target.value || null)}><option value="">不写关系</option>{bootstrap?.relationTypes.map((type) => <option key={type.id} value={type.id}>{type.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
-        <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.steps.length} / 6 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalDispatches(run.run)}</small> : <small>最多 6 个已提交步骤</small>}</div>
+        <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.scope.currentSceneIndex + 1} / {run.run.scope.scenes.length} 单元 · {run.run.steps.length} / {runStepBudget(run.run)} 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalToolTurns(run.run)}</small> : <small>范围内自动分步，最多 3 个单元 / 6 步</small>}</div>
         {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
         {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={runContinuously}><Play />连续运行</button><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "running" ? <><button type="button" className="primary-action" disabled={busy} onClick={runContinuously}><Play />连续运行</button><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />单步</button><button type="button" disabled={interrupting} onClick={() => runAction("pause")}><CirclePause />暂停</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
         {run?.run?.status === "paused" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => runAction("resume")}><CirclePlay />恢复</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
-        {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <><button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button><button type="button" className="primary-action" disabled={busy} onClick={beginAnotherRun}><MessageSquarePlus />继续下一场</button></> : null}
+        {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <><button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button><button type="button" className="primary-action" disabled={busy} onClick={beginAnotherRun}><MessageSquarePlus />新建排演</button></> : null}
       </section>
 
       <div className="nuwa-n1-body">
@@ -419,6 +434,7 @@ function receiptLabel(kind: "create" | "start" | "step" | "pause" | "resume" | "
 function attemptOutcomeLabel(outcome: NuwaN1Run["attempts"][number]["outcome"]) { return ({ pending: "执行中", committed: "已提交", failed: "执行失败", cancelled: "已取消", blocked: "预算阻断" } as const)[outcome]; }
 function toolStatusLabel(status: NuwaN1Run["attempts"][number]["tool"]["status"]) { return ({ pending: "等待中", completed: "已完成", failed: "失败", cancelled: "已取消" } as const)[status]; }
 function providerDispatchStatusLabel(status: NuwaN1Run["attempts"][number]["dispatches"][number]["status"]) { return ({ reserved: "已预留", dispatched: "已进入发送", completed: "已完成", failed: "发送前失败", cancelled: "已取消", unknown: "结果未知" } as const)[status]; }
-function internalDispatches(run: NuwaN1Run) { return run.attempts.flatMap((attempt) => attempt.dispatches).filter((dispatch) => dispatch.phase !== "provider").length; }
+function runStepBudget(run: NuwaN1Run) { return run.scope.scenes.length === 1 ? 6 : Math.min(6, run.scope.scenes.length * 2); }
+function internalToolTurns(run: NuwaN1Run) { return run.attempts.reduce((count, attempt) => count + attempt.dispatches.filter((dispatch) => dispatch.phase !== "provider").length, 0); }
 function formatTime(value: string) { return new Date(value).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" }); }
 function attentionReasonLabel(reason: string) { return ({ "current-scene-required": "当前场景必需", "goal-keyword-match": "匹配角色目标", "scene-keyword-match": "匹配当前场景", "stable-authorized-fallback": "预算内稳定补充" } as Record<string, string>)[reason] ?? reason; }

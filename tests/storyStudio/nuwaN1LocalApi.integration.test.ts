@@ -707,6 +707,32 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   assert.equal(model.run.steps[2]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId || ref.summary.includes(statement.speech!)), false, "丙的 actual tool context excludes the undisclosed statement");
 });
 
+test("Nuwa range selection freezes a primary-line scope and advances it inside one candidate Run", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const secondUnit = value.operations.createStoryUnit({ projectId: value.project.id, title: "钟楼之后", order: 1 });
+  const server = await start(value, true); child = server.child;
+  const bootstrap = await getJson(server.baseUrl, `/__local/story-studio/nuwa-n1/bootstrap?projectId=${encodeURIComponent(value.project.id)}`);
+  assert.equal(bootstrap.status, 200);
+  assert.equal((bootstrap.payload.data as { storylines: Array<{ key: string; units: Array<{ id: string }> }> }).storylines[0]?.units.length, 2, "the chooser projects existing ordered Story Units instead of inventing a new event-line owner");
+  const request = { ...value.request("range-create"), scope: { storylineKey: "primary", startStoryUnitId: value.unit.id, endStoryUnitId: secondUnit.id, mode: "bounded" as const } };
+  const created = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", request);
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel & { run: NuwaReadModel["run"] & { scope: { mode: string; scenes: Array<{ storyUnit: { id: string } }> } } };
+  assert.deepEqual(model.run.scope.scenes.map((scene) => scene.storyUnit.id), [value.unit.id, secondUnit.id]);
+  for (let index = 0; index < 4; index += 1) {
+    const stepped = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: `range-step-${index}` });
+    assert.equal(stepped.status, 200, JSON.stringify(stepped.payload));
+    model = stepped.payload.data as typeof model;
+  }
+  assert.equal(model.run.status, "completed");
+  assert.deepEqual(model.run.steps.map((step) => step.scene.storyUnitId), [value.unit.id, value.unit.id, secondUnit.id, secondUnit.id]);
+});
+
 test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart while C remains unaware", async (t) => {
   const value = fixture({ threeActors: true });
   let child: ChildProcess | null = null;

@@ -43,14 +43,15 @@ function fixtureActors(): NuwaN1Actor[] {
   ];
 }
 
-function withRun(runTest: (fixture: { root: string; workspace: string; run: NuwaN1Run }) => Promise<void> | void, actors = fixtureActors()) {
+function withRun(runTest: (fixture: { root: string; workspace: string; run: NuwaN1Run }) => Promise<void> | void, actors = fixtureActors(), scope?: NuwaN1Run["scope"]) {
   const root = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-n1-"));
   const workspace = path.join(root, "project");
   cpSync(sourceFixture, workspace, { recursive: true });
   const snapshot = buildStorySnapshot({ workspacePath: workspace });
   const plan = createNuwaPlan({ snapshot, authorGoal: "有界双角色钟声排演" });
   createNuwaRunPack({ workspacePath: workspace, plan, snapshot });
-  const run = createNuwaN1Run({ workspacePath: workspace, runId: plan.runId, sourceSnapshotHash: snapshot.snapshotHash, scene: { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" }, authorGoal: "让两位角色只依据各自可知内容决定是否同行。", actors, operationId: "operation.n1.create", now: "2026-09-07T00:00:00.000Z" });
+  const scene = { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" };
+  const run = createNuwaN1Run({ workspacePath: workspace, runId: plan.runId, sourceSnapshotHash: snapshot.snapshotHash, scene, scope, authorGoal: "让两位角色只依据各自可知内容决定是否同行。", actors, operationId: "operation.n1.create", now: "2026-09-07T00:00:00.000Z" });
   return Promise.resolve(runTest({ root, workspace, run })).finally(() => rmSync(root, { recursive: true, force: true }));
 }
 
@@ -211,6 +212,22 @@ test("N1 requires a role-context tool round trip before committing a structured 
     assert.equal(stepped.dispatches, 2);
     assert.equal(stepped.receipts.at(-1)?.kind, "step");
   });
+});
+
+test("N1 advances a frozen multi-unit range internally without asking the author to create a Run per unit", async () => {
+  const firstScene = { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" };
+  const secondScene = { storyUnit: { id: "story-unit.钟楼之后", revision }, sceneRef: { id: "scene.钟楼内", revision }, observedAt: "world-time.23:30", label: "钟楼之后" };
+  const scope: NuwaN1Run["scope"] = { version: "tianyan-nuwa-n1-scope/v1", mode: "bounded", storylineKey: "primary", storylineLabel: "主线", scenes: [firstScene, secondScene], currentSceneIndex: 0 };
+  await withRun(async ({ workspace, run }) => {
+    const observed = { contexts: [] as Array<ReturnType<typeof compileNuwaN1Context>>, calls: [] as number[] };
+    let current = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.range.start" });
+    for (let index = 0; index < 4; index += 1) current = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: `operation.range.step.${index}`, adapter: adapter(observed) });
+    assert.equal(current.lifecycle, "completed");
+    assert.deepEqual(current.steps.map((step) => step.scene.storyUnit.id), [firstScene.storyUnit.id, firstScene.storyUnit.id, secondScene.storyUnit.id, secondScene.storyUnit.id]);
+    assert.equal(current.scope.currentSceneIndex, 1);
+    assert.deepEqual(observed.contexts.map((context) => context.scene.label), ["雾港灯塔外", "雾港灯塔外", "钟楼之后", "钟楼之后"]);
+    assert.equal(readNuwaN1Run(workspace, run.runId)?.scope.scenes.length, 2, "the selected range survives a read from the durable RunPack");
+  }, fixtureActors(), scope);
 });
 
 test("N1 next actor receives actual prior dialogue but not the other actor's beliefs or hidden facts", async () => {

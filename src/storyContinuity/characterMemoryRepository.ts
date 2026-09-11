@@ -37,6 +37,12 @@ export type CharacterMemoryRunProjection = {
   steps: Array<{
     stepId: string;
     committedAt: string;
+    /**
+     * A multi-unit Nuwa rehearsal may advance its cursor after this step was
+     * committed. Keep the step's own frozen scene so a later sync never
+     * rewrites the provenance of an already-recorded heard memory.
+     */
+    scene?: { sceneRef: { id: string; revision: string }; observedAt: string };
     heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>;
   }>;
 };
@@ -51,11 +57,13 @@ export async function synchronizeCharacterHeardMemories(context: ContinuityConte
   const sourceIdentity = run.sourceIdentity ? normalizeSourceIdentity(run.sourceIdentity) : null;
   if (!sourceIdentity) return [];
   const runId = foreignId(run.runId, "Nuwa Run identifier");
-  const scene = normalizeScene({ sceneRef: run.scene.sceneRef, observedAt: run.scene.observedAt });
   const byRecipient = new Map<string, CharacterHeardMemoryRecord[]>();
   for (const step of run.steps) {
     const stepId = foreignId(step.stepId, "Nuwa step identifier");
     const recordedAt = timestamp(step.committedAt, "Nuwa step timestamp");
+    const sourceScene = normalizeScene(step.scene
+      ? { sceneRef: step.scene.sceneRef, observedAt: step.scene.observedAt }
+      : { sceneRef: run.scene.sceneRef, observedAt: run.scene.observedAt });
     for (const heard of step.heardStatements ?? []) {
       if (heard.sourceStepId !== stepId) throw new Error("Character Memory source step does not match its Run step.");
       const recipientId = foreignId(heard.recipientId, "Character Memory recipient");
@@ -70,7 +78,7 @@ export async function synchronizeCharacterHeardMemories(context: ContinuityConte
         sourceRunId: runId,
         sourceStepId: stepId,
         sourceStepRevision: foreignId(heard.sourceRevision, "Nuwa step revision"),
-        sourceScene: scene,
+        sourceScene,
         sourceIdentity,
         validity: { state: "active", invalidatedAt: null, invalidatedByOperationId: null, reason: null },
         recordedAt

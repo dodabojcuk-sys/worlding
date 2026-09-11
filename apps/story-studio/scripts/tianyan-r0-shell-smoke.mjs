@@ -1223,7 +1223,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("核实钟声是否来自桥下");
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("确保退路不被切断");
-  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
   await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor().catch(async (cause) => {
@@ -1317,12 +1317,13 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   const linMemoryLedger = await readCharacterMemoryLedger({ rootPath: fixtureRoot, agentId: "agent.nuwa", scope: "project", projectId: fixtureProjectId }, deliveredRecipientId);
   assert.ok(linMemoryLedger, "The first scene persists Lin Zhao's delivered statement through the Story Continuity owner.");
   assert.equal(linMemoryLedger.value.records.some((record) => record.sourceRunId === firstSceneRunId && record.statement === deliveredStatement && record.validity.state === "active"), true, "The persisted heard record remains active before the later scene begins.");
-  await workspace.getByRole("button", { name: "继续下一场", exact: true }).click();
+  await workspace.getByRole("button", { name: "新建排演", exact: true }).click();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").uncheck();
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "陆衍" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("在第二场回忆阿芜告知的钟声线索并谨慎求证");
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "陆衍" }).locator("input").fill("只依据自己实际获知的内容观察钟声");
-  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "灯塔支线" });
+  await workspace.getByLabel("事件线", { exact: true }).selectOption({ label: "分支 · 灯塔支线" });
+  await workspace.getByLabel("从单元开始", { exact: true }).selectOption({ label: "灯塔支线" });
   await workspace.locator(".nuwa-n1-goal input").fill("在第二场依据各自实际听闻继续调查钟声，不得共享未被递送的记忆。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
   await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor();
@@ -1552,9 +1553,9 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   await workspace.waitFor();
   await page.waitForFunction(() => {
     const root = document.querySelector('[data-testid="nuwa-n1-workspace"]');
-    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("继续下一场")));
+    return Boolean(root?.querySelector(".nuwa-n1-participant-options") || [...(root?.querySelectorAll("button") || [])].some((button) => button.textContent?.includes("新建排演")));
   });
-  const newRun = workspace.getByRole("button", { name: "继续下一场", exact: true });
+  const newRun = workspace.getByRole("button", { name: "新建排演", exact: true });
   if (await newRun.count()) await newRun.click();
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="nuwa-n1-workspace"] .nuwa-n1-participant-options label').length >= 3);
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "林昭" }).locator("input").check();
@@ -1566,7 +1567,7 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   const relationType = workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "自动关系类型" }).locator("select");
   assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
   await relationType.selectOption({ index: 1 });
-  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "当前场景" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");

@@ -3904,7 +3904,7 @@ async function handleNuwaN1Request(request, response, url) {
   requireToken(request);
   const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
   if (route === "setup" || route === "create") {
-    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "goal", "relationTypeId", "operationId", "workVersionId"]);
+    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "scope", "goal", "relationTypeId", "operationId", "workVersionId"]);
     const result = await runAsyncProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
     if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
     sendJson(response, route === "create" ? 201 : 200, { data: result });
