@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   compareRelationsAtWorldTimes,
+  relationActiveAtWorldTime,
+  relationWorldTimeUnknownReason,
   relationWorldTimeOptions
 } from "../../src/storyContracts/relationTemporalComparison.ts";
 import type { RelationReadProjectionR0 } from "../../src/storyControlSurface/storyStudioRelationOperations.ts";
@@ -93,6 +95,14 @@ test("N3 relation comparison ignores record timestamps and retains archived worl
   const comparison = compareRelationsAtWorldTimes([archived], "2026-01-02T00:00:00.000Z", "2026-01-03T00:00:00.000Z");
   assert.equal(comparison.rows[0]?.kind, "maintained");
   assert.deepEqual(relationWorldTimeOptions([archived]), ["2026-01-01T00:00:00.000Z"]);
+});
+
+test("shared historical relation reader includes an archived relation and validTo boundary without string ordering", () => {
+  const archived = relation({ id: "archived-boundary", from: "2026-01-01T01:00:00+01:00", to: "2026-01-01T02:00:00+01:00", archived: true });
+  assert.equal(relationActiveAtWorldTime(archived, "2026-01-01T01:00:00.000Z"), true);
+  assert.equal(relationActiveAtWorldTime(archived, "2026-01-01T01:00:00.001Z"), false);
+  assert.equal(relationWorldTimeUnknownReason(relation({ id: "unknown-boundary", from: null })), "missing-valid-from");
+  assert.equal(relationActiveAtWorldTime(relation({ id: "invalid-boundary", from: "not-a-time" }), "2026-01-01T00:00:00.000Z"), false);
 });
 
 test("N3 relationship workspace exposes the Owner-backed dual-world-time author flow", () => {

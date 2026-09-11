@@ -1,0 +1,182 @@
+{
+  "projectId": "r061-e2e-79fee17887f9473e9026cfcf3309c6b8",
+  "rootAfterCompensation": {
+    "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+    "revision": 3,
+    "manifestDigest": "2cc0e8d2040cddddbbce0556b816824ca56390918c1a38ab74e4c97030b4d876"
+  },
+  "sourceIfAfterCompensation": {
+    "workVersionId": "work-version.derived.2f2adfefd7674d3d2dfcb926df7b3e06",
+    "revision": 1,
+    "parentBaseRevision": 1
+  },
+  "frozenMergePlan": {
+    "schemaVersion": "tianyan-multiverse-b1-merge-plan/v1",
+    "operationId": "multiverse-b1-fixture.merge",
+    "idempotencyKey": "multiverse-b1-fixture.merge",
+    "compareDigest": "ce831af758658522cf85b238ad1e7758152b1532d6155d7965b480746a9504eb",
+    "source": {
+      "projectId": "r061-e2e-79fee17887f9473e9026cfcf3309c6b8",
+      "workVersionId": "work-version.derived.2f2adfefd7674d3d2dfcb926df7b3e06",
+      "revision": 1,
+      "manifestDigest": "20c85fb4c56f2b0cf24f222bf4219d27f77d134a95007384c6b347a560f2faad"
+    },
+    "target": {
+      "projectId": "r061-e2e-79fee17887f9473e9026cfcf3309c6b8",
+      "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+      "revision": 1,
+      "manifestDigest": "b3287e9aa7b55a146f5d0a26babe609089a20c297a57c81b4623eb4ecc819da8"
+    },
+    "selectedChangeIds": [
+      "multiverse-b1.event.event.author-confirmed-222222222222222222222222",
+      "multiverse-b1.narrativeplacement.placement.fixture-copper-key",
+      "multiverse-b1.relation.relation.fixture-awu-lin-trust",
+      "multiverse-b1.worldstate.state.fixture-copper-key"
+    ],
+    "requiredChangeIds": [],
+    "ownerWriteOrder": [
+      "Event",
+      "Relation",
+      "WorldState",
+      "NarrativePlacement"
+    ],
+    "receiptId": "multiverse-b1-merge.d54cb8e160ea69896fa123f8f8d04f79"
+  },
+  "currentComparisonAfterCompensation": {
+    "compareDigest": "0aaa25de9ed64f01b710fc6240019df62160aa31c4f88751a650fcb61229a69e",
+    "source": {
+      "workVersionId": "work-version.derived.2f2adfefd7674d3d2dfcb926df7b3e06",
+      "revision": 1,
+      "manifestDigest": "20c85fb4c56f2b0cf24f222bf4219d27f77d134a95007384c6b347a560f2faad"
+    },
+    "target": {
+      "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+      "revision": 3,
+      "manifestDigest": "2cc0e8d2040cddddbbce0556b816824ca56390918c1a38ab74e4c97030b4d876"
+    },
+    "differences": [
+      {
+        "changeId": "multiverse-b1.event.event.author-confirmed-222222222222222222222222",
+        "ownerKind": "Event",
+        "state": "added",
+        "selection": "available",
+        "summary": "Event event.author-confirmed-222222222222222222222222: added",
+        "dependencyIds": []
+      },
+      {
+        "changeId": "multiverse-b1.relation.relation.fixture-awu-lin-trust",
+        "ownerKind": "Relation",
+        "state": "added",
+        "selection": "available",
+        "summary": "Relation relation.fixture-awu-lin-trust: added",
+        "dependencyIds": []
+      },
+      {
+        "changeId": "multiverse-b1.worldstate.state.fixture-copper-key",
+        "ownerKind": "WorldState",
+        "state": "added",
+        "selection": "available",
+        "summary": "WorldState state.fixture-copper-key: added",
+        "dependencyIds": [
+          "event.author-confirmed-222222222222222222222222"
+        ]
+      },
+      {
+        "changeId": "multiverse-b1.narrativeplacement.placement.fixture-copper-key",
+        "ownerKind": "NarrativePlacement",
+        "state": "added",
+        "selection": "available",
+        "summary": "NarrativePlacement placement.fixture-copper-key: added",
+        "dependencyIds": [
+          "event.author-confirmed-222222222222222222222222"
+        ]
+      }
+    ]
+  },
+  "merge": {
+    "schemaVersion": "tianyan-multiverse-b1-merge-execution/v1",
+    "plan": {
+      "schemaVersion": "tianyan-multiverse-b1-merge-plan/v1",
+      "operationId": "multiverse-b1-fixture.merge",
+      "idempotencyKey": "multiverse-b1-fixture.merge",
+      "compareDigest": "ce831af758658522cf85b238ad1e7758152b1532d6155d7965b480746a9504eb",
+      "source": {
+        "projectId": "r061-e2e-79fee17887f9473e9026cfcf3309c6b8",
+        "workVersionId": "work-version.derived.2f2adfefd7674d3d2dfcb926df7b3e06",
+        "revision": 1,
+        "manifestDigest": "20c85fb4c56f2b0cf24f222bf4219d27f77d134a95007384c6b347a560f2faad"
+      },
+      "target": {
+        "projectId": "r061-e2e-79fee17887f9473e9026cfcf3309c6b8",
+        "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+        "revision": 1,
+        "manifestDigest": "b3287e9aa7b55a146f5d0a26babe609089a20c297a57c81b4623eb4ecc819da8"
+      },
+      "selectedChangeIds": [
+        "multiverse-b1.event.event.author-confirmed-222222222222222222222222",
+        "multiverse-b1.narrativeplacement.placement.fixture-copper-key",
+        "multiverse-b1.relation.relation.fixture-awu-lin-trust",
+        "multiverse-b1.worldstate.state.fixture-copper-key"
+      ],
+      "requiredChangeIds": [],
+      "ownerWriteOrder": [
+        "Event",
+        "Relation",
+        "WorldState",
+        "NarrativePlacement"
+      ],
+      "receiptId": "multiverse-b1-merge.d54cb8e160ea69896fa123f8f8d04f79"
+    },
+    "status": "compensated",
+    "ownerReceipts": [
+      {
+        "ownerKind": "Event",
+        "changeId": "multiverse-b1.event.event.author-confirmed-222222222222222222222222",
+        "receiptRef": "multiverse-b1-fixture.merge.event.event.author-confirmed-222222222222222222222222",
+        "targetRef": "event:event.author-confirmed-d3e8727343117e18015e2a5d"
+      },
+      {
+        "ownerKind": "Relation",
+        "changeId": "multiverse-b1.relation.relation.fixture-awu-lin-trust",
+        "receiptRef": "relation-receipt.6",
+        "targetRef": "relation:relation.fixture-awu-lin-trust"
+      },
+      {
+        "ownerKind": "WorldState",
+        "changeId": "multiverse-b1.worldstate.state.fixture-copper-key",
+        "receiptRef": "world-state-n4.aea1d934",
+        "targetRef": "world-state:item.铜钥匙"
+      },
+      {
+        "ownerKind": "NarrativePlacement",
+        "changeId": "multiverse-b1.narrativeplacement.placement.fixture-copper-key",
+        "receiptRef": "narrative-arrangement-receipt.9043543cf679db5cebd4778d729c5f579b59c139",
+        "targetRef": "placement:event.author-confirmed-d3e8727343117e18015e2a5d"
+      }
+    ],
+    "resultVersion": {
+      "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+      "revision": 2,
+      "manifestDigest": "a4c5a3fb272e409af43b9f2ec013abed6508cc91ca9308dee0e0753077005813"
+    },
+    "compensationResultVersion": {
+      "workVersionId": "work-version.root.bdcb78f589bf38980c6801207cdf9c7d",
+      "revision": 3,
+      "manifestDigest": "2cc0e8d2040cddddbbce0556b816824ca56390918c1a38ab74e4c97030b4d876"
+    },
+    "failure": null
+  },
+  "fixedDraft": {
+    "artifactId": "novel.B1-融入隔离-铜钥匙-创作稿-023f58a16b",
+    "beforeCompensation": {
+      "filename": "tianyan-story-package.md",
+      "sha256": "e4699a56151c42e1bbad5b680107cacff8d4b85427558ee855b529a59d440a93",
+      "bytes": 1329
+    },
+    "afterCompensation": {
+      "filename": "tianyan-story-package.md",
+      "sha256": "e4699a56151c42e1bbad5b680107cacff8d4b85427558ee855b529a59d440a93",
+      "bytes": 1329
+    }
+  }
+}

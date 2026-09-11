@@ -25,13 +25,14 @@
 .nuwa-n1-author-scope small { color: var(--color-text-muted); font-size: .62rem; }
 .nuwa-n1-author-scope strong { font-size: .78rem; }
 .nuwa-n1-author-scope span { color: var(--color-text-muted); font-size: .68rem; line-height: 1.45; }
-.nuwa-n1-controlbar { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(14rem, 1.35fr) auto auto auto auto; align-items: end; gap: .42rem; margin-block: .7rem; padding: .5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .42rem; }
+.nuwa-n1-controlbar { display: grid; grid-template-columns: repeat(5, minmax(8rem, 1fr)) auto; align-items: end; gap: .42rem; margin-block: .7rem; padding: .5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .42rem; }
 .nuwa-n1-controlbar label, .nuwa-n1-status { min-inline-size: 0; display: grid; gap: .16rem; }
 .nuwa-n1-controlbar label > span, .nuwa-n1-status > span { color: var(--color-text-muted); font-size: .62rem; }
 .nuwa-n1-controlbar select, .nuwa-n1-controlbar input { min-inline-size: 0; min-block-size: 2.1rem; padding-inline: .5rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .28rem; font-size: .76rem; }
 .nuwa-n1-status { align-content: center; min-block-size: 2.1rem; padding-inline: .2rem; }
 .nuwa-n1-status strong { font-size: .76rem; }
 .nuwa-n1-status small { color: var(--color-text-muted); font-size: .62rem; white-space: nowrap; }
+.nuwa-n1-scope-hint { align-self: center; max-inline-size: 16rem; color: var(--color-text-muted); font-size: .65rem; line-height: 1.4; }
 .nuwa-n1-controlbar button, .nuwa-n1-composer button, .nuwa-n1-setup footer button { min-block-size: 2.1rem; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; padding-inline: .62rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .73rem; white-space: nowrap; }
 .nuwa-n1-controlbar button svg, .nuwa-n1-composer button svg, .nuwa-n1-setup footer button svg { inline-size: .82rem; }
 .nuwa-n1-workspace .primary-action { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); }

@@ -39,8 +39,8 @@ test("R4 review follow-up keeps directory ownership and async project fences in 
   assert.match(pending, /loadId !== reloadSequence\.current/u);
   assert.match(pending, /activeProjectId\.current !== projectId/u, "a previous project's inbox response cannot publish into the current project");
   assert.match(pending, /operationId: `nuwa-adoption:/u, "candidate adoption has a durable planning-event operation identity");
-  assert.match(tianyi, /workContextVisit/u);
-  assert.match(tianyi, /library\.project\.id !== projectId/u);
+  assert.match(tianyi, /getVerifiedCanonEventList\(projectId, runtime\.workVersionId\)/u);
+  assert.match(tianyi, /getVerifiedCanonEvent\(projectId, eventId, runtime\.workVersionId\)/u);
   assert.match(tianyi, /conversationProjectVisit/u);
   assert.match(tianyi, /sameConversationProjectVisit/u, "a delayed work-lane reply cannot clear or refresh the next project's composer");
   assert.match(tianyi, /const submitCreative = async \(\) => \{[\s\S]*?const visit = conversationProjectVisit\.current;[\s\S]*?ensureConversation\(visit\)/u, "Story Intake captures the initiating project generation before any asynchronous write");
@@ -138,7 +138,7 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(workspace, /data-global-work=\{lane === "work" && !activeIntakeCandidate/u);
   assert.match(workspace, /发送到当前工作/u);
   assert.match(workspace, /不会因没有候选而中断/u);
-  assert.match(workspace, /getWorldLibrary\(projectId\)/u, "全局 Work 必须读取既有正式 Event 投影，而不是凭空构造上下文");
+  assert.match(workspace, /getVerifiedCanonEventList\(projectId, runtime\.workVersionId\)/u, "全局 Work 必须读取既有正式 Canon Event 投影，而不是凭空构造上下文");
   assert.match(workspace, /createStoryStudioEventReference/u);
   assert.match(workspace, /globalWorkEventRefs/u);
   assert.match(workspace, /eventRefs: globalWorkEventRefs/u, "明确发送时必须把选择的版本化 Event 引用交给 grounded context");
@@ -155,15 +155,17 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(pending, /打开本批审阅/u);
 });
 
-test("R4-R2 reserves a visible global Work composer and reports bounded formal evidence honestly", () => {
+test("R4-R2 reserves a visible global Work composer and reports question-selected formal evidence honestly", () => {
   const workspace = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
   const styles = source("apps/story-studio/src/styles/tianyi-workspace.css");
-  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 6/u);
+  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 6/u, "Work UI must expose the same six-item cap enforced by the Grounded Context Gate.");
   assert.match(workspace, /workContextState/u);
   assert.match(workspace, /tianyi-global-work-scroll/u);
   assert.match(workspace, /tianyi-work-context-events/u);
   assert.match(workspace, /eventRefs: globalWorkEventRefs/u);
-  assert.match(workspace, /globalWorkEvents[\s\S]{0,360}\.slice\(0, MAX_GLOBAL_WORK_EVENT_REFS\)/u);
+  assert.match(workspace, /selectTianyiGroundedEvidence/u);
+  assert.match(workspace, /按问题选中/u);
+  assert.match(workspace, /不会因低相关度被丢弃/u);
   assert.doesNotMatch(workspace, /attachment:\$\{crypto\.randomUUID\(\)\}/u);
   assert.doesNotMatch(workspace, /source:\$\{crypto\.randomUUID\(\)\}/u);
   assert.match(styles, /data-global-work="true"\] \.tianyi-conversation-column \{ display: grid/u);

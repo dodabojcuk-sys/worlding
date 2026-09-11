@@ -105,6 +105,22 @@
 .tianyi-work-context-events { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
 .tianyi-work-context-events li { display: flex; justify-content: space-between; gap: 1rem; padding-block: .3rem; border-top: 1px solid var(--color-border-subtle); }
 .tianyi-work-context-events span { overflow: hidden; color: var(--color-text-muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.tianyi-grounded-evidence-preview li { align-items: start; }
+.tianyi-grounded-evidence-preview li > div { min-width: 0; display: grid; gap: .2rem; }
+.tianyi-grounded-evidence-preview li p { color: var(--color-text-secondary); font-size: .78rem; }
+.tianyi-grounded-evidence-preview nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+.tianyi-grounded-evidence-preview button, .tianyi-grounded-restore { border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface); color: var(--color-text-secondary); padding: .28rem .42rem; font: inherit; cursor: pointer; white-space: nowrap; }
+.tianyi-grounded-restore { justify-self: start; color: var(--color-accent); }
+.tianyi-grounded-answer-receipt { margin: 1rem 0; border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle)); border-radius: 12px; background: var(--color-surface); padding: 14px; }
+.tianyi-grounded-answer-receipt > header { display: flex; justify-content: space-between; gap: 1rem; }
+.tianyi-grounded-answer-receipt h3, .tianyi-grounded-answer-receipt p { margin: .25rem 0; }
+.tianyi-grounded-answer-receipt small, .tianyi-grounded-answer-receipt > header span, .tianyi-grounded-answer-receipt li span { color: var(--color-text-muted); font-size: .72rem; }
+.tianyi-grounded-answer-receipt dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: .75rem 0; }
+.tianyi-grounded-answer-receipt dt { color: var(--color-text-muted); font-size: .7rem; }
+.tianyi-grounded-answer-receipt dd { margin: .15rem 0 0; overflow-wrap: anywhere; font-size: .75rem; }
+.tianyi-grounded-answer-receipt ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+.tianyi-grounded-answer-receipt li { display: flex; justify-content: space-between; gap: .7rem; border-top: 1px solid var(--color-border-subtle); padding-top: .35rem; }
+.tianyi-grounded-answer-receipt li button { border: 0; background: transparent; color: var(--color-accent); padding: 0; text-align: left; cursor: pointer; }
 .tianyi-work-contract dt { font-size: 11px; color: var(--color-text-muted); }
 .tianyi-work-contract dd { margin: 4px 0 0; font-size: 13px; }
 .tianyi-work-contract label { font-size: 11px; color: var(--color-text-muted); }

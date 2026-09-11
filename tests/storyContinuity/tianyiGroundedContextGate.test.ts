@@ -71,6 +71,29 @@ test("grounded event sources require stable event references and bind them into 
     ...request,
     eventRefs: [{ ...eventReference, title: "不能作为身份" }]
   }), /fields are invalid/u);
+  assert.doesNotThrow(() => normalizeTianyiGroundedContextRequest({
+    ...request,
+    eventRefs: Array.from({ length: 6 }, (_, index) => ({ ...eventReference, eventId: `event.limit-${index}`, revisionToken: sha256(`event.limit-${index}`) }))
+  }));
+  assert.throws(() => normalizeTianyiGroundedContextRequest({
+    ...request,
+    eventRefs: Array.from({ length: 7 }, (_, index) => ({ ...eventReference, eventId: `event.limit-${index}`, revisionToken: sha256(`event.limit-${index}`) }))
+  }), /explicit event references are invalid/u);
+});
+
+test("explicit event relevance order survives a long-body budget within the evidence lane", () => {
+  const relevant = createStoryStudioEventReference({ projectId, event: { id: "event.z-most-relevant", type: "event", status: "planned", revisionToken: sha256("event.z") }, requestedUse: "constraint" });
+  const lessRelevant = createStoryStudioEventReference({ projectId, event: { id: "event.a-less-relevant", type: "event", status: "planned", revisionToken: sha256("event.a") }, requestedUse: "constraint" });
+  const request: TianyiGroundedContextRequest = { ...characterRequest(), accessMode: "author", subjectRef: null, eventRefs: [relevant, lessRelevant] };
+  const source = (reference: typeof relevant, content: string): TianyiGroundedResolvedCandidate => ({
+    ...candidate("world-object", reference.eventId, "evidence", content, []),
+    sourceKey: `${projectId}:event:${reference.eventId}:${reference.revisionToken}:${reference.requestedUse}`,
+    requestedContentHash: reference.revisionToken,
+    contentHash: reference.revisionToken
+  });
+  const compiled = compileTianyiGroundedContext({ request, candidates: [source(lessRelevant, "b".repeat(30_000)), source(relevant, "a".repeat(30_000))] });
+  assert.deepEqual(compiled.manifest.included.map((entry) => entry.sourceId), [relevant.eventId]);
+  assert.deepEqual(compiled.manifest.budgetOmitted.map((entry) => entry.sourceId), [lessRelevant.eventId]);
 });
 
 test("one deterministic manifest covers included, excluded, budget-omitted and conflicting sources", () => {

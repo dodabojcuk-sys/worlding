@@ -51,7 +51,7 @@ test("legacy static catalogs without a success timestamp migrate to unverified",
     history: []
   });
   const profile = migrated.profiles.find((entry) => entry.provider === "radeon-cloud");
-  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.schemaVersion, 4);
   assert.equal(profile.catalog.status, "never_fetched");
   assert.equal(profile.catalog.fetchedAt, null);
   assert.equal(profile.catalog.entries[0].source, "unverified");

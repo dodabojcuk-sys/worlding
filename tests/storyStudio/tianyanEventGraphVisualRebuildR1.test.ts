@@ -28,7 +28,7 @@ test("event line distinguishes loading, missing project, and recoverable connect
   assert.match(translations, /"eventLine\.unavailable": "事件线暂时无法打开"/u);
   assert.match(projection, /props\.runtime\.retryConnection\(\)/u);
   assert.doesNotMatch(projection, /Loading event line/u);
-  assert.match(projection, /\[props\.runtime\.project\]/u);
+  assert.match(projection, /\[props\.runtime\.project, props\.runtime\.workVersionId\]/u);
 });
 
 test("event graph R1 distinguishes formal, pending, and remote relationship projections", () => {

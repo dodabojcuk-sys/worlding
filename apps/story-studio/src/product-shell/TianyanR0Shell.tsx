@@ -83,6 +83,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const locationParams = new URLSearchParams(window.location.search);
   const pendingReviewOpen = activeId === "tianyi" && locationParams.get("directoryReview") === "pending";
   const directorySelection = locationParams.get("directoryObject");
+  const centralCharacterId = activeId === "world" && locationParams.get("worldView") === "character" ? locationParams.get("characterId") : null;
   const directorySourceSelection = locationParams.get("directorySource");
   const characterDirectoryOpen = locationParams.get("directoryView") === "characters" || directoryState.path[0] === "characters";
   const resolvedDirectorySelection = directorySelection ?? directoryState.selectedObjectId;
@@ -297,7 +298,17 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setActiveId(destination);
     if (destination === "event-line" && focusLayout !== "wide") setWorkspaceDirectorySuppressed(true);
   };
-  const selectCharacter = (objectId: string) => { updateDirectoryState({ ...directoryState, path: ["characters"], selectedObjectId: objectId }); const params = new URLSearchParams(window.location.search); params.set("directoryView", "characters"); params.set("directoryObject", objectId); params.set("directoryType", "character"); window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`); setLocationRevision((value) => value + 1); };
+  const selectCharacter = (objectId: string) => {
+    updateDirectoryState({ ...directoryState, path: ["characters"], selectedObjectId: objectId });
+    const params = new URLSearchParams(window.location.search);
+    if (activeId === "world" && params.get("worldView") !== "map") {
+      params.set("worldView", "character"); params.set("characterId", objectId);
+      params.delete("directoryObject"); params.delete("directoryType");
+    } else {
+      params.set("directoryView", "characters"); params.set("directoryObject", objectId); params.set("directoryType", "character");
+    }
+    window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`); setLocationRevision((value) => value + 1);
+  };
   const closeCharacterInspector = () => { const params = new URLSearchParams(window.location.search); params.delete("directoryObject"); params.delete("directoryType"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); };
   const openCharacterProfileEditor = () => { const params = new URLSearchParams(window.location.search); params.set("directoryEdit", "character"); window.history.pushState({}, "", `${window.location.pathname}?${params.toString()}`); setLocationRevision((value) => value + 1); };
   const closeCharacterProfileEditor = () => { const params = new URLSearchParams(window.location.search); params.delete("directoryEdit"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); };
@@ -311,6 +322,30 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const projectId = props.runtime.project?.id;
     if (projectId) window.sessionStorage.setItem(`tianyan-nuwa-n1-preselect:${projectId}`, objectId);
     navigate(storyStudioShellDestinationById("nuwa"));
+  };
+  const openCharacterWorkspace = (objectId: string) => {
+    const current = `${window.location.pathname}${window.location.search}`;
+    const params = new URLSearchParams({ worldView: "character", characterId: objectId });
+    if (!(activeId === "world" && locationParams.get("worldView") === "character")) params.set("characterOrigin", current);
+    window.history.pushState({}, "", `/world?${params.toString()}`);
+    setActiveId("world"); setSettingsOpen(false); setAccountOpen(false); dock.closePanel(); workspaceDockCoordinator.close(); setWorkspaceDirectorySuppressed(false); setLocationRevision((value) => value + 1);
+  };
+  const closeCharacterWorkspace = () => {
+    const origin = locationParams.get("characterOrigin");
+    if (origin && origin.startsWith("/") && !origin.startsWith("//")) {
+      window.history.pushState({}, "", origin);
+      setActiveId(resolveStoryStudioShellLocation(new URL(origin, window.location.origin).pathname));
+    } else {
+      window.history.pushState({}, "", "/world"); setActiveId("world");
+    }
+    setLocationRevision((value) => value + 1);
+  };
+  const returnToCharacterWorkspace = () => {
+    const target = locationParams.get("characterReturn");
+    if (!target || !target.startsWith("/") || target.startsWith("//")) return;
+    window.history.pushState({}, "", target);
+    setActiveId(resolveStoryStudioShellLocation(new URL(target, window.location.origin).pathname));
+    setSettingsOpen(false); setAccountOpen(false); setLocationRevision((value) => value + 1);
   };
   const closeCharacterDirectory = () => { updateDirectoryState({ ...directoryState, path: [] }); const params = new URLSearchParams(window.location.search); params.delete("directoryView"); params.delete("directoryObject"); params.delete("directoryType"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); };
   const openDirectoryReference = (reference: ProjectDirectoryStableReference) => {
@@ -469,10 +504,11 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onOpenPendingReview={() => openPendingReview(null)}
     />
     {!settingsOpen && !accountOpen && directoryPresented && directoryStateReady && (characterDirectoryOpen ? <CharacterDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} selectedId={resolvedDirectorySelection} directoryState={directoryState} onDirectoryState={updateDirectoryState} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryMode") === "pending" ? "pending" : "classified"} directoryState={directoryState} onDirectoryState={updateDirectoryState} onClose={toggleDirectory} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryMode", "pending"); else params.delete("directoryMode"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onOpenPendingReview={openPendingReview} onOpenRelationReview={openPendingRelationReview} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
-    {pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} locationRevision={locationRevision} />}
+    {pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} characterObjectId={centralCharacterId} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
     {!settingsOpen && !accountOpen && <RightDock projectId={props.runtime.project?.id ?? null} compact={focusLayout !== "wide"} modal={focusLayout === "narrow"} layout={dock.state} onToggle={togglePageTool} onResize={dock.resizePanel} />}
-    {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={openCharacterProfileEditor} onOpenKnowledge={openCharacterKnowledge} onAddToNuwa={addCharacterToNuwa} />}
-    {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterProfileEditor} />}
+    {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={() => openCharacterWorkspace(directorySelection)} onOpenKnowledge={openCharacterKnowledge} onAddToNuwa={addCharacterToNuwa} />}
+    {!settingsOpen && !accountOpen && (directorySelection || centralCharacterId) && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={centralCharacterId ?? directorySelection!} onClose={closeCharacterProfileEditor} />}
+    {!settingsOpen && !accountOpen && locationParams.get("characterReturn")?.startsWith("/") && !locationParams.get("characterReturn")?.startsWith("//") && <button type="button" className="character-workspace-return" onClick={returnToCharacterWorkspace}>{t("character.returnWorkspace").replace("{name}", locationParams.get("characterReturnLabel") || t("character.directory"))}</button>}
     {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={focusLayout !== "wide"} modal={focusLayout === "narrow"} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line"} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
     <ShellCommandPalette
       open={commandOpen}

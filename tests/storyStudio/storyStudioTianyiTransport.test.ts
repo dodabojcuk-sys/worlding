@@ -14,7 +14,7 @@ test("all Tianyi routes share token, same-origin, bounded JSON, and sanitized er
   const source = readFileSync("apps/story-studio/server/server.mjs", "utf8");
   const expectedRoutes = [
     "identity", "project-resume", "context-projection", "session/open", "question", "session/prepare-close",
-    "memory-candidate/review", "memory-candidate/decide", "stopping-point/decide", "session/finalize-close", "session/metadata",
+    "memory-candidate/review", "memory-candidate/decide", "stopping-point/decide", "session/finalize-close", "session/metadata", "grounded-answer/read",
     "receipt/read", "memory/read", "memory/list", "memory/edit", "memory/revoke", "memory/restore", "memory/hard-delete",
     "memory/revisions", "memory/revision/preview", "global-memory-grant/read", "global-memory-grant/list",
     "global-memory-grant/create", "global-memory-grant/revoke", "global-memory-grant/restore", "global-memory-grant/hard-delete",
@@ -70,6 +70,29 @@ test("Tianyi loopback transport rejects unauthorized, foreign-origin, unknown, o
     assert.equal(valid.status, 200);
     const payload = await valid.json() as { data?: { sessionId?: string } };
     assert.match(String(payload.data?.sessionId), /^session\.\d{6}$/u);
+
+    // This goes through the real local SSE adapter rather than calling the
+    // Context Gate directly.  The Gate must reject the seventh explicit Event
+    // before it can allocate a Session/Receipt or reach any Provider profile.
+    const overLimit = await post(`${baseUrl}/__local/story-studio/model-service/tianyi-grounded-answer`, {
+      operationId: "operation.route-grounded-over-limit",
+      submissionId: "submission.route-grounded-over-limit",
+      profileId: "profile.unavailable-but-unreached",
+      question: "验证显式依据上限",
+      contextRequest: {
+        version: "story-tianyi-grounded-context-request/v1",
+        projectId: "route-project",
+        sessionId: payload.data?.sessionId,
+        taskKind: "grounded-answer",
+        accessMode: "author",
+        subjectRef: null,
+        sceneRef: null,
+        explicitRefs: [],
+        eventRefs: Array.from({ length: 7 }, () => ({}))
+      }
+    }, { "x-world-os-local-control-token": token, origin: baseUrl });
+    assert.equal(overLimit.status, 200);
+    assert.match(await overLimit.text(), /event: error/u, "The SSE adapter must report an over-limit request as an error event, without dispatching a model request.");
 
     const temporary = await post(endpoint, { ...validBody, operationId: "operation.route-temporary", retentionMode: "temporary" }, { "x-world-os-local-control-token": token, origin: baseUrl });
     assert.equal(temporary.status, 200);

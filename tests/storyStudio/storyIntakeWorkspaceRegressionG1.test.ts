@@ -34,7 +34,7 @@ test("project changes clear transient Envelope state before project-scoped recov
   assert.match(workspace, /setIntakeRun\(null\)/u);
   assert.match(workspace, /setActiveIntakeRef\(null\)/u);
   assert.match(workspace, /setSelectedIntakeCandidateIds\(\[\]\)/u);
-  assert.match(workspace, /\[project\?\.id\]/u);
+  assert.match(workspace, /\[project\?\.id, workVersionId\]/u);
 });
 
 test("Work uses a controlled narrative position and functional candidate-only exploration", () => {

@@ -47,7 +47,7 @@ export function compareRelationsAtWorldTimes(
   const byId = new Map(confirmed.map((relation) => [relation.relationId, relation]));
   const unknown: RelationTemporalUnknown[] = [];
   const known = confirmed.filter((relation) => {
-    const reason = temporalUnknownReason(relation);
+    const reason = relationWorldTimeUnknownReason(relation);
     if (reason) unknown.push({ relation, reason });
     return !reason;
   });
@@ -60,8 +60,8 @@ export function compareRelationsAtWorldTimes(
   const rows: RelationTemporalComparisonRow[] = [];
   const conflicts: RelationTemporalConflict[] = [];
   for (const [lineageId, items] of lineages) {
-    const before = items.filter((relation) => relationActiveAt(relation, first));
-    const after = items.filter((relation) => relationActiveAt(relation, second));
+    const before = items.filter((relation) => relationActiveAtWorldTime(relation, first));
+    const after = items.filter((relation) => relationActiveAtWorldTime(relation, second));
     if (before.length > 1) conflicts.push({ lineageId, at: "t1", relations: stableRelations(before) });
     if (after.length > 1) conflicts.push({ lineageId, at: "t2", relations: stableRelations(after) });
     if (before.length > 1 || after.length > 1) continue;
@@ -94,7 +94,9 @@ export function relationWorldTimeOptions(relations: readonly RelationReadProject
     .sort((left, right) => Date.parse(left) - Date.parse(right) || left.localeCompare(right));
 }
 
-function temporalUnknownReason(relation: RelationReadProjectionR0): RelationTemporalUnknown["reason"] | null {
+/** Shared read-only world-time rule for comparison and author projections.
+ * `validTo` is inclusive; archive is repository lifecycle, not story time. */
+export function relationWorldTimeUnknownReason(relation: RelationReadProjectionR0): RelationTemporalUnknown["reason"] | null {
   const temporal = relation.temporal;
   if (!temporal?.validFrom) return "missing-valid-from";
   const from = Date.parse(temporal.validFrom);
@@ -104,7 +106,9 @@ function temporalUnknownReason(relation: RelationReadProjectionR0): RelationTemp
   return null;
 }
 
-function relationActiveAt(relation: RelationReadProjectionR0, time: number): boolean {
+export function relationActiveAtWorldTime(relation: RelationReadProjectionR0, value: string | number): boolean {
+  const time = typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(time) || relationWorldTimeUnknownReason(relation)) return false;
   const temporal = relation.temporal!;
   const from = Date.parse(temporal.validFrom!);
   const to = temporal.validTo ? Date.parse(temporal.validTo) : null;

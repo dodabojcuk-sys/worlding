@@ -86,6 +86,12 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_PROFILE_SECRET"), false);
 
+  const memoryQuery = await getJson(enabled.baseUrl, `/__local/story-studio/characters/memory-query?projectId=${encodeURIComponent(value.project.id)}&characterId=${encodeURIComponent(value.characters[1]!.id)}`);
+  assert.equal(memoryQuery.status, 200, JSON.stringify(memoryQuery.payload));
+  const queriedRecords = (memoryQuery.payload.data as { records: Array<{ kind: string; source: { runId?: string }; validity: string }>; providerCalls: number }).records;
+  assert.equal(queriedRecords.some((record) => record.kind === "heard" && record.source.runId === model.run.runId && record.validity === "active"), true, "the author query reads the persisted recipient ledger through the normal local API");
+  assert.equal((memoryQuery.payload.data as { providerCalls: number }).providerCalls, 0, "opening a memory query must not send a Provider request");
+
   const candidate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/candidate", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "candidate-first", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(candidate.status, 201, JSON.stringify(candidate.payload));
   model = candidate.payload.data as NuwaReadModel;
@@ -239,6 +245,19 @@ test("Nuwa N4 only gives a role world state and formal relation evidence it lega
   const frozenAfterState = preserved.payload.data as NuwaReadModel;
   assert.equal(frozenAfterState.run.runId, frozen.run.runId);
   assert.equal(frozenAfterState.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true, "a previously created Run keeps its frozen context");
+
+  const mapState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observedAt=2000-01-01T00%3A01%3A00Z`);
+  assert.equal(mapState.status, 200, JSON.stringify(mapState.payload));
+  assert.deepEqual((mapState.payload.data as { objectId: string; projection: { value: unknown } }).objectId, northGate.id);
+  assert.deepEqual((mapState.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" }, "the ordinary read endpoint returns the existing WorldState Owner projection");
+  const mapCurrent = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observation=current`);
+  assert.equal(mapCurrent.status, 200, JSON.stringify(mapCurrent.payload));
+  assert.equal((mapCurrent.payload.data as { observation: string }).observation, "current", "Map M2 reads an explicit Owner-current projection instead of treating the system clock as story time");
+  assert.deepEqual((mapCurrent.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" });
+  assert.equal((mapCurrent.payload.data as { projection: { history: unknown[] } }).projection.history.length, 1, "the existing Owner history supplies discrete map observation choices without a map fact store");
+  const nonLocationState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(value.characters[0]!.id)}`);
+  assert.equal(nonLocationState.status, 400, JSON.stringify(nonLocationState.payload));
+  assert.match(String(nonLocationState.payload.error || ""), /正式地点/u);
 
   assert.equal((await postJson(restarted.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
   const after = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/create", {
@@ -686,6 +705,32 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   model = third.payload.data as NuwaReadModel;
   assert.equal(model.run.steps[2]!.actorId, value.characters[2].id);
   assert.equal(model.run.steps[2]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId || ref.summary.includes(statement.speech!)), false, "丙的 actual tool context excludes the undisclosed statement");
+});
+
+test("Nuwa range selection freezes a primary-line scope and advances it inside one candidate Run", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const secondUnit = value.operations.createStoryUnit({ projectId: value.project.id, title: "钟楼之后", order: 1 });
+  const server = await start(value, true); child = server.child;
+  const bootstrap = await getJson(server.baseUrl, `/__local/story-studio/nuwa-n1/bootstrap?projectId=${encodeURIComponent(value.project.id)}`);
+  assert.equal(bootstrap.status, 200);
+  assert.equal((bootstrap.payload.data as { storylines: Array<{ key: string; units: Array<{ id: string }> }> }).storylines[0]?.units.length, 2, "the chooser projects existing ordered Story Units instead of inventing a new event-line owner");
+  const request = { ...value.request("range-create"), scope: { storylineKey: "primary", startStoryUnitId: value.unit.id, endStoryUnitId: secondUnit.id, mode: "bounded" as const } };
+  const created = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", request);
+  assert.equal(created.status, 201, JSON.stringify(created.payload));
+  let model = created.payload.data as NuwaReadModel & { run: NuwaReadModel["run"] & { scope: { mode: string; scenes: Array<{ storyUnit: { id: string } }> } } };
+  assert.deepEqual(model.run.scope.scenes.map((scene) => scene.storyUnit.id), [value.unit.id, secondUnit.id]);
+  for (let index = 0; index < 4; index += 1) {
+    const stepped = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: `range-step-${index}` });
+    assert.equal(stepped.status, 200, JSON.stringify(stepped.payload));
+    model = stepped.payload.data as typeof model;
+  }
+  assert.equal(model.run.status, "completed");
+  assert.deepEqual(model.run.steps.map((step) => step.scene.storyUnitId), [value.unit.id, value.unit.id, secondUnit.id, secondUnit.id]);
 });
 
 test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart while C remains unaware", async (t) => {

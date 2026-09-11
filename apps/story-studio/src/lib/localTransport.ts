@@ -5,6 +5,7 @@ import type { StoryObservationProposalPatch } from "../../../../src/storyContrac
 import type { StoryStudioObjectProfile } from "../../../../src/storyContracts/storyStudioObjectProfile.ts";
 import type { StoryStudioAgentDraftMode } from "../../../../src/storyContracts/storyStudioAgentDraft.ts";
 import type { EventStoryCrossingKnowledgeProjection } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+import type { CharacterMemoryQueryProjection } from "../../../../src/storyContinuity/characterMemoryQuery.ts";
 import type { GoldenLoopCandidateReview, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 import type { NuwaSceneCandidateR0, NuwaSceneComparisonR0, NuwaSceneReplayR0, NuwaSceneSimulationReadModelR0 } from "../../../../src/nuwaSceneRuntimeContracts.ts";
 import type { NuwaBoundedProjection } from "./nuwaBoundedContract";
@@ -169,6 +170,27 @@ export type MultiverseWorkVersion = {
   staleness: { state: "current" | "stale" | "blocked_missing_reference" };
 };
 
+/** Development-only, explicitly isolated B1 rehearsal projection.  It is
+ * intentionally an Owner-receipt view, not a second Relation/Event store. */
+export type MultiverseB1Fixture = {
+  version: "tianyan-multiverse-b1-fixture/v1";
+  root: { workVersionId: string; revision: number; manifestDigest: string } | null;
+  derived: { workVersionId: string; revision: number; parentBaseRevision: number | null } | null;
+  comparison: {
+    compareDigest: string;
+    source: { workVersionId: string; revision: number; manifestDigest: string };
+    target: { workVersionId: string; revision: number; manifestDigest: string };
+    differences: Array<{ changeId: string; ownerKind: "Event" | "Relation" | "WorldState" | "NarrativePlacement"; state: string; selection: string; summary: string; dependencyIds: string[] }>;
+  } | null;
+  execution: {
+    status: string;
+    ownerReceipts: Array<{ ownerKind: string; changeId: string; receiptRef: string; targetRef: string }>;
+    resultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+    compensationResultVersion: { workVersionId: string; revision: number; manifestDigest: string } | null;
+    failure: string | null;
+  } | null;
+};
+
 export type StorageProviderConnection = {
   providerId: "local-folder";
   kind: "local-folder";
@@ -223,6 +245,7 @@ export type ProviderInstanceProjection = {
   enabled: boolean;
   credentialRef: string;
   configRevision: number;
+  credentialRevision: number;
   connectionStatus: "unknown" | "verified" | "failed" | "disabled";
   lastVerifiedAt: string | null;
   lastError: string | null;
@@ -276,7 +299,9 @@ export type ModelServiceStatus = {
     label: string;
     providerInstanceId: string | null;
     modelId: string | null;
+    hostGates: { piAdapterEnabled: boolean; realProviderProductPathEnabled: boolean };
   };
+  runtime?: { startedAt: string; codeRevision: string };
   agentRuntime?: {
     state: "active" | "disabled" | "missing" | "incompatible" | "initialization-failed" | "fallback";
     requestedPluginId: string | null;
@@ -319,14 +344,25 @@ export type ProviderProfileProjection = {
 
 export type ProviderOperationHistoryEntry = {
   id: string;
+  operationId: string | null;
+  providerInstanceId: string | null;
+  configRevision: number | null;
+  credentialRevision: number | null;
+  protocolAdapter: string | null;
+  endpointIdentity: string | null;
   kind: "save" | "reload" | "models" | "connection" | "credential" | "disable" | "inference" | "embedding";
-  status: "success" | "failed";
+  status: "running" | "success" | "failed";
   occurredAt: string;
   modelId: string | null;
   modelCount: number | null;
   latencyMs: number | null;
   error: string | null;
+  responsePreview: string | null;
   traceId: string | null;
+  dispatchState: "sent" | "not-sent" | "unknown" | null;
+  phase: "preflight" | "running" | "completed" | "failed" | "unknown" | null;
+  errorOrigin: "local" | "upstream" | "unknown" | null;
+  errorCategory: string | null;
 };
 
 export type ProviderSessionConnection = {
@@ -393,6 +429,7 @@ export type TianyiGroundedSourceManifest = {
     subjectRef: string | null;
     sceneRef: string | null;
     explicitRefs: string[];
+    eventRefs?: string[];
   };
   hardBudget: number;
   included: TianyiGroundedSourceManifestEntry[];
@@ -517,6 +554,19 @@ export type WorldObject = WorldObjectSummary & {
   card: ObjectCardComposition;
   visualReferences: ObjectVisualReference[];
   worldProjection: CharacterCardWorldProjection | null;
+};
+
+/** Read-only browser projection of the existing N4 WorldState owner. */
+export type WorldStateN4ReadProjection = {
+  subjectId: string;
+  observedAt: string;
+  status: "known" | "unknown";
+  value: { kind: "passage"; state: "open" | "closed" | "unknown" } | { kind: "holder"; state: "held" | "unheld" | "unknown"; holder: { id: string; revision: string } | null } | null;
+  effectiveFrom: string | null;
+  effectiveTo: string | null;
+  change: { changeId: string; effectiveAt: string; evidence: { kind: "confirmed-event"; event: { id: string; revision: string } } } | null;
+  /** The formal Owner history is read-only; Map M2 derives discrete observation choices from it. */
+  history: Array<{ changeId: string; effectiveAt: string; revision: number; value: WorldStateN4ReadProjection["value"]; evidence: { kind: "confirmed-event"; event: { id: string; revision: string } } }>;
 };
 
 /** Browser transport projection of the durable, pre-confirmation Agent proposal owner. */
@@ -1332,8 +1382,34 @@ export async function discoverProviderModels(token: string): Promise<{ providerI
   return request<{ providerId: ProviderPresetId; providerInstanceId: string; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/models`, { method: "POST", token, body: {} });
 }
 
-export async function testProviderConnection(token: string, modelId?: string): Promise<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }> {
-  return request<{ gate: "connection"; providerId: string; modelId: string; testedAt: string; latencyMs: number; availableModelCount: number; models: string[]; profile: ProviderProfileProjection }>(`${basePath}/model-service/test`, { method: "POST", token, body: modelId?.trim() ? { modelId: modelId.trim() } : {} });
+export type ProviderConnectionTestResult = {
+  gate: "connection";
+  operationId: string;
+  providerId: string;
+  modelId: string;
+  testedAt: string;
+  latencyMs: number;
+  state: "completed" | "in-progress" | "missing";
+  outcome: "success" | "failed";
+  dispatchState: "sent" | "not-sent" | "unknown";
+  sent: boolean;
+  recovered: boolean;
+  responsePreview: string | null;
+  error: string | null;
+  readOnly: boolean;
+  configurationSnapshot: { providerInstanceId: string; configRevision: number; credentialRevision: number; protocolAdapter: string; endpointIdentity: string; modelId: string } | null;
+  availableModelCount: number;
+  models: string[];
+  profile: ProviderProfileProjection;
+};
+
+export async function testProviderConnection(token: string, input: { modelId?: string; operationId: string }): Promise<ProviderConnectionTestResult> {
+  const body = { operationId: input.operationId, ...(input.modelId?.trim() ? { modelId: input.modelId.trim() } : {}) };
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test`, { method: "POST", token, body });
+}
+
+export async function readProviderConnectionDiagnostic(token: string, operationId: string): Promise<ProviderConnectionTestResult> {
+  return request<ProviderConnectionTestResult>(`${basePath}/model-service/test?operationId=${encodeURIComponent(operationId)}`, { method: "GET", token });
 }
 
 export async function probeProviderEmbedding(token: string, modelId: string): Promise<{ gate: "embedding"; providerId: ProviderPresetId; providerInstanceId: string; modelId: string; modelRevision: string; dimensions: number; latencyMs: number; profile: ProviderProfileProjection }> {
@@ -1481,6 +1557,17 @@ export async function streamTianyiGroundedAnswer(input: {
   throw new LocalTransportError("天意真实回答流提前结束。", 502);
 }
 
+/** Read a durable answer/receipt without starting or replaying a model request. */
+export async function readTianyiGroundedAnswer(input: {
+  projectId: string;
+  sessionId: string;
+  questionAttemptKey: string;
+  token: string;
+}): Promise<TianyiGroundedAnswerResult | null> {
+  const { token, ...body } = input;
+  return tianyiRequest("grounded-answer/read", token, body);
+}
+
 
 function parseLocalSseEvent(source: string): { event: string; data: unknown } {
   const lines = source.split("\n");
@@ -1517,8 +1604,9 @@ export async function updateObjectCatalog(input: { projectId: string; workVersio
   return request<ObjectCatalogState>(`${basePath}/object-catalog/update`, { method: "POST", token, body });
 }
 
-export async function listRelations(input: { projectId: string; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
+export async function listRelations(input: { projectId: string; workVersionId?: string | null; includeArchived?: boolean; reviewState?: RelationReviewStateR0; objectId?: string; relationTypeId?: string; direction?: RelationDirectionR0; text?: string }): Promise<RelationListResponse> {
   const params = new URLSearchParams({ projectId: input.projectId });
+  if (input.workVersionId) params.set("workVersionId", input.workVersionId);
   if (input.includeArchived) params.set("includeArchived", "true");
   if (input.reviewState) params.set("reviewState", input.reviewState);
   if (input.objectId) params.set("objectId", input.objectId);
@@ -1750,18 +1838,28 @@ export async function mergeAgentRecognitionProposal(input: {
   return request(`${basePath}/agent-recognition/proposals/merge`, { method: "POST", token, body });
 }
 
-export async function getVerifiedCanonEventList(projectId: string): Promise<VerifiedCanonEventListRead> {
-  return request<VerifiedCanonEventListRead>(`${basePath}/event-line/verified-events?projectId=${encodeURIComponent(projectId)}`);
+export async function getVerifiedCanonEventList(projectId: string, workVersionId?: string | null): Promise<VerifiedCanonEventListRead> {
+  const parameters = new URLSearchParams({ projectId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<VerifiedCanonEventListRead>(`${basePath}/event-line/verified-events?${parameters.toString()}`);
 }
 
-export async function getVerifiedCanonEvent(projectId: string, eventId: string): Promise<VerifiedCanonEventDetailRead> {
-  return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?projectId=${encodeURIComponent(projectId)}&eventId=${encodeURIComponent(eventId)}`);
+export async function getVerifiedCanonEvent(projectId: string, eventId: string, workVersionId?: string | null): Promise<VerifiedCanonEventDetailRead> {
+  const parameters = new URLSearchParams({ projectId, eventId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<VerifiedCanonEventDetailRead>(`${basePath}/event-line/event?${parameters.toString()}`);
 }
 
 export async function getEventStoryCrossingKnowledgeProjection(projectId: string, observerId: string, observerIds: readonly string[] = []): Promise<EventStoryCrossingKnowledgeProjection> {
   const parameters = new URLSearchParams({ projectId, observerId });
   if (observerIds.length) parameters.set("observerIds", observerIds.slice(0, 5).join(","));
   return request<EventStoryCrossingKnowledgeProjection>(`${basePath}/event-line/knowledge-view?${parameters.toString()}`);
+}
+
+export async function getCharacterMemoryQuery(projectId: string, characterId: string, workVersionId: string | null): Promise<CharacterMemoryQueryProjection> {
+  const parameters = new URLSearchParams({ projectId, characterId });
+  if (workVersionId) parameters.set("workVersionId", workVersionId);
+  return request<CharacterMemoryQueryProjection>(`${basePath}/characters/memory-query?${parameters.toString()}`);
 }
 
 export async function createWorkspaceFolder(input: { projectId: string; title: string; parentId?: string | null; kind?: WorkspaceFolder["kind"]; token: string }): Promise<{ folder: WorkspaceFolder }> {
@@ -2087,6 +2185,15 @@ export async function createMultiverseWorkVersion(input: { projectId: string; di
   return request<{ created: unknown; versions: MultiverseWorkVersion[] }>(`${basePath}/multiverse/versions/create`, { method: "POST", token, body });
 }
 
+export async function getMultiverseB1Fixture(projectId: string): Promise<MultiverseB1Fixture> {
+  return request<MultiverseB1Fixture>(`${basePath}/multiverse/b1-fixture?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function runMultiverseB1Fixture(input: { projectId: string; action: "setup" | "merge" | "compensate"; token: string }): Promise<{ result: unknown; view: MultiverseB1Fixture }> {
+  const { token, action, ...body } = input;
+  return request<{ result: unknown; view: MultiverseB1Fixture }>(`${basePath}/multiverse/b1-fixture/${action}`, { method: "POST", token, body });
+}
+
 export async function runMultiverseSingleDerivedFixture(input: {
   projectId: string;
   action: "create-root" | "save-derived" | "prepare-review" | "prepare-impact" | "reject" | "confirm";
@@ -2269,10 +2376,21 @@ export type NuwaN1AttentionReport = {
   budget: { estimator: "utf8-byte-upper-bound/v1"; maxInputTokens: number; baseBytes: number; sourceBudgetBytes: number; selectedSourceBytes: number; outputReserveTokens: number; requiredOverflow: boolean };
 };
 export type NuwaN1StoryUnit = { id: string; title: string; revision: string };
+export type NuwaN1Scope = {
+  version: "tianyan-nuwa-n1-scope/v1";
+  mode: "bounded" | "continuous";
+  storylineKey: string;
+  storylineLabel: string;
+  currentSceneIndex: number;
+  scenes: Array<{ storyUnit: { id: string; revision: string }; sceneRef: { id: string; revision: string }; observedAt: string; label: string }>;
+};
+export type NuwaN1Storyline = { key: string; title: string; units: NuwaN1StoryUnit[] };
+export type NuwaN1ScopeSelection = { storylineKey: string; startStoryUnitId: string; endStoryUnitId?: string | null; mode: "bounded" | "continuous" };
 export type NuwaN1Step = {
   stepId: string;
   sequence: number;
   actorId: string;
+  scene: { storyUnitId: string; label: string; observedAt: string };
   intent: string;
   speech: string | null;
   action: { action: string; targetId: string | null } | null;
@@ -2288,6 +2406,7 @@ export type NuwaN1Run = {
   status: "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
   revision: number;
   scene: { storyUnitId: string; label: string; observedAt: string };
+  scope: NuwaN1Scope;
   participants: NuwaN1Participant[];
   goal: string;
   steps: NuwaN1Step[];
@@ -2361,6 +2480,7 @@ export type NuwaN1Bootstrap = {
   availability: NuwaN1Availability;
   participants: NuwaN1Participant[];
   storyUnits: NuwaN1StoryUnit[];
+  storylines: NuwaN1Storyline[];
   relationTypes: Array<{ id: string; title: string; revision: number }>;
   latestRunId: string | null;
 };
@@ -2369,6 +2489,7 @@ export type NuwaN1Setup = {
     projectId: string;
     participants: NuwaN1Participant[];
     storyUnit: NuwaN1StoryUnit;
+    scope: NuwaN1Scope;
     goal: string;
     contextPreview: Array<{ actorId: string; localGoal: string; coreSummary: string; profileBasis: NuwaN1ProfileBasis; attention: NuwaN1AttentionReport; knowledgeItems: Array<{ id: string; summary: string; visibility: string }>; beliefItems: Array<{ id: string; summary: string; stance: string }>; memoryItems: NuwaN1MemoryItem[]; evidenceRefs: string[]; excludedCount: number }>;
   };
@@ -2421,12 +2542,12 @@ export async function getNuwaN1Run(projectId: string, runId: string): Promise<Nu
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
-export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
+export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
   const { token, ...body } = input;
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
 }
 
-export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
 }
@@ -2630,6 +2751,15 @@ export async function createCharacterCard(input: {
 
 export async function readWorldObject(projectId: string, objectId: string): Promise<WorldObject> {
   return request<WorldObject>(`${basePath}/world-object?projectId=${encodeURIComponent(projectId)}&objectId=${encodeURIComponent(objectId)}`);
+}
+
+/** Read-only N4 state. A map layout never writes or infers this projection. */
+export async function readWorldStateN4(input: { projectId: string; objectId: string; workVersionId: string | null; observedAt?: string; observation?: "current" }): Promise<{ projectId: string; objectId: string; workVersionId: string | null; observation: "current" | "event"; projection: WorldStateN4ReadProjection }> {
+  const parameters = new URLSearchParams({ projectId: input.projectId, objectId: input.objectId });
+  if (input.workVersionId) parameters.set("workVersionId", input.workVersionId);
+  if (input.observedAt) parameters.set("observedAt", input.observedAt);
+  if (input.observation === "current") parameters.set("observation", "current");
+  return request(`${basePath}/world-state?${parameters.toString()}`);
 }
 
 export async function rememberWorldObject(projectId: string, objectId: string, token: string): Promise<WorldObject> {
@@ -3384,7 +3514,7 @@ async function readProjectProjection<T>(url: string): Promise<T> {
 
 async function request<T>(
   url: string,
-  input: { method?: "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
+  input: { method?: "GET" | "POST"; token?: string; body?: Record<string, unknown>; signal?: AbortSignal } = {}
 ): Promise<T> {
   const parsedUrl = new URL(url, window.location.origin);
   const directoryEndpoint = parsedUrl.pathname.endsWith("/world-library") ? "world-library" : parsedUrl.pathname.endsWith("/story-units") ? "story-units" : null;

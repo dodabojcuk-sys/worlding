@@ -63,15 +63,17 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   function bootstrap(projectId) {
     requireProject(projectId);
     const latest = latestRun(projectId);
+    const storyUnits = operations.listStoryUnits({ projectId })
+      .filter((item) => item.lifecycle !== "archived")
+      .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
     return {
       version: VERSION,
       availability: availability(),
       participants: operations.listWorldObjects({ projectId, type: "character" })
         .filter((item) => item.status !== "archived")
         .map((item) => ({ id: item.id, title: item.title, revision: item.revisionToken })),
-      storyUnits: operations.listStoryUnits({ projectId })
-        .filter((item) => item.lifecycle !== "archived")
-        .map((item) => ({ id: item.id, title: item.title, revision: item.version })),
+      storyUnits: storyUnits.map((item) => ({ id: item.id, title: item.title, revision: item.version })),
+      storylines: resolveStorylines(storyUnits),
       relationTypes: relationOperations?.listRelationTypes({ projectId }).types
         .filter((item) => item.lifecycle === "active")
         .map((item) => ({ id: item.relationTypeId, title: item.label, revision: item.typeRevision })) ?? [],
@@ -81,10 +83,11 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
 
   async function setup(input, frozenSourceIdentity = sourceIdentityForProject(input.projectId, input.workVersionId ?? null)) {
     const project = requireProject(input.projectId);
-    const scene = resolveScene(input.projectId, input.storyUnit);
+    const scope = resolveScope(input.projectId, input.scope, input.storyUnit);
+    const scene = scope.scenes[0];
     const actors = await resolveActors(input.projectId, input.participants, scene, frozenSourceIdentity);
     const goal = requiredText(input.goal, "局部目标", 1_000);
-    const previewRun = { runId: `nuwa-n1-preview.${createHash("sha256").update(`${project.id}:${scene.storyUnit.id}:${goal}`).digest("hex").slice(0, 20)}`, actors, scene, authorGoal: goal, steps: [], providerDispatches: 0, pendingCue: null };
+    const previewRun = { runId: `nuwa-n1-preview.${createHash("sha256").update(`${project.id}:${scene.storyUnit.id}:${goal}`).digest("hex").slice(0, 20)}`, actors, scene, scope, authorGoal: goal, steps: [], providerDispatches: 0, pendingCue: null };
     return {
       version: VERSION,
       availability: availability(),
@@ -92,6 +95,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         projectId: project.id,
         participants: actors.map((actor) => ({ id: actor.character.id, title: actor.displayName, revision: actor.character.revision, localGoal: actor.localGoal })),
         storyUnit: { id: scene.storyUnit.id, title: scene.label, revision: scene.storyUnit.revision },
+        scope: presentScope(scope),
         goal,
         contextPreview: actors.map((actor) => {
           const context = compileNuwaN1Context(previewRun, actor, `nuwa-n1.preview.${createHash("sha256").update(`${project.id}:${actor.character.id}:${goal}`).digest("hex").slice(0, 24)}`);
@@ -116,6 +120,9 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     requireExecutionAvailability();
     const sourceIdentity = sourceIdentityForProject(input.projectId, input.workVersionId ?? null);
     const prepared = await setup(input, sourceIdentity);
+    if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && prepared.setup.scope.scenes.length !== 1) {
+      throw failure("当前正式自动应用只覆盖一个已验证的故事单元；连续范围仍可用普通候选排演，避免把未实现的跨单元写入伪装为已授权。", 409);
+    }
     if (actionPermissionBroker?.read(input.projectId).profile === "full-access" && (!["root", "derived"].includes(sourceIdentity?.kind) || !Number.isSafeInteger(Number(sourceIdentity?.revision)))) {
       throw failure("女娲高权限排演必须先绑定当前正式主版本或 IF 版本；未建立版本时不会建立 Run 或授权。", 409);
     }
@@ -146,12 +153,12 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       runId: plan.runId,
       sourceSnapshotHash: snapshot.snapshotHash,
       sourceIdentity,
-      scene: {
-        ...resolveScene(input.projectId, input.storyUnit),
-        observedAt: now()
-      },
+      scene: prepared.setup.scope.scenes[0],
+      scope: prepared.setup.scope,
       authorGoal: prepared.setup.goal,
-      actors: await resolveActors(input.projectId, input.participants, resolveScene(input.projectId, input.storyUnit), sourceIdentity),
+      // The frozen scope, rather than the legacy convenience field in the
+      // request, is the authority for every source-dependent actor lookup.
+      actors: await resolveActors(input.projectId, input.participants, prepared.setup.scope.scenes[0], sourceIdentity),
       operationId,
       now: now()
     });
@@ -772,9 +779,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         status: run.lifecycle,
         revision: run.revision,
         scene: { storyUnitId: run.scene.storyUnit.id, label: run.scene.label, observedAt: run.scene.observedAt },
+        scope: presentScope(run.scope),
         participants: run.actors.map((item) => ({ id: item.character.id, title: item.displayName, revision: item.character.revision, localGoal: item.localGoal })),
         goal: run.authorGoal,
-        steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, heardStatements: step.heardStatements, contextEvidenceRefs: step.contextEvidenceRefs, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
+        steps: run.steps.map((step) => ({ stepId: step.stepId, sequence: step.sequence, actorId: step.actor.id, scene: { storyUnitId: step.scene.storyUnit.id, label: step.scene.label, observedAt: step.scene.observedAt }, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult, heardStatements: step.heardStatements, contextEvidenceRefs: step.contextEvidenceRefs, tool: { name: "read_role_context", requestId: step.toolRequestId }, execution: step.execution, contextHash: step.contextHash, usage: step.usage, committedAt: step.committedAt })),
         dispatches: run.dispatches,
         providerDispatches: run.providerDispatches,
         providerDispatchEvidence: run.providerDispatchEvidence,
@@ -840,6 +848,66 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     const unit = operations.readStoryUnit({ projectId, unitId });
     if (unit.version !== ref?.revision) throw failure("故事单元已变更，请重新选择。", 409);
     return { storyUnit: { id: unit.id, revision: unit.version }, sceneRef: { id: unit.id, revision: unit.version }, observedAt: now(), label: unit.title };
+  }
+
+  /**
+   * Story Units already carry the formal ordering and branch structure.  This
+   * is a read projection for the Nuwa chooser, not a new Storyline owner.
+   */
+  function resolveStorylines(units) {
+    const primary = units.filter((unit) => unit.kind === "main");
+    const branches = units.filter((unit) => unit.kind === "branch");
+    return [
+      ...(primary.length ? [{ key: "primary", title: "主线", units: primary.map(presentUnit) }] : []),
+      ...branches.map((unit) => ({ key: `branch.${unit.id}`, title: `分支 · ${unit.title}`, units: [presentUnit(unit)] }))
+    ];
+  }
+
+  function resolveScope(projectId, requested, legacyStoryUnit) {
+    const units = operations.listStoryUnits({ projectId })
+      .filter((unit) => unit.lifecycle !== "archived")
+      .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+    const storylines = resolveStorylines(units);
+    const legacy = legacyStoryUnit?.id ? { storylineKey: "primary", startStoryUnitId: legacyStoryUnit.id, endStoryUnitId: legacyStoryUnit.id, mode: "bounded" } : null;
+    const input = requested || legacy;
+    if (!input || typeof input !== "object") throw failure("请选择女娲要推演的事件线与开始单元。", 400);
+    const storylineKey = requiredText(input.storylineKey, "事件线", 160);
+    const storyline = storylines.find((item) => item.key === storylineKey);
+    if (!storyline) throw failure("所选事件线已不可用，请刷新后重新选择。", 409);
+    const startStoryUnitId = requiredText(input.startStoryUnitId, "开始单元", 180);
+    const startIndex = storyline.units.findIndex((unit) => unit.id === startStoryUnitId);
+    if (startIndex < 0) throw failure("开始单元不属于所选事件线。", 409);
+    const mode = input.mode === "continuous" ? "continuous" : input.mode === "bounded" ? "bounded" : null;
+    if (!mode) throw failure("女娲范围模式无效。", 400);
+    const endStoryUnitId = input.endStoryUnitId == null || input.endStoryUnitId === "" ? null : requiredText(input.endStoryUnitId, "结束单元", 180);
+    if (mode === "bounded" && !endStoryUnitId) throw failure("请选择结束单元，或改为持续推演。", 400);
+    const endIndex = mode === "continuous"
+      ? Math.min(storyline.units.length - 1, startIndex + 2)
+      : storyline.units.findIndex((unit) => unit.id === endStoryUnitId);
+    if (endIndex < startIndex) throw failure("结束单元必须位于开始单元之后。", 409);
+    if (mode === "bounded" && endIndex < 0) throw failure("结束单元不属于所选事件线。", 409);
+    const selected = storyline.units.slice(startIndex, endIndex + 1);
+    if (!selected.length || selected.length > 3) throw failure("N1 单次排演最多覆盖 3 个连续单元；请缩小范围后继续。", 409);
+    return {
+      version: "tianyan-nuwa-n1-scope/v1",
+      mode,
+      storylineKey: storyline.key,
+      storylineLabel: storyline.title,
+      scenes: selected.map((unit) => resolveScene(projectId, unit)),
+      currentSceneIndex: 0
+    };
+  }
+
+  function presentUnit(unit) { return { id: unit.id, title: unit.title, revision: unit.version }; }
+  function presentScope(scope) {
+    return {
+      version: scope.version,
+      mode: scope.mode,
+      storylineKey: scope.storylineKey,
+      storylineLabel: scope.storylineLabel,
+      currentSceneIndex: scope.currentSceneIndex,
+      scenes: scope.scenes.map((scene) => ({ storyUnit: { ...scene.storyUnit }, sceneRef: { ...scene.sceneRef }, observedAt: scene.observedAt, label: scene.label }))
+    };
   }
 
   function resolveRelationType(projectId, input) {

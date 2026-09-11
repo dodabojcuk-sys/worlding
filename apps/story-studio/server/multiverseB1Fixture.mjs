@@ -132,7 +132,26 @@ export function createMultiverseB1FixtureAdapter({ operations, relationOperation
     }
     return execution;
   }
-  function read(projectId) { project(projectId); const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId); const derived = creationSourceSelectionPort.listWorkVersions(projectId).find((item) => item.identity.kind === "derived") || null; return { version: "tianyan-multiverse-b1-fixture/v1", root: root ? { workVersionId: root.identity.workVersionId, revision: root.identity.currentRevision, manifestDigest: root.manifest.canonicalDigest } : null, derived: derived ? { workVersionId: derived.identity.workVersionId, revision: derived.identity.currentRevision, parentBaseRevision: derived.identity.parentBaseRevision } : null, execution: coordinator.read({ projectId, idempotencyKey: MERGE_KEY }) }; }
+  function read(projectId) {
+    project(projectId);
+    const root = creationSourceSelectionPort.resolveRootWorkVersion(projectId);
+    const derived = creationSourceSelectionPort.listWorkVersions(projectId).find((item) => item.identity.kind === "derived") || null;
+    // The rehearsal surface may inspect the same frozen comparison that merge
+    // consumes.  It does not persist a second fact store or infer any facts.
+    const compared = root && derived ? comparison(projectId) : null;
+    return {
+      version: "tianyan-multiverse-b1-fixture/v1",
+      root: root ? { workVersionId: root.identity.workVersionId, revision: root.identity.currentRevision, manifestDigest: root.manifest.canonicalDigest } : null,
+      derived: derived ? { workVersionId: derived.identity.workVersionId, revision: derived.identity.currentRevision, parentBaseRevision: derived.identity.parentBaseRevision } : null,
+      comparison: compared ? {
+        compareDigest: compared.compareDigest,
+        source: { workVersionId: compared.source.workVersionId, revision: compared.source.revision, manifestDigest: compared.source.manifestDigest },
+        target: { workVersionId: compared.target.workVersionId, revision: compared.target.revision, manifestDigest: compared.target.manifestDigest },
+        differences: compared.differences.map((item) => ({ changeId: item.changeId, ownerKind: item.ownerKind, state: item.state, selection: item.selection, summary: item.summary, dependencyIds: item.dependencyIds }))
+      } : null,
+      execution: coordinator.read({ projectId, idempotencyKey: MERGE_KEY })
+    };
+  }
   return Object.freeze({ setup, read, comparison, merge, compensate });
 }
 
