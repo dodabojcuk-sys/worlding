@@ -2134,6 +2134,18 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
   await page.locator('[data-state="closed"]').getByText("封闭", { exact: true }).waitFor();
   if (mapM2EvidenceDirectory) { mkdirSync(mapM2EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-closed.png"), fullPage: true }); }
+  await page.getByTestId("map-m2-inspector").getByRole("button", { name: "查看关系图", exact: true }).click();
+  const relationsWorkspace = page.getByTestId("focused-relations-workspace");
+  await relationsWorkspace.waitFor();
+  await relationsWorkspace.getByText("中心：北闸", { exact: false }).waitFor();
+  await relationsWorkspace.getByLabel("关系列表").getByText("通行协作", { exact: true }).waitFor();
+  await relationsWorkspace.getByRole("button", { name: "列表", exact: true }).click();
+  await relationsWorkspace.getByRole("button", { name: "林昭", exact: true }).waitFor();
+  assert.match(page.url(), /mapObservedAt=2000-01-02T00/u, "The focused relation reader must retain the selected map observation time rather than silently reading current relations.");
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed.png"), fullPage: true });
+  await relationsWorkspace.getByRole("button", { name: "返回地图", exact: true }).click();
+  await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
+  assert.match(page.url(), /mapObservationEvent=/u, "Returning from focused relations must recover the map observation identity.");
   await tabs.nth(3).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
@@ -2182,7 +2194,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-multi-location.png"), fullPage: true });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-multi-location-1440x900.png"), fullPage: false });
   if (mapM2EvidenceDirectory) {
-    writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, relationId: mapM2Fixture.relationId, providerDispatches: 0 }, null, 2)}\n`, "utf8");
+    writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, focusedRelations: { centerObjectId: mapM2Fixture.northGate.id, relationId: mapM2Fixture.relationId, observation: "closed", view: "list", readOnly: true }, providerDispatches: 0 }, null, 2)}\n`, "utf8");
   }
   assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
 }

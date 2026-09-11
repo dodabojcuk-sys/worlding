@@ -98,12 +98,12 @@ export function CharacterMemoryQuery(props: { query: CharacterMemoryQueryProject
   </section>;
 }
 
-export function FormalRelations(props: { objectId: string; relations: readonly RelationReadProjectionR0[]; graphRelationCount: number; objectLabels?: ReadonlyMap<string, string>; onOpenEvent?(eventId: string): void }) {
+export function FormalRelations(props: { objectId: string; relations: readonly RelationReadProjectionR0[]; graphRelationCount: number; objectLabels?: ReadonlyMap<string, string>; onOpenEvent?(eventId: string): void; onOpenRelations?(): void }) {
   const openSource = (relation: RelationReadProjectionR0) => {
     const reference = relation.evidenceRefs.find((item) => item.kind === "confirmed-event")?.reference as { eventId?: string } | undefined;
     if (reference?.eventId) props.onOpenEvent ? props.onOpenEvent(reference.eventId) : window.location.assign(`/event-line?eventId=${encodeURIComponent(reference.eventId)}`);
   };
-  return <><h3><Link2 aria-hidden="true" />正式关系</h3><p>这里读取 Relation Owner 的已确认记录；人物听闻、图形邻近和候选不会自动成为正式关系。</p>{props.relations.length ? <ul className="character-inspector-formal-relations">{props.relations.map((relation) => {
+  return <><h3><Link2 aria-hidden="true" />正式关系</h3><p>这里读取 Relation Owner 的已确认记录；人物听闻、图形邻近和候选不会自动成为正式关系。</p>{props.onOpenRelations ? <button type="button" className="character-inspector-relation-map" onClick={props.onOpenRelations}>查看关系图</button> : null}{props.relations.length ? <ul className="character-inspector-formal-relations">{props.relations.map((relation) => {
     const isSource = relation.sourceObjectId === props.objectId;
     const otherId = isSource ? relation.targetObjectId : relation.sourceObjectId;
     const direction = relation.direction === "both" ? "双向" : relation.direction === "none" ? "未指定方向" : isSource === (relation.direction === "forward") ? "由此角色指向对方" : "由对方指向此角色";

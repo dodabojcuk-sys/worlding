@@ -52,6 +52,14 @@ export function CharacterWorkspace(props: { runtime: TianyanShellRuntimeState; o
     target.searchParams.set("characterReturnLabel", data.record?.object.title || "角色");
     window.location.assign(`${target.pathname}${target.search}`);
   };
+  const openRelations = () => {
+    saveView();
+    const target = new URL("/world", window.location.origin);
+    target.searchParams.set("worldView", "relations");
+    target.searchParams.set("relationCenter", props.objectId);
+    target.searchParams.set("relationReturn", `${window.location.pathname}${window.location.search}`);
+    window.location.assign(`${target.pathname}${target.search}`);
+  };
   const changeSearch = (value: string) => { setSearch(value); updateUrl(value, kind); };
   const changeKind = (value: QueryKind) => { setKind(value); updateUrl(search, value); };
   if (!props.runtime.project) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
@@ -67,7 +75,7 @@ export function CharacterWorkspace(props: { runtime: TianyanShellRuntimeState; o
       <div className="character-workspace-grid"><section className="character-workspace-main"><article className="character-workspace-profile"><h2>角色资料</h2><p>{getCharacterDirectorySummary(object, "暂无角色摘要。")}</p><dl><div><dt>角色核心</dt><dd>{authorProfileValue(object, "character_core") ?? "未设置"}</dd></div><div><dt>底线</dt><dd>{authorProfileValue(object, "boundaries") ?? "未设置"}</dd></div><div><dt>别名</dt><dd>{object.aliases.join("、") || "无"}</dd></div><div><dt>标签</dt><dd>{object.tags.join("、") || "无"}</dd></div></dl>{details.length ? <details><summary>完整角色资料</summary>{details.map((detail) => <article key={detail.heading}><h3>{detail.heading}</h3><p>{detail.content}</p></article>)}</details> : null}</article>
         <CharacterMemoryQuery query={data.memoryQuery} error={data.memoryError} search={search} kind={kind} onSearchChange={changeSearch} onKindChange={changeKind} onOpenEvent={(eventId) => navigateSource("/event-line", { eventId })} onOpenNuwa={(runId) => navigateSource("/nuwa", { runId })} />
         <section className="character-workspace-story"><h2><BookOpen aria-hidden="true" />关联故事</h2>{events.length ? <ul>{events.map((event) => <li key={event.eventId}><button type="button" onClick={() => navigateSource("/event-line", { eventId: event.eventId })}>{data.labels.get(event.eventId) ?? "正式事件"}</button><details><summary>技术详情</summary><code>{event.eventId}</code></details></li>)}</ul> : <p>当前没有关联的正式事件。</p>}</section>
-      </section><aside className="character-workspace-context"><section><h2>查询范围</h2><p>只读当前角色、当前项目和当前作品版本。未搜到、读取失败与已回溯记录分别显示，不会把缺失当作“从未经历”。</p><dl><div><dt>可显示记录</dt><dd>{data.memoryQuery?.records.length ?? 0} 条</dd></div><div><dt>听闻记录</dt><dd>{data.memoryQuery?.counts.heard ?? 0} 条</dd></div><div><dt>正式关系依据</dt><dd>{relationEvidenceCount} 项</dd></div></dl><small>“听闻”按记忆账本条目计；“依据”按 Relation Owner 的正式证据引用计，口径不同，不能互相替代。</small></section><FormalRelations objectId={object.id} relations={data.relations} graphRelationCount={object.worldProjection?.confirmedRelations?.length ?? 0} objectLabels={data.labels} onOpenEvent={(eventId) => navigateSource("/event-line", { eventId })} /><CharacterKnowledgePreview projection={data.knowledge} /></aside></div>
+      </section><aside className="character-workspace-context"><section><h2>查询范围</h2><p>只读当前角色、当前项目和当前作品版本。未搜到、读取失败与已回溯记录分别显示，不会把缺失当作“从未经历”。</p><dl><div><dt>可显示记录</dt><dd>{data.memoryQuery?.records.length ?? 0} 条</dd></div><div><dt>听闻记录</dt><dd>{data.memoryQuery?.counts.heard ?? 0} 条</dd></div><div><dt>正式关系依据</dt><dd>{relationEvidenceCount} 项</dd></div></dl><small>“听闻”按记忆账本条目计；“依据”按 Relation Owner 的正式证据引用计，口径不同，不能互相替代。</small></section><FormalRelations objectId={object.id} relations={data.relations} graphRelationCount={object.worldProjection?.confirmedRelations?.length ?? 0} objectLabels={data.labels} onOpenEvent={(eventId) => navigateSource("/event-line", { eventId })} onOpenRelations={openRelations} /><CharacterKnowledgePreview projection={data.knowledge} /></aside></div>
     </section>
   </main>;
 }

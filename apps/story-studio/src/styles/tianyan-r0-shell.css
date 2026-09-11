@@ -950,3 +950,31 @@ input:focus-visible {
 @media (max-width: 76rem) { .map-workbench { padding: .55rem; } .map-workbench-toolbar { flex-wrap: wrap; } .map-workbench-toolbar label { flex: 1 1 13rem; } .map-workbench-toolbar-actions { margin-inline-start: 0; } .map-workbench-body { grid-template-columns: minmax(0, 1fr) 17.5rem; } .map-workbench-more-nodes { display: none; } }
 @media (max-width: 62rem) { .map-workbench-body { grid-template-columns: minmax(0, 1fr); } .map-workbench-inspector { max-height: 18rem; } }
 @media (max-width: 42rem) { .map-workbench-toolbar-actions button { padding-inline: .45rem; } .map-workbench-toolbar-actions button svg + * { display: none; } .map-workbench-story-strip { align-items: start; flex-direction: column; } .map-workbench-story-nodes { width: 100%; } }
+
+.focused-relations-shell { height: 100%; min-height: 0; overflow: auto; }
+.focused-relations { display: grid; gap: .75rem; max-width: 96rem; min-height: 100%; margin: 0 auto; padding: .75rem; }
+.focused-relations-toolbar { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; padding: .55rem .7rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.focused-relations-toolbar > button, .focused-relations-toolbar label, .focused-relations-actions button, .focused-relations-list button, .focused-relations-nodes button { color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.focused-relations-toolbar > button, .focused-relations-actions button { display: inline-flex; align-items: center; gap: .35rem; min-height: 2.15rem; padding-inline: .55rem; }
+.focused-relations-toolbar > div { display: grid; min-width: 11rem; gap: .1rem; }
+.focused-relations-toolbar > div span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-toolbar label { display: grid; gap: .12rem; padding: .2rem .35rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-toolbar select { min-width: 10rem; max-width: 15rem; color: var(--color-text); background: transparent; border: 0; font: inherit; }
+.focused-relations-actions { display: flex; gap: .3rem; margin-inline-start: auto; }
+.focused-relations-actions button[aria-pressed="true"] { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.focused-relations-notice { margin: 0; padding: .55rem .7rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+.focused-relations-empty { display: grid; min-height: 20rem; place-content: center; gap: .6rem; padding: 1rem; text-align: center; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); }
+.focused-relations-empty h1, .focused-relations-empty p { max-width: 38rem; margin: 0; }
+.focused-relations-graph { display: grid; grid-template-columns: minmax(15rem, .8fr) minmax(0, 1.2fr); gap: .75rem; min-height: 24rem; }
+.focused-relations-nodes, .focused-relations-list { display: grid; align-content: start; gap: .5rem; padding: .7rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.focused-relations-nodes article { display: grid; gap: .3rem; padding: .65rem; background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-nodes article.is-center { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent); }
+.focused-relations-nodes small, .focused-relations-list small, .focused-relations > footer { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-nodes article > div { display: flex; flex-wrap: wrap; gap: .35rem; }
+.focused-relations-nodes button, .focused-relations-list button { padding: .3rem .45rem; text-align: start; }
+.focused-relations-list ul { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.focused-relations-list li { display: grid; gap: .3rem; padding: .65rem; background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-list li > div { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.focused-relations-list li > div strong { color: var(--color-accent); font-size: var(--font-size-sm); }
+.focused-relations > footer { padding: .45rem .2rem; }
+@media (max-width: 72rem) { .focused-relations-toolbar label { flex: 1 1 12rem; } .focused-relations-actions { margin-inline-start: 0; } .focused-relations-graph { grid-template-columns: 1fr; } }

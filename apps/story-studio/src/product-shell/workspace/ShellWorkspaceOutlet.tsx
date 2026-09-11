@@ -12,6 +12,7 @@ import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
 import { MapM1Workspace } from "../../components/world/MapM1Workspace";
+import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
@@ -61,6 +62,10 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
     return <MapM1Workspace runtime={props.runtime} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "relations") {
+    return <FocusedRelationsWorkspace runtime={props.runtime} />;
   }
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "character" && props.characterObjectId) {
