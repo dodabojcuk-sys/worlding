@@ -163,7 +163,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
   }
 
   function pinnedPackageSnapshot(packageValue) {
-    return {
+    const snapshot = {
       packageId: packageValue.packageId,
       contentHash: packageValue.contentHash,
       scope: packageValue.scope,
@@ -171,12 +171,15 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       warnings: packageValue.warnings,
       storyMarkdown: packageValue.storyMarkdown
     };
+    return { ...snapshot, snapshotDigest: pinnedPackageSnapshotDigest(snapshot) };
   }
 
   async function createArtifact(projectId, input = {}) {
     const versionAuthority = authority(projectId);
     const versions = versionAuthority.listVersions();
-    if (versions.some((item) => item.identity.kind === "derived")) throw new Error("Derived WorkVersion sources are rejected in this Creation slice.");
+    // An IF may coexist with the root.  Rejecting its *selection* is correct;
+    // rejecting a root-bound fixed draft merely because an IF exists makes a
+    // completed B1 merge impossible to export or compensate visibly.
     const root = versions.find((item) => item.identity.kind === "root");
     if (!root) throw new Error("Create the root WorkVersion explicitly before creating an artifact.");
     assertRequestedRoot(versionAuthority, root, input.workVersionId);
@@ -541,6 +544,15 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
           });
         }
         const snapshot = binding.pinnedPackageSnapshot;
+        if (!snapshot.snapshotDigest || snapshot.snapshotDigest !== pinnedPackageSnapshotDigest(snapshot)) {
+          return blockedReadProjection({
+            project,
+            root,
+            derivedVersionCount: derived.length,
+            artifacts,
+            sourceRequestBlocker: { kind: "pinned-source-corrupt", authorMessage: snapshot.snapshotDigest ? "这份固定创作稿的来源快照摘要不匹配；已阻止读取和下载，历史记录仍保留。" : "这份旧固定创作稿缺少可复核的快照摘要；已阻止读取和下载。请从可验证来源建立新的固定稿。" }
+          });
+        }
         packageValue = {
           packageId: snapshot.packageId,
           contentHash: snapshot.contentHash,
@@ -602,9 +614,17 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const revisionHistory = artifact ? operations.getDocumentRevisionHistory({ projectId, ref: { kind: "artifact", id: artifact.id } }) : null;
     const authorText = artifact ? artifactAuthorText(artifact) : "";
     const reconciliationReceipt = binding?.sourceReconciliationReceipt || null;
-    const compare = root && binding && !reconciliationReceipt && root.identity.currentRevision >= 3 && binding.pinnedRevision < root.identity.currentRevision
-      ? await sourceDriftCompare(projectId, options)
-      : null;
+    let compare = null;
+    if (root && binding && !reconciliationReceipt && root.identity.currentRevision >= 3 && binding.pinnedRevision < root.identity.currentRevision) {
+      try { compare = await sourceDriftCompare(projectId, options); }
+      catch (error) {
+        // A pinned snapshot stays downloadable even if a later, unrelated
+        // current-source compare cannot be constructed.  Expose the precise
+        // compare failure rather than erasing the fixed artifact itself.
+        if (packageMode !== "pinned-artifact") throw error;
+        compare = { status: "unavailable", message: String(error?.message || error) };
+      }
+    }
     const reconciliationComplete = Boolean(reconciliationReceipt && root?.identity.currentRevision === 4 && binding?.pinnedRevision === 3);
     return {
       version: "tianyan-project-scoped-creation-source-port/r0",
@@ -727,7 +747,10 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const slices = {
       project: projectionSlice("project", [`project:${project.id}`], { projectId: project.id, title: project.title }),
       "story-structure": projectionSlice("story-structure", storyUnits.length ? storyUnits.map((unit) => `story-unit:${unit.id}`) : [`story-structure:${project.id}:empty`], { storyUnits: storyUnits.map((unit) => ({ id: unit.id, version: unit.version })), ...(salt ? { projectionSalt: salt } : {}) }),
-      "event-hierarchy": projectionSlice("event-hierarchy", events.length ? events.map((event) => `event:${event.id}`) : [`event-hierarchy:${project.id}:empty`], { events: events.map((event) => ({ id: event.id, revision: event.revisionToken })), ...(salt ? { projectionSalt: salt } : {}) }),
+      // Canon verification can legitimately yield no Event on a new project.
+      // Keep that explicit empty slice hashable; an empty array alone has no
+      // scalar evidence for the strict snapshot resolver.
+      "event-hierarchy": projectionSlice("event-hierarchy", events.length ? events.map((event) => `event:${event.id}`) : [`event-hierarchy:${project.id}:empty`], { state: events.length ? "present" : "empty", events: events.map((event) => ({ id: event.id, revision: event.revisionToken })), ...(salt ? { projectionSalt: salt } : {}) }),
       // An ordinary new project may legitimately have no character yet.  The
       // existing Character State owner still supplies a complete, explicit
       // empty projection; an empty array alone is not a valid digest input.
@@ -758,10 +781,96 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     });
   }
 
+  // MULTI-B1 needs a target-version checkpoint without pretending that a
+  // derived IF is the root creation source.  This remains a WorkVersion-only
+  // write: Event, Relation, WorldState and NarrativeArrangement are recorded
+  // first by their existing Owners and are passed here only as receipt refs.
+  function appendTargetWorkVersionRevision(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const target = versionAuthority.getVersion(input.workVersionId);
+    if (target.identity.status !== "active") throw new Error("归档的作品版本不能接收 MULTI-B1 融入结果。");
+    // The authority checks its idempotency receipt before current-version
+    // concurrency.  Preserve that order so a response lost after append can
+    // replay even though the target has advanced to the merge result.
+    if (target.identity.currentRevision === input.expectedRevision && target.manifest.canonicalDigest !== input.expectedManifestDigest) {
+      throw new Error("目标作品版本已变化；请重新比较后再融入。");
+    }
+    try {
+      return versionAuthority.appendRevision({
+      workVersionId: target.identity.workVersionId,
+      expectedRevision: input.expectedRevision,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: target.identity.currentRevision + 1 }),
+      optionalNuwaProvenanceRefs: [],
+      semanticDeltaRefs: input.semanticDeltaRefs
+      });
+    } catch (error) {
+      if (/revision conflict|expected revision/i.test(String(error?.message || error))) throw new Error("目标作品版本已变化；请重新比较后再融入。");
+      throw error;
+    }
+  }
+
+  function listWorkVersions(projectId) {
+    const versionAuthority = authority(projectId);
+    return versionAuthority.listVersions().map((version) => ({
+      identity: version.identity,
+      manifest: { manifestId: version.manifest.manifestId, canonicalDigest: version.manifest.canonicalDigest },
+      revision: { revision: version.revision.revision, createdAt: version.revision.createdAt },
+      staleness: versionAuthority.projectVersionStaleness(version.identity.workVersionId)
+    }));
+  }
+
+  function createDerivedWorkVersion(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const parent = versionAuthority.getVersion(input.parentVersionId);
+    if (parent.identity.kind !== "root" || parent.identity.status !== "active") throw new Error("IF 必须从当前可用的主故事版本创建。");
+    if (parent.identity.currentRevision !== input.expectedParentRevision || parent.identity.headManifestId !== input.expectedParentManifestId) {
+      throw new Error("主故事版本在创建 IF 前已变化；请刷新后重新选择分叉点。");
+    }
+    const created = versionAuthority.createDerivedVersion({
+      displayName: input.displayName,
+      parentVersionId: parent.identity.workVersionId,
+      parentBaseRevision: parent.identity.currentRevision,
+      parentManifestId: parent.identity.headManifestId,
+      expectedRevision: 0,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: parent.identity.currentRevision }),
+      optionalNuwaProvenanceRefs: []
+    });
+    // Freeze N4's deliberately narrow state slices inside their existing
+    // WorldState Owner.  Later IF writes select the child WorkVersion key and
+    // therefore cannot leak back to the parent/mainline object field.
+    operations.forkWorldStateN4({
+      projectId,
+      parentWorkVersionId: parent.identity.workVersionId,
+      childWorkVersionId: created.identity.workVersionId,
+      operationId: `${input.idempotencyKey}.world-state-fork`
+    });
+    // Relation state has the same copy-on-write IF boundary as N4 state.
+    // The Relation Owner persists the child slice in its existing repository;
+    // this port only coordinates the already-created WorkVersion identity.
+    relationOperations?.forkRelationWorkVersion?.({
+      projectId,
+      parentWorkVersionId: parent.identity.workVersionId,
+      childWorkVersionId: created.identity.workVersionId,
+      operationId: `${input.idempotencyKey}.relation-fork`,
+      now: input.createdAt
+    });
+    return created;
+  }
+
   return Object.freeze({
     resolveActiveProject,
     resolveRootWorkVersion: (projectId) => authority(projectId).listVersions().find((item) => item.identity.kind === "root") || null,
+    resolveWorkVersion: (projectId, workVersionId) => authority(projectId).getVersion(workVersionId),
+    listWorkVersions,
+    createDerivedWorkVersion,
     appendStructuredStoryRevision,
+    appendTargetWorkVersionRevision,
     validateWorkVersionSource: read,
     buildNeutralStoryPackage: async (projectId, input = {}) => {
       const root = authority(projectId).listVersions().find((item) => item.identity.kind === "root");
@@ -856,6 +965,11 @@ function normalizedCreationKey(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function pinnedPackageSnapshotDigest(snapshot) {
+  const { snapshotDigest: _ignored, ...payload } = snapshot;
+  return `sha256:${sha256(stableJson(payload))}`;
 }
 
 function ownerDigestMap(refs) {

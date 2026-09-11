@@ -30,6 +30,7 @@ export * from "./excludedSourceReason.ts";
 export * from "./personaPolicyRepositories.ts";
 export * from "./tianyiIdentityReadiness.ts";
 export * from "./memoryGrantRepositories.ts";
+export * from "./characterMemoryRepository.ts";
 export * from "./interactionArchiveRepository.ts";
 export * from "./archiveRecallRepository.ts";
 export * from "./receiptStoppingRepositories.ts";

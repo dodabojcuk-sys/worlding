@@ -459,9 +459,9 @@
 .agent-provider-model-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .agent-provider-model-meta small { min-width: 0; line-height: 1.45; }
 .agent-provider-model-meta button { min-height: auto; flex: 0 0 auto; padding: 0; color: var(--color-accent); background: transparent; border: 0; font-size: var(--font-size-xs); }
-.agent-provider-secret-control { display: grid; grid-template-columns: minmax(0, 1fr) 2.5rem; }
-.agent-provider-secret-control input { border-start-end-radius: 0 !important; border-end-end-radius: 0 !important; }
-.agent-provider-secret-control button { min-height: 2.5rem; padding: 0; border-start-start-radius: 0; border-end-start-radius: 0; }
+.agent-provider-secret-control { display: grid; grid-template-columns: minmax(0, 1fr) max-content max-content; align-items: stretch; gap: var(--space-2); }
+.agent-provider-secret-control input { min-width: 0; }
+.agent-provider-secret-control button { min-height: 2.5rem; min-width: 6.5rem; padding-inline: var(--space-3); white-space: nowrap; }
 .agent-provider-secret-control button svg,
 .agent-provider-secret-note svg,
 .agent-provider-credential-status svg { width: 1rem; height: 1rem; flex: 0 0 auto; }
@@ -471,6 +471,11 @@
 .agent-provider-credential-status { color: var(--color-text); }
 .agent-provider-enabled { display: flex !important; align-items: center; gap: var(--space-2); color: var(--color-text) !important; font-size: var(--font-size-sm) !important; }
 .agent-provider-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.agent-provider-operation-status { display: grid; gap: var(--space-1); }
+.agent-provider-operation-status p { margin: 0; }
+.agent-provider-operation-status [data-state="running"] { color: var(--color-accent); }
+.agent-provider-operation-status [data-state="failed"] { color: var(--color-danger); }
+.agent-provider-runtime-version { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
 @media (max-width: 72rem) {
   .agent-permission-settings { grid-template-columns: 1fr; }
@@ -487,6 +492,13 @@
 @media (max-width: 48rem) {
   .settings-card dl { grid-template-columns: 1fr; }
   .account-center-card dl { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 36rem) {
+  .agent-provider-secret-control { grid-template-columns: 1fr 1fr; }
+  .agent-provider-secret-control output,
+  .agent-provider-secret-control input { grid-column: 1 / -1; }
+  .agent-provider-secret-control button { min-width: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

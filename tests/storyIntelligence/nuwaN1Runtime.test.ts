@@ -14,7 +14,11 @@ import {
   cueNuwaN1Run,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
+  recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderPreflightFailure,
+  recordNuwaN1ProviderReservation,
   readNuwaN1Run,
+  resolveNuwaN1ProviderDispatch,
   resumeNuwaN1Run,
   startNuwaN1Run,
   buildStorySnapshot,
@@ -69,6 +73,19 @@ function adapter(observed: { contexts: unknown[]; calls: number[] }): NuwaN1Exec
   };
 }
 
+test("N1 persists a derived IF source identity without collapsing it into mainline", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-derived-source-"));
+  const workspace = path.join(root, "project");
+  try {
+    cpSync(sourceFixture, workspace, { recursive: true });
+    const snapshot = buildStorySnapshot({ workspacePath: workspace });
+    const plan = createNuwaPlan({ snapshot, authorGoal: "IF 铜钥匙交接" });
+    createNuwaRunPack({ workspacePath: workspace, plan, snapshot });
+    const run = createNuwaN1Run({ workspacePath: workspace, runId: plan.runId, sourceSnapshotHash: snapshot.snapshotHash, sourceIdentity: { kind: "derived", workVersionId: "work-version.derived.north-gate", revision: "2" }, scene: { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" }, authorGoal: "只在 IF 中决定钥匙去向。", actors: fixtureActors(), operationId: "operation.n1.derived.create", now: "2026-09-09T12:00:00.000Z" });
+    assert.deepEqual(run.sourceIdentity, { kind: "derived", workVersionId: "work-version.derived.north-gate", revision: "2" });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("N1 compiles role-local context by stable ID and never leaks author secret material", async () => {
   await withRun(({ workspace, run }) => {
     const first = compileNuwaN1Context(run, run.actors[0]!, "operation.n1.context");
@@ -81,6 +98,75 @@ test("N1 compiles role-local context by stable ID and never leaks author secret 
     assert.equal(JSON.stringify(first).includes("顾澜"), false, "another actor's belief does not enter the request");
     assert.equal(readNuwaN1Run(workspace, run.runId)?.revision, 1);
   });
+});
+
+test("N1 durably records a local Provider validation failure without reserving or consuming a send", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const started = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.n1.preflight.start" });
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const base = adapter(observed);
+    const blocked = await advanceNuwaN1Run({
+      workspacePath: workspace,
+      runId: run.runId,
+      expectedRevision: started.revision,
+      operationId: "operation.n1.preflight",
+      adapter: {
+        ...base,
+        async continueAfterTool({ context }) {
+          recordNuwaN1ProviderPreflightFailure({
+            workspacePath: workspace,
+            runId: run.runId,
+            operationId: "operation.n1.preflight",
+            providerCall: 2,
+            requestKey: "nuwa-n1.fixture.preflight.2",
+            detail: "request-validation:tool-result-id",
+            provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" },
+            now: "2026-09-09T14:00:00.000Z"
+          });
+          throw new Error("当前模型请求内容无效。");
+        }
+      }
+    });
+    const persisted = readNuwaN1Run(workspace, run.runId)!;
+    const providerDispatch = persisted.attempts[0]!.dispatches.find((item) => item.phase === "provider");
+
+    assert.equal(blocked.lifecycle, "blocked");
+    assert.equal(persisted.providerDispatches, 0, "a local validation rejection cannot consume the real Provider send budget");
+    assert.deepEqual(providerDispatch, {
+      phase: "provider",
+      status: "failed",
+      recordedAt: "2026-09-09T14:00:00.000Z",
+      detail: "request-validation:tool-result-id",
+      providerCall: 2,
+      requestKey: "nuwa-n1.fixture.preflight.2",
+      reservationId: null,
+      receiptEnvelopeId: null,
+      provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" }
+    });
+  });
+});
+
+test("N2B sends an early goal-relevant clue instead of the full authorized history", async () => {
+  const attentionActors = fixtureActors();
+  attentionActors[0]!.unknownFactIds = ["event.secret-unrevealed-title"];
+  attentionActors[0]!.knownFacts = [
+    { factId: "fact.current-scene", summary: "当前场景雾港断桥正在震动。", sourceRef: { id: "event.current-scene", revision }, visibility: "experienced", attentionRequired: true },
+    ...Array.from({ length: 28 }, (_, index) => ({ factId: `fact.long-history-${index}`, summary: `无关集市历史 ${index}：${"旧货摊位与天气记录。".repeat(6)}`, sourceRef: { id: `event.long-history-${index}`, revision }, visibility: "informed" as const })),
+    { factId: "fact.early-bell", summary: "很早以前听到桥下钟声来自废塔的机械装置。", sourceRef: { id: "event.early-bell", revision }, visibility: "informed" }
+  ];
+  attentionActors[0]!.localGoal = "核实桥下钟声来源。";
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.n2b.start" });
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n2b.step", adapter: adapter(observed) });
+    const sent = observed.contexts[0] as ReturnType<typeof compileNuwaN1Context>;
+    assert.equal(stepped.steps.length, 1);
+    assert.equal(sent.knownFacts.some((fact) => fact.factId === "fact.current-scene"), true, "current-scene required content is retained");
+    assert.equal(sent.knownFacts.some((fact) => fact.factId === "fact.early-bell"), true, "the older clue matching the actor goal reaches the actual adapter input");
+    assert.ok(sent.knownFacts.length < attentionActors[0]!.knownFacts.length, "the full long history is not sent");
+    assert.ok(sent.attention.budget.selectedSourceBytes <= sent.attention.budget.sourceBudgetBytes);
+    assert.equal(JSON.stringify(sent).includes("secret-unrevealed-title"), false, "permission-excluded identity is represented only as a count");
+  }, attentionActors);
 });
 
 test("N1 embeds its lifecycle ledger in the existing RunPack and projects its active status", async () => {
@@ -267,7 +353,15 @@ test("N1 records an invalid post-result delivery contract as a terminal failed a
       adapterId: "local-fake.invalid-delivery",
       async request(context) { return { type: "tool-request", toolName: "read_role_context", requestId: "tool.invalid-delivery", actor: context.actor }; },
       async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
-      async continueAfterTool({ context }) { return { type: "actor-result", actor: context.actor, intent: "静默", speech: null, heardByActorIds: ["character.阿芜"], action: { action: "observe", targetId: null }, observableResult: "不应提交。", usage: { inputTokens: 20, outputTokens: 20 } }; }
+      async continueAfterTool({ context }) {
+        for (const providerCall of [1, 2]) {
+          const requestKey = `nuwa-n1.fixture.invalid-delivery.${providerCall}`;
+          recordNuwaN1ProviderReservation({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", providerCall, requestKey, reservationId: `reservation.${providerCall}`, receiptEnvelopeId: `envelope.${providerCall}`, provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" } });
+          recordNuwaN1ProviderDispatch({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", requestKey });
+          resolveNuwaN1ProviderDispatch({ workspacePath: workspace, runId: run.runId, operationId: "operation.n1.invalid-result", requestKey, status: "completed" });
+        }
+        return { type: "actor-result", actor: context.actor, intent: "静默", speech: null, heardByActorIds: ["character.阿芜"], action: { action: "observe", targetId: null }, observableResult: "不应提交。", usage: { inputTokens: 20, outputTokens: 20 } };
+      }
     };
     const blocked = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n1.invalid-result", adapter: invalidDelivery });
     assert.equal(blocked.lifecycle, "blocked");
@@ -275,6 +369,9 @@ test("N1 records an invalid post-result delivery contract as a terminal failed a
     assert.equal(blocked.attempts[0]?.outcome, "failed");
     assert.notEqual(blocked.attempts[0]?.outcome, "pending");
     assert.deepEqual(blocked.attempts[0]?.usage, { inputTokens: 20, outputTokens: 20, source: "reported" });
+    assert.equal(blocked.providerDispatches, 2, "completed Provider sends remain accounted for after a later result-contract rejection");
+    assert.deepEqual(blocked.attempts[0]?.dispatches.map((dispatch) => [dispatch.phase, dispatch.status]), [["request", "dispatched"], ["continue-after-tool", "failed"], ["provider", "completed"], ["provider", "completed"]]);
+    assert.match(blocked.attempts[0]?.dispatches.find((dispatch) => dispatch.phase === "continue-after-tool")?.detail || "", /statement delivery requires a completed spoken statement/u);
   });
 });
 
@@ -307,7 +404,8 @@ test("N1 blocks exact and conservatively estimated token overages without commit
     factId: `fact.oversized-${index}`,
     summary: `必须保留的角色事实${index}：${"长".repeat(400)}`,
     sourceRef: { id: `event.oversized-${index}`, revision },
-    visibility: "experienced" as const
+    visibility: "experienced" as const,
+    attentionRequired: true
   }));
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });
@@ -325,8 +423,8 @@ test("N1 blocks exact and conservatively estimated token overages without commit
     assert.equal(blocked.steps.length, 0);
     assert.equal(blocked.attempts[0]?.outcome, "blocked");
     assert.equal(blocked.attempts[0]?.usage?.source, "estimated");
-    assert.ok((blocked.attempts[0]?.usage?.inputTokens || 0) > 4096);
-    assert.match(blocked.blocker || "", /未发送请求/u);
+    assert.ok((blocked.attempts[0]?.usage?.inputTokens || 0) > 0);
+    assert.match(blocked.blocker || "", /必需角色依据.*超过输入预算.*没有截断或发送请求/u);
   }, oversizedActors);
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });

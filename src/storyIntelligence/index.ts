@@ -48,6 +48,8 @@ export {
   projectNuwaAttentionForAuthor
 } from "./nuwaAttentionContext.ts";
 export type { NuwaAttentionContext, NuwaAttentionSource, NuwaActorKnowledgeSlice, NuwaAttentionBriefInput, NuwaResolvedAttentionSource } from "./nuwaAttentionContext.ts";
+export { NUWA_N1_ATTENTION_VERSION, selectNuwaN1Attention } from "./nuwaN1Attention.ts";
+export type { NuwaN1AttentionCandidate, NuwaN1AttentionSelection } from "./nuwaN1Attention.ts";
 export {
   applyStoryMemoryRecallToNuwaResult,
   recallNuwaEvidenceWithSkill
@@ -168,6 +170,7 @@ export {
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
+  recordNuwaN1ProviderPreflightFailure,
   recordNuwaN1ProviderReservation,
   readNuwaN1Run,
   resolveNuwaN1ProviderDispatch,

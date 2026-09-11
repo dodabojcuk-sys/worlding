@@ -1,6 +1,6 @@
 # 天衍功能路线图与能力账本
 
-> 本文是路线图和能力状态的唯一项目内入口。它不替代 `TIANYAN_PRODUCT_CORE.md` 的产品定义，也不以测试通过冒充真实模型或作者体验验收。R4 收尾分支为 `codex/r4-r1-review`，女娲 N1 使用独立叠加分支 `codex/nuwa-n1-review`；后续状态以最新提交和运行证据为准。
+> 本文是路线图和能力状态的唯一项目内入口。它不替代 `TIANYAN_PRODUCT_CORE.md` 的产品定义，也不以测试通过冒充真实模型或作者体验验收。R5 候选位于 `codex/nuwa-n1-review`，N2 稳定恢复点为 `codex/nuwa-n2`，N3 从其最新提交精确建立在 `codex/nuwa-n3`；后续状态以最新提交和运行证据为准。
 
 ## 状态口径
 
@@ -13,10 +13,16 @@
 | STAB-R4 | 冷启动、目录与世界时间切换可恢复，失败可定位 | Shell runtime、工程目录、EventLine 只读投影 | 本地全量通过；PR #4 远端待精确 SHA 核对；作者待验 | 取消为终态；写入代次阻止旧读回填；已接收的同源本地投影读取由响应/连接错误收敛，不在 15 秒边界伪造断线；工具栏收尾后冻结天意/事件线新功能 |
 | OBS-1 | 从一次动作查到结果、失败与既有回执 | `EngineeringLogPanel`、Agent Run、关系回执、continuity receipt | 本地通过；作者待验 | 当前作品只读回执投影已支持操作/结果/对象/关键词筛选、逐条安全详情和脱敏导出；连续隔离链覆盖女娲开始、单步、暂停、恢复、停止与候选回执。硬保护或范围失败仍保留 `requires-author`/`blocked` 原状态，不伪装成执行失败。 |
 | TIAN-YI-R1 | 在同一会话的创意/工作泳道中持续整理、审阅与采纳 | `TianyiConversation`、Story Intake Envelope、batch adapter | 本地通过；真实模型待验；作者待验 | 验证真实 Provider 前先保留来源、范围、回执、撤销和跨项目隔离；不得把假服务称为真实 Pi |
-| REL-R1 | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 本地通过；作者待验 | 事件线“关系变化”已读 Relation Owner 列表、状态/方向/类型筛选、详情、证据、故事有效时间和回执历史；人物知情/误解不自动改写关系。下一切片才是显式双时点比较与补偿撤销。 |
-| MAP-M1 | 回答地点由谁控制、谁与此有关、发生过什么、依据是什么 | 世界入口、现有地点/Relation/Event 投影与 `storyStudioLocationTopology.ts` | 已规划；本轮暂不建模 | N1 后再做“雾港断桥”二维示意/自定义底图、地点—势力—人物—事件与来源往返；布局坐标不写事实，目击不等于现居 |
-| MEM-A1 | 长会话知道当前任务范围、来源和不知道什么 | `storyContinuity`、ContextPack、停止点和回执 | A1a 已完成本地问题驱动 Event 检索：范围内排序、置顶/移除、版本化引用与回执来源预览；真实 Provider 与作者体验待独立验收 | 继续比较事实命中、泄密、未来信息与恢复一致性；不把本地假服务通过表述为真实模型验证 |
-| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、Action Permission Broker、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；高权限范围授权已接通；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 dispatch 上限、暂停/刷新/恢复/停止/回放/新建与选定结果送入待确认。`full-access` 在作者开始 Run 时由服务端建立项目/单元/角色绑定且可撤销的授权，不能由客户端伪造；自动 Event/Relation/资料/编排应用仍须接入既有 Owner。Pi adapter 仅在产品 Provider 路径、显式 N1 开关和已配置活动 Profile 三者同时满足时可用；本轮只以内存假 Pi 与本地 N1 fake 验证，真实调用为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
+| REL-N3B | 看清方向、证据、时点与误会—澄清的关系变化 | Relation Owner 与事件观察投影 | 双时点比较本地与浏览器通过；作者待验 | 当前作品与明确正式版本范围选择人物/对象、T1/T2，显示新增、结束、改变、保持；未知与冲突单列。系统回执时间、归档、人物听闻及图形位置不作为世界时间，来源可定位 Event 与精确 Nuwa Run。 |
+| REL-F0 | 围绕人物或地点清楚阅读正式关系，并按需展开或回到地图 | 世界入口、Relation Owner、地图观察位置 | 本地与隔离浏览器通过；作者待验 | 默认只读中心对象的直接已确认关系；SVG 连线用正式方向表达关系，可切换列表、按类型筛选、逐节点展开、平移缩放及主动全局查看。历史观察复用 Relation 比较器的解析式、`validTo` 包含端点规则，归档不充当故事终止时间，未知/无效/不确定单列。地图→关系→精确 Event 修订→关系→地图保留版本、节点、筛选、展开与视口；修订失配明确拒绝较新正文。浏览不写入 Relation、WorldState 或人物记忆。 |
+| MAP-M2 | 在同一版本内按故事节点观察地点状态与局部关系，并能回到来源 | 世界入口、`visualDocumentRepository`、WorldState/Relation/Canon Read Owner | 本地与隔离浏览器通过；作者待验 | 当前入口已支持默认浏览、显式布局编辑、地点/地图/观察位置/视口 URL 恢复；观察节点只由已有 WorldState 的已确认 Event 依据派生，`current` 不等于系统时间。隔离北闸链已覆盖“封闭→恢复通行”、同位时段关系、准确版本 Event 来源与返回；布局坐标不写事实，人物出现不等于现居或知情。 |
+| MEM-A1 | 长会话按问题检索当前范围内的可核验故事依据 | `storyContinuity`、Grounded Context Gate、Session/Receipt/Archive | 实现中：MEM-A1a 已接回 R1.1 基线；本地假 Provider 与作者体验待验 | 自动检索仅保留相关项、默认至多 6 条；显式选择受同一合同限制。来源必须绑定项目、作品版本与事件修订，回答卡从既有 Session/Receipt/Archive 投影恢复；预览、实际发送与回执逐项一致。 |
+| NUWA-N1 | 在受限场景让 2–3 个角色持续行动并可暂停恢复 | `/nuwa`、Nuwa RunPack、`nuwaN1Runtime`、Action Permission Broker、既有 Candidate Review | 本地工程闭环与 Pi 适配代码通过；高权限应用/回溯已接通；真实模型未运行；作者待验 | 已验证中文正式 ID、角色事实/信念隔离、受限工具往返、精确或保守 token 门、6 步/12 次真实模型发送上限、暂停/刷新/恢复/停止/回放/新建、普通候选交接，以及授权范围内经既有 Owner 完成 Event/Relation/资料/编排应用、固定稿与补偿回溯。真实调用仍为 `REAL_PROVIDER_NOT_RUN_NOT_AUTHORIZED`。 |
+| NUWA-N2A | 让每位角色按自己的核心、底线和本场目标行动 | 既有 Character WorldObject/Profile、Nuwa RunPack、`read_role_context` | 本地与浏览器通过；真实模型未运行；作者待验 | 角色编辑器可写作者确认的“角色核心/底线”，排演准备要求逐角色本场目标；创建 Run 时冻结人物修订和实际输入，人物后续编辑不改旧 Run。检查器与 Pi adapter 读取同一冻结上下文，正文及未选中的私密 Profile 字段不会进入发送范围。 |
+| NUWA-N2B | 在同一角色的允许材料内稳定选择最相关注意力 | Nuwa role context、权限/可知投影、`nuwaN1Attention` | 本地与浏览器通过；真实模型未运行；作者待验 | 先在项目/稳定人物/版本/时点/知情边界得到已授权集合，再保留当前场景必需项，并按角色目标、场景词项和稳定 ID 排序；UTF-8 字节上界覆盖完整请求，必需项超限时发送前阻断。检查器与 Pi 输入显示同一入选来源、原因和预算，权限排除项只显示数量而不泄漏身份。 |
+| NUWA-N2C | 跨场景保持可追溯的人物连续性记忆 | `storyContinuity/characterMemoryRepository`、Nuwa RunPack 只读/冻结投影 | 本地与浏览器通过；真实模型未运行；作者待验 | 原始 `heard` 递送按项目和稳定接收者写入 Story Continuity owner，保留说话者、原话、Run/step、场景、时间、作品版本和 owner 修订；后续场景只召回当前项目/版本链/可见时间内的有效记录，未接收角色、IF/其他项目和未来记录均排除。回溯以失效元数据阻止当前使用但不删历史；RunPack 不成为第二个永久人物记忆库。 |
+| MEM-Q1 | 从正常角色入口查询经历、目击、听闻与信念，并回到原始依据 | `CharacterInspectorCard`、Event 知情投影、`character-memory-ledger` | 本地与浏览器通过；真实模型不需要；作者待验 | 查询只读当前角色、项目和 WorkVersion identity；正式 Event 与逐接收者 heard 保持不同来源与状态，失效听闻可查但不可作为当前记忆。每项定位到 Event 或精确 Nuwa Run/step；空结果、读取失败和版本不兼容不混写。 |
+| NUWA-N3A | 让作者先读懂人物行动、上下文和正式变化，再按需查看协议细节 | `/nuwa`、既有 Run/Continuity/Permission/Owner 回执 | 本地与浏览器通过；真实模型未运行；作者待验 | 普通候选与已授权自动应用的范围首层区分；人物核心、底线、本场目标及“谁在何场告诉谁什么”先显示，可复制来源/修订/预算折叠；完成后分别显示正式 Event、Relation、叙事位置与新增听闻，入口通向同一 Run、关系比较、固定稿和回溯。 |
 | PRED-P1 | 比较平淡、意外、深远后果等候选路径 | 多节点预测、Story Unit、NarrativeArrangement | 本地通过；作者待验 | 明示依据、代价、冲突和后果；创作探索不伪装统计概率 |
 | MULTI-B1 | 对照 IF/改版/女娲结果并选择范围融入 | WorkVersion、候选/影响/回执边界 | 已有基础 | 差异、冲突、合并回执与撤销；区分普通支线和版本分支 |
 | FATE-F1 | 解释角色规划、实际和候选轨迹 | `characterFateProjection`（进入前核对现状） | 计划中 | 先确定作者维度与事件依据，不能用单分数冒充命运事实 |
@@ -38,6 +44,22 @@
 3. **M2/M4：**角色档案新增安全“知情”投影和一次性“加入女娲”交接；关系读取留在 Relation Owner，显示类型、方向、证据、故事有效时间与回执历史。
 4. **M3：**新增受控 Pi N1 adapter，唯一工具是冻结的 `read_role_context`；适配器拒绝越权 JSON 行动。真实 Provider 没有被调用。
 5. **M5/M6：**同一隔离故事已完成两名命名角色的女娲连续排演、候选交接、Relation Owner 读取、正式版本来源包和 OutputArtifact Markdown 下载；第二项目回执不可从当前项目日志检出。截图与连续视频位于 `data/2026-09-07_天衍R5_M6连续交互证据/`。
+6. **M7（最终审查修复候选）：**Story Intake 的异步创建、抽取和流式回填绑定发起时的项目访问代次；Event Writer 同时保存稳定人物 ID 与兼容展示标签，旧同名标签按封闭失败处理；高级画布等待匹配的 Owner 投影，不回退到原始 Event；女娲候选仅引用实际选入步骤的证据；Provider 生命周期回调不得改写已经持久化的成功传输结果；固定创作稿新增可复核快照摘要且读取时封闭校验。以上均只使用临时项目和本地伪 Provider，远端 PR 检查与 Founder 独立验收仍是不同状态。
+
+## N2 连续开发检查点
+
+1. **N2A：角色驱动依据与逐角色目标。**既有角色 Profile 是唯一人物资料写入者；Run 创建时冻结角色核心、底线、人物修订与逐角色本场目标。人物更新后旧 Run 不漂移，检查器与实际 Pi 工具输入同源，非白名单正文/私密字段不发送。本地类型、lint、构建、运行时/API、Pi adapter 与 `nuwa-n1` 浏览器闭环通过；真实 Provider 0 次，作者体验未验收。
+2. **N2B：注意力选择。**已在角色权限过滤后的集合内实现确定性词项排序与完整请求预算门；当前场景必需项不可被静默截断，早期目标相关线索优先于冗长无关历史，更换合法目标会改变排序，相同冻结输入可复现。实际 Pi 工具输入与检查器同源，权限排除身份不发送。本地领域/API/Pi/typecheck/lint/build 通过；当前 N2C 提交上的 `TIANYAN_E2E_SCOPE=nuwa-n1` 浏览器闭环亦已通过，先前三次宿主资源超时不再作为当前阻断；真实 Provider 0 次。
+3. **N2C：跨场景人物连续性记忆。**已新增 Story Continuity 项目级、逐角色 `character-memory-ledger` owner；每个已提交的明确递送先保存原话与说话者/接收者/Run/step/场景/时间/作品版本，再以确定性身份幂等追加。新 Run 只冻结当前项目、相同作品版本链且不晚于场景时点的 active `heard` 投影，B 可跨服务重启在第二场召回 A 的说法，未被递送的 C 不可见；回溯写失效修订并保留历史。检查器显示来源与有效性，实际角色工具上下文复用同一投影；59 项 N2 定向测试、完整 unit 1144/1144、integration 55/55、typecheck、lint、build 与同一浏览器运行内的 N2A→N2B→N2C 跨场景闭环已通过，截图和连续录屏位于 `data/2026-09-09_天衍N2人物注意力跨场景连续证据/`。真实 Provider 0 次，Founder 人工体验未验收。
+4. **全量门：**首次运行暴露的 `full-shell` 关系图/时间线同步断言失败可在本次连续证据改动前的 `584d843` 基线独立复现；根因是测试过早读取 React Flow 私有包装属性。现已为关系图语义 Event 节点暴露稳定 `data-event-id`，并在关系图与时间线投影 ready 后对比语义 ID。修复后隔离 `full-shell`、默认六个 E2E scope 及最终 `npm run verify` 全部通过；unit `1144/1144`、integration `55/55`、typecheck、lint 和 build 均通过。这仍只是本地技术验证，不替代真实 Provider 与 Founder 独立验收。
+
+## N3 连续开发检查点
+
+1. **N3A：作者可读女娲工作面。**上下文预览与实际步骤依据分开；角色核心、底线、本场目标和可读听闻置于首层，完整身份、修订、来源与 UTF-8 保守预算按需展开。普通候选与当前 Run 的高权限自动应用范围明确区分，真实 Provider 计数保持可见。完成后的 Event、Relation、NarrativePlacement 与 heard 分项显示，0 项不混计。
+2. **N3B：Relation Owner 双世界时间比较。**只读比较器按同项目、当前明确工作版本与合法 `temporal.validFrom/validTo` 计算新增、结束、改变、保持；未知、低置信与重叠冲突单列。归档及系统回执时间不成为故事终止时间，人物听闻不生成关系；项目/版本变化会使在途读取失效。来源入口可回到正式 Event 或带 `runId` 的准确 Nuwa Run。
+3. **N3C：同故事连续交付。**隔离故事中三位稳定人物完成“阿芜仅告知林昭‘北闸已封’→第二场林昭按 heard 召回、陆衍保持未知→高权限自动正式应用→关系 T1/T2 比较→固定 Markdown 下载→补偿回溯”；回溯前后固定稿 SHA-256 一致。关键截图、同源下载与 1440×900 连续录屏位于 `data/2026-09-09_天衍N3连续交付证据/`。
+4. **验证边界。**Node 22/npm 10 下 N3 专项 29/29、unit 1150/1150、integration 55/55、默认六段 E2E、typecheck、lint、build 与 `npm run verify` 通过。浏览器链使用隔离本地假服务，真实 Provider 0 次；Founder 人工体验未验收。GitHub 认证当前只阻塞 fetch/push/PR 精确同步，不影响已保存的本地提交。
+5. **R1 交付复核。**新建固定稿以作者阅读版 Markdown v2 交付正文、对白、行动、结果和听闻；来源/包身份移至附录，刻意原始 JSON/代码文本仍原样保留。既有固定稿读取其已保存快照，未被迁移或改写。`n3-continuous` 在 A 回溯前、回溯后完成实际浏览器下载并逐字节比较，随后才切换到 B 执行迟到 A 响应隔离；R1 证据显式记录 A/B 身份，避免把 B 终态截图误读为 A 回溯后状态。复核资料位于 `data/2026-09-09_天衍N3交付复核R1/`；真实 Provider 仍为 0，Founder 体验仍待独立验收。
 
 ## 设计与研究边界
 

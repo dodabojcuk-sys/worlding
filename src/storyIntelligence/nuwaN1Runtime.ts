@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 
 import { nuwaRunPath } from "./nuwaRunPack.ts";
+import { selectNuwaN1Attention, type NuwaN1AttentionSelection } from "./nuwaN1Attention.ts";
 import { stableHash, stableJson } from "./storySnapshotBuilder.ts";
 
 /**
@@ -15,15 +16,24 @@ export const NUWA_N1_MAX_DISPATCHES = 12;
 
 export type NuwaN1StableRef = { id: string; revision: string };
 export type NuwaN1Lifecycle = "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
-export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public" };
+export type NuwaN1MemorySource = { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: "active" };
+export type NuwaN1KnownFact = { factId: string; summary: string; sourceRef: NuwaN1StableRef; visibility: "experienced" | "witnessed" | "informed" | "heard" | "public" | "relation" | "world-state"; worldStateObjectId?: string; attentionRequired?: boolean; memorySource?: NuwaN1MemorySource };
 /** A belief remains role-local, but its evidence provenance must stay visible
  * so that a suspicion is never silently upgraded to a shared story fact. */
-export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef };
+export type NuwaN1Belief = { beliefId: string; summary: string; stance: "believed" | "suspected" | "misunderstood"; sourceRef: NuwaN1StableRef; attentionRequired?: boolean };
+export type NuwaN1ProfileBasis = {
+  core: string | null;
+  boundaries: string | null;
+  sourceRevision: string;
+  sources: Array<{ field: "character_core" | "boundaries"; source: "author-profile" }>;
+};
 export type NuwaN1Actor = {
   character: NuwaN1StableRef;
   displayName: string;
   coreSummary: string;
   localGoal: string;
+  /** Author-confirmed character basis frozen when the Run is created. */
+  profileBasis: NuwaN1ProfileBasis;
   knownFacts: NuwaN1KnownFact[];
   beliefs: NuwaN1Belief[];
   unknownFactIds: string[];
@@ -39,9 +49,11 @@ export type NuwaN1Context = {
   scene: NuwaN1Scene;
   localGoal: string;
   coreSummary: string;
-  knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"] }>;
+  profileBasis: NuwaN1ProfileBasis;
+  knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"]; worldStateObjectId?: string; memorySource?: NuwaN1MemorySource }>;
   beliefs: Array<NuwaN1Belief & { sourceId: string; sourceRevision: string }>;
-  unknownFactIds: string[];
+  excludedKnowledgeCount: number;
+  attention: NuwaN1AttentionSelection;
   recentDialogue: Array<{ speakerId: string; text: string; observedStep: number }>;
   allowedActions: string[];
   remaining: { committedSteps: number; dispatches: number; inputTokenBudget: 4096; outputTokenBudget: 1024 };
@@ -49,12 +61,15 @@ export type NuwaN1Context = {
 };
 export type NuwaN1ToolRequest = { type: "tool-request"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef };
 export type NuwaN1ToolResult = { type: "tool-result"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef; context: NuwaN1Context };
+export type NuwaN1WorldStateAction =
+  | { kind: "passage"; objectId: string; state: "open" | "closed" | "unknown" }
+  | { kind: "holder"; objectId: string; state: "held" | "unheld" | "unknown"; holderId: string | null };
 export type NuwaN1ActorResult = {
   type: "actor-result";
   actor: NuwaN1StableRef;
   intent: string;
   speech: string | null;
-  action: { action: string; targetId: string | null };
+  action: { action: string; targetId: string | null; worldState?: NuwaN1WorldStateAction };
   observableResult: string;
   /** Explicit delivery contract.  Text is never parsed to infer who heard it. */
   heardByActorIds?: string[];
@@ -75,7 +90,7 @@ export type NuwaN1Step = {
   actor: NuwaN1StableRef;
   intent: string;
   speech: string | null;
-  action: { action: string; targetId: string | null };
+  action: { action: string; targetId: string | null; worldState?: NuwaN1WorldStateAction };
   observableResult: string;
   toolRequestId: string;
   execution: {
@@ -126,7 +141,7 @@ export type NuwaN1Run = {
   runId: string;
   sourceSnapshotHash: string;
   /** Frozen at author create time; execution must not re-read the current root. */
-  sourceIdentity: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null;
+  sourceIdentity: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null;
   scene: NuwaN1Scene;
   authorGoal: string;
   actors: NuwaN1Actor[];
@@ -159,7 +174,7 @@ export type NuwaN1CandidateHandoff = {
   formalWrites: 0;
 };
 
-export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
+export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
   assertRunPack(input.workspacePath, input.runId, input.sourceSnapshotHash);
   assertSetup(input);
   if (readNuwaN1Run(input.workspacePath, input.runId)) {
@@ -248,12 +263,12 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   const context = compileNuwaN1Context(initial, actor, input.operationId);
   const attemptId = safeOperation(input.operationId);
   const preflightInputTokens = Buffer.byteLength(stableJson(context), "utf8");
-  if (preflightInputTokens > context.remaining.inputTokenBudget) {
+  if (context.attention.budget.requiredOverflow || preflightInputTokens > context.remaining.inputTokenBudget) {
     const recorded = recordedAt(input);
     return writeAttempt(input, initial, {
       ...initial,
       lifecycle: "blocked",
-      blocker: "角色上下文的保守 Token 估算超过 N1 输入上限；未发送请求。",
+      blocker: context.attention.budget.requiredOverflow ? "当前场景的必需角色依据已超过输入预算；请缩短必需资料后重新建立 Run，系统没有截断或发送请求。" : "角色上下文的完整请求保守 Token 估算超过 N1 输入上限；未发送请求。",
       attempts: [...initial.attempts, {
         operationId: attemptId,
         attemptId,
@@ -262,7 +277,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
         contextHash: stableHash(context),
         requestId: null,
         dispatches: [],
-        tool: { status: "cancelled", recordedAt: recorded, detail: "input budget blocked before dispatch" },
+        tool: { status: "cancelled", recordedAt: recorded, detail: context.attention.budget.requiredOverflow ? "required attention sources exceed budget before dispatch" : "input budget blocked before dispatch" },
         usage: { inputTokens: preflightInputTokens, outputTokens: 0, source: "estimated" },
         outcome: "blocked",
         recordedAt: recorded,
@@ -325,7 +340,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
     step = {
       stepId,
-      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: { action: text(result.action.action, "action", 160), targetId: result.action.targetId == null ? null : stableObjectId(result.action.targetId) }, observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
+      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), intent: text(result.intent, "intent", 600), speech, action: normalizeAction(result.action), observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
       contextEvidenceRefs: contextEvidenceRefs(context),
       heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
       toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
@@ -341,9 +356,28 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   const canonicalActor = run.actors.find((candidate) => sameRef(candidate.character, actor.character));
   if (!canonicalActor) throw new Error("Nuwa N1 actor is outside the frozen Run scope.");
   const dialogue = run.steps.flatMap((step) => step.speech && (step.actor.id === actor.character.id || step.heardByActorIds.includes(actor.character.id)) ? [{ speakerId: step.actor.id, text: step.speech, observedStep: step.sequence }] : []).slice(-4);
+  const knownFacts = [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility, attentionRequired: fact.attentionRequired === true, ...(fact.worldStateObjectId ? { worldStateObjectId: fact.worldStateObjectId } : {}), ...(fact.memorySource ? { memorySource: structuredClone(fact.memorySource) } : {}) })), ...heardStatements(run, actor.character.id).map((fact) => ({ ...fact, attentionRequired: false }))];
+  const beliefs = canonicalActor.beliefs.map((belief) => ({ beliefId: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceRef: structuredClone(belief.sourceRef), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision, attentionRequired: belief.attentionRequired === true }));
+  const remaining = { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096 as const, outputTokenBudget: 1024 as const };
+  const fixedContext = { version: "tianyan-nuwa-n1-role-context/v1" as const, runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis), excludedKnowledgeCount: canonicalActor.unknownFactIds.length, recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining, authorCue: run.pendingCue?.instruction ?? null };
+  const baseBytes = Buffer.byteLength(stableJson({ ...fixedContext, knownFacts: [], beliefs: [], attention: null }), "utf8");
+  const attention = selectNuwaN1Attention({
+    goal: `${canonicalActor.localGoal}\n${run.authorGoal}`,
+    sceneLabel: run.scene.label,
+    baseBytes,
+    maxInputTokens: remaining.inputTokenBudget,
+    outputReserveTokens: remaining.outputTokenBudget,
+    candidates: [
+      ...knownFacts.map((fact) => ({ key: `knowledge:${fact.factId}`, kind: "knowledge" as const, sourceId: fact.sourceId, summary: fact.summary, required: fact.attentionRequired, serializedBytes: Buffer.byteLength(stableJson(fact), "utf8") + 192 })),
+      ...beliefs.map((belief) => ({ key: `belief:${belief.beliefId}`, kind: "belief" as const, sourceId: belief.sourceId, summary: belief.summary, required: belief.attentionRequired, serializedBytes: Buffer.byteLength(stableJson(belief), "utf8") + 192 }))
+    ]
+  });
+  const selected = new Set(attention.selected.map((item) => item.key));
   return {
-    version: "tianyan-nuwa-n1-role-context/v1", runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary,
-    knownFacts: [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility })), ...heardStatements(run, actor.character.id)], beliefs: canonicalActor.beliefs.map((belief) => ({ ...structuredClone(belief), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision })), unknownFactIds: [...canonicalActor.unknownFactIds], recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining: { committedSteps: NUWA_N1_MAX_COMMITTED_STEPS - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096, outputTokenBudget: 1024 }, authorCue: run.pendingCue?.instruction ?? null
+    ...fixedContext,
+    knownFacts: knownFacts.filter((fact) => selected.has(`knowledge:${fact.factId}`)).map(({ attentionRequired: _required, ...fact }) => fact),
+    beliefs: beliefs.filter((belief) => selected.has(`belief:${belief.beliefId}`)).map(({ attentionRequired: _required, ...belief }) => belief),
+    attention
   };
 }
 
@@ -365,6 +399,34 @@ export function recordNuwaN1ProviderReservation(input: { workspacePath: string; 
       providerCall: input.providerCall, requestKey,
       reservationId: input.reservationId == null ? null : safeId(input.reservationId),
       receiptEnvelopeId: input.receiptEnvelopeId == null ? null : safeId(input.receiptEnvelopeId),
+      provider: normalizeProviderIdentity(input.provider)
+    }],
+    updatedAt: recordedAt(input)
+  }));
+}
+
+/**
+ * Records a Gateway rejection that occurred before a budget reservation or
+ * model-boundary send. It is intentionally separate from a reservation:
+ * callers can recover the exact safe validation class without treating a
+ * zero-send failure as an unknown or consuming the N1 send budget.
+ */
+export function recordNuwaN1ProviderPreflightFailure(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; requestKey: string; detail: string; provider: { providerId: string; profileId: string; modelId: string }; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const attemptId = safeOperation(input.operationId);
+  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider preflight validation.");
+  if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
+  const requestKey = safeRequestKey(input.requestKey);
+  const detail = providerPreflightDiagnostic(input.detail);
+  const found = current.attempts.find((attempt) => attempt.operationId === attemptId);
+  if (!found) throw new Error("Nuwa N1 Provider preflight failure has no matching execution attempt.");
+  const prior = found.dispatches.find((dispatch) => dispatch.phase === "provider" && dispatch.requestKey === requestKey);
+  if (prior) return current;
+  return updateAttempt(input, current, attemptId, (attempt) => ({
+    ...attempt,
+    dispatches: [...attempt.dispatches, {
+      phase: "provider", status: "failed", recordedAt: recordedAt(input), detail,
+      providerCall: input.providerCall, requestKey, reservationId: null, receiptEnvelopeId: null,
       provider: normalizeProviderIdentity(input.provider)
     }],
     updatedAt: recordedAt(input)
@@ -517,7 +579,7 @@ function finishAttempt(input: { workspacePath: string; runId: string; now?: stri
   const updated = updateAttempt(input, current, attemptId, (attempt) => ({
     ...attempt,
     tool: target === "tool" ? { status: outcome === "cancelled" ? "cancelled" : "failed", recordedAt: recordedAt(input), detail } : attempt.tool,
-    dispatches: target === "dispatch" ? attempt.dispatches.map((dispatch, index) => dispatch.phase === "provider" && dispatch.status === "reserved" ? { ...dispatch, status: "failed", detail, recordedAt: recordedAt(input) } : dispatch.phase === "provider" && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "unknown", detail, recordedAt: recordedAt(input) } : index === attempt.dispatches.length - 1 && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : dispatch) : attempt.dispatches,
+    dispatches: target === "dispatch" ? attempt.dispatches.map((dispatch, index) => dispatch.phase === "provider" && dispatch.status === "reserved" ? { ...dispatch, status: "failed", detail, recordedAt: recordedAt(input) } : dispatch.phase === "provider" && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "unknown", detail, recordedAt: recordedAt(input) } : dispatch.phase === "continue-after-tool" && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : index === attempt.dispatches.length - 1 && dispatch.status === "dispatched" ? { ...dispatch, status: outcome === "cancelled" ? "cancelled" : "failed", detail, recordedAt: recordedAt(input) } : dispatch) : attempt.dispatches,
     usage: usage ?? attempt.usage,
     outcome,
     updatedAt: recordedAt(input)
@@ -537,6 +599,12 @@ function normalizeAttempt(value: NuwaN1Attempt): NuwaN1Attempt {
 
 function safeRequestKey(value: string): string {
   return text(value, "Provider request key", 240);
+}
+
+function providerPreflightDiagnostic(value: string): string {
+  const detail = text(value, "Provider preflight diagnostic", 120);
+  if (!/^request-validation:[a-z0-9-]{1,80}$/u.test(detail)) throw new Error("Nuwa N1 Provider preflight diagnostic is invalid.");
+  return detail;
 }
 
 function normalizeProviderIdentity(value: { providerId: string; profileId: string; modelId: string }) {
@@ -619,7 +687,7 @@ function normalizeRun(value: unknown): NuwaN1Run {
     const allowed = new Set(run.actors.map((actor) => actor.character.id));
     if (heardStatements.some((heard) => heard.speakerId !== step.actor.id || heard.sourceStepId !== step.stepId || heard.recipientId === step.actor.id || !allowed.has(heard.recipientId))) throw new Error("Nuwa N1 heard statement is outside its completed step or Run roster.");
     if (heardStatements.length !== heardByActorIds.length || heardStatements.some((heard) => !heardByActorIds.includes(heard.recipientId))) throw new Error("Nuwa N1 statement delivery ledger is inconsistent.");
-    return { ...step, speech, heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
+    return { ...step, speech, action: normalizeAction(step.action), heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
   });
   run.attempts = run.attempts.map(normalizeAttempt);
   return structuredClone(run);
@@ -629,7 +697,7 @@ function normalizeSourceIdentity(value: unknown): NuwaN1Run["sourceIdentity"] {
   if (value == null) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 source identity is invalid.");
   const identity = value as Record<string, unknown>;
-  if (identity.kind !== "root" && identity.kind !== "unversioned-draft") throw new Error("Nuwa N1 source identity kind is invalid.");
+  if (identity.kind !== "root" && identity.kind !== "derived" && identity.kind !== "unversioned-draft") throw new Error("Nuwa N1 source identity kind is invalid.");
   return { kind: identity.kind, workVersionId: safeId(String(identity.workVersionId || "")), revision: text(String(identity.revision || ""), "sourceIdentity revision", 180) };
 }
 
@@ -642,10 +710,36 @@ function assertSetup(input: { sourceSnapshotHash: string; scene: NuwaN1Scene; au
 }
 function normalizeActor(actor: NuwaN1Actor): NuwaN1Actor {
   const character = cloneRef(actor.character);
-  const knownFacts = actor.knownFacts.map((fact) => ({ factId: stableObjectId(fact.factId), summary: text(fact.summary, "known fact", 800), sourceRef: cloneRef(fact.sourceRef), visibility: fact.visibility }));
-  const beliefs = actor.beliefs.map((belief) => ({ beliefId: stableObjectId(belief.beliefId), summary: text(belief.summary, "belief", 800), stance: belief.stance, sourceRef: cloneRef(belief.sourceRef) }));
+  const knownFacts = actor.knownFacts.map((fact) => ({ factId: stableObjectId(fact.factId), summary: text(fact.summary, "known fact", 800), sourceRef: cloneRef(fact.sourceRef), visibility: fact.visibility, ...(fact.worldStateObjectId ? { worldStateObjectId: stableObjectId(fact.worldStateObjectId) } : {}), ...(fact.attentionRequired === true ? { attentionRequired: true } : {}), ...(fact.memorySource ? { memorySource: normalizeMemorySource(fact.memorySource) } : {}) }));
+  const beliefs = actor.beliefs.map((belief) => ({ beliefId: stableObjectId(belief.beliefId), summary: text(belief.summary, "belief", 800), stance: belief.stance, sourceRef: cloneRef(belief.sourceRef), ...(belief.attentionRequired === true ? { attentionRequired: true } : {}) }));
   if (!Array.isArray(actor.allowedActions) || !actor.allowedActions.length) throw new Error("Nuwa N1 actor must have allowed actions.");
-  return { character, displayName: text(actor.displayName, "displayName", 160), coreSummary: text(actor.coreSummary, "coreSummary", 1_000), localGoal: text(actor.localGoal, "localGoal", 800), knownFacts, beliefs, unknownFactIds: actor.unknownFactIds.map(stableObjectId), allowedActions: actor.allowedActions.map((action) => text(action, "allowed action", 120)) };
+  const profileBasis = normalizeProfileBasis(actor.profileBasis, character.revision);
+  return { character, displayName: text(actor.displayName, "displayName", 160), coreSummary: text(actor.coreSummary, "coreSummary", 1_000), localGoal: text(actor.localGoal, "localGoal", 800), profileBasis, knownFacts, beliefs, unknownFactIds: actor.unknownFactIds.map(stableObjectId), allowedActions: actor.allowedActions.map((action) => text(action, "allowed action", 120)) };
+}
+function normalizeProfileBasis(value: NuwaN1ProfileBasis | undefined, fallbackRevision: string): NuwaN1ProfileBasis {
+  if (value == null) return { core: null, boundaries: null, sourceRevision: fallbackRevision, sources: [] };
+  if (!value || typeof value !== "object" || !Array.isArray(value.sources)) throw new Error("Nuwa N1 character profile basis is invalid.");
+  const core = value.core == null ? null : text(value.core, "character core", 1_000);
+  const boundaries = value.boundaries == null ? null : text(value.boundaries, "character boundaries", 1_000);
+  const sources = value.sources.map((item) => {
+    if (!item || !["character_core", "boundaries"].includes(item.field) || item.source !== "author-profile") throw new Error("Nuwa N1 character profile source is invalid.");
+    return { field: item.field, source: item.source };
+  });
+  return { core, boundaries, sourceRevision: text(value.sourceRevision, "character profile revision", 180), sources };
+}
+function normalizeMemorySource(value: NuwaN1MemorySource): NuwaN1MemorySource {
+  if (!value || typeof value !== "object" || value.validity !== "active") throw new Error("Nuwa N1 Character Memory source is invalid.");
+  return {
+    memoryId: stableObjectId(value.memoryId),
+    speakerId: stableObjectId(value.speakerId),
+    sourceRunId: safeId(value.sourceRunId),
+    sourceStepId: safeId(value.sourceStepId),
+    sceneId: stableObjectId(value.sceneId),
+    sceneObservedAt: text(value.sceneObservedAt, "Character Memory scene time", 40),
+    workVersionId: text(value.workVersionId, "Character Memory work version", 180),
+    workRevision: text(value.workRevision, "Character Memory work revision", 180),
+    validity: "active"
+  };
 }
 function validateToolRequest(request: NuwaN1ToolRequest, actor: NuwaN1Actor): void {
   if (request.type !== "tool-request" || request.toolName !== "read_role_context" || !safeId(request.requestId) || !sameRef(request.actor, actor.character)) throw new Error("Nuwa N1 adapter requested an unsupported or cross-character tool.");
@@ -654,6 +748,19 @@ function validateActorResult(result: NuwaN1ActorResult, actor: NuwaN1Actor): voi
   if (result.type !== "actor-result" || !sameRef(result.actor, actor.character) || !actor.allowedActions.includes(result.action.action)) throw new Error("Nuwa N1 adapter result is outside the actor scope or allowed actions.");
   text(result.intent, "intent", 600); text(result.observableResult, "observableResult", 1_200); if (result.speech != null) text(result.speech, "speech", 1_200);
   if (result.heardByActorIds != null && !Array.isArray(result.heardByActorIds)) throw new Error("Nuwa N1 statement recipients are invalid.");
+}
+function normalizeAction(value: NuwaN1ActorResult["action"]): NuwaN1Step["action"] {
+  if (!value || typeof value !== "object") throw new Error("Nuwa N1 action is invalid.");
+  const action = { action: text(value.action, "action", 160), targetId: value.targetId == null ? null : stableObjectId(value.targetId) };
+  if (value.worldState == null) return action;
+  const change = value.worldState;
+  if (change.kind === "passage" && ["open", "closed", "unknown"].includes(change.state)) return { ...action, worldState: { kind: "passage", objectId: stableObjectId(change.objectId), state: change.state } };
+  if (change.kind === "holder" && ["held", "unheld", "unknown"].includes(change.state)) {
+    const holderId = change.holderId == null ? null : stableObjectId(change.holderId);
+    if ((change.state === "held") !== Boolean(holderId)) throw new Error("Nuwa N1 holder action is invalid.");
+    return { ...action, worldState: { kind: "holder", objectId: stableObjectId(change.objectId), state: change.state, holderId } };
+  }
+  throw new Error("Nuwa N1 world-state action is invalid.");
 }
 function normalizeHeardStatement(value: unknown): NuwaN1Step["heardStatements"][number] {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Nuwa N1 heard statement is invalid.");

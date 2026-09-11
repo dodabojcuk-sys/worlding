@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "tianyan-n3-fixed-draft-identity-evidence/r1",
+  "projectId": "r061-e2e-8edc38326a81493ea62b0498de298688",
+  "sourceRunId": "nuwa-run-2f41e1cc040c",
+  "automaticApplicationReceiptId": "nuwa-n1-auto-application.75b70e67fd2488efba61cca9e2d8c07f",
+  "fixedArtifact": {
+    "artifactId": "novel.雾港追踪-女娲固定稿",
+    "sourceWorkVersion": {
+      "workVersionId": "work-version.root.121a2de9edd1a18e3ad4dc7b6b23fc77",
+      "revision": 3
+    },
+    "packageId": "neutral-story-package-adc6caebf3502f4d0bf6",
+    "downloads": [
+      {
+        "phase": "before-rollback",
+        "savedFile": "09-nuwa-auto-fixed-before-rollback.md",
+        "screenshot": "10-1440-nuwa-fixed-draft.png"
+      },
+      {
+        "phase": "after-rollback",
+        "savedFile": "10-nuwa-auto-fixed-after-rollback-a.md",
+        "screenshot": "11-1440-nuwa-fixed-after-rollback-a.png"
+      }
+    ]
+  },
+  "distinctArtifactB": {
+    "artifactId": "novel.长夜将明-创作稿-938089b7f5",
+    "savedFile": "11-creation-fixed-b-after-late-a.md",
+    "screenshot": "12-1440-creation-fixed-b-after-late-a.png"
+  }
+}

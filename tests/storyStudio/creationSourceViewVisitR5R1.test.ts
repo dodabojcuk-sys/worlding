@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { creationRouteArtifactForProject, isCurrentCreationSourceViewVisit, nextCreationSourceViewVisit, sameCreationSourceScope } from "../../apps/story-studio/src/components/creation/creationSourceViewVisit.ts";
@@ -21,4 +22,9 @@ test("an artifact route remains bound to its original project instead of leaking
   assert.equal(creationRouteArtifactForProject({ currentProjectId: "project-a", routeProjectId: "project-a", routeArtifactId: "artifact-a", legacyRouteProjectId: "project-a" }), "artifact-a");
   assert.equal(creationRouteArtifactForProject({ currentProjectId: "project-b", routeProjectId: "project-a", routeArtifactId: "artifact-a", legacyRouteProjectId: "project-a" }), null);
   assert.equal(creationRouteArtifactForProject({ currentProjectId: "project-b", routeProjectId: null, routeArtifactId: "artifact-a", legacyRouteProjectId: "project-a" }), null, "legacy artifact-only routes are bound to the project that first received them");
+});
+
+test("fixed artifact route survives the null-Project bootstrap before its bound Project is known", () => {
+  const workspace = readFileSync("apps/story-studio/src/components/creation/CreationSourceWorkspace.tsx", "utf8");
+  assert.match(workspace, /if \(projectId && routeArtifactId && !projectScopedRouteArtifactId\)/);
 });

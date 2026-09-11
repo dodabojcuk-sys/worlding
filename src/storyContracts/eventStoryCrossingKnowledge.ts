@@ -192,11 +192,16 @@ export function storylineLabels(tags: readonly string[]): string[] {
   return unique(values.length ? values : ["主故事线"]);
 }
 
-export function knowledgeState(tags: readonly string[], observer: KnowledgeObserver): EventKnowledgeState {
+export function knowledgeState(tags: readonly string[], observer: KnowledgeObserver, characters: StoryCrossingKnowledgeInput["characters"] = []): EventKnowledgeState {
   if (observer.kind === "author") return "experienced";
-  // Formal characters are always matched by stable id.  Display labels are
-  // deliberately excluded: two people may legitimately share the same name.
-  const names = observer.kind === "reader" ? ["读者", "当前读者", observer.id] : [observer.id];
+  // New Events use stable ids. A legacy display label remains readable only
+  // when it resolves to exactly one current-project character; duplicate names
+  // fail closed instead of selecting the first match.
+  const legacyLabelMatches = observer.kind === "character"
+    ? characters.filter((character) => normalizedIdentity(character.label) === normalizedIdentity(observer.label))
+    : [];
+  const legacyUniqueLabel = legacyLabelMatches.length === 1 && legacyLabelMatches[0]?.id === observer.id ? [observer.label] : [];
+  const names = observer.kind === "reader" ? ["读者", "当前读者", observer.id] : [observer.id, ...legacyUniqueLabel];
   for (const tag of tags) {
     const explicit = parseExplicitKnowledge(tag, names);
     if (explicit) return explicit;
@@ -247,7 +252,7 @@ function knowledgeStateForEvent(event: StoryCrossingEventInput, observer: Knowle
     // that the character participated in or directly experienced the Event.
     return explicit ?? "informed";
   }
-  return knowledgeState(event.tags ?? [], observer);
+  return knowledgeState(event.tags ?? [], observer, characters);
 }
 
 function knowledgeEvidence(event: StoryCrossingEventInput, observer: KnowledgeObserver, characters: StoryCrossingKnowledgeInput["characters"], index: number): CharacterStateEvidence | null {
@@ -312,8 +317,12 @@ function taggedValues(tag: string, prefixes: readonly string[]): string[] {
 }
 
 function matchesObserver(value: string, names: readonly string[]): boolean {
-  const normalized = value.trim().normalize("NFC").toLocaleLowerCase();
-  return names.some((name) => name.trim().normalize("NFC").toLocaleLowerCase() === normalized);
+  const normalized = normalizedIdentity(value);
+  return names.some((name) => normalizedIdentity(name) === normalized);
+}
+
+function normalizedIdentity(value: string): string {
+  return value.trim().normalize("NFC").toLocaleLowerCase();
 }
 
 function storylineKind(label: string): StorylineProjection["kind"] {

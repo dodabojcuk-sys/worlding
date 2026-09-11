@@ -13,9 +13,11 @@ const context = {
   scene: { storyUnit: { id: "unit.dock", revision: "r1" }, sceneRef: { id: "unit.dock", revision: "r1" }, observedAt: "2026-09-07T00:00:00.000Z", label: "雾港" },
   localGoal: "核对钟声",
   coreSummary: "正式角色林昭",
+  profileBasis: { core: "谨慎求证", boundaries: "不牺牲同伴换取线索", sourceRevision: "r1", sources: [{ field: "character_core", source: "author-profile" }, { field: "boundaries", source: "author-profile" }] },
   knownFacts: [{ factId: "event.bell", summary: "已得知：钟声响起", sourceId: "event.bell", sourceRevision: "r1", visibility: "informed" }],
   beliefs: [],
-  unknownFactIds: ["event.secret"],
+  excludedKnowledgeCount: 1,
+  attention: { version: "tianyan-nuwa-n1-attention/v1", algorithm: "permission-first-lexical-utf8/v1", selected: [{ key: "knowledge:event.bell", kind: "knowledge", sourceId: "event.bell", reason: "goal-keyword-match" }], excluded: { count: 2, reasonCounts: [{ reason: "lower-relevance-within-budget", count: 2 }] }, budget: { estimator: "utf8-byte-upper-bound/v1", maxInputTokens: 4096, baseBytes: 900, sourceBudgetBytes: 2296, selectedSourceBytes: 120, outputReserveTokens: 1024, requiredOverflow: false } },
   recentDialogue: [],
   allowedActions: ["speak", "observe", "ask"],
   remaining: { committedSteps: 6, dispatches: 12, inputTokenBudget: 4096, outputTokenBudget: 1024 },
@@ -34,6 +36,9 @@ test("Nuwa N1 Pi adapter uses only the frozen role-context tool and returns a bo
         toolContext = await input.tools[0].execute({ toolCallId: "tool.pi", arguments: {}, approvalReceiptId: "receipt" });
         const providerContext = (toolContext as { context: Record<string, unknown> }).context;
         assert.equal("unknownFactIds" in providerContext, false);
+        assert.deepEqual(providerContext.attention, context.attention);
+        assert.deepEqual(providerContext.profileBasis, context.profileBasis);
+        assert.equal(providerContext.localGoal, "核对钟声");
         assert.deepEqual(providerContext.excluded, { count: 1, reasonCodes: ["not-known-by-actor"] });
         return { text: JSON.stringify({ intent: "依据钟声继续观察", speech: "我只确认自己听到的钟声。", action: { action: "observe", targetId: null }, observableResult: "林昭记录了一次受限观察。" }), providerCalls: 2, traceId: "trace.fake", responseModelId: "fake", usage: { promptTokens: 12, completionTokens: 18, totalTokens: 30 }, latencyMs: 1 };
       },
@@ -101,7 +106,7 @@ test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without 
   });
   const firstRequest = await adapter.request(context);
   const first = await adapter.continueAfterTool({ context, toolResult: await adapter.executeTool({ context, request: firstRequest }) });
-  const secondContext = { ...context, attemptId: "attempt.second", step: 2, actor: { id: "character.awu", revision: "r1" } };
+  const secondContext = { ...context, attemptId: "attempt.second", step: 2, actor: { id: "character.awu", revision: "r1" }, localGoal: "保护退路", coreSummary: "角色核心：先保护同伴；底线：不独自追击。", profileBasis: { core: "先保护同伴", boundaries: "不独自追击", sourceRevision: "r1", sources: [{ field: "character_core" as const, source: "author-profile" as const }, { field: "boundaries" as const, source: "author-profile" as const }] } };
   const secondRequest = await adapter.request(secondContext);
   const second = await adapter.continueAfterTool({ context: secondContext, toolResult: await adapter.executeTool({ context: secondContext, request: secondRequest }) });
 
@@ -109,6 +114,17 @@ test("Nuwa N1 uses the real Pi tool loop for consecutive actor attempts without 
   assert.equal(second.actor.id, "character.awu");
   assert.deepEqual(providerCalls.map((call) => call.providerCall), [1, 2, 1, 2]);
   assert.notEqual(providerCalls[0]?.agentRunId, providerCalls[2]?.agentRunId, "each durable N1 attempt supplies a distinct Agent Run identity to the Provider bridge");
+  const firstContinuation = providerCalls[1]?.messages as Array<Record<string, unknown>>;
+  const toolResult = firstContinuation.find((message) => message.role === "tool");
+  const toolCall = firstContinuation.find((message) => message.role === "assistant");
+  assert.equal(toolCall?.content, null, "the Pi adapter retains native null assistant content and leaves wire normalization to the gateway");
+  assert.equal(Array.isArray(toolCall?.toolCalls), true, "the Pi adapter preserves the native assistant tool-call envelope");
+  assert.equal(typeof toolResult?.toolCallId, "string", "the Pi continuation supplies the local tool-call identity expected by the gateway");
+  assert.equal(toolResult?.name, "read_role_context", "the Pi continuation retains tool provenance before gateway normalization");
+  assert.equal("tool_call_id" in (toolResult ?? {}), false, "wire naming belongs only to the gateway boundary");
+  assert.match(JSON.stringify(providerCalls[1]?.messages), /谨慎求证/u, "the first actor's actual Provider input contains its frozen profile basis");
+  assert.match(JSON.stringify(providerCalls[3]?.messages), /先保护同伴/u, "the second actor receives a different actual Provider input");
+  assert.equal(JSON.stringify(providerCalls[1]?.messages).includes("先保护同伴"), false, "another actor's profile basis is not included in the first actor input");
   assert.equal(JSON.stringify(providerCalls).includes("event.secret"), false, "the actual second Provider turn never receives excluded IDs");
 });
 

@@ -13,6 +13,7 @@ import { createStoryStudioRelationOperations } from "../../src/storyControlSurfa
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
+import { readNuwaN1Run } from "../../src/storyIntelligence/nuwaN1Runtime.ts";
 
 const TOKEN = "nuwa-n1-local-test-token";
 
@@ -44,12 +45,14 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   child = enabled.child;
   const setup = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", value.request("setup-fake"));
   assert.equal(setup.status, 200);
-  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } });
+  const preview = (setup.payload.data as { availability: { kind: string; label: string; providerCalls: number }; setup: { contextPreview: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ summary: string }>; beliefItems: Array<{ summary: string }> }> } });
   assert.equal(preview.availability.kind, "local-fake");
   assert.match(preview.availability.label, /本地工程演练/u);
   assert.equal(preview.availability.providerCalls, 0);
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.knowledgeItems.length), [1, 0], "only the formal knowledge subject receives the selected event evidence");
   assert.deepEqual(preview.setup.contextPreview.map((item) => item.beliefItems.length), [0, 1], "suspected or misled evidence remains a belief instead of becoming a confirmed fact");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => item.localGoal), ["核实钟声是否来自桥下", "确保退路不被切断"], "each actor receives the author's distinct scene goal");
+  assert.deepEqual(preview.setup.contextPreview.map((item) => [item.profileBasis.core, item.profileBasis.boundaries]), [["先求证再行动", "不拿同伴冒险换取线索"], ["先保全退路", "不独自追击未知目标"]]);
   assert.equal(JSON.stringify(preview).includes("未经 Canon 验证的规划线索"), false, "a linked draft Event cannot enter a role Provider context");
 
   const objectsBefore = value.operations.listWorldObjects({ projectId: value.project.id }).length;
@@ -65,6 +68,9 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.authorization?.status, "active");
   assert.equal(model.authorization?.storyUnitId, value.unit.id);
   assert.deepEqual(model.authorization?.actorIds, value.characters.map((character) => character.id));
+  const frozenFirstBasis = model.contextInspector.actors[0]!.profileBasis;
+  const editedCharacter = value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[0]!.id });
+  value.operations.updateWorldObject({ projectId: value.project.id, objectId: editedCharacter.id, expectedHash: editedCharacter.revisionToken, title: editedCharacter.title, status: editedCharacter.status, tags: editedCharacter.tags, aliases: editedCharacter.aliases, body: editedCharacter.body, subtype: editedCharacter.subtype, typedProperties: editedCharacter.typedProperties, profile: characterProfile("改为先行动后核实", "不得回头", "CANARY_AUTHOR_PROFILE_SECRET_EDITED"), card: editedCharacter.card });
 
   const firstStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "step-first" });
   assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
@@ -72,17 +78,30 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(model.run.steps.length, 1, JSON.stringify(model));
   assert.equal(model.run.steps[0]?.tool.name, "read_role_context", "the fake adapter must take the actual scoped tool round trip");
   assert.equal(model.run.dispatches, 2);
+  assert.deepEqual(model.contextInspector.actors[0]!.profileBasis, frozenFirstBasis, "editing the character after Run creation cannot rewrite the frozen actor basis");
   assert.deepEqual(model.contextInspector.actors.map((actor) => [actor.actorId, actor.knowledgeItems.length]), [[value.characters[0].id, 1], [value.characters[1].id, 1]], "the recipient sees the explicitly delivered statement through the same context compiler used by the tool loop");
   assert.match(model.contextInspector.actors[0]?.knowledgeItems[0]?.summary ?? "", /^已得知：钟声在桥上消失/u);
   assert.match(model.contextInspector.actors[1]?.beliefItems[0]?.summary ?? "", /^被误导：潮声来自废塔/u);
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
+  assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_PROFILE_SECRET"), false);
+
+  const memoryQuery = await getJson(enabled.baseUrl, `/__local/story-studio/characters/memory-query?projectId=${encodeURIComponent(value.project.id)}&characterId=${encodeURIComponent(value.characters[1]!.id)}`);
+  assert.equal(memoryQuery.status, 200, JSON.stringify(memoryQuery.payload));
+  const queriedRecords = (memoryQuery.payload.data as { records: Array<{ kind: string; source: { runId?: string }; validity: string }>; providerCalls: number }).records;
+  assert.equal(queriedRecords.some((record) => record.kind === "heard" && record.source.runId === model.run.runId && record.validity === "active"), true, "the author query reads the persisted recipient ledger through the normal local API");
+  assert.equal((memoryQuery.payload.data as { providerCalls: number }).providerCalls, 0, "opening a memory query must not send a Provider request");
 
   const candidate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/candidate", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "candidate-first", selectedStepIds: [model.run.steps[0]!.stepId] });
   assert.equal(candidate.status, 201, JSON.stringify(candidate.payload));
   model = candidate.payload.data as NuwaReadModel;
   assert.equal(model.candidate.formalWrites, 0);
   assert.equal(model.review.status, "awaiting");
+  const storedReview = value.authorControl.listCandidateReviews({ projectId: value.project.id })[0]!;
+  const storedCandidate = (storedReview.result.nuwa as { candidates: Array<{ evidence: string[] }> }).candidates[0]!;
+  const expectedEvidenceIds = model.run.steps[0]!.contextEvidenceRefs.map((ref) => ref.sourceId);
+  assert.deepEqual(storedCandidate.evidence, expectedEvidenceIds, "Candidate Review keeps the selected step's exact persisted context evidence");
+  assert.deepEqual((storedReview.result.contextPack as { sources: Array<{ id: string }> }).sources.map((source) => source.id), expectedEvidenceIds, "Candidate Review ContextPack excludes unused initial facts and unselected-step evidence");
   assert.equal(value.operations.listWorldObjects({ projectId: value.project.id }).length, objectsBefore, "candidate handoff cannot create a formal world object");
   assert.equal(buildStorySnapshot({ workspacePath: value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }) }).snapshotHash, formalSnapshotBefore, "candidate handoff cannot mutate formal Event, World, Canon, or narrative source content");
   assert.equal(value.operations.readStoryUnit({ projectId: value.project.id, unitId: value.unit.id }).version, storyUnitVersionBefore, "candidate handoff cannot mutate the formal Story Unit or arrangement binding");
@@ -122,6 +141,17 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
     operationId: "cross-project"
   });
   assert.equal(crossProject.status, 409);
+
+  const unversionedSetup = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/setup", {
+    projectId: value.otherProject.id,
+    participants: value.otherCharacters.map((character) => ({ id: character.id, revision: character.revisionToken })),
+    storyUnit: { id: value.otherUnit.id, revision: value.otherUnit.version },
+    goal: "候选排演不得把内部草稿标识送入正式版本 Owner。",
+    workVersionId: null,
+    operationId: "unversioned-candidate-setup"
+  });
+  assert.equal(unversionedSetup.status, 200, JSON.stringify(unversionedSetup.payload));
+  assert.equal((unversionedSetup.payload.data as { setup: { contextPreview: unknown[] } }).setup.contextPreview.length, 2, "candidate-only setup remains usable without manufacturing a formal WorkVersion");
 
   assert.equal((await postJson(enabled.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.otherProject.id, profile: "full-access" })).status, 200);
   const otherCurrentCharacters = value.otherCharacters.map((character) => value.operations.readWorldObject({ projectId: value.otherProject.id, objectId: character.id }));
@@ -168,6 +198,105 @@ test("Nuwa N1 idempotent create reconciles a missing full-access authorization",
   assert.equal(replayed.status, 201, JSON.stringify(replayed.payload));
   assert.equal((replayed.payload.data as NuwaReadModel).authorization?.status, "active");
   assert.deepEqual((replayed.payload.data as NuwaReadModel).authorization?.actorIds, value.characters.map((character) => character.id));
+});
+
+test("Nuwa N4 only gives a role world state and formal relation evidence it legally knows, without rewriting an existing Run", async (t) => {
+  const value = fixture();
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+
+  const server = await start(value, true);
+  child = server.child;
+  const before = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("n4-frozen-before-state"));
+  assert.equal(before.status, 201, JSON.stringify(before.payload));
+  const frozen = before.payload.data as NuwaReadModel;
+  assert.equal(frozen.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true);
+
+  const northGate = value.operations.createWorldObject({ projectId: value.project.id, type: "location", title: "北闸" });
+  const copperKey = value.operations.createWorldObject({ projectId: value.project.id, type: "item", title: "铜钥匙" });
+  const knownEvent = value.operations.readWorldObject({ projectId: value.project.id, objectId: value.knownEvent.id });
+  const eventEvidence = { kind: "confirmed-event" as const, event: { id: knownEvent.id, revision: knownEvent.revisionToken } };
+  value.operations.applyWorldStateN4({
+    projectId: value.project.id, objectId: northGate.id, expectedObjectRevision: northGate.revisionToken, expectedRevision: 0,
+    operationId: "n4.north-gate.closed", effectiveAt: "2000-01-01T00:00:00Z", now: "2000-01-01T00:00:01Z",
+    value: { kind: "passage", state: "closed" }, evidence: eventEvidence
+  });
+  value.operations.applyWorldStateN4({
+    projectId: value.project.id, objectId: copperKey.id, expectedObjectRevision: copperKey.revisionToken, expectedRevision: 0,
+    operationId: "n4.copper-key.held", effectiveAt: "2000-01-01T00:00:00Z", now: "2000-01-01T00:00:02Z",
+    value: { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.characters[0]!.revisionToken } }, evidence: eventEvidence
+  });
+  const relationCandidate = value.relations.createRelationCandidate({
+    projectId: value.project.id, operationId: "n4.formal-relationship", sourceObjectId: value.characters[0]!.id, targetObjectId: value.characters[1]!.id,
+    relationTypeId: value.sceneRelationType.type.relationTypeId, direction: "forward",
+    evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: value.project.id, eventId: knownEvent.id, revisionToken: knownEvent.revisionToken, state: "committed", requestedUse: "constraint" } }]
+  });
+  value.relations.confirmRelationCandidate({ projectId: value.project.id, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: "n4.formal-relationship.confirm" });
+
+  child.kill("SIGTERM");
+  await once(child, "exit");
+  const restarted = await start(value, true);
+  child = restarted.child;
+  const preserved = await getJson(restarted.baseUrl, `/__local/story-studio/nuwa-n1/latest?projectId=${value.project.id}`);
+  assert.equal(preserved.status, 200);
+  const frozenAfterState = preserved.payload.data as NuwaReadModel;
+  assert.equal(frozenAfterState.run.runId, frozen.run.runId);
+  assert.equal(frozenAfterState.contextInspector.actors.every((actor) => actor.knowledgeItems.every((item) => item.visibility !== "world-state" && item.visibility !== "relation")), true, "a previously created Run keeps its frozen context");
+
+  const mapState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observedAt=2000-01-01T00%3A01%3A00Z`);
+  assert.equal(mapState.status, 200, JSON.stringify(mapState.payload));
+  assert.deepEqual((mapState.payload.data as { objectId: string; projection: { value: unknown } }).objectId, northGate.id);
+  assert.deepEqual((mapState.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" }, "the ordinary read endpoint returns the existing WorldState Owner projection");
+  const mapCurrent = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(northGate.id)}&observation=current`);
+  assert.equal(mapCurrent.status, 200, JSON.stringify(mapCurrent.payload));
+  assert.equal((mapCurrent.payload.data as { observation: string }).observation, "current", "Map M2 reads an explicit Owner-current projection instead of treating the system clock as story time");
+  assert.deepEqual((mapCurrent.payload.data as { projection: { value: unknown } }).projection.value, { kind: "passage", state: "closed" });
+  assert.equal((mapCurrent.payload.data as { projection: { history: unknown[] } }).projection.history.length, 1, "the existing Owner history supplies discrete map observation choices without a map fact store");
+  const nonLocationState = await getJson(restarted.baseUrl, `/__local/story-studio/world-state?projectId=${encodeURIComponent(value.project.id)}&objectId=${encodeURIComponent(value.characters[0]!.id)}`);
+  assert.equal(nonLocationState.status, 400, JSON.stringify(nonLocationState.payload));
+  assert.match(String(nonLocationState.payload.error || ""), /正式地点/u);
+
+  assert.equal((await postJson(restarted.baseUrl, "/__local/story-studio/agent-permissions/profile", { projectId: value.project.id, profile: "full-access" })).status, 200);
+  const after = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/create", {
+    ...value.request("n4-new-state-context"),
+    goal: "北闸已封，林昭持有铜钥匙；林昭需要考虑与阿芜的正式关系后交接钥匙并寻找替代路线。"
+  });
+  assert.equal(after.status, 201, JSON.stringify(after.payload));
+  const next = after.payload.data as NuwaReadModel;
+  const linzhao = next.contextInspector.actors.find((actor) => actor.actorId === value.characters[0]!.id)!;
+  const awu = next.contextInspector.actors.find((actor) => actor.actorId === value.characters[1]!.id)!;
+  assert.equal(linzhao.knowledgeItems.filter((item) => item.visibility === "world-state").length, 2, JSON.stringify(linzhao.knowledgeItems));
+  assert.equal(linzhao.knowledgeItems.some((item) => item.visibility === "world-state" && item.summary.includes("北闸通行状态：封闭")), true);
+  assert.equal(linzhao.knowledgeItems.some((item) => item.visibility === "world-state" && item.summary.includes("铜钥匙持有状态")), true);
+  const stored = readNuwaN1Run(value.operations.resolveProjectWorkspacePath({ projectId: value.project.id }), next.run.runId)!;
+  const storedLinzhao = stored.actors.find((actor) => actor.character.id === value.characters[0]!.id)!;
+  const storedAwu = stored.actors.find((actor) => actor.character.id === value.characters[1]!.id)!;
+  assert.equal(storedLinzhao.knownFacts.filter((item) => item.visibility === "relation").length, 1, "the relation remains a traceable legal source even when the N1 attention budget concentrates on the two state facts");
+  assert.equal(storedAwu.knownFacts.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false, "attention and participation do not disclose an Event-backed world fact to another role");
+  assert.equal(awu.knowledgeItems.some((item) => item.visibility === "world-state" || item.visibility === "relation"), false);
+  const firstStateStep = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: next.run.runId, expectedRevision: next.run.revision, operationId: "n4-state-handoff-step" });
+  assert.equal(firstStateStep.status, 200, JSON.stringify(firstStateStep.payload));
+  let stepped = firstStateStep.payload.data as NuwaReadModel;
+  assert.ok(stepped.run.steps[0], JSON.stringify(firstStateStep.payload));
+  // Lin Zhao acts in turns one and three.  Repeated compatible handoffs are
+  // still scene evidence, but must remain one reversible world-state write.
+  stepped = (await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-step-two" })).payload.data as NuwaReadModel;
+  stepped = (await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-step-three" })).payload.data as NuwaReadModel;
+  assert.equal(stepped.run.steps.length, 3);
+  const autoApplied = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-apply", { projectId: value.project.id, runId: stepped.run.runId, expectedRevision: stepped.run.revision, operationId: "n4-state-handoff-apply", selectedStepIds: [stepped.run.steps[0]!.stepId, stepped.run.steps[2]!.stepId] });
+  assert.equal(autoApplied.status, 201, JSON.stringify(autoApplied.payload));
+  const automatic = autoApplied.payload.data as NuwaReadModel & { automaticApplication: { worldStateChanges: Array<{ objectId: string; changeId: string }> } };
+  assert.equal(automatic.automaticApplication.worldStateChanges.length, 1);
+  const transferred = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
+  assert.deepEqual(transferred.value, { kind: "holder", state: "held", holder: { id: value.characters[1]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[1]!.id }).revisionToken } });
+  const rolledBack = await postJson(restarted.baseUrl, "/__local/story-studio/nuwa-n1/auto-rollback", { projectId: value.project.id, runId: stepped.run.runId, receiptId: automatic.automaticApplication.receiptId, operationId: "n4-state-handoff-rollback" });
+  assert.equal(rolledBack.status, 200, JSON.stringify(rolledBack.payload));
+  const restored = value.operations.readWorldStateN4({ projectId: value.project.id, objectId: copperKey.id, observedAt: new Date().toISOString() });
+  assert.deepEqual(restored.value, { kind: "holder", state: "held", holder: { id: value.characters[0]!.id, revision: value.operations.readWorldObject({ projectId: value.project.id, objectId: value.characters[0]!.id }).revisionToken } });
+
 });
 
 test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for alternating actors", async (t) => {
@@ -578,9 +707,79 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   assert.equal(model.run.steps[2]!.contextEvidenceRefs.some((ref) => ref.sourceId === statement.stepId || ref.summary.includes(statement.speech!)), false, "丙的 actual tool context excludes the undisclosed statement");
 });
 
+test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart while C remains unaware", async (t) => {
+  const value = fixture({ threeActors: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  let server = await start(value, true); child = server.child;
+  const firstCreate = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("n2c-scene-one-create"));
+  assert.equal(firstCreate.status, 201, JSON.stringify(firstCreate.payload));
+  let first = firstCreate.payload.data as NuwaReadModel;
+  const firstStep = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-step" });
+  assert.equal(firstStep.status, 200, JSON.stringify(firstStep.payload));
+  first = firstStep.payload.data as NuwaReadModel;
+  const delivered = first.run.steps[0]!.heardStatements[0]!;
+  assert.equal(delivered.recipientId, value.characters[1]!.id);
+  assert.equal(first.contextInspector.actors[2]!.memoryItems.length, 0);
+  const paused = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/pause", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-pause" });
+  assert.equal(paused.status, 200, JSON.stringify(paused.payload));
+  first = paused.payload.data as NuwaReadModel;
+  const refreshed = await getJson(server.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${first.run.runId}`);
+  assert.equal(refreshed.status, 200);
+  assert.equal((refreshed.payload.data as NuwaReadModel).run.steps[0]!.heardStatements[0]!.statement, delivered.statement);
+  const resumed = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/resume", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-resume" });
+  assert.equal(resumed.status, 200, JSON.stringify(resumed.payload));
+  first = resumed.payload.data as NuwaReadModel;
+  const stopped = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/stop", { projectId: value.project.id, runId: first.run.runId, expectedRevision: first.run.revision, operationId: "n2c-scene-one-stop" });
+  assert.equal(stopped.status, 200, JSON.stringify(stopped.payload));
+
+  child.kill("SIGTERM");
+  await once(child, "exit");
+  child = null;
+  const secondUnit = value.operations.createStoryUnit({ projectId: value.project.id, title: "钟楼后的第二场" });
+  server = await start(value, true); child = server.child;
+  const participants = value.characters.slice(1).map((character, index) => {
+    const current = value.operations.readWorldObject({ projectId: value.project.id, objectId: character.id });
+    return { id: current.id, revision: current.revisionToken, localGoal: index === 0 ? "回想上一场听到的钟声线索" : "确认自己是否知道钟声线索" };
+  });
+  const secondRequest = { projectId: value.project.id, participants, storyUnit: { id: secondUnit.id, revision: secondUnit.version }, goal: "在第二场依据各自实际听闻判断钟声线索。", operationId: "n2c-scene-two" };
+  const setup = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/setup", secondRequest);
+  assert.equal(setup.status, 200, JSON.stringify(setup.payload));
+  const preview = setup.payload.data as { setup: { contextPreview: Array<{ actorId: string; memoryItems: Array<{ summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string } }> }> } };
+  assert.equal(preview.setup.contextPreview[0]!.memoryItems.length, 1, "B receives the persisted heard record in the later scene");
+  assert.equal(preview.setup.contextPreview[0]!.memoryItems[0]!.summary.includes(delivered.statement), true);
+  assert.deepEqual(preview.setup.contextPreview[0]!.memoryItems[0]!.source, {
+    memoryId: preview.setup.contextPreview[0]!.memoryItems[0]!.source.memoryId,
+    speakerId: value.characters[0]!.id,
+    sourceRunId: first.run.runId,
+    sourceStepId: first.run.steps[0]!.stepId,
+    sceneId: value.unit.id,
+    sceneObservedAt: preview.setup.contextPreview[0]!.memoryItems[0]!.source.sceneObservedAt,
+    workVersionId: preview.setup.contextPreview[0]!.memoryItems[0]!.source.workVersionId,
+    workRevision: preview.setup.contextPreview[0]!.memoryItems[0]!.source.workRevision,
+    validity: "active"
+  });
+  assert.equal(preview.setup.contextPreview[1]!.memoryItems.length, 0, "C remains unaware because no delivery named C");
+
+  const secondCreate = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", { ...secondRequest, operationId: "n2c-scene-two-create" });
+  assert.equal(secondCreate.status, 201, JSON.stringify(secondCreate.payload));
+  const second = secondCreate.payload.data as NuwaReadModel;
+  assert.equal(second.contextInspector.actors[0]!.profileBasis.core, "先保全退路", "B's author-owned profile basis remains connected to the recalled input");
+  assert.equal(second.contextInspector.actors[0]!.memoryItems[0]!.source.sourceRunId, first.run.runId);
+  assert.equal(second.contextInspector.actors[0]!.memoryItems[0]!.selectedByAttention, true, "the goal-relevant memory is selected by the bounded attention layer");
+  const recalledStep = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: second.run.runId, expectedRevision: second.run.revision, operationId: "n2c-scene-two-step" });
+  assert.equal(recalledStep.status, 200, JSON.stringify(recalledStep.payload));
+  const recalled = recalledStep.payload.data as NuwaReadModel;
+  assert.equal(recalled.run.steps[0]!.actorId, value.characters[1]!.id);
+  assert.equal(recalled.run.steps[0]!.contextEvidenceRefs.some((ref) => ref.visibility === "heard" && ref.summary.includes(delivered.statement)), true, "B's actual role-context tool receives the valid cross-scene memory");
+});
+
 type NuwaReadModel = {
   run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
-  contextInspector: { actors: Array<{ actorId: string; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }> }> };
+  contextInspector: { actors: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }>; memoryItems: Array<{ id: string; summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string }; selectedByAttention?: boolean }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
   authorization?: { id: string; status: string; storyUnitId: string; actorIds: string[] } | null;
@@ -595,8 +794,8 @@ function fixture(options: { threeActors?: boolean } = {}) {
   const project = operations.createProject({ title: "女娲 N1 本地接口", folderSlug: "nuwa-n1-local-api", genre: "mystery", ambience: "rain" });
   const otherProject = operations.createProject({ title: "女娲 N1 同名隔离", folderSlug: "nuwa-n1-other", genre: "mystery", ambience: "rain" });
   const characters = [
-    operations.createWorldObject({ projectId: project.id, type: "character", title: "林昭", body: "CANARY_AUTHOR_FUTURE\n林昭只知道亲眼看见的事。" }),
-    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。" }),
+    operations.createWorldObject({ projectId: project.id, type: "character", title: "林昭", body: "CANARY_AUTHOR_FUTURE\n林昭只知道亲眼看见的事。", profile: characterProfile("先求证再行动", "不拿同伴冒险换取线索", "CANARY_AUTHOR_PROFILE_SECRET") }),
+    operations.createWorldObject({ projectId: project.id, type: "character", title: "阿芜", body: "CANARY_OTHER_CHARACTER_SECRET\n阿芜只听到传闻。", profile: characterProfile("先保全退路", "不独自追击未知目标", "CANARY_OTHER_PROFILE_SECRET") }),
     ...(options.threeActors ? [operations.createWorldObject({ projectId: project.id, type: "character", title: "丙", body: "丙没有听到桥上的私下谈话。" })] : [])
   ];
   const knownEvent = createVerifiedCanonEvent(operations, authorControl, project.id, { title: "钟声在桥上消失", body: "正式事件；正文不进入角色请求。", tags: [] });
@@ -618,12 +817,25 @@ function fixture(options: { threeActors?: boolean } = {}) {
   ];
   const otherUnit = operations.createStoryUnit({ projectId: otherProject.id, title: "另一座旧桥" });
   return {
-    root, rootPath, stateFilePath, operations, authorControl, relations, sceneRelationType, project, otherProject, characters, otherCharacters, unit, otherUnit,
+    root, rootPath, stateFilePath, operations, authorControl, relations, sceneRelationType, project, otherProject, characters, otherCharacters, knownEvent, unit, otherUnit,
     request(operationId: string) {
       const current = characters.map((character) => operations.readWorldObject({ projectId: project.id, objectId: character.id }));
       const currentUnit = operations.readStoryUnit({ projectId: project.id, unitId: unit.id });
-      return { projectId: project.id, participants: current.map((character) => ({ id: character.id, revision: character.revisionToken })), storyUnit: { id: currentUnit.id, revision: currentUnit.version }, goal: "在旧桥前辨认钟声来源，但不得把传闻当成事实。", operationId };
+      const localGoals = ["核实钟声是否来自桥下", "确保退路不被切断", "确认自己是否听到对话"];
+      return { projectId: project.id, participants: current.map((character, index) => ({ id: character.id, revision: character.revisionToken, localGoal: localGoals[index] })), storyUnit: { id: currentUnit.id, revision: currentUnit.version }, goal: "在旧桥前辨认钟声来源，但不得把传闻当成事实。", operationId };
     }
+  };
+}
+
+function characterProfile(core: string, boundaries: string, secret: string) {
+  return {
+    objectType: "character" as const,
+    fields: {
+      character_core: { label: "角色核心", value: core, source: "author" as const, confidence: "high" as const, sourceAnchors: [] },
+      boundaries: { label: "底线", value: boundaries, source: "author" as const, confidence: "high" as const, sourceAnchors: [] },
+      private_notes: { label: "作者秘密", value: secret, source: "author" as const, confidence: "high" as const, sourceAnchors: [] }
+    },
+    authorConfirmed: true
   };
 }
 

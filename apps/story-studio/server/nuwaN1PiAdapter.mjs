@@ -102,11 +102,13 @@ function safeContextForProvider(context) {
     scene: context.scene,
     localGoal: context.localGoal,
     coreSummary: context.coreSummary,
+    profileBasis: context.profileBasis,
     knownFacts: context.knownFacts,
     beliefs: context.beliefs,
     // Excluded identities can themselves disclose a future secret. The role
     // gets only an auditable count/reason; the author inspector retains IDs.
-    excluded: { count: context.unknownFactIds.length, reasonCodes: context.unknownFactIds.length ? ["not-known-by-actor"] : [] },
+    attention: context.attention,
+    excluded: { count: context.excludedKnowledgeCount, reasonCodes: context.excludedKnowledgeCount ? ["not-known-by-actor"] : [] },
     recentDialogue: context.recentDialogue,
     allowedActions: context.allowedActions,
     remaining: context.remaining,

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "tianyan-b1-delivery-ledger-summary/r1",
+  "capturedAt": "2026-09-10T06:00:00+08:00",
+  "credentialDisclosure": "none",
+  "provider": {
+    "profileId": "radeon-cloud.default",
+    "providerId": "radeon-cloud",
+    "modelId": "DeepSeek-V4-Flash-Vision-Exp",
+    "connectionStatus": "verified",
+    "catalogStatus": "ready",
+    "catalogSource": "endpoint",
+    "catalogModelIds": [
+      "DeepSeek-V4-Flash",
+      "DeepSeek-V4-Flash-Vision-Exp",
+      "MiniCPM5-2B",
+      "Qwen3.8-Flash-Next"
+    ]
+  },
+  "nuwaRun": {
+    "runId": "nuwa-run-af981a77bede",
+    "sourceWorkVersionId": "work-version.unversioned.api-nuwa-9af9e5b5215d",
+    "status": "blocked",
+    "committedSteps": 4,
+    "attempts": 5,
+    "providerDispatches": 11,
+    "fifthAttempt": {
+      "actorId": "character.林昭",
+      "outcome": "failed",
+      "completedProviderDispatches": 2,
+      "persistentDiagnostic": "absent-in-historical-run"
+    }
+  },
+  "ledger": {
+    "counts": {
+      "setupCalls": 4,
+      "generationCalls": 29,
+      "toolLoopTurns": 9,
+      "retryCalls": 1,
+      "totalCalls": 33
+    },
+    "scopes": [
+      {
+        "scope": "nuwa-n1:api-nuwa-9af9e5b5215d",
+        "generationCalls": 11,
+        "totalCalls": 11,
+        "reservationCount": 11,
+        "unknownOutcomeCount": 0
+      },
+      {
+        "scope": "legacy-or-unspecified",
+        "generationCalls": 11,
+        "totalCalls": 11,
+        "reservationCount": 11,
+        "unknownOutcomeCount": 0
+      },
+      {
+        "scope": "settings-connection-test",
+        "generationCalls": 1,
+        "totalCalls": 1,
+        "reservationCount": 1,
+        "unknownOutcomeCount": 0
+      },
+      {
+        "scope": "settings-model-catalog",
+        "setupCalls": 1,
+        "totalCalls": 1,
+        "reservationCount": 1,
+        "unknownOutcomeCount": 0
+      }
+    ]
+  }
+}

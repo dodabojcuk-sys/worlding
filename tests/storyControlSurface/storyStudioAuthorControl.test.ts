@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { AuthorChangeSetApplyError, createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { readNuwaRunPack, readNuwaStandaloneSandboxContext } from "../../src/storyIntelligence/nuwaRunPack.ts";
 import { NUWA_AUTHOR_LOOP_SEEDS } from "../../src/storyIntelligence/storyIntelligenceTypes.ts";
 
@@ -252,6 +253,53 @@ test("author-approved Change Set dry-runs, persists, and applies exactly one eve
   }
 });
 
+test("an IF Change Set freezes its WorkVersion identity and never projects its Event into the mainline timeline", () => {
+  const fixture = createFixture();
+  try {
+    const base = createVerifiedCanon(fixture, "版本基点事件");
+    fixture.workspace.createStoryUnit({ projectId: fixture.projectId, title: "铁门前的主线", linkedEntityIds: [base.canon.id] });
+    const versions = createCreationSourceSelectionPort({ operations: fixture.workspace });
+    const root = versions.createRoot(fixture.projectId);
+    const derived = versions.createDerivedWorkVersion(fixture.projectId, {
+      displayName: "阿岚先保管钥匙",
+      parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: root.identity.currentRevision,
+      expectedParentManifestId: root.identity.headManifestId,
+      authorActionId: "author.test.if-change-set",
+      idempotencyKey: "author-control-if-change-set-0001",
+      createdAt: "2026-09-09T12:00:00.000Z"
+    });
+    const planning = fixture.workspace.createWorldObject({
+      projectId: fixture.projectId,
+      type: "event",
+      title: "阿岚先保管钥匙",
+      status: "planned",
+      tags: ["作者规划"]
+    });
+    const review = fixture.control.createPlanningEventImpactReview({ projectId: fixture.projectId, planningEventId: planning.id });
+    fixture.control.chooseImpactRoute({ projectId: fixture.projectId, reviewId: review.id, optionId: review.options[0]!.id, action: "adopt" });
+    const changeSet = fixture.control.createAuthorChangeSet({
+      projectId: fixture.projectId,
+      reviewId: review.id,
+      workVersionId: derived.identity.workVersionId
+    });
+    const applied = fixture.control.applyAuthorChangeSet({ projectId: fixture.projectId, changeSetId: changeSet.id });
+    assert.equal(applied.status, "applied");
+    assert.equal(applied.workVersionId, derived.identity.workVersionId);
+    const intentPath = path.join(fixture.projectPath, ".world-os", "author-control", "change-sets", `${changeSet.id}.apply-intent.v1.json`);
+    assert.equal(JSON.parse(readFileSync(intentPath, "utf8")).workVersionId, derived.identity.workVersionId);
+    const event = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: applied.application.appliedEventId! });
+    assert.equal(event.properties.story_work_version_id, derived.identity.workVersionId);
+    assert.deepEqual(fixture.control.listVerifiedCanonEventIds({ projectId: fixture.projectId, workVersionId: root.identity.workVersionId }), [base.canon.id]);
+    assert.deepEqual(fixture.control.listVerifiedCanonEventIds({ projectId: fixture.projectId, workVersionId: derived.identity.workVersionId }), [event.id]);
+    assert.equal(fixture.control.verifyCanonEventRead({ projectId: fixture.projectId, eventId: event.id, workVersionId: root.identity.workVersionId }), false);
+    const timeline = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents.find((document) => document.type === "timeline");
+    assert.equal((timeline?.content.entries as Array<{ eventId: string }> | undefined)?.some((entry) => entry.eventId === event.id) ?? false, false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("planning event enters the existing Impact Review and creates a separate canon event with planned_from", () => {
   const fixture = createFixture();
   try {
@@ -261,6 +309,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
       title: "阿岚只获得部分地下室线索",
       status: "planned",
       tags: ["作者规划"],
+      knowledgeSubjects: [fixture.allyId],
       body: "# 阿岚只获得部分地下室线索\n\n[[林远]]只向[[阿岚]]透露[[旧灯塔]]地下室的一部分。\n"
     });
     const planningPath = path.join(fixture.projectPath, planning.relativeId);
@@ -282,6 +331,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
     const option = review.options.find((item) => item.label === "只透露部分线索") || review.options[0];
     fixture.control.chooseImpactRoute({ projectId: fixture.projectId, reviewId: review.id, optionId: option.id, action: "adopt" });
     const changeSet = fixture.control.createAuthorChangeSet({ projectId: fixture.projectId, reviewId: review.id });
+    assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.projectPath, ".world-os", "author-control", "change-sets", `${changeSet.id}.json`), "utf8")).sourceKnowledgeSubjects, [fixture.allyId]);
     assert.equal(fixture.workspace.listWorldObjects({ projectId: fixture.projectId, type: "event" }).length, eventCountBefore);
     assert.deepEqual(readMarkdownTree(fixture.projectPath), canonicalBeforeReview);
     const timelineBeforeApply = fixture.workspace.getVisualWorkbenchBootstrap({ projectId: fixture.projectId }).documents
@@ -298,6 +348,7 @@ test("planning event enters the existing Impact Review and creates a separate ca
       .find((item) => item.status === "committed" && item.properties.planned_from === planning.id);
     assert.ok(committed);
     assert.ok(committed.tags.includes("作者确认"));
+    assert.deepEqual(committed.knowledgeSubjects, [fixture.allyId], "the confirmed Event carries only the author-declared knowledge subject frozen in its Change Set");
     assert.equal(readFileSync(planningPath, "utf8"), planningBefore);
     assert.equal(fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: planning.id }).status, "planned");
   } finally {

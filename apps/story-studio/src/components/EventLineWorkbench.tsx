@@ -90,6 +90,7 @@ export type EventDraftInput = {
   storyTime: string;
   location: string;
   participants: string[];
+  participantSubjects: Array<{ id: string; label: string }>;
   tags: string[];
   note: string;
 };
@@ -167,6 +168,9 @@ export function EventLineWorkbench(props: {
   const [perspectiveOwnerProjection, setPerspectiveOwnerProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const eventRevisionKey = props.events.map((event) => `${event.id}:${event.revisionToken}`).join("\u0000");
+  // A relationship evidence link is a reference to one confirmed event revision,
+  // not an instruction to silently open the event's newest revision by id.
+  const requestedEventRevision = useMemo(() => eventRevisionFromRoute(), []);
   const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
   const knowledgeProjection = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjection : null;
   const knowledgeProjectionState = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjectionState : "loading";
@@ -233,7 +237,7 @@ export function EventLineWorkbench(props: {
     if (!advancedView && !dockState.open) window.dispatchEvent(new Event("story-studio-restore-project-directory"));
   }, [advancedView, dockState.open]);
   const knowledgeEvents = useMemo<EventLineEventSummary[]>(() => {
-    if (!knowledgeProjection) return props.events;
+    if (knowledgeProjectionState !== "ready" || !knowledgeProjection) return [];
     const sourceById = new Map(props.events.map((event) => [event.id, event]));
     const safe = knowledgeProjection.visibleEvents.flatMap((projected) => {
       const source = sourceById.get(projected.eventId);
@@ -241,7 +245,7 @@ export function EventLineWorkbench(props: {
       return [{ ...source, title: projected.title, status: projected.status, revisionToken: projected.revisionToken, relativeId: projected.relativeId, tags: source.tags.filter((tag) => !/^(?:知情|Knowledge|作者秘密|仅作者|读者未知|reader[- ]?hidden)[：:]?/iu.test(tag)) }];
     });
     return safe;
-  }, [knowledgeProjection, props.events, selectedEventId]);
+  }, [knowledgeProjection, knowledgeProjectionState, props.events, selectedEventId]);
   const storylineEvents = useMemo(() => {
     if (storylineScope === "all" || !knowledgeProjection) return knowledgeEvents;
     const eventIdsInLine = new Set(knowledgeProjection.storylines.find((line) => line.id === storylineScope)?.eventIds ?? []);
@@ -369,6 +373,12 @@ export function EventLineWorkbench(props: {
       setDetailError(null);
       return;
     }
+    const listedEvent = props.events.find((event) => event.id === selectedEventId);
+    if (requestedEventRevision && listedEvent?.revisionToken !== requestedEventRevision) {
+      setDetailLoading(false);
+      setDetailError({ kind: "invalid-record", message: "关系依据引用的事件修订已不在当前版本中；未以较新的事件内容替代。" });
+      return;
+    }
     if (knowledgeProjection?.hiddenEventIds.includes(selectedEventId)) {
       setDetailLoading(false);
       setDetailError(null);
@@ -404,7 +414,7 @@ export function EventLineWorkbench(props: {
           setDetailError(next.error);
           return;
         }
-        if (next.event.id !== selectedEventId || !isVerifiedCanonEventDetail(next.event)) {
+        if (next.event.id !== selectedEventId || !isVerifiedCanonEventDetail(next.event) || (requestedEventRevision && next.event.revisionToken !== requestedEventRevision)) {
           setDetailError({ kind: "invalid-record", message: "事件详情不再符合已确认记录条件。" });
           return;
         }
@@ -419,7 +429,7 @@ export function EventLineWorkbench(props: {
         if (!cancelled && sequence === requestSequence.current) setDetailLoading(false);
       });
     return () => { cancelled = true; };
-  }, [detailsById, eventIds, knowledgeProjection, props.events, props.listState.status, props.projectId, selectedEventId]);
+  }, [detailsById, eventIds, knowledgeProjection, props.events, props.listState.status, props.projectId, requestedEventRevision, selectedEventId]);
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -453,7 +463,8 @@ export function EventLineWorkbench(props: {
   const selectedFocusObjects = observationState.focusObjectIds.flatMap((id) => (props.perspectiveObjects ?? []).find((object) => object.id === id && object.formal === true) ?? []).slice(0, 5);
   const knowledgeViewContext = useMemo<TianyiKnowledgeViewContext>(() => createCharacterKnowledgeHandoff({ projectId: props.projectId, projection: knowledgeProjection, characters: props.perspectiveObjects ?? [] }), [knowledgeProjection, props.perspectiveObjects, props.projectId]);
   const selectedEvent = knowledgeEvents.find((event) => event.id === selectedEventId) ?? null;
-  const selectedDetail = selectedEventId && !knowledgeProjection?.hiddenEventIds.includes(selectedEventId) ? detailsById[selectedEventId] ?? null : null;
+  const selectedRevisionMismatch = Boolean(requestedEventRevision && selectedEvent && selectedEvent.revisionToken !== requestedEventRevision);
+  const selectedDetail = selectedEventId && !selectedRevisionMismatch && !knowledgeProjection?.hiddenEventIds.includes(selectedEventId) ? detailsById[selectedEventId] ?? null : null;
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
   const selectedEventRef = useMemo(() => selectedEvent && selectedEvent.title !== "未知事件" && (selectedEvent.status === "draft" || selectedEvent.status === "planned" || selectedEvent.status === "committed")
     ? createStoryStudioEventReference({ projectId: props.projectId, event: selectedEvent, requestedUse: "constraint" })
@@ -859,15 +870,20 @@ export function EventLineWorkbench(props: {
   };
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
-    ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
+    ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} characters={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").map((object) => ({ id: object.id, label: object.label }))} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
     { id: "detail", label: "详情", icon: <FileText />, content: <EventDetailDock event={selectedEvent} detail={selectedDetail} loading={detailLoading} error={detailError} metadata={selectedEvent ? metadataById[selectedEvent.id] : null} onOpenTianyi={() => props.onOpenTianyi(selectedEventRef ?? undefined, undefined, undefined, undefined, knowledgeViewContext)} onCreateFromEvent={props.onCreateFromEvent} /> },
     { id: "relations", label: "因果", icon: <Link2 />, content: <EventCausalIndexDock event={selectedEvent} events={knowledgeEvents} relations={formalRelations.filter((relation) => knowledgeEvents.some((event) => event.id === relation.sourceObjectId) && knowledgeEvents.some((event) => event.id === relation.targetObjectId))} originEventId={causalOriginId} history={causalHistory} onSelectEvent={openCausalEvent} onBack={returnToPreviousCausalEvent} onReturnToOrigin={returnToCausalOrigin} /> },
     { id: "branches", label: "候选", icon: <GitBranch />, badge: pendingCandidateCount, content: <EventBranchesDock candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} selectedId={selectedCandidateId} onSelect={openCandidate} /> },
     { id: "review", label: "评审", icon: <ShieldCheck />, badge: pendingCandidateCount, content: <EventReviewDock candidate={selectedCandidate} status={selectedCandidate ? candidateStatus(selectedCandidate.id, props.rejectedCandidateIds, props.acceptedCandidateIds) : null} onContinueReview={props.onContinueReview} /> },
     { id: "arrange", label: "编排", icon: <GripHorizontal />, content: <NarrativeArrangementInspector selection={arrangementSelection} events={knowledgeEvents.filter((event) => event.title !== "未知事件")} storyUnits={props.storyUnits ?? []} narratives={narrativeReads} callbacks={props.onInsertNarrativePlacement && props.onMoveNarrativePlacement && props.onRemoveNarrativePlacement ? { insert: props.onInsertNarrativePlacement, move: props.onMoveNarrativePlacement, remove: props.onRemoveNarrativePlacement } : null} /> }
   ];
+  const mapReturn = mapReturnTarget(window.location.search);
+  const relationReturn = relationReturnTarget(window.location.search);
 
   return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer={advancedView ? projectionMode : eventTask === "time" ? "TemporalCanvas" : eventTask === "audit" ? "EvidenceAuditMatrix" : "EventGraphCanvas"} data-projection-mode={projectionMode} data-knowledge-projection-state={knowledgeProjectionState}>
+    {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
+    {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
+    {selectedRevisionMismatch ? <p className="event-line-source-revision-error" role="alert">关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。</p> : null}
     {!props.embedded ? <WorkspaceHeader
       projectTitle={props.projectTitle}
       sectionLabel="事件线"
@@ -908,11 +924,11 @@ export function EventLineWorkbench(props: {
         </header> : null}
         {creationNotice ? <p className="event-line-creation-notice" role="status">{creationNotice}<button type="button" aria-label="关闭提示" onClick={() => setCreationNotice(null)}><X /></button></p> : null}
         <EventLineListState state={props.listState} invalidRecordCount={props.listState.status === "ready" ? props.listState.invalidRecordCount : 0} eventCount={knowledgeEvents.length} warningDismissed={invalidRecordWarningDismissed} onDismissWarning={() => setInvalidRecordWarningDismissed(true)} onRetry={props.onRetry} />
-        {knowledgeProjectionState === "failed" ? <p className="story-progression-migration-notice" role="alert">知情投影暂不可用；已保持当前作者视图，不会调用 Provider。</p> : null}
-        {!advancedView && knowledgeProjectionState === "loading" ? <p className="story-progression-migration-notice" role="status" data-testid="knowledge-projection-loading">正在恢复当前知情视角；完成前不会短暂绘制全知画布。</p> : null}
+        {knowledgeProjectionState === "failed" ? <p className="story-progression-migration-notice" role="alert">知情投影暂不可用；已封闭当前图形投影，不会回退到全知事件或调用 Provider。</p> : null}
+        {knowledgeProjectionState === "loading" ? <p className="story-progression-migration-notice" role="status" data-testid="knowledge-projection-loading">正在恢复当前知情视角；完成前不会短暂绘制全知画布。</p> : null}
         {recoveryNotice ? <p className="story-progression-migration-notice" role="status" data-testid="event-line-recovery-notice">{recoveryNotice}</p> : null}
-        {!advancedView ? <StoryProgressionWorkspace task={eventTask} taskNotice={eventTaskNotice} projectTitle={props.projectTitle} projectId={props.projectId} currentUnitLabel={props.currentUnitLabel} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits ?? []} relations={formalRelations} objects={props.perspectiveObjects ?? []} narratives={narrativeReads} focusObjectIds={observationState.focusObjectIds.slice(0, 5)} selectedEventId={selectedEventId} detailsOpen={dockState.open} storylines={knowledgeProjection?.storylines ?? []} storylineScope={storylineScope} observers={observers} observerId={knowledgeObserverId} observerIds={knowledgeObserverIds} comparisonMode={knowledgeProjection?.mode === "compare"} hiddenEventCount={knowledgeProjection?.hiddenCount ?? 0} selectedKnowledgeState={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.knowledgeState ?? null} selectedStorylineLabels={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.storylineLabels ?? []} selectedKnowledgePerspectives={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.perspectives ?? []} onStorylineScope={selectStorylineScope} onObserver={selectKnowledgeObserver} onObservers={selectKnowledgeObservers} onTask={selectEventTask} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} onArrange={openArrangement} onCreateEvent={props.onSaveEvent ? beginEventCreate : undefined} onLocateCurrent={revealCurrentEvent} onOpenAdvanced={openAdvancedView} renderCandidateOverlay={props.renderCandidateOverlay} renderEventLine={({ onOpenStaging }) => <EventGraphCanvas key={`${knowledgeObserverId}:${knowledgeObserverIds.join(":")}:${storylineScope}`} mode="graph" canvasKind="narrative" projectId={props.projectId} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} viewport={narrativeViewport} onViewportChange={setNarrativeViewport} narrativeSurface={{ narratives: narrativeReads, focusObjects: selectedFocusObjects, currentUnitLabel: props.currentUnitLabel, detailsOpen: dockState.open, storylines: knowledgeProjection?.storylines ?? [], storylineScope, onStorylineScope: selectStorylineScope, onArrange: openArrangement, onOpenStaging }} />} renderTimeLine={() => <TemporalCanvas events={knowledgeProjectionState === "ready" ? storylineEvents : []} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} selectedEventId={selectedEventId} onSelectEvent={openEvent} onReturnGraph={() => selectEventTask("story")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} focusObjects={selectedFocusObjects} narratives={narrativeReads} detailsOpen={dockState.open} taskSurface viewport={timelineViewport} onViewportChange={setTimelineViewport} />} /> : null}
-        {advancedView && (projectionMode === "line" || projectionMode === "graph") ? <EventGraphCanvas mode="graph" canvasKind={projectionMode === "line" ? "narrative" : "relation"} projectId={props.projectId} events={storylineEvents} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={projectionMode === "line" ? props.onCreateCollectionPoint : undefined} onUpdateCollectionPoint={projectionMode === "line" ? props.onUpdateCollectionPoint : undefined} onDissolveCollectionPoint={projectionMode === "line" ? props.onDissolveCollectionPoint : undefined} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={projectionMode === "graph" ? props.onCreateGraphRelation : undefined} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
+        {!advancedView ? <StoryProgressionWorkspace task={eventTask} taskNotice={eventTaskNotice} projectTitle={props.projectTitle} projectId={props.projectId} workVersionId={props.workVersionId} currentUnitLabel={props.currentUnitLabel} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits ?? []} relations={formalRelations} objects={props.perspectiveObjects ?? []} narratives={narrativeReads} focusObjectIds={observationState.focusObjectIds.slice(0, 5)} selectedEventId={selectedEventId} detailsOpen={dockState.open} storylines={knowledgeProjection?.storylines ?? []} storylineScope={storylineScope} observers={observers} observerId={knowledgeObserverId} observerIds={knowledgeObserverIds} comparisonMode={knowledgeProjection?.mode === "compare"} hiddenEventCount={knowledgeProjection?.hiddenCount ?? 0} selectedKnowledgeState={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.knowledgeState ?? null} selectedStorylineLabels={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.storylineLabels ?? []} selectedKnowledgePerspectives={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.perspectives ?? []} onStorylineScope={selectStorylineScope} onObserver={selectKnowledgeObserver} onObservers={selectKnowledgeObservers} onTask={selectEventTask} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} onArrange={openArrangement} onCreateEvent={props.onSaveEvent ? beginEventCreate : undefined} onLocateCurrent={revealCurrentEvent} onOpenAdvanced={openAdvancedView} renderCandidateOverlay={props.renderCandidateOverlay} renderEventLine={({ onOpenStaging }) => <EventGraphCanvas key={`${knowledgeObserverId}:${knowledgeObserverIds.join(":")}:${storylineScope}`} mode="graph" canvasKind="narrative" projectId={props.projectId} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} viewport={narrativeViewport} onViewportChange={setNarrativeViewport} narrativeSurface={{ narratives: narrativeReads, focusObjects: selectedFocusObjects, currentUnitLabel: props.currentUnitLabel, detailsOpen: dockState.open, storylines: knowledgeProjection?.storylines ?? [], storylineScope, onStorylineScope: selectStorylineScope, onArrange: openArrangement, onOpenStaging }} />} renderTimeLine={() => <TemporalCanvas events={knowledgeProjectionState === "ready" ? storylineEvents : []} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} selectedEventId={selectedEventId} onSelectEvent={openEvent} onReturnGraph={() => selectEventTask("story")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} focusObjects={selectedFocusObjects} narratives={narrativeReads} detailsOpen={dockState.open} taskSurface viewport={timelineViewport} onViewportChange={setTimelineViewport} />} /> : null}
+        {advancedView && (projectionMode === "line" || projectionMode === "graph") ? <EventGraphCanvas mode="graph" canvasKind={projectionMode === "line" ? "narrative" : "relation"} projectId={props.projectId} events={storylineEvents} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={projectionMode === "line" ? props.onCreateCollectionPoint : undefined} onUpdateCollectionPoint={projectionMode === "line" ? props.onUpdateCollectionPoint : undefined} onDissolveCollectionPoint={projectionMode === "line" ? props.onDissolveCollectionPoint : undefined} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} characters={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").map((object) => ({ id: object.id, label: object.label }))} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={projectionMode === "graph" ? props.onCreateGraphRelation : undefined} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
         {advancedView && projectionMode === "timeline" ? <TemporalCanvas events={storylineEvents} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onReturnGraph={() => selectView("graph")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} /> : null}
         {advancedView && projectionMode === "participation" ? <ParticipationObservation events={storylineEvents} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} layout={observationState.layout === "world-time" ? "world-time" : "narrative"} scale={observationState.scale} renderMode={observationState.renderMode} showSources={observationState.layers.includes("source-evidence")} selectedEventId={selectedEventId} detailsOpen={dockState.open} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} /> : null}
         {advancedView && projectionMode === "perspective" ? <PerspectiveLens events={props.events} knowledgeProjection={perspectiveOwnerProjection} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} onFocusObjectIds={selectObservationFocus} relations={formalRelations} aiMatches={modelingRun?.tool === "analyze-perspective" ? modelingRun.result?.perspectiveMatches ?? [] : []} onOpenAi={(selected) => void openModelingTool("analyze-perspective", { perspectiveRefs: selected.map((object) => ({ objectId: object.id, objectType: object.type, ownerId: object.ownerId ?? props.projectId, version: object.version ?? "unknown", scope: object.scope ?? "project", label: object.label })) })} /> : null}
@@ -931,6 +947,21 @@ export function EventLineWorkbench(props: {
     {modelingTool ? <StoryModelingConfirmation tool={modelingTool} scopeKind={modelingScopeKind} plan={modelingPlan} state={modelingPlanState} onScope={(kind) => void changeModelingScope(kind)} onCancel={() => { if (modelingPlanState === "running") return; setModelingTool(null); setModelingPlanState("idle"); }} onConfirm={() => void confirmModeling()} /> : null}
     {logicPanelOpen ? <StoryLogicPanel findings={reviewedLogicFindings} aiFindings={(modelingRun?.tool === "run-logic-check" ? modelingRun.result?.logicFindings ?? [] : []).map((finding) => ({ ...finding, authorStatus: props.logicReviews?.find((review) => review.findingId === finding.findingId)?.authorStatus ?? finding.authorStatus }))} onReview={props.onReviewLogicFinding} onClose={() => setLogicPanelOpen(false)} onRunAi={() => { setLogicPanelOpen(false); void openModelingTool("run-logic-check", { eventRefs: modelingRefsForIds(logicSelectionIds) }); }} onLocate={(eventId) => { setLogicPanelOpen(false); openEventInView(eventId, "graph"); }} /> : null}
   </section>;
+}
+
+function mapReturnTarget(search: string): string | null {
+  const value = new URLSearchParams(search).get("mapReturn");
+  return value && value.startsWith("/world?") && !value.includes("//") ? value : null;
+}
+
+function relationReturnTarget(search: string): string | null {
+  const value = new URLSearchParams(search).get("relationReturn");
+  return value && value.startsWith("/world?worldView=relations") && !value.includes("//") ? value : null;
+}
+
+function eventRevisionFromRoute(): string | null {
+  const value = new URLSearchParams(window.location.search).get("eventRevision");
+  return value && value.length <= 512 ? value : null;
 }
 
 function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; localFindingCount: number; run: StoryModelingRunProjection | null; history: readonly StoryModelingRunProjection[]; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void; onOpenLocalLogic(): void; onStop?(): Promise<void> }) {
@@ -1134,12 +1165,15 @@ function EventLineScope(props: {
   </aside>;
 }
 
-function EventCreateInspector(props: { busy: boolean; error: string | null; defaultStoryUnit: string; onCancel(): void; onSave(input: EventDraftInput): void }) {
-  const [values, setValues] = useState<EventDraftInput>(() => ({ title: "", summary: "", storyUnit: props.defaultStoryUnit, focus: "", storyTime: "", location: "", participants: [], tags: [], note: "" }));
+function EventCreateInspector(props: { busy: boolean; error: string | null; defaultStoryUnit: string; characters: Array<{ id: string; label: string }>; onCancel(): void; onSave(input: EventDraftInput): void }) {
+  const [values, setValues] = useState<EventDraftInput>(() => ({ title: "", summary: "", storyUnit: props.defaultStoryUnit, focus: "", storyTime: "", location: "", participants: [], participantSubjects: [], tags: [], note: "" }));
   const [participantText, setParticipantText] = useState("");
   const [tagText, setTagText] = useState("");
   const [titleError, setTitleError] = useState<string | null>(null);
   const update = <K extends keyof EventDraftInput>(key: K, value: EventDraftInput[K]) => setValues((current) => ({ ...current, [key]: value }));
+  const toggleParticipantSubject = (character: { id: string; label: string }) => update("participantSubjects", values.participantSubjects.some((item) => item.id === character.id)
+    ? values.participantSubjects.filter((item) => item.id !== character.id)
+    : [...values.participantSubjects, character]);
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const title = values.title.trim();
@@ -1152,7 +1186,8 @@ function EventCreateInspector(props: { busy: boolean; error: string | null; defa
     <label><span>事件标题 <b aria-hidden="true">*</b></span><input autoFocus value={values.title} onChange={(event) => update("title", event.target.value)} maxLength={80} aria-invalid={Boolean(titleError)} aria-describedby={titleError ? "event-create-title-error" : undefined} disabled={props.busy} /></label>
     <label><span>发生了什么</span><textarea value={values.summary} onChange={(event) => update("summary", event.target.value)} rows={4} maxLength={1200} disabled={props.busy} /></label>
     <div className="event-create-grid"><label><span>故事单元</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
-    <label><span>涉及人物</span><input value={participantText} onChange={(event) => setParticipantText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>
+    {props.characters.length ? <fieldset><legend>正式人物身份</legend>{props.characters.map((character) => <label key={character.id}><input type="checkbox" checked={values.participantSubjects.some((item) => item.id === character.id)} onChange={() => toggleParticipantSubject(character)} disabled={props.busy} /><span>{character.label}<small>{props.characters.filter((item) => item.label === character.label).length > 1 ? ` · ${character.id}` : ""}</small></span></label>)}</fieldset> : null}
+    <label><span>涉及人物补充</span><input value={participantText} onChange={(event) => setParticipantText(event.target.value)} placeholder="仅补充尚未建立正式人物档案的显示名" disabled={props.busy} /></label>
     <label><span>标签</span><input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>
     <label><span>作者备注</span><textarea value={values.note} onChange={(event) => update("note", event.target.value)} rows={3} maxLength={1200} disabled={props.busy} /></label>
     {titleError ? <p id="event-create-title-error" className="event-create-error" role="alert">{titleError}</p> : null}

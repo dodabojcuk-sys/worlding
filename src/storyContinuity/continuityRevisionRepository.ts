@@ -106,7 +106,7 @@ function defaultManifest(owner: ContinuityOwnerRef): ContinuityHistoryManifest {
 function normalizeOwner(value: unknown): ContinuityOwnerRef {
   const input = requirePlainObject(value, "Continuity history owner");
   requireExactFields(input, new Set(["kind", "id", "agentId", "scope", "projectId"]), "Continuity history owner");
-  if (!["persona", "relationship-policy", "memory", "global-memory-grant", "session", "context-receipt", "stopping-point"].includes(String(input.kind))) throw new Error("Continuity history owner kind is invalid.");
+  if (!["persona", "relationship-policy", "memory", "character-memory-ledger", "global-memory-grant", "session", "context-receipt", "stopping-point"].includes(String(input.kind))) throw new Error("Continuity history owner kind is invalid.");
   if (typeof input.id !== "string" || typeof input.agentId !== "string") throw new Error("Continuity history owner identifier is invalid.");
   if (input.scope !== "author-global" && input.scope !== "project") throw new Error("Continuity history owner scope is invalid.");
   if (input.projectId !== null && typeof input.projectId !== "string") throw new Error("Continuity history project identifier is invalid.");

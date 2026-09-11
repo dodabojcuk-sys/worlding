@@ -21,6 +21,7 @@ const OWNER_DIRECTORY: Record<ContinuityOwnerKind, string> = {
   persona: "persona",
   "relationship-policy": "relationship-policy",
   memory: "memories",
+  "character-memory-ledger": "character-memory-ledgers",
   "global-memory-grant": "global-memory-grants",
   session: "sessions",
   "context-receipt": "receipts",
@@ -31,6 +32,7 @@ const OWNER_EXTENSION: Record<ContinuityOwnerKind, string> = {
   persona: ".md",
   "relationship-policy": ".json",
   memory: ".md",
+  "character-memory-ledger": ".ledger.json",
   "global-memory-grant": ".grant.json",
   session: ".jsonl",
   "context-receipt": ".context-receipt.json",
@@ -332,6 +334,7 @@ export function ownerPrefix(kind: Exclude<ContinuityOwnerKind, "persona" | "rela
 function ownerPrefixName(kind: Exclude<ContinuityOwnerKind, "persona" | "relationship-policy">): string {
   return ({
     memory: "memory",
+    "character-memory-ledger": "character-memory-ledger",
     "global-memory-grant": "grant",
     session: "session",
     "context-receipt": "receipt",
@@ -376,7 +379,7 @@ async function resolveProjectRoot(root: string, projectId: string): Promise<stri
 
 function assertOwnerScope(kind: ContinuityOwnerKind, scope: ContinuityScope): void {
   if ((kind === "persona" || kind === "relationship-policy") && scope !== "author-global") throw new Error("Owner is author-global only.");
-  if ((kind === "global-memory-grant" || kind === "session" || kind === "context-receipt" || kind === "stopping-point") && scope !== "project") throw new Error("Owner is project-local only.");
+  if ((kind === "character-memory-ledger" || kind === "global-memory-grant" || kind === "session" || kind === "context-receipt" || kind === "stopping-point") && scope !== "project") throw new Error("Owner is project-local only.");
 }
 
 function assertInside(root: string, target: string): void {

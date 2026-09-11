@@ -145,9 +145,13 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
     assert.equal(JSON.stringify(modelOnlyRestarted).includes("fixture-secret-value"), false);
 
-    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true }, activeHeaders);
-    assert.equal(revealed.status, 404);
-    assert.equal(JSON.stringify(revealed).includes("fixture-secret-value"), false);
+    const normalProfile = await jsonGet(base, "model-service/profile", activeHeaders);
+    assert.equal(JSON.stringify(normalProfile).includes("fixture-secret-value"), false);
+    const revealed = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true, providerInstanceId: "siliconflow.default" }, activeHeaders);
+    assert.equal(revealed.status, 200);
+    assert.equal(revealed.data.apiKey, "fixture-secret-value");
+    const crossInstanceReveal = await jsonPost(base, "model-service/profile/reveal-credential", { confirmed: true, providerInstanceId: "radeon-cloud.default" }, activeHeaders);
+    assert.equal(crossInstanceReveal.status, 403);
 
     const staleCredential = await jsonPost(base, "model-service/profile/save", {
       expectedRevision: 2,
@@ -157,19 +161,61 @@ test("Provider Settings persists non-sensitive profile across restart and protec
     assert.equal(staleCredential.status, 409);
     assert.equal(readFileSync(credentialPath, "utf8").trim(), "fixture-secret-value");
 
-    const connection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model" }, activeHeaders);
+    const firstConnectionOperation = "connection-test-a1b2c3d4";
+    const connection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model", operationId: firstConnectionOperation }, activeHeaders);
     assert.equal(connection.status, 200);
     assert.equal(connection.data.modelId, "fixture/alternate-model");
     assert.equal(connection.data.availableModelCount, 2);
     assert.deepEqual(connection.data.models, ["fixture/chat-model", "fixture/alternate-model"]);
+    assert.equal(typeof connection.data.testedAt, "string");
+    assert.equal(typeof connection.data.latencyMs, "number");
+    assert.equal(connection.data.operationId, firstConnectionOperation);
+    assert.equal(connection.data.recovered, false);
+    assert.equal(connection.data.sent, true);
+    assert.equal(connection.data.responsePreview, "OK");
     assert.equal(connection.data.profile.profile.connectionStatus, "verified");
     assert.equal(connection.data.profile.profile.modelId, "fixture/alternate-model");
+    const missingRecovery = await jsonGet(base, "model-service/test?operationId=connection-test-missing", activeHeaders);
+    assert.equal(missingRecovery.status, 200);
+    assert.equal(missingRecovery.data.state, "missing");
+    assert.equal(missingRecovery.data.sent, false);
+    assert.equal(fakeProvider.calls.completions, 1, "a read-only recovery miss must never create a reservation or Provider request");
+    const conflictingReplay = await jsonPost(base, "model-service/test", { modelId: "fixture/chat-model", operationId: firstConnectionOperation }, activeHeaders);
+    assert.equal(conflictingReplay.status, 409);
+    assert.equal(fakeProvider.calls.completions, 1, "an operation identity cannot be rebound to another model");
+    const replayedConnection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model", operationId: firstConnectionOperation }, activeHeaders);
+    assert.equal(replayedConnection.status, 200);
+    assert.equal(replayedConnection.data.recovered, true);
+    assert.equal(replayedConnection.data.profile.profile.connectionStatus, "verified");
+    assert.equal(fakeProvider.calls.completions, 1, "the same operation recovers its completed result without another Provider request");
+    const readOnlyRecovery = await jsonGet(base, `model-service/test?operationId=${firstConnectionOperation}`, activeHeaders);
+    assert.equal(readOnlyRecovery.status, 200);
+    assert.equal(readOnlyRecovery.data.readOnly, true);
+    assert.equal(readOnlyRecovery.data.dispatchState, "sent");
+    assert.equal(fakeProvider.calls.completions, 1, "reading completed history must not replay transport");
+    const rateLimited = await jsonPost(base, "model-service/test", { modelId: "fixture/rate-limit-model", operationId: "connection-test-rate-limit" }, activeHeaders);
+    assert.equal(rateLimited.status, 200);
+    assert.equal(rateLimited.data.outcome, "failed");
+    assert.equal(rateLimited.data.dispatchState, "sent");
+    assert.equal(rateLimited.data.error, "当前模型服务请求过多，请稍后再试。");
+    const rateLimitedHistory = await jsonGet(base, "model-service/test?operationId=connection-test-rate-limit", activeHeaders);
+    assert.equal(rateLimitedHistory.data.error, rateLimited.data.error, "initial and historical failure details must agree");
+    assert.equal(rateLimitedHistory.data.dispatchState, "sent");
+    const newConnection = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model", operationId: "connection-test-e5f6g7h8" }, activeHeaders);
+    assert.equal(newConnection.status, 200);
+    assert.equal(newConnection.data.recovered, false);
+    assert.equal(fakeProvider.calls.completions, 3, "a later author click gets a new operation and a new Provider request");
+    const budgetBlocked = await jsonPost(base, "model-service/test", { modelId: "fixture/alternate-model", operationId: "connection-test-budget-blocked" }, activeHeaders);
+    assert.equal(budgetBlocked.status, 200);
+    assert.equal(budgetBlocked.data.dispatchState, "not-sent");
+    assert.match(budgetBlocked.data.error, /预算已用尽/u);
+    assert.equal(fakeProvider.calls.completions, 3, "budget preflight must block before Provider transport");
     const inference = await jsonPost(base, "model-service/minimal-inference", {}, activeHeaders);
     assert.equal(inference.status, 200);
     assert.equal(inference.data.modelId, "fixture/alternate-model");
     assert.equal(inference.data.content, "OK");
-    assert.equal(fakeProvider.calls.models, 2);
-    assert.equal(fakeProvider.calls.completions, 1);
+    assert.equal(fakeProvider.calls.models, 1);
+    assert.equal(fakeProvider.calls.completions, 4);
 
     const cleared = await jsonPost(base, "model-service/profile/clear-credential", { confirmed: true }, activeHeaders);
     assert.equal(cleared.data.credential.configured, false);
@@ -254,11 +300,16 @@ async function startFakeSiliconFlow(): Promise<{ server: Server; baseUrl: string
     }
     if (request.url === "/v1/chat/completions" && request.method === "POST") {
       calls.completions += 1;
-      response.writeHead(200, { "content-type": "application/json", "x-siliconcloud-trace-id": "fixture-trace" });
       let body = "";
       request.on("data", (chunk) => { body += chunk; });
       request.on("end", () => {
         const model = JSON.parse(body).model;
+        if (model === "fixture/rate-limit-model") {
+          response.writeHead(429, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: { message: "fixture rate limit" } }));
+          return;
+        }
+        response.writeHead(200, { "content-type": "application/json", "x-siliconcloud-trace-id": "fixture-trace" });
         response.end(JSON.stringify({ model, choices: [{ message: { content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 } }));
       });
       return;
