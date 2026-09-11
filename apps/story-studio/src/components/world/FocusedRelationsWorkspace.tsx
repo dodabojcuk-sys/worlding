@@ -44,7 +44,8 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
 
   const writeRoute = (next: Partial<{ center: string; mode: ViewMode; type: string; all: boolean; expanded: ReadonlySet<string>; viewport: GraphViewport; selection: GraphSelection }>) => {
     const target = new URL(window.location.href);
-    target.searchParams.set("worldView", "relations");
+    target.searchParams.set("libraryView", "relations");
+    target.searchParams.delete("worldView");
     const center = next.center ?? centerId;
     if (center) target.searchParams.set("relationCenter", center); else target.searchParams.delete("relationCenter");
     const nextMode = next.mode ?? mode;
@@ -76,7 +77,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
     updateRoute({ viewport: normalized });
   };
   const selectGraph = (next: GraphSelection) => { setSelection(next); updateRoute({ selection: next }); };
-  const back = () => { const value = params.get("relationReturn"); window.location.assign(safeReturn(value) ?? "/world?worldView=map"); };
+  const back = () => { const value = params.get("relationReturn"); window.location.assign(safeReturn(value) ?? "/library?libraryView=map"); };
   const returnTarget = safeReturn(params.get("relationReturn"));
 
   if (!projectId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
@@ -188,5 +189,5 @@ function directionSymbol(direction: RelationReadProjectionR0["direction"]): stri
 function relationTimeSummary(relation: RelationReadProjectionR0): string { const from = relation.temporal?.validFrom; if (!from) return "有效时间未知"; return `有效于 ${from.slice(0, 10)}${from.endsWith("Z") ? "（UTC）" : ""}`; }
 function selectionFromRoute(params: URLSearchParams): GraphSelection { const value = params.get("relationSelection"); const match = value?.match(/^(node|edge):(.+)$/u); return match ? { kind: match[1] as "node" | "edge", id: match[2] } : null; }
 function safeReturn(value: string | null): string | null { return value && value.startsWith("/") && !value.startsWith("//") ? value : null; }
-function returnLabel(target: string | null): string { return target?.includes("worldView=character") ? "返回角色" : target?.includes("worldView=map") ? "返回地图" : "返回来源"; }
+function returnLabel(target: string | null): string { return target?.includes("worldView=character") ? "返回角色" : target?.includes("libraryView=map") || target?.includes("worldView=map") ? "返回地图" : "返回来源"; }
 function observationLabel(params: URLSearchParams): string { if (!params.get("mapObservedAt")) return "当前状态"; return params.get("mapObservationLabel") || `故事节点 · ${params.get("mapObservationEvent") || "未命名"}`; }

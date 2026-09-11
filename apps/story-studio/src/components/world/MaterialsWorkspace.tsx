@@ -434,7 +434,7 @@ export function MaterialsWorkspace(props: {
                           type="button"
                           onClick={() =>
                             window.location.assign(
-                              `/world?worldView=map&mapPlace=${encodeURIComponent(selected.id)}`,
+                              `/library?libraryView=map&mapPlace=${encodeURIComponent(selected.id)}`,
                             )
                           }
                         >
@@ -446,7 +446,7 @@ export function MaterialsWorkspace(props: {
                         type="button"
                         onClick={() =>
                           window.location.assign(
-                            `/world?worldView=relations&relationCenter=${encodeURIComponent(selected.id)}&relationReturn=${encodeURIComponent(`/library?materialId=${selected.id}`)}`,
+                            `/library?libraryView=relations&relationCenter=${encodeURIComponent(selected.id)}&relationReturn=${encodeURIComponent(`/library?materialId=${selected.id}`)}`,
                           )
                         }
                       >

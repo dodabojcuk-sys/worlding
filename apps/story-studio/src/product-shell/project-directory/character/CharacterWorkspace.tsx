@@ -54,8 +54,8 @@ export function CharacterWorkspace(props: { runtime: TianyanShellRuntimeState; o
   };
   const openRelations = () => {
     saveView();
-    const target = new URL("/world", window.location.origin);
-    target.searchParams.set("worldView", "relations");
+    const target = new URL("/library", window.location.origin);
+    target.searchParams.set("libraryView", "relations");
     target.searchParams.set("relationCenter", props.objectId);
     target.searchParams.set("relationReturn", `${window.location.pathname}${window.location.search}`);
     window.location.assign(`${target.pathname}${target.search}`);
