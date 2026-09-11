@@ -4764,23 +4764,32 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   // the author. This route supplies an invalid success envelope only to the
   // next browser GET after the write; fixture reads below still inspect the
   // real Relation Owner directly.
-  const refreshFailureObserved = page.waitForResponse((response) => {
-    const request = response.request();
-    return request.method() === "GET" && new URL(response.url()).pathname.endsWith("/relations") && response.status() === 200;
-  });
+  let resolveRefreshFailureObserved = () => undefined;
+  const refreshFailureObserved = new Promise((resolve) => { resolveRefreshFailureObserved = resolve; });
   const relationRefreshRoute = async (route) => {
     if (route.request().method() !== "GET") { await route.continue(); return; }
+    // Route fulfilment does not reliably produce the same Playwright response
+    // event timing on every CI host.  This promise is the precise proof that
+    // the deliberately broken projection read happened after the write.
+    resolveRefreshFailureObserved();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ error: "fixture relation projection refresh unavailable" }) });
   };
   try {
     await page.route("**/__local/story-studio/relations?*", relationRefreshRoute, { times: 1 });
-    // Start both waits inside this managed scope.  Waiting for the visible
-    // receipt first used to leave a rejected response Promise unobserved.
-    await Promise.all([
-      refreshFailureObserved,
+    const confirmationResponse = page.waitForResponse((response) => {
+      const request = response.request();
+      return request.method() === "POST" && new URL(response.url()).pathname.endsWith("/relations/confirm");
+    }, { timeout: 45_000 });
+    // The Relation mutation response is the authoritative receipt.  Observe
+    // it directly before asserting that an intentionally failed refresh is
+    // handled as a read failure rather than a failed author operation.
+    const [response] = await Promise.all([
+      confirmationResponse,
       unresolvedInspector.getByRole("button", { name: "选择类型后通过", exact: true }).click()
     ]);
-    await page.getByText("作者确认后，关系已保存。", { exact: true }).waitFor();
+    assert.equal(response.status(), 200, "The explicit author confirmation must return a successful Relation Owner receipt.");
+    await refreshFailureObserved;
+    await page.getByText("作者确认后，关系已保存。", { exact: true }).waitFor({ timeout: 45_000 });
     await page.waitForTimeout(0);
     if (output) {
       const owner = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(unresolvedPredictionRelationId)}`);
