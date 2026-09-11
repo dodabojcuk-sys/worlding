@@ -1567,6 +1567,10 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   const relationType = workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "自动关系类型" }).locator("select");
   assert.ok(await relationType.locator("option").count() > 1, "The automatic application fixture exposes a validated relation type.");
   await relationType.selectOption({ index: 1 });
+  // The preceding N3 scene deliberately leaves the branch storyline selected.
+  // An author must choose the main line before choosing its unit; the unit list
+  // is intentionally scoped to that line and must not accept a cross-line label.
+  await workspace.getByLabel("事件线", { exact: true }).selectOption({ label: "主线 · 雾港追踪" });
   await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
