@@ -24,6 +24,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const [typeFilter, setTypeFilter] = useState(() => params.get("relationType") || "");
   const [showAll, setShowAll] = useState(() => params.get("relationScope") === "all");
   const [viewport, setViewport] = useState<GraphViewport>(() => normalizeViewport({ x: Number(params.get("relationPanX") || 0), y: Number(params.get("relationPanY") || 0), scale: Number(params.get("relationZoom") || 1) }));
+  const hasPersistedViewport = ["relationPanX", "relationPanY", "relationZoom"].some((key) => params.has(key));
   const [selection, setSelection] = useState<GraphSelection>(() => selectionFromRoute(params));
   const [fitNonce, setFitNonce] = useState(0);
   const [data, setData] = useState<RelationData | null>(null);
@@ -68,7 +69,12 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const selectType = (next: string) => { setTypeFilter(next); updateRoute({ type: next }); };
   const selectScope = (next: boolean) => { setShowAll(next); updateRoute({ all: next }); };
   const updateExpanded = (next: ReadonlySet<string>) => { setExpanded(next); updateRoute({ expanded: next }); };
-  const updateViewport = (next: GraphViewport) => { const normalized = normalizeViewport(next); setViewport(normalized); updateRoute({ viewport: normalized }); };
+  const updateViewport = (next: GraphViewport) => {
+    const normalized = normalizeViewport(next);
+    if (sameViewport(viewport, normalized)) return;
+    setViewport(normalized);
+    updateRoute({ viewport: normalized });
+  };
   const selectGraph = (next: GraphSelection) => { setSelection(next); updateRoute({ selection: next }); };
   const back = () => { const value = params.get("relationReturn"); window.location.assign(safeReturn(value) ?? "/world?worldView=map"); };
   const returnTarget = safeReturn(params.get("relationReturn"));
@@ -102,7 +108,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
       <header className="focused-relations-toolbar"><div className="focused-relations-toolbar-top"><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button><div className="focused-relations-heading"><strong>{center ? `${objectLabel(center)}的关系` : "关系查看"}</strong><span>{observationLabel(params)}{props.runtime.workVersionLabel ? ` · ${props.runtime.workVersionLabel}` : ""}</span></div><div className="focused-relations-view-switch" role="group" aria-label="关系显示方式"><button type="button" aria-pressed={mode === "graph"} onClick={() => selectMode("graph")}><GitBranch aria-hidden="true" />关系图</button><button type="button" aria-pressed={mode === "list"} onClick={() => selectMode("list")}><List aria-hidden="true" />列表</button></div></div><div className="focused-relations-toolbar-controls"><label>中心对象<select aria-label="选择关系中心" value={centerId} onChange={(event) => selectCenter(event.target.value)}><option value="">请选择人物或地点</option>{data.objects.filter((item) => item.type === "character" || item.type === "location").map((item) => <option key={item.id} value={item.id}>{objectLabel(item)} · {item.type === "character" ? "人物" : "地点"}</option>)}</select></label><label>类型<select aria-label="筛选关系类型" value={typeFilter} onChange={(event) => selectType(event.target.value)}><option value="">全部类型</option>{availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><div className="focused-relations-scope" role="group" aria-label="关系范围"><button type="button" aria-pressed={!showAll} onClick={() => selectScope(false)}>直接关系</button><button type="button" aria-pressed={showAll} onClick={() => selectScope(true)}>全局关系</button></div></div></header>
       {observedAt && unknownInScope.length ? <p className="focused-relations-notice">当前范围有 {unknownInScope.length} 条关系缺少、无效或不确定的故事生效时间，未伪装为该节点的历史关系。</p> : null}
       {sourceError ? <p className="focused-relations-notice" role="alert">{sourceError}</p> : null}
-      {!center && !showAll ? <section className="focused-relations-empty"><h1>围绕一个对象查看关系</h1><p>选择人物或地点后，只显示它的直接正式关系；事件因果关系仍在事件线中查看。</p></section> : mode === "list" ? <RelationList relations={visibleRelations} labels={labels} onCenter={selectCenter} onEvidence={openEvent} /> : <RelationGraph centerId={centerId} nodeIds={visibleIds} relations={visibleRelations} labels={labels} expanded={expanded} viewport={viewport} fitNonce={fitNonce} selection={selection} onSelection={selectGraph} onViewport={updateViewport} onFit={(next) => setViewport(next)} onRequestFit={() => setFitNonce((value) => value + 1)} onExpand={(id) => updateExpanded(new Set([...expanded, id]))} onCollapse={(id) => { const next = new Set(expanded); next.delete(id); updateExpanded(next); }} onCenter={selectCenter} onEvidence={openEvent} />}
+      {!center && !showAll ? <section className="focused-relations-empty"><h1>围绕一个对象查看关系</h1><p>选择人物或地点后，只显示它的直接正式关系；事件因果关系仍在事件线中查看。</p></section> : mode === "list" ? <RelationList relations={visibleRelations} labels={labels} onCenter={selectCenter} onEvidence={openEvent} /> : <RelationGraph centerId={centerId} nodeIds={visibleIds} relations={visibleRelations} labels={labels} expanded={expanded} viewport={viewport} hasPersistedViewport={hasPersistedViewport} fitNonce={fitNonce} selection={selection} onSelection={selectGraph} onViewport={updateViewport} onFit={updateViewport} onRequestFit={() => setFitNonce((value) => value + 1)} onExpand={(id) => updateExpanded(new Set([...expanded, id]))} onCollapse={(id) => { const next = new Set(expanded); next.delete(id); updateExpanded(next); }} onCenter={selectCenter} onEvidence={openEvent} />}
       <footer>范围：{showAll ? `全局已确认关系 ${filtered.length} 条` : `${center ? objectLabel(center) : "未选择中心"}的直接正式关系 ${direct.length} 条`}。</footer>
     </section>
   </main>;
@@ -112,13 +118,41 @@ function RelationList(props: { relations: readonly RelationReadProjectionR0[]; l
   return <section className="focused-relations-list" aria-label="关系列表">{props.relations.length ? <ul>{props.relations.map((relation) => <li key={relation.relationId}><div><button type="button" onClick={() => props.onCenter(relation.sourceObjectId)}>{endpointLabel(props.labels, relation.sourceObjectId)}</button><span aria-hidden="true">{directionSymbol(relation.direction)}</span><strong>{relationTypeLabel(relation)}</strong><button type="button" onClick={() => props.onCenter(relation.targetObjectId)}>{endpointLabel(props.labels, relation.targetObjectId)}</button>{relation.evidenceRefs.some((item) => item.kind === "confirmed-event") ? <button className="focused-relations-evidence-link" type="button" onClick={() => props.onEvidence(relation)}>依据</button> : null}</div><small>{relationTimeSummary(relation)}{relation.archived ? " · 已归档" : ""}</small></li>)}</ul> : <p>当前范围没有可显示的已确认正式关系。</p>}</section>;
 }
 
-function RelationGraph(props: { centerId: string; nodeIds: ReadonlySet<string>; relations: readonly RelationReadProjectionR0[]; labels: ReadonlyMap<string, WorldObjectSummary>; expanded: ReadonlySet<string>; viewport: GraphViewport; fitNonce: number; selection: GraphSelection; onSelection(value: GraphSelection): void; onViewport(value: GraphViewport): void; onFit(value: GraphViewport): void; onRequestFit(): void; onExpand(id: string): void; onCollapse(id: string): void; onCenter(id: string): void; onEvidence(relation: RelationReadProjectionR0): void }) {
+function RelationGraph(props: { centerId: string; nodeIds: ReadonlySet<string>; relations: readonly RelationReadProjectionR0[]; labels: ReadonlyMap<string, WorldObjectSummary>; expanded: ReadonlySet<string>; viewport: GraphViewport; hasPersistedViewport: boolean; fitNonce: number; selection: GraphSelection; onSelection(value: GraphSelection): void; onViewport(value: GraphViewport): void; onFit(value: GraphViewport): void; onRequestFit(): void; onExpand(id: string): void; onCollapse(id: string): void; onCenter(id: string): void; onEvidence(relation: RelationReadProjectionR0): void }) {
   const [dragStart, setDragStart] = useState<Point | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef(props.viewport);
+  const didInitialFit = useRef(false);
+  const fitNonceRef = useRef(props.fitNonce);
   const nodes = [...props.nodeIds].sort((left, right) => left.localeCompare(right)).map((id) => ({ id, object: props.labels.get(id) ?? null }));
   const positions = graphPositions(nodes.map((node) => node.id), props.centerId);
   const groups = relationGroups(props.relations);
-  useLayoutEffect(() => { const frame = window.requestAnimationFrame(() => { const canvas = canvasRef.current; if (canvas) props.onFit(fitViewport(positions, canvas.clientWidth, canvas.clientHeight)); }); return () => window.cancelAnimationFrame(frame); }, [props.fitNonce]);
+  viewportRef.current = props.viewport;
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let frame = 0;
+    const fitRequested = fitNonceRef.current !== props.fitNonce;
+    fitNonceRef.current = props.fitNonce;
+    const selectedPoints = () => graphSelectionPoints(props.selection, groups, nodes, positions);
+    const updateForCanvas = () => {
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      if (!width || !height) return;
+      if (!didInitialFit.current) {
+        didInitialFit.current = true;
+        if (!props.hasPersistedViewport) props.onFit(fitViewport(positions, width, height));
+        return;
+      }
+      if (fitRequested) { props.onFit(fitViewport(positions, width, height)); return; }
+      if (props.selection) props.onViewport(keepPointsVisible(viewportRef.current, selectedPoints(), width, height));
+    };
+    const schedule = () => { window.cancelAnimationFrame(frame); frame = window.requestAnimationFrame(updateForCanvas); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(canvas);
+    updateForCanvas();
+    return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [props.fitNonce, props.hasPersistedViewport, props.selection, props.centerId, props.nodeIds, props.relations]);
   useEffect(() => {
     if (!props.selection) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -139,8 +173,11 @@ function RelationGraph(props: { centerId: string; nodeIds: ReadonlySet<string>; 
 function graphPositions(ids: readonly string[], centerId: string): ReadonlyMap<string, Point> { const ordered = [...ids].sort((left, right) => left === centerId ? -1 : right === centerId ? 1 : left.localeCompare(right)); const positions = new Map<string, Point>(); const center = ordered[0]; if (center) positions.set(center, { x: 480, y: 280 }); const neighbours = ordered.slice(1); for (const [index, id] of neighbours.entries()) { const angle = neighbours.length === 1 ? 0 : (Math.PI * 2 * index / neighbours.length) - Math.PI / 2; positions.set(id, { x: 480 + Math.cos(angle) * 250, y: 280 + Math.sin(angle) * 176 }); } return positions; }
 function edgeEndpoints(source: Point, target: Point): { x1: number; y1: number; x2: number; y2: number } { const dx = target.x - source.x; const dy = target.y - source.y; const scale = 1 / Math.max(Math.abs(dx) / 72, Math.abs(dy) / 32, 1); return { x1: source.x + dx * scale, y1: source.y + dy * scale, x2: target.x - dx * scale, y2: target.y - dy * scale }; }
 function fitViewport(points: ReadonlyMap<string, Point>, width: number, height: number): GraphViewport { const values = [...points.values()]; if (!values.length || !width || !height) return defaultViewport; const minX = Math.min(...values.map((value) => value.x - 80)); const maxX = Math.max(...values.map((value) => value.x + 80)); const minY = Math.min(...values.map((value) => value.y - 48)); const maxY = Math.max(...values.map((value) => value.y + 48)); const scale = Math.min(1.35, Math.max(.55, Math.min((width - 96) / (maxX - minX), (height - 96) / (maxY - minY)))); return normalizeViewport({ x: width / 2 - ((minX + maxX) / 2) * scale, y: height / 2 - ((minY + maxY) / 2) * scale, scale }); }
+function graphSelectionPoints(selection: GraphSelection, groups: ReturnType<typeof relationGroups>, nodes: readonly { id: string }[], positions: ReadonlyMap<string, Point>): Point[] { const ids = selection?.kind === "edge" ? (() => { const group = groups.find((item) => item.key === selection.id); return group ? [group.sourceId, group.targetId] : []; })() : selection?.kind === "node" ? [selection.id] : nodes.map((node) => node.id); return ids.flatMap((id) => { const point = positions.get(id); return point ? [point] : []; }); }
+function keepPointsVisible(viewport: GraphViewport, points: readonly Point[], width: number, height: number): GraphViewport { if (!points.length || !width || !height) return viewport; const padding = 32; const minX = Math.min(...points.map((point) => point.x - 80)); const maxX = Math.max(...points.map((point) => point.x + 80)); const minY = Math.min(...points.map((point) => point.y - 48)); const maxY = Math.max(...points.map((point) => point.y + 48)); const neededScale = Math.min((width - padding * 2) / (maxX - minX), (height - padding * 2) / (maxY - minY)); const scale = neededScale < viewport.scale ? Math.max(.55, neededScale) : viewport.scale; const screenMinX = minX * scale + viewport.x; const screenMaxX = maxX * scale + viewport.x; const screenMinY = minY * scale + viewport.y; const screenMaxY = maxY * scale + viewport.y; const x = viewport.x + (screenMinX < padding ? padding - screenMinX : screenMaxX > width - padding ? width - padding - screenMaxX : 0); const y = viewport.y + (screenMinY < padding ? padding - screenMinY : screenMaxY > height - padding ? height - padding - screenMaxY : 0); const next = normalizeViewport({ x, y, scale }); return sameViewport(viewport, next) ? viewport : next; }
 function relationGroups(relations: readonly RelationReadProjectionR0[]): Array<{ key: string; sourceId: string; targetId: string; relations: RelationReadProjectionR0[] }> { const groups = new Map<string, { key: string; sourceId: string; targetId: string; relations: RelationReadProjectionR0[] }>(); for (const relation of relations) { const key = [relation.sourceObjectId, relation.targetObjectId].sort().join("\u0000"); const current = groups.get(key) ?? { key, sourceId: relation.sourceObjectId, targetId: relation.targetObjectId, relations: [] }; current.relations.push(relation); groups.set(key, current); } return [...groups.values()]; }
 function normalizeViewport(value: GraphViewport): GraphViewport { return { x: Number.isFinite(value.x) ? Math.max(-720, Math.min(720, value.x)) : 0, y: Number.isFinite(value.y) ? Math.max(-440, Math.min(440, value.y)) : 0, scale: Number.isFinite(value.scale) ? Math.max(.55, Math.min(1.8, value.scale)) : 1 }; }
+function sameViewport(left: GraphViewport, right: GraphViewport): boolean { return left.x === right.x && left.y === right.y && left.scale === right.scale; }
 function relationTypeLabel(relation: RelationReadProjectionR0): string { return relation.currentTypeLabel ?? relation.relationLabelSnapshot; }
 function isAttached(relation: RelationReadProjectionR0, id: string): boolean { return Boolean(id) && (relation.sourceObjectId === id || relation.targetObjectId === id); }
 function addRelationEndpoints(ids: Set<string>, relation: RelationReadProjectionR0) { ids.add(relation.sourceObjectId); ids.add(relation.targetObjectId); }

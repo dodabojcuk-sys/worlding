@@ -2083,7 +2083,22 @@ async function setupMapM2Fixture() {
     evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
   });
   relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: keySupportCandidate.relation.relationId, expectedRelationRevision: keySupportCandidate.relation.revision, operationId: `map-m2-key-support-confirm-${fixture.fixtureId}` });
-  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId };
+  let denseGraph = null;
+  const createDenseGraph = async () => {
+    if (denseGraph) return denseGraph;
+    const neighbours = [];
+    for (const [index, title] of ["顾澜与北闸长期维护协议", "程野的渡口巡查记录", "苏弦的仓库转运线索", "陆衍的夜间通行许可", "许灯的城门观察笔记", "沈砚的旧闸修复计划", "闻舟的应急封锁联络"].entries()) {
+      neighbours.push((await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title, mode: "freeform", subtype: "密度验收角色" })).data.object);
+      const candidate = relations.createRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId: `map-m2-dense-neighbour-${index}-${fixture.fixtureId}`, sourceObjectId: northGate.id, targetObjectId: neighbours[index].id, relationTypeId: relationType.type.relationTypeId, direction: index % 2 ? "forward" : "both", temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-02T23:59:59.999Z", confidence: "high", sourceAnchors: [closed.id] }, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }] });
+      relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: candidate.relation.relationId, expectedRelationRevision: candidate.relation.revision, operationId: `map-m2-dense-neighbour-confirm-${index}-${fixture.fixtureId}` });
+    }
+    const expandedLocation = extraLocations[0];
+    const expandedCandidate = relations.createRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId: `map-m2-dense-expanded-${fixture.fixtureId}`, sourceObjectId: neighbours[0].id, targetObjectId: expandedLocation.id, relationTypeId: keySupportType.type.relationTypeId, direction: "forward", temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-02T23:59:59.999Z", confidence: "high", sourceAnchors: [closed.id] }, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }] });
+    relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: expandedCandidate.relation.relationId, expectedRelationRevision: expandedCandidate.relation.revision, operationId: `map-m2-dense-expanded-confirm-${fixture.fixtureId}` });
+    denseGraph = { neighbours, expandedLocation };
+    return denseGraph;
+  };
+  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, createDenseGraph };
 }
 
 function createMapM2FixtureRoot() {
@@ -2156,7 +2171,18 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).waitFor();
   await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).click();
   await relationsWorkspace.getByLabel("所选关系详情").getByText("同一对象间的关系", { exact: true }).waitFor();
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('[data-testid="focused-relations-canvas"]')?.getBoundingClientRect();
+    const nodes = [...document.querySelectorAll('.focused-relations-node')].map((node) => node.getBoundingClientRect());
+    return Boolean(canvas && nodes.every((node) => node.left >= canvas.left && node.right <= canvas.right && node.top >= canvas.top && node.bottom <= canvas.bottom));
+  });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-selected-edge.png"), fullPage: false });
+  await relationCanvas.focus();
+  await relationCanvas.press("ArrowRight");
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.has("relationPanX"));
+  await relationCanvas.press("+");
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.has("relationZoom"));
+  const selectedTransform = await relationCanvas.locator(".focused-relations-canvas-world").evaluate((world) => (world instanceof HTMLElement ? world.style.transform : ""));
   const selectedRelationRoute = new URL(page.url());
   await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "依据", exact: true }).first().click();
   await page.getByTestId("event-line-workbench").waitFor();
@@ -2164,6 +2190,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
   await relationsWorkspace.getByLabel("所选关系详情").waitFor();
   assert.equal(new URL(page.url()).searchParams.get("relationSelection"), selectedRelationRoute.searchParams.get("relationSelection"), "Returning from selected relation evidence must recover the selected relation group.");
+  assert.equal(await relationCanvas.locator(".focused-relations-canvas-world").evaluate((world) => (world instanceof HTMLElement ? world.style.transform : "")), selectedTransform, "Returning from selected relation evidence must recover the actual manual canvas transform.");
   await page.setViewportSize({ width: 1152, height: 720 });
   await relationsWorkspace.getByLabel("所选关系详情").waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-detail-1152x720.png"), fullPage: false });
@@ -2248,6 +2275,30 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   if (mapM2EvidenceDirectory) {
     writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, focusedRelations: { centerObjectId: mapM2Fixture.northGate.id, relationId: mapM2Fixture.relationId, observation: "closed", view: "list", readOnly: true }, providerDispatches: 0 }, null, 2)}\n`, "utf8");
   }
+  const denseGraph = await mapM2Fixture.createDenseGraph();
+  await gotoProduct(page, `${baseUrl}/world?worldView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.northGate.id)}&mapObservedAt=2000-01-02T00%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(mapM2Fixture.closed.id)}&mapObservationLabel=${encodeURIComponent("北闸封闭")}`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await relationsWorkspace.waitFor();
+  await relationCanvas.waitFor();
+  assert.equal(await relationCanvas.locator(".focused-relations-node").count(), 9, "Dense relation fixture must begin with nine readable formal endpoints.");
+  assert.equal(await relationCanvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()).every((rect, index, all) => all.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top))), true, "Dense initial nodes must not overlap.");
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-dense-1440x900.png"), fullPage: false });
+  await relationCanvas.getByRole("button", { name: new RegExp(denseGraph.neighbours[0].title, "u") }).click();
+  await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "展开邻居", exact: true }).click();
+  await relationCanvas.getByRole("button", { name: new RegExp(`^${denseGraph.expandedLocation.title} 地点$`, "u") }).waitFor();
+  assert.equal(await relationCanvas.locator(".focused-relations-node").count(), 10, "Expanding one dense neighbour must add its formal second-degree endpoint.");
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-dense-expanded-1440x900.png"), fullPage: false });
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await relationsWorkspace.getByLabel("筛选关系类型").selectOption({ label: "通行协作" });
+  await relationCanvas.getByRole("button", { name: "通行协作", exact: true }).first().click();
+  const denseDetail = relationsWorkspace.getByLabel("所选关系详情");
+  await denseDetail.waitFor();
+  const denseDetailBox = await denseDetail.boundingBox();
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-dense-detail-1152x720.png"), fullPage: false });
+  assert.ok(denseDetailBox && denseDetailBox.y >= 0 && denseDetailBox.y + denseDetailBox.height <= 720, `Dense detail drawer must stay within the 1152px visible work area: ${JSON.stringify(denseDetailBox)}`);
+  await page.keyboard.press("Escape");
+  await denseDetail.waitFor({ state: "hidden" });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/event-line?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&eventId=${encodeURIComponent(mapM2Fixture.closed.id)}&eventRevision=missing-evidence-revision`);
   await page.getByTestId("event-line-workbench").waitFor();
   await page.getByRole("alert").getByText("关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。", { exact: true }).waitFor();
