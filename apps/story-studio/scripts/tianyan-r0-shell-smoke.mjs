@@ -2336,8 +2336,32 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
   await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
   const background = page.locator(".map-background-file-input");
-  await background.setInputFiles({ name: "mist-harbor-base.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlKfKIAAAAASUVORK5CYII=", "base64") });
+  // Draw a recognisable local map rather than a placeholder pixel: the file
+  // still enters through the normal author-facing file input and VisualAsset
+  // owner, but evidence can now prove scaling and marker placement.
+  const mapPng = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 960; canvas.height = 560;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable for the isolated map fixture.");
+    context.fillStyle = "#dce9e6"; context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#a7c8d2"; context.fillRect(0, 0, 350, canvas.height);
+    context.fillStyle = "#cdbb91"; context.fillRect(330, 0, 36, canvas.height);
+    context.strokeStyle = "#456b6c"; context.lineWidth = 8;
+    context.beginPath(); context.moveTo(370, 120); context.lineTo(810, 310); context.lineTo(875, 485); context.stroke();
+    context.fillStyle = "#325c64"; context.font = "600 42px sans-serif"; context.fillText("雾港", 92, 112);
+    context.fillStyle = "#7f523d"; context.fillRect(560, 226, 110, 70);
+    context.fillStyle = "#283f43"; context.font = "600 30px sans-serif"; context.fillText("北闸", 562, 215);
+    context.fillStyle = "#6f8f7d"; context.fillRect(725, 375, 130, 74);
+    context.fillStyle = "#283f43"; context.font = "24px sans-serif"; context.fillText("守卫营地", 725, 365);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await background.setInputFiles({ name: "mist-harbor-base.png", mimeType: "image/png", buffer: Buffer.from(mapPng, "base64") });
   await page.getByRole("status").getByText(/底图已保存/u).waitFor();
+  await page.waitForFunction(() => {
+    const image = document.querySelector(".map-workbench-background");
+    return image instanceof HTMLImageElement && image.complete && image.naturalWidth >= 900 && image.naturalHeight >= 500;
+  });
   const visual = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const map = visual.data.documents.find((document) => document.type === "map");
   assert.equal(map.content.backgrounds.length, 1, "Normal map upload persists one background in the existing VisualDocument owner.");
@@ -2378,6 +2402,9 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   assert.match(await materialPicker.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The Tianyi preview displays the selected material revision.");
   const resolved = await postFixture(`${base}/model-service/tianyi-object-context/resolve`, { projectId: fixtureProjectId, objectContextRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixtureProjectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] });
   assert.equal(resolved.data[0].state, "current", "The formal resolve endpoint accepts the exact selected material revision before any Provider request.");
+  await materialOption.scrollIntoViewIfNeeded();
+  const materialOptionBox = await materialOption.boundingBox();
+  assert.ok(materialOptionBox && materialOptionBox.y >= 0 && materialOptionBox.y + materialOptionBox.height <= 900, `The selected author material must be visible before the preview screenshot=${JSON.stringify(materialOptionBox)}`);
   await capture("03-tianyi-material-preview.png");
   const composer = page.locator(".tianyi-workspace-composer textarea");
   await composer.fill("雾港夜间宵禁会怎样影响北闸的通行安排？");
@@ -2386,12 +2413,37 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await receipt.waitFor();
   await receipt.getByRole("button", { name: rule.id, exact: true }).waitFor();
   assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision.");
+  await receipt.scrollIntoViewIfNeeded();
+  const receiptBox = await receipt.boundingBox();
+  assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The receipt must be visible in the captured author viewport=${JSON.stringify(receiptBox)}`);
   await capture("04-tianyi-material-receipt.png");
+  const changedRule = (await postFixture(`${base}/world-objects/update`, {
+    projectId: fixtureProjectId,
+    objectId: ruleDetail.data.id,
+    expectedHash: ruleDetail.data.revisionToken,
+    presentationExpectedHash: ruleDetail.data.card.revisionToken,
+    writeMarkdown: true,
+    writePresentation: false,
+    title: ruleDetail.data.title,
+    status: ruleDetail.data.status,
+    tags: ruleDetail.data.tags,
+    aliases: ruleDetail.data.aliases,
+    body: `${ruleDetail.data.body}\n\n这段是回答完成后的后续修订。`,
+    subtype: ruleDetail.data.subtype,
+    typedProperties: ruleDetail.data.typedProperties,
+    profile: ruleDetail.data.profile,
+    card: ruleDetail.data.card
+  })).data.object;
+  assert.notEqual(changedRule.revisionToken, rule.revisionToken, "The fixture changes the material only after the answer has frozen its source revision.");
   await receipt.getByRole("button", { name: rule.id, exact: true }).click();
+  await page.getByRole("alert").getByText(/历史正文未由现有 World Object Owner 保留/u).waitFor();
   await page.getByRole("button", { name: "返回来源", exact: true }).waitFor();
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   await receipt.waitFor();
   assert.equal(new URL(page.url()).pathname, "/tianyi", "Material source return must restore the saved Tianyi receipt route.");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await receipt.scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Materials and receipt layouts must not create page-level horizontal overflow at 1152px.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
   if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, mapId: map.id, mapHash: map.contentHash, material: { id: rule.id, revision: rule.revisionToken, type: rule.type }, providerDispatches: 1, note: "One local-fake grounded answer verifies the frozen source receipt and source-return flow; it is not a real Provider call." }, null, 2)}\n`, "utf8");
 }

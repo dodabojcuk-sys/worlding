@@ -159,7 +159,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   return <main className="shell-workspace map-workbench-shell" aria-label="地点地图">
     <section className="map-workbench" data-testid="map-m2-workspace">
       <header className="map-workbench-toolbar">
-        <div className="map-workbench-title"><MapPin aria-hidden="true" /><div><strong>地点地图</strong><span>{map?.content.markers.length ?? 0} 个已放置地点 · {props.runtime.workVersionLabel ?? "正在读取版本"}</span></div></div>
+        <div className="map-workbench-title"><MapPin aria-hidden="true" /><div><strong>地点地图</strong><span>{map?.content.markers.length ?? 0} 个已放置地点 · {props.runtime.workVersionLabel ?? (workVersionId ? "正在读取版本" : "尚未建立作品版本")}</span></div></div>
         <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={saveMapTitle} disabled={busy} /></label> : null}
         <div className="map-workbench-toolbar-actions">
@@ -226,7 +226,7 @@ function MapInspector(props: { selected: WorldObjectSummary | null; data: MapIns
   const openSource = (eventId: string, relationId?: string) => { const parameters = new URLSearchParams({ projectId: props.projectId, ...(props.workVersionId ? { workVersionId: props.workVersionId } : {}), mapReturn: `${window.location.pathname}${window.location.search}`, ...(relationId ? { eventTask: "relationship", relationId } : { directoryObject: eventId }) }); window.location.assign(`/event-line?${parameters.toString()}`); };
   const openRelations = () => { if (!props.selected) return; const parameters = new URLSearchParams({ worldView: "relations", relationCenter: props.selected.id, relationReturn: `${window.location.pathname}${window.location.search}`, ...(props.observation.kind === "event" ? { mapObservationEvent: props.observation.eventId, mapObservationRevision: props.observation.eventRevision, mapObservedAt: props.observation.observedAt, mapObservationLabel: eventLabel(props.data?.events ?? [], props.observation.eventId) } : {}) }); window.location.assign(`/world?${parameters.toString()}`); };
   if (!props.selected) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器"><h2>选择地点</h2><p>选择一个正式地点后查看此版本、此故事位置的已有资料。</p></aside>;
-  if (!props.versionReady) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在确定当前作品版本；不会以另一个版本的状态替代。</p></aside>;
+  if (!props.versionReady) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器"><h2>{props.selected.title}</h2><p>这个作品尚未建立可观察的作品版本。地点资料和布局仍可编辑；故事状态、正式关系与事件依据会在作者建立版本后显示，且不会借用其他版本。</p></aside>;
   if (props.error) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" role="alert"><h2>{props.selected.title}</h2><p>{props.error}</p></aside>;
   if (!props.data) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在读取同一版本、同一观察位置的状态、关系与来源……</p></aside>;
   const data = props.data;

@@ -55,9 +55,13 @@ test("Story Studio local transport enforces token root and product-safe response
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
+  const startupLog: string[] = [];
+  for (const stream of [server.stdout, server.stderr]) stream?.on("data", (chunk: Buffer | string) => {
+    if (startupLog.length < 40) startupLog.push(String(chunk).slice(0, 2_000));
+  });
 
   try {
-    await waitForServer(port);
+    await waitForServer(port, server, startupLog);
     const endpoint = `http://127.0.0.1:${port}/__local/story-studio/projects/create`;
 
     const missingToken = await fetch(endpoint, {
@@ -114,9 +118,13 @@ function walk(root: string): string[] {
   });
 }
 
-async function waitForServer(port: number): Promise<void> {
-  const deadline = Date.now() + 8_000;
+async function waitForServer(port: number, server: ReturnType<typeof spawn>, startupLog: string[]): Promise<void> {
+  // CI starts many independent server-backed tests at once. This is a startup
+  // allowance, not a product retry: exit and captured output fail immediately
+  // so an actual boot error is never hidden behind a generic timeout.
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
+    if (server.exitCode !== null) throw new Error(`Story Studio server exited before readiness (code ${server.exitCode}). ${startupLog.join("")}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/__local/story-studio/bootstrap`);
       if (response.ok) return;
@@ -125,7 +133,7 @@ async function waitForServer(port: number): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  throw new Error("Timed out waiting for Story Studio server.");
+  throw new Error(`Timed out waiting for Story Studio server. Captured startup output: ${startupLog.join("") || "(no stdout or stderr)"}`);
 }
 
 function escapeRegExp(value: string): string {
