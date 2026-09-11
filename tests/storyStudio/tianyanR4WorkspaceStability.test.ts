@@ -39,8 +39,8 @@ test("R4 review follow-up keeps directory ownership and async project fences in 
   assert.match(pending, /loadId !== reloadSequence\.current/u);
   assert.match(pending, /activeProjectId\.current !== projectId/u, "a previous project's inbox response cannot publish into the current project");
   assert.match(pending, /operationId: `nuwa-adoption:/u, "candidate adoption has a durable planning-event operation identity");
-  assert.match(tianyi, /workContextVisit/u);
-  assert.match(tianyi, /library\.project\.id !== projectId/u);
+  assert.match(tianyi, /getVerifiedCanonEventList\(projectId, runtime\.workVersionId\)/u);
+  assert.match(tianyi, /getVerifiedCanonEvent\(projectId, eventId, runtime\.workVersionId\)/u);
   assert.match(tianyi, /conversationProjectVisit/u);
   assert.match(tianyi, /sameConversationProjectVisit/u, "a delayed work-lane reply cannot clear or refresh the next project's composer");
   assert.match(tianyi, /const submitCreative = async \(\) => \{[\s\S]*?const visit = conversationProjectVisit\.current;[\s\S]*?ensureConversation\(visit\)/u, "Story Intake captures the initiating project generation before any asynchronous write");
@@ -138,7 +138,7 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(workspace, /data-global-work=\{lane === "work" && !activeIntakeCandidate/u);
   assert.match(workspace, /发送到当前工作/u);
   assert.match(workspace, /不会因没有候选而中断/u);
-  assert.match(workspace, /getWorldLibrary\(projectId\)/u, "全局 Work 必须读取既有正式 Event 投影，而不是凭空构造上下文");
+  assert.match(workspace, /getVerifiedCanonEventList\(projectId, runtime\.workVersionId\)/u, "全局 Work 必须读取既有正式 Canon Event 投影，而不是凭空构造上下文");
   assert.match(workspace, /createStoryStudioEventReference/u);
   assert.match(workspace, /globalWorkEventRefs/u);
   assert.match(workspace, /eventRefs: globalWorkEventRefs/u, "明确发送时必须把选择的版本化 Event 引用交给 grounded context");

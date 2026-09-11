@@ -3721,12 +3721,41 @@ async function assertCharacterObservationDragAndRecovery(page) {
 }
 
 async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
+  const workContextResponses = [];
+  const workContextFailures = [];
+  const observeWorkContextResponse = (response) => {
+    if (/\/__local\/story-studio\/(?:story-units|event-line\/(?:verified-events|event))/u.test(response.url())) workContextResponses.push({ url: response.url(), status: response.status() });
+  };
+  const observeWorkContextFailure = (request) => {
+    if (/\/__local\/story-studio\/(?:story-units|event-line\/(?:verified-events|event))/u.test(request.url())) workContextFailures.push({ url: request.url(), failure: request.failure()?.errorText ?? "unknown" });
+  };
+  page.on("response", observeWorkContextResponse);
+  page.on("requestfailed", observeWorkContextFailure);
   const capture = async (name) => {
     if (!r4R2EvidenceDirectory) return;
     mkdirSync(r4R2EvidenceDirectory, { recursive: true });
     await page.screenshot({ path: path.join(r4R2EvidenceDirectory, name), fullPage: false });
   };
   await postFixture(`${apiUrl}/__local/story-studio/projects/open`, { projectId: fixtureProjectId });
+  const formalBase = `${apiUrl}/__local/story-studio`;
+  const retrievalUnit = await postFixture(`${formalBase}/event-line/normal-creation/create-story-unit`, { projectId: fixtureProjectId, title: "MEM-A1a 检索隔离单元", summary: "只用于按问题检索的正式作者链验证。" });
+  const retrievalEvents = Array.from({ length: 12 }, (_, index) => index === 8
+    ? { title: "铜钥匙交接", body: "北闸关闭之前，阿芜将铜钥匙正式交给林昭，并留下交接依据。" }
+    : { title: `检索铺垫 ${index + 1}`, body: `这是第 ${index + 1} 条与铜钥匙无关的正式事件。` });
+  const confirmedRetrievalEventIds = [];
+  for (const event of retrievalEvents) {
+    const candidate = await postFixture(`${formalBase}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: retrievalUnit.data.result.id, title: event.title, body: event.body });
+    await postFixture(`${formalBase}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: retrievalUnit.data.result.id, planningEventId: candidate.data.result.planning.id });
+    const confirmation = await postFixture(`${formalBase}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: retrievalUnit.data.result.id, planningEventId: candidate.data.result.planning.id });
+    const confirmed = confirmation.data.result.state.confirmedEvents[0];
+    assert.ok(confirmed?.id, "Each normal author-confirmation must identify its actual formal Event.");
+    confirmedRetrievalEventIds.push(confirmed.id);
+  }
+  const formalEventIds = (await getFixture(`${formalBase}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.eventIds;
+  assert.ok(formalEventIds.length >= 12, "MEM-A1a needs at least twelve formal events to prove retrieval is not limited to the old first-six window.");
+  const formalEvents = await Promise.all(formalEventIds.map(async (eventId) => (await getFixture(`${formalBase}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)).data.event));
+  const keyTransfer = formalEvents.find((event) => event.id === confirmedRetrievalEventIds[8]);
+  assert.ok(keyTransfer && String(keyTransfer.title).startsWith(retrievalEvents[8].title), "The ninth newly created formal Event must remain available to the normal Work reader.");
   const assertVisibleComposer = async (width, height) => {
     await page.setViewportSize({ width, height });
     const geometry = await page.evaluate(() => {
@@ -3741,20 +3770,43 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
 
   await gotoProduct(page, `${baseUrl}/tianyi?locale=zh-CN&tianyiLane=work`);
   await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).waitFor();
-  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker summary")?.textContent?.includes("正在读取") !== true);
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker summary")?.textContent?.includes("正在读取") !== true).catch(async () => {
+    const state = await page.evaluate(({ responses, failures, browserConsoleProblems }) => ({
+      summary: document.querySelector(".tianyi-work-context-picker summary")?.textContent ?? null,
+      error: document.querySelector(".tianyi-workspace-error")?.textContent ?? null,
+      body: document.body.innerText.slice(0, 4_000),
+      responses,
+      failures,
+      browserConsoleProblems
+    }), { responses: workContextResponses, failures: workContextFailures, browserConsoleProblems: consoleProblems });
+    throw new Error(`MEM-A1a work-context load did not settle: ${JSON.stringify(state)}`);
+  });
   await assertVisibleComposer(1440, 900);
   await capture("r4-r2-1440-global-work-composer.png");
 
   const scope = page.locator(".tianyi-work-contract select");
-  await scope.selectOption("selected-events");
+  await scope.selectOption("current-story");
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("北闸关闭之前，铜钥匙交给了谁？");
   const context = page.locator(".tianyi-work-context-picker");
+  await page.waitForFunction((title) => [...document.querySelectorAll(".tianyi-work-context-events strong")].some((node) => node.textContent === title), keyTransfer.title).catch(async () => {
+    throw new Error(`The ninth formal Event was not automatically retrieved: ${JSON.stringify({ keyTransfer, context: await context.innerText() })}`);
+  });
+  assert.equal(await context.locator(".tianyi-work-context-events li").count() <= 6, true, "Automatic retrieval keeps the shared six-item request budget.");
+  assert.equal(await context.locator(".tianyi-work-context-events").getByText(keyTransfer.title, { exact: true }).count(), 1, "The ninth formal Event is automatically retrieved by relevance rather than lost behind the old first-six window.");
+  await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("完全无关的星际航线");
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-picker")?.textContent?.includes("范围内存在正式事件，但本问题没有匹配依据"));
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 0, "A non-empty scope with no matching terms must not silently fill the answer context with zero-score events.");
+  await scope.selectOption("selected-events");
   // The work-context picker is normally open.  Only toggle it when a layout
   // change or a prior interaction actually collapsed it; clicking an already
   // open <details> hides the same inputs this author flow must use.
   if ((await context.getAttribute("open")) === null) await context.locator("summary").click();
   const eventChecks = context.locator('input[type="checkbox"]');
   assert.ok(await eventChecks.count() >= 6, "R4 fixture must expose at least six formal Events for bounded context selection.");
-  for (let index = 0; index < 6; index += 1) await eventChecks.nth(index).check();
+  await eventChecks.nth(0).check();
+  await page.waitForFunction(() => document.querySelector(".tianyi-work-context-events")?.textContent?.includes("当前范围"));
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 1, "An explicitly selected zero-score Event remains visible with its explicit-scope reason.");
+  for (let index = 1; index < 6; index += 1) await eventChecks.nth(index).check();
   await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("围绕已选事件检查角色动机与因果，但不写入正式故事。");
   await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6).catch(async () => {
     const selected = await eventChecks.evaluateAll((checks) => checks.filter((check) => check.checked).map((check) => check.getAttribute("data-event-id")));
@@ -3781,20 +3833,48 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await receipt.scrollIntoViewIfNeeded();
   await capture("mem-a1a-1440-frozen-answer-receipt.png");
+  const conversationStorageKey = `tianyi-conversation:${fixtureProjectId}`;
+  assert.ok(await page.evaluate((key) => window.sessionStorage.getItem(key), conversationStorageKey), "A completed grounded answer must persist its session pointer before refresh.");
   await reloadProduct(page);
-  await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
+  await page.getByLabel("本问来源回执").waitFor({ timeout: 45_000 }).catch(async () => {
+    throw new Error(`Grounded receipt did not recover after refresh: ${JSON.stringify(await page.evaluate((key) => ({
+      storedSessionId: window.sessionStorage.getItem(key),
+      url: window.location.href,
+      body: document.body.innerText.slice(0, 3_000)
+    }), conversationStorageKey))}`);
+  });
   const sourceLink = page.getByLabel("本问来源回执").getByRole("button").first();
   const sourceEventId = (await sourceLink.textContent())?.trim();
   const requestedSource = groundedPayload.contextRequest.eventRefs.find((reference) => reference.eventId === sourceEventId);
   assert.ok(requestedSource, "Every source link in the frozen receipt must correspond to the actual fake-Provider request.");
+  const sourceBeforeChange = (await getFixture(`${apiUrl}/__local/story-studio/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(sourceEventId)}`)).data.event;
+  const changedSource = (await postFixture(`${apiUrl}/__local/story-studio/world-objects/update`, {
+    projectId: fixtureProjectId,
+    objectId: sourceBeforeChange.id,
+    expectedHash: sourceBeforeChange.revisionToken,
+    presentationExpectedHash: null,
+    writeMarkdown: true,
+    writePresentation: false,
+    title: sourceBeforeChange.title,
+    status: sourceBeforeChange.status,
+    tags: sourceBeforeChange.tags,
+    aliases: sourceBeforeChange.aliases,
+    body: `${sourceBeforeChange.body}\n\n此段是回答完成后的后续修订，不得替代冻结来源。`,
+    subtype: sourceBeforeChange.subtype,
+    typedProperties: sourceBeforeChange.typedProperties,
+    card: sourceBeforeChange.card,
+    profile: sourceBeforeChange.profile
+  })).data.object;
+  assert.notEqual(changedSource.revisionToken, requestedSource.revisionToken, "The fixture changes the current Event only after the answer has frozen its source revision.");
   await sourceLink.click();
   await page.waitForURL(/\/event-line\?/u);
   const sourceRoute = new URL(page.url());
   assert.equal(sourceRoute.searchParams.get("projectId"), fixtureProjectId, "A grounded source route must retain its project identity.");
   assert.equal(sourceRoute.searchParams.get("eventRevision"), requestedSource.revisionToken, "A grounded source route must retain the exact frozen Event revision.");
+  await page.getByRole("alert").getByText("本问来源的事件修订不匹配，未展示较新的事件内容。请返回天意问题核对来源。", { exact: true }).waitFor();
   await page.getByRole("button", { name: "返回天意问题", exact: true }).click();
   await page.waitForURL(/\/tianyi\?/u);
-  await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
+  await page.getByLabel("本问来源回执").waitFor({ timeout: 45_000 });
   await page.setViewportSize({ width: 1152, height: 720 });
   await page.getByLabel("本问来源回执").scrollIntoViewIfNeeded();
   await capture("mem-a1a-1152-source-return-recovery.png");

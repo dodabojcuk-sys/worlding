@@ -885,7 +885,7 @@ export function EventLineWorkbench(props: {
     {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
     {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
     {tianyiReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(tianyiReturn)}>返回天意问题</button> : null}
-    {selectedRevisionMismatch ? <p className="event-line-source-revision-error" role="alert">关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。</p> : null}
+    {selectedRevisionMismatch ? <p className="event-line-source-revision-error" role="alert">{tianyiReturn ? "本问来源的事件修订不匹配，未展示较新的事件内容。请返回天意问题核对来源。" : "关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。"}</p> : null}
     {!props.embedded ? <WorkspaceHeader
       projectTitle={props.projectTitle}
       sectionLabel="事件线"

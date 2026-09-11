@@ -11,11 +11,11 @@ import {
   getTianyiCreativeProjection,
   getLatestTianyiStoryIntakeRun,
   getTianyiSessionMetadata,
-  getWorldLibrary,
+  getVerifiedCanonEvent,
+  getVerifiedCanonEventList,
   handoffTianyiCreativeCandidate,
   listStoryUnits,
   openTianyiSession,
-  readWorldObject,
   readTianyiGroundedAnswer,
   recoverTianyiAgentRun,
   startTianyiAgentRun,
@@ -38,7 +38,7 @@ import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
 import { StoryIntakeWorkSurface } from "./StoryIntakeWorkSurface";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
-import { tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
 import {
   createActiveStoryIntakeCandidateRef,
   filterStoryIntakeSelection,
@@ -86,7 +86,6 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
-  const workContextVisit = useRef(0);
   const conversationProjectVisit = useRef({ projectId: project?.id ?? null, workVersionId, generation: 0 });
   if (conversationProjectVisit.current.projectId !== (project?.id ?? null) || conversationProjectVisit.current.workVersionId !== workVersionId) {
     conversationProjectVisit.current = { projectId: project?.id ?? null, workVersionId, generation: conversationProjectVisit.current.generation + 1 };
@@ -95,7 +94,6 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
 
   useEffect(() => {
-    workContextVisit.current += 1;
     intakeAbort.current?.abort();
     setProjection(null);
     setMetadata(null);
@@ -189,18 +187,33 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const refreshWorkContext = useCallback(async () => {
     if (!project) return;
     const projectId = project.id;
-    const visit = ++workContextVisit.current;
+    // A context read is stale only after its project or work-version identity
+    // changes.  Do not invalidate it merely because another render refreshes
+    // local work controls: that used to discard completed Event reads and
+    // leave the author-facing workspace permanently in "loading".
+    const visit = { ...conversationProjectVisit.current };
     setWorkContextState("loading");
     try {
-      const [library, units] = await Promise.all([getWorldLibrary(projectId), listStoryUnits(projectId)]);
-      if (visit !== workContextVisit.current || library.project.id !== projectId) return;
-      // The library is deliberately a summary projection: it has no body to
-      // rank and must never be cast as a full Event.  Read each eligible Event
-      // through the established detail owner before offering a question-based
-      // preview; the Gate repeats the identity/revision checks at send time.
-      const eventSummaries = library.objects.filter((item) => item.type === "event" && (item.status === "draft" || item.status === "planned" || item.status === "committed"));
-      const events = await Promise.all(eventSummaries.map((event) => readWorldObject(projectId, event.id)));
-      if (visit !== workContextVisit.current) return;
+      // The directory is intentionally only a summary projection, while this
+      // work mode needs authoritative Event prose.  Start from Canon's
+      // verified Event list, then use that same owner for each detail read.
+      // This excludes planning drafts and keeps IF/mainline scope at the
+      // existing Canon boundary instead of recreating a second event store.
+      const [list, units] = await Promise.all([
+        getVerifiedCanonEventList(projectId, runtime.workVersionId),
+        listStoryUnits(projectId)
+      ]);
+      if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+      if (list.status !== "ready") throw new Error(list.error.message);
+      const events: WorldObject[] = [];
+      for (let offset = 0; offset < list.eventIds.length; offset += 4) {
+        const reads = await Promise.all(list.eventIds.slice(offset, offset + 4).map((eventId) => getVerifiedCanonEvent(projectId, eventId, runtime.workVersionId)));
+        for (const read of reads) {
+          if (read.status !== "ready") throw new Error(read.error.message);
+          events.push(read.event);
+        }
+      }
+      if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       setWorkContextEvents(events);
       setWorkContextUnits(units);
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
@@ -209,14 +222,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setRemovedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setWorkContextState("ready");
     } catch {
-      if (visit === workContextVisit.current) setWorkContextState("failed");
+      if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setWorkContextState("failed");
     }
-  }, [project?.id]);
+  }, [project?.id, workVersionId]);
 
   useEffect(() => {
     if (!project) return;
     void refreshWorkContext();
-  }, [project?.id, refreshWorkContext, workVersionId]);
+  }, [project?.id, refreshWorkContext]);
 
   // An exclusion is an instruction for this question and scope only; carrying
   // it into the next question would silently change a new author request.
@@ -282,6 +295,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (ref) window.sessionStorage.setItem(key, serializeActiveStoryIntakeCandidateRef(ref));
     else window.sessionStorage.removeItem(key);
   }, [project, runtime.tianyiConversationId]);
+  // Runtime bootstrap normally restores this pointer.  Keep the Work surface
+  // independently resilient to its asynchronous project bootstrap so a
+  // completed grounded-answer receipt remains recoverable after refresh.
+  useEffect(() => {
+    if (!project || runtime.tianyiConversationId) return;
+    const savedSessionId = window.sessionStorage.getItem(tianyiConversationStorageKey(project.id));
+    if (savedSessionId) runtime.setTianyiConversationId(savedSessionId);
+  }, [project?.id, runtime, runtime.tianyiConversationId]);
   const ensureConversation = useCallback(async (visit = conversationProjectVisit.current): Promise<string | null> => {
     if (!project) throw new Error(t("tianyi.workspace.noProject"));
     if (visit.projectId !== project.id || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
@@ -302,13 +323,22 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (!project) return;
     const projectId = project.id;
     if (visit.projectId !== projectId || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
-    const [nextProjection, nextMetadata] = await runtime.withConnection((token) => Promise.all([
-      getTianyiCreativeProjection(projectId, sessionId, token),
-      getTianyiSessionMetadata(projectId, sessionId, token)
-    ]));
+    // A Work-only conversation has no obligation to have a Creative
+    // projection.  Its durable metadata (and therefore its frozen grounded
+    // receipt) must still recover after refresh when that optional projection
+    // is unavailable.
+    const nextMetadata = await runtime.withConnection((token) => getTianyiSessionMetadata(projectId, sessionId, token));
+    if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+    setMetadata(Array.isArray(nextMetadata) ? nextMetadata.find((item) => item.id === sessionId) ?? null : nextMetadata);
+    let nextProjection: TianyiCreativeProjection | null = null;
+    try {
+      nextProjection = await runtime.withConnection((token) => getTianyiCreativeProjection(projectId, sessionId, token));
+    } catch {
+      // Creative lanes can remain unavailable without hiding a saved Work
+      // receipt; opening a Creative action will surface its own error.
+    }
     if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
     setProjection(nextProjection);
-    setMetadata(Array.isArray(nextMetadata) ? nextMetadata.find((item) => item.id === sessionId) ?? null : nextMetadata);
     const activeCandidate = candidateId ?? nextProjection?.candidates.find((item) => item.state === "handed-off")?.candidateId ?? null;
     if (activeCandidate) runtime.setActiveTianyiCandidateId(activeCandidate);
   }, [project, runtime]);
