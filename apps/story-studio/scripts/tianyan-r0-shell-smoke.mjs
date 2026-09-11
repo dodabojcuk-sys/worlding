@@ -4593,14 +4593,19 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
     const request = response.request();
     return request.method() === "GET" && new URL(response.url()).pathname.endsWith("/relations") && response.status() === 200;
   });
-  await page.route("**/__local/story-studio/relations?*", async (route) => {
+  const relationRefreshRoute = async (route) => {
     if (route.request().method() !== "GET") { await route.continue(); return; }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ error: "fixture relation projection refresh unavailable" }) });
-  }, { times: 1 });
-  await unresolvedInspector.getByRole("button", { name: "选择类型后通过", exact: true }).click();
+  };
   try {
+    await page.route("**/__local/story-studio/relations?*", relationRefreshRoute, { times: 1 });
+    // Start both waits inside this managed scope.  Waiting for the visible
+    // receipt first used to leave a rejected response Promise unobserved.
+    await Promise.all([
+      refreshFailureObserved,
+      unresolvedInspector.getByRole("button", { name: "选择类型后通过", exact: true }).click()
+    ]);
     await page.getByText("作者确认后，关系已保存。", { exact: true }).waitFor();
-    await refreshFailureObserved;
     await page.waitForTimeout(0);
     if (output) {
       const owner = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(unresolvedPredictionRelationId)}`);
@@ -4611,8 +4616,11 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
       getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(unresolvedPredictionRelationId)}`).catch((error) => ({ error: error instanceof Error ? error.message : String(error) })),
       unresolvedInspector.evaluate((element) => ({ text: element.innerText, busy: element.querySelector("button[disabled]")?.textContent?.trim() ?? null })).catch(() => null)
     ]);
-    throw new Error(`Author confirmation did not reach its visible receipt: ${JSON.stringify({ relationId: unresolvedPredictionRelationId, trace: relationActionTrace, owner, inspector })}`, { cause });
+    const diagnostic = { relationId: unresolvedPredictionRelationId, trace: relationActionTrace, owner, inspector };
+    console.error(`multi-node relation confirmation diagnostic: ${JSON.stringify(diagnostic)}`);
+    throw new Error(`Author confirmation did not reach its visible receipt: ${JSON.stringify(diagnostic)}`, { cause });
   } finally {
+    await page.unroute("**/__local/story-studio/relations?*", relationRefreshRoute);
     page.off("request", onRelationRequest);
     page.off("response", onRelationResponse);
   }
