@@ -34,6 +34,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [editingLayout, setEditingLayout] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [message, setMessage] = useState("");
+  const [mapTitle, setMapTitle] = useState("");
   const drag = useRef<{ pointerId: number; x: number; y: number; viewport: MapViewport; moved: boolean } | null>(null);
   const map = maps.find((item) => item.id === mapId) ?? null;
 
@@ -80,6 +81,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
   };
   const selectMap = (id: string) => { setMapId(id || null); saveRoute({ mapId: id || null }); };
+  useEffect(() => { setMapTitle(map?.title ?? ""); }, [map?.id, map?.title]);
   const selectPlace = (id: string) => { setSelectedId(id); saveRoute({ placeId: id }); };
   const selectObservation = (next: Observation) => { setObservation(next); saveRoute({ observation: next }); };
   const moveViewport = (next: MapViewport) => { const normalized = normalizeViewport(next); setViewport(normalized); saveRoute({ viewport: normalized }); };
@@ -90,6 +92,16 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const x = Math.round((((event.clientX - box.left - viewport.x) / viewport.zoom) / box.width) * 1000) / 10; const y = Math.round((((event.clientY - box.top - viewport.y) / viewport.zoom) / box.height) * 1000) / 10;
     const document: MapDocument = { ...map, content: { ...map.content, markers: marker ? map.content.markers.map((item) => item.id === marker.id ? { ...item, x, y } : item) : [...map.content.markers, { id: `marker.${location.id}`, objectId: location.id, layerId: "layer.main", x, y, color: "#147d78", labelMode: "always" }] } };
     setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId: projectId!, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("布局已保存；地点事实、关系与角色记忆未被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。")).finally(() => setBusy(false));
+  };
+  const saveMapTitle = () => {
+    if (!map || !projectId || !mapTitle.trim() || mapTitle.trim() === map.title) return;
+    const document: MapDocument = { ...map, title: mapTitle.trim() };
+    setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("地图名称已保存；地点事实未被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "地图名称保存冲突，请刷新后重试。" )).finally(() => setBusy(false));
+  };
+  const removeMarker = (locationId: string) => {
+    if (!map || !projectId) return;
+    const document: MapDocument = { ...map, content: { ...map.content, markers: map.content.markers.filter((item) => item.objectId !== locationId) } };
+    setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("地点标记已移除；地点资料仍保留。" ); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "移除标记失败，请刷新后重试。" )).finally(() => setBusy(false));
   };
   const startPan = (event: PointerEvent<HTMLElement>) => {
     if (editingLayout || event.button !== 0) return;
@@ -124,6 +136,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       <header className="map-workbench-toolbar">
         <div className="map-workbench-title"><MapPin aria-hidden="true" /><div><strong>地点地图</strong><span>{map?.content.markers.length ?? 0} 个已放置地点 · {props.runtime.workVersionLabel ?? "正在读取版本"}</span></div></div>
         <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+        {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={saveMapTitle} disabled={busy} /></label> : null}
         <div className="map-workbench-toolbar-actions">
           <button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)}>{editingLayout ? <><Eye aria-hidden="true" />浏览地图</> : <><PencilRuler aria-hidden="true" />编辑布局</>}</button>
           <button type="button" aria-expanded={inspectorOpen} aria-controls="map-m2-inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" />{inspectorOpen ? "收起检查器" : "打开检查器"}</button>
@@ -161,7 +174,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           </div>
           <label className="map-workbench-more-nodes">更多节点<select aria-label="选择故事观察位置" value={observationKey(observation)} onChange={(event) => { const next = event.target.value === "current" ? { kind: "current" } as Observation : nodes.find((item) => observationKey(item) === event.target.value); if (next) selectObservation(next); }}><option value="current">当前状态</option>{nodes.map((node) => <option key={observationKey(node)} value={observationKey(node)}>{eventLabel(inspector?.events ?? [], node.eventId)}之后</option>)}</select></label>
         </footer>
-        <section className="map-workbench-places" aria-label="地点"><span>地点</span>{locations.map((location) => <button key={location.id} type="button" aria-pressed={location.id === selectedId} onClick={() => { selectPlace(location.id); setInspectorOpen(true); }}>{location.title}{map.content.markers.some((marker) => marker.objectId === location.id) ? "" : " · 未放置"}</button>)}</section>
+        <section className="map-workbench-places" aria-label="地点"><span>地点</span>{locations.map((location) => <span key={location.id}><button type="button" aria-pressed={location.id === selectedId} onClick={() => { selectPlace(location.id); setInspectorOpen(true); }}>{location.title}{map.content.markers.some((marker) => marker.objectId === location.id) ? "" : " · 未放置"}</button>{editingLayout && map.content.markers.some((marker) => marker.objectId === location.id) ? <button type="button" onClick={() => removeMarker(location.id)}>移除标记</button> : null}</span>)}</section>
         <details className="map-workbench-help"><summary>地图阅读与编辑说明</summary><p>观察位置只读取当前作品版本的既有事实；浏览、平移和缩放不会写入世界。只有“编辑布局”会保存地点在这张示意图中的位置。</p></details>
       </>}
     </section>
