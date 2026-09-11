@@ -423,6 +423,60 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
     return finalizeStagedResult(projectContext, archived, stagedResult, compiled.manifest, profile, operationId);
   }
 
+  /**
+   * Reads one completed answer from the existing Session/Receipt owners. This
+   * is deliberately read-only: refresh must never replay a Provider request
+   * or substitute current Event text for the frozen source manifest.
+   */
+  async function readTianyiGroundedAnswer(input: {
+    projectId: string;
+    sessionId: string;
+    questionAttemptKey: string;
+  }): Promise<TianyiGroundedAnswerOperation | null> {
+    const projectContext = context(input.projectId);
+    const sessionId = machineId(input.sessionId, "Session identifier");
+    const questionAttemptKey = machineId(input.questionAttemptKey, "Question attempt identifier");
+    const session = await readSession(projectContext, sessionId);
+    if (!session) return null;
+    const archived = findArchivedQuestion(session.value, questionAttemptKey);
+    if (!archived || archived.contextRequest.projectId !== input.projectId || archived.contextRequest.sessionId !== sessionId) return null;
+    const receipt = await readReceipt(projectContext, archived.receiptId);
+    if (!receipt || receipt.value.version !== CONTEXT_RECEIPT_V5_VERSION) return null;
+    const manifest = receipt.value.sourceManifest;
+    if (
+      manifest.request.projectId !== input.projectId
+      || manifest.digest !== archived.manifestDigest
+      || receipt.value.questionAttempt.questionAttemptKey !== questionAttemptKey
+      || receipt.value.questionAttempt.responseMessageId !== archived.responseMessageId
+    ) {
+      throw new TianyiGroundedRecoveryError("ATTEMPT_CONFLICT", "Saved grounded answer receipt does not match its archived question.");
+    }
+    const response = session.value.find((event) => event.eventId === archived.responseMessageId && event.type === "tianyi-response");
+    const staged = uniqueResultStaged(session.value, archived);
+    if (!response || !staged) return null;
+    assertValidStagedResult(staged, manifest);
+    const parsed = parseGroundedResponse(response.content);
+    const visibleResult = {
+      answer: parsed.answer,
+      usage: parsed.usage,
+      providerDispatchCount: parsed.providerDispatchCount
+    };
+    if (
+      response.sessionId !== sessionId
+      || response.receiptId !== archived.receiptId
+      || response.operationId !== archived.initialOperationId
+      || parsed.questionAttemptKey !== questionAttemptKey
+      || parsed.manifestDigest !== manifest.digest
+      || parsed.visibleResponse !== parsed.answer.summary
+      || parsed.resultDigest !== stagedResultDigest(visibleResult)
+      || staged.resultDigest !== stagedResultDigest(staged)
+      || stableJson(visibleResult) !== stableJson(stagedResultPayload(staged))
+    ) {
+      throw new TianyiGroundedRecoveryError("ATTEMPT_CONFLICT", "Saved grounded answer result does not match its frozen receipt.");
+    }
+    return { ...asResult(archived, { ...staged, state: "COMPLETED" }, manifest, response.eventId, true), alreadyCompleted: true };
+  }
+
   async function claimProviderDispatch(
     projectContext: ContinuityContext,
     archived: ArchivedQuestion,
@@ -636,7 +690,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
     return { rootPath: dependencies.rootPath, agentId: dependencies.agentId, scope: "project", projectId };
   }
 
-  return { runTianyiGroundedAnswer };
+  return { runTianyiGroundedAnswer, readTianyiGroundedAnswer };
 }
 
 function buildGroundedMessages(question: string, compiled: TianyiCompiledGroundedContext) {

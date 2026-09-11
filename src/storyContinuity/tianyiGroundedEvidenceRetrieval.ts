@@ -6,7 +6,8 @@
  * the Grounded Context Gate, which re-reads every source before any bytes can
  * reach a model.
  */
-export const TIANYI_GROUNDED_EVIDENCE_LIMIT = 12;
+/** Keep automatic selection inside the same request contract as explicit refs. */
+export const TIANYI_GROUNDED_EVIDENCE_LIMIT = 6;
 
 export type TianyiGroundedEvidenceScope = "current-story" | "current-unit" | "selected-events";
 
@@ -32,6 +33,7 @@ export type TianyiGroundedEvidenceSelection = {
   selected: TianyiGroundedEvidenceItem[];
   omittedCount: number;
   availableCount: number;
+  automaticMatchCount: number;
 };
 
 /**
@@ -65,17 +67,20 @@ export function selectTianyiGroundedEvidence(input: {
       return left.event.id.localeCompare(right.event.id, "zh-CN");
     });
 
-  const explicitItems = candidates.filter((item) => explicit.has(item.event.id));
-  const rankedItems = candidates.filter((item) => !explicit.has(item.event.id));
-  // An explicit author choice is a boundary, not a relevance hint: retain it
-  // even when it exceeds the normal automatic selection cap.
-  const selected = [...explicitItems, ...rankedItems.slice(0, Math.max(0, limit - explicitItems.length))];
+  const forced = candidates.filter((item) => explicit.has(item.event.id) || pinned.has(item.event.id));
+  const rankedMatches = candidates.filter((item) => !explicit.has(item.event.id) && !pinned.has(item.event.id) && item.score > 0);
+  // Explicit selection and pinning are author boundaries. The caller must keep
+  // them within the shared request contract; unrelated automatic events never
+  // fill a result merely because the current scope is non-empty.
+  if (forced.length > limit) throw new Error("Tianyi grounded explicit evidence exceeds the request limit.");
+  const selected = [...forced, ...rankedMatches].slice(0, limit);
   return {
     scope: input.scope,
     question,
     selected,
     omittedCount: Math.max(0, candidates.length - selected.length),
-    availableCount: candidates.length
+    availableCount: candidates.length,
+    automaticMatchCount: rankedMatches.length
   };
 }
 

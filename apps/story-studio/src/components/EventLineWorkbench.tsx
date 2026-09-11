@@ -879,10 +879,12 @@ export function EventLineWorkbench(props: {
   ];
   const mapReturn = mapReturnTarget(window.location.search);
   const relationReturn = relationReturnTarget(window.location.search);
+  const tianyiReturn = tianyiReturnTarget(window.location.search);
 
   return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer={advancedView ? projectionMode : eventTask === "time" ? "TemporalCanvas" : eventTask === "audit" ? "EvidenceAuditMatrix" : "EventGraphCanvas"} data-projection-mode={projectionMode} data-knowledge-projection-state={knowledgeProjectionState}>
     {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
     {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
+    {tianyiReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(tianyiReturn)}>返回天意问题</button> : null}
     {selectedRevisionMismatch ? <p className="event-line-source-revision-error" role="alert">关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。</p> : null}
     {!props.embedded ? <WorkspaceHeader
       projectTitle={props.projectTitle}
@@ -957,6 +959,11 @@ function mapReturnTarget(search: string): string | null {
 function relationReturnTarget(search: string): string | null {
   const value = new URLSearchParams(search).get("relationReturn");
   return value && value.startsWith("/world?worldView=relations") && !value.includes("//") ? value : null;
+}
+
+function tianyiReturnTarget(search: string): string | null {
+  const value = new URLSearchParams(search).get("tianyiReturn");
+  return value && value.startsWith("/tianyi?") && !value.includes("//") ? value : null;
 }
 
 function eventRevisionFromRoute(): string | null {

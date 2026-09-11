@@ -13,7 +13,8 @@ import {
 export const TIANYI_GROUNDED_CONTEXT_REQUEST_VERSION = "story-tianyi-grounded-context-request/v1" as const;
 export const TIANYI_GROUNDED_SOURCE_MANIFEST_VERSION = "story-tianyi-grounded-source-manifest/v1" as const;
 export const TIANYI_GROUNDED_CONTEXT_HARD_BUDGET = 56_000;
-export const TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT = 24;
+/** Shared request budget for automatic, pinned, and explicit Event evidence. */
+export const TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT = 6;
 
 export type TianyiGroundedAccessMode = "author" | "character";
 export type TianyiGroundedTaskKind = "grounded-answer";
@@ -459,7 +460,7 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 }
 
 function normalizeEventReferences(value: unknown): StoryStudioEventReference[] {
-  if (!Array.isArray(value) || value.length > 6) throw new Error("Tianyi grounded explicit event references are invalid.");
+  if (!Array.isArray(value) || value.length > TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT) throw new Error("Tianyi grounded explicit event references are invalid.");
   const unique = new Map<string, StoryStudioEventReference>();
   for (const item of value) {
     const reference = normalizeStoryStudioEventReference(item);

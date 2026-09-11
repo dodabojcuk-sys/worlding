@@ -4437,6 +4437,7 @@ async function handleTianyiRequest(request, response, url) {
     "stopping-point/decide": [["projectId", "sessionId", "candidateId", "operationId", "decision", "contextRequest"], () => tianyi.decideTianyiStoppingPointCandidate(body)],
     "session/finalize-close": [["projectId", "sessionId", "operationId"], () => tianyi.finalizeTianyiSessionClose(body)],
     "session/metadata": [["projectId", "sessionId"], () => tianyi.readTianyiSessionMetadata(body)],
+    "grounded-answer/read": [["projectId", "sessionId", "questionAttemptKey"], () => tianyi.readTianyiGroundedAnswer(body)],
     "session/events": [["projectId", "sessionId", "startSequence", "limit"], () => tianyi.readTianyiSessionEvents(body)],
     "session/retain-temporary": [["projectId", "sessionId", "eventIds", "operationId"], () => tianyi.retainTemporarySessionMessages(body)],
     "session/rollover": [["projectId", "sessionId", "operationId"], () => tianyi.rolloverTianyiSession(body)],

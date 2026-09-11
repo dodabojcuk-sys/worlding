@@ -3748,14 +3748,20 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   const scope = page.locator(".tianyi-work-contract select");
   await scope.selectOption("selected-events");
   const context = page.locator(".tianyi-work-context-picker");
-  await context.locator("summary").click();
+  // The work-context picker is normally open.  Only toggle it when a layout
+  // change or a prior interaction actually collapsed it; clicking an already
+  // open <details> hides the same inputs this author flow must use.
+  if ((await context.getAttribute("open")) === null) await context.locator("summary").click();
   const eventChecks = context.locator('input[type="checkbox"]');
   assert.ok(await eventChecks.count() >= 6, "R4 fixture must expose at least six formal Events for bounded context selection.");
   for (let index = 0; index < 6; index += 1) await eventChecks.nth(index).check();
-  await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6);
-  assert.match(await context.innerText(), /已附加 6\/6 项/u, "Selecting six Events must expose the exact attached evidence count.");
-  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 6, "The displayed evidence list must match the six attached Event references.");
   await page.getByRole("textbox", { name: "工作模式草稿", exact: true }).fill("围绕已选事件检查角色动机与因果，但不写入正式故事。");
+  await page.waitForFunction(() => document.querySelectorAll(".tianyi-work-context-events li").length === 6).catch(async () => {
+    const selected = await eventChecks.evaluateAll((checks) => checks.filter((check) => check.checked).map((check) => check.getAttribute("data-event-id")));
+    throw new Error(`Selected-event evidence did not render: ${JSON.stringify({ url: page.url(), body: (await page.locator("body").innerText()).slice(0, 3000), selected, consoleProblems })}`);
+  });
+  assert.match(await context.innerText(), /已明确指定 6\/6 项/u, "Selecting six Events must expose the exact shared request budget.");
+  assert.equal(await context.locator(".tianyi-work-context-events li").count(), 6, "The displayed evidence list must match the six attached Event references.");
   await assertVisibleComposer(1195, 900);
   await capture("r4-r2-1195-six-event-work-context.png");
   await assertVisibleComposer(1024, 768);
@@ -3767,8 +3773,29 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   const selectedEventIds = await eventChecks.evaluateAll((checks) => checks.slice(0, 6).map((check) => check.getAttribute("data-event-id")));
   assert.equal(groundedPayload.profileId, "local-fake-grounded-answer", "The local fixture must exercise grounded transport without selecting a paid Provider.");
   assert.equal(groundedPayload.contextRequest.eventRefs?.length, 6, "The grounded request must preserve the author's six explicit Event references.");
-  assert.deepEqual(groundedPayload.contextRequest.eventRefs.map((reference) => reference.eventId), selectedEventIds, "The fake grounded request must contain exactly the six selected Event identities.");
+  assert.deepEqual(groundedPayload.contextRequest.eventRefs.map((reference) => reference.eventId).sort(), [...selectedEventIds].sort(), "The fake grounded request must contain exactly the six selected Event identities.");
   await page.waitForFunction(() => !(document.querySelector('textarea[aria-label="工作模式草稿"]') instanceof HTMLTextAreaElement) || document.querySelector('textarea[aria-label="工作模式草稿"]').value === "", undefined, { timeout: 15_000 });
+  const receipt = page.getByLabel("本问来源回执");
+  await receipt.waitFor({ timeout: 15_000 });
+  assert.equal(await receipt.getByRole("button").count(), 6, "The frozen receipt must expose the six actual Event sources, not a fresh preview.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await capture("mem-a1a-1440-frozen-answer-receipt.png");
+  await reloadProduct(page);
+  await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
+  const sourceLink = page.getByLabel("本问来源回执").getByRole("button").first();
+  const sourceEventId = (await sourceLink.textContent())?.trim();
+  const requestedSource = groundedPayload.contextRequest.eventRefs.find((reference) => reference.eventId === sourceEventId);
+  assert.ok(requestedSource, "Every source link in the frozen receipt must correspond to the actual fake-Provider request.");
+  await sourceLink.click();
+  await page.waitForURL(/\/event-line\?/u);
+  const sourceRoute = new URL(page.url());
+  assert.equal(sourceRoute.searchParams.get("projectId"), fixtureProjectId, "A grounded source route must retain its project identity.");
+  assert.equal(sourceRoute.searchParams.get("eventRevision"), requestedSource.revisionToken, "A grounded source route must retain the exact frozen Event revision.");
+  await page.getByRole("button", { name: "返回天意问题", exact: true }).click();
+  await page.waitForURL(/\/tianyi\?/u);
+  await page.getByLabel("本问来源回执").waitFor({ timeout: 15_000 });
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await capture("mem-a1a-1152-source-return-recovery.png");
   assert.equal(await page.getByRole("button", { name: "附件", exact: true }).count(), 0, "R4-R2 must not create fake attachment references.");
   assert.equal(await page.getByRole("button", { name: "来源", exact: true }).count(), 0, "R4-R2 must not create fake source references.");
   assert.deepEqual(consoleProblems, [], "R4 global Work layout interactions must not add browser errors.");

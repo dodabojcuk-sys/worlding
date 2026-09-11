@@ -429,6 +429,7 @@ export type TianyiGroundedSourceManifest = {
     subjectRef: string | null;
     sceneRef: string | null;
     explicitRefs: string[];
+    eventRefs?: string[];
   };
   hardBudget: number;
   included: TianyiGroundedSourceManifestEntry[];
@@ -1554,6 +1555,17 @@ export async function streamTianyiGroundedAnswer(input: {
     reader.releaseLock();
   }
   throw new LocalTransportError("天意真实回答流提前结束。", 502);
+}
+
+/** Read a durable answer/receipt without starting or replaying a model request. */
+export async function readTianyiGroundedAnswer(input: {
+  projectId: string;
+  sessionId: string;
+  questionAttemptKey: string;
+  token: string;
+}): Promise<TianyiGroundedAnswerResult | null> {
+  const { token, ...body } = input;
+  return tianyiRequest("grounded-answer/read", token, body);
 }
 
 

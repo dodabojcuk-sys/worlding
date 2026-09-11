@@ -50,3 +50,31 @@ test("changing the question changes deterministic evidence selection without ret
   assert.equal(transfer.selected[0]?.event.id, "event.key-transfer");
   assert.equal(gate.selected[0]?.event.id, "event.north-gate");
 });
+
+test("automatic retrieval does not fill a non-empty scope with zero-score events", () => {
+  const result = selectTianyiGroundedEvidence({
+    scope: "current-story",
+    question: "完全无关的星际航线",
+    events
+  });
+  assert.equal(result.availableCount, events.length);
+  assert.equal(result.automaticMatchCount, 0);
+  assert.deepEqual(result.selected, []);
+});
+
+test("explicit zero-score evidence remains available within the shared request limit", () => {
+  const result = selectTianyiGroundedEvidence({
+    scope: "selected-events",
+    question: "完全无关的星际航线",
+    events,
+    explicitEventIds: ["event.01"]
+  });
+  assert.equal(result.selected[0]?.event.id, "event.01");
+  assert.match(result.selected[0]?.reason ?? "", /当前范围/u);
+  assert.throws(() => selectTianyiGroundedEvidence({
+    scope: "selected-events",
+    question: "无关",
+    events,
+    explicitEventIds: events.slice(0, 7).map((event) => event.id)
+  }), /exceeds the request limit/u);
+});

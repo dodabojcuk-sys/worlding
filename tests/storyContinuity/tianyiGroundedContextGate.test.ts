@@ -71,6 +71,14 @@ test("grounded event sources require stable event references and bind them into 
     ...request,
     eventRefs: [{ ...eventReference, title: "不能作为身份" }]
   }), /fields are invalid/u);
+  assert.doesNotThrow(() => normalizeTianyiGroundedContextRequest({
+    ...request,
+    eventRefs: Array.from({ length: 6 }, (_, index) => ({ ...eventReference, eventId: `event.limit-${index}`, revisionToken: sha256(`event.limit-${index}`) }))
+  }));
+  assert.throws(() => normalizeTianyiGroundedContextRequest({
+    ...request,
+    eventRefs: Array.from({ length: 7 }, (_, index) => ({ ...eventReference, eventId: `event.limit-${index}`, revisionToken: sha256(`event.limit-${index}`) }))
+  }), /explicit event references are invalid/u);
 });
 
 test("one deterministic manifest covers included, excluded, budget-omitted and conflicting sources", () => {

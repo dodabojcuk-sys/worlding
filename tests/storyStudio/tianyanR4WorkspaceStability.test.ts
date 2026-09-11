@@ -158,7 +158,7 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
 test("R4-R2 reserves a visible global Work composer and reports question-selected formal evidence honestly", () => {
   const workspace = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
   const styles = source("apps/story-studio/src/styles/tianyi-workspace.css");
-  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 24/u);
+  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 6/u, "Work UI must expose the same six-item cap enforced by the Grounded Context Gate.");
   assert.match(workspace, /workContextState/u);
   assert.match(workspace, /tianyi-global-work-scroll/u);
   assert.match(workspace, /tianyi-work-context-events/u);

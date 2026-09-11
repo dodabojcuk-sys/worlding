@@ -205,6 +205,13 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
     assert.equal(staleResult.includedSources.length, 0);
     assert.equal(staleResult.excludedSources[0]?.reasonCode, "STALE_REFERENCE");
     assert.equal(fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: updated.id }).revisionToken, changedHash, "Tianyi must not write the owner while resolving stale evidence");
+    const restored = await tianyi.readTianyiGroundedAnswer!({
+      projectId: fixture.projectId,
+      sessionId: opened.sessionId,
+      questionAttemptKey: result.questionAttemptKey
+    });
+    assert.equal(restored?.answer?.summary, result.answer?.summary, "recovery reads the archived answer rather than current source prose");
+    assert.equal(restored?.includedSources[0]?.contentHash, beforeHash, "recovery retains the original frozen Event revision");
     const afterFiles = await listFiles(fixture.rootPath);
     assert.equal(afterFiles.filter((file) => file.includes("/memory/")).length, beforeFiles.filter((file) => file.includes("/memory/")).length);
   } finally {
