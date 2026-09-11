@@ -2092,13 +2092,17 @@ function createMapM2FixtureRoot() {
 async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.ok(mapM2Fixture, "Map M2 browser assertion needs its formal isolated fixture.");
   const base = `${apiUrl}/__local/story-studio`;
+  await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await page.locator(`[data-work-version-id="${mapM2Fixture.root.identity.workVersionId}"]`).waitFor();
   await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
   await page.locator('[aria-label="地点"]').getByRole("button", { name: /北闸/u }).click();
   const canvas = page.locator('[aria-label="地点示意图画布"]');
   await canvas.waitFor();
   await page.getByTestId("map-m2-inspector").waitFor();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
+  const stateRead = await getFixture(`${base}/world-state?projectId=${encodeURIComponent(fixtureProjectId)}&objectId=${encodeURIComponent(mapM2Fixture.northGate.id)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&observation=current`);
+  assert.equal(stateRead.data.projection.history.length, 3, "The Map M2 fixture must expose all three formal WorldState changes through its normal read endpoint.");
   const canvasBox = await canvas.boundingBox();
   assert.ok(canvasBox && canvasBox.y < 260 && canvasBox.height > 280, "The map canvas must remain the first-screen working surface, not fall below a title or summary stack.");
   const beforeBrowse = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -2118,17 +2122,19 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.mouse.down();
   await page.mouse.move(panBox.x + 220, panBox.y + 204);
   await page.mouse.up();
-  const observationSelect = page.getByRole("combobox", { name: "选择故事观察位置", exact: true });
-  const options = await observationSelect.locator("option").evaluateAll((values) => values.map((item) => ({ label: item.textContent, value: item.value })));
-  const closedOption = options.find((item) => /北闸封闭/u.test(item.label || ""));
-  const reopenedOption = options.find((item) => /北闸恢复通行/u.test(item.label || ""));
-  assert.ok(closedOption?.value && reopenedOption?.value, "Each formal WorldState history event must become a selectable M2 observation node.");
-  await observationSelect.selectOption(closedOption.value);
+  const observationTabs = page.getByRole("tablist", { name: "选择故事观察位置", exact: true });
+  const closedTab = observationTabs.getByRole("tab", { name: /北闸封闭/u });
+  const reopenedTab = observationTabs.getByRole("tab", { name: /北闸恢复通行/u });
+  await closedTab.waitFor();
+  await reopenedTab.waitFor();
+  const tabs = observationTabs.getByRole("tab");
+  assert.ok(await tabs.count() >= 4, "Current, opened, closed, and reopened formal WorldState nodes must all remain author-selectable.");
+  await tabs.nth(2).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
   await page.locator('[data-state="closed"]').getByText("封闭", { exact: true }).waitFor();
   if (mapM2EvidenceDirectory) { mkdirSync(mapM2EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-closed.png"), fullPage: true }); }
-  await observationSelect.selectOption(reopenedOption.value);
+  await tabs.nth(3).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
   await page.locator('[data-state="open"]').getByText("可通行", { exact: true }).waitFor();
@@ -2160,13 +2166,19 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-return-1152x720.png"), fullPage: false });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await page.getByRole("button", { name: "浏览地图", exact: true }).waitFor();
   for (const [index, location] of mapM2Fixture.extraLocations.entries()) {
     await page.locator('[aria-label="地点"]').getByRole("button", { name: new RegExp(location.title, "u") }).click();
+    await page.getByTestId("map-m2-inspector").getByRole("heading", { name: location.title, exact: true }).waitFor();
+    const layoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
     await canvas.click({ position: { x: 130 + index * 115, y: 130 + (index % 2) * 170 } });
+    assert.equal((await layoutSave).status(), 200, `Map layout save for ${location.title} must succeed.`);
     await page.getByRole("status").getByText(/布局已保存/u).waitFor();
+    await page.getByText(`${index + 2} 个已放置地点`, { exact: false }).waitFor();
   }
   await page.getByRole("button", { name: "浏览地图", exact: true }).click();
-  await page.locator('[data-state="unloaded"]').count().then((count) => assert.ok(count >= 5, "Additional formal locations must remain visibly unverified rather than inheriting North Gate's state."));
+  const markerStates = await page.locator(".map-workbench-marker").evaluateAll((markers) => markers.map((marker) => ({ state: marker.getAttribute("data-state"), text: marker.textContent })));
+  assert.ok(markerStates.filter((marker) => marker.state === "unloaded" || marker.state === "unknown").length >= 5, `Additional formal locations must remain visibly unresolved rather than inheriting North Gate's state: ${JSON.stringify(markerStates)}`);
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-multi-location.png"), fullPage: true });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-multi-location-1440x900.png"), fullPage: false });
   if (mapM2EvidenceDirectory) {
