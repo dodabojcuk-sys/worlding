@@ -4315,8 +4315,74 @@ async function assertMultiNodePredictionProductization(page, consoleProblems) {
   assert.equal(await unresolvedInspector.getByRole("button", { name: "通过并保存", exact: true }).isDisabled(), true, "An unresolved AI relation cannot be confirmed directly.");
   await capture("D2-1440x900-automatic-pending-relation.png");
   await unresolvedInspector.getByLabel("候选关系类型").selectOption({ label: "促使" });
+  // A relation confirmation crosses two owner writes: choosing a formal type
+  // updates the candidate and the following confirmation persists it. Keep a
+  // bounded, credential-free account of that author action so a missing UI
+  // receipt can be distinguished from a rejected or unpersisted write.
+  const relationActionTrace = [];
+  const recordRelationAction = (phase, value) => {
+    if (relationActionTrace.length < 4) relationActionTrace.push({ phase, ...value });
+  };
+  const onRelationRequest = (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (!pathname.endsWith("/relations/update") && !pathname.endsWith("/relations/confirm")) return;
+    const body = request.postDataJSON();
+    recordRelationAction("request", {
+      operation: pathname.endsWith("/relations/update") ? "update" : "confirm",
+      relationId: typeof body?.relationId === "string" ? body.relationId : null,
+      expectedRelationRevision: typeof body?.expectedRelationRevision === "number" ? body.expectedRelationRevision : null,
+      operationId: typeof body?.operationId === "string" ? body.operationId : null
+    });
+  };
+  const onRelationResponse = async (response) => {
+    const pathname = new URL(response.url()).pathname;
+    if (!pathname.endsWith("/relations/update") && !pathname.endsWith("/relations/confirm")) return;
+    let result = null;
+    try { result = await response.json(); } catch { /* the status remains useful if the body is unavailable */ }
+    recordRelationAction("response", {
+      operation: pathname.endsWith("/relations/update") ? "update" : "confirm",
+      status: response.status(),
+      error: typeof result?.error === "string" ? result.error : null,
+      resultRelationId: typeof result?.data?.relation?.relationId === "string" ? result.data.relation.relationId : null,
+      resultRevision: typeof result?.data?.relation?.revision === "number" ? result.data.relation.revision : null,
+      reviewState: typeof result?.data?.relation?.reviewState === "string" ? result.data.relation.reviewState : null,
+      receiptId: typeof result?.data?.receipt?.receiptId === "string" ? result.data.receipt.receiptId : null
+    });
+  };
+  page.on("request", onRelationRequest);
+  page.on("response", onRelationResponse);
+  // The mutation receipt is authoritative. A transient projection refresh
+  // failure must not turn a persisted confirmation into a false failure for
+  // the author. This route supplies an invalid success envelope only to the
+  // next browser GET after the write; fixture reads below still inspect the
+  // real Relation Owner directly.
+  const refreshFailureObserved = page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === "GET" && new URL(response.url()).pathname.endsWith("/relations") && response.status() === 200;
+  });
+  await page.route("**/__local/story-studio/relations?*", async (route) => {
+    if (route.request().method() !== "GET") { await route.continue(); return; }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ error: "fixture relation projection refresh unavailable" }) });
+  }, { times: 1 });
   await unresolvedInspector.getByRole("button", { name: "选择类型后通过", exact: true }).click();
-  await page.getByText("作者确认后，关系已保存。", { exact: true }).waitFor();
+  try {
+    await page.getByText("作者确认后，关系已保存。", { exact: true }).waitFor();
+    await refreshFailureObserved;
+    await page.waitForTimeout(0);
+    if (output) {
+      const owner = await getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(unresolvedPredictionRelationId)}`);
+      writeFileSync(path.join(output, "relation-confirmation-trace.json"), `${JSON.stringify({ relationId: unresolvedPredictionRelationId, trace: relationActionTrace, owner: { reviewState: owner.data.relation.reviewState, revision: owner.data.relation.revision, receiptId: owner.data.relation.decisionReceipt?.receiptId ?? null } }, null, 2)}\n`, "utf8");
+    }
+  } catch (cause) {
+    const [owner, inspector] = await Promise.all([
+      getFixture(`${apiUrl}/__local/story-studio/relations/relation?projectId=${encodeURIComponent(fixtureProjectId)}&relationId=${encodeURIComponent(unresolvedPredictionRelationId)}`).catch((error) => ({ error: error instanceof Error ? error.message : String(error) })),
+      unresolvedInspector.evaluate((element) => ({ text: element.innerText, busy: element.querySelector("button[disabled]")?.textContent?.trim() ?? null })).catch(() => null)
+    ]);
+    throw new Error(`Author confirmation did not reach its visible receipt: ${JSON.stringify({ relationId: unresolvedPredictionRelationId, trace: relationActionTrace, owner, inspector })}`, { cause });
+  } finally {
+    page.off("request", onRelationRequest);
+    page.off("response", onRelationResponse);
+  }
   const relationsAfterAuthorConfirm = await getFixture(`${apiUrl}/__local/story-studio/relations?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.equal(relationsAfterAuthorConfirm.data.relations.filter((relation) => relation.reviewState === "confirmed").length, confirmedRelationsBefore + 1, "Only the explicitly approved AI relation may become confirmed.");
   let rejectionTargetId = preexistingCandidateRelationId;
