@@ -180,7 +180,14 @@
 .tianyi-adoption-receipt > p { color: var(--color-text-secondary); display: flex; gap: 6px; }
 .tianyi-adoption-panel.is-compact { margin: 10px; padding: 12px; }
 .tianyi-adoption-panel.is-compact .tianyi-structured-diff dl, .tianyi-adoption-panel.is-compact .tianyi-adoption-receipt dl { grid-template-columns: 1fr; }
-.tianyi-event-line-golden-loop { height: 100%; min-height: 0; overflow: auto; }
+.tianyi-event-line-golden-loop {
+  flex: 1 1 auto;
+  inline-size: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
 .event-line-candidate-trajectory { margin: 12px 14px 0; border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-border-subtle)); border-radius: 13px; background: color-mix(in srgb, var(--color-accent-soft) 22%, var(--color-surface)); padding: 14px; }
 .event-line-candidate-trajectory > header { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
 .event-line-candidate-trajectory h2 { margin: 3px 0 10px; font-size: 17px; }

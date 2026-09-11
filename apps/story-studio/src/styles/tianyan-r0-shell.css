@@ -101,6 +101,9 @@ input:focus-visible {
 .tianyan-r0-shell:has(.event-line-workbench) {
   --dock-current: 0rem;
   --panel-controls-width: 0rem !important;
+  /* Event line owns its compact page rail.  Do not retain an empty global
+     Tianyi grid column while that rail is the only visible right-side tool. */
+  --tianyi-current: 0rem;
 }
 
 .tianyan-r0-shell:has(.event-line-workbench) .dock-panel-stack,
@@ -117,10 +120,28 @@ input:focus-visible {
   --tianyi-current: var(--tianyi-sidebar-width);
 }
 
+/* The event-line page has its own contextual rail.  A stale or empty Tianyi
+   session must not reserve a third grid column behind that rail. */
+.tianyan-r0-shell:has(.event-line-workbench)[data-tianyi-open="true"] {
+  --tianyi-current: 0rem;
+}
+
 /* At ordinary desktop widths Tianyi is a layer, not a third permanent column.
    The event workspace remains legible while its session remains mounted. */
 @media (max-width: 90rem) {
   .tianyan-r0-shell[data-tianyi-open="true"] { --tianyi-current: 0rem; }
+}
+
+/* Event line keeps its canvas full-width even on wide screens.  When Tianyi is
+   open, it is an overlay for this workspace rather than an otherwise blank
+   permanent grid column. */
+.tianyan-r0-shell:has(.event-line-workbench)[data-tianyi-open="true"] .tianyi-sidebar {
+  position: fixed;
+  inset-block: var(--topbar-height) 0;
+  inset-inline-end: 0;
+  inline-size: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current)));
+  z-index: var(--layer-tianyi);
+  box-shadow: var(--shadow-panel);
 }
 
 .tianyan-r0-shell[data-settings-open="true"] {
@@ -666,6 +687,12 @@ input:focus-visible {
   scrollbar-gutter: stable;
   color: var(--color-text);
   background: var(--color-workspace-background);
+}
+
+/* `grid-area: workspace` above establishes the normal row/column.  Event line
+   deliberately takes the unused global-tool tracks through the final column. */
+.tianyan-r0-shell:has(.event-line-workbench) .shell-workspace-event-line {
+  grid-column: workspace-start / -1;
 }
 
 * { scrollbar-color: var(--color-border-strong) transparent; }
