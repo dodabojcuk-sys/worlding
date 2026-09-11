@@ -218,6 +218,12 @@ test("N1 advances a frozen multi-unit range internally without asking the author
   const firstScene = { storyUnit: { id: "story-unit.雨夜追查", revision }, sceneRef: { id: "scene.雾港灯塔外", revision }, observedAt: "world-time.23:00", label: "雾港灯塔外" };
   const secondScene = { storyUnit: { id: "story-unit.钟楼之后", revision }, sceneRef: { id: "scene.钟楼内", revision }, observedAt: "world-time.23:30", label: "钟楼之后" };
   const scope: NuwaN1Run["scope"] = { version: "tianyan-nuwa-n1-scope/v1", mode: "bounded", storylineKey: "primary", storylineLabel: "主线", scenes: [firstScene, secondScene], currentSceneIndex: 0 };
+  const actors = [...fixtureActors(), {
+    ...fixtureActors()[0]!,
+    character: { id: "character.陆衍", revision },
+    displayName: "陆衍",
+    localGoal: "只依据自己获知的信息观察。"
+  }];
   await withRun(async ({ workspace, run }) => {
     const observed = { contexts: [] as Array<ReturnType<typeof compileNuwaN1Context>>, calls: [] as number[] };
     let current = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "operation.range.start" });
@@ -226,8 +232,9 @@ test("N1 advances a frozen multi-unit range internally without asking the author
     assert.deepEqual(current.steps.map((step) => step.scene.storyUnit.id), [firstScene.storyUnit.id, firstScene.storyUnit.id, secondScene.storyUnit.id, secondScene.storyUnit.id]);
     assert.equal(current.scope.currentSceneIndex, 1);
     assert.deepEqual(observed.contexts.map((context) => context.scene.label), ["雾港灯塔外", "雾港灯塔外", "钟楼之后", "钟楼之后"]);
+    assert.deepEqual(current.steps.map((step) => step.actor.id), ["character.林昭", "character.阿芜", "character.陆衍", "character.林昭"], "actor rotation continues across scene boundaries so a selected third actor is not starved");
     assert.equal(readNuwaN1Run(workspace, run.runId)?.scope.scenes.length, 2, "the selected range survives a read from the durable RunPack");
-  }, fixtureActors(), scope);
+  }, actors, scope);
 });
 
 test("N1 next actor receives actual prior dialogue but not the other actor's beliefs or hidden facts", async () => {

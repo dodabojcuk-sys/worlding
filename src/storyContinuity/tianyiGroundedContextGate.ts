@@ -174,7 +174,8 @@ export function compileTianyiGroundedContext(input: {
   const request = normalizeTianyiGroundedContextRequest(input.request);
   const hardBudget = requireBudget(input.hardBudget ?? TIANYI_GROUNDED_CONTEXT_HARD_BUDGET);
   const subjectId = request.subjectRef?.stableId ?? null;
-  const normalized = input.candidates.map(normalizeCandidate).sort(compareCandidates);
+  const eventOrder = new Map((request.eventRefs ?? []).map((reference, index) => [storyStudioEventReferenceKey(reference), index]));
+  const normalized = input.candidates.map(normalizeCandidate).sort((left, right) => compareCandidates(left, right, eventOrder));
   const conflictKeys = conflictingSourceKeys(normalized);
   const seen = new Set<string>();
   const included: TianyiGroundedSourceManifestEntry[] = [];
@@ -401,10 +402,21 @@ function conflictingSourceKeys(candidates: TianyiGroundedResolvedCandidate[]): S
   return new Set([...revisions].filter(([, hashes]) => hashes.size > 1).map(([sourceKey]) => sourceKey));
 }
 
-function compareCandidates(left: TianyiGroundedResolvedCandidate, right: TianyiGroundedResolvedCandidate): number {
+function compareCandidates(left: TianyiGroundedResolvedCandidate, right: TianyiGroundedResolvedCandidate, eventOrder: ReadonlyMap<string, number>): number {
   return LANE_PRIORITY[left.lane] - LANE_PRIORITY[right.lane]
+    // Explicit event references have already been selected/pinned by the
+    // caller. Keep their validated request order within the same lane so a
+    // long body cannot be displaced by an unrelated lexical source ID.
+    || compareExplicitEventOrder(left, right, eventOrder)
     || left.sourceKey.localeCompare(right.sourceKey)
     || left.requestedContentHash.localeCompare(right.requestedContentHash);
+}
+
+function compareExplicitEventOrder(left: TianyiGroundedResolvedCandidate, right: TianyiGroundedResolvedCandidate, eventOrder: ReadonlyMap<string, number>): number {
+  const leftOrder = eventOrder.get(left.sourceKey);
+  const rightOrder = eventOrder.get(right.sourceKey);
+  if (leftOrder === undefined || rightOrder === undefined) return 0;
+  return leftOrder - rightOrder;
 }
 
 function estimateBudget(value: string): number {

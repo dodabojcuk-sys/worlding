@@ -276,8 +276,10 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   });
   if (initial.steps.length >= maximumScopeSteps(initial)) return persist(input, initial, "step", { ...initial, lifecycle: "completed", blocker: null });
   if (initial.providerDispatches >= NUWA_N1_MAX_DISPATCHES) return persist(input, initial, "step", { ...initial, lifecycle: "blocked", blocker: "实际 Provider 发送预算已用尽；请结束或新建一次排演。" });
-  const stepsInCurrentScene = initial.steps.filter((step) => sameRef(step.scene.storyUnit, initial.scene.storyUnit)).length;
-  const actor = initial.actors[stepsInCurrentScene % initial.actors.length]!;
+  // Actor turns belong to the frozen Run, not to an individual scene.  A
+  // multi-unit scope may allocate fewer turns than actors per scene; resetting
+  // here would starve the final actor whenever every scene has two turns.
+  const actor = initial.actors[initial.steps.length % initial.actors.length]!;
   const context = compileNuwaN1Context(initial, actor, input.operationId);
   const attemptId = safeOperation(input.operationId);
   const preflightInputTokens = Buffer.byteLength(stableJson(context), "utf8");
