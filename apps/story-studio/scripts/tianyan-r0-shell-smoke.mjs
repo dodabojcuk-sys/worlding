@@ -2067,11 +2067,23 @@ async function setupMapM2Fixture() {
   const relationCandidate = relations.createRelationCandidate({
     projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId: `map-m2-relation-${fixture.fixtureId}`,
     sourceObjectId: northGate.id, targetObjectId: lin.id, relationTypeId: relationType.type.relationTypeId, direction: "both",
-    temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-03T00:00:00Z", confidence: "high", sourceAnchors: [closed.id] },
+    temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-02T23:59:59.999Z", confidence: "high", sourceAnchors: [closed.id] },
     evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
   });
-  relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `map-m2-relation-confirm-${fixture.fixtureId}` });
-  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId };
+  const confirmedHistoricalRelation = relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `map-m2-relation-confirm-${fixture.fixtureId}` });
+  // Repository archival is a lifecycle action, not the moment this story-time
+  // relationship stopped being true. The normal map/relations read must retain it
+  // at the closed observation node.
+  relations.archiveConfirmedRelation({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: confirmedHistoricalRelation.relation.revision, operationId: `map-m2-relation-archive-${fixture.fixtureId}` });
+  const keySupportType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-key-support-type-${fixture.fixtureId}`, label: "铜钥匙交接支持" });
+  const keySupportCandidate = relations.createRelationCandidate({
+    projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId: `map-m2-key-support-${fixture.fixtureId}`,
+    sourceObjectId: northGate.id, targetObjectId: lin.id, relationTypeId: keySupportType.type.relationTypeId, direction: "forward",
+    temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-02T00:00:00Z", validTo: "2000-01-02T23:59:59.999Z", confidence: "high", sourceAnchors: [closed.id] },
+    evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
+  });
+  relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: keySupportCandidate.relation.relationId, expectedRelationRevision: keySupportCandidate.relation.revision, operationId: `map-m2-key-support-confirm-${fixture.fixtureId}` });
+  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId };
 }
 
 function createMapM2FixtureRoot() {
@@ -2139,10 +2151,34 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await relationsWorkspace.waitFor();
   await relationsWorkspace.getByText("中心：北闸", { exact: false }).waitFor();
   await relationsWorkspace.getByLabel("关系列表").getByText("通行协作", { exact: true }).waitFor();
+  const relationCanvas = page.getByTestId("focused-relations-canvas");
+  await relationCanvas.waitFor();
+  assert.equal(await relationCanvas.locator("svg line").count(), 1, "The focused graph must render one formal relation edge, not only object cards and a text list.");
+  await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).waitFor();
+  await relationCanvas.focus();
+  await relationCanvas.press("ArrowRight");
+  await relationCanvas.press("+");
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.has("relationPanX") && new URL(window.location.href).searchParams.has("relationZoom"));
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-graph.png"), fullPage: false });
   await relationsWorkspace.getByRole("button", { name: "列表", exact: true }).click();
-  await relationsWorkspace.getByRole("button", { name: "林昭", exact: true }).waitFor();
+  await relationsWorkspace.getByRole("button", { name: "林昭", exact: true }).first().waitFor();
+  assert.equal(await relationsWorkspace.getByRole("button", { name: "林昭", exact: true }).count(), 2, "The normal relation list must retain both distinct relation records that share the same endpoints.");
   assert.match(page.url(), /mapObservedAt=2000-01-02T00/u, "The focused relation reader must retain the selected map observation time rather than silently reading current relations.");
-  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed.png"), fullPage: true });
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-list.png"), fullPage: false });
+  await page.setViewportSize({ width: 1152, height: 720 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The compact focused relation toolbar must not introduce horizontal page overflow at 1152px.");
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-list-1152x720.png"), fullPage: false });
+  const relationRouteBeforeSource = new URL(page.url());
+  await relationsWorkspace.getByRole("button", { name: "查看支持事件", exact: true }).first().click();
+  await page.getByTestId("event-line-workbench").waitFor();
+  assert.match(page.url(), /eventRevision=/u, "A focused relation source navigation must carry the exact evidence revision.");
+  await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
+  await relationsWorkspace.waitFor();
+  await relationsWorkspace.getByRole("button", { name: "列表", exact: true }).waitFor();
+  assert.match(page.url(), /relationReturn=/u, "Returning from the event must restore the focused relation route, not a generic current event view.");
+  const relationRouteAfterSource = new URL(page.url());
+  for (const key of ["relationCenter", "relationExpanded", "relationPanX", "relationPanY", "relationZoom", "relationView", "mapObservationEvent"]) assert.equal(relationRouteAfterSource.searchParams.get(key), relationRouteBeforeSource.searchParams.get(key), `Relation source return must preserve ${key}.`);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await relationsWorkspace.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   assert.match(page.url(), /mapObservationEvent=/u, "Returning from focused relations must recover the map observation identity.");
@@ -2196,6 +2232,9 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   if (mapM2EvidenceDirectory) {
     writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, focusedRelations: { centerObjectId: mapM2Fixture.northGate.id, relationId: mapM2Fixture.relationId, observation: "closed", view: "list", readOnly: true }, providerDispatches: 0 }, null, 2)}\n`, "utf8");
   }
+  await gotoProduct(page, `${baseUrl}/event-line?projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&eventId=${encodeURIComponent(mapM2Fixture.closed.id)}&eventRevision=missing-evidence-revision`);
+  await page.getByTestId("event-line-workbench").waitFor();
+  await page.getByRole("alert").getByText("关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。", { exact: true }).waitFor();
   assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
 }
 

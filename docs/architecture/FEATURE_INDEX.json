@@ -339,16 +339,16 @@
     {
       "id": "focused-relations-r0",
       "status": "LOCAL_REVIEW",
-      "maturity": "version-scoped-object-centred-read-only-relation-neighbourhood-with-map-observation-return",
+      "maturity": "version-scoped-object-centred-read-only-svg-relation-graph-with-inclusive-story-time-and-exact-event-return",
       "entrypoints": ["apps/story-studio/src/components/world/FocusedRelationsWorkspace.tsx", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx"],
-      "sourceFiles": ["apps/story-studio/src/components/world/FocusedRelationsWorkspace.tsx", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterInspectorCard.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/storyStudioRelationOperations.ts"],
+      "sourceFiles": ["apps/story-studio/src/components/world/FocusedRelationsWorkspace.tsx", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/components/EventLineWorkbench.tsx", "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx", "apps/story-studio/src/product-shell/project-directory/character/CharacterInspectorCard.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyContracts/relationTemporalComparison.ts", "src/storyControlSurface/storyStudioRelationOperations.ts"],
       "domainOwners": ["src/storyControlSurface/storyStudioRelationOperations.ts"],
       "stateOwners": ["src/storyControlSurface/storyStudioRelationOperations.ts"],
-      "persistenceOwner": "The existing version-scoped Relation Owner remains the only relationship fact store; the reader owns only route-local centre, filter, list/graph, expansion and return state.",
+      "persistenceOwner": "The existing version-scoped Relation Owner remains the only relationship fact store; the reader owns only route-local centre, filter, list/graph, expansion, graph viewport and return state. It never saves graph positions through visualDocumentRepository.",
       "providerDependency": "none; normal relation reads, observation filtering and evidence links issue zero Provider requests.",
-      "tests": ["apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
+      "tests": ["tests/storyStudio/relationTemporalComparisonN3.test.ts", "tests/storyStudio/relationWorkVersionIsolationB1.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
       "legacyProvenance": ["N3 version-scoped Relation Owner", "MAP-M2 version-and-observation reader"],
-      "remainingGap": "The first slice is a read-only neighbourhood: formal relation authoring, conflict resolution and independent Founder visual review remain outside it; event causality stays in the event-line projection."
+      "remainingGap": "The reader is a locally verified, read-only neighbourhood: formal relation authoring, conflict resolution and independent Founder visual review remain outside it; event causality stays in the event-line projection."
     },
     {
       "id": "author-review-canon-writer",

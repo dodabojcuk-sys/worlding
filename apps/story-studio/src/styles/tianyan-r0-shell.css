@@ -978,3 +978,27 @@ input:focus-visible {
 .focused-relations-list li > div strong { color: var(--color-accent); font-size: var(--font-size-sm); }
 .focused-relations > footer { padding: .45rem .2rem; }
 @media (max-width: 72rem) { .focused-relations-toolbar label { flex: 1 1 12rem; } .focused-relations-actions { margin-inline-start: 0; } .focused-relations-graph { grid-template-columns: 1fr; } }
+
+/* R0.1 keeps the map workbench frozen: these rules affect only the relation reader. */
+.focused-relations { grid-template-rows: auto auto minmax(0, 1fr) auto; align-content: start; min-height: 0; }
+.focused-relations-toolbar { align-items: end; padding: .45rem .6rem; }
+.focused-relations-toolbar > .focused-relations-heading { flex: 1 1 13rem; min-width: 0; }
+.focused-relations-actions { display: flex; flex: 0 0 auto; align-items: center; margin-inline-start: 0; }
+.focused-relations-graph { grid-template-columns: minmax(0, 1fr) minmax(16rem, .42fr); grid-template-rows: auto minmax(23rem, 1fr); min-height: 0; }
+.focused-relations-graph-toolbar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: .5rem; min-height: 2.1rem; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-graph-toolbar span, .focused-relations-graph-toolbar div { display: inline-flex; align-items: center; gap: .35rem; }
+.focused-relations-graph-toolbar button { min-height: 1.9rem; padding-inline: .45rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.focused-relations-canvas { position: relative; min-height: 23rem; overflow: hidden; touch-action: none; background: radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)), var(--color-surface) 58%); border: 1px solid var(--color-border); border-radius: var(--radius-md); outline-offset: -3px; }
+.focused-relations-canvas-world { position: absolute; inset: 0; width: 960px; height: 560px; transform-origin: 0 0; transition: transform 80ms linear; }
+.focused-relations-edges { position: absolute; inset: 0; width: 960px; height: 560px; overflow: visible; }
+.focused-relations-edges line { stroke: var(--color-accent); stroke-width: 2.5; stroke-linecap: round; }
+.focused-relations-edges marker path { fill: var(--color-accent); }
+.focused-relations-node { position: absolute; display: grid; width: 10.5rem; gap: .22rem; padding: .55rem; background: var(--color-workspace-background); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); transform: translate(-50%, -50%); }
+.focused-relations-node.is-center { border-color: var(--color-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent), var(--shadow-panel); }
+.focused-relations-node small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-node div { display: flex; flex-wrap: wrap; gap: .3rem; }
+.focused-relations-node button, .focused-relations-edge-label { padding: .27rem .38rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.focused-relations-edge-label { position: absolute; z-index: 2; color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); transform: translate(-50%, -50%); }
+.focused-relations-graph > .focused-relations-list { min-height: 23rem; overflow: auto; }
+@media (max-width: 72rem) { .focused-relations-graph { grid-template-columns: 1fr; grid-template-rows: auto minmax(22rem, 1fr) auto; } .focused-relations-graph > .focused-relations-list { min-height: auto; max-height: 16rem; } }
+@media (max-width: 48rem) { .focused-relations-toolbar { align-items: stretch; } .focused-relations-toolbar label { flex: 1 1 10rem; } .focused-relations-graph-toolbar { align-items: start; flex-direction: column; } }

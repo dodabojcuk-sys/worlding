@@ -168,6 +168,9 @@ export function EventLineWorkbench(props: {
   const [perspectiveOwnerProjection, setPerspectiveOwnerProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const eventRevisionKey = props.events.map((event) => `${event.id}:${event.revisionToken}`).join("\u0000");
+  // A relationship evidence link is a reference to one confirmed event revision,
+  // not an instruction to silently open the event's newest revision by id.
+  const requestedEventRevision = useMemo(() => eventRevisionFromRoute(), []);
   const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
   const knowledgeProjection = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjection : null;
   const knowledgeProjectionState = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjectionState : "loading";
@@ -370,6 +373,12 @@ export function EventLineWorkbench(props: {
       setDetailError(null);
       return;
     }
+    const listedEvent = props.events.find((event) => event.id === selectedEventId);
+    if (requestedEventRevision && listedEvent?.revisionToken !== requestedEventRevision) {
+      setDetailLoading(false);
+      setDetailError({ kind: "invalid-record", message: "关系依据引用的事件修订已不在当前版本中；未以较新的事件内容替代。" });
+      return;
+    }
     if (knowledgeProjection?.hiddenEventIds.includes(selectedEventId)) {
       setDetailLoading(false);
       setDetailError(null);
@@ -405,7 +414,7 @@ export function EventLineWorkbench(props: {
           setDetailError(next.error);
           return;
         }
-        if (next.event.id !== selectedEventId || !isVerifiedCanonEventDetail(next.event)) {
+        if (next.event.id !== selectedEventId || !isVerifiedCanonEventDetail(next.event) || (requestedEventRevision && next.event.revisionToken !== requestedEventRevision)) {
           setDetailError({ kind: "invalid-record", message: "事件详情不再符合已确认记录条件。" });
           return;
         }
@@ -420,7 +429,7 @@ export function EventLineWorkbench(props: {
         if (!cancelled && sequence === requestSequence.current) setDetailLoading(false);
       });
     return () => { cancelled = true; };
-  }, [detailsById, eventIds, knowledgeProjection, props.events, props.listState.status, props.projectId, selectedEventId]);
+  }, [detailsById, eventIds, knowledgeProjection, props.events, props.listState.status, props.projectId, requestedEventRevision, selectedEventId]);
 
   useEffect(() => {
     if (!scopeOpen) return;
@@ -454,7 +463,8 @@ export function EventLineWorkbench(props: {
   const selectedFocusObjects = observationState.focusObjectIds.flatMap((id) => (props.perspectiveObjects ?? []).find((object) => object.id === id && object.formal === true) ?? []).slice(0, 5);
   const knowledgeViewContext = useMemo<TianyiKnowledgeViewContext>(() => createCharacterKnowledgeHandoff({ projectId: props.projectId, projection: knowledgeProjection, characters: props.perspectiveObjects ?? [] }), [knowledgeProjection, props.perspectiveObjects, props.projectId]);
   const selectedEvent = knowledgeEvents.find((event) => event.id === selectedEventId) ?? null;
-  const selectedDetail = selectedEventId && !knowledgeProjection?.hiddenEventIds.includes(selectedEventId) ? detailsById[selectedEventId] ?? null : null;
+  const selectedRevisionMismatch = Boolean(requestedEventRevision && selectedEvent && selectedEvent.revisionToken !== requestedEventRevision);
+  const selectedDetail = selectedEventId && !selectedRevisionMismatch && !knowledgeProjection?.hiddenEventIds.includes(selectedEventId) ? detailsById[selectedEventId] ?? null : null;
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
   const selectedEventRef = useMemo(() => selectedEvent && selectedEvent.title !== "未知事件" && (selectedEvent.status === "draft" || selectedEvent.status === "planned" || selectedEvent.status === "committed")
     ? createStoryStudioEventReference({ projectId: props.projectId, event: selectedEvent, requestedUse: "constraint" })
@@ -868,9 +878,12 @@ export function EventLineWorkbench(props: {
     { id: "arrange", label: "编排", icon: <GripHorizontal />, content: <NarrativeArrangementInspector selection={arrangementSelection} events={knowledgeEvents.filter((event) => event.title !== "未知事件")} storyUnits={props.storyUnits ?? []} narratives={narrativeReads} callbacks={props.onInsertNarrativePlacement && props.onMoveNarrativePlacement && props.onRemoveNarrativePlacement ? { insert: props.onInsertNarrativePlacement, move: props.onMoveNarrativePlacement, remove: props.onRemoveNarrativePlacement } : null} /> }
   ];
   const mapReturn = mapReturnTarget(window.location.search);
+  const relationReturn = relationReturnTarget(window.location.search);
 
   return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer={advancedView ? projectionMode : eventTask === "time" ? "TemporalCanvas" : eventTask === "audit" ? "EvidenceAuditMatrix" : "EventGraphCanvas"} data-projection-mode={projectionMode} data-knowledge-projection-state={knowledgeProjectionState}>
     {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
+    {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
+    {selectedRevisionMismatch ? <p className="event-line-source-revision-error" role="alert">关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。</p> : null}
     {!props.embedded ? <WorkspaceHeader
       projectTitle={props.projectTitle}
       sectionLabel="事件线"
@@ -939,6 +952,16 @@ export function EventLineWorkbench(props: {
 function mapReturnTarget(search: string): string | null {
   const value = new URLSearchParams(search).get("mapReturn");
   return value && value.startsWith("/world?") && !value.includes("//") ? value : null;
+}
+
+function relationReturnTarget(search: string): string | null {
+  const value = new URLSearchParams(search).get("relationReturn");
+  return value && value.startsWith("/world?worldView=relations") && !value.includes("//") ? value : null;
+}
+
+function eventRevisionFromRoute(): string | null {
+  const value = new URLSearchParams(window.location.search).get("eventRevision");
+  return value && value.length <= 512 ? value : null;
 }
 
 function StoryModelingToolbar(props: { view: EventWorkspaceView; expanded: boolean; disabled: boolean; localFindingCount: number; run: StoryModelingRunProjection | null; history: readonly StoryModelingRunProjection[]; onExpanded(value: boolean): void; onTool(tool: StoryModelingTool): void; onOpenLocalLogic(): void; onStop?(): Promise<void> }) {
