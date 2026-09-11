@@ -23,6 +23,58 @@ export function createLocationTopologyProjection(input: { objects: StoryStudioLo
   };
 }
 
+export type LocationStructureKind = "geography" | "administration";
+export type StoryStudioTypedLocationRelation = StoryStudioLocationTopologyRelation & { relationTypeId: string };
+export type LocationStructureRule = { geographyRelationTypeIds: readonly string[]; administrationRelationTypeIds: readonly string[] };
+export type TypedLocationStructureProjection = {
+  version: "story-location-structure-projection/v1";
+  kind: LocationStructureKind;
+  nodes: LocationTopologyNode[];
+  edges: LocationTopologyEdge[];
+  childrenByParentId: ReadonlyMap<string, readonly LocationTopologyEdge[]>;
+  unclassifiedRelationCount: number;
+};
+
+/**
+ * Build a structure only from author-selected Relation Type IDs.  This is
+ * intentionally separate from the legacy keyword topology above: labels such
+ * as “位于” are ambiguous and must never silently become geographic facts.
+ */
+export function createTypedLocationStructureProjection(input: {
+  objects: StoryStudioLocationTopologyObject[];
+  relations: StoryStudioTypedLocationRelation[];
+  rule: LocationStructureRule;
+  kind: LocationStructureKind;
+}): TypedLocationStructureProjection {
+  const locations = input.objects.filter((object) => object.type === "location").sort(compareObject);
+  const locationIds = new Set(locations.map((object) => object.id));
+  const selectedTypeIds = new Set(input.kind === "geography" ? input.rule.geographyRelationTypeIds : input.rule.administrationRelationTypeIds);
+  const eligible = input.relations.filter((relation) => !relation.archived && relation.reviewState === "confirmed" && locationIds.has(relation.sourceObjectId) && locationIds.has(relation.targetObjectId));
+  const edges = eligible.filter((relation) => selectedTypeIds.has(relation.relationTypeId)).map((relation) => ({
+    relationId: relation.relationId,
+    sourceObjectId: relation.sourceObjectId,
+    targetObjectId: relation.targetObjectId,
+    label: relation.currentTypeLabel || relation.relationLabelSnapshot,
+    state: "confirmed" as const,
+    archived: false
+  })).sort(compareEdge);
+  const childrenByParentId = new Map<string, LocationTopologyEdge[]>();
+  for (const edge of edges) {
+    const current = childrenByParentId.get(edge.targetObjectId) || [];
+    current.push(edge);
+    childrenByParentId.set(edge.targetObjectId, current);
+  }
+  for (const children of childrenByParentId.values()) children.sort(compareEdge);
+  return {
+    version: "story-location-structure-projection/v1",
+    kind: input.kind,
+    nodes: locations.map((object) => ({ objectId: object.id, title: object.title, region: readRegion(object) })),
+    edges,
+    childrenByParentId,
+    unclassifiedRelationCount: eligible.filter((relation) => !selectedTypeIds.has(relation.relationTypeId)).length
+  };
+}
+
 function isTopologyRelation(relation: StoryStudioLocationTopologyRelation): boolean {
   const label = `${relation.currentTypeLabel || ""} ${relation.relationLabelSnapshot}`.toLocaleLowerCase("en-US");
   return TOPOLOGY_RELATION_WORDS.some((word) => label.includes(word.toLocaleLowerCase("en-US")));

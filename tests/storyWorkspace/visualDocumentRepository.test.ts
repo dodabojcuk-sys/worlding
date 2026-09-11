@@ -109,6 +109,28 @@ test("Map v1 content migrates additively to backgrounds and author-facing styles
   assert.equal(map.content.markers[0].labelMode, "always");
   assert.equal(map.content.regions[0].fillOpacity, 0.16);
   assert.equal(map.content.labels[0].treatment, "outline");
+  assert.equal(map.content.scopeObjectId, null);
+  assert.deepEqual(map.content.structure, { geographyRelationTypeIds: [], administrationRelationTypeIds: [] });
+});
+
+test("map stores an explicit scope and typed structure without creating relation facts", () => {
+  const fixture = createFixture();
+  const map = createVisualDocument(fixture.rootPath, {
+    type: "map",
+    title: "北湾局部图",
+    content: {
+      baseImage: null,
+      layers: [], markers: [], regions: [], labels: [],
+      scopeObjectId: fixture.location.id,
+      structure: { geographyRelationTypeIds: ["relation-type.geo"], administrationRelationTypeIds: ["relation-type.admin"] }
+    }
+  });
+  assert.deepEqual(map.objectRefs, [fixture.location.id]);
+  assert.equal(map.content.scopeObjectId, fixture.location.id);
+  assert.deepEqual(map.content.structure.geographyRelationTypeIds, ["relation-type.geo"]);
+  assert.throws(() => createVisualDocument(fixture.rootPath, {
+    type: "map", title: "错误范围", content: { baseImage: null, layers: [], markers: [], regions: [], labels: [], scopeObjectId: "location.missing" }
+  }), /unknown world object/i);
 });
 
 test("Map 2.0 validates multiple backgrounds, polygon styles, and label bounds", () => {

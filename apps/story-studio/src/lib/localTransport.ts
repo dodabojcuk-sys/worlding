@@ -834,6 +834,10 @@ export type MapContent = {
   markers: MapMarker[];
   regions: MapRegion[];
   labels: MapLabel[];
+  /** The range this presentation map is about; it is not a containment fact. */
+  scopeObjectId: string | null;
+  /** Explicit Relation Owner type IDs. Labels and free text are never inferred. */
+  structure: { geographyRelationTypeIds: string[]; administrationRelationTypeIds: string[] };
 };
 
 export type GraphNode = { id: string; objectId: string; x: number; y: number };

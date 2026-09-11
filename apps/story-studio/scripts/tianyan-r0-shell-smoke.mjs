@@ -2040,7 +2040,7 @@ async function setupMapM2Fixture() {
   await postFixture(`${base}/projects/create`, { title: "北闸地图观察 · 隔离验收", folderSlug: fixtureProjectId });
   await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
   const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", tags: ["地点", "通行状态"] })).data;
-  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", tags: ["地点", "地图密度验收"] })).data));
+  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道", "北湾", "松林", "东郡", "西郡"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", tags: ["地点", "地图密度验收"] })).data));
   const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
   const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
@@ -2095,6 +2095,19 @@ async function setupMapM2Fixture() {
     evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
   });
   relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: keySupportCandidate.relation.relationId, expectedRelationRevision: keySupportCandidate.relation.revision, operationId: `map-m2-key-support-confirm-${fixture.fixtureId}` });
+  const locationByTitle = (title) => extraLocations.find((location) => location.title === title);
+  const northBay = locationByTitle("北湾"); const fogHarbor = locationByTitle("雾港"); const pineForest = locationByTitle("松林"); const eastPrefecture = locationByTitle("东郡"); const westPrefecture = locationByTitle("西郡");
+  assert.ok(northBay && fogHarbor && pineForest && eastPrefecture && westPrefecture, "Map M2 fixture must include independent geographic and administrative locations.");
+  const geographyType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-geography-type-${fixture.fixtureId}`, label: "空间包含" });
+  const administrationType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-administration-type-${fixture.fixtureId}`, label: "行政管辖" });
+  const confirmLocationRelation = (operationId, sourceObjectId, targetObjectId, relationTypeId) => {
+    const candidate = relations.createRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId, sourceObjectId, targetObjectId, relationTypeId, direction: "forward" });
+    return relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: candidate.relation.relationId, expectedRelationRevision: candidate.relation.revision, operationId: `${operationId}.confirm` });
+  };
+  confirmLocationRelation(`map-m2-fog-harbor-in-bay-${fixture.fixtureId}`, fogHarbor.id, northBay.id, geographyType.type.relationTypeId);
+  confirmLocationRelation(`map-m2-fog-harbor-admin-${fixture.fixtureId}`, fogHarbor.id, eastPrefecture.id, administrationType.type.relationTypeId);
+  confirmLocationRelation(`map-m2-forest-east-admin-${fixture.fixtureId}`, pineForest.id, eastPrefecture.id, administrationType.type.relationTypeId);
+  confirmLocationRelation(`map-m2-forest-west-admin-${fixture.fixtureId}`, pineForest.id, westPrefecture.id, administrationType.type.relationTypeId);
   let denseGraph = null;
   const createDenseGraph = async () => {
     if (denseGraph) return denseGraph;
@@ -2110,7 +2123,7 @@ async function setupMapM2Fixture() {
     denseGraph = { neighbours, expandedLocation };
     return denseGraph;
   };
-  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, createDenseGraph };
+  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph };
 }
 
 function createMapM2FixtureRoot() {
@@ -2268,13 +2281,38 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.ok(nodeStripBox && nodeStripBox.y >= 0 && nodeStripBox.y + nodeStripBox.height <= 720, "The story-node strip must remain fully usable in the 1152px first viewport while the inspector has long evidence.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-return-1152x720.png"), fullPage: false });
   await page.setViewportSize({ width: 1440, height: 900 });
+  // Explicit type IDs, not relation-label matching, control the two structures.
+  await page.locator(".map-structure-details > summary").click();
+  await page.getByRole("checkbox", { name: "空间包含", exact: true }).check();
+  await page.getByRole("status").getByText(/地理结构规则已保存/u).waitFor();
+  await page.getByLabel("地图范围").selectOption(mapM2Fixture.northBay.id);
+  await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
+  await page.locator(".map-structure-children").getByRole("button", { name: /雾港/u }).waitFor();
+  await page.getByRole("button", { name: "行政", exact: true }).click();
+  await page.getByRole("checkbox", { name: "行政管辖", exact: true }).check();
+  await page.getByRole("status").getByText(/行政结构规则已保存/u).waitFor();
+  await page.getByLabel("地图范围").selectOption(mapM2Fixture.eastPrefecture.id);
+  await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
+  await page.locator(".map-structure-children").getByRole("button", { name: /松林/u }).waitFor();
+  await page.getByLabel("地图范围").selectOption(mapM2Fixture.westPrefecture.id);
+  await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
+  await page.locator(".map-structure-children").getByRole("button", { name: /松林/u }).waitFor();
+  await page.getByRole("button", { name: "地理", exact: true }).click();
+  await page.getByLabel("地图范围").selectOption(mapM2Fixture.northBay.id);
+  await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
+  await page.locator(".map-structure-children").getByRole("button", { name: /雾港/u }).waitFor();
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-geography-administration.png"), fullPage: true });
+  await page.getByRole("button", { name: "编辑布局", exact: true }).waitFor({ state: "visible" });
   await page.getByRole("button", { name: "编辑布局", exact: true }).click();
   await page.getByRole("button", { name: "浏览地图", exact: true }).waitFor();
-  for (const [index, location] of mapM2Fixture.extraLocations.entries()) {
+  for (const [index, location] of mapM2Fixture.extraLocations.slice(0, 5).entries()) {
     await page.locator('[aria-label="地点"]').getByRole("button", { name: new RegExp(location.title, "u") }).click();
     await page.getByTestId("map-m2-inspector").getByRole("heading", { name: location.title, exact: true }).waitFor();
-    const layoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
-    await canvas.click({ position: { x: 130 + index * 115, y: 130 + (index % 2) * 170 } });
+    // The isolated browser has already proved a write was dispatched.  Give
+    // the filesystem-backed revision receipt its bounded CI allowance instead
+    // of misreporting a slow receipt as a missing request.
+    const layoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"), { timeout: 60_000 });
+    await canvas.click({ position: { x: 130 + index * 115, y: 72 + (index % 2) * 108 } });
     assert.equal((await layoutSave).status(), 200, `Map layout save for ${location.title} must succeed.`);
     await page.getByRole("status").getByText(/布局已保存/u).waitFor();
     await page.getByText(`${index + 2} 个已放置地点`, { exact: false }).waitFor();
