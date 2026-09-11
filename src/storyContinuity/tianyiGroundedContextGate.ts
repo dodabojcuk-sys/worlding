@@ -13,6 +13,7 @@ import {
 export const TIANYI_GROUNDED_CONTEXT_REQUEST_VERSION = "story-tianyi-grounded-context-request/v1" as const;
 export const TIANYI_GROUNDED_SOURCE_MANIFEST_VERSION = "story-tianyi-grounded-source-manifest/v1" as const;
 export const TIANYI_GROUNDED_CONTEXT_HARD_BUDGET = 56_000;
+export const TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT = 24;
 
 export type TianyiGroundedAccessMode = "author" | "character";
 export type TianyiGroundedTaskKind = "grounded-answer";
@@ -291,7 +292,7 @@ export function normalizeTianyiGroundedSourceManifest(value: unknown): TianyiGro
     subjectRef: requestInput.subjectRef === null ? null : requireSourceKey(requestInput.subjectRef),
     sceneRef: requestInput.sceneRef === null ? null : requireSourceKey(requestInput.sceneRef),
     explicitRefs: stringArray(requestInput.explicitRefs, 5, requireSourceKey, "Tianyi grounded explicit source references"),
-    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, 6, requireSourceKey, "Tianyi grounded explicit event references") } : {})
+    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT, requireSourceKey, "Tianyi grounded explicit event references") } : {})
   };
   if (request.accessMode === "author" && request.subjectRef !== null) throw new Error("Author manifest cannot carry a subject.");
   if (request.accessMode === "character" && request.subjectRef === null) throw new Error("Character manifest requires a subject.");

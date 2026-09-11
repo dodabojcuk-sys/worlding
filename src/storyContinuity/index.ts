@@ -10,6 +10,7 @@ export * from "./boundedSourceMaterial.ts";
 export * from "./tianyiContextQuestion.ts";
 export * from "./tianyiObjectContext.ts";
 export * from "./tianyiGroundedContextGate.ts";
+export * from "./tianyiGroundedEvidenceRetrieval.ts";
 export * from "./tianyiGroundedAnswer.ts";
 export * from "./tianyiGroundedAnswerOperation.ts";
 export * from "./tianyiSessionOperations.ts";

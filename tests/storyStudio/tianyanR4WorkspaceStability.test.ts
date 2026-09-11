@@ -152,15 +152,17 @@ test("R4-R1 makes Work a durable global lane and moves Story Intake review into 
   assert.match(pending, /打开本批审阅/u);
 });
 
-test("R4-R2 reserves a visible global Work composer and reports bounded formal evidence honestly", () => {
+test("R4-R2 reserves a visible global Work composer and reports question-selected formal evidence honestly", () => {
   const workspace = source("apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx");
   const styles = source("apps/story-studio/src/styles/tianyi-workspace.css");
-  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 6/u);
+  assert.match(workspace, /MAX_GLOBAL_WORK_EVENT_REFS = 24/u);
   assert.match(workspace, /workContextState/u);
   assert.match(workspace, /tianyi-global-work-scroll/u);
   assert.match(workspace, /tianyi-work-context-events/u);
   assert.match(workspace, /eventRefs: globalWorkEventRefs/u);
-  assert.match(workspace, /globalWorkEvents[\s\S]{0,360}\.slice\(0, MAX_GLOBAL_WORK_EVENT_REFS\)/u);
+  assert.match(workspace, /selectTianyiGroundedEvidence/u);
+  assert.match(workspace, /按问题选中/u);
+  assert.match(workspace, /不会因低相关度被丢弃/u);
   assert.doesNotMatch(workspace, /attachment:\$\{crypto\.randomUUID\(\)\}/u);
   assert.doesNotMatch(workspace, /source:\$\{crypto\.randomUUID\(\)\}/u);
   assert.match(styles, /data-global-work="true"\] \.tianyi-conversation-column \{ display: grid/u);

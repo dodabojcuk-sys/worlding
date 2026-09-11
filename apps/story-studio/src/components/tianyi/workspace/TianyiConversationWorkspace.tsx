@@ -27,6 +27,9 @@ import {
   type WorldObject
 } from "../../../lib/localTransport";
 import { createStoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
+import {
+  selectTianyiGroundedEvidence
+} from "../../../../../../src/storyContinuity/tianyiGroundedEvidenceRetrieval.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
@@ -49,7 +52,8 @@ import {
 
 type Lane = "creative" | "review" | "work";
 type ConversationProjectVisit = { projectId: string | null; generation: number };
-const MAX_GLOBAL_WORK_EVENT_REFS = 6;
+/** Must stay at or below the Grounded Context Gate's server-enforced cap. */
+const MAX_GLOBAL_WORK_EVENT_REFS = 24;
 
 function sameConversationProjectVisit(current: ConversationProjectVisit, expected: ConversationProjectVisit) {
   return current.projectId === expected.projectId && current.generation === expected.generation;
@@ -72,6 +76,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [workContextUnits, setWorkContextUnits] = useState<StoryUnit[]>([]);
   const [selectedWorkUnitId, setSelectedWorkUnitId] = useState<string | null>(null);
   const [selectedWorkEventIds, setSelectedWorkEventIds] = useState<string[]>([]);
+  const [pinnedWorkEventIds, setPinnedWorkEventIds] = useState<string[]>([]);
+  const [removedWorkEventIds, setRemovedWorkEventIds] = useState<string[]>([]);
+  const [lastGroundedAnswer, setLastGroundedAnswer] = useState<Awaited<ReturnType<typeof streamTianyiGroundedAnswer>> | null>(null);
+  const [lastGroundedQuestion, setLastGroundedQuestion] = useState("");
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -97,6 +105,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setWorkContextUnits([]);
     setSelectedWorkUnitId(null);
     setSelectedWorkEventIds([]);
+    setPinnedWorkEventIds([]);
+    setRemovedWorkEventIds([]);
+    setLastGroundedAnswer(null);
+    setLastGroundedQuestion("");
     setBusy(false);
     setError("");
   }, [project?.id]);
@@ -109,21 +121,36 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         ? currentUnit?.linkedEntityIds ?? []
         : selectedWorkEventIds;
   }, [runtime.workScope, selectedWorkEventIds, selectedWorkUnitId, workContextEvents, workContextUnits]);
-  const globalWorkEvents = useMemo(() => workContextEvents.filter((event) => globalWorkTargetIds.includes(event.id)).slice(0, MAX_GLOBAL_WORK_EVENT_REFS), [globalWorkTargetIds, workContextEvents]);
+  const scopedWorkEvents = useMemo(() => workContextEvents.filter((event) => globalWorkTargetIds.includes(event.id)), [globalWorkTargetIds, workContextEvents]);
+  const globalWorkEvidence = useMemo(() => selectTianyiGroundedEvidence({
+    scope: runtime.workScope,
+    question: runtime.workComposerDraft,
+    events: runtime.workComposerDraft.trim() ? scopedWorkEvents.map((event) => ({
+      id: event.id,
+      title: event.title,
+      body: event.body,
+      status: event.status as "draft" | "planned" | "committed",
+      revisionToken: event.revisionToken
+    })) : [],
+    explicitEventIds: runtime.workScope === "selected-events" ? selectedWorkEventIds : [],
+    pinnedEventIds: pinnedWorkEventIds,
+    removedEventIds: removedWorkEventIds
+  }), [pinnedWorkEventIds, removedWorkEventIds, runtime.workComposerDraft, runtime.workScope, scopedWorkEvents, selectedWorkEventIds]);
+  const globalWorkEvents = useMemo(() => globalWorkEvidence.selected.map((item) => workContextEvents.find((event) => event.id === item.event.id)).filter((event): event is WorldObject => Boolean(event)), [globalWorkEvidence.selected, workContextEvents]);
   const globalWorkEventRefs = useMemo(() => {
     if (!project) return [];
     return globalWorkEvents.map((event) => createStoryStudioEventReference({ projectId: project.id, event, requestedUse: "constraint" }));
   }, [globalWorkEvents, project]);
-  const omittedGlobalWorkEventCount = Math.max(0, globalWorkTargetIds.length - globalWorkEvents.length);
+  const omittedGlobalWorkEventCount = globalWorkEvidence.omittedCount;
 
   const globalWorkContextLabel = runtime.workScope === "current-story"
     ? workContextState === "loading" ? "当前故事 · 正在读取正式事件"
       : workContextState === "failed" ? "当前故事 · 读取失败，尚未形成上下文"
-        : globalWorkEventRefs.length ? `当前故事 · 已附加 ${globalWorkEventRefs.length}/${globalWorkTargetIds.length} 项正式事件`
+        : globalWorkEventRefs.length ? `当前故事 · 按问题选中 ${globalWorkEventRefs.length}/${globalWorkEvidence.availableCount} 项正式事件`
           : "当前故事 · 暂无可引用的正式事件"
     : runtime.workScope === "current-unit"
-      ? `${workContextUnits.find((unit) => unit.id === selectedWorkUnitId)?.title ?? "尚未选择故事单元"} · ${globalWorkEventRefs.length} 项正式事件`
-      : `已选事件 · 已附加 ${globalWorkEventRefs.length}/${globalWorkTargetIds.length} 项`;
+      ? `${workContextUnits.find((unit) => unit.id === selectedWorkUnitId)?.title ?? "尚未选择故事单元"} · 按问题选中 ${globalWorkEventRefs.length} 项正式事件`
+      : `已选事件 · 按问题选中 ${globalWorkEventRefs.length}/${globalWorkEvidence.availableCount} 项`;
 
   const refreshWorkContext = useCallback(async () => {
     if (!project) return;
@@ -138,6 +165,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setWorkContextUnits(units);
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
       setSelectedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)).slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      setPinnedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
+      setRemovedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setWorkContextState("ready");
     } catch {
       if (visit === workContextVisit.current) setWorkContextState("failed");
@@ -416,6 +445,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         }));
         if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
         if (result.status !== "current" || !result.answer) throw new Error("天意回答未完整落盘；已保留原问题，可按回执重试。");
+        if (conversationLane === "work") {
+          setLastGroundedAnswer(result);
+          setLastGroundedQuestion(text);
+        }
       } else if (localFakeRuntime) {
         const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
           projectId: project.id,
@@ -545,6 +578,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
+  const openGroundedEvidenceEvent = (eventId: string) => {
+    const current = new URL(window.location.href);
+    const params = new URLSearchParams({ eventId, returnTo: `${current.pathname}${current.search}` });
+    window.history.pushState({}, "", `/event-line?${params.toString()}`);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
   const activeLegacyCandidate = useMemo(() => projection?.candidates.find((item) => item.candidateId === runtime.activeTianyiCandidateId) ?? null, [projection, runtime.activeTianyiCandidateId]);
   const activeIntakeResolution = useMemo(() => {
     const envelope = intakeRun?.storyIntakeEnvelope;
@@ -640,17 +680,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           /> : activeIntakeResolution ? <div className="story-intake-recovery" role="alert"><strong>无法恢复原候选</strong><p>{storyIntakeRecoveryMessage(activeIntakeResolution.status)}</p><button type="button" onClick={() => changeLane("review")}>返回当前批次审阅</button></div> : <>
             <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div>
             <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
-            {!activeLegacyCandidate ? <details className="tianyi-work-context-picker">
+            {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open>
               <summary>工作依据 · {globalWorkContextLabel}</summary>
               {runtime.workScope === "current-unit" ? <label>故事单元<select value={selectedWorkUnitId ?? ""} onChange={(event) => setSelectedWorkUnitId(event.target.value || null)}><option value="">尚未选择</option>{workContextUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : null}
-              {runtime.workScope === "selected-events" ? <fieldset><legend>选择至多 {MAX_GLOBAL_WORK_EVENT_REFS} 项正式事件</legend>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" data-event-id={event.id} checked={selectedWorkEventIds.includes(event.id)} onChange={() => setSelectedWorkEventIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : current.length < MAX_GLOBAL_WORK_EVENT_REFS ? [...current, event.id] : current)} />{event.title} · {event.status}</label>)}</fieldset> : null}
-              {workContextState === "loading" ? <p>正在读取当前项目的正式事件；发送暂不把它当成无上下文。</p> : workContextState === "failed" ? <p>正式事件暂时读取失败。草稿不会丢失；<button type="button" onClick={() => void refreshWorkContext()}>重新读取</button>后再发送。</p> : <><p>本次实际附加 {globalWorkEvents.length} 项可校验 Event；作者范围与本次证据范围分别显示。</p>{globalWorkEvents.length ? <ul className="tianyi-work-context-events">{globalWorkEvents.map((event) => <li key={`${event.id}:${event.revisionToken}`}><strong>{event.title}</strong><span>{event.status} · {event.revisionToken}</span></li>)}</ul> : <p>当前没有可附加的正式事件；可继续发送，但天意会明确按作者范围而非事件事实回答。</p>}{omittedGlobalWorkEventCount ? <p>当前范围还有 {omittedGlobalWorkEventCount} 项未附加。为保持有界上下文，请切换到“所选事件”并明确选择最多 {MAX_GLOBAL_WORK_EVENT_REFS} 项。</p> : null}</>}
+              {runtime.workScope === "selected-events" ? <fieldset><legend>显式选择至多 {MAX_GLOBAL_WORK_EVENT_REFS} 项正式事件（不会因低相关度被丢弃）</legend>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" data-event-id={event.id} checked={selectedWorkEventIds.includes(event.id)} onChange={() => setSelectedWorkEventIds((current) => current.includes(event.id) ? current.filter((id) => id !== event.id) : current.length < MAX_GLOBAL_WORK_EVENT_REFS ? [...current, event.id] : current)} />{event.title} · {event.status}</label>)}</fieldset> : null}
+              {workContextState === "loading" ? <p>正在读取当前项目的正式事件；发送暂不把它当成无上下文。</p> : workContextState === "failed" ? <p>正式事件暂时读取失败。草稿不会丢失；<button type="button" onClick={() => void refreshWorkContext()}>重新读取</button>后再发送。</p> : !runtime.workComposerDraft.trim() ? <p>输入一个问题后，天意会在当前范围内检索依据；预览和发送均不会调用 Provider，只有点击发送才进入既有回答链。</p> : <><p>本次按问题选中 {globalWorkEvents.length} 项可校验 Event；服务端会在发送前重新核验项目、状态和修订。</p>{globalWorkEvidence.selected.length ? <ul className="tianyi-work-context-events tianyi-grounded-evidence-preview">{globalWorkEvidence.selected.map((item) => <li key={`${item.event.id}:${item.event.revisionToken}`}><div><strong>{item.event.title}</strong><span>{item.event.status} · {item.reason}</span><p>{item.excerpt}</p></div><nav><button type="button" onClick={() => setPinnedWorkEventIds((current) => current.includes(item.event.id) ? current.filter((id) => id !== item.event.id) : [...current, item.event.id])}>{item.pinned ? "取消置顶" : "置顶"}</button><button type="button" onClick={() => setRemovedWorkEventIds((current) => [...new Set([...current, item.event.id])])}>移除</button><button type="button" onClick={() => openGroundedEvidenceEvent(item.event.id)}>查看来源</button></nav></li>)}</ul> : <p>当前范围没有可检索的正式事件；可以继续提问，但回答会明确来源不足。</p>}{omittedGlobalWorkEventCount ? <p>另有 {omittedGlobalWorkEventCount} 项未进入本次上下文；可切换范围、置顶，或在“所选事件”明确指定。</p> : null}{removedWorkEventIds.length ? <button type="button" className="tianyi-grounded-restore" onClick={() => setRemovedWorkEventIds([])}>恢复本问已移除的来源</button> : null}</>}
               {runtime.sharedTianyiReferences.length ? <p>此前的未绑定引用不会参与本次发送；上传与来源绑定尚未接通，当前不再创建演示引用。</p> : null}
             </details> : null}
             {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <>
               <section className="tianyi-visible-history tianyi-work-history" aria-label="当前工作对话">
                 {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
               </section>
+              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt" aria-label="本问来源回执"><header><div><small>已保存回答回执</small><h3>“{lastGroundedQuestion}”</h3></div><span>{lastGroundedAnswer.providerDispatchCount} 次模型发送</span></header><p>{lastGroundedAnswer.answer?.summary}</p><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源版本</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl><ul>{lastGroundedAnswer.includedSources.map((source) => <li key={source.sourceKey}>{workContextEvents.some((event) => event.id === source.sourceId) ? <button type="button" onClick={() => openGroundedEvidenceEvent(source.sourceId)}>{source.sourceId}</button> : <strong>{source.sourceId}</strong>}<span>{source.contentHash.slice(0, 12)} · {source.lane}</span></li>)}</ul></section> : null}
             </>}
           </>}
         </section>}

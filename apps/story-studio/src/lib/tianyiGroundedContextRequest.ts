@@ -8,6 +8,9 @@ import {
   type StoryStudioEventReference
 } from "../../../../src/storyContracts/storyStudioEventReference.ts";
 
+/** Must stay at or below the Grounded Context Gate's server-enforced cap. */
+const MAX_GROUNDED_EVENT_REFERENCES = 24;
+
 export function createTianyiGroundedContextRequest(input: {
   projectId: string;
   sessionId: string;
@@ -40,7 +43,7 @@ export function createTianyiGroundedContextRequest(input: {
     subjectRef: input.access.subjectRef,
     sceneRef,
     explicitRefs: [...explicit.values()].slice(0, 5),
-    ...(eventRefs.size ? { eventRefs: [...eventRefs.values()].slice(0, 6) } : {})
+    ...(eventRefs.size ? { eventRefs: [...eventRefs.values()].slice(0, MAX_GROUNDED_EVENT_REFERENCES) } : {})
   };
 }
 
