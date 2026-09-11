@@ -14,6 +14,7 @@ import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1W
 import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
+import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -59,6 +60,8 @@ export function ShellWorkspaceOutlet(props: {
   if (!props.shellLab && props.destination.id === "multiverse") {
     return <MultiverseB1Workspace runtime={props.runtime} />;
   }
+
+  if (!props.shellLab && props.destination.id === "library") return <MaterialsWorkspace runtime={props.runtime} />;
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
     return <MapM1Workspace runtime={props.runtime} />;
