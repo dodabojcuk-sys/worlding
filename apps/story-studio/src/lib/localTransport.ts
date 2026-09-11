@@ -378,7 +378,7 @@ export type ProviderSessionConnection = {
 export type TianyiObjectContextRef = {
   version: "story-tianyi-object-context-ref/v1";
   ownerType: "markdown-object" | "markdown-writing" | "visual-map" | "visual-timeline";
-  objectType: "character" | "location" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "map-marker" | "map-region" | "timeline-event";
+  objectType: "character" | "location" | "faction" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "map-marker" | "map-region" | "timeline-event";
   stableId: string;
   projectId: string;
   ownerId: string;

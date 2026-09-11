@@ -11,6 +11,7 @@ export const TIANYI_OBJECT_OWNER_TYPES = [
 export const TIANYI_OBJECT_TYPES = [
   "character",
   "location",
+  "faction",
   "event",
   "item",
   "rule",

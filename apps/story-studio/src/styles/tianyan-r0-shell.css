@@ -899,6 +899,8 @@ input:focus-visible {
 .map-m1-canvas.is-editing { cursor: crosshair; outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent); outline-offset: 2px; }
 .map-workbench-grid { position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: linear-gradient(color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px); background-size: 2.5rem 2.5rem; mask-image: linear-gradient(to bottom, black, transparent 130%); }
 .map-m2-viewport { position: absolute; inset: 0; pointer-events: none; transform-origin: center; transition: transform 120ms ease-out; }
+.map-background-file-input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.map-workbench-background { position: absolute; inset: 0; z-index: -1; inline-size: 100%; block-size: 100%; object-fit: contain; user-select: none; }
 .map-workbench-marker { position: absolute; display: grid; grid-template-columns: auto auto; align-items: center; gap: .15rem .35rem; min-width: 6.75rem; padding: .42rem .55rem; pointer-events: auto; color: var(--color-text); background: var(--color-surface); border: 2px solid var(--color-border-strong); border-radius: .65rem; box-shadow: var(--shadow-panel); transform: translate(-50%, -50%); font: inherit; text-align: start; cursor: pointer; }
 .map-workbench-marker > svg { grid-row: span 2; width: 1.15rem; height: 1.15rem; }
 .map-workbench-marker span { font-size: var(--font-size-sm); font-weight: 700; }

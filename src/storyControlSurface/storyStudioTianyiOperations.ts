@@ -524,6 +524,7 @@ export function createStoryStudioTianyiOperations(options: {
     if (request.sceneRef) candidates.push(resolveGroundedObjectCandidate(request, request.sceneRef, "scene"));
     if (request.subjectRef) candidates.push(resolveGroundedObjectCandidate(request, request.subjectRef, "subject"));
     for (const ref of request.explicitRefs) candidates.push(resolveGroundedObjectCandidate(request, ref, "evidence"));
+    const explicitRuleIds = new Set(request.explicitRefs.filter((ref) => ref.ownerType === "markdown-object" && ref.objectType === "rule").map((ref) => ref.stableId));
     for (const reference of request.eventRefs ?? []) candidates.push(resolveGroundedEventCandidate(request, reference));
 
     const scene = request.sceneRef?.ownerType === "markdown-writing"
@@ -531,6 +532,9 @@ export function createStoryStudioTianyiOperations(options: {
       : null;
     for (const summary of workspace.getStoryStudioWorldLibraryBootstrap({ projectId: request.projectId }).objects) {
       if (summary.type !== "rule") continue;
+      // One author-selected draft rule is evidence. Do not let the automatic
+      // constraint candidate with the same source key pre-empt it as inactive.
+      if (explicitRuleIds.has(summary.id)) continue;
       const rule = workspace.readWorldObject({ projectId: request.projectId, objectId: summary.id });
       const ref: TianyiObjectContextRef = {
         version: "story-tianyi-object-context-ref/v1",
@@ -610,7 +614,10 @@ export function createStoryStudioTianyiOperations(options: {
           return { ...base, contentHash: ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "SOURCE_MISSING" };
         }
         const scene = knownScene ?? (request.sceneRef ? safeReadWriting(request.projectId, request.sceneRef.ownerId) : null);
-        const ruleReason = object.type === "rule" ? groundedRuleReason(object, scene) : null;
+        // A rule that is merely selected by the author is evidence, not an
+        // automatically imposed constraint.  Only the automatic constraint
+        // lane requires an active locked rule linked to the current scene.
+        const ruleReason = object.type === "rule" && lane === "constraint" ? groundedRuleReason(object, scene) : null;
         return {
           ...base,
           contentHash: object.revisionToken,

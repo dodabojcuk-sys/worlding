@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
 import { CircleHelp, DoorOpen, Eye, FileText, LocateFixed, LockKeyhole, MapPin, Minus, PanelRight, PencilRuler, Plus } from "lucide-react";
 
-import { createVisualDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, listRelations, readWorldStateN4, updateVisualDocument, type MapDocument, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
+import { createVisualDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, importVisualAsset, listRelations, readWorldStateN4, updateVisualDocument, visualAssetUrl, type MapBackground, type MapDocument, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { relationActiveAtWorldTime, relationWorldTimeUnknownReason } from "../../../../../src/storyContracts/relationTemporalComparison.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -35,6 +35,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [message, setMessage] = useState("");
   const [mapTitle, setMapTitle] = useState("");
+  const backgroundInput = useRef<HTMLInputElement | null>(null);
   const drag = useRef<{ pointerId: number; x: number; y: number; viewport: MapViewport; moved: boolean } | null>(null);
   const map = maps.find((item) => item.id === mapId) ?? null;
 
@@ -103,6 +104,30 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const document: MapDocument = { ...map, content: { ...map.content, markers: map.content.markers.filter((item) => item.objectId !== locationId) } };
     setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("地点标记已移除；地点资料仍保留。" ); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "移除标记失败，请刷新后重试。" )).finally(() => setBusy(false));
   };
+  const importBackground = (file: File | null) => {
+    if (!file || !map || !projectId || busy) return;
+    if (!new Set(["image/png", "image/jpeg", "image/webp"]).has(file.type)) { setMessage("底图仅支持 PNG、JPEG 或 WebP；没有上传任何文件。"); return; }
+    const reader = new FileReader();
+    reader.onerror = () => setMessage("无法读取所选底图；没有修改地图。");
+    reader.onload = () => {
+      if (typeof reader.result !== "string") { setMessage("无法读取所选底图；没有修改地图。"); return; }
+      const base64 = reader.result.split(",", 2)[1];
+      if (!base64) { setMessage("底图内容为空；没有修改地图。"); return; }
+      const image = new Image();
+      image.onerror = () => setMessage("所选文件不是可读取的图片；没有修改地图。");
+      image.onload = () => {
+        setBusy(true);
+        void props.runtime.withConnection(async (token) => {
+          const asset = await importVisualAsset({ projectId, category: "maps", filename: file.name, mimeType: file.type, base64, token });
+          const background: MapBackground = { id: `background.${crypto.randomUUID()}`, title: file.name, assetPath: asset.relativePath, mimeType: asset.mimeType, width: image.naturalWidth, height: image.naturalHeight, opacity: 1, visible: true };
+          const document: MapDocument = { ...map, content: { ...map.content, backgrounds: [...map.content.backgrounds, background], activeBackgroundId: background.id, baseImage: { assetPath: background.assetPath, mimeType: background.mimeType, width: background.width, height: background.height } } };
+          return updateVisualDocument({ projectId, relativePath: map.relativePath, expectedHash: map.contentHash, document, token });
+        }).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("底图已保存到此地图；地点事实和世界状态没有被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "底图保存失败；没有修改地图。" )).finally(() => setBusy(false));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
   const startPan = (event: PointerEvent<HTMLElement>) => {
     if (editingLayout || event.button !== 0) return;
     drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, viewport, moved: false };
@@ -138,6 +163,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={saveMapTitle} disabled={busy} /></label> : null}
         <div className="map-workbench-toolbar-actions">
+          {map ? <><input ref={backgroundInput} className="map-background-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { importBackground(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} /><button type="button" onClick={() => backgroundInput.current?.click()} disabled={busy}>底图</button></> : null}
           <button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)}>{editingLayout ? <><Eye aria-hidden="true" />浏览地图</> : <><PencilRuler aria-hidden="true" />编辑布局</>}</button>
           <button type="button" aria-expanded={inspectorOpen} aria-controls="map-m2-inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" />{inspectorOpen ? "收起检查器" : "打开检查器"}</button>
         </div>
@@ -148,6 +174,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           <section className={`map-m1-canvas map-workbench-canvas ${editingLayout ? "is-editing" : "is-browsing"}`} aria-label="地点示意图画布" onClick={(event) => selected && place(selected, event)} onPointerDown={startPan} onPointerMove={pan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={zoomCanvas}>
             <div className="map-workbench-grid" aria-hidden="true" />
             <div className="map-m2-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>
+              {map.content.backgrounds.filter((background) => background.visible).map((background) => <img key={background.id} className={`map-workbench-background ${background.id === map.content.activeBackgroundId ? "is-active" : ""}`} src={visualAssetUrl(projectId, background.assetPath)} alt="" style={{ opacity: background.opacity }} draggable={false} />)}
               {map.content.markers.map((marker) => {
                 const location = locations.find((item) => item.id === marker.objectId);
                 const markerStateValue = location?.id === selected?.id ? state : "unloaded";

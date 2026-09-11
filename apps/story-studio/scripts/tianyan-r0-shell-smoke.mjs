@@ -95,9 +95,11 @@ const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || pr
 const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
 const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
+const worldMaterialsOnly = process.env.TIANYAN_E2E_SCOPE === "world-materials-m1";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
+const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -108,6 +110,7 @@ let narrativeFixture = null;
 let r1CausalFixture = null;
 let characterFixture = null;
 let mapM2Fixture = null;
+let worldMaterialsFixture = null;
 let server;
 let apiServer;
 let browser;
@@ -201,6 +204,9 @@ try {
   } else if (mapM2StoryObservationOnly) {
     await setupMapM2Fixture();
     await assertMapM2StoryObservation(page, consoleProblems);
+  } else if (worldMaterialsOnly) {
+    await setupWorldMaterialsFixture();
+    await assertWorldMaterialsM1(page, consoleProblems);
   } else if (agentFakeStreamOnly) {
     await setupCharacterFixture();
     await setupEventGraphFixture();
@@ -2309,6 +2315,85 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("event-line-workbench").waitFor();
   await page.getByRole("alert").getByText("关系依据的事件修订不匹配，未展示较新的事件内容。请返回关系查看核对来源。", { exact: true }).waitFor();
   assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
+}
+
+async function setupWorldMaterialsFixture() {
+  const base = `${apiUrl}/__local/story-studio`;
+  await postFixture(`${base}/projects/create`, { title: "雾港资料工作区 · 隔离验收", folderSlug: fixtureProjectId });
+  await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
+  const fogHarbor = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", body: "雾港是北闸外的港口。" })).data;
+  const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", body: "北闸是雾港的通行关口。" })).data;
+  const guard = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "faction", title: "雾港守卫", status: "active", body: "守卫负责执行港区规则。" })).data;
+  worldMaterialsFixture = { fogHarbor, northGate, guard };
+}
+
+async function assertWorldMaterialsM1(page, consoleProblems) {
+  assert.ok(worldMaterialsFixture, "World materials browser acceptance needs its isolated fixture.");
+  if (worldMaterialsEvidenceDirectory) mkdirSync(worldMaterialsEvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (worldMaterialsEvidenceDirectory) await page.screenshot({ path: path.join(worldMaterialsEvidenceDirectory, name), fullPage: false }); };
+  const base = `${apiUrl}/__local/story-studio`;
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
+  const background = page.locator(".map-background-file-input");
+  await background.setInputFiles({ name: "mist-harbor-base.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlKfKIAAAAASUVORK5CYII=", "base64") });
+  await page.getByRole("status").getByText(/底图已保存/u).waitFor();
+  const visual = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const map = visual.data.documents.find((document) => document.type === "map");
+  assert.equal(map.content.backgrounds.length, 1, "Normal map upload persists one background in the existing VisualDocument owner.");
+  assert.ok(map.content.baseImage?.assetPath, "The active background also projects through the compatibility base-image field.");
+  await page.locator('[aria-label="地点"]').getByRole("button", { name: /北闸/u }).click();
+  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await page.locator('[aria-label="地点示意图画布"]').click({ position: { x: 280, y: 240 } });
+  await page.getByRole("status").getByText(/布局已保存/u).waitFor();
+  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await capture("01-map-base-and-north-gate.png");
+
+  await gotoProduct(page, `${baseUrl}/library?locale=zh-CN`);
+  await page.getByRole("button", { name: "新建资料", exact: true }).click();
+  await page.getByLabel("资料类型").selectOption("rule");
+  await page.getByLabel("标题").fill("雾港夜间宵禁");
+  await page.getByLabel("正文").fill("雾港实行夜间宵禁；守卫组织在北闸封闭后执行检查。");
+  await page.getByLabel("标签").fill("雾港、规则、守卫");
+  await page.getByRole("button", { name: "建立资料", exact: true }).click();
+  await page.getByRole("status").getByText(/资料已建立/u).waitFor();
+  await page.getByLabel("插入关联").selectOption({ label: "地点 · 雾港" });
+  await page.getByRole("button", { name: "插入到正文", exact: true }).click();
+  await page.getByRole("button", { name: "保存资料", exact: true }).click();
+  await page.getByRole("status").getByText(/资料已保存/u).waitFor();
+  await page.getByText("雾港", { exact: true }).last().waitFor();
+  await capture("02-material-rule-link-and-version.png");
+  const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const rule = library.data.objects.find((object) => object.title === "雾港夜间宵禁");
+  assert.ok(rule, "Normal materials UI creates a stable World Object.");
+  const ruleDetail = await getFixture(`${base}/world-object?projectId=${encodeURIComponent(fixtureProjectId)}&objectId=${encodeURIComponent(rule.id)}`);
+  assert.ok(ruleDetail.data.linkedObjects.some((item) => item.title === "雾港"), "Saving the inserted Markdown link uses the existing backlink/link projection.");
+
+  await page.getByRole("button", { name: "在天意明确引用", exact: true }).click();
+  const materialPicker = page.locator(".tianyi-material-context-picker");
+  await materialPicker.waitFor();
+  const materialOption = materialPicker.getByLabel(new RegExp("雾港夜间宵禁", "u"));
+  await materialOption.waitFor();
+  assert.equal(await materialOption.isChecked(), true, "A material handoff preselects the precise author-chosen object rather than a global library default.");
+  assert.match(await materialPicker.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The Tianyi preview displays the selected material revision.");
+  const resolved = await postFixture(`${base}/model-service/tianyi-object-context/resolve`, { projectId: fixtureProjectId, objectContextRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixtureProjectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] });
+  assert.equal(resolved.data[0].state, "current", "The formal resolve endpoint accepts the exact selected material revision before any Provider request.");
+  await capture("03-tianyi-material-preview.png");
+  const composer = page.locator(".tianyi-workspace-composer textarea");
+  await composer.fill("雾港夜间宵禁会怎样影响北闸的通行安排？");
+  await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+  const receipt = page.getByLabel("本问来源回执");
+  await receipt.waitFor();
+  await receipt.getByRole("button", { name: rule.id, exact: true }).waitFor();
+  assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision.");
+  await capture("04-tianyi-material-receipt.png");
+  await receipt.getByRole("button", { name: rule.id, exact: true }).click();
+  await page.getByRole("button", { name: "返回来源", exact: true }).waitFor();
+  await page.getByRole("button", { name: "返回来源", exact: true }).click();
+  await receipt.waitFor();
+  assert.equal(new URL(page.url()).pathname, "/tianyi", "Material source return must restore the saved Tianyi receipt route.");
+  assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
+  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, mapId: map.id, mapHash: map.contentHash, material: { id: rule.id, revision: rule.revisionToken, type: rule.type }, providerDispatches: 1, note: "One local-fake grounded answer verifies the frozen source receipt and source-return flow; it is not a real Provider call." }, null, 2)}\n`, "utf8");
 }
 
 async function setupR1CausalFixture() {
