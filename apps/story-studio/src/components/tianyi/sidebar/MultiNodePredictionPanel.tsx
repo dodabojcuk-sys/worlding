@@ -137,14 +137,30 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
     if (!project || !run) return;
     let active = true;
     const generation = receiptRecoveryGeneration.current;
-    void listMultiNodePredictionReviews(project.id, run.runId).then((reviews) => {
-      const drafted = reviews.find((review) => review.status === "drafted");
-      const recoveredView = predictionViewStateFromDraftedReceiptRecovery({ runStatus: run.status, hasDraftedReceipt: Boolean(drafted) });
-      if (!active || receiptRecoveryGeneration.current !== generation || !drafted || !recoveredView) return;
-      setPathId(drafted.pathId); setSelectedNodeIds(drafted.selectedCandidateNodeIds); setReceipt(normalizeReceipt(drafted));
-      setViewState(recoveredView);
-      announceSelection({ runId: run.runId, pathId: drafted.pathId, selectedCandidateNodeIds: drafted.selectedCandidateNodeIds, origin: "tianyi" });
-    }).catch(() => undefined);
+    // The review receipt is the durable author-facing record.  A page reload
+    // can race the local projection's first read just after its atomic write;
+    // retry that read briefly instead of leaving an accepted result invisible.
+    // This does not create, accept, or replay anything, and it stays bounded
+    // so a genuinely absent receipt is never presented as success.
+    void (async () => {
+      for (let attempt = 0; active && receiptRecoveryGeneration.current === generation && attempt < 6; attempt += 1) {
+        try {
+          const reviews = await listMultiNodePredictionReviews(project.id, run.runId);
+          const drafted = reviews.find((review) => review.status === "drafted");
+          const recoveredView = predictionViewStateFromDraftedReceiptRecovery({ runStatus: run.status, hasDraftedReceipt: Boolean(drafted) });
+          if (drafted && recoveredView) {
+            if (!active || receiptRecoveryGeneration.current !== generation) return;
+            setPathId(drafted.pathId); setSelectedNodeIds(drafted.selectedCandidateNodeIds); setReceipt(normalizeReceipt(drafted));
+            setViewState(recoveredView);
+            announceSelection({ runId: run.runId, pathId: drafted.pathId, selectedCandidateNodeIds: drafted.selectedCandidateNodeIds, origin: "tianyi" });
+            return;
+          }
+        } catch {
+          // A later bounded read may recover a just-persisted receipt.
+        }
+        if (attempt < 5) await new Promise((resolve) => window.setTimeout(resolve, 120 * (attempt + 1)));
+      }
+    })();
     return () => { active = false; };
   }, [project, run]);
 

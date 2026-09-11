@@ -256,6 +256,8 @@ function normalizeDocument(root, input, options = { operation: "create", current
 
 function normalizeMapContent(root, value) {
   const input = cloneJsonObject(value || {});
+  const scopeObjectId = input.scopeObjectId == null || input.scopeObjectId === "" ? null : requireText(input.scopeObjectId, "Map scope object", 160);
+  const structure = normalizeMapStructure(input.structure);
   const layers = Array.isArray(input.layers) ? input.layers.map((layer) => ({
     id: requireText(layer?.id, "Map layer id", 120),
     title: requireText(layer?.title, "Map layer title", 80),
@@ -339,7 +341,20 @@ function normalizeMapContent(root, value) {
       treatment: ["none", "outline", "plate"].includes(label?.treatment) ? label.treatment : "outline"
     };
   });
-  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels };
+  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, scopeObjectId, structure };
+}
+
+/**
+ * A map may name the relation types it reads as geography or administration.
+ * These IDs are display configuration only: the underlying relation remains
+ * owned by Relation Owner and unclassified legacy labels stay unclassified.
+ */
+function normalizeMapStructure(value) {
+  const input = cloneJsonObject(value || {});
+  return {
+    geographyRelationTypeIds: uniqueTextList(input.geographyRelationTypeIds, "Geography relation type", 80),
+    administrationRelationTypeIds: uniqueTextList(input.administrationRelationTypeIds, "Administration relation type", 80)
+  };
 }
 
 function normalizeGraphContent(root, value, options = {}) {
@@ -580,7 +595,7 @@ function normalizeBaseImage(root, value) {
 
 function deriveObjectRefs(root, type, content) {
   const refs = type === "map"
-    ? [...content.markers.map((marker) => marker.objectId), ...content.regions.map((region) => region.objectId).filter(Boolean)]
+    ? [...content.markers.map((marker) => marker.objectId), ...content.regions.map((region) => region.objectId).filter(Boolean), ...(content.scopeObjectId ? [content.scopeObjectId] : [])]
     : type === "graph"
       ? content.nodes.map((node) => node.objectId)
       : type === "canvas"
@@ -618,7 +633,7 @@ function validateObjectRefs(root, refs) {
 }
 
 function defaultContent(type) {
-  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [] };
+  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] } };
   if (type === "graph") return { nodes: [], edges: [], proposals: [], filters: { objectTypes: [] } };
   if (type === "canvas") return { nodes: [], edges: [], groups: [] };
   if (type === "timeline") return {

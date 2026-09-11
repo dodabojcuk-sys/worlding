@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createLocationTopologyProjection } from "../../src/storyContracts/storyStudioLocationTopology.ts";
+import { createLocationTopologyProjection, createTypedLocationStructureProjection } from "../../src/storyContracts/storyStudioLocationTopology.ts";
 
 test("location topology is a deterministic confirmed-only projection with explicit candidates and region hints", () => {
   const objects = [
@@ -21,4 +21,28 @@ test("location topology is a deterministic confirmed-only projection with explic
   assert.equal(projection.nodes.find((node) => node.objectId === "location.port")?.region, "北岸");
   assert.deepEqual(projection.confirmedEdges.map((edge) => edge.relationId), ["relation.port-lighthouse"]);
   assert.deepEqual(projection.candidateEdges.map((edge) => edge.relationId), ["relation.candidate"]);
+});
+
+test("geography and administration use separately selected relation types", () => {
+  const objects = [
+    { id: "location.fog-harbor", title: "雾港", type: "location" },
+    { id: "location.north-bay", title: "北湾", type: "location" },
+    { id: "location.pine-forest", title: "松林", type: "location" },
+    { id: "location.east-prefecture", title: "东郡", type: "location" },
+    { id: "location.west-prefecture", title: "西郡", type: "location" }
+  ];
+  const relations = [
+    { relationId: "geo.harbor-bay", sourceObjectId: "location.fog-harbor", targetObjectId: "location.north-bay", relationTypeId: "type.geo-contained", currentTypeLabel: "空间包含", relationLabelSnapshot: "空间包含", reviewState: "confirmed" as const, archived: false },
+    { relationId: "admin.harbor-east", sourceObjectId: "location.fog-harbor", targetObjectId: "location.east-prefecture", relationTypeId: "type.admin-governs", currentTypeLabel: "行政管辖", relationLabelSnapshot: "行政管辖", reviewState: "confirmed" as const, archived: false },
+    { relationId: "admin.forest-east", sourceObjectId: "location.pine-forest", targetObjectId: "location.east-prefecture", relationTypeId: "type.admin-governs", currentTypeLabel: "行政管辖", relationLabelSnapshot: "行政管辖", reviewState: "confirmed" as const, archived: false },
+    { relationId: "admin.forest-west", sourceObjectId: "location.pine-forest", targetObjectId: "location.west-prefecture", relationTypeId: "type.admin-governs", currentTypeLabel: "行政管辖", relationLabelSnapshot: "行政管辖", reviewState: "confirmed" as const, archived: false },
+    { relationId: "legacy.ambiguous", sourceObjectId: "location.pine-forest", targetObjectId: "location.north-bay", relationTypeId: "type.legacy", currentTypeLabel: "位于", relationLabelSnapshot: "位于", reviewState: "confirmed" as const, archived: false }
+  ];
+  const rule = { geographyRelationTypeIds: ["type.geo-contained"], administrationRelationTypeIds: ["type.admin-governs"] };
+  const geography = createTypedLocationStructureProjection({ objects, relations, rule, kind: "geography" });
+  const administration = createTypedLocationStructureProjection({ objects, relations, rule, kind: "administration" });
+  assert.deepEqual(geography.edges.map((edge) => edge.relationId), ["geo.harbor-bay"]);
+  assert.deepEqual(administration.edges.map((edge) => edge.relationId), ["admin.harbor-east", "admin.forest-east", "admin.forest-west"]);
+  assert.equal(administration.childrenByParentId.get("location.east-prefecture")?.length, 2);
+  assert.equal(geography.unclassifiedRelationCount, 4);
 });

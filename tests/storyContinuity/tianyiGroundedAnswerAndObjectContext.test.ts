@@ -73,6 +73,17 @@ test("Object Context accepts a bounded item reference without copying evidence p
   assert.equal("body" in item, false);
 });
 
+test("Object Context accepts a faction reference for an author-selected world material", () => {
+  const [faction] = normalizeTianyiObjectContextRefs([objectRef({
+    objectType: "faction",
+    stableId: "faction.mist-harbor-watch",
+    ownerId: "faction.mist-harbor-watch",
+    label: "雾港守卫"
+  })]);
+  assert.equal(faction.objectType, "faction");
+  assert.equal(faction.contentHash, HASH_A);
+});
+
 test("Grounded answer accepts a confirmed fake-betrayal fact with exact current source", () => {
   const sourceRef = "gray-tower:markdown-object:character.lin-lan:character:character.lin-lan";
   const answer = normalizeTianyiGroundedAnswer({
