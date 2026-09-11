@@ -128,7 +128,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           <button type="button" aria-expanded={inspectorOpen} aria-controls="map-m2-inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" />{inspectorOpen ? "收起检查器" : "打开检查器"}</button>
         </div>
       </header>
-      {message ? <p className="map-workbench-message" role="status">{message}</p> : null}
+      <div className="map-workbench-notice" aria-live="polite">{message ? <p className="map-workbench-message" role="status">{message}</p> : null}</div>
       {!maps.length ? <section className="map-workbench-empty"><h1>建立第一张地点地图</h1><p>地点布局只保存到地图，不会改变地点、关系或角色知情。</p><button type="button" className="primary-action" disabled={busy} onClick={create}>建立地点示意图</button></section> : !map ? <p className="map-workbench-message" role="alert">请选择一张可用地图；没有自动跳转到第一张地图。</p> : <>
         <div className={`map-workbench-body ${inspectorOpen ? "" : "is-inspector-collapsed"}`}>
           <section className={`map-m1-canvas map-workbench-canvas ${editingLayout ? "is-editing" : "is-browsing"}`} aria-label="地点示意图画布" onClick={(event) => selected && place(selected, event)} onPointerDown={startPan} onPointerMove={pan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={zoomCanvas}>
@@ -189,10 +189,15 @@ function MapInspector(props: { selected: WorldObjectSummary | null; data: MapIns
   if (!props.data) return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" aria-busy="true"><h2>{props.selected.title}</h2><p>正在读取同一版本、同一观察位置的状态、关系与来源……</p></aside>;
   const data = props.data;
   const stateText = data.state.status === "unknown" ? "无法确定该观察位置的状态：尚无可用正式记录。" : describeWorldState(data.state.value, data.labels);
+  const evidence = data.state.change?.evidence.event ?? null;
+  const currentEvidence = evidence ? data.events.find((event) => event.id === evidence.id && event.revisionToken === evidence.revision) ?? null : null;
+  const relatedEvents = data.events.filter((event) => event.id !== currentEvidence?.id);
   return <aside id="map-m2-inspector" className="map-m1-inspector map-workbench-inspector" aria-label="地点检查器" data-testid="map-m2-inspector">
     <header><div><span>地点检查器</span><h2>{props.selected.title}</h2></div><span className={`map-workbench-state-chip is-${markerState(props.selected, data)}`}>{markerStateLabel(markerState(props.selected, data))}</span></header>
-    <section><h3>{props.observation.kind === "current" ? "当前状态" : "所选节点之后"}</h3><p>{stateText}</p>{data.state.change ? <button className="map-workbench-source-link" type="button" onClick={() => openSource(data.state.change!.evidence.event.id)}><FileText aria-hidden="true" />查看状态依据</button> : null}</section>
-    <section><h3>依据预览</h3>{data.events.length ? <div className="map-workbench-source-preview">{data.events.map((event) => <article key={event.id}><strong>{event.title}</strong><p>{event.body ? event.body.slice(0, 140) : "此事件没有可预览的正文。"}</p><button type="button" onClick={() => openSource(event.id)}>打开完整事件</button></article>)}</div> : <p>当前范围没有可精确定位的正式事件。</p>}{data.unavailableEventCount ? <small>有 {data.unavailableEventCount} 条依据的版本修订无法在当前范围精确读取，未显示为另一版本正文。</small> : null}</section>
+    <section><h3>{props.observation.kind === "current" ? "当前状态" : "所选节点之后"}</h3><p>{stateText}</p>{evidence ? <a className="map-workbench-source-link" href="#map-current-evidence"><FileText aria-hidden="true" />查看状态依据</a> : null}</section>
+    <section id="map-current-evidence"><h3>当前状态依据</h3>{currentEvidence ? <article className="map-workbench-source-preview"><strong>{currentEvidence.title}</strong><p>{eventPreview(currentEvidence)}</p><button type="button" onClick={() => openSource(currentEvidence.id)}>打开完整事件</button></article> : evidence ? <p role="alert">当前状态依据在此版本中无法精确读取；没有以同名或其他事件替代。</p> : <p>当前状态没有可定位的正式事件依据。</p>}</section>
+    {relatedEvents.length ? <details className="map-workbench-related-events"><summary>关联记录（{relatedEvents.length}）</summary><ul>{relatedEvents.map((event) => <li key={event.id}><button type="button" onClick={() => openSource(event.id)}>{event.title}</button></li>)}</ul></details> : null}
+    {data.unavailableEventCount ? <small>有 {data.unavailableEventCount} 条依据的版本修订无法在当前范围精确读取，未显示为另一版本正文。</small> : null}
     <section><h3>局部正式关系</h3>{data.relations.length ? <ul>{data.relations.map((relation) => { const otherId = relation.sourceObjectId === props.selected!.id ? relation.targetObjectId : relation.sourceObjectId; return <li key={relation.relationId}><button type="button" onClick={() => openSource("", relation.relationId)}>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</button><small>{data.labels.get(otherId) ?? "关联对象"}</small></li>; })}</ul> : <p>此观察位置没有可定位的已确认正式关系。</p>}{data.unlocatedRelationCount ? <small>{data.unlocatedRelationCount} 条关系缺少故事生效时间，未伪装成该节点的历史状态。</small> : null}</section>
     <details><summary>阅读范围与技术详情</summary><p>地图是作者视图；切换节点不会写入角色的听闻、信念或记忆。</p><code>{props.selected.id}</code><code>{props.mapId}</code><code>{observationKey(props.observation)}</code></details>
   </aside>;
@@ -211,6 +216,10 @@ function eventLabel(events: readonly WorldObject[], eventId: string): string { r
 function relationAt(relation: RelationReadProjectionR0, observedAt: string): boolean { const temporal = relation.temporal; return Boolean(temporal?.validFrom && temporal.validFrom <= observedAt && (!temporal.validTo || temporal.validTo > observedAt) && !relation.archived); }
 function uniqueEventRefs(values: Array<{ id: string; revision: string }>): Array<{ id: string; revision: string }> { return values.filter((value, index) => values.findIndex((other) => other.id === value.id && other.revision === value.revision) === index); }
 function describeWorldState(value: MapInspectorData["state"]["value"], labels: ReadonlyMap<string, string>): string { if (!value) return "无法确定该观察位置的状态：尚无可用正式记录。"; if (value.kind === "passage") return value.state === "open" ? "通行状态：可通行。" : value.state === "closed" ? "通行状态：封闭。" : "通行状态：未知。"; if (value.state === "held" && value.holder) return `持有状态：由 ${labels.get(value.holder.id) ?? "已记录对象"} 持有。`; return value.state === "unheld" ? "持有状态：未持有。" : "持有状态：未知。"; }
+function eventPreview(event: WorldObject): string {
+  const summary = event.tags.find((tag) => /^(?:观测摘要|摘要)[：:]/u.test(tag))?.replace(/^(?:观测摘要|摘要)[：:]/u, "").trim();
+  return summary || "此事件没有作者摘要；请打开完整事件阅读已核验正文。";
+}
 
 type MarkerState = "open" | "closed" | "unknown" | "unloaded";
 function markerState(_selected: WorldObjectSummary | null, data: MapInspectorData | null): MarkerState {

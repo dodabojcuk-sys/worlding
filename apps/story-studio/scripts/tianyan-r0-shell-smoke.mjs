@@ -2028,6 +2028,7 @@ async function setupMapM2Fixture() {
   await postFixture(`${base}/projects/create`, { title: "北闸地图观察 · 隔离验收", folderSlug: fixtureProjectId });
   await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
   const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", tags: ["地点", "通行状态"] })).data;
+  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", tags: ["地点", "地图密度验收"] })).data));
   const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
   const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
@@ -2070,7 +2071,7 @@ async function setupMapM2Fixture() {
     evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: closed.id, revisionToken: closed.revisionToken, state: "committed", requestedUse: "constraint" } }]
   });
   relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relationCandidate.relation.relationId, expectedRelationRevision: relationCandidate.relation.revision, operationId: `map-m2-relation-confirm-${fixture.fixtureId}` });
-  mapM2Fixture = { northGate, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId };
+  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId };
 }
 
 function createMapM2FixtureRoot() {
@@ -2132,8 +2133,11 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
   await page.locator('[data-state="open"]').getByText("可通行", { exact: true }).waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-reopened.png"), fullPage: true });
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-reopened-1440x900.png"), fullPage: false });
+  await page.getByRole("link", { name: "查看状态依据", exact: true }).click();
+  await page.getByTestId("map-m2-inspector").getByText(/北闸恢复通行/u).first().waitFor();
   const sourceReadRequest = page.waitForRequest((request) => request.url().includes("/event-line/event?") && request.url().includes(encodeURIComponent(mapM2Fixture.reopened.id)));
-  await page.getByRole("button", { name: "查看状态依据", exact: true }).click();
+  await page.getByTestId("map-m2-inspector").getByRole("button", { name: "打开完整事件", exact: true }).click();
   await sourceReadRequest;
   await page.getByRole("button", { name: "返回地点地图", exact: true }).waitFor();
   await page.getByText(/北闸恢复通行/u).first().waitFor();
@@ -2150,8 +2154,22 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1152, height: 720 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The normal map controls must remain usable without page-level horizontal overflow at 1152px.");
+  const nodeStrip = page.locator('[aria-label="故事观察位置"]');
+  const nodeStripBox = await nodeStrip.boundingBox();
+  assert.ok(nodeStripBox && nodeStripBox.y >= 0 && nodeStripBox.y + nodeStripBox.height <= 720, "The story-node strip must remain fully usable in the 1152px first viewport while the inspector has long evidence.");
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-return-1152x720.png"), fullPage: false });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  for (const [index, location] of mapM2Fixture.extraLocations.entries()) {
+    await page.locator('[aria-label="地点"]').getByRole("button", { name: new RegExp(location.title, "u") }).click();
+    await canvas.click({ position: { x: 130 + index * 115, y: 130 + (index % 2) * 170 } });
+    await page.getByRole("status").getByText(/布局已保存/u).waitFor();
+  }
+  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await page.locator('[data-state="unloaded"]').count().then((count) => assert.ok(count >= 5, "Additional formal locations must remain visibly unverified rather than inheriting North Gate's state."));
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-multi-location.png"), fullPage: true });
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-multi-location-1440x900.png"), fullPage: false });
   if (mapM2EvidenceDirectory) {
-    await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-return-restored.png"), fullPage: true });
     writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, relationId: mapM2Fixture.relationId, providerDispatches: 0 }, null, 2)}\n`, "utf8");
   }
   assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
