@@ -2742,6 +2742,17 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.setViewportSize({ width: 1152, height: 720 });
   await receipt.scrollIntoViewIfNeeded();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Materials and receipt layouts must not create page-level horizontal overflow at 1152px.");
+
+  const unversionedProjectId = `materials-unversioned-${fixture.fixtureId}`;
+  await postFixture(`${base}/projects/create`, { title: "旧作品兼容 · 尚未建立版本", folderSlug: unversionedProjectId });
+  await postFixture(`${base}/projects/open`, { projectId: unversionedProjectId });
+  const unversionedLocation = (await postFixture(`${base}/world-objects/create`, { projectId: unversionedProjectId, type: "location", title: "旧港口", status: "active", body: "旧作品中的地点资料。" })).data;
+  const unversionedReturn = `/library?materialId=${encodeURIComponent(unversionedLocation.id)}`;
+  await gotoProduct(page, `${baseUrl}/library?libraryView=relations&relationCenter=${encodeURIComponent(unversionedLocation.id)}&relationReturn=${encodeURIComponent(unversionedReturn)}&locale=zh-CN`);
+  await page.getByRole("heading", { name: "当前作品尚未建立作品版本", exact: true }).waitFor();
+  await page.getByText("没有为旧作品猜造版本，也没有读取其他版本关系。", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "返回来源", exact: true }).click();
+  assert.equal(new URL(page.url()).searchParams.get("materialId"), unversionedLocation.id, "An unversioned legacy project keeps the material return target instead of remaining in a loading state.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
   if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHash: map.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 1, realProviderDispatches: 0, sourceReturn: "exact-object-history-by-content-hash", note: "One local-fake grounded answer verifies selected body transfer and frozen source return; it is not a real Provider call." }, null, 2)}\n`, "utf8");
 }
