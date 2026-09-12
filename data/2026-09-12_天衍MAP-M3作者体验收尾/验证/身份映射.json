@@ -1,0 +1,25 @@
+{
+  "projectId": "r061-e2e-a862eec6b554435bb2c6f145cf9927f3",
+  "workVersionId": "work-version.root.cb8505d67e043b9b237e3b5c6b1623c0",
+  "maps": {
+    "northBay": {
+      "id": "map.地点示意图",
+      "contentHash": "f3e828621e6d11850ad6cc98ee11c35fa865a0b1c57078c728560a83570563d7"
+    },
+    "fogHarbor": {
+      "id": "map.雾港-局部地图",
+      "contentHash": "d13b1aef8c5fd9edbd5826d9d9c501e73b316f250db8726bd38f6ad55abf2faf"
+    },
+    "starfield": {
+      "id": "map.新星域",
+      "contentHash": "cb7d8574fb33833306c68359afd6b803a631949e3e6ae1fb0994a278f94280df"
+    },
+    "planet": {
+      "id": "map.澜星-局部地图",
+      "contentHash": "64796a6f28f30fcf4a02de8aac5faae153f1a7ad63c6efebfe43712be08f651d"
+    }
+  },
+  "simulatedProviderDispatches": 1,
+  "realProviderDispatches": 0,
+  "sourceReturn": "exact-map-and-drawing"
+}
