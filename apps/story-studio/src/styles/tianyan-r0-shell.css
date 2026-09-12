@@ -960,6 +960,10 @@ input:focus-visible {
 .map-workbench-toolbar-actions button, .map-workbench-canvas-controls button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 2.2rem; padding-inline: .6rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .map-workbench-toolbar-actions button svg, .map-workbench-canvas-controls button svg { width: 1rem; height: 1rem; }
 .map-workbench-toolbar-actions button[aria-pressed="true"] { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.map-navigation-crumbs { order: 20; display: flex; align-items: center; gap: .3rem; flex-basis: 100%; min-width: 0; padding-block-start: .35rem; border-block-start: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.map-navigation-crumbs button { min-height: 1.8rem; padding-inline: .4rem; color: var(--color-accent); background: transparent; border: 0; font: inherit; cursor: pointer; }
+.map-navigation-crumbs button:disabled { color: var(--color-text-muted); cursor: default; }
+.map-navigation-crumbs strong { overflow: hidden; color: var(--color-text); text-overflow: ellipsis; white-space: nowrap; }
 .map-boundary-editor-toolbar { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .35rem; color: var(--color-text-secondary); background: color-mix(in srgb, var(--color-accent-soft) 28%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
 .map-boundary-editor-toolbar button { min-height: 2rem; padding-inline: .5rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .map-workbench-notice { min-height: 0; overflow: auto; }
@@ -986,6 +990,11 @@ input:focus-visible {
 .map-authoring-detail-stack button[aria-pressed="true"], .map-authoring-detail-stack button[aria-selected="true"] { color: var(--color-text-on-structure); background: var(--color-accent); }
 .map-authoring-place-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .25rem; }
 .map-authoring-palette small { color: var(--color-text-muted); line-height: 1.45; }
+.tianyi-map-context-preview article { display: grid; gap: .5rem; padding: .65rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.tianyi-map-context-preview article > div { display: grid; gap: .12rem; }
+.tianyi-map-context-preview article small, .tianyi-map-context-preview article p { color: var(--color-text-muted); }
+.tianyi-map-context-preview pre { max-height: 10rem; margin: 0; padding: .5rem; overflow: auto; color: var(--color-text); background: var(--color-workspace-background); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
+.tianyi-map-context-preview button { justify-self: start; min-height: 2rem; padding-inline: .6rem; color: var(--color-accent); background: var(--color-workspace-background); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .map-m1-canvas { position: relative; min-width: 0; min-height: 0; height: 100%; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-workspace-background); overflow: hidden; cursor: grab; isolation: isolate; touch-action: none; }
 .map-m1-canvas.is-editing { cursor: crosshair; outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent); outline-offset: 2px; }
 .map-workbench-grid { position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: linear-gradient(color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px); background-size: 2.5rem 2.5rem; mask-image: linear-gradient(to bottom, black, transparent 130%); }
@@ -1017,6 +1026,8 @@ input:focus-visible {
 .map-workbench-marker.is-closed > svg, .map-workbench-state-chip.is-closed { color: var(--color-danger); }
 .map-workbench-marker.is-unknown { border-style: dashed; }
 .map-workbench-marker[aria-pressed="true"] { outline: 3px solid color-mix(in srgb, var(--color-accent) 38%, transparent); outline-offset: 3px; }
+.map-local-entrance { position: absolute; z-index: 2; display: inline-flex; align-items: center; gap: .3rem; min-height: 2rem; padding: .3rem .5rem; pointer-events: auto; color: var(--color-text); background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-accent); border-radius: 999px; box-shadow: var(--shadow-panel); transform: translate(-50%, -50%); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.map-local-entrance svg { width: 1rem; height: 1rem; color: var(--color-accent); }
 .map-workbench-canvas-controls { position: absolute; z-index: 2; inset-block-start: .75rem; inset-inline-end: .75rem; display: flex; align-items: center; gap: .25rem; padding: .3rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 92%, transparent); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); font-size: var(--font-size-xs); }
 .map-workbench-canvas-controls button { min-height: 2rem; padding-inline: .45rem; }
 .map-workbench-canvas-hint { position: absolute; z-index: 2; inset-inline-start: .75rem; inset-block-end: .65rem; max-width: calc(100% - 1.5rem); margin: 0; padding: .3rem .5rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 90%, transparent); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }

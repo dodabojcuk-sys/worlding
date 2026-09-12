@@ -137,6 +137,13 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
   };
   const selectMap = (id: string) => { setMapId(id || null); saveRoute({ mapId: id || null }); };
+  const navigateToMap = (id: string) => {
+    if (map && projectId) window.sessionStorage.setItem(`tianyan.map.viewport.${projectId}.${map.id}`, JSON.stringify(viewport));
+    const stored = projectId ? window.sessionStorage.getItem(`tianyan.map.viewport.${projectId}.${id}`) : null;
+    let nextViewport = { x: 0, y: 0, zoom: 1 };
+    try { if (stored) nextViewport = normalizeViewport(JSON.parse(stored)); } catch { /* A broken local view preference is safely ignored. */ }
+    setMapId(id); setViewport(nextViewport); saveRoute({ mapId: id, viewport: nextViewport, placeId: null }); setSelectedId(null);
+  };
   useEffect(() => { setMapTitle(map?.title ?? ""); }, [map?.id, map?.title]);
   const selectPlace = (id: string) => { setSelectedId(id); saveRoute({ placeId: id }); };
   const selectObservation = (next: Observation) => { setObservation(next); saveRoute({ observation: next }); };
@@ -200,6 +207,12 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     setRedoContents((items) => items.slice(0, -1)); setUndoContents((items) => [...items, map.content]);
     saveMap({ ...map, content: next }, "已重做地图编辑。", "重做失败；保留当前地图。");
   };
+  const openTianyiWithMap = () => {
+    if (!map || !projectId) return;
+    const params = new URLSearchParams({ tianyiLane: "work", mapRef: map.id, mapRevision: map.contentHash, mapReturn: `${window.location.pathname}${window.location.search}` });
+    if (selectedDrawingId) params.set("mapElement", selectedDrawingId);
+    window.location.assign(`/tianyi?${params.toString()}`);
+  };
   const saveScope = (scopeObjectId: string) => {
     if (!map) return;
     saveMap({ ...map, content: { ...map.content, scopeObjectId: scopeObjectId || null } }, "地图范围已保存；这只是本图阅读范围，不会写入地点包含关系。", "地图范围保存冲突，请刷新后重试。");
@@ -250,14 +263,30 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const openLocalMap = (scopeObjectId: string) => {
     const existing = maps.find((item) => item.content.scopeObjectId === scopeObjectId);
-    if (existing) { selectMap(existing.id); return; }
     const scope = locations.find((location) => location.id === scopeObjectId);
     if (!scope || !projectId) return;
+    const parent = map;
+    const entranceFor = (targetMapId: string) => parent ? { id: `entrance.${scopeObjectId}`, title: `进入${scope.title}`, layerId: parent.content.layers.some((item) => item.id === "layer.main") ? "layer.main" : parent.content.layers[0]!.id, x: parent.content.markers.find((item) => item.objectId === scopeObjectId)?.x ?? 50, y: parent.content.markers.find((item) => item.objectId === scopeObjectId)?.y ?? 50, targetMapId, kind: "entrance" as const, objectId: scopeObjectId } : null;
+    if (existing) {
+      const entrance = entranceFor(existing.id);
+      if (!parent || parent.id === existing.id || parent.content.entrances.some((item) => item.id === entrance?.id && item.targetMapId === existing.id)) { navigateToMap(existing.id); return; }
+      setBusy(true);
+      void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: parent.relativePath, expectedHash: parent.contentHash, document: { ...parent, content: { ...parent.content, entrances: [...parent.content.entrances.filter((item) => item.id !== entrance!.id), entrance!] } }, token }))
+        .then((write) => { const repairedParent = write.document as MapDocument; setMaps((current) => current.map((item) => item.id === repairedParent.id ? repairedParent : item)); navigateToMap(existing.id); setMessage("已恢复缺失的局部地图入口；没有创建世界事实。"); })
+        .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "局部地图存在，但入口恢复失败；请刷新后重试。"))
+        .finally(() => setBusy(false));
+      return;
+    }
     setBusy(true);
     void props.runtime.withConnection(async (token) => {
       const created = await createVisualDocument({ projectId, type: "map", title: `${scope.title} · 局部地图`, token }) as MapDocument;
-      return updateVisualDocument({ projectId, relativePath: created.relativePath, expectedHash: created.contentHash, document: { ...created, content: { ...created.content, scopeObjectId } }, token });
-    }).then((next) => { const local = next.document as MapDocument; setMaps((current) => [...current, local]); selectMap(local.id); setMessage("局部地图已建立；尚未上传底图也可摆放地点。" ); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "建立局部地图失败；没有创建关系或地点事实。")).finally(() => setBusy(false));
+      const starter = createStarterContent("building");
+      const localWrite = await updateVisualDocument({ projectId, relativePath: created.relativePath, expectedHash: created.contentHash, document: { ...created, content: { ...created.content, ...starter, scopeObjectId } }, token });
+      if (!parent) return { local: localWrite.document as MapDocument, parent: null };
+      const entrance = entranceFor((localWrite.document as MapDocument).id)!;
+      const parentWrite = await updateVisualDocument({ projectId, relativePath: parent.relativePath, expectedHash: parent.contentHash, document: { ...parent, content: { ...parent.content, entrances: [...parent.content.entrances.filter((item) => item.id !== entrance.id), entrance] } }, token });
+      return { local: localWrite.document as MapDocument, parent: parentWrite.document as MapDocument };
+    }).then((next) => { setMaps((current) => [...current.map((item) => next.parent && item.id === next.parent.id ? next.parent : item), next.local]); navigateToMap(next.local.id); setMessage("局部地图和明确入口已保存；入口只表示导航，不推断相邻、通行或管辖关系。" ); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "建立局部地图失败；没有创建关系或地点事实。")).finally(() => setBusy(false));
   };
   const place = (location: WorldObjectSummary, event: MouseEvent<HTMLElement>) => {
     if (!map || busy || !editingLayout) return;
@@ -360,6 +389,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const boundaryPending = administrativeLocations.filter((location) => !map?.content.regions.some((region) => region.layerId === ADMINISTRATION_LAYER_ID && region.objectId === location.id));
   const stageSize = fittedMapStage(canvasSize, map?.content.baseImage ?? null);
   const activeLayer = map?.content.layers.find((item) => item.id === activeLayerId) ?? map?.content.layers[0] ?? null;
+  const parentMap = map ? maps.find((candidate) => candidate.content.entrances.some((entrance) => entrance.targetMapId === map.id)) ?? null : null;
   return <main className="shell-workspace map-workbench-shell" aria-label="地点地图">
     <section className={`map-workbench ${editingRegionObjectId ? "is-boundary-editing" : ""}`} data-testid="map-m2-workspace">
       <header className="map-workbench-toolbar">
@@ -372,6 +402,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           <button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)} disabled={busy}>{editingLayout ? <><Eye aria-hidden="true" />浏览地图</> : <><PencilRuler aria-hidden="true" />编辑布局</>}</button>
           <button type="button" aria-expanded={inspectorOpen} aria-controls="map-m2-inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" />{inspectorOpen ? "收起检查器" : "打开检查器"}</button>
         </div>
+        {map ? <nav className="map-navigation-crumbs" aria-label="地图层级"><button type="button" onClick={() => parentMap && navigateToMap(parentMap.id)} disabled={!parentMap}>上层</button>{parentMap ? <><button type="button" onClick={() => navigateToMap(parentMap.id)}>{parentMap.title}</button><span>›</span></> : null}<strong>{map.title}</strong></nav> : null}
         {editingRegionObjectId ? <div className="map-boundary-editor-toolbar" role="group" aria-label="行政边界编辑"><span>边界点 {draftRegionPoints.length}</span><button type="button" onClick={removeBoundaryPoint} disabled={!draftRegionPoints.length || busy}>移除最后一点</button><button type="button" onClick={cancelBoundary} disabled={busy}>取消边界</button><button type="button" className="primary-action" onClick={saveBoundary} disabled={busy || draftRegionPoints.length < 3}>保存边界</button></div> : null}
       </header>
       <div className="map-workbench-notice" aria-live="polite">{message ? <p className="map-workbench-message" role="status">{message}</p> : null}</div>
@@ -388,6 +419,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
             <div className="map-authoring-history"><button type="button" onClick={undoAuthoring} disabled={!undoContents.length || busy} aria-label="撤销"><Undo2 aria-hidden="true" />撤销</button><button type="button" onClick={redoAuthoring} disabled={!redoContents.length || busy} aria-label="重做"><Redo2 aria-hidden="true" />重做</button></div>
             {draftDrawingPoints.length ? <div className="map-authoring-draft-actions"><span>已取 {draftDrawingPoints.length} 个点</span><button type="button" onClick={() => setDraftDrawingPoints((items) => items.slice(0, -1))}>退一点</button><button type="button" className="primary-action" onClick={finishDrawing}>完成这一笔</button><button type="button" onClick={() => setDraftDrawingPoints([])}>取消</button></div> : null}
             {selectedDrawingId ? <button type="button" onClick={deleteDrawing} disabled={busy}><Trash2 aria-hidden="true" />删除选中图示</button> : null}
+            <button type="button" className="primary-action" onClick={openTianyiWithMap}>交给天意{selectedDrawingId ? " · 选中图示" : " · 当前地图"}</button>
             <details><summary>图层</summary>{map.content.layers.map((layer) => <div key={layer.id} className="map-authoring-layer-row"><span>{layer.title}</span><button type="button" aria-pressed={layer.visible} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, visible: !item.visible } : item) } }, "图层显示已保存。", "图层保存失败。")}>{layer.visible ? "显示" : "隐藏"}</button><button type="button" aria-pressed={layer.locked} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, locked: !item.locked } : item) } }, "图层锁定状态已保存。", "图层保存失败。")}>{layer.locked ? "解锁" : "锁定"}</button></div>)}</details>
             <details className="map-structure-details"><summary>空间与行政</summary><div className="map-authoring-detail-stack">
               <div role="group" aria-label="空间结构"><button type="button" aria-pressed={structureKind === "geography"} onClick={() => selectStructureKind("geography")}>地理</button><button type="button" aria-pressed={structureKind === "administration"} onClick={() => selectStructureKind("administration")}>行政</button></div>
@@ -421,6 +453,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
                   <MarkerIcon state={markerStateValue} /><span>{location.title}</span><small>{markerStateLabel(markerStateValue)}</small>
                 </button> : null;
                 })}
+                {map.content.entrances.filter((entrance) => visibleLayerIds.has(entrance.layerId)).map((entrance) => { const targetExists = maps.some((candidate) => candidate.id === entrance.targetMapId); return <button key={entrance.id} type="button" className="map-local-entrance" style={{ left: `${entrance.x}%`, top: `${entrance.y}%` }} disabled={!targetExists} title={targetExists ? entrance.title : "目标局部地图已缺失"} onClick={(event) => { event.stopPropagation(); if (targetExists) navigateToMap(entrance.targetMapId); }}><DoorOpen aria-hidden="true" /><span>{entrance.title}</span></button>; })}
               </div>
             </div>
             <div className="map-workbench-canvas-controls" aria-label="地图视角">
