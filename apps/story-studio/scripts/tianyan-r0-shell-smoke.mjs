@@ -2535,7 +2535,7 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await receipt.getByText("1 次模型发送", { exact: true }).waitFor();
   await receipt.scrollIntoViewIfNeeded();
   await capture("06-tianyi-map-answer-receipt.png");
-  const mapSourceButton = receipt.locator("button").filter({ hasText: /^drawing\./u });
+  const mapSourceButton = receipt.getByRole("button", { name: "返回来源：当前地图图示", exact: true });
   await mapSourceButton.click();
   await page.getByLabel("地点示意图画布").waitFor();
   assert.match(page.url(), /libraryView=map/u, "The saved answer receipt returns to the exact map route.");
@@ -2641,14 +2641,55 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "上层", exact: true }).click();
   await page.getByLabel("选择地图").selectOption({ label: "地点示意图" });
   assert.equal(new URL(page.url()).searchParams.get("mapId"), new URL(primaryMapUrl).searchParams.get("mapId"), "Returning from the local map restores the original map identity.");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const directoryOpenGeometry = await page.evaluate(() => {
+    const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    const directory = box(".project-directory-panel");
+    const workspace = box(".shell-workspace");
+    const canvas = box(".map-workbench-canvas");
+    return { directoryWidth: directory?.width ?? 0, workspaceLeft: workspace?.left ?? -1, workspaceWidth: workspace?.width ?? 0, canvasWidth: canvas?.width ?? 0, columns: shell ? getComputedStyle(shell).gridTemplateColumns : "" };
+  });
+  await capture("01a-1280-directory-open-before.png");
   await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await page.locator(".project-directory-panel").waitFor({ state: "detached" });
+  const directoryClosedGeometry = await page.evaluate(() => {
+    const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+    const shell = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    const rail = box(".shell-space-rail");
+    const workspace = box(".shell-workspace");
+    const canvas = box(".map-workbench-canvas");
+    return { directoryCount: document.querySelectorAll(".project-directory-panel").length, railRight: rail?.right ?? -1, workspaceLeft: workspace?.left ?? -1, workspaceWidth: workspace?.width ?? 0, canvasWidth: canvas?.width ?? 0, columns: shell ? getComputedStyle(shell).gridTemplateColumns : "" };
+  });
+  assert.equal(directoryClosedGeometry.directoryCount, 0, "Closing the directory removes its rendered panel.");
+  assert.ok(Math.abs(directoryClosedGeometry.workspaceLeft - directoryClosedGeometry.railRight) <= 1, `The released workspace begins directly after the primary rail=${JSON.stringify({ directoryOpenGeometry, directoryClosedGeometry })}`);
+  assert.ok(directoryClosedGeometry.workspaceWidth >= directoryOpenGeometry.workspaceWidth + directoryOpenGeometry.directoryWidth - 2, `The workspace receives the full released directory width=${JSON.stringify({ directoryOpenGeometry, directoryClosedGeometry })}`);
+  assert.ok(directoryClosedGeometry.canvasWidth > directoryOpenGeometry.canvasWidth, `The map canvas grows after the directory is closed=${JSON.stringify({ directoryOpenGeometry, directoryClosedGeometry })}`);
+  assert.match(directoryClosedGeometry.columns, /^\S+ 0px /u, `The hidden directory grid track must resolve to zero=${directoryClosedGeometry.columns}`);
+  assert.equal(await page.locator('[data-panel-toggle="project-directory"]').getAttribute("aria-pressed"), "true", "Map focus releases the directory track while preserving the author's open preference for restoration.");
+  await capture("01b-1280-directory-closed-after.png");
+  await page.locator('[data-panel-toggle="project-directory"]').click();
+  await page.locator(".project-directory-panel").waitFor();
+  const restoredWorkspaceWidth = await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().width);
+  assert.ok(Math.abs(restoredWorkspaceWidth - directoryOpenGeometry.workspaceWidth) <= 2, "Reopening the directory restores the original workspace allocation.");
+  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await page.locator(".project-directory-panel").waitFor({ state: "detached" });
   await capture("01-map-base-and-north-gate.png");
   const mapIdentityBeforeRefresh = new URL(page.url()).searchParams.get("mapId");
   await reloadProduct(page);
   await page.locator(".map-workbench-marker").filter({ hasText: "北闸" }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("mapId"), mapIdentityBeforeRefresh, "Refreshing restores the edited map identity and saved marker.");
 
-  await gotoProduct(page, `${baseUrl}/library?locale=zh-CN`);
+  await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "资料库", exact: true }).click();
+  await page.getByRole("heading", { name: "资料工作区", exact: true }).waitFor();
+  if (await page.locator(".project-directory-panel").count()) await page.locator('[data-panel-toggle="project-directory"]').click();
+  await page.locator(".project-directory-panel").waitFor({ state: "detached" });
+  const materialsGeometry = await page.evaluate(() => {
+    const rail = document.querySelector(".shell-space-rail")?.getBoundingClientRect();
+    const workspace = document.querySelector(".materials-shell")?.getBoundingClientRect();
+    return { railRight: rail?.right ?? -1, workspaceLeft: workspace?.left ?? -1, workspaceWidth: workspace?.width ?? 0 };
+  });
+  assert.ok(Math.abs(materialsGeometry.workspaceLeft - materialsGeometry.railRight) <= 1, `Materials also uses the released directory track=${JSON.stringify(materialsGeometry)}`);
   await page.getByRole("button", { name: "导入来源", exact: true }).click();
   await page.getByLabel("来源名称").fill("雾港设定笔记");
   await page.getByLabel("文件名／出处").fill("雾港设定笔记.md");
@@ -2680,6 +2721,17 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("status").getByText(/资料已保存/u).waitFor();
   await page.getByText("雾港守卫", { exact: true }).last().waitFor();
   await page.getByText("林昭", { exact: true }).last().waitFor();
+  const readingView = page.getByRole("region", { name: "正文阅读" });
+  await readingView.waitFor();
+  assert.match(await readingView.innerText(), /雾港实行夜间宵禁/u, "The default material view leads with readable author content.");
+  assert.doesNotMatch(await readingView.innerText(), /来源标识：|world\/items\/|修订 [a-f0-9]{12}/u, "The default reading view groups paths, hashes and inline identities outside the prose.");
+  const rawBodyDetails = page.locator(".materials-raw-body-editor");
+  assert.equal(await rawBodyDetails.getAttribute("open"), null, "The byte-preserving raw body stays collapsed during ordinary reading.");
+  await rawBodyDetails.getByText("编辑正文与查看原始存储", { exact: true }).click();
+  const preservedBody = await rawBodyDetails.locator("textarea").inputValue();
+  assert.match(preservedBody, /来源标识：source/u, "The editable stored body retains the existing source identity.");
+  assert.match(preservedBody, /来源：\[\[world\/items\//u, "The editable stored body retains the existing source path.");
+  await rawBodyDetails.getByText("编辑正文与查看原始存储", { exact: true }).click();
   const savedTitle = await page.getByLabel("标题").inputValue();
   await page.getByLabel("标题").fill(`${savedTitle}（未保存）`);
   page.once("dialog", (dialog) => dialog.dismiss());
@@ -2741,14 +2793,17 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByRole("button", { name: "夜间宵禁", exact: true }).waitFor();
-  await receipt.getByText(/实际采用正文/u).click();
-  assert.match(await receipt.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The answer receipt exposes the body actually transferred for the selected revision.");
-  assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision.");
+  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).waitFor();
+  assert.match(await receipt.innerText(), /采用的资料[\s\S]*夜间宵禁/u, "The default receipt leads with the answer and readable adopted material name.");
+  assert.equal(await receipt.locator(".tianyi-grounded-receipt-technical[open]").count(), 0, "Receipt IDs and manifest hashes stay collapsed by default.");
   await receipt.scrollIntoViewIfNeeded();
   const receiptBox = await receipt.boundingBox();
-  assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The receipt must be visible in the captured author viewport=${JSON.stringify(receiptBox)}`);
+  assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The default answer-and-source receipt must fit the captured author viewport=${JSON.stringify(receiptBox)}`);
   await capture("05-tianyi-material-receipt.png");
+  await receipt.getByText(/实际采用正文/u).click();
+  assert.match(await receipt.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The answer receipt exposes the body actually transferred for the selected revision.");
+  await receipt.getByText("来源技术详情", { exact: true }).click();
+  assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision inside technical details.");
   const changedRule = (await postFixture(`${base}/world-objects/update`, {
     projectId: fixtureProjectId,
     objectId: ruleDetail.data.id,
@@ -2767,7 +2822,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
     card: ruleDetail.data.card
   })).data.object;
   assert.notEqual(changedRule.revisionToken, rule.revisionToken, "The fixture changes the material only after the answer has frozen its source revision.");
-  await receipt.getByRole("button", { name: "夜间宵禁", exact: true }).click();
+  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).click();
   const oldEvidence = page.getByRole("alert");
   await oldEvidence.getByText(/已从既有文档历史读取/u).waitFor();
   assert.match(await oldEvidence.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The old answer reopens the exact historical body after the rule changes.");
@@ -2778,11 +2833,43 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await receipt.waitFor();
   assert.equal(new URL(page.url()).pathname, "/tianyi", "Material source return must restore the saved Tianyi receipt route.");
   await page.setViewportSize({ width: 1280, height: 720 });
-  await capture("07-1280-tianyi-source-return.png");
+  const scroll = page.locator(".tianyi-global-work-scroll");
+  const returnButton = page.getByRole("button", { name: "返回资料", exact: true });
+  await returnButton.waitFor();
+  await returnButton.focus();
+  assert.equal(await returnButton.evaluate((button) => document.activeElement === button), true, "The fixed return-to-material control accepts keyboard focus.");
+  const assertTianyiChrome = async (label) => {
+    const geometry = await page.evaluate(() => {
+      const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect();
+      const header = rect(".tianyi-workspace-header");
+      const task = rect(".tianyi-task-header");
+      const scroll = rect(".tianyi-global-work-scroll");
+      const composer = rect(".tianyi-workspace-composer");
+      const back = rect(".tianyi-material-return");
+      return { width: innerWidth, height: innerHeight, header, task, scroll, composer, back };
+    });
+    assert.ok(geometry.header && geometry.task && geometry.scroll && geometry.composer && geometry.back, `${label}: all Tianyi regions are measurable.`);
+    assert.ok(geometry.header.bottom <= geometry.task.top + 1 && geometry.task.bottom <= geometry.scroll.top + 1, `${label}: fixed headers do not cover the scroll region=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.scroll.bottom <= geometry.composer.top + 1 && geometry.composer.bottom <= geometry.height + 1, `${label}: the composer does not cover scroll content=${JSON.stringify(geometry)}`);
+    assert.ok(geometry.back.top >= 0 && geometry.back.bottom <= geometry.height && geometry.back.left >= 0 && geometry.back.right <= geometry.width, `${label}: the return control is fully visible=${JSON.stringify(geometry.back)}`);
+  };
+  await scroll.evaluate((element) => { element.scrollTop = 0; });
+  await assertTianyiChrome("1280 top");
+  await capture("07a-1280-tianyi-top-after.png");
+  await scroll.evaluate((element) => { element.scrollTop = Math.max(0, (element.scrollHeight - element.clientHeight) / 2); });
+  await assertTianyiChrome("1280 middle");
+  await capture("07b-1280-tianyi-middle-after.png");
+  await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await assertTianyiChrome("1280 bottom");
+  await capture("07c-1280-tianyi-bottom-after.png");
   await page.setViewportSize({ width: 1152, height: 720 });
   await receipt.scrollIntoViewIfNeeded();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Materials and receipt layouts must not create page-level horizontal overflow at 1152px.");
+  await assertTianyiChrome("1152 source return");
   await capture("08-1152-tianyi-source-return.png");
+  await returnButton.click();
+  await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("materialId"), rule.id, "The visible return control opens the exact originating material.");
 
   await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
   await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).waitFor();

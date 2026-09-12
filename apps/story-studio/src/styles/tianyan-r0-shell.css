@@ -62,7 +62,7 @@ input:focus-visible {
   height: 100vh;
   color: var(--color-text);
   background: var(--color-app-background);
-  transition: grid-template-columns var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+  transition: color var(--motion-fast), background var(--motion-fast);
   overflow: hidden;
 }
 
@@ -965,9 +965,27 @@ input:focus-visible {
 .materials-source-reader > aside p { margin-top: .25rem; white-space: pre-wrap; }
 .materials-source-selection-hint { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .materials-editor code { display: block; overflow-wrap: anywhere; }
+.materials-body-preservation-note { color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 400; line-height: 1.45; }
+.materials-reading-view, .materials-raw-body-editor { grid-column: 1 / -1; }
+.materials-reading-view { display: grid; gap: .85rem; padding: clamp(1rem, 2vw, 1.4rem) !important; background: var(--color-workspace-background) !important; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.materials-reading-heading { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.materials-reading-heading span { color: var(--color-text); font-family: var(--font-family-display); font-size: var(--font-size-lg); font-weight: 700; }
+.materials-reading-heading small { color: var(--color-text-muted); }
+.materials-reading-body { max-width: 76ch; color: var(--color-text); font-size: var(--font-size-md); line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.materials-reading-source { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: .75rem; background: var(--color-surface-muted); border-radius: var(--radius-sm); }
+.materials-reading-source div { display: grid; gap: .2rem; }
+.materials-reading-source span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.materials-reading-source button { flex: 0 0 auto; }
+.materials-reading-view > p { color: var(--color-text-muted) !important; font-size: var(--font-size-xs) !important; }
+.materials-raw-body-editor { padding: .75rem 1rem; background: var(--color-surface-muted); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); }
+.materials-raw-body-editor > summary { color: var(--color-text-secondary); cursor: pointer; font-weight: 650; }
+.materials-raw-body-editor > label { display: grid; gap: .4rem; margin-top: .8rem; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.materials-source-technical { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.materials-source-technical summary { cursor: pointer; }
+.materials-source-technical code { display: block; margin-top: .3rem; overflow-wrap: anywhere; }
 .materials-empty { display: grid; place-items: start; gap: var(--space-2); padding: clamp(2rem, 10vh, 7rem) var(--space-5); color: var(--color-text-secondary); border: 1px dashed var(--color-border); border-radius: var(--radius-lg); }
 .materials-empty h2, .materials-empty p { margin: 0; }
-@media (max-width: 72rem) { .materials-workspace { padding: var(--space-3); } .materials-workspace-grid { grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr); gap: var(--space-3); } .materials-editor { grid-template-columns: 1fr; } .materials-editor > label, .materials-editor > label:nth-of-type(3) { grid-column: 1; } }
+@media (max-width: 72rem) { .materials-workspace { padding: var(--space-3); } .materials-workspace-grid { grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr); gap: var(--space-3); } .materials-editor { grid-template-columns: 1fr; } .materials-editor > label, .materials-editor > label:nth-of-type(3) { grid-column: 1; } .materials-reading-source { align-items: start; flex-direction: column; } }
 @media (max-width: 52rem) { .materials-workspace-header { align-items: start; flex-direction: column; } .materials-workspace-grid { grid-template-columns: 1fr; } .materials-workspace-sidebar { position: static; } .materials-workspace-list { max-height: 16rem; } }
 .map-workbench { box-sizing: border-box; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: .55rem; width: 100%; height: 100%; min-height: 0; padding: .75rem; overflow: hidden; }
 .map-workbench > .map-structure-details-legacy, .map-workbench > .map-administration-panel, .map-workbench > .map-workbench-story-strip-legacy, .map-workbench > .map-workbench-places, .map-workbench > .map-workbench-help { display: none; }
