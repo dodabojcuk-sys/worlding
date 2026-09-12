@@ -63,6 +63,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [message, setMessage] = useState("");
   const [mapTitle, setMapTitle] = useState("");
   const [structureKind, setStructureKind] = useState<LocationStructureKind>(() => route().structureKind);
+  const [structurePanelOpen, setStructurePanelOpen] = useState(false);
   const [editingRegionObjectId, setEditingRegionObjectId] = useState<string | null>(null);
   const [draftRegionPoints, setDraftRegionPoints] = useState<Array<{ x: number; y: number }>>([]);
   const backgroundInput = useRef<HTMLInputElement | null>(null);
@@ -494,7 +495,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
             </section> : null}
             <button type="button" className="primary-action" onClick={openTianyiWithMap}>交给天意{selectedDrawingId ? " · 选中图示" : " · 当前地图"}</button>
             <details><summary>图层</summary>{map.content.layers.map((layer) => <div key={layer.id} className="map-authoring-layer-row"><span>{layer.title}</span><button type="button" aria-pressed={layer.visible} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, visible: !item.visible } : item) } }, "图层显示已保存。", "图层保存失败。")}>{layer.visible ? "显示" : "隐藏"}</button><button type="button" aria-pressed={layer.locked} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, locked: !item.locked } : item) } }, "图层锁定状态已保存。", "图层保存失败。")}>{layer.locked ? "解锁" : "锁定"}</button></div>)}</details>
-            <details className="map-structure-details"><summary>空间与行政</summary><div className="map-authoring-detail-stack">
+            <details className="map-structure-details" open={structurePanelOpen} onToggle={(event) => setStructurePanelOpen(event.currentTarget.open)}><summary>空间与行政</summary><div className="map-authoring-detail-stack">
               <div role="group" aria-label="空间结构"><button type="button" aria-pressed={structureKind === "geography"} onClick={() => selectStructureKind("geography")}>地理</button><button type="button" aria-pressed={structureKind === "administration"} onClick={() => selectStructureKind("administration")}>行政</button></div>
               <label>地图范围<select aria-label="地图范围" value={map.content.scopeObjectId ?? ""} onChange={(event) => saveScope(event.target.value)}><option value="">整张地图</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.title}</option>)}</select></label>
               <span>读取的正式关系类型</span>{relationTypes.filter((type) => type.lifecycle === "active").map((type) => <label key={type.relationTypeId}><span><input type="checkbox" checked={(structureKind === "geography" ? map.content.structure.geographyRelationTypeIds : map.content.structure.administrationRelationTypeIds).includes(type.relationTypeId)} onChange={() => toggleStructureType(type.relationTypeId)} />{type.label}</span></label>)}
