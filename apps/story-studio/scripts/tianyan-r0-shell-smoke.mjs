@@ -2562,7 +2562,24 @@ async function setupWorldMaterialsFixture() {
   const fogHarbor = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "雾港", status: "active", body: "雾港是北闸外的港口。" })).data;
   const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", body: "北闸是雾港的通行关口。" })).data;
   const guard = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "faction", title: "雾港守卫", status: "active", body: "守卫负责执行港区规则。" })).data;
-  worldMaterialsFixture = { fogHarbor, northGate, guard };
+  const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
+  const root = createWorldMaterialsFixtureRoot();
+  worldMaterialsFixture = { fogHarbor, northGate, guard, lin, root };
+}
+
+function createWorldMaterialsFixtureRoot() {
+  const bundle = Object.fromEntries(WORK_VERSION_REQUIRED_OWNER_KINDS.map((ownerKind, index) => [ownerKind, {
+    ownerIdentity: `${ownerKind}.${fixture.fixtureId}`,
+    projectionSchemaVersion: `${ownerKind}/materials-e2e-v1`,
+    revisionToken: `materials-e2e.${index + 1}`,
+    stableReferenceIds: [`${ownerKind}.ref.${fixture.fixtureId}`],
+    provenanceReceiptIds: [`receipt.${ownerKind}.${fixture.fixtureId}`],
+    canonicalProjection: { ownerKind, fixture: "world-materials-workflow" }
+  }]));
+  return createStoryStudioWorkVersionAuthority({ projectRoot: path.join(fixtureRoot, fixtureProjectId) }).createRootCheckpoint({
+    displayName: "雾港资料主线", authorActionId: `author.materials-root.${fixture.fixtureId}`, idempotencyKey: `idempotency.materials-root.${fixture.fixtureId}`,
+    expectedRevision: 0, createdAt: "2026-09-12T00:00:00.000Z", ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle), optionalNuwaProvenanceRefs: []
+  });
 }
 
 async function assertWorldMaterialsM1(page, consoleProblems) {
@@ -2612,29 +2629,63 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await capture("01-map-base-and-north-gate.png");
 
   await gotoProduct(page, `${baseUrl}/library?locale=zh-CN`);
-  await page.getByRole("button", { name: "新建资料", exact: true }).click();
-  await page.getByLabel("资料类型").selectOption("rule");
-  await page.getByLabel("标题").fill("雾港夜间宵禁");
-  await page.getByLabel("正文").fill("雾港实行夜间宵禁；守卫组织在北闸封闭后执行检查。");
+  await page.getByRole("button", { name: "导入来源", exact: true }).click();
+  await page.getByLabel("来源名称").fill("雾港设定笔记");
+  await page.getByLabel("文件名／出处").fill("雾港设定笔记.md");
+  const sourceText = "# 雾港设定笔记\n\n雾港实行夜间宵禁。夜间进入北闸需要守卫组织签发的通行凭据。\n\n例外：救援船只可由值守者登记后通行。";
+  await page.getByLabel("原文").fill(sourceText);
+  await page.getByRole("button", { name: "保存为原始来源", exact: true }).click();
+  await page.getByRole("status").getByText(/原始材料已逐字保留/u).waitFor();
+  await page.getByRole("heading", { name: "雾港设定笔记", exact: true }).waitFor();
+  await capture("02-source-import-verbatim.png");
+  const sourceReader = page.getByLabel("来源原文");
+  const selectedExcerpt = "雾港实行夜间宵禁。夜间进入北闸需要守卫组织签发的通行凭据。";
+  await sourceReader.evaluate((element, excerpt) => {
+    const textarea = element;
+    const start = textarea.value.indexOf(excerpt);
+    textarea.focus(); textarea.setSelectionRange(start, start + excerpt.length); textarea.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  }, selectedExcerpt);
+  await page.getByLabel("已选择来源段落").getByText(selectedExcerpt, { exact: true }).waitFor();
+  await page.getByRole("button", { name: "从选中段落建立设定", exact: true }).click();
+  await page.getByLabel("标题").fill("夜间宵禁");
   await page.getByLabel("标签").fill("雾港、规则、守卫");
+  await page.getByLabel("内容状态").selectOption("locked");
   await page.getByRole("button", { name: "建立资料", exact: true }).click();
   await page.getByRole("status").getByText(/资料已建立/u).waitFor();
-  await page.getByLabel("插入关联").selectOption({ label: "地点 · 雾港" });
-  await page.getByRole("button", { name: "插入到正文", exact: true }).click();
+  for (const label of ["地点 · 雾港", "组织 · 雾港守卫", "人物 · 林昭"]) {
+    await page.getByLabel("插入关联").selectOption({ label });
+    await page.getByRole("button", { name: "插入到正文", exact: true }).click();
+  }
   await page.getByRole("button", { name: "保存资料", exact: true }).click();
   await page.getByRole("status").getByText(/资料已保存/u).waitFor();
-  await page.getByText("雾港", { exact: true }).last().waitFor();
-  await capture("02-material-rule-link-and-version.png");
+  await page.getByText("雾港守卫", { exact: true }).last().waitFor();
+  await page.getByText("林昭", { exact: true }).last().waitFor();
+  await capture("03-material-rule-links-and-version.png");
   const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
-  const rule = library.data.objects.find((object) => object.title === "雾港夜间宵禁");
+  const rule = library.data.objects.find((object) => object.title === "夜间宵禁");
   assert.ok(rule, "Normal materials UI creates a stable World Object.");
   const ruleDetail = await getFixture(`${base}/world-object?projectId=${encodeURIComponent(fixtureProjectId)}&objectId=${encodeURIComponent(rule.id)}`);
-  assert.ok(ruleDetail.data.linkedObjects.some((item) => item.title === "雾港"), "Saving the inserted Markdown link uses the existing backlink/link projection.");
+  for (const title of ["雾港设定笔记", "雾港", "雾港守卫", "林昭"]) assert.ok(ruleDetail.data.linkedObjects.some((item) => item.title === title), `Saving the selected-source and object links must retain ${title}.`);
+  assert.equal(ruleDetail.data.status, "locked", "The author explicitly confirms the setting; import itself remains unconfirmed.");
+  const importedSources = await getFixture(`${base}/source-import/reviews?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const sourceDocument = importedSources.data.find((item) => item.title === "雾港设定笔记");
+  assert.ok(sourceDocument && sourceDocument.revisions.at(-1).content === sourceText, "The existing Source Import owner preserves the original text byte-for-byte.");
+
+  const fogLink = page.locator(".materials-linked-object").filter({ hasText: "雾港" }).first();
+  await fogLink.getByRole("button", { name: "地图", exact: true }).click();
+  await page.getByRole("button", { name: "返回资料", exact: true }).waitFor();
+  await page.getByRole("button", { name: "返回资料", exact: true }).click();
+  await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
+  const linLink = page.locator(".materials-linked-object").filter({ hasText: "林昭" });
+  await linLink.getByRole("button", { name: "关系", exact: true }).click();
+  await page.getByTestId("focused-relations-workspace").waitFor();
+  await page.getByRole("button", { name: "返回来源", exact: true }).click();
+  await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
 
   await page.getByRole("button", { name: "在天意明确引用", exact: true }).click();
   const materialPicker = page.locator(".tianyi-material-context-picker");
   await materialPicker.waitFor();
-  const materialOption = materialPicker.getByLabel(new RegExp("雾港夜间宵禁", "u"));
+  const materialOption = materialPicker.getByRole("checkbox", { name: /^夜间宵禁 世界设定/u });
   await materialOption.waitFor();
   assert.equal(await materialOption.isChecked(), true, "A material handoff preselects the precise author-chosen object rather than a global library default.");
   assert.match(await materialPicker.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The Tianyi preview displays the selected material revision.");
@@ -2643,18 +2694,23 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await materialOption.scrollIntoViewIfNeeded();
   const materialOptionBox = await materialOption.boundingBox();
   assert.ok(materialOptionBox && materialOptionBox.y >= 0 && materialOptionBox.y + materialOptionBox.height <= 900, `The selected author material must be visible before the preview screenshot=${JSON.stringify(materialOptionBox)}`);
-  await capture("03-tianyi-material-preview.png");
+  const selectedPreviewText = await materialOption.locator("xpath=..").innerText();
+  assert.match(selectedPreviewText, /雾港实行夜间宵禁/u, "The pre-send preview shows the actual selected source body.");
+  assert.doesNotMatch(selectedPreviewText, /救援船只/u, "The selected rule preview does not contain the unselected source exception.");
+  await capture("04-tianyi-material-preview.png");
   const composer = page.locator(".tianyi-workspace-composer textarea");
-  await composer.fill("雾港夜间宵禁会怎样影响北闸的通行安排？");
+  await composer.fill("夜间宵禁会怎样影响林昭在北闸的行动？");
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByRole("button", { name: rule.id, exact: true }).waitFor();
+  await receipt.getByRole("button", { name: "夜间宵禁", exact: true }).waitFor();
+  await receipt.getByText(/实际采用正文/u).click();
+  assert.match(await receipt.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The answer receipt exposes the body actually transferred for the selected revision.");
   assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision.");
   await receipt.scrollIntoViewIfNeeded();
   const receiptBox = await receipt.boundingBox();
   assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The receipt must be visible in the captured author viewport=${JSON.stringify(receiptBox)}`);
-  await capture("04-tianyi-material-receipt.png");
+  await capture("05-tianyi-material-receipt.png");
   const changedRule = (await postFixture(`${base}/world-objects/update`, {
     projectId: fixtureProjectId,
     objectId: ruleDetail.data.id,
@@ -2673,8 +2729,12 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
     card: ruleDetail.data.card
   })).data.object;
   assert.notEqual(changedRule.revisionToken, rule.revisionToken, "The fixture changes the material only after the answer has frozen its source revision.");
-  await receipt.getByRole("button", { name: rule.id, exact: true }).click();
-  await page.getByRole("alert").getByText(/历史正文未由现有 World Object Owner 保留/u).waitFor();
+  await receipt.getByRole("button", { name: "夜间宵禁", exact: true }).click();
+  const oldEvidence = page.getByRole("alert");
+  await oldEvidence.getByText(/已从既有文档历史读取/u).waitFor();
+  assert.match(await oldEvidence.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The old answer reopens the exact historical body after the rule changes.");
+  assert.doesNotMatch(await oldEvidence.innerText(), /回答完成后的后续修订/u, "The historical evidence view must not substitute current material text.");
+  await capture("06-old-answer-exact-source.png");
   await page.getByRole("button", { name: "返回来源", exact: true }).waitFor();
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   await receipt.waitFor();
@@ -2683,7 +2743,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await receipt.scrollIntoViewIfNeeded();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Materials and receipt layouts must not create page-level horizontal overflow at 1152px.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
-  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, mapId: map.id, mapHash: map.contentHash, material: { id: rule.id, revision: rule.revisionToken, type: rule.type }, providerDispatches: 1, note: "One local-fake grounded answer verifies the frozen source receipt and source-return flow; it is not a real Provider call." }, null, 2)}\n`, "utf8");
+  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHash: map.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 1, realProviderDispatches: 0, sourceReturn: "exact-object-history-by-content-hash", note: "One local-fake grounded answer verifies selected body transfer and frozen source return; it is not a real Provider call." }, null, 2)}\n`, "utf8");
 }
 
 async function setupR1CausalFixture() {

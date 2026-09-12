@@ -82,6 +82,32 @@ test("World Workbench folders, cross-type visual tabs, pane swap, and close stat
   assert.equal(closedObject.tabs.some((relativeId) => relativeId === input.character.relativeId), false);
 });
 
+test("stable relative material links survive a linked object rename", () => {
+  const input = createOperations();
+  const rule = input.operations.createWorldObject({
+    projectId: input.project.id,
+    type: "rule",
+    title: "守塔制度",
+    status: "locked",
+    body: `适用于 [[${input.location.relativeId}|${input.location.title}]]。`
+  });
+  const renamed = input.operations.updateWorldObject({
+    projectId: input.project.id,
+    objectId: input.location.id,
+    expectedHash: input.location.revisionToken,
+    title: "北岸旧灯塔",
+    status: input.location.status,
+    tags: input.location.tags,
+    aliases: input.location.aliases,
+    body: input.location.body,
+    card: input.location.card
+  });
+  assert.equal(renamed.conflict, false);
+  const reopened = input.operations.readWorldObject({ projectId: input.project.id, objectId: rule.id });
+  assert.equal(reopened.linkedObjects[0]?.id, input.location.id);
+  assert.equal(reopened.linkedObjects[0]?.title, "北岸旧灯塔");
+});
+
 test("shared revision history previews, milestones, and restores object and visual documents as new revisions", () => {
   const input = createOperations();
   const initialObjectHistory = input.operations.getDocumentRevisionHistory({ projectId: input.project.id, ref: { kind: "object", id: input.character.id } });
@@ -106,7 +132,8 @@ test("shared revision history previews, milestones, and restores object and visu
   assert.equal(milestone.history.milestones[0].title, "人物初稿");
   const preview = input.operations.previewDocumentRevision({ projectId: input.project.id, ref: { kind: "object", id: input.character.id }, revisionId: firstObjectRevision.id });
   assert.equal(preview.changedFromCurrent, true);
-  assert.doesNotMatch(JSON.stringify(historyAfterSave), /contentHash|relativePath|history\/documents/);
+  assert.equal(firstObjectRevision.contentHash, input.character.revisionToken, "History exposes the canonical content hash so a frozen answer can resolve its exact source revision.");
+  assert.doesNotMatch(JSON.stringify(historyAfterSave), /relativePath|history\/documents/);
 
   const restored = input.operations.restoreDocumentRevision({
     projectId: input.project.id,
