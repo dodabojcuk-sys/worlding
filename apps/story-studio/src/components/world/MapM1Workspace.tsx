@@ -222,7 +222,10 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     const field = structureKind === "geography" ? "geographyRelationTypeIds" : "administrationRelationTypeIds";
     const current = map.content.structure[field];
     const next = current.includes(typeId) ? current.filter((id) => id !== typeId) : [...current, typeId].sort();
-    saveMap({ ...map, content: { ...map.content, structure: { ...map.content.structure, [field]: next } } }, `${structureKind === "geography" ? "地理" : "行政"}结构规则已保存；只有明确选中的关系类型会被读取。`, "结构规则保存冲突，请刷新后重试。");
+    saveMap({ ...map, content: { ...map.content, structure: { ...map.content.structure, [field]: next } } }, `${structureKind === "geography" ? "地理" : "行政"}结构规则已保存；只有明确选中的关系类型会被读取。`, "结构规则保存冲突，请刷新后重试。", { success: () => {
+      if (!projectId || !workVersionId) return;
+      void listRelations({ projectId, workVersionId, reviewState: "confirmed", includeArchived: false }).then((read) => setRelations(read.relations)).catch(() => setMessage("结构规则已保存，但正式关系刷新失败；请刷新页面后重试读取。"));
+    } });
   };
   const beginBoundary = (objectId: string) => {
     if (!map) return;
