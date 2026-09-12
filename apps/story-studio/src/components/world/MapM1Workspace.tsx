@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
-import { CircleHelp, DoorOpen, Eye, FileText, LocateFixed, LockKeyhole, MapPin, Minus, PanelLeftClose, PanelRight, PencilRuler, Plus, Redo2, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, CircleHelp, DoorOpen, Eye, FileText, LocateFixed, LockKeyhole, MapPin, Minus, PanelLeftClose, PanelRight, PencilRuler, Plus, Redo2, Trash2, Undo2 } from "lucide-react";
 
 import { createVisualDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, importVisualAsset, listRelationTypes, listRelations, readWorldStateN4, updateVisualDocument, visualAssetUrl, type MapBackground, type MapContent, type MapDocument, type MapDrawing, type RelationTypeDefinition, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
@@ -37,6 +37,7 @@ function regionCenter(points: Array<{ x: number; y: number }>): { x: number; y: 
 export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const projectId = props.runtime.project?.id ?? null;
   const workVersionId = props.runtime.workVersionId;
+  const materialReturn = safeReturn(new URLSearchParams(window.location.search).get("materialReturn"));
   const [maps, setMaps] = useState<MapDocument[]>([]);
   const [locations, setLocations] = useState<WorldObjectSummary[]>([]);
   const [relations, setRelations] = useState<RelationReadProjectionR0[]>([]);
@@ -463,6 +464,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}>{!mapId ? <option value="">请选择地图</option> : null}{maps.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={saveMapTitle} disabled={busy} /></label> : null}
         <div className="map-workbench-toolbar-actions">
+          {materialReturn ? <button type="button" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />返回资料</button> : null}
           {map ? <><label className="map-new-template">新地图起点<select aria-label="新地图起点" value={templateChoice} onChange={(event) => setTemplateChoice(event.target.value as MapContent["template"])}><option value="geography">地理</option><option value="starfield">星域</option><option value="building">建筑</option><option value="blank">空白</option></select></label><button type="button" onClick={create} disabled={busy}>新地图</button></> : null}
           {map ? <><input ref={backgroundInput} className="map-background-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { importBackground(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} /><button type="button" onClick={() => backgroundInput.current?.click()} disabled={busy}>底图</button></> : null}
           <button type="button" aria-pressed={editingLayout} onClick={() => setEditingLayout((value) => !value)} disabled={busy}>{editingLayout ? <><Eye aria-hidden="true" />浏览地图</> : <><PencilRuler aria-hidden="true" />编辑布局</>}</button>
@@ -609,6 +611,7 @@ function observationNodes(history: MapInspectorData["state"]["history"]): EventO
 function observationKey(value: Observation): string { return value.kind === "current" ? "current" : `event:${value.eventId}:${value.eventRevision}:${value.observedAt}`; }
 function observationFromRoute(): Observation { const params = new URLSearchParams(window.location.search); const eventId = params.get("mapObservationEvent"); const eventRevision = params.get("mapObservationRevision"); const observedAt = params.get("mapObservedAt"); return eventId && eventRevision && observedAt ? { kind: "event", eventId, eventRevision, observedAt } : { kind: "current" }; }
 function route(): { mapId: string | null; placeId: string | null; mapElement: string | null; structureKind: LocationStructureKind } { const params = new URLSearchParams(window.location.search); return { mapId: params.get("mapId"), placeId: params.get("mapPlace"), mapElement: params.get("mapElement"), structureKind: params.get("mapStructure") === "administration" ? "administration" : "geography" }; }
+function safeReturn(value: string | null): string | null { return value && value.startsWith("/") && !value.startsWith("//") ? value : null; }
 function setQuery(params: URLSearchParams, key: string, value: string | null) { if (value) params.set(key, value); else params.delete(key); }
 function writeObservation(params: URLSearchParams, value: Observation) { params.delete("mapObservationEvent"); params.delete("mapObservationRevision"); params.delete("mapObservedAt"); if (value.kind === "event") { params.set("mapObservationEvent", value.eventId); params.set("mapObservationRevision", value.eventRevision); params.set("mapObservedAt", value.observedAt); } }
 function viewportFromRoute(): MapViewport { const params = new URLSearchParams(window.location.search); return normalizeViewport({ x: Number(params.get("mapPanX") ?? 0), y: Number(params.get("mapPanY") ?? 0), zoom: Number(params.get("mapZoom") ?? 1) }); }

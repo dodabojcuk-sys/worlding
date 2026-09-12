@@ -274,6 +274,48 @@ test("grounded answer includes an explicitly selected chapter as current writing
   }
 });
 
+test("grounded answer sends the selected setting body and excludes an unselected imported source", async () => {
+  const fixture = await createFixture();
+  try {
+    const imported = fixture.workspace.importSourceDocument({
+      projectId: fixture.projectId,
+      filename: "雾港设定笔记.md",
+      title: "雾港设定笔记",
+      content: "雾港实行夜间宵禁。\n\n例外：救援船只可以登记通行。",
+      mode: "reference-only"
+    });
+    const rule = fixture.workspace.createWorldObject({
+      projectId: fixture.projectId,
+      type: "rule",
+      title: "夜间宵禁",
+      status: "locked",
+      body: "雾港实行夜间宵禁；夜间进入北闸需要守卫签发通行凭据。"
+    });
+    let observedPrompt = "";
+    const gateway = fakeGroundedGateway((messages) => {
+      observedPrompt = messages.map((message) => message.content).join("\n");
+      const contract = messages[0]!.content.split("\n").find((line) => line.startsWith("includedSources must equal exactly: "))!;
+      const included = JSON.parse(contract.slice("includedSources must equal exactly: ".length)) as string[];
+      return { summary: "宵禁会限制夜间通行。", claims: [{ statement: "夜间需要通行凭据。", status: "fact", sourceRefs: included, uncertaintyReason: null }], status: "fact", sourceRefs: included, uncertaintyReason: null, includedSources: included, excludedSources: [] };
+    });
+    const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.material-grounded-open" });
+    await tianyi.runTianyiGroundedAnswer!({
+      operationId: "operation.material-grounded-answer",
+      submissionId: "submission.material-grounded-answer",
+      profileId: "siliconflow-test",
+      question: "宵禁怎样影响行动？",
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixture.projectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] }
+    });
+    assert.match(observedPrompt, /夜间进入北闸需要守卫签发通行凭据/u);
+    assert.doesNotMatch(observedPrompt, /救援船只可以登记通行/u, "An unselected source document must not leak into the Provider request.");
+    assert.ok(imported.libraryObjectId, "The source import remains available for a separate explicit author choice.");
+  } finally {
+    await rm(fixture.rootPath, { recursive: true, force: true });
+    await rm(fixture.stateFilePath, { force: true });
+  }
+});
+
 test("product Pack operations export explicit owners and return read-only staging DTOs", async () => {
   const fixture = await createFixture();
   try {

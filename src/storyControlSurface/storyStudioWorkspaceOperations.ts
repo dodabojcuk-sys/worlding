@@ -4946,6 +4946,7 @@ function projectRevision(revision: Record<string, unknown>) {
   return {
     id: String(revision.id),
     sequence: Number(revision.sequence),
+    contentHash: String(revision.contentHash),
     source: String(revision.source),
     recordedAt: String(revision.recordedAt),
     restoredFromRevisionId: revision.restoredFromRevisionId == null ? null : String(revision.restoredFromRevisionId),

@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
+  FileText,
+  FileUp,
   Link2,
   MapPin,
   Plus,
+  Quote,
   Save,
   Sparkles,
   UsersRound,
@@ -12,7 +15,11 @@ import {
 
 import {
   createWorldObject,
+  getDocumentRevisionHistory,
   getWorldLibrary,
+  importSourceDocument,
+  listSourceImportReviews,
+  previewDocumentRevision,
   readWorldObject,
   updateWorldObject,
   type WorldObject,
@@ -31,6 +38,11 @@ const editableTypes: Array<{ value: WorldObjectType; label: string }> = [
 const typeLabel = (type: WorldObjectType) =>
   editableTypes.find((entry) => entry.value === type)?.label ?? type;
 
+type SourceDocument = Awaited<ReturnType<typeof listSourceImportReviews>>[number];
+type MaterialStatusFilter = "all" | "draft" | "confirmed";
+type MaterialSort = "recent" | "title";
+type SourceSelection = { charStart: number; charEnd: number; lineStart: number; lineEnd: number; text: string };
+
 /** Author materials use the existing World Object writer; no parallel library is created here. */
 export function MaterialsWorkspace(props: {
   runtime: TianyanShellRuntimeState;
@@ -42,29 +54,48 @@ export function MaterialsWorkspace(props: {
   const requestedRevision = new URLSearchParams(window.location.search).get(
     "materialRevision",
   );
+  const requestedSourceId = new URLSearchParams(window.location.search).get("sourceDocumentId")
+    ?? new URLSearchParams(window.location.search).get("directorySource");
   const materialReturn = safeReturn(
     new URLSearchParams(window.location.search).get("materialReturn"),
   );
   const [items, setItems] = useState<WorldObjectSummary[]>([]);
+  const [sources, setSources] = useState<SourceDocument[]>([]);
   const [selected, setSelected] = useState<WorldObject | null>(null);
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState<WorldObjectType | "all">("all");
+  const [selectedSource, setSelectedSource] = useState<SourceDocument | null>(null);
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("materialQuery") ?? "");
+  const [type, setType] = useState<WorldObjectType | "source" | "all">(() => (new URLSearchParams(window.location.search).get("materialType") as WorldObjectType | "source" | "all" | null) ?? "all");
+  const [statusFilter, setStatusFilter] = useState<MaterialStatusFilter>(() => (new URLSearchParams(window.location.search).get("materialStatus") as MaterialStatusFilter | null) ?? "all");
+  const [sort, setSort] = useState<MaterialSort>(() => (new URLSearchParams(window.location.search).get("materialSort") as MaterialSort | null) ?? "recent");
   const [draft, setDraft] = useState({ title: "", body: "", tags: "" });
+  const [statusDraft, setStatusDraft] = useState("draft");
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [sourceDraft, setSourceDraft] = useState({ title: "", filename: "", content: "" });
+  const [sourceSelection, setSourceSelection] = useState<SourceSelection | null>(null);
+  const [historicalPreview, setHistoricalPreview] = useState<{ body: string; revisionId: string } | null>(null);
   const [linkTargetId, setLinkTargetId] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const filtered = useMemo(
-    () =>
-      items.filter(
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const internalRouteChange = useRef(false);
+  const writeInternalRoute = (input: Parameters<typeof writeMaterialRoute>[0]) => { internalRouteChange.current = true; writeMaterialRoute(input); };
+  const filtered = useMemo(() => items
+      .filter(
         (item) =>
           (type === "all" || item.type === type) &&
+          (statusFilter === "all" || (statusFilter === "draft" ? item.status === "draft" : item.status !== "draft")) &&
           `${item.title} ${item.tags.join(" ")} ${item.aliases.join(" ")}`
             .toLocaleLowerCase()
             .includes(query.trim().toLocaleLowerCase()),
-      ),
-    [items, query, type],
-  );
+      )
+      .sort((left, right) => sort === "title"
+        ? left.title.localeCompare(right.title, "zh-CN")
+        : (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.title.localeCompare(right.title, "zh-CN")),
+    [items, query, sort, statusFilter, type]);
+  const filteredSources = useMemo(() => sources
+    .filter((source) => (type === "all" || type === "source") && `${source.title} ${source.filename} ${currentSourceRevision(source)?.content ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN") : right.updatedAt.localeCompare(left.updatedAt)), [query, sort, sources, type]);
   const linkable = useMemo(
     () => items.filter((item) => item.id !== selected?.id),
     [items, selected?.id],
@@ -72,16 +103,21 @@ export function MaterialsWorkspace(props: {
   const sourceRevisionChanged = Boolean(
     requestedRevision && selected && requestedRevision !== selected.revisionToken,
   );
+  const unresolvedLinks = useMemo(() => selected ? materialLinkTargets(selected.body).filter((target) => !selected.linkedObjects.some((item) => item.relativeId === target || item.title === target)) : [], [selected]);
   const refresh = async () => {
     if (!projectId) return [];
-    const library = await getWorldLibrary(projectId);
+    const [library, sourceDocuments] = await Promise.all([getWorldLibrary(projectId), listSourceImportReviews(projectId)]);
     const next = library.objects.filter((item) => item.status !== "archived");
     setItems(next);
+    setSources(sourceDocuments);
     return next;
   };
   const open = (summary: WorldObjectSummary) => {
     if (!projectId) return;
     setCreating(false);
+    setImporting(false);
+    setSelectedSource(null);
+    setHistoricalPreview(null);
     setBusy(true);
     void readWorldObject(projectId, summary.id)
       .then((value) => {
@@ -91,16 +127,29 @@ export function MaterialsWorkspace(props: {
           body: value.body,
           tags: value.tags.join("、"),
         });
+        setStatusDraft(value.status);
         setLinkTargetId("");
+        writeInternalRoute({ materialId: value.id, sourceDocumentId: null, revision: value.id === requestedMaterialId ? undefined : null });
       })
       .catch((error: unknown) =>
         setMessage(error instanceof Error ? error.message : "资料无法打开。"),
       )
       .finally(() => setBusy(false));
   };
+  const openSource = (source: SourceDocument) => {
+    setCreating(false); setImporting(false); setSelected(null); setSelectedSource(source); setSourceSelection(null); setHistoricalPreview(null);
+    writeInternalRoute({ materialId: null, sourceDocumentId: source.sourceDocumentId });
+  };
+  const openLinked = (summary: WorldObjectSummary) => {
+    const source = sources.find((document) => document.libraryObjectId === summary.id);
+    if (source) openSource(source); else open(summary);
+  };
   useEffect(() => {
+    if (internalRouteChange.current) { internalRouteChange.current = false; return; }
     setSelected(null);
+    setSelectedSource(null);
     setCreating(false);
+    setImporting(false);
     setMessage("");
     void refresh()
       .then((next) => {
@@ -108,13 +157,37 @@ export function MaterialsWorkspace(props: {
           ? next.find((item) => item.id === requestedMaterialId)
           : null;
         if (requested) open(requested);
+        else if (requestedSourceId) {
+          void listSourceImportReviews(projectId!).then((documents) => {
+            const source = documents.find((item) => item.sourceDocumentId === requestedSourceId);
+            if (source) openSource(source);
+            else setMessage("来源已不存在或不属于当前作品；没有打开同名材料替代。");
+          });
+        }
       })
       .catch((error: unknown) =>
         setMessage(error instanceof Error ? error.message : "资料读取失败。"),
       );
     // The route is a deliberate source-return boundary, not a general browser history signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, requestedMaterialId]);
+  }, [projectId, requestedMaterialId, requestedSourceId]);
+  useEffect(() => {
+    setHistoricalPreview(null);
+    if (!projectId || !selected || !requestedRevision || requestedRevision === selected.revisionToken) return;
+    let active = true;
+    void props.runtime.withConnection((token) => getDocumentRevisionHistory(projectId, { kind: "object", id: selected.id }, token))
+      .then((history) => {
+        const revision = history.revisions.find((entry) => entry.contentHash === requestedRevision);
+        if (!revision) throw new Error("该来源修订没有可读取的历史快照。");
+        return previewDocumentRevision(projectId, { kind: "object", id: selected.id }, revision.id);
+      })
+      .then((preview) => { if (active) setHistoricalPreview({ body: markdownBody(preview.preview), revisionId: preview.revision.id }); })
+      .catch((error: unknown) => { if (active) setMessage(error instanceof Error ? error.message : "历史来源正文无法读取。"); });
+    return () => { active = false; };
+  }, [projectId, props.runtime, requestedRevision, selected]);
+  useEffect(() => {
+    writeMaterialRoute({ query, type, status: statusFilter, sort });
+  }, [query, sort, statusFilter, type]);
   const create = () => {
     if (!projectId || !draft.title.trim()) return;
     setBusy(true);
@@ -122,14 +195,14 @@ export function MaterialsWorkspace(props: {
       .withConnection((token) =>
         createWorldObject({
           projectId,
-          type: type === "all" ? "rule" : type,
+          type: type === "all" || type === "source" ? "rule" : type,
           title: draft.title.trim(),
           body: draft.body,
           tags: draft.tags
             .split(/[、,]/u)
             .map((value) => value.trim())
             .filter(Boolean),
-          status: "draft",
+          status: statusDraft,
           token,
         }),
       )
@@ -150,6 +223,44 @@ export function MaterialsWorkspace(props: {
       )
       .finally(() => setBusy(false));
   };
+  const importSource = () => {
+    if (!projectId || !sourceDraft.content.trim()) return;
+    const title = sourceDraft.title.trim() || sourceDraft.filename.replace(/\.(?:md|markdown|txt)$/iu, "") || "未命名来源";
+    const filename = normalizeSourceFilename(sourceDraft.filename, title);
+    setBusy(true);
+    void props.runtime.withConnection((token) => importSourceDocument({ projectId, filename, title, content: sourceDraft.content, mode: "reference-only", token }))
+      .then(async (document) => {
+        await refresh(); openSource(document); setSourceDraft({ title: "", filename: "", content: "" });
+        setMessage("原始材料已逐字保留为未确认来源；导入没有制造正式事件或角色知识。");
+      })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "来源导入失败，粘贴内容仍保留。"))
+      .finally(() => setBusy(false));
+  };
+  const prepareRuleFromSelection = () => {
+    if (!projectId || !selectedSource || !sourceSelection?.text.trim()) return;
+    const source = selectedSource;
+    const selection = sourceSelection;
+    if (!source.libraryObjectId) {
+      setMessage("该来源没有可定位的资料对象；未建立无法往返的设定草稿。");
+      return;
+    }
+    setBusy(true);
+    void readWorldObject(projectId, source.libraryObjectId)
+      .then((sourceObject) => {
+        const sourceLink = `[[${sourceObject.relativeId}|${source.title}]]`;
+        setSelected(null); setSelectedSource(null); setCreating(true); setImporting(false); setType("rule");
+        setDraft({
+          title: `来自“${source.title}”的世界设定`,
+          body: `${selection.text.trim()}\n\n来源：${sourceLink}\n来源位置：${source.title} · 第 ${selection.lineStart}–${selection.lineEnd} 行 · 修订 ${source.currentRevisionHash}\n来源标识：${source.sourceDocumentId}\n`,
+          tags: "世界设定、待确认",
+        });
+        setStatusDraft("draft");
+        writeInternalRoute({ materialId: null, sourceDocumentId: null });
+        setMessage("已把所选原文带入设定草稿；请整理并保存。来源位置与原始修订会保留在正文中。");
+      })
+      .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "来源资料无法读取；未建立设定草稿。"))
+      .finally(() => setBusy(false));
+  };
   const save = () => {
     if (!projectId || !selected) return;
     setBusy(true);
@@ -163,7 +274,7 @@ export function MaterialsWorkspace(props: {
           writeMarkdown: true,
           writePresentation: false,
           title: draft.title.trim(),
-          status: selected.status,
+          status: selected.type === "rule" ? statusDraft : selected.status,
           tags: draft.tags
             .split(/[、,]/u)
             .map((value) => value.trim())
@@ -186,6 +297,7 @@ export function MaterialsWorkspace(props: {
           body: result.object.body,
           tags: result.object.tags.join("、"),
         });
+        setStatusDraft(result.object.status);
         await refresh();
         setMessage("资料已保存；新选择会使用这一修订，既有回答回执仍标明自己的来源修订。");
       })
@@ -201,7 +313,7 @@ export function MaterialsWorkspace(props: {
   const addLink = () => {
     const target = linkable.find((item) => item.id === linkTargetId);
     if (!target) return;
-    const link = `[[${target.title}]]`;
+    const link = `[[${target.relativeId}|${target.title}]]`;
     setDraft((current) =>
       current.body.includes(link)
         ? current
@@ -246,13 +358,21 @@ export function MaterialsWorkspace(props: {
               type="button"
               onClick={() => {
                 setCreating(true);
+                setImporting(false);
                 setSelected(null);
+                setSelectedSource(null);
                 setDraft({ title: "", body: "", tags: "" });
+                setStatusDraft("draft");
                 setLinkTargetId("");
+                writeInternalRoute({ materialId: null, sourceDocumentId: null });
               }}
             >
               <Plus aria-hidden="true" />
               新建资料
+            </button>
+            <button type="button" onClick={() => { setImporting(true); setCreating(false); setSelected(null); setSelectedSource(null); writeInternalRoute({ materialId: null, sourceDocumentId: null }); }}>
+              <FileUp aria-hidden="true" />
+              导入来源
             </button>
           </div>
         </header>
@@ -275,6 +395,7 @@ export function MaterialsWorkspace(props: {
                 }
               >
                 <option value="all">全部内容</option>
+                <option value="source">原始来源</option>
                 {editableTypes.map((entry) => (
                   <option key={entry.value} value={entry.value}>
                     {entry.label}
@@ -282,7 +403,17 @@ export function MaterialsWorkspace(props: {
                 ))}
               </select>
             </label>
+            <div className="materials-filter-row">
+              <label>状态<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MaterialStatusFilter)}><option value="all">全部状态</option><option value="draft">草稿</option><option value="confirmed">已确认内容</option></select></label>
+              <label>排序<select value={sort} onChange={(event) => setSort(event.target.value as MaterialSort)}><option value="recent">最近编辑</option><option value="title">按名称</option></select></label>
+            </div>
             <div className="materials-workspace-list">
+              {filteredSources.map((source) => (
+                <button key={source.sourceDocumentId} type="button" aria-pressed={selectedSource?.sourceDocumentId === source.sourceDocumentId} onClick={() => openSource(source)}>
+                  <strong>{source.title}</strong>
+                  <span>原始来源 · {source.filename} · {formatRecentTime(source.updatedAt)}</span>
+                </button>
+              ))}
               {filtered.map((item) => (
                 <button
                   key={item.id}
@@ -291,15 +422,16 @@ export function MaterialsWorkspace(props: {
                   onClick={() => open(item)}
                 >
                   <strong>{item.title}</strong>
-                  <span>{typeLabel(item.type)} · {item.tags.slice(0, 2).join("、") || "未加标签"}</span>
+                  <span>{typeLabel(item.type)} · {item.tags.slice(0, 2).join("、") || "未加标签"}{item.updatedAt ? ` · ${formatRecentTime(item.updatedAt)}` : ""}</span>
                 </button>
               ))}
+              {!filtered.length && !filteredSources.length ? <p>没有符合当前筛选的资料。</p> : null}
             </div>
           </aside>
           <section className="materials-workspace-main">
             {message ? <p className="materials-workspace-message" role="status">{message}</p> : null}
-            {sourceRevisionChanged ? <p className="materials-source-revision-warning" role="alert">此回答引用的是修订 {requestedRevision?.slice(0, 12)}，当前资料已是 {selected?.revisionToken.slice(0, 12)}。历史正文未由现有 World Object Owner 保留，因此不会把当前正文冒充为旧回答的依据。</p> : null}
-            {selected || creating ? (
+            {sourceRevisionChanged ? <section className="materials-source-revision-warning" role="alert"><strong>正在查看旧回答采用的来源</strong><p>回答修订 {requestedRevision?.slice(0, 12)}；当前资料 {selected?.revisionToken.slice(0, 12)}。{historicalPreview ? `已从既有文档历史读取 ${historicalPreview.revisionId}，没有用当前正文替代。` : "正在核对历史快照。"}</p>{historicalPreview ? <details open><summary>旧依据正文</summary><pre>{historicalPreview.body}</pre></details> : null}</section> : null}
+            {selectedSource ? <SourceReader source={selectedSource} selection={sourceSelection} onSelection={setSourceSelection} onPrepareRule={prepareRuleFromSelection} onOpenLibraryObject={() => { const sourceObject = items.find((item) => item.id === selectedSource.libraryObjectId); if (sourceObject) open(sourceObject); }} onUseInTianyi={() => { if (selectedSource.libraryObjectId) window.location.assign(`/tianyi?tianyiLane=work&materialRef=${encodeURIComponent(selectedSource.libraryObjectId)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`); }} /> : selected || creating ? (
               <section className="materials-editor" aria-label={creating ? "新建资料" : "编辑资料"}>
                 {selected ? <div className="materials-editor-heading"><div><span>{typeLabel(selected.type)}</span><h2>{selected.title}</h2></div><small>当前修订 {selected.revisionToken.slice(0, 12)}</small></div> : <div className="materials-editor-heading"><div><span>新资料</span><h2>编写资料</h2></div></div>}
                 <label>
@@ -344,6 +476,7 @@ export function MaterialsWorkspace(props: {
                     placeholder="例如：雾港实行夜间宵禁……"
                   />
                 </label>
+                {(selected?.type ?? (type === "all" || type === "source" ? "rule" : type)) === "rule" ? <div className="materials-writing-prompts" aria-label="可选写作提示"><span>可选提示</span>{["规则内容", "适用范围", "例外"].map((prompt) => <button key={prompt} type="button" onClick={() => setDraft((current) => current.body.includes(`${prompt}：`) ? current : { ...current, body: `${current.body.trimEnd()}${current.body.trim() ? "\n\n" : ""}${prompt}：` })}>{prompt}</button>)}</div> : null}
                 <label>
                   标签
                   <input
@@ -357,6 +490,7 @@ export function MaterialsWorkspace(props: {
                     placeholder="规则、雾港、守卫组织"
                   />
                 </label>
+                {(selected?.type ?? (type === "all" || type === "source" ? "rule" : type)) === "rule" ? <label>内容状态<select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}><option value="draft">草稿设定</option><option value="locked">作者已确认</option></select></label> : null}
                 {selected ? (
                   <>
                     <section aria-label="资料关联">
@@ -365,13 +499,7 @@ export function MaterialsWorkspace(props: {
                         已关联：
                         {selected.linkedObjects.length
                           ? selected.linkedObjects.map((item) => (
-                              <button
-                                type="button"
-                                key={item.id}
-                                onClick={() => open(item)}
-                              >
-                                {item.title}
-                              </button>
+                              <span className="materials-linked-object" key={item.id}><button type="button" onClick={() => openLinked(item)}>{item.title}</button>{item.type === "location" ? <button type="button" onClick={() => window.location.assign(`/library?libraryView=map&mapPlace=${encodeURIComponent(item.id)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`)}><MapPin aria-hidden="true" />地图</button> : null}{item.type === "character" || item.type === "location" ? <button type="button" onClick={() => window.location.assign(`/library?libraryView=relations&relationCenter=${encodeURIComponent(item.id)}&relationReturn=${encodeURIComponent(currentMaterialRoute())}`)}><UsersRound aria-hidden="true" />关系</button> : null}</span>
                             ))
                           : "尚未建立"}
                       </p>
@@ -382,13 +510,14 @@ export function MaterialsWorkspace(props: {
                             <button
                               type="button"
                               key={item.id}
-                              onClick={() => open(item)}
+                              onClick={() => openLinked(item)}
                             >
                               {item.title}
                             </button>
                           ))}
                         </p>
                       ) : null}
+                      {unresolvedLinks.length ? <p className="materials-broken-links" role="alert">失效关联：{unresolvedLinks.join("、")}。没有自动改连到同名或其他对象。</p> : null}
                       <label>
                         插入关联
                         <select
@@ -434,7 +563,7 @@ export function MaterialsWorkspace(props: {
                           type="button"
                           onClick={() =>
                             window.location.assign(
-                              `/library?libraryView=map&mapPlace=${encodeURIComponent(selected.id)}`,
+                              `/library?libraryView=map&mapPlace=${encodeURIComponent(selected.id)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`,
                             )
                           }
                         >
@@ -442,22 +571,22 @@ export function MaterialsWorkspace(props: {
                           在地图打开
                         </button>
                       ) : null}
-                      <button
+                      {selected.type === "character" || selected.type === "location" ? <button
                         type="button"
                         onClick={() =>
                           window.location.assign(
-                            `/library?libraryView=relations&relationCenter=${encodeURIComponent(selected.id)}&relationReturn=${encodeURIComponent(`/library?materialId=${selected.id}`)}`,
+                            `/library?libraryView=relations&relationCenter=${encodeURIComponent(selected.id)}&relationReturn=${encodeURIComponent(currentMaterialRoute())}`,
                           )
                         }
                       >
                         <UsersRound aria-hidden="true" />
                         查看关系
-                      </button>
+                      </button> : null}
                       <button
                         type="button"
                         onClick={() =>
                           window.location.assign(
-                            `/tianyi?tianyiLane=work&materialRef=${encodeURIComponent(selected.id)}`,
+                            `/tianyi?tianyiLane=work&materialRef=${encodeURIComponent(selected.id)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`,
                           )
                         }
                       >
@@ -477,6 +606,16 @@ export function MaterialsWorkspace(props: {
                   </button>
                 )}
               </section>
+            ) : importing ? (
+              <section className="materials-import" aria-label="导入来源">
+                <div><FileUp aria-hidden="true" /><div><small>原始材料</small><h2>粘贴或导入 Markdown／TXT</h2><p>保留原文、文件名与每次导入修订；导入内容保持未确认。</p></div></div>
+                <input ref={fileInput} hidden type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; if (!/\.(?:md|markdown|txt)$/iu.test(file.name)) { setMessage("只支持 Markdown 与 TXT。未读取该文件。"); return; } void file.text().then((content) => setSourceDraft({ title: file.name.replace(/\.(?:md|markdown|txt)$/iu, ""), filename: file.name, content })); }} />
+                <button type="button" onClick={() => fileInput.current?.click()}><FileText aria-hidden="true" />选择本地文件</button>
+                <label>来源名称<input value={sourceDraft.title} onChange={(event) => setSourceDraft((current) => ({ ...current, title: event.target.value }))} placeholder="例如：雾港设定笔记" /></label>
+                <label>文件名／出处<input value={sourceDraft.filename} onChange={(event) => setSourceDraft((current) => ({ ...current, filename: event.target.value }))} placeholder="雾港设定笔记.md" /></label>
+                <label>原文<textarea rows={18} value={sourceDraft.content} onChange={(event) => setSourceDraft((current) => ({ ...current, content: event.target.value }))} placeholder="在这里粘贴原始笔记；保存后不会自动确认其中内容。" /></label>
+                <button type="button" disabled={busy || !sourceDraft.content.trim()} onClick={importSource}><Save aria-hidden="true" />保存为原始来源</button>
+              </section>
             ) : (
               <p>选择一项资料开始阅读和编辑，或新建第一条世界设定。</p>
             )}
@@ -491,4 +630,78 @@ function safeReturn(value: string | null): string | null {
   return value && value.startsWith("/") && !value.startsWith("//")
     ? value
     : null;
+}
+
+function SourceReader(props: {
+  source: SourceDocument;
+  selection: SourceSelection | null;
+  onSelection(value: SourceSelection | null): void;
+  onPrepareRule(): void;
+  onOpenLibraryObject(): void;
+  onUseInTianyi(): void;
+}) {
+  const revision = currentSourceRevision(props.source);
+  const select = (element: HTMLTextAreaElement) => {
+    const charStart = element.selectionStart;
+    const charEnd = element.selectionEnd;
+    if (charEnd <= charStart) { props.onSelection(null); return; }
+    const before = element.value.slice(0, charStart);
+    const through = element.value.slice(0, charEnd);
+    props.onSelection({ charStart, charEnd, lineStart: before.split("\n").length, lineEnd: through.split("\n").length, text: element.value.slice(charStart, charEnd) });
+  };
+  return <section className="materials-source-reader" aria-label="原始来源阅读">
+    <header><div><span>原始来源 · 未确认</span><h2>{props.source.title}</h2><p>{props.source.filename} · 修订 {props.source.currentRevisionHash.slice(0, 12)} · {formatRecentTime(props.source.updatedAt)}</p></div><FileText aria-hidden="true" /></header>
+    <p>原文逐字保存在来源修订中。选择一段后可建立设定草稿；这一步不会自动确认内容。</p>
+    <textarea aria-label="来源原文" readOnly value={revision?.content ?? ""} rows={22} onSelect={(event) => select(event.currentTarget)} onMouseUp={(event) => select(event.currentTarget)} onKeyUp={(event) => select(event.currentTarget)} />
+    {props.selection ? <aside aria-label="已选择来源段落"><Quote aria-hidden="true" /><div><strong>第 {props.selection.lineStart}–{props.selection.lineEnd} 行</strong><p>{props.selection.text}</p></div></aside> : <p className="materials-source-selection-hint">在上方原文中拖选一段，建立带准确来源位置的世界设定。</p>}
+    <div className="materials-editor-actions"><button type="button" disabled={!props.selection?.text.trim()} onClick={props.onPrepareRule}><Plus aria-hidden="true" />从选中段落建立设定</button>{props.source.libraryObjectId ? <button type="button" onClick={props.onOpenLibraryObject}>打开可关联资料</button> : null}{props.source.libraryObjectId ? <button type="button" onClick={props.onUseInTianyi}><Sparkles aria-hidden="true" />在天意明确引用原文</button> : null}</div>
+  </section>;
+}
+
+function currentSourceRevision(source: SourceDocument) {
+  return source.revisions.find((revision) => revision.revisionHash === source.currentRevisionHash) ?? null;
+}
+
+function normalizeSourceFilename(filename: string, title: string): string {
+  const trimmed = filename.trim();
+  if (/\.(?:md|markdown|txt)$/iu.test(trimmed)) return trimmed;
+  const safe = (trimmed || title).replace(/[\\/\0]/gu, "-").trim() || "未命名来源";
+  return `${safe}.md`;
+}
+
+function formatRecentTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function markdownBody(source: string): string {
+  if (!source.startsWith("---\n")) return source;
+  const end = source.indexOf("\n---\n", 4);
+  return end < 0 ? source : source.slice(end + 5);
+}
+
+function materialLinkTargets(body: string): string[] {
+  return [...body.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]/gu)].map((match) => match[1]!.trim()).filter(Boolean);
+}
+
+function currentMaterialRoute(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+function writeMaterialRoute(input: Partial<{ materialId: string | null; sourceDocumentId: string | null; revision: string | null; query: string; type: WorldObjectType | "source" | "all"; status: MaterialStatusFilter; sort: MaterialSort }>): void {
+  const params = new URLSearchParams(window.location.search);
+  if (input.materialId !== undefined) setRouteValue(params, "materialId", input.materialId);
+  if (input.sourceDocumentId !== undefined) { setRouteValue(params, "sourceDocumentId", input.sourceDocumentId); params.delete("directorySource"); }
+  if (input.revision !== undefined) setRouteValue(params, "materialRevision", input.revision);
+  if (input.query !== undefined) setRouteValue(params, "materialQuery", input.query || null);
+  if (input.type !== undefined) setRouteValue(params, "materialType", input.type === "all" ? null : input.type);
+  if (input.status !== undefined) setRouteValue(params, "materialStatus", input.status === "all" ? null : input.status);
+  if (input.sort !== undefined) setRouteValue(params, "materialSort", input.sort === "recent" ? null : input.sort);
+  window.history.replaceState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`);
+}
+
+function setRouteValue(params: URLSearchParams, key: string, value: string | null): void {
+  if (value) params.set(key, value);
+  else params.delete(key);
 }

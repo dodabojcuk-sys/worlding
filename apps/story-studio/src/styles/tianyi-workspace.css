@@ -127,8 +127,10 @@
 .tianyi-grounded-answer-receipt dt { color: var(--color-text-muted); font-size: .7rem; }
 .tianyi-grounded-answer-receipt dd { margin: .15rem 0 0; overflow-wrap: anywhere; font-size: .75rem; }
 .tianyi-grounded-answer-receipt ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
-.tianyi-grounded-answer-receipt li { display: flex; justify-content: space-between; gap: .7rem; border-top: 1px solid var(--color-border-subtle); padding-top: .35rem; }
+.tianyi-grounded-answer-receipt li { display: grid; grid-template-columns: minmax(8rem, auto) minmax(0, 1fr); align-items: start; gap: .35rem .7rem; border-top: 1px solid var(--color-border-subtle); padding-top: .35rem; }
 .tianyi-grounded-answer-receipt li button { border: 0; background: transparent; color: var(--color-accent); padding: 0; text-align: left; cursor: pointer; }
+.tianyi-grounded-answer-receipt li details, .tianyi-grounded-answer-receipt li > small { grid-column: 1 / -1; }
+.tianyi-grounded-answer-receipt li details p { max-height: 12rem; overflow: auto; white-space: pre-wrap; color: var(--color-text-secondary); }
 .tianyi-work-contract dt { font-size: 11px; color: var(--color-text-muted); }
 .tianyi-work-contract dd { margin: 4px 0 0; font-size: 13px; }
 .tianyi-work-contract label { font-size: 11px; color: var(--color-text-muted); }
