@@ -2734,6 +2734,55 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => operations.updateVisualDocument(body)) });
     return;
   }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/duplicate") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "relativePath", "title"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "visual-document", [body.relativePath]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.duplicateMapDocument(body)) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/maps/revisions") {
+    const projectId = requireQueryValue(url, "projectId");
+    const relativePath = requireQueryValue(url, "relativePath");
+    sendJson(response, 200, { data: runProductOperation(() => operations.listVisualDocumentRevisions({ projectId, relativePath })) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/maps/revision") {
+    const projectId = requireQueryValue(url, "projectId");
+    const relativePath = requireQueryValue(url, "relativePath");
+    const contentHash = requireQueryValue(url, "contentHash");
+    sendJson(response, 200, { data: runProductOperation(() => operations.readVisualDocumentRevision({ projectId, relativePath, contentHash })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/create") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "relativePath", "operationId", "baseContentHash", "prompt", "scope", "capability", "operations"]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.createMapEditProposal(body)) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/maps/proposals") {
+    const projectId = requireQueryValue(url, "projectId");
+    const relativePath = requireQueryValue(url, "relativePath");
+    sendJson(response, 200, { data: runProductOperation(() => operations.listMapEditProposals({ projectId, relativePath })) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/accept") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "operationId"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "visual-document", [body.operationId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.acceptMapEditProposal(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/reject") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "operationId"]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.rejectMapEditProposal(body)) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/timeline/validate") {
     requireToken(request);
     const body = await readJsonBody(request);

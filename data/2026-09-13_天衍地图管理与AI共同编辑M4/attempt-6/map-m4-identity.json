@@ -1,0 +1,11 @@
+{
+  "projectId": "r061-e2e-336b9a5a79a44d7facd8de9fc5b89420",
+  "workVersionId": "work-version.root.79977f95f70f4d37f46100a603e90b4f",
+  "sourceMapId": "map.地点示意图",
+  "targetMapId": "map.雾港-局部地图",
+  "copiedMapId": "map.北湾作者地图-副本",
+  "acceptedMapRevision": 19,
+  "simulatedProviderDispatches": 1,
+  "realProviderDispatches": 0,
+  "proposalBoundary": "validated-structured-operations"
+}

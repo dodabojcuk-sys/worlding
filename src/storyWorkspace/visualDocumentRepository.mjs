@@ -58,6 +58,8 @@ export function createVisualDocument(rootPath, input) {
     id: `${type}.${safeIdSegment(documentSlug)}`,
     type,
     title,
+    revision: 1,
+    updatedAt: new Date().toISOString(),
     objectRefs: [],
     viewport: { x: 0, y: 0, zoom: 1 },
     content: input.content ?? defaultContent(type),
@@ -107,6 +109,47 @@ export function readVisualDocument(rootPath, relativePath) {
   });
 }
 
+export function listVisualDocumentRevisions(rootPath, relativePath) {
+  const root = prepareRoot(rootPath);
+  const current = readVisualDocument(root, relativePath);
+  const directory = safePath(root, `${DOCUMENT_DIRECTORIES[current.type]}/.history/${safeIdSegment(current.id)}`, { allowMissing: true });
+  const snapshots = existsSync(directory) ? readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => {
+      const source = readFileSync(path.join(directory, entry.name), "utf8");
+      const parsed = normalizeDocument(root, parseJsonObject(source), { operation: "read", currentDocument: null });
+      return { revision: parsed.revision, updatedAt: parsed.updatedAt, contentHash: entry.name.slice(0, -5), current: false };
+    }) : [];
+  return [...snapshots, { revision: current.revision, updatedAt: current.updatedAt, contentHash: current.contentHash, current: true }]
+    .sort((left, right) => right.revision - left.revision || right.contentHash.localeCompare(left.contentHash));
+}
+
+export function readVisualDocumentRevision(rootPath, input) {
+  const root = prepareRoot(rootPath);
+  const current = readVisualDocument(root, input.relativePath);
+  const requestedHash = requireText(input.contentHash, "Visual document revision hash", 128);
+  if (requestedHash === current.contentHash) return current;
+  const snapshotPath = safePath(root, `${DOCUMENT_DIRECTORIES[current.type]}/.history/${safeIdSegment(current.id)}/${requestedHash}.json`);
+  if (!existsSync(snapshotPath)) throw new Error("Visual document revision does not exist.");
+  const source = readFileSync(snapshotPath, "utf8");
+  const document = normalizeDocument(root, parseJsonObject(source), { operation: "read", currentDocument: null });
+  if (document.id !== current.id || document.type !== current.type) throw new Error("Visual document revision identity does not match.");
+  return clone({ ...document, relativePath: current.relativePath, contentHash: requestedHash, source: "visual-json", historical: true });
+}
+
+export function duplicateMapDocument(rootPath, input) {
+  const source = readVisualDocument(rootPath, input.relativePath);
+  if (source.type !== "map") throw new Error("Only maps can be duplicated by the map manager.");
+  const created = createVisualDocument(rootPath, { type: "map", title: requireText(input.title || `${source.title} 副本`, "Map copy title", 100) });
+  const content = clone(source.content);
+  content.lifecycle = { archived: false, copiedFromMapId: source.id };
+  content.placements = [];
+  content.connections = content.connections.filter((connection) => connection.from.mapId !== source.id && connection.to.mapId !== source.id);
+  const result = updateVisualDocument(rootPath, { relativePath: created.relativePath, expectedContentHash: created.contentHash, document: { ...created, content } });
+  if (!result.ok) throw new Error("The copied map changed before it could be initialized.");
+  return result.document;
+}
+
 export function updateVisualDocument(rootPath, input) {
   const root = prepareRoot(rootPath);
   const relativePath = requireVisualDocumentPath(input.relativePath);
@@ -118,7 +161,9 @@ export function updateVisualDocument(rootPath, input) {
     ...input.document,
     version: current.version,
     id: current.id,
-    type: current.type
+    type: current.type,
+    revision: current.revision + 1,
+    updatedAt: new Date().toISOString()
   }, { operation: "update", currentDocument: current });
   if (current.type === "graph") {
     const currentAuthority = current.content.relationAuthority?.status;
@@ -134,6 +179,8 @@ export function updateVisualDocument(rootPath, input) {
     });
     candidate = { ...candidate, content: reconciled.content };
   }
+  if (candidate.type === "map") validateMapTopology(root, candidate, current.relativePath);
+  snapshotVisualDocument(root, current);
   writeVisualJson(root, relativePath, serializeDocumentForPersistence(candidate));
   return clone({ ok: true, conflict: false, document: readVisualDocument(root, relativePath) });
 }
@@ -169,7 +216,11 @@ export function restoreVisualDocumentSource(rootPath, input) {
     throw new Error("Visual restore source is invalid.");
   }
   const parsed = parseJsonObject(input.source);
-  const candidate = normalizeDocument(root, parsed, { operation: "restore", currentDocument: current });
+  const candidate = normalizeDocument(root, {
+    ...parsed,
+    revision: current.revision + 1,
+    updatedAt: new Date().toISOString()
+  }, { operation: "restore", currentDocument: current });
   if (candidate.id !== current.id || candidate.type !== current.type) throw new Error("Restored visual document identity does not match the canonical document.");
   let nextDocument = candidate;
   if (candidate.type === "graph") {
@@ -185,6 +236,8 @@ export function restoreVisualDocumentSource(rootPath, input) {
     });
     nextDocument = { ...candidate, content: reconciled.content };
   }
+  if (nextDocument.type === "map") validateMapTopology(root, nextDocument, current.relativePath);
+  snapshotVisualDocument(root, current);
   writeVisualJson(root, relativePath, serializeDocumentForPersistence(nextDocument));
   return clone({ ok: true, conflict: false, document: readVisualDocument(root, relativePath) });
 }
@@ -229,6 +282,8 @@ function normalizeDocument(root, input, options = { operation: "create", current
   const type = requireDocumentType(input.type);
   const id = requireText(input.id, "Visual document id", 160);
   const title = requireText(input.title, "Visual document title", 100);
+  const revision = Number.isSafeInteger(input.revision) && input.revision > 0 ? input.revision : 1;
+  const updatedAt = input.updatedAt == null ? null : requireIsoDate(input.updatedAt, "Visual document updated time");
   const viewport = normalizeViewport(input.viewport);
   const content = type === "map"
     ? normalizeMapContent(root, input.content)
@@ -247,6 +302,8 @@ function normalizeDocument(root, input, options = { operation: "create", current
     id,
     type,
     title,
+    revision,
+    updatedAt,
     objectRefs,
     viewport,
     content,
@@ -258,6 +315,8 @@ function normalizeMapContent(root, value) {
   const input = cloneJsonObject(value || {});
   const scopeObjectId = input.scopeObjectId == null || input.scopeObjectId === "" ? null : requireText(input.scopeObjectId, "Map scope object", 160);
   const structure = normalizeMapStructure(input.structure);
+  const lifecycle = normalizeMapLifecycle(input.lifecycle);
+  const coordinateSystem = normalizeMapCoordinateSystem(input.coordinateSystem);
   const layers = Array.isArray(input.layers) ? input.layers.map((layer) => ({
     id: requireText(layer?.id, "Map layer id", 120),
     title: requireText(layer?.title, "Map layer title", 80),
@@ -275,11 +334,17 @@ function normalizeMapContent(root, value) {
       title: requireText(background?.title || `背景 ${index + 1}`, "Map background title", 100),
       ...asset,
       opacity: boundedNumber(background?.opacity ?? 1, "Map background opacity", 0, 1),
-      visible: background?.visible !== false
+      visible: background?.visible !== false,
+      transform: {
+        x: boundedNumber(background?.transform?.x ?? 0, "Map background x", -1000000, 1000000),
+        y: boundedNumber(background?.transform?.y ?? 0, "Map background y", -1000000, 1000000),
+        scale: boundedNumber(background?.transform?.scale ?? 1, "Map background scale", .01, 100),
+        rotation: boundedNumber(background?.transform?.rotation ?? 0, "Map background rotation", -180, 180)
+      }
     };
   });
   if (backgrounds.length === 0 && legacyBaseImage) {
-    backgrounds.push({ id: "background.main", title: "主背景", ...legacyBaseImage, opacity: 1, visible: true });
+    backgrounds.push({ id: "background.main", title: "主背景", ...legacyBaseImage, opacity: 1, visible: true, transform: { x: 0, y: 0, scale: 1, rotation: 0 } });
   }
   const backgroundIds = new Set(backgrounds.map((background) => background.id));
   const activeBackgroundId = backgrounds.length === 0
@@ -381,7 +446,132 @@ function normalizeMapContent(root, value) {
     objectId: entrance?.objectId == null || entrance.objectId === "" ? null : requireText(entrance.objectId, "Map entrance object", 160)
   }));
   for (const entrance of entrances) if (!layerIds.has(entrance.layerId)) throw new Error("Map entrance references an unknown layer.");
-  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, drawings, entrances, template, scopeObjectId, structure };
+  const placements = normalizeUniqueItems(input.placements, "Map placement", (placement) => {
+    const kind = ["point", "range", "calibrated"].includes(placement?.kind) ? placement.kind : null;
+    if (!kind) throw new Error("Map placement kind is invalid.");
+    const point = placement?.point == null ? null : normalizeMapPoint(placement.point, "Map placement point");
+    const bounds = Array.isArray(placement?.bounds) ? placement.bounds.map((item) => normalizeMapPoint(item, "Map placement bounds")) : [];
+    if (kind === "point" && !point) throw new Error("Point placement requires a point.");
+    if ((kind === "range" || kind === "calibrated") && bounds.length < 3) throw new Error("Range placement requires at least three boundary points.");
+    const transform = kind === "calibrated" ? {
+      translateX: finiteNumber(placement?.transform?.translateX, "Map placement translation x"),
+      translateY: finiteNumber(placement?.transform?.translateY, "Map placement translation y"),
+      rotation: boundedNumber(placement?.transform?.rotation ?? 0, "Map placement rotation", -180, 180),
+      scale: boundedNumber(placement?.transform?.scale, "Map placement scale", .0001, 10000)
+    } : null;
+    return {
+      id: requireText(placement?.id, "Map placement id", 120),
+      childMapId: requireText(placement?.childMapId, "Map placement child", 160),
+      kind,
+      point,
+      bounds,
+      transform,
+      precision: kind === "calibrated" ? "calibrated" : "illustrative",
+      note: placement?.note == null || placement.note === "" ? null : requireText(placement.note, "Map placement note", 240)
+    };
+  });
+  const connections = normalizeUniqueItems(input.connections, "Map connection", (connection) => ({
+    id: requireText(connection?.id, "Map connection id", 120),
+    title: requireText(connection?.title, "Map connection title", 100),
+    kind: ["door", "stairs", "elevator", "road", "portal", "passage"].includes(connection?.kind) ? connection.kind : "passage",
+    direction: ["forward", "reverse", "both"].includes(connection?.direction) ? connection.direction : "both",
+    from: normalizeMapEndpoint(connection?.from, "Map connection source"),
+    to: normalizeMapEndpoint(connection?.to, "Map connection target"),
+    relationId: connection?.relationId == null || connection.relationId === "" ? null : requireText(connection.relationId, "Map connection relation", 180),
+    note: connection?.note == null || connection.note === "" ? null : requireText(connection.note, "Map connection note", 240)
+  }));
+  const floor = input.floor == null ? null : {
+    order: Math.round(boundedNumber(input.floor.order, "Map floor order", -1000, 1000)),
+    height: input.floor.height == null ? null : boundedNumber(input.floor.height, "Map floor height", -100000, 100000),
+    label: input.floor.label == null || input.floor.label === "" ? null : requireText(input.floor.label, "Map floor label", 80)
+  };
+  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, drawings, entrances, template, scopeObjectId, structure, lifecycle, coordinateSystem, placements, connections, floor };
+}
+
+function normalizeMapLifecycle(value) {
+  const input = cloneJsonObject(value || {});
+  return {
+    archived: input.archived === true,
+    copiedFromMapId: input.copiedFromMapId == null || input.copiedFromMapId === "" ? null : requireText(input.copiedFromMapId, "Copied map id", 160)
+  };
+}
+
+function normalizeMapCoordinateSystem(value) {
+  const input = cloneJsonObject(value || {});
+  const bounds = input.bounds || {};
+  const minX = boundedNumber(bounds.minX ?? 0, "Map coordinate min x", -1000000000, 1000000000);
+  const minY = boundedNumber(bounds.minY ?? 0, "Map coordinate min y", -1000000000, 1000000000);
+  const maxX = boundedNumber(bounds.maxX ?? 100, "Map coordinate max x", -1000000000, 1000000000);
+  const maxY = boundedNumber(bounds.maxY ?? 100, "Map coordinate max y", -1000000000, 1000000000);
+  if (maxX <= minX || maxY <= minY) throw new Error("Map coordinate bounds are invalid.");
+  return {
+    axis: "x-right-y-down",
+    bounds: { minX, minY, maxX, maxY },
+    unit: input.unit == null || input.unit === "" ? null : requireText(input.unit, "Map coordinate unit", 40),
+    scaleKnown: input.scaleKnown === true,
+    precision: input.precision === "calibrated" ? "calibrated" : "illustrative"
+  };
+}
+
+function normalizeMapPoint(value, label) {
+  return {
+    x: boundedNumber(value?.x, `${label} x`, -1000000000, 1000000000),
+    y: boundedNumber(value?.y, `${label} y`, -1000000000, 1000000000)
+  };
+}
+
+function normalizeMapEndpoint(value, label) {
+  return {
+    mapId: requireText(value?.mapId, `${label} map`, 160),
+    endpointId: requireText(value?.endpointId, `${label} endpoint`, 120),
+    x: boundedNumber(value?.x, `${label} x`, -1000000000, 1000000000),
+    y: boundedNumber(value?.y, `${label} y`, -1000000000, 1000000000),
+    layerId: value?.layerId == null || value.layerId === "" ? null : requireText(value.layerId, `${label} layer`, 120)
+  };
+}
+
+function validateMapTopology(root, candidate, relativePath) {
+  const maps = listDocumentFiles(root, DOCUMENT_DIRECTORIES.map)
+    .filter((item) => item !== relativePath)
+    .map((item) => readVisualDocument(root, item))
+    .filter((item) => item.type === "map");
+  const all = [...maps, { ...candidate, relativePath }];
+  const byId = new Map(all.map((item) => [item.id, item]));
+  for (const map of all) {
+    for (const placement of map.content.placements || []) {
+      if (placement.childMapId === map.id) throw new Error("Map placement cannot contain its own map.");
+      if (!byId.has(placement.childMapId)) throw new Error("Map placement references an unknown child map.");
+    }
+    for (const connection of map.content.connections || []) {
+      for (const endpoint of [connection.from, connection.to]) {
+        const endpointMap = byId.get(endpoint.mapId);
+        if (!endpointMap) throw new Error("Map connection references an unknown map.");
+        if (endpoint.layerId && !endpointMap.content.layers.some((layer) => layer.id === endpoint.layerId)) {
+          throw new Error("Map connection endpoint references an unknown layer.");
+        }
+      }
+    }
+  }
+  const adjacency = new Map(all.map((item) => [item.id, (item.content.placements || []).map((placement) => placement.childMapId)]));
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (id) => {
+    if (visiting.has(id)) throw new Error("Map spatial containment cannot form a cycle.");
+    if (visited.has(id)) return;
+    visiting.add(id);
+    for (const child of adjacency.get(id) || []) visit(child);
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const id of adjacency.keys()) visit(id);
+}
+
+function snapshotVisualDocument(root, document) {
+  const historyDirectory = `${DOCUMENT_DIRECTORIES[document.type]}/.history/${safeIdSegment(document.id)}`;
+  const absoluteDirectory = safePath(root, historyDirectory, { allowMissing: true });
+  mkdirSync(absoluteDirectory, { recursive: true });
+  const snapshotPath = safePath(root, `${historyDirectory}/${document.contentHash}.json`, { allowMissing: true });
+  if (!existsSync(snapshotPath)) writeFileSync(snapshotPath, `${JSON.stringify(serializeDocumentForPersistence(document), null, 2)}\n`, { flag: "wx" });
 }
 
 /**
@@ -673,7 +863,7 @@ function validateObjectRefs(root, refs) {
 }
 
 function defaultContent(type) {
-  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], drawings: [], entrances: [], template: "blank", scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] } };
+  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], drawings: [], entrances: [], template: "blank", scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] }, lifecycle: { archived: false, copiedFromMapId: null }, coordinateSystem: { axis: "x-right-y-down", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, unit: null, scaleKnown: false, precision: "illustrative" }, placements: [], connections: [], floor: null };
   if (type === "graph") return { nodes: [], edges: [], proposals: [], filters: { objectTypes: [] } };
   if (type === "canvas") return { nodes: [], edges: [], groups: [] };
   if (type === "timeline") return {
@@ -1035,6 +1225,12 @@ function requireText(value, label, maxLength) {
   const text = String(value ?? "").normalize("NFC").trim();
   if (!text || text.length > maxLength || /[\u0000-\u001f]/.test(text)) throw new Error(`${label} is invalid.`);
   return text;
+}
+
+function requireIsoDate(value, label) {
+  const text = requireText(value, label, 40);
+  if (!Number.isFinite(Date.parse(text))) throw new Error(`${label} must be an ISO date.`);
+  return new Date(text).toISOString();
 }
 
 function finiteNumber(value, label) {

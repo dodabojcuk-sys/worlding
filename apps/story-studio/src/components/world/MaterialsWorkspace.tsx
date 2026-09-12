@@ -1034,7 +1034,7 @@ function MaterialFilesWorkspace(props: { projectId: string; runtime: TianyanShel
       const dimensions = await imageDimensions(downloaded.blob);
       const base64 = await blobBase64(downloaded.blob);
       const asset = await props.runtime.withConnection((token) => importVisualAsset({ projectId: props.projectId, category: "maps", filename: selected.originalName, mimeType: selected.mimeType, base64, token }));
-      const background: MapBackground = { id: `background.${crypto.randomUUID()}`, title: selected.displayName, assetPath: asset.relativePath, mimeType: asset.mimeType, width: dimensions.width, height: dimensions.height, opacity: 1, visible: true };
+      const background: MapBackground = { id: `background.${crypto.randomUUID()}`, title: selected.displayName, assetPath: asset.relativePath, mimeType: asset.mimeType, width: dimensions.width, height: dimensions.height, opacity: 1, visible: true, transform: { x: 0, y: 0, scale: 1, rotation: 0 } };
       const document: MapDocument = { ...target, content: { ...target.content, backgrounds: [...target.content.backgrounds, background], activeBackgroundId: background.id, baseImage: { assetPath: background.assetPath, mimeType: background.mimeType, width: background.width, height: background.height } } };
       const written = await props.runtime.withConnection((token) => updateVisualDocument({ projectId: props.projectId, relativePath: target.relativePath, expectedHash: target.contentHash, document, token }));
       mapRevisionSaved = true;
