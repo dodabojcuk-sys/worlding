@@ -4,6 +4,7 @@ export const TIANYI_MAX_EXPLICIT_OBJECT_CONTEXT_REFS = 4;
 export const TIANYI_OBJECT_OWNER_TYPES = [
   "markdown-object",
   "markdown-writing",
+  "material-file",
   "visual-map",
   "visual-timeline"
 ] as const;
@@ -18,6 +19,7 @@ export const TIANYI_OBJECT_TYPES = [
   "chapter",
   "scene",
   "selection",
+  "source",
   "map",
   "map-marker",
   "map-region",

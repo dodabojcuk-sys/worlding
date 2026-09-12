@@ -19,6 +19,7 @@ import {
   listStoryUnits,
   openTianyiSession,
   readTianyiGroundedAnswer,
+  readMaterialFile,
   readWorldObject,
   recoverTianyiAgentRun,
   resolveTianyiObjectContextRefs,
@@ -32,6 +33,7 @@ import {
   type StoryUnit,
   type TianyiObjectContextRef,
   type MapDocument,
+  type MaterialFileRecord,
   type WorldObject
 } from "../../../lib/localTransport";
 import { createStoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
@@ -89,6 +91,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     return id ? [id] : [];
   });
   const [selectedMapEvidence, setSelectedMapEvidence] = useState<{ map: MapDocument; elementId: string | null } | null>(null);
+  const [selectedMaterialFile, setSelectedMaterialFile] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
+  const [selectedMaterialFileRange, setSelectedMaterialFileRange] = useState<{ start: number; end: number } | null>(null);
   const [mapEvidenceState, setMapEvidenceState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [selectedWorkUnitId, setSelectedWorkUnitId] = useState<string | null>(null);
   const [selectedWorkEventIds, setSelectedWorkEventIds] = useState<string[]>([]);
@@ -121,6 +125,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setWorkMaterials([]);
     setSelectedMaterialIds([]);
     setSelectedMapEvidence(null); setMapEvidenceState("idle");
+    setSelectedMaterialFile(null);
     setSelectedWorkUnitId(null);
     setSelectedWorkEventIds([]);
     setPinnedWorkEventIds([]);
@@ -283,6 +288,24 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     return () => { active = false; };
   }, [project?.id]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fileId = params.get("materialFileId");
+    const revisionId = params.get("materialFileRevision");
+    const start = Number(params.get("materialFileStart"));
+    const end = Number(params.get("materialFileEnd"));
+    if (!project || !fileId || !revisionId) { setSelectedMaterialFile(null); setSelectedMaterialFileRange(null); return; }
+    let active = true;
+    void readMaterialFile(project.id, fileId, revisionId).then((file) => {
+      if (!active) return;
+      if (!file || file.revision.textStatus !== "ready") { setSelectedMaterialFile(null); setError("所选文件修订不可作为文本依据；没有发送附件或较新正文代替。"); return; }
+      const contentLength = file.revision.textContent?.length ?? 0;
+      const range = Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end > start && end <= contentLength ? { start, end } : null;
+      setSelectedMaterialFile(file); setSelectedMaterialFileRange(range);
+    }).catch(() => { if (active) { setSelectedMaterialFile(null); setError("所选文件修订已不存在；没有回退到当前版本。"); } });
+    return () => { active = false; };
+  }, [project?.id]);
+
   // An exclusion is an instruction for this question and scope only; carrying
   // it into the next question would silently change a new author request.
   useEffect(() => {
@@ -313,7 +336,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     projectId: project.id, ownerId: selectedMapEvidence.map.id, contentHash: selectedMapEvidence.map.contentHash,
     state: "current", inclusion: "included", label: selectedMapEvidence.elementId ? `${selectedMapEvidence.map.title} · 选中图示` : `${selectedMapEvidence.map.title} · 地图范围`
   }] : [], [project, selectedMapEvidence]);
-  const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialRefs].slice(0, MAX_EXPLICIT_MATERIAL_REFS), [mapEvidenceRefs, materialRefs]);
+  const materialFileRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterialFile && project ? [{
+    version: "story-tianyi-object-context-ref/v1", ownerType: "material-file", objectType: "source",
+    stableId: selectedMaterialFileRange ? `selection.${selectedMaterialFileRange.start}.${selectedMaterialFileRange.end}` : selectedMaterialFile.id, projectId: project.id, ownerId: selectedMaterialFile.id,
+    contentHash: selectedMaterialFile.revision.sha256, state: "current", inclusion: "included", label: selectedMaterialFile.displayName
+  }] : [], [project, selectedMaterialFile, selectedMaterialFileRange]);
+  const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialFileRefs, ...materialRefs].slice(0, MAX_EXPLICIT_MATERIAL_REFS), [mapEvidenceRefs, materialFileRefs, materialRefs]);
 
   function toggleMaterial(materialId: string) {
     if (selectedMaterialIds.includes(materialId)) { setSelectedMaterialIds((current) => current.filter((id) => id !== materialId)); return; }
@@ -795,6 +823,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const current = new URL(window.location.href);
     window.location.assign(`/library?materialId=${encodeURIComponent(sourceId)}&materialRevision=${encodeURIComponent(contentHash)}&materialReturn=${encodeURIComponent(`${current.pathname}${current.search}`)}`);
   };
+  const openGroundedMaterialFile = (sourceId: string, contentHash: string, sourceKey?: string) => {
+    const current = new URL(window.location.href);
+    const params = new URLSearchParams({ materialMode: "files", materialFileId: sourceId, materialFileRevision: contentHash, materialReturn: `${current.pathname}${current.search}` });
+    const range = sourceKey ? materialFileRangeFromSourceKey(sourceKey) : null;
+    if (range) { params.set("materialFileStart", String(range.start)); params.set("materialFileEnd", String(range.end)); }
+    window.location.assign(`/library?${params.toString()}`);
+  };
   const openGroundedMap = () => {
     const returnTarget = new URLSearchParams(window.location.search).get("mapReturn");
     if (returnTarget?.startsWith("/library?") || returnTarget?.startsWith("/world?")) { window.location.assign(returnTarget); return; }
@@ -903,14 +938,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
               {runtime.workScope === "selected-events" ? <fieldset><legend>显式选择至多 {MAX_GLOBAL_WORK_EVENT_REFS} 项正式事件（不会因低相关度被丢弃）</legend><p aria-live="polite">已明确指定 {explicitWorkEventCount}/{MAX_GLOBAL_WORK_EVENT_REFS} 项；还可加入 {explicitWorkEventSlots} 项。</p>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" data-event-id={event.id} checked={selectedWorkEventIds.includes(event.id)} onChange={() => toggleSelectedWorkEvent(event.id)} />{event.title} · {event.status}</label>)}</fieldset> : null}
               {workContextState === "loading" ? <p>正在读取当前项目的正式事件；发送暂不把它当成无上下文。</p> : workContextState === "failed" ? <p>正式事件暂时读取失败。草稿不会丢失；<button type="button" onClick={() => void refreshWorkContext()}>重新读取</button>后再发送。</p> : !runtime.workComposerDraft.trim() ? <p>输入一个问题后，天意会在当前范围内检索依据；预览不调用 Provider，只有点击发送才进入既有回答链。</p> : <><p>本次按问题选中 {globalWorkEvents.length} 项可校验 Event；服务端会在发送前重新核验项目、状态和修订。</p>{globalWorkEvidence.selected.length ? <ul className="tianyi-work-context-events tianyi-grounded-evidence-preview">{globalWorkEvidence.selected.map((item) => <li key={`${item.event.id}:${item.event.revisionToken}`}><div><strong>{item.event.title}</strong><span>{item.event.status} · {item.reason}</span><p>{item.excerpt}</p></div><nav><button type="button" onClick={() => togglePinnedWorkEvent(item.event.id)}>{item.pinned ? "取消置顶" : "置顶"}</button><button type="button" onClick={() => setRemovedWorkEventIds((current) => [...new Set([...current, item.event.id])])}>移除</button><button type="button" onClick={() => project && openGroundedEvidenceEvent({ projectId: project.id, sourceId: item.event.id, contentHash: item.event.revisionToken })}>查看来源</button></nav></li>)}</ul> : <p>{globalWorkEvidence.availableCount ? "范围内存在正式事件，但本问题没有匹配依据；可切换到“所选事件”明确指定来源。" : "当前范围没有正式事件；可以继续提问，但回答会明确来源不足。"}</p>}{omittedGlobalWorkEventCount ? <p>另有 {omittedGlobalWorkEventCount} 项未进入本次上下文；可切换范围、置顶，或在“所选事件”明确指定。</p> : null}{removedWorkEventIds.length ? <button type="button" className="tianyi-grounded-restore" onClick={() => setRemovedWorkEventIds([])}>恢复本问已移除的来源</button> : null}</>}
               {mapEvidenceState !== "idle" ? <fieldset className="tianyi-map-context-preview"><legend>作者明确地图依据</legend>{mapEvidenceState === "loading" ? <p>正在读取地图的准确修订；读取完成前不会发送。</p> : mapEvidenceState === "failed" ? <p role="alert">地图或选中图示已变化、缺失或不属于当前作品；本次不会将它作为依据。</p> : selectedMapEvidence ? <article><div><strong>{selectedMapEvidence.map.title}</strong><small>修订 {selectedMapEvidence.map.contentHash.slice(0, 12)} · {selectedMapEvidence.map.content.template}</small></div>{selectedMapEvidence.elementId ? (() => { const drawing = selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId); return <><p>{drawing?.kind} / {drawing?.subtype} · {drawing?.objectId ? `已绑定正式对象 ${drawing.objectId}` : "仅为作者图示，非世界事实"}</p><details><summary>预览几何</summary><pre><code>{JSON.stringify({ id: drawing?.id, points: drawing?.points, objectId: drawing?.objectId }, null, 2)}</code></pre></details></>; })() : <p>引用当前地图范围；图上靠近、线条或边界均不自动解释为道路、管辖或通行事实。</p>}<button type="button" onClick={openGroundedMap}>返回地图</button></article> : null}</fieldset> : null}
-              <fieldset className="tianyi-material-context-picker"><legend>作者明确资料引用（地图与资料合计至多 {MAX_EXPLICIT_MATERIAL_REFS} 项）</legend><p>预览不发送模型；点击发送时会重新核对项目、对象和修订。规则在这里作为作者选择的证据，不会自动升级为场景硬约束。</p>{workMaterials.length ? <div className="tianyi-material-context-list">{workMaterials.map((material) => <label key={material.id}><input type="checkbox" checked={selectedMaterialIds.includes(material.id)} onChange={() => toggleMaterial(material.id)} /><span className="tianyi-material-context-copy"><strong>{material.title}</strong><small>{material.tags.includes("导入候选") ? "原始来源" : materialTypeLabel(material.type)} · 修订 {material.revisionToken.slice(0, 12)}</small><span>{material.body.slice(0, 120) || "（正文为空）"}</span></span></label>)}</div> : <p>当前作品没有可引用的资料，或资料尚在读取。</p>}</fieldset>
+              <fieldset className="tianyi-material-context-picker"><legend>作者明确资料引用（地图与资料合计至多 {MAX_EXPLICIT_MATERIAL_REFS} 项）</legend><p>预览不发送模型；点击发送时会重新核对项目、对象和修订。规则在这里作为作者选择的证据，不会自动升级为场景硬约束。</p>{selectedMaterialFile ? <article className="tianyi-material-file-preview"><strong>{selectedMaterialFile.displayName}</strong><small>普通文本文件 · {selectedMaterialFileRange ? "明确选段" : "全文"} · 修订 {selectedMaterialFile.revision.id.slice(0, 20)}</small><p>{selectedMaterialFileRange ? selectedMaterialFile.revision.textContent?.slice(selectedMaterialFileRange.start, selectedMaterialFileRange.end) : selectedMaterialFile.revision.textContent?.slice(0, 240) || "（正文为空）"}</p><button type="button" onClick={() => { setSelectedMaterialFile(null); setSelectedMaterialFileRange(null); }}>取消本文件</button></article> : null}{workMaterials.length ? <div className="tianyi-material-context-list">{workMaterials.map((material) => <label key={material.id}><input type="checkbox" checked={selectedMaterialIds.includes(material.id)} onChange={() => toggleMaterial(material.id)} /><span className="tianyi-material-context-copy"><strong>{material.title}</strong><small>{material.tags.includes("导入候选") ? "原始来源" : materialTypeLabel(material.type)} · 修订 {material.revisionToken.slice(0, 12)}</small><span>{material.body.slice(0, 120) || "（正文为空）"}</span></span></label>)}</div> : selectedMaterialFile ? null : <p>当前作品没有可引用的资料，或资料尚在读取。</p>}</fieldset>
               {runtime.sharedTianyiReferences.length ? <p>此前的未绑定引用不会参与本次发送；上传与来源绑定尚未接通，当前不再创建演示引用。</p> : null}
             </details> : null}
             {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <>
               <section className="tianyi-visible-history tianyi-work-history" aria-label="当前工作对话">
                 {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
               </section>
-              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt" aria-label="本问来源回执"><header><div><small>已保存回答回执</small><h3>“{lastGroundedQuestion}”</h3></div><span>{lastGroundedAnswer.providerDispatchCount} 次模型发送</span></header><p className="tianyi-grounded-answer">{lastGroundedAnswer.answer?.summary}</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const label = material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "map" ? openGroundedMap : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}{material?.revisionToken === source.contentHash ? <details><summary>实际采用正文</summary><p>{material.body}</p></details> : <small>资料后来已有修改；返回来源可读取这次回答采用的历史正文。</small>}<details className="tianyi-grounded-source-technical"><summary>来源技术详情</summary><code>{source.sourceId}</code><code>修订 {source.contentHash}</code><code>通道 {source.lane}</code></details></li>; })}</ul></section><details className="tianyi-grounded-receipt-technical"><summary>回执技术详情</summary><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
+              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt" aria-label="本问来源回执"><header><div><small>已保存回答回执</small><h3>“{lastGroundedQuestion}”</h3></div><span>{lastGroundedAnswer.providerDispatchCount} 次模型发送</span></header><p className="tianyi-grounded-answer">{lastGroundedAnswer.answer?.summary}</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const file = source.sourceType === "material-file" && selectedMaterialFile?.id === source.sourceId ? selectedMaterialFile : null; const label = file?.displayName ?? material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "material-file" ? "普通文本文件" : source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "material-file" ? () => openGroundedMaterialFile(source.sourceId, source.contentHash, source.sourceKey) : source.sourceType === "map" ? openGroundedMap : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; const range = source.sourceType === "material-file" ? materialFileRangeFromSourceKey(source.sourceKey) : null; const currentFileText = file?.revision.sha256 === source.contentHash ? file.revision.textContent : null; const adoptedText = currentFileText != null ? range ? currentFileText.slice(range.start, range.end) : currentFileText : material?.revisionToken === source.contentHash ? material.body : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}{range ? " · 明确选段" : ""}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}{adoptedText != null ? <details><summary>实际采用正文</summary><p>{adoptedText}</p></details> : <small>资料后来已有修改；返回来源会按本次哈希读取历史正文，不使用当前版本替代。</small>}<details className="tianyi-grounded-source-technical"><summary>来源技术详情</summary><code>{source.sourceId}</code><code>修订 {source.contentHash}</code><code>通道 {source.lane}</code></details></li>; })}</ul></section><details className="tianyi-grounded-receipt-technical"><summary>回执技术详情</summary><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
             </>}
           </>}
         </section>}
@@ -949,6 +984,14 @@ function requestedLane(): Lane {
 
 function safeWorkspaceReturn(value: string | null): string | null {
   return value && value.startsWith("/") && !value.startsWith("//") ? value : null;
+}
+
+function materialFileRangeFromSourceKey(sourceKey: string): { start: number; end: number } | null {
+  const match = /:selection\.(\d+)\.(\d+)$/u.exec(sourceKey);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end > start ? { start, end } : null;
 }
 
 function materialTypeLabel(type: WorldObject["type"]): string {

@@ -377,8 +377,8 @@ export type ProviderSessionConnection = {
 
 export type TianyiObjectContextRef = {
   version: "story-tianyi-object-context-ref/v1";
-  ownerType: "markdown-object" | "markdown-writing" | "visual-map" | "visual-timeline";
-  objectType: "character" | "location" | "faction" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "map" | "map-marker" | "map-region" | "map-drawing" | "timeline-event";
+  ownerType: "markdown-object" | "markdown-writing" | "material-file" | "visual-map" | "visual-timeline";
+  objectType: "character" | "location" | "faction" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "source" | "map" | "map-marker" | "map-region" | "map-drawing" | "timeline-event";
   stableId: string;
   projectId: string;
   ownerId: string;
@@ -406,7 +406,7 @@ export type TianyiGroundedContextRequest = {
 };
 
 export type TianyiGroundedSourceManifestEntry = {
-  sourceType: "writing" | "scene" | "world-object" | "rule" | "memory" | "map";
+  sourceType: "writing" | "scene" | "world-object" | "rule" | "memory" | "map" | "material-file";
   projectId: string;
   sourceId: string;
   sourceKey: string;
@@ -704,6 +704,17 @@ export type VerifiedCanonEventDetailRead =
 
 export type WorkspaceFolder = { id: string; title: string; parentId: string | null; kind: "folder" | "custom-category"; order: number };
 export type WorkspacePlacement = { documentId: string; folderId: string; order: number };
+export type MaterialFileType = "text" | "image" | "pdf" | "audio" | "video" | "office" | "archive" | "attachment";
+export type MaterialFileRevision = { id: string; sha256: string; size: number; mimeType: string; relativePath: string; textStatus: "ready" | "unavailable" | "not-applicable"; textContent: string | null; createdAt: string };
+export type MaterialFileRecord = {
+  id: string; displayName: string; originalName: string; mimeType: string; type: MaterialFileType; size: number;
+  folderId: string | null; tags: string[]; archivedAt: string | null; currentRevisionId: string;
+  revisions: MaterialFileRevision[]; links: Array<{ kind: "world-object" | "source-import" | "visual-document"; id: string; label: string }>;
+  createdAt: string; updatedAt: string;
+};
+export type MaterialFolder = { id: string; title: string; parentId: string | null; createdAt: string; updatedAt: string };
+export type MaterialFileList = { files: MaterialFileRecord[]; total: number; offset: number; limit: number; folders: MaterialFolder[]; catalogRevision: number; contentHash: string };
+export type MaterialOperationReceipt = { version: "tianyan-material-file-operation-receipt/v1"; operationId: string; kind: string; state: "completed" | "partial"; results: Array<{ index?: number; name?: string; fileId: string | null; revisionId?: string | null; duplicateOf?: string | null; status: string; error: string | null }>; createdAt: string; replayed?: boolean; catalogRevision?: number };
 export type R9AWorkflowTask = { id: string; title: string; lane: "library" | "relationship" | "event" | "nuwa" | "creation" | "recovery" | "multiverse"; state: "queued" | "active" | "blocked" | "done"; sourceRefs: string[]; createdAt: string; updatedAt: string };
 export type R9AWorkflowState = { version: "story-studio-r9a-workflow/v1"; tasks: R9AWorkflowTask[]; updatedAt: string; contentHash: string };
 export type R9AProjectBackup = { id: string; title: string; kind: "backup" | "pre-restore-checkpoint"; createdAt: string; fileCount: number; totalBytes: number; fingerprint: string };
@@ -1885,6 +1896,69 @@ export async function updateWorkspaceFolders(input: { projectId: string; expecte
     token: input.token,
     body: { projectId: input.projectId, expectedContentHash: input.expectedContentHash, folders: input.folders }
   });
+}
+
+export async function listMaterialFiles(input: { projectId: string; query?: string; type?: MaterialFileType | ""; archived?: boolean; folderId?: string | null; sort?: "recent" | "name" | "size" | "type"; offset?: number; limit?: number }): Promise<MaterialFileList> {
+  const parameters = new URLSearchParams({ projectId: input.projectId, query: input.query || "", archived: String(input.archived === true), offset: String(input.offset ?? 0), limit: String(input.limit ?? 100) });
+  if (input.type) parameters.set("type", input.type);
+  if (input.folderId !== undefined) parameters.set("folderId", input.folderId ?? "");
+  if (input.sort) parameters.set("sort", input.sort);
+  return request(`${basePath}/material-files?${parameters.toString()}`);
+}
+
+export async function readMaterialFile(projectId: string, fileId: string, revisionId?: string | null): Promise<(MaterialFileRecord & { revision: MaterialFileRevision; contentHash: string }) | null> {
+  const parameters = new URLSearchParams({ projectId, fileId });
+  if (revisionId) parameters.set("revisionId", revisionId);
+  return request(`${basePath}/material-file?${parameters.toString()}`);
+}
+
+export async function importMaterialFiles(input: { projectId: string; operationId: string; folderId?: string | null; files: Array<{ name: string; displayName?: string; mimeType?: string; base64: string; tags?: string[]; replaceFileId?: string | null }>; token: string }): Promise<MaterialOperationReceipt> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-files/import`, { method: "POST", token, body });
+}
+
+export async function createMaterialNote(input: { projectId: string; operationId: string; name?: string; displayName?: string; content?: string; folderId?: string | null; tags?: string[]; token: string }): Promise<MaterialOperationReceipt> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-files/note`, { method: "POST", token, body });
+}
+
+export async function updateMaterialFile(input: { projectId: string; operationId: string; expectedRevision: number; fileId: string; displayName?: string; folderId?: string | null; tags?: string[]; links?: MaterialFileRecord["links"]; token: string }): Promise<MaterialOperationReceipt> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-files/update`, { method: "POST", token, body });
+}
+
+export async function moveMaterialFiles(input: { projectId: string; operationId: string; expectedRevision: number; fileIds: string[]; folderId: string | null; token: string }): Promise<MaterialOperationReceipt> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-files/move`, { method: "POST", token, body });
+}
+
+export async function setMaterialFilesArchived(input: { projectId: string; operationId: string; expectedRevision: number; fileIds: string[]; archived: boolean; token: string }): Promise<MaterialOperationReceipt> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-files/archive`, { method: "POST", token, body });
+}
+
+export async function createMaterialFileFolder(input: { projectId: string; title: string; parentId?: string | null; expectedRevision: number; token: string }): Promise<{ folder: MaterialFolder; catalogRevision: number }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-folders/create`, { method: "POST", token, body });
+}
+
+export async function updateMaterialFileFolder(input: { projectId: string; folderId: string; title?: string; parentId?: string | null; expectedRevision: number; token: string }): Promise<{ folder: MaterialFolder; catalogRevision: number }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/material-folders/update`, { method: "POST", token, body });
+}
+
+export async function readMaterialOperationReceipt(projectId: string, operationId: string): Promise<MaterialOperationReceipt | null> {
+  return request(`${basePath}/material-operations/receipt?projectId=${encodeURIComponent(projectId)}&operationId=${encodeURIComponent(operationId)}`);
+}
+
+export async function downloadMaterialFile(projectId: string, fileId: string, token: string, revisionId?: string | null): Promise<{ blob: Blob; filename: string; sha256: string | null }> {
+  const parameters = new URLSearchParams({ projectId, fileId, download: "1" });
+  if (revisionId) parameters.set("revisionId", revisionId);
+  const response = await fetch(`${basePath}/material-file/content?${parameters.toString()}`, { credentials: "same-origin", headers: { accept: "application/octet-stream" } });
+  if (!response.ok) throw new LocalTransportError("资料原件下载失败。", response.status);
+  const disposition = response.headers.get("content-disposition") || "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/u)?.[1];
+  return { blob: await response.blob(), filename: encoded ? decodeURIComponent(encoded) : "material-file", sha256: response.headers.get("x-tianyan-content-sha256") };
 }
 
 export async function getDocumentRevisionHistory(projectId: string, ref: RevisionDocumentRef, token: string): Promise<DocumentRevisionHistory> {

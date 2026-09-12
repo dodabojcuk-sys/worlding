@@ -89,6 +89,19 @@ import {
   updateWorkspaceLayout
 } from "../storyWorkspace/workspaceLayoutRepository.mjs";
 import {
+  createMaterialFolder as createMaterialFolderFile,
+  createMaterialNote as createMaterialNoteFile,
+  importMaterialFiles as importMaterialFilesFile,
+  listMaterialFiles as listMaterialFilesFile,
+  moveMaterialFiles as moveMaterialFilesFile,
+  readMaterialFile as readMaterialFileRecord,
+  readMaterialOperationReceipt as readMaterialOperationReceiptFile,
+  resolveMaterialFileBytes as resolveMaterialFileBytesFile,
+  setMaterialFilesArchived as setMaterialFilesArchivedFile,
+  updateMaterialFileMetadata as updateMaterialFileMetadataFile,
+  updateMaterialFolder as updateMaterialFolderFile
+} from "../storyWorkspace/materialFileRepository.mjs";
+import {
   createCreationMediaAsset as createCreationMediaAssetFile,
   deleteCreationMediaAsset as deleteCreationMediaAssetFile,
   readCreationMediaCatalog,
@@ -1943,6 +1956,61 @@ export function createStoryStudioWorkspaceOperations(input: {
         expectedContentHash: requireText(folderInput.expectedContentHash, "Workspace layout revision", 128),
         layout: { ...current, folders }
       });
+    },
+
+    listMaterialFiles(input: { projectId: string; query?: string; type?: string; archived?: boolean; folderId?: string | null; offset?: number; limit?: number; sort?: string }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return listMaterialFilesFile(projectPath, input);
+    },
+
+    readMaterialFile(input: { projectId: string; fileId: string; revisionId?: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return readMaterialFileRecord(projectPath, input.fileId, input.revisionId ?? null);
+    },
+
+    resolveMaterialFileBytes(input: { projectId: string; fileId: string; revisionId?: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return resolveMaterialFileBytesFile(projectPath, input.fileId, input.revisionId ?? null);
+    },
+
+    importMaterialFiles(input: { projectId: string; operationId: string; folderId?: string | null; files: unknown[] }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return importMaterialFilesFile(projectPath, input);
+    },
+
+    createMaterialNote(input: { projectId: string; operationId: string; name?: string; displayName?: string; content?: string; folderId?: string | null; tags?: string[] }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return createMaterialNoteFile(projectPath, input);
+    },
+
+    updateMaterialFileMetadata(input: { projectId: string; operationId: string; expectedRevision: number; fileId: string; displayName?: string; folderId?: string | null; tags?: string[]; links?: unknown[] }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return updateMaterialFileMetadataFile(projectPath, input);
+    },
+
+    moveMaterialFiles(input: { projectId: string; operationId: string; expectedRevision: number; fileIds: string[]; folderId: string | null }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return moveMaterialFilesFile(projectPath, input);
+    },
+
+    setMaterialFilesArchived(input: { projectId: string; operationId: string; expectedRevision: number; fileIds: string[]; archived: boolean }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return setMaterialFilesArchivedFile(projectPath, input);
+    },
+
+    createMaterialFileFolder(input: { projectId: string; title: string; parentId?: string | null; expectedRevision: number }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return createMaterialFolderFile(projectPath, input);
+    },
+
+    updateMaterialFileFolder(input: { projectId: string; folderId: string; title?: string; parentId?: string | null; expectedRevision: number }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return updateMaterialFolderFile(projectPath, input);
+    },
+
+    readMaterialOperationReceipt(input: { projectId: string; operationId: string }) {
+      const projectPath = resolveProjectPath(rootPath, input.projectId);
+      return readMaterialOperationReceiptFile(projectPath, input.operationId);
     },
 
     /** Applies one reversible library action to an explicit, currently readable
