@@ -84,6 +84,20 @@ test("Object Context accepts a faction reference for an author-selected world ma
   assert.equal(faction.contentHash, HASH_A);
 });
 
+test("Object Context accepts a revision-frozen author map drawing without copying geometry", () => {
+  const [drawing] = normalizeTianyiObjectContextRefs([objectRef({
+    ownerType: "visual-map",
+    objectType: "map-drawing",
+    stableId: "drawing.north-bay-river",
+    ownerId: "map.north-bay",
+    label: "北湾地图 · 河流图示"
+  })]);
+  assert.equal(drawing.ownerType, "visual-map");
+  assert.equal(drawing.objectType, "map-drawing");
+  assert.equal("points" in drawing, false);
+  assert.equal(tianyiObjectContextRefKey(drawing), "gray-tower:visual-map:map.north-bay:map-drawing:drawing.north-bay-river");
+});
+
 test("Grounded answer accepts a confirmed fake-betrayal fact with exact current source", () => {
   const sourceRef = "gray-tower:markdown-object:character.lin-lan:character:character.lin-lan";
   const answer = normalizeTianyiGroundedAnswer({

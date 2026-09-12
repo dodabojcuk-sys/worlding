@@ -18,7 +18,7 @@ export const TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT = 6;
 
 export type TianyiGroundedAccessMode = "author" | "character";
 export type TianyiGroundedTaskKind = "grounded-answer";
-export type TianyiGroundedSourceType = "writing" | "scene" | "world-object" | "rule" | "memory";
+export type TianyiGroundedSourceType = "writing" | "scene" | "world-object" | "rule" | "memory" | "map";
 export type TianyiGroundedSourceLane = "scene" | "subject" | "constraint" | "memory" | "evidence";
 export type TianyiGroundedDecision = "included" | "excluded" | "budget-omitted" | "conflicting";
 export type TianyiGroundedReasonCode =
@@ -324,7 +324,7 @@ export function normalizeTianyiGroundedSourceManifest(value: unknown): TianyiGro
 }
 
 function normalizeCandidate(value: TianyiGroundedResolvedCandidate): TianyiGroundedResolvedCandidate {
-  const sourceType = oneOf(value.sourceType, ["writing", "scene", "world-object", "rule", "memory"] as const, "Tianyi grounded source type");
+  const sourceType = oneOf(value.sourceType, ["writing", "scene", "world-object", "rule", "memory", "map"] as const, "Tianyi grounded source type");
   const lane = oneOf(value.lane, ["scene", "subject", "constraint", "memory", "evidence"] as const, "Tianyi grounded source lane");
   const sourceId = requireSourceId(value.sourceId);
   const sourceKey = requireSourceKey(value.sourceKey);
@@ -376,7 +376,7 @@ function manifestEntries(
       throw new Error("Tianyi grounded manifest entry belongs to another project.");
     }
     return {
-      sourceType: oneOf(input.sourceType, ["writing", "scene", "world-object", "rule", "memory"] as const, "Tianyi grounded source type"),
+      sourceType: oneOf(input.sourceType, ["writing", "scene", "world-object", "rule", "memory", "map"] as const, "Tianyi grounded source type"),
       projectId: entryProjectId,
       sourceId: requireSourceId(input.sourceId),
       sourceKey: requireSourceKey(input.sourceKey),

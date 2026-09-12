@@ -574,6 +574,28 @@ test("Memory lifecycle invalidates global grants and hard delete leaves no activ
   }
 });
 
+test("Tianyi resolves a selected map drawing by exact map revision and turns later edits stale", async () => {
+  const fixture = await createFixture();
+  try {
+    const created = fixture.workspace.createVisualDocument({ projectId: fixture.projectId, type: "map", title: "北湾地图" });
+    const saved = fixture.workspace.updateVisualDocument({
+      projectId: fixture.projectId, relativePath: created.relativePath, expectedHash: created.contentHash,
+      document: { ...created, content: { ...created.content, drawings: [{ id: "drawing.north-bay-river", kind: "line", subtype: "river", layerId: "layer.main", points: [{ x: 10, y: 20 }, { x: 70, y: 80 }], strokeColor: "#167b7a", fillColor: "#167b7a", fillOpacity: .2, width: 3, size: 4, seed: 1, rotation: 0, label: "北湾河流", objectId: null }] } }
+    }).document;
+    const ref = { version: "story-tianyi-object-context-ref/v1" as const, ownerType: "visual-map" as const, objectType: "map-drawing" as const, stableId: "drawing.north-bay-river", projectId: fixture.projectId, ownerId: saved.id, contentHash: saved.contentHash, state: "current" as const, inclusion: "included" as const, label: "北湾地图 · 河流图示" };
+    const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT });
+    assert.equal((await tianyi.resolveTianyiObjectContextRefs({ projectId: fixture.projectId, objectContextRefs: [ref] }))[0]?.state, "current");
+    fixture.workspace.updateVisualDocument({ projectId: fixture.projectId, relativePath: saved.relativePath, expectedHash: saved.contentHash, document: { ...saved, title: "北湾地图（修订）" } });
+    const stale = (await tianyi.resolveTianyiObjectContextRefs({ projectId: fixture.projectId, objectContextRefs: [ref] }))[0];
+    assert.equal(stale?.state, "stale");
+    assert.equal(stale?.inclusion, "excluded");
+  } finally {
+    await makeWritable(fixture.rootPath);
+    await rm(fixture.rootPath, { recursive: true, force: true });
+    await rm(fixture.stateFilePath, { force: true });
+  }
+});
+
 async function createFixture(initializeIdentity = true) {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-product-"));
   const stateFilePath = path.join(tmpdir(), `tianyi-product-state-${path.basename(rootPath)}.json`);

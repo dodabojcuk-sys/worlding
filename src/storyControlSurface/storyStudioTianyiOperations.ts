@@ -590,7 +590,9 @@ export function createStoryStudioTianyiOperations(options: {
     lane: TianyiGroundedResolvedCandidate["lane"],
     knownScene: StoryStudioWritingDocument | null = null
   ): TianyiGroundedResolvedCandidate {
-    const sourceType = ref.ownerType === "markdown-writing"
+    const sourceType = ref.ownerType === "visual-map"
+      ? "map"
+      : ref.ownerType === "markdown-writing"
       ? ref.objectType === "scene" ? "scene" : "writing"
       : ref.objectType === "rule" ? "rule" : "world-object";
     const base = {
@@ -656,13 +658,19 @@ export function createStoryStudioTianyiOperations(options: {
       if (!visual || visual.contentHash !== ref.contentHash) {
         return { ...base, contentHash: visual?.contentHash ?? ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: visual ? "STALE_REFERENCE" : "SOURCE_MISSING" };
       }
-      return {
-        ...base,
-        contentHash: visual.contentHash,
-        wireContent: `${visual.title}\nType: ${visual.type}\n${stableJson(visual.content)}`,
-        knowledgeSubjectRefs: [],
-        preAuthorizationReason: null
-      };
+      if (ref.ownerType === "visual-map") {
+        const content = visual.content as { scopeObjectId?: string | null; template?: string; markers?: unknown[]; regions?: unknown[]; drawings?: Array<{ id?: string; objectId?: string | null; kind?: string; subtype?: string; points?: unknown[]; label?: string | null }> };
+        const selected = ref.objectType === "map"
+          ? { mapId: visual.id, scopeObjectId: content.scopeObjectId ?? null, template: content.template ?? "blank", statement: "地图范围与几何均为作者图示；仅显式对象引用是世界资料。" }
+          : ref.objectType === "map-drawing"
+            ? content.drawings?.find((item) => item.id === ref.stableId) ?? null
+            : ref.objectType === "map-marker"
+              ? content.markers?.find((item) => isStableVisualItem(item, ref.stableId)) ?? null
+              : content.regions?.find((item) => isStableVisualItem(item, ref.stableId)) ?? null;
+        if (!selected) return { ...base, contentHash: visual.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "SOURCE_MISSING" };
+        return { ...base, contentHash: visual.contentHash, wireContent: `${visual.title}\nSource: author map illustration\nRevision: ${visual.contentHash}\n${stableJson(selected)}`, knowledgeSubjectRefs: [], preAuthorizationReason: null };
+      }
+      return { ...base, contentHash: visual.contentHash, wireContent: `${visual.title}\nType: ${visual.type}\n${stableJson(visual.content)}`, knowledgeSubjectRefs: [], preAuthorizationReason: null };
     } catch {
       return { ...base, contentHash: ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "SOURCE_MISSING" };
     }
@@ -754,7 +762,8 @@ export function createStoryStudioTianyiOperations(options: {
         }
         if (document.contentHash !== ref.contentHash) return excludedObjectContextRef(ref, "stale");
         if (ref.ownerType === "visual-map") {
-          const collection = ref.objectType === "map-marker" ? document.content.markers : document.content.regions;
+          if (ref.objectType === "map" && ref.stableId === document.id) return includedObjectContextRef(ref);
+          const collection = ref.objectType === "map-marker" ? document.content.markers : ref.objectType === "map-drawing" ? document.content.drawings : document.content.regions;
           const item = Array.isArray(collection) ? collection.find((candidate) => isStableVisualItem(candidate, ref.stableId)) : null;
           return item ? includedObjectContextRef(ref) : excludedObjectContextRef(ref, "missing");
         }

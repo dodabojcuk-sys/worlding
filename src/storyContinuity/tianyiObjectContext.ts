@@ -18,8 +18,10 @@ export const TIANYI_OBJECT_TYPES = [
   "chapter",
   "scene",
   "selection",
+  "map",
   "map-marker",
   "map-region",
+  "map-drawing",
   "timeline-event"
 ] as const;
 

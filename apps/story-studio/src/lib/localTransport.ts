@@ -378,7 +378,7 @@ export type ProviderSessionConnection = {
 export type TianyiObjectContextRef = {
   version: "story-tianyi-object-context-ref/v1";
   ownerType: "markdown-object" | "markdown-writing" | "visual-map" | "visual-timeline";
-  objectType: "character" | "location" | "faction" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "map-marker" | "map-region" | "timeline-event";
+  objectType: "character" | "location" | "faction" | "event" | "item" | "rule" | "chapter" | "scene" | "selection" | "map" | "map-marker" | "map-region" | "map-drawing" | "timeline-event";
   stableId: string;
   projectId: string;
   ownerId: string;
@@ -406,7 +406,7 @@ export type TianyiGroundedContextRequest = {
 };
 
 export type TianyiGroundedSourceManifestEntry = {
-  sourceType: "writing" | "scene" | "world-object" | "rule" | "memory";
+  sourceType: "writing" | "scene" | "world-object" | "rule" | "memory" | "map";
   projectId: string;
   sourceId: string;
   sourceKey: string;
