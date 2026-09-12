@@ -11,6 +11,7 @@ import {
   predictionStageForView,
   predictionRunStatusAfterTerminalFence,
   resolvePredictionAbandonment,
+  selectPredictionRunForRecovery,
   shouldDeferPredictionRunSnapshotForPendingAbandonment,
   shouldApplyPredictionRunSnapshot,
   predictionViewAfterEscape,
@@ -18,6 +19,21 @@ import {
   predictionViewStateFromDraftedReceiptRecovery,
   predictionViewStateFromPersistence
 } from "../../apps/story-studio/src/components/tianyi/sidebar/tianyiPredictionViewState.ts";
+
+function predictionRun(runId: string, eventId: string, createdAt: string) {
+  return {
+    version: "tianyan-multi-node-prediction/v1" as const,
+    runId,
+    bundle: null,
+    projectId: "project.recovery",
+    operationId: `operation.${runId}`,
+    sourceSnapshot: [{ version: "story-studio-event-reference/v1" as const, projectId: "project.recovery", eventId, revisionToken: "revision.1", state: "draft" as const, requestedUse: "context" as const }],
+    authorGoal: "继续故事",
+    predictionMode: "forward-development" as const,
+    createdAt,
+    status: "ready" as const
+  };
+}
 
 test("pending abandonment identity survives a panel instance and remains project scoped", () => {
   const projectId = "project.pending-abandonment";
@@ -73,6 +89,16 @@ test("drafted receipt recovery never reopens a terminal abandoned or stale Run",
   assert.equal(predictionViewStateFromDraftedReceiptRecovery({ runStatus: "abandoned", hasDraftedReceipt: true }), null);
   assert.equal(predictionViewStateFromDraftedReceiptRecovery({ runStatus: "stale", hasDraftedReceipt: true }), null);
   assert.equal(predictionViewStateFromDraftedReceiptRecovery({ runStatus: "ready", hasDraftedReceipt: false }), null);
+});
+
+test("reload recovery chooses the same-source Run with the newest durable drafted receipt", () => {
+  const older = predictionRun("prediction-run.older", "event.one", "2026-09-12T00:00:00.000Z");
+  const accepted = predictionRun("prediction-run.accepted", "event.one", "2026-09-12T00:01:00.000Z");
+  const unrelated = predictionRun("prediction-run.unrelated", "event.two", "2026-09-12T00:02:00.000Z");
+  const sourceKey = "event.one:revision.1";
+  assert.equal(selectPredictionRunForRecovery({ runs: [unrelated, accepted, older], activeRunId: null, sourceKey, draftedRunIds: [accepted.runId] })?.runId, accepted.runId);
+  assert.equal(selectPredictionRunForRecovery({ runs: [unrelated, accepted, older], activeRunId: older.runId, sourceKey, draftedRunIds: [accepted.runId] })?.runId, older.runId, "An exact live identity must remain authoritative.");
+  assert.equal(selectPredictionRunForRecovery({ runs: [unrelated, accepted, older], activeRunId: null, sourceKey, draftedRunIds: [] })?.runId, accepted.runId, "Without a receipt, use the newest same-source history entry.");
 });
 
 test("an older non-terminal Run snapshot cannot overwrite a terminal owner state", () => {

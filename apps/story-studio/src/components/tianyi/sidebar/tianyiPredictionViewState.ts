@@ -1,4 +1,4 @@
-import type { PredictionRunStatus } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
+import type { PredictionRun, PredictionRunStatus } from "../../../../../../src/storyContracts/multiNodePrediction.ts";
 
 export type TianyiPredictionViewState = "task" | "running" | "overview" | "focus" | "review" | "receipt";
 export type TianyiPredictionStage = "task" | "running" | "candidates" | "review";
@@ -78,6 +78,32 @@ export function predictionViewStateFromDraftedReceiptRecovery(input: {
 }): "receipt" | null {
   if (!input.hasDraftedReceipt || input.runStatus === "abandoned" || input.runStatus === "stale") return null;
   return "receipt";
+}
+
+/**
+ * A source snapshot may have several Runs after the author corrects and retries
+ * a prediction.  On reload there is no component-local active Run identity, so
+ * recover the Run named by the newest durable drafted review before falling
+ * back to the newest same-source Run.  A live exact identity always wins.
+ */
+export function selectPredictionRunForRecovery(input: {
+  runs: PredictionRun[];
+  activeRunId: string | null;
+  sourceKey: string;
+  draftedRunIds: string[];
+}): PredictionRun | null {
+  const exact = input.activeRunId
+    ? input.runs.find((candidate) => candidate.runId === input.activeRunId) ?? null
+    : null;
+  if (exact) return exact;
+  const sameSource = (candidate: PredictionRun) => candidate.sourceSnapshot
+    .map((reference) => `${reference.eventId}:${reference.revisionToken}`)
+    .join("|") === input.sourceKey;
+  for (const runId of input.draftedRunIds) {
+    const drafted = input.runs.find((candidate) => candidate.runId === runId && sameSource(candidate));
+    if (drafted) return drafted;
+  }
+  return input.runs.find(sameSource) ?? null;
 }
 
 /** Owner-terminal Runs are monotonic: a delayed pre-terminal read cannot reactivate them. */
