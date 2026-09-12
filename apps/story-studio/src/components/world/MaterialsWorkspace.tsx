@@ -44,6 +44,66 @@ type MaterialStatusFilter = "all" | "draft" | "confirmed";
 type MaterialSort = "recent" | "title";
 type SourceSelection = { charStart: number; charEnd: number; lineStart: number; lineEnd: number; text: string };
 
+type MaterialReadingProjection = {
+  body: string;
+  source: SourceDocument | null;
+  sourceLocation: string | null;
+  groupedMarkers: boolean;
+};
+
+/**
+ * Build a reading-only view from links that are already resolved by the owners.
+ * The stored body is never rewritten: older documents do not identify whether an
+ * arbitrary paragraph was authored by a person or appended by the UI.
+ */
+function projectMaterialReading(
+  body: string,
+  linkedObjects: WorldObjectSummary[],
+  sources: SourceDocument[],
+): MaterialReadingProjection {
+  let readable = body;
+  let matchedSource: SourceDocument | null = null;
+  let sourceLocation: string | null = null;
+  let groupedMarkers = false;
+
+  for (const source of sources) {
+    const sourceObject = linkedObjects.find((item) => item.id === source.libraryObjectId);
+    if (!sourceObject) continue;
+    const prefix = `来源：[[${sourceObject.relativeId}|${source.title}]]\n来源位置：${source.title} · `;
+    const prefixIndex = readable.indexOf(prefix);
+    if (prefixIndex < 0) continue;
+    const identityLine = `\n来源标识：${source.sourceDocumentId}`;
+    const identityIndex = readable.indexOf(identityLine, prefixIndex + prefix.length);
+    if (identityIndex < 0) continue;
+    const locationAndRevision = readable.slice(prefixIndex + prefix.length, identityIndex);
+    const revisionSuffix = ` · 修订 ${source.currentRevisionHash}`;
+    if (!locationAndRevision.endsWith(revisionSuffix)) continue;
+    sourceLocation = locationAndRevision.slice(0, -revisionSuffix.length);
+    const blockEnd = identityIndex + identityLine.length;
+    const blockStart = prefixIndex >= 2 && readable.slice(prefixIndex - 2, prefixIndex) === "\n\n"
+      ? prefixIndex - 2
+      : prefixIndex;
+    readable = `${readable.slice(0, blockStart)}${readable.slice(blockEnd)}`;
+    matchedSource = source;
+    groupedMarkers = true;
+    break;
+  }
+
+  for (const linked of linkedObjects) {
+    const marker = `关联对象：[[${linked.relativeId}|${linked.title}]]`;
+    if (!readable.includes(marker)) continue;
+    readable = readable.split(marker).join("");
+    groupedMarkers = true;
+  }
+
+  return {
+    body: readable.trim(),
+    source: matchedSource,
+    sourceLocation,
+    groupedMarkers,
+  };
+}
+
 /** Author materials use the existing World Object writer; no parallel library is created here. */
 export function MaterialsWorkspace(props: {
   runtime: TianyanShellRuntimeState;
@@ -121,6 +181,10 @@ export function MaterialsWorkspace(props: {
     return () => window.removeEventListener("beforeunload", protectDraft);
   }, [hasUnsavedChanges]);
   const unresolvedLinks = useMemo(() => selected ? materialLinkTargets(selected.body).filter((target) => !selected.linkedObjects.some((item) => item.relativeId === target || item.title === target)) : [], [selected]);
+  const readingProjection = useMemo(
+    () => selected ? projectMaterialReading(draft.body, selected.linkedObjects, sources) : null,
+    [draft.body, selected, sources],
+  );
   const refresh = async () => {
     if (!projectId) return [];
     const [library, sourceDocuments] = await Promise.all([getWorldLibrary(projectId), listSourceImportReviews(projectId)]);
@@ -488,20 +552,43 @@ export function MaterialsWorkspace(props: {
                     }
                   />
                 </label>
-                <label>
-                  正文
-                  <textarea
-                    value={draft.body}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        body: event.target.value,
-                      }))
-                    }
-                    rows={16}
-                    placeholder="例如：雾港实行夜间宵禁……"
-                  />
-                </label>
+                {selected && readingProjection ? (
+                  <>
+                    <section className="materials-reading-view" aria-label="正文阅读">
+                      <div className="materials-reading-heading"><span>正文阅读</span><small>保存版本的可读视图</small></div>
+                      <div className="materials-reading-body">{readingProjection.body || "这份资料还没有正文。"}</div>
+                      {readingProjection.source ? (
+                        <div className="materials-reading-source">
+                          <div><strong>整理自 {readingProjection.source.title}</strong><span>{readingProjection.sourceLocation ?? "原始来源中的选定段落"}</span></div>
+                          <button type="button" onClick={() => openSource(readingProjection.source!)}>查看原始来源</button>
+                        </div>
+                      ) : null}
+                      {readingProjection.groupedMarkers ? <p>来源与关联已按名称整理在下方；完整内联标识仍保留在原始存储中。</p> : null}
+                    </section>
+                    <details className="materials-raw-body-editor">
+                      <summary>编辑正文与查看原始存储</summary>
+                      <label>
+                        正文
+                        <span className="materials-body-preservation-note">现有正文无法逐段可靠区分作者文字与系统附加内容，因此不会自动删改。</span>
+                        <textarea
+                          value={draft.body}
+                          onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
+                          rows={16}
+                        />
+                      </label>
+                    </details>
+                  </>
+                ) : (
+                  <label>
+                    正文
+                    <textarea
+                      value={draft.body}
+                      onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
+                      rows={16}
+                      placeholder="例如：雾港实行夜间宵禁……"
+                    />
+                  </label>
+                )}
                 {(selected?.type ?? (type === "all" || type === "source" ? "rule" : type)) === "rule" ? <div className="materials-writing-prompts" aria-label="可选写作提示"><span>可选提示</span>{["规则内容", "适用范围", "例外"].map((prompt) => <button key={prompt} type="button" onClick={() => setDraft((current) => current.body.includes(`${prompt}：`) ? current : { ...current, body: `${current.body.trimEnd()}${current.body.trim() ? "\n\n" : ""}${prompt}：` })}>{prompt}</button>)}</div> : null}
                 <label>
                   标签
@@ -574,7 +661,7 @@ export function MaterialsWorkspace(props: {
                       <p>
                         天意只会发送作者明确选择并在发送时重新校验的版本。
                       </p>
-                      <details><summary>技术详情</summary><code>对象 {selected.id}</code><code>修订 {selected.revisionToken}</code><code>正文路径 {selected.relativeId}</code></details>
+                      <details><summary>技术详情</summary><p>当前存储尚未为正文中的每一段区分“作者输入”与“系统插入”。为保护历史原文，本页只依据既有解析结果展示关联，不会批量清理正文标识。</p><code>对象 {selected.id}</code><code>修订 {selected.revisionToken}</code><code>正文路径 {selected.relativeId}</code></details>
                     </section>
                     <div className="materials-editor-actions">
                       <button
@@ -677,8 +764,9 @@ function SourceReader(props: {
     props.onSelection({ charStart, charEnd, lineStart: before.split("\n").length, lineEnd: through.split("\n").length, text: element.value.slice(charStart, charEnd) });
   };
   return <section className="materials-source-reader" aria-label="原始来源阅读">
-    <header><div><span>原始来源 · 未确认</span><h2>{props.source.title}</h2><p>{props.source.filename} · 修订 {props.source.currentRevisionHash.slice(0, 12)} · {formatRecentTime(props.source.updatedAt)}</p></div><FileText aria-hidden="true" /></header>
+    <header><div><span>原始来源 · 未确认</span><h2>{props.source.title}</h2><p>{props.source.filename} · {formatRecentTime(props.source.updatedAt)}</p></div><FileText aria-hidden="true" /></header>
     <p>原文逐字保存在来源修订中。选择一段后可建立设定草稿；这一步不会自动确认内容。</p>
+    <details className="materials-source-technical"><summary>来源技术详情</summary><code>来源 {props.source.sourceDocumentId}</code><code>修订 {props.source.currentRevisionHash}</code><code>关联资料 {props.source.libraryObjectId ?? "尚未建立"}</code></details>
     <textarea aria-label="来源原文" readOnly value={revision?.content ?? ""} rows={22} onSelect={(event) => select(event.currentTarget)} onMouseUp={(event) => select(event.currentTarget)} onKeyUp={(event) => select(event.currentTarget)} />
     {props.selection ? <aside aria-label="已选择来源段落"><Quote aria-hidden="true" /><div><strong>第 {props.selection.lineStart}–{props.selection.lineEnd} 行</strong><p>{props.selection.text}</p></div></aside> : <p className="materials-source-selection-hint">在上方原文中拖选一段，建立带准确来源位置的世界设定。</p>}
     <div className="materials-editor-actions"><button type="button" disabled={!props.selection?.text.trim()} onClick={props.onPrepareRule}><Plus aria-hidden="true" />从选中段落建立设定</button>{props.source.libraryObjectId ? <button type="button" onClick={props.onOpenLibraryObject}>打开可关联资料</button> : null}{props.source.libraryObjectId ? <button type="button" onClick={props.onUseInTianyi}><Sparkles aria-hidden="true" />在天意明确引用原文</button> : null}</div>

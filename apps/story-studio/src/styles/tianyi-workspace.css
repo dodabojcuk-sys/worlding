@@ -17,6 +17,9 @@
 .tianyi-task-header > div:first-child > small { color: var(--color-accent); letter-spacing: .08em; font-weight: 700; }
 .tianyi-task-status { display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; justify-content: flex-end; }
 .tianyi-task-status span { border-left: 1px solid var(--color-border); padding-left: 8px; color: var(--color-text-muted); font-size: 10px; }
+.tianyi-task-actions { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: .65rem; }
+.tianyi-material-return { flex: 0 0 auto; min-height: 2.25rem; display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .65rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; }
+.tianyi-material-return svg { width: .9rem; height: .9rem; }
 .tianyi-lane-switch { display: flex; border: 1px solid var(--color-border-subtle); border-radius: 10px; padding: 3px; background: var(--color-surface); }
 .tianyi-lane-switch button { border: 0; background: transparent; color: var(--color-text-secondary); border-radius: 7px; padding: 8px 18px; cursor: pointer; }
 .tianyi-lane-switch button[aria-selected="true"] { background: var(--color-accent-soft); color: var(--color-accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 25%, transparent); }
@@ -122,15 +125,21 @@
 .tianyi-grounded-answer-receipt { margin: 1rem 0; scroll-margin-block: 1rem; border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border-subtle)); border-radius: 12px; background: var(--color-surface); padding: 14px; }
 .tianyi-grounded-answer-receipt > header { display: flex; justify-content: space-between; gap: 1rem; }
 .tianyi-grounded-answer-receipt h3, .tianyi-grounded-answer-receipt p { margin: .25rem 0; }
+.tianyi-grounded-answer { padding: .8rem 0; color: var(--color-text); font-size: 1rem; line-height: 1.65; }
 .tianyi-grounded-answer-receipt small, .tianyi-grounded-answer-receipt > header span, .tianyi-grounded-answer-receipt li span { color: var(--color-text-muted); font-size: .72rem; }
 .tianyi-grounded-answer-receipt dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: .75rem 0; }
 .tianyi-grounded-answer-receipt dt { color: var(--color-text-muted); font-size: .7rem; }
 .tianyi-grounded-answer-receipt dd { margin: .15rem 0 0; overflow-wrap: anywhere; font-size: .75rem; }
+.tianyi-grounded-sources { display: grid; gap: .45rem; margin-top: .45rem; }
+.tianyi-grounded-sources > strong { font-size: .82rem; }
 .tianyi-grounded-answer-receipt ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
-.tianyi-grounded-answer-receipt li { display: grid; grid-template-columns: minmax(8rem, auto) minmax(0, 1fr); align-items: start; gap: .35rem .7rem; border-top: 1px solid var(--color-border-subtle); padding-top: .35rem; }
-.tianyi-grounded-answer-receipt li button { border: 0; background: transparent; color: var(--color-accent); padding: 0; text-align: left; cursor: pointer; }
+.tianyi-grounded-answer-receipt li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem .7rem; border-top: 1px solid var(--color-border-subtle); padding-top: .5rem; }
+.tianyi-grounded-answer-receipt li > div { min-width: 0; display: grid; gap: .12rem; }
+.tianyi-grounded-answer-receipt li > button { min-height: 2rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-accent); padding: .3rem .55rem; cursor: pointer; white-space: nowrap; }
 .tianyi-grounded-answer-receipt li details, .tianyi-grounded-answer-receipt li > small { grid-column: 1 / -1; }
 .tianyi-grounded-answer-receipt li details p { max-height: 12rem; overflow: auto; white-space: pre-wrap; color: var(--color-text-secondary); }
+.tianyi-grounded-source-technical code { display: block; margin-top: .25rem; overflow-wrap: anywhere; color: var(--color-text-muted); font-size: .7rem; }
+.tianyi-grounded-receipt-technical { margin-top: .75rem; padding-top: .6rem; border-top: 1px solid var(--color-border-subtle); color: var(--color-text-muted); font-size: .75rem; }
 .tianyi-work-contract dt { font-size: 11px; color: var(--color-text-muted); }
 .tianyi-work-contract dd { margin: 4px 0 0; font-size: 13px; }
 .tianyi-work-contract label { font-size: 11px; color: var(--color-text-muted); }
@@ -373,12 +382,18 @@
 
 @media (max-width: 76rem) {
   .tianyi-workspace-header { grid-template-columns: 92px minmax(0, 1fr) auto; gap: 12px; }
+  .tianyi-task-header { grid-template-columns: minmax(0, 1fr); gap: .4rem; padding-block: .55rem; }
+  .tianyi-task-actions { justify-content: space-between; }
+  .tianyi-task-status { min-width: 0; overflow-x: auto; justify-content: flex-start; }
   .tianyi-lane-switch { justify-self: stretch; }
   .tianyi-lane-switch button { flex: 1; min-width: 0; padding-inline: 9px; }
   .tianyi-lane-switch button span { white-space: nowrap; }
   .tianyi-conversation-anchor { min-width: 126px; padding-left: 10px; }
   .tianyi-conversation-anchor small { display: none; }
   .tianyi-pending-anchor { padding-left: .7rem; }
+  .tianyi-task-header { align-items: start; }
+  .tianyi-task-actions { align-items: flex-end; flex-direction: column; gap: .25rem; }
+  .tianyi-task-status { flex-wrap: wrap; }
   .story-intake-review-layout { grid-template-columns: minmax(0, 1fr); }
   .story-intake-evidence { display: none; }
   .story-intake-evidence-compact { display: block; margin: 0; padding: 7px 22px; border-bottom: 1px solid var(--color-border); background: #f7f4ed; color: var(--color-text-secondary); font-size: 11px; }
