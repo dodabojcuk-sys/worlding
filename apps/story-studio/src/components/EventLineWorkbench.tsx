@@ -953,12 +953,12 @@ export function EventLineWorkbench(props: {
 
 function mapReturnTarget(search: string): string | null {
   const value = new URLSearchParams(search).get("mapReturn");
-  return value && value.startsWith("/world?") && !value.includes("//") ? value : null;
+  return value && (value.startsWith("/world?") || value.startsWith("/library?libraryView=map")) && !value.includes("//") ? value : null;
 }
 
 function relationReturnTarget(search: string): string | null {
   const value = new URLSearchParams(search).get("relationReturn");
-  return value && value.startsWith("/world?worldView=relations") && !value.includes("//") ? value : null;
+  return value && (value.startsWith("/world?worldView=relations") || value.startsWith("/library?libraryView=relations")) && !value.includes("//") ? value : null;
 }
 
 function tianyiReturnTarget(search: string): string | null {

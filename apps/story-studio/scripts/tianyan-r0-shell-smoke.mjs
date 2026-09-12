@@ -2145,7 +2145,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.ok(mapM2Fixture, "Map M2 browser assertion needs its formal isolated fixture.");
   const base = `${apiUrl}/__local/story-studio`;
   await page.setViewportSize({ width: 1440, height: 900 });
-  await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
   await page.locator(`[data-work-version-id="${mapM2Fixture.root.identity.workVersionId}"]`).waitFor();
   await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
   await page.locator('[aria-label="地点"]').getByRole("button", { name: /北闸/u }).click();
@@ -2189,6 +2189,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByRole("button", { name: "查看关系图", exact: true }).click();
   const relationsWorkspace = page.getByTestId("focused-relations-workspace");
   await relationsWorkspace.waitFor();
+  assert.match(page.url(), /\/library\?libraryView=relations/u, "The full relation workspace must open under Materials, not World.");
   await relationsWorkspace.getByText("北闸的关系", { exact: true }).waitFor();
   const relationCanvas = page.getByTestId("focused-relations-canvas");
   await relationCanvas.waitFor();
@@ -2249,6 +2250,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await relationsWorkspace.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
+  assert.match(page.url(), /\/library\?libraryView=map/u, "Returning from relations must recover the Materials map entry.");
   assert.match(page.url(), /mapObservationEvent=/u, "Returning from focused relations must recover the map observation identity.");
   await tabs.nth(3).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
@@ -2291,6 +2293,32 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByRole("button", { name: "行政", exact: true }).click();
   await page.getByRole("checkbox", { name: "行政管辖", exact: true }).check();
   await page.getByRole("status").getByText(/行政结构规则已保存/u).waitFor();
+  await page.getByLabel("选择行政区域").selectOption(mapM2Fixture.eastPrefecture.id);
+  const boundaryEditor = page.getByRole("group", { name: "行政边界编辑" });
+  await canvas.click({ position: { x: 180, y: 120 } });
+  await boundaryEditor.getByText("边界点 1", { exact: true }).waitFor();
+  await canvas.click({ position: { x: 340, y: 150 } });
+  await boundaryEditor.getByText("边界点 2", { exact: true }).waitFor();
+  await canvas.click({ position: { x: 270, y: 190 } });
+  await boundaryEditor.getByText("边界点 3", { exact: true }).waitFor();
+  const boundarySave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
+  await boundaryEditor.getByRole("button", { name: "保存边界", exact: true }).click();
+  assert.equal((await boundarySave).status(), 200, "Saving an administrative boundary must use the existing VisualDocument Owner.");
+  await page.getByRole("status").getByText(/行政边界已保存/u).waitFor();
+  await page.locator('[aria-label="行政边界叠加"] [data-region-object]').waitFor();
+  const hideAdministrativeLayer = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
+  await page.getByRole("checkbox", { name: "行政边界与名称", exact: true }).uncheck();
+  assert.equal((await hideAdministrativeLayer).status(), 200, "Hiding the administrative overlay must persist through VisualDocument Owner.");
+  await page.getByRole("status").getByText(/图层显示已保存/u).waitFor();
+  await page.locator('[aria-label="行政边界叠加"]').waitFor({ state: "hidden" });
+  const showAdministrativeLayer = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
+  await page.getByRole("checkbox", { name: "行政边界与名称", exact: true }).check();
+  assert.equal((await showAdministrativeLayer).status(), 200, "Restoring the administrative overlay must persist through VisualDocument Owner.");
+  await page.getByRole("status").getByText(/图层显示已保存/u).waitFor();
+  await page.locator('[aria-label="行政边界叠加"] [data-region-object]').waitFor();
+  await page.locator(".map-structure-details > summary").click();
+  if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-administration-overlay.png"), fullPage: true });
+  await page.locator(".map-structure-details > summary").click();
   await page.getByLabel("地图范围").selectOption(mapM2Fixture.eastPrefecture.id);
   await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
   await page.locator(".map-structure-children").getByRole("button", { name: /松林/u }).waitFor();
@@ -2302,6 +2330,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
   await page.locator(".map-structure-children").getByRole("button", { name: /雾港/u }).waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-geography-administration.png"), fullPage: true });
+  await page.locator(".map-structure-details > summary").click();
   await page.getByRole("button", { name: "编辑布局", exact: true }).waitFor({ state: "visible" });
   await page.getByRole("button", { name: "编辑布局", exact: true }).click();
   await page.getByRole("button", { name: "浏览地图", exact: true }).waitFor();
@@ -2312,7 +2341,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
     // the filesystem-backed revision receipt its bounded CI allowance instead
     // of misreporting a slow receipt as a missing request.
     const layoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"), { timeout: 60_000 });
-    await canvas.click({ position: { x: 130 + index * 115, y: 72 + (index % 2) * 108 } });
+    await canvas.click({ position: { x: 130 + index * 115, y: 24 + (index % 2) * 18 } });
     assert.equal((await layoutSave).status(), 200, `Map layout save for ${location.title} must succeed.`);
     await page.getByRole("status").getByText(/布局已保存/u).waitFor();
     await page.getByText(`${index + 2} 个已放置地点`, { exact: false }).waitFor();
@@ -2326,7 +2355,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
     writeFileSync(path.join(mapM2EvidenceDirectory, "map-m2-identity-map.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, northGateId: mapM2Fixture.northGate.id, observations: { opened: { eventId: mapM2Fixture.opened.id, revision: mapM2Fixture.opened.revisionToken }, closed: { eventId: mapM2Fixture.closed.id, revision: mapM2Fixture.closed.revisionToken }, reopened: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken } }, focusedRelations: { centerObjectId: mapM2Fixture.northGate.id, relationId: mapM2Fixture.relationId, observation: "closed", view: "list", readOnly: true }, providerDispatches: 0 }, null, 2)}\n`, "utf8");
   }
   const denseGraph = await mapM2Fixture.createDenseGraph();
-  await gotoProduct(page, `${baseUrl}/world?worldView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.northGate.id)}&mapObservedAt=2000-01-02T00%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(mapM2Fixture.closed.id)}&mapObservationLabel=${encodeURIComponent("北闸封闭")}`);
+  await gotoProduct(page, `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.northGate.id)}&mapObservedAt=2000-01-02T00%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(mapM2Fixture.closed.id)}&mapObservationLabel=${encodeURIComponent("北闸封闭")}`);
   await page.evaluate(() => window.scrollTo(0, 0));
   await relationsWorkspace.waitFor();
   await relationCanvas.waitFor();

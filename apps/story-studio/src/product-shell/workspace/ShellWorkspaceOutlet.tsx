@@ -61,6 +61,15 @@ export function ShellWorkspaceOutlet(props: {
     return <MultiverseB1Workspace runtime={props.runtime} />;
   }
 
+  const libraryView = new URL(window.location.href).searchParams.get("libraryView");
+  if (!props.shellLab && props.destination.id === "library" && libraryView === "map") {
+    return <MapM1Workspace runtime={props.runtime} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "library" && libraryView === "relations") {
+    return <FocusedRelationsWorkspace runtime={props.runtime} />;
+  }
+
   if (!props.shellLab && props.destination.id === "library") return <MaterialsWorkspace runtime={props.runtime} />;
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
@@ -80,7 +89,7 @@ export function ShellWorkspaceOutlet(props: {
       <p className="shell-workspace-eyebrow">{t("workspace.eyebrow")}</p>
       <h1 id="shell-workspace-title">{label}</h1>
       <p className="shell-workspace-summary">{summary}</p>
-      {!props.shellLab && props.destination.id === "world" ? <button type="button" onClick={() => window.location.assign("/world?worldView=map")}>{t("world.openLocationMap")}</button> : null}
+      {!props.shellLab && props.destination.id === "world" ? <button type="button" onClick={() => window.location.assign("/library?libraryView=map")}>{t("world.openLocationMap")}</button> : null}
       {props.directoryObjectId && <p className="shell-workspace-status" data-directory-focus={props.directoryObjectId}>{t("directory.focused")}: {props.directoryObjectId}</p>}
       {props.shellLab && <><div className="shell-workspace-rule" aria-hidden="true" />
         <p className="shell-workspace-status"><span aria-hidden="true" />{t("workspace.ready")}</p>
