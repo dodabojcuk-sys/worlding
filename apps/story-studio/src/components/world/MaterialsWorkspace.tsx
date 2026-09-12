@@ -27,6 +27,7 @@ import {
   type WorldObjectType,
 } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
+import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
 
 const editableTypes: Array<{ value: WorldObjectType; label: string }> = [
   { value: "rule", label: "世界设定" },
@@ -80,9 +81,11 @@ export function MaterialsWorkspace(props: {
   const fileInput = useRef<HTMLInputElement | null>(null);
   const internalRouteChange = useRef(false);
   const writeInternalRoute = (input: Parameters<typeof writeMaterialRoute>[0]) => { internalRouteChange.current = true; writeMaterialRoute(input); };
+  const sourceLibraryObjectIds = useMemo(() => new Set(sources.map((source) => source.libraryObjectId).filter(Boolean)), [sources]);
   const filtered = useMemo(() => items
       .filter(
         (item) =>
+          !sourceLibraryObjectIds.has(item.id) &&
           (type === "all" || item.type === type) &&
           (statusFilter === "all" || (statusFilter === "draft" ? item.status === "draft" : item.status !== "draft")) &&
           `${item.title} ${item.tags.join(" ")} ${item.aliases.join(" ")}`
@@ -92,7 +95,7 @@ export function MaterialsWorkspace(props: {
       .sort((left, right) => sort === "title"
         ? left.title.localeCompare(right.title, "zh-CN")
         : (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.title.localeCompare(right.title, "zh-CN")),
-    [items, query, sort, statusFilter, type]);
+    [items, query, sort, sourceLibraryObjectIds, statusFilter, type]);
   const filteredSources = useMemo(() => sources
     .filter((source) => (type === "all" || type === "source") && `${source.title} ${source.filename} ${currentSourceRevision(source)?.content ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
     .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN") : right.updatedAt.localeCompare(left.updatedAt)), [query, sort, sources, type]);
@@ -103,6 +106,20 @@ export function MaterialsWorkspace(props: {
   const sourceRevisionChanged = Boolean(
     requestedRevision && selected && requestedRevision !== selected.revisionToken,
   );
+  const hasUnsavedChanges = creating
+    ? Boolean(draft.title || draft.body || draft.tags)
+    : importing
+      ? Boolean(sourceDraft.title || sourceDraft.filename || sourceDraft.content)
+      : Boolean(selected && (draft.title !== selected.title || draft.body !== selected.body || draft.tags !== selected.tags.join("、") || statusDraft !== selected.status));
+  useEffect(() => {
+    const protectDraft = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protectDraft);
+    return () => window.removeEventListener("beforeunload", protectDraft);
+  }, [hasUnsavedChanges]);
   const unresolvedLinks = useMemo(() => selected ? materialLinkTargets(selected.body).filter((target) => !selected.linkedObjects.some((item) => item.relativeId === target || item.title === target)) : [], [selected]);
   const refresh = async () => {
     if (!projectId) return [];
@@ -171,6 +188,14 @@ export function MaterialsWorkspace(props: {
     // The route is a deliberate source-return boundary, not a general browser history signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, requestedMaterialId, requestedSourceId]);
+  useEffect(() => {
+    const requestedScroll = Number(new URLSearchParams(window.location.search).get("materialScroll") ?? 0);
+    if (!Number.isFinite(requestedScroll) || requestedScroll <= 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".materials-shell")?.scrollTo({ top: requestedScroll });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [requestedMaterialId, requestedSourceId]);
   useEffect(() => {
     setHistoricalPreview(null);
     if (!projectId || !selected || !requestedRevision || requestedRevision === selected.revisionToken) return;
@@ -335,6 +360,7 @@ export function MaterialsWorkspace(props: {
   return (
     <main className="shell-workspace materials-shell" aria-label="资料工作区">
       <section className="materials-workspace">
+        <MaterialsSectionNavigation current="materials" hasUnsavedChanges={hasUnsavedChanges} />
         <header className="materials-workspace-header">
           <div className="materials-workspace-identity">
             <BookOpen aria-hidden="true" />
@@ -411,7 +437,7 @@ export function MaterialsWorkspace(props: {
               {filteredSources.map((source) => (
                 <button key={source.sourceDocumentId} type="button" aria-pressed={selectedSource?.sourceDocumentId === source.sourceDocumentId} onClick={() => openSource(source)}>
                   <strong>{source.title}</strong>
-                  <span>原始来源 · {source.filename} · {formatRecentTime(source.updatedAt)}</span>
+                  <span>原始来源 · 关联资料身份 · {source.filename} · {formatRecentTime(source.updatedAt)}</span>
                 </button>
               ))}
               {filtered.map((item) => (
@@ -433,7 +459,7 @@ export function MaterialsWorkspace(props: {
             {sourceRevisionChanged ? <section className="materials-source-revision-warning" role="alert"><strong>正在查看旧回答采用的来源</strong><p>回答修订 {requestedRevision?.slice(0, 12)}；当前资料 {selected?.revisionToken.slice(0, 12)}。{historicalPreview ? `已从既有文档历史读取 ${historicalPreview.revisionId}，没有用当前正文替代。` : "正在核对历史快照。"}</p>{historicalPreview ? <details open><summary>旧依据正文</summary><pre>{historicalPreview.body}</pre></details> : null}</section> : null}
             {selectedSource ? <SourceReader source={selectedSource} selection={sourceSelection} onSelection={setSourceSelection} onPrepareRule={prepareRuleFromSelection} onOpenLibraryObject={() => { const sourceObject = items.find((item) => item.id === selectedSource.libraryObjectId); if (sourceObject) open(sourceObject); }} onUseInTianyi={() => { if (selectedSource.libraryObjectId) window.location.assign(`/tianyi?tianyiLane=work&materialRef=${encodeURIComponent(selectedSource.libraryObjectId)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`); }} /> : selected || creating ? (
               <section className="materials-editor" aria-label={creating ? "新建资料" : "编辑资料"}>
-                {selected ? <div className="materials-editor-heading"><div><span>{typeLabel(selected.type)}</span><h2>{selected.title}</h2></div><small>当前修订 {selected.revisionToken.slice(0, 12)}</small></div> : <div className="materials-editor-heading"><div><span>新资料</span><h2>编写资料</h2></div></div>}
+                {selected ? <div className="materials-editor-heading"><div><span>{typeLabel(selected.type)}</span><h2>{selected.title}</h2></div><small>当前版本 · 已保存</small></div> : <div className="materials-editor-heading"><div><span>新资料</span><h2>编写资料</h2></div></div>}
                 <label>
                   资料类型
                   <select
@@ -548,6 +574,7 @@ export function MaterialsWorkspace(props: {
                       <p>
                         天意只会发送作者明确选择并在发送时重新校验的版本。
                       </p>
+                      <details><summary>技术详情</summary><code>对象 {selected.id}</code><code>修订 {selected.revisionToken}</code><code>正文路径 {selected.relativeId}</code></details>
                     </section>
                     <div className="materials-editor-actions">
                       <button
@@ -686,7 +713,11 @@ function materialLinkTargets(body: string): string[] {
 }
 
 function currentMaterialRoute(): string {
-  return `${window.location.pathname}${window.location.search}`;
+  const target = new URL(window.location.href);
+  const scrollTop = document.querySelector<HTMLElement>(".materials-shell")?.scrollTop ?? 0;
+  if (scrollTop > 0) target.searchParams.set("materialScroll", String(Math.round(scrollTop)));
+  else target.searchParams.delete("materialScroll");
+  return `${target.pathname}${target.search}`;
 }
 
 function writeMaterialRoute(input: Partial<{ materialId: string | null; sourceDocumentId: string | null; revision: string | null; query: string; type: WorldObjectType | "source" | "all"; status: MaterialStatusFilter; sort: MaterialSort }>): void {

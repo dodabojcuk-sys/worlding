@@ -6,7 +6,8 @@ import { TianyiSidebar, type TianyiKnowledgeViewContext, type TianyiSidebarConte
 import {
   resolveStoryStudioShellLocation,
   storyStudioShellDestinationById,
-  type StoryStudioShellDestination
+  type StoryStudioShellDestination,
+  type StoryStudioShellDestinationId
 } from "./navigation/topLevelDestinationRegistry";
 import {
   nextShellRailPreference,
@@ -44,10 +45,16 @@ import {
 } from "./project-directory/directoryWorkspaceState";
 import { useDirectoryWorkspaceState } from "./project-directory/useDirectoryWorkspaceState";
 
+function resolveActiveDestination(): StoryStudioShellDestinationId {
+  const params = new URLSearchParams(window.location.search);
+  if (window.location.pathname === "/world" && ["map", "relations"].includes(params.get("worldView") ?? "")) return "library";
+  return resolveStoryStudioShellLocation(window.location.pathname);
+}
+
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const { locale, t, toggleLocale } = useI18n();
   const shellLab = new URLSearchParams(window.location.search).get("shellLab") === "1";
-  const [activeId, setActiveId] = useState(() => resolveStoryStudioShellLocation(window.location.pathname));
+  const [activeId, setActiveId] = useState(resolveActiveDestination);
   const [locationRevision, setLocationRevision] = useState(0);
   const [railPreference, setRailPreference] = useState<ShellRailPreference>(() => {
     const requested = new URLSearchParams(window.location.search).get("rail");
@@ -124,7 +131,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
 
   useEffect(() => {
     const handlePopState = () => {
-      setActiveId(resolveStoryStudioShellLocation(window.location.pathname));
+      setActiveId(resolveActiveDestination());
       setSettingsOpen(isSettingsRoute());
       setAccountOpen(false);
       setLocationRevision((value) => value + 1);

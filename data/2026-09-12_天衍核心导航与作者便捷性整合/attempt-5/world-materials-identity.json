@@ -1,0 +1,43 @@
+{
+  "projectId": "r061-e2e-bf62fc0ae06e4603808e3a5a6b1e1f72",
+  "workVersionId": "work-version.root.9f6864c526fde2c1859b4848ee45535c",
+  "mapId": "map.地点示意图",
+  "mapHash": "d0c7c00fe872c53d0ae0173ac9c88240fe45f6cdb0d7e6e1c2b286b30efd805f",
+  "source": {
+    "sourceDocumentId": "source.c6636ba7652068771a831da2",
+    "revision": "eb865b4a11cacec11de08d892c57eb22670a7d0ab56bf87299f1497e3ff95e1e",
+    "filename": "雾港设定笔记.md"
+  },
+  "material": {
+    "id": "rule.夜间宵禁",
+    "revision": "3429e574cdfb38a290f0d4b7dcc66eaf2f5e5b29b090b56d87cb75289dee6f64",
+    "changedRevision": "afa8e807b011d2b6e450c8087536e8e013c8ea3c00e63c131bb202d498ed96b7",
+    "type": "rule"
+  },
+  "associations": [
+    {
+      "id": "character.林昭",
+      "title": "林昭",
+      "type": "character"
+    },
+    {
+      "id": "location.雾港",
+      "title": "雾港",
+      "type": "location"
+    },
+    {
+      "id": "item.雾港设定笔记",
+      "title": "雾港设定笔记",
+      "type": "item"
+    },
+    {
+      "id": "faction.雾港守卫",
+      "title": "雾港守卫",
+      "type": "faction"
+    }
+  ],
+  "simulatedProviderDispatches": 1,
+  "realProviderDispatches": 0,
+  "sourceReturn": "exact-object-history-by-content-hash",
+  "note": "One local-fake grounded answer verifies selected body transfer and frozen source return; it is not a real Provider call."
+}

@@ -5,6 +5,7 @@ import { getWorldLibrary, listRelations, type WorldObjectSummary } from "../../l
 import { relationActiveAtWorldTime, relationWorldTimeUnknownReason } from "../../../../../src/storyContracts/relationTemporalComparison.ts";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
+import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
 
 type ViewMode = "graph" | "list";
 type RelationData = { objects: readonly WorldObjectSummary[]; relations: readonly RelationReadProjectionR0[] };
@@ -44,6 +45,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
 
   const writeRoute = (next: Partial<{ center: string; mode: ViewMode; type: string; all: boolean; expanded: ReadonlySet<string>; viewport: GraphViewport; selection: GraphSelection }>) => {
     const target = new URL(window.location.href);
+    target.pathname = "/library";
     target.searchParams.set("libraryView", "relations");
     target.searchParams.delete("worldView");
     const center = next.center ?? centerId;
@@ -80,10 +82,10 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const back = () => { const value = params.get("relationReturn"); window.location.assign(safeReturn(value) ?? "/library?libraryView=map"); };
   const returnTarget = safeReturn(params.get("relationReturn"));
 
-  if (!projectId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
-  if (!workVersionId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>当前作品尚未建立作品版本</h1><p>关系按作品版本读取；没有为旧作品猜造版本，也没有读取其他版本关系。</p><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button></section></main>;
-  if (error) return <main className="shell-workspace"><section className="focused-relations" role="alert"><h1>关系暂时无法读取</h1><p>{error}</p><button type="button" onClick={back}>返回</button></section></main>;
-  if (!data) return <main className="shell-workspace"><section className="focused-relations" aria-busy="true"><p>正在读取当前作品版本的正式关系……</p></section></main>;
+  if (!projectId) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
+  if (!workVersionId) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="shell-workspace-stage"><h1>当前作品尚未建立作品版本</h1><p>关系按作品版本读取；没有为旧作品猜造版本，也没有读取其他版本关系。</p><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button></section></main>;
+  if (error) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" role="alert"><h1>关系暂时无法读取</h1><p>{error}</p><button type="button" onClick={back}>返回</button></section></main>;
+  if (!data) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" aria-busy="true"><p>正在读取当前作品版本的正式关系……</p></section></main>;
 
   const labels = new Map(data.objects.map((item) => [item.id, item]));
   const displayable = observedAt ? data.relations.filter((relation) => relationActiveAtWorldTime(relation, observedAt)) : data.relations.filter((relation) => !relation.archived);
@@ -105,6 +107,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
     window.location.assign(`/event-line?${query.toString()}`);
   };
   return <main className="shell-workspace focused-relations-shell" aria-label="聚焦关系查看">
+    <MaterialsSectionNavigation current="relations" />
     <section className="focused-relations" data-testid="focused-relations-workspace">
       <header className="focused-relations-toolbar"><div className="focused-relations-toolbar-top"><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button><div className="focused-relations-heading"><strong>{center ? `${objectLabel(center)}的关系` : "关系查看"}</strong><span>{observationLabel(params)}{props.runtime.workVersionLabel ? ` · ${props.runtime.workVersionLabel}` : ""}</span></div><div className="focused-relations-view-switch" role="group" aria-label="关系显示方式"><button type="button" aria-pressed={mode === "graph"} onClick={() => selectMode("graph")}><GitBranch aria-hidden="true" />关系图</button><button type="button" aria-pressed={mode === "list"} onClick={() => selectMode("list")}><List aria-hidden="true" />列表</button></div></div><div className="focused-relations-toolbar-controls"><label>中心对象<select aria-label="选择关系中心" value={centerId} onChange={(event) => selectCenter(event.target.value)}><option value="">请选择人物或地点</option>{data.objects.filter((item) => item.type === "character" || item.type === "location").map((item) => <option key={item.id} value={item.id}>{objectLabel(item)} · {item.type === "character" ? "人物" : "地点"}</option>)}</select></label><label>类型<select aria-label="筛选关系类型" value={typeFilter} onChange={(event) => selectType(event.target.value)}><option value="">全部类型</option>{availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><div className="focused-relations-scope" role="group" aria-label="关系范围"><button type="button" aria-pressed={!showAll} onClick={() => selectScope(false)}>直接关系</button><button type="button" aria-pressed={showAll} onClick={() => selectScope(true)}>全局关系</button></div></div></header>
       {observedAt && unknownInScope.length ? <p className="focused-relations-notice">当前范围有 {unknownInScope.length} 条关系缺少、无效或不确定的故事生效时间，未伪装为该节点的历史关系。</p> : null}
