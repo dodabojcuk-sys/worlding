@@ -25,7 +25,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "world-materials-m1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -96,11 +96,13 @@ const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-
 const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
 const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-author-experience";
+const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
 const worldMaterialsOnly = process.env.TIANYAN_E2E_SCOPE === "world-materials-m1";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
+const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
@@ -177,7 +179,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -209,6 +211,10 @@ try {
   } else if (mapM3AuthorExperienceOnly) {
     await setupMapM2Fixture();
     await assertMapM3AuthorExperience(page, consoleProblems);
+  } else if (mapM4ManagementAiEditingOnly) {
+    await setupMapM2Fixture();
+    await assertMapM3AuthorExperience(page, consoleProblems);
+    await assertMapM4ManagementAiEditing(page, consoleProblems);
   } else if (worldMaterialsOnly) {
     await setupWorldMaterialsFixture();
     await assertWorldMaterialsM1(page, consoleProblems);
@@ -2520,7 +2526,7 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByRole("button", { name: "进入澜星", exact: true }).waitFor();
   await capture("04-named-starfield.png");
 
-  await page.getByLabel("选择地图").selectOption({ label: "北湾作者地图" });
+  await page.getByLabel("选择地图", { exact: true }).selectOption({ label: "北湾作者地图" });
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).focus();
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).press("Enter");
   await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
@@ -2553,6 +2559,88 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   assert.ok(starfieldMap.content.entrances.some((entrance) => entrance.targetMapId === planetLocalMap.id), "The named planet keeps an explicit navigable local-map entrance.");
   assert.deepEqual(consoleProblems, [], "MAP-M3 normal author flow must not produce browser errors.");
   if (mapM3EvidenceDirectory) writeFileSync(path.join(mapM3EvidenceDirectory, "map-m3-author-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, maps: { northBay: { id: northBayMap.id, contentHash: northBayMap.contentHash }, fogHarbor: { id: fogLocalMap.id, contentHash: fogLocalMap.contentHash }, starfield: { id: starfieldMap.id, contentHash: starfieldMap.contentHash }, planet: { id: planetLocalMap.id, contentHash: planetLocalMap.contentHash } }, simulatedProviderDispatches: 1, realProviderDispatches: 0, sourceReturn: "exact-map-and-drawing" }, null, 2)}\n`, "utf8");
+}
+
+async function assertMapM4ManagementAiEditing(page, consoleProblems) {
+  assert.ok(mapM2Fixture, "MAP-M4 author flow needs the isolated location fixture.");
+  if (mapM4EvidenceDirectory) mkdirSync(mapM4EvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (mapM4EvidenceDirectory) await page.screenshot({ path: path.join(mapM4EvidenceDirectory, name), fullPage: false }); };
+  const visualBefore = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const northBay = visualBefore.data.documents.find((document) => document.type === "map" && document.title === "北湾作者地图");
+  const fog = visualBefore.data.documents.find((document) => document.type === "map" && document.title === "雾港 · 局部地图");
+  assert.ok(northBay && fog, "MAP-M4 reuses the authored north-bay and local maps.");
+
+  await page.getByRole("button", { name: "地图管理", exact: true }).click();
+  const manager = page.getByRole("region", { name: "地图管理" });
+  await manager.waitFor();
+  await manager.getByText("北湾作者地图", { exact: true }).waitFor();
+  await manager.getByText("雾港 · 局部地图", { exact: true }).waitFor();
+  await capture("01-map-manager-list.png");
+  const northBayCard = manager.getByRole("heading", { name: "北湾作者地图", exact: true }).locator("xpath=ancestor::article");
+  const copyResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/maps/duplicate"));
+  await northBayCard.getByRole("button", { name: /复制/u }).click();
+  const copyResponse = await copyResponsePromise;
+  assert.equal(copyResponse.status(), 201, `Map copy failed: ${await copyResponse.text()}`);
+  await page.getByRole("status").getByText(/地图副本已建立/u).waitFor();
+  const copiedCard = manager.getByRole("heading", { name: "北湾作者地图 副本", exact: true }).locator("xpath=ancestor::article");
+  await copiedCard.waitFor();
+  await copiedCard.getByRole("button", { name: /归档/u }).click();
+  await page.getByRole("status").getByText(/地图已归档/u).waitFor();
+  await manager.getByRole("checkbox", { name: /显示已归档/u }).check();
+  await copiedCard.getByRole("button", { name: /恢复/u }).click();
+  await page.getByRole("status").getByText(/地图已恢复/u).waitFor();
+  await manager.getByRole("button", { name: "空间总览", exact: true }).click();
+  await manager.getByText("尚未定位", { exact: true }).waitFor();
+  await capture("02-spatial-placement-overview.png");
+
+  await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
+  await page.getByLabel("地点示意图画布").waitFor();
+  await page.locator(".map-authoring-palette details").filter({ hasText: "跨图通道" }).click();
+  const connectionPanel = page.locator(".map-authoring-palette details").filter({ hasText: "跨图通道" });
+  await connectionPanel.getByLabel("目标地图").selectOption(fog.id);
+  await connectionPanel.getByLabel("类型").selectOption("road");
+  await connectionPanel.getByRole("button", { name: "建立两个端点", exact: true }).click();
+  await page.getByRole("status").getByText(/两个明确端点/u).waitFor();
+  await page.getByLabel("选择地图", { exact: true }).selectOption(fog.id);
+  await page.locator(".map-cross-connection").getByText("北湾作者地图", { exact: true }).waitFor();
+  await capture("03-connection-visible-from-target.png");
+
+  await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
+  await page.getByRole("button", { name: "历史", exact: true }).click();
+  const history = page.locator(".map-navigation-crumbs details");
+  await history.waitFor(); await history.click();
+  const historicalButton = history.getByRole("button").filter({ hasNotText: "当前" }).first();
+  const historicalResponsePromise = page.waitForResponse((response) => response.request().method() === "GET" && response.url().includes("/maps/revision?"));
+  await historicalButton.click();
+  const historicalResponse = await historicalResponsePromise;
+  assert.equal(historicalResponse.status(), 200, `Exact map revision read failed: ${await historicalResponse.text()}`);
+  await page.getByText("历史地图修订 · 只读", { exact: true }).waitFor();
+  await page.getByLabel("地点示意图画布").waitFor();
+  await capture("04-exact-map-history.png");
+  await page.getByRole("button", { name: "返回当前地图", exact: true }).click();
+
+  await page.locator(".map-drawing.is-road").first().focus();
+  await page.locator(".map-drawing.is-road").first().press("Enter");
+  await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
+  await page.locator(".tianyi-map-context-preview").waitFor();
+  await page.getByRole("button", { name: "用本地假服务生成结构化编辑提案", exact: true }).click();
+  const proposal = page.locator(".tianyi-map-edit-proposal");
+  await proposal.getByText(/待审/u).waitFor();
+  await capture("05-ai-structured-proposal.png");
+  await proposal.getByRole("button", { name: "整批接受", exact: true }).click();
+  await proposal.getByText(/已接受/u).waitFor();
+  await proposal.getByText(/提案原子写入/u).waitFor();
+  await capture("06-ai-proposal-accepted.png");
+
+  const visualAfter = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const currentNorthBay = visualAfter.data.documents.find((document) => document.type === "map" && document.id === northBay.id);
+  const copied = visualAfter.data.documents.find((document) => document.type === "map" && document.title === "北湾作者地图 副本");
+  assert.ok(currentNorthBay.content.connections.some((connection) => connection.from.mapId === northBay.id && connection.to.mapId === fog.id), "Explicit map navigation endpoints persist in one owner document.");
+  assert.equal(copied.content.lifecycle.copiedFromMapId, northBay.id);
+  assert.equal(copied.content.lifecycle.archived, false);
+  assert.ok(currentNorthBay.revision > northBay.revision, "Accepted structured proposal creates a newer map revision.");
+  assert.deepEqual(consoleProblems, [], "MAP-M4 normal author flow must not produce browser errors.");
+  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, acceptedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations" }, null, 2)}\n`, "utf8");
 }
 
 async function setupWorldMaterialsFixture() {
@@ -2639,7 +2727,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await fogLocalRow.getByRole("button", { name: "进入局部图", exact: true }).click();
   await page.getByRole("status").getByText(/局部地图和明确入口已保存/u).waitFor();
   await page.getByRole("button", { name: "上层", exact: true }).click();
-  await page.getByLabel("选择地图").selectOption({ label: "地点示意图" });
+  await page.getByLabel("选择地图", { exact: true }).selectOption({ label: "地点示意图" });
   assert.equal(new URL(page.url()).searchParams.get("mapId"), new URL(primaryMapUrl).searchParams.get("mapId"), "Returning from the local map restores the original map identity.");
   await page.setViewportSize({ width: 1280, height: 720 });
   const directoryOpenGeometry = await page.evaluate(() => {

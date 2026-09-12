@@ -3,11 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   captureTianyiCreativeAuthorSource,
+  acceptMapEditProposal,
   cancelTianyiAgentRun,
   continueTianyiAgentRun,
   decideTianyiStoryIntakeCandidate,
   decideTianyiCreativeCandidate,
   extractTianyiCreativeProjection,
+  createMapEditProposal,
   getTianyiCreativeProjection,
   getLatestTianyiStoryIntakeRun,
   getTianyiSessionMetadata,
@@ -17,10 +19,13 @@ import {
   getVerifiedCanonEventList,
   handoffTianyiCreativeCandidate,
   listStoryUnits,
+  listMapEditProposals,
   openTianyiSession,
   readTianyiGroundedAnswer,
   readMaterialFile,
+  readMapRevision,
   readWorldObject,
+  rejectMapEditProposal,
   recoverTianyiAgentRun,
   resolveTianyiObjectContextRefs,
   startTianyiAgentRun,
@@ -33,6 +38,7 @@ import {
   type StoryUnit,
   type TianyiObjectContextRef,
   type MapDocument,
+  type MapEditProposal,
   type MaterialFileRecord,
   type WorldObject
 } from "../../../lib/localTransport";
@@ -94,6 +100,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [selectedMaterialFile, setSelectedMaterialFile] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
   const [selectedMaterialFileRange, setSelectedMaterialFileRange] = useState<{ start: number; end: number } | null>(null);
   const [mapEvidenceState, setMapEvidenceState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [mapEditProposal, setMapEditProposal] = useState<MapEditProposal | null>(null);
   const [selectedWorkUnitId, setSelectedWorkUnitId] = useState<string | null>(null);
   const [selectedWorkEventIds, setSelectedWorkEventIds] = useState<string[]>([]);
   const [pinnedWorkEventIds, setPinnedWorkEventIds] = useState<string[]>([]);
@@ -279,14 +286,60 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const elementId = params.get("mapElement");
     if (!project || !mapId || !requestedRevision) { setSelectedMapEvidence(null); setMapEvidenceState("idle"); return; }
     let active = true; setMapEvidenceState("loading");
-    void getVisualWorkbench(project.id).then((workbench) => {
+    void getVisualWorkbench(project.id).then(async (workbench) => {
       if (!active) return;
-      const map = workbench.documents.find((item): item is MapDocument => item.type === "map" && item.id === mapId);
-      if (!map || map.contentHash !== requestedRevision || (elementId && !map.content.drawings.some((item) => item.id === elementId))) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
+      const current = workbench.documents.find((item): item is MapDocument => item.type === "map" && item.id === mapId);
+      if (!current) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
+      const map = current.contentHash === requestedRevision ? current : await readMapRevision(project.id, current.relativePath, requestedRevision);
+      if (!active) return;
+      if (elementId && !map.content.drawings.some((item) => item.id === elementId)) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
       setSelectedMapEvidence({ map, elementId }); setMapEvidenceState("ready");
     }).catch(() => { if (active) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); } });
     return () => { active = false; };
   }, [project?.id]);
+
+  useEffect(() => {
+    if (!project || !selectedMapEvidence) { setMapEditProposal(null); return; }
+    let active = true;
+    void listMapEditProposals(project.id, selectedMapEvidence.map.relativePath).then((items) => {
+      if (active) setMapEditProposal(items[0] ?? null);
+    }).catch(() => { if (active) setMapEditProposal(null); });
+    return () => { active = false; };
+  }, [project?.id, selectedMapEvidence?.map.id, selectedMapEvidence?.map.contentHash]);
+
+  const createDeterministicMapProposal = async () => {
+    if (!project || !selectedMapEvidence || busy || dialogueRuntime !== "local-fake") return;
+    const map = selectedMapEvidence.map;
+    const selected = selectedMapEvidence.elementId ? map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId) : map.content.drawings.find((item) => item.subtype === "road" && !map.content.layers.find((layer) => layer.id === item.layerId)?.locked);
+    if (!selected) { setError("当前范围没有可调整的未锁定道路图示；没有生成空提案。" ); return; }
+    const operationIdValue = `map-edit:${map.id}:${map.contentHash}:${crypto.randomUUID()}`;
+    setBusy(true); setError("");
+    try {
+      const proposal = await runtime.withConnection((token) => createMapEditProposal({
+        projectId: project.id,
+        relativePath: map.relativePath,
+        operationId: operationIdValue,
+        baseContentHash: map.contentHash,
+        prompt: runtime.workComposerDraft.trim() || "调整道路，保留锁定建筑。",
+        scope: selectedMapEvidence.elementId ? { kind: "selection", mapId: map.id, objectIds: [selected.id], bounds: null } : { kind: "map", mapId: map.id, objectIds: [], bounds: null },
+        capability: { mode: "text", imageInput: false, structuredOperations: true },
+        operations: [{ type: "update-drawing", targetId: selected.id, patch: { points: selected.points.map((point) => ({ x: Math.min(100, point.x + 2), y: point.y })) } }],
+        token
+      }));
+      setMapEditProposal(proposal);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "地图提案生成失败。" ); }
+    finally { setBusy(false); }
+  };
+
+  const decideMapProposal = async (decision: "accept" | "reject") => {
+    if (!project || !mapEditProposal || busy) return;
+    setBusy(true); setError("");
+    try {
+      const next = await runtime.withConnection((token) => decision === "accept" ? acceptMapEditProposal(project.id, mapEditProposal.operationId, token) : rejectMapEditProposal(project.id, mapEditProposal.operationId, token));
+      setMapEditProposal(next);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "地图提案处理失败。" ); }
+    finally { setBusy(false); }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -832,9 +885,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
   const openGroundedMap = () => {
     const returnTarget = new URLSearchParams(window.location.search).get("mapReturn");
-    if (returnTarget?.startsWith("/library?") || returnTarget?.startsWith("/world?")) { window.location.assign(returnTarget); return; }
     if (!selectedMapEvidence) return;
-    window.location.assign(`/library?libraryView=map&mapId=${encodeURIComponent(selectedMapEvidence.map.id)}`);
+    if (returnTarget?.startsWith("/library?") || returnTarget?.startsWith("/world?")) {
+      const target = new URL(returnTarget, window.location.origin);
+      target.searchParams.set("mapId", selectedMapEvidence.map.id);
+      target.searchParams.set("mapRevision", selectedMapEvidence.map.contentHash);
+      if (selectedMapEvidence.elementId) target.searchParams.set("mapElement", selectedMapEvidence.elementId);
+      window.location.assign(`${target.pathname}${target.search}`);
+      return;
+    }
+    window.location.assign(`/library?libraryView=map&mapId=${encodeURIComponent(selectedMapEvidence.map.id)}&mapRevision=${encodeURIComponent(selectedMapEvidence.map.contentHash)}`);
   };
 
   const activeLegacyCandidate = useMemo(() => projection?.candidates.find((item) => item.candidateId === runtime.activeTianyiCandidateId) ?? null, [projection, runtime.activeTianyiCandidateId]);
@@ -937,7 +997,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
               {runtime.workScope === "current-unit" ? <label>故事单元<select value={selectedWorkUnitId ?? ""} onChange={(event) => setSelectedWorkUnitId(event.target.value || null)}><option value="">尚未选择</option>{workContextUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : null}
               {runtime.workScope === "selected-events" ? <fieldset><legend>显式选择至多 {MAX_GLOBAL_WORK_EVENT_REFS} 项正式事件（不会因低相关度被丢弃）</legend><p aria-live="polite">已明确指定 {explicitWorkEventCount}/{MAX_GLOBAL_WORK_EVENT_REFS} 项；还可加入 {explicitWorkEventSlots} 项。</p>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" data-event-id={event.id} checked={selectedWorkEventIds.includes(event.id)} onChange={() => toggleSelectedWorkEvent(event.id)} />{event.title} · {event.status}</label>)}</fieldset> : null}
               {workContextState === "loading" ? <p>正在读取当前项目的正式事件；发送暂不把它当成无上下文。</p> : workContextState === "failed" ? <p>正式事件暂时读取失败。草稿不会丢失；<button type="button" onClick={() => void refreshWorkContext()}>重新读取</button>后再发送。</p> : !runtime.workComposerDraft.trim() ? <p>输入一个问题后，天意会在当前范围内检索依据；预览不调用 Provider，只有点击发送才进入既有回答链。</p> : <><p>本次按问题选中 {globalWorkEvents.length} 项可校验 Event；服务端会在发送前重新核验项目、状态和修订。</p>{globalWorkEvidence.selected.length ? <ul className="tianyi-work-context-events tianyi-grounded-evidence-preview">{globalWorkEvidence.selected.map((item) => <li key={`${item.event.id}:${item.event.revisionToken}`}><div><strong>{item.event.title}</strong><span>{item.event.status} · {item.reason}</span><p>{item.excerpt}</p></div><nav><button type="button" onClick={() => togglePinnedWorkEvent(item.event.id)}>{item.pinned ? "取消置顶" : "置顶"}</button><button type="button" onClick={() => setRemovedWorkEventIds((current) => [...new Set([...current, item.event.id])])}>移除</button><button type="button" onClick={() => project && openGroundedEvidenceEvent({ projectId: project.id, sourceId: item.event.id, contentHash: item.event.revisionToken })}>查看来源</button></nav></li>)}</ul> : <p>{globalWorkEvidence.availableCount ? "范围内存在正式事件，但本问题没有匹配依据；可切换到“所选事件”明确指定来源。" : "当前范围没有正式事件；可以继续提问，但回答会明确来源不足。"}</p>}{omittedGlobalWorkEventCount ? <p>另有 {omittedGlobalWorkEventCount} 项未进入本次上下文；可切换范围、置顶，或在“所选事件”明确指定。</p> : null}{removedWorkEventIds.length ? <button type="button" className="tianyi-grounded-restore" onClick={() => setRemovedWorkEventIds([])}>恢复本问已移除的来源</button> : null}</>}
-              {mapEvidenceState !== "idle" ? <fieldset className="tianyi-map-context-preview"><legend>作者明确地图依据</legend>{mapEvidenceState === "loading" ? <p>正在读取地图的准确修订；读取完成前不会发送。</p> : mapEvidenceState === "failed" ? <p role="alert">地图或选中图示已变化、缺失或不属于当前作品；本次不会将它作为依据。</p> : selectedMapEvidence ? <article><div><strong>{selectedMapEvidence.map.title}</strong><small>修订 {selectedMapEvidence.map.contentHash.slice(0, 12)} · {selectedMapEvidence.map.content.template}</small></div>{selectedMapEvidence.elementId ? (() => { const drawing = selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId); return <><p>{drawing?.kind} / {drawing?.subtype} · {drawing?.objectId ? `已绑定正式对象 ${drawing.objectId}` : "仅为作者图示，非世界事实"}</p><details><summary>预览几何</summary><pre><code>{JSON.stringify({ id: drawing?.id, points: drawing?.points, objectId: drawing?.objectId }, null, 2)}</code></pre></details></>; })() : <p>引用当前地图范围；图上靠近、线条或边界均不自动解释为道路、管辖或通行事实。</p>}<button type="button" onClick={openGroundedMap}>返回地图</button></article> : null}</fieldset> : null}
+              {mapEvidenceState !== "idle" ? <fieldset className="tianyi-map-context-preview"><legend>作者明确地图依据</legend>{mapEvidenceState === "loading" ? <p>正在读取地图的准确修订；读取完成前不会发送。</p> : mapEvidenceState === "failed" ? <p role="alert">地图或选中图示已变化、缺失或不属于当前作品；本次不会将它作为依据。</p> : selectedMapEvidence ? <article><div><strong>{selectedMapEvidence.map.title}</strong><small>修订 {selectedMapEvidence.map.revision} · {selectedMapEvidence.map.contentHash.slice(0, 12)} · {selectedMapEvidence.map.content.coordinateSystem.precision === "calibrated" ? "已校准坐标" : "示意坐标"}</small></div>{selectedMapEvidence.elementId ? (() => { const drawing = selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId); return <><p>{drawing?.kind} / {drawing?.subtype} · {drawing?.objectId ? `已绑定正式对象 ${drawing.objectId}` : "仅为作者图示，非世界事实"}</p><details><summary>预览几何</summary><pre><code>{JSON.stringify({ id: drawing?.id, points: drawing?.points, objectId: drawing?.objectId }, null, 2)}</code></pre></details></>; })() : <p>引用当前地图范围；图上靠近、线条或边界均不自动解释为道路、管辖或通行事实。</p>}<p>本次范围：{selectedMapEvidence.elementId ? "一个选中图示" : "当前地图结构化文档"}。文本模型只接收对象、坐标和必要邻近说明，不发送整张图片。</p>{dialogueRuntime === "local-fake" ? <button type="button" onClick={() => void createDeterministicMapProposal()} disabled={busy}>用本地假服务生成结构化编辑提案</button> : <small>当前 Provider 的地图编辑能力需由能力声明返回结构化操作；不会根据模型名字猜测图片能力。</small>}<button type="button" onClick={openGroundedMap}>返回地图</button>{mapEditProposal ? <section className="tianyi-map-edit-proposal" data-status={mapEditProposal.status}><header><strong>地图修改提案 · {mapEditProposal.status === "pending" ? "待审" : mapEditProposal.status === "accepted" ? "已接受" : "已拒绝"}</strong><small>基于修订 {mapEditProposal.baseRevision}</small></header><p>新增 {mapEditProposal.preview.addedDrawingIds.length} · 修改 {mapEditProposal.preview.modifiedDrawingIds.length} · 删除 {mapEditProposal.preview.deletedDrawingIds.length} · 通道 {mapEditProposal.preview.connectionIds.length}</p><details><summary>查看受约束操作</summary><pre><code>{JSON.stringify(mapEditProposal.operations, null, 2)}</code></pre></details>{mapEditProposal.status === "pending" ? <div><button type="button" onClick={() => void decideMapProposal("reject")} disabled={busy}>拒绝</button><button type="button" className="primary-action" onClick={() => void decideMapProposal("accept")} disabled={busy}>整批接受</button></div> : null}<small>提案原子写入；地图若在等待期间变化，服务端会拒绝旧基准。</small></section> : null}</article> : null}</fieldset> : null}
               <fieldset className="tianyi-material-context-picker"><legend>作者明确资料引用（地图与资料合计至多 {MAX_EXPLICIT_MATERIAL_REFS} 项）</legend><p>预览不发送模型；点击发送时会重新核对项目、对象和修订。规则在这里作为作者选择的证据，不会自动升级为场景硬约束。</p>{selectedMaterialFile ? <article className="tianyi-material-file-preview"><strong>{selectedMaterialFile.displayName}</strong><small>普通文本文件 · {selectedMaterialFileRange ? "明确选段" : "全文"} · 修订 {selectedMaterialFile.revision.id.slice(0, 20)}</small><p>{selectedMaterialFileRange ? selectedMaterialFile.revision.textContent?.slice(selectedMaterialFileRange.start, selectedMaterialFileRange.end) : selectedMaterialFile.revision.textContent?.slice(0, 240) || "（正文为空）"}</p><button type="button" onClick={() => { setSelectedMaterialFile(null); setSelectedMaterialFileRange(null); }}>取消本文件</button></article> : null}{workMaterials.length ? <div className="tianyi-material-context-list">{workMaterials.map((material) => <label key={material.id}><input type="checkbox" checked={selectedMaterialIds.includes(material.id)} onChange={() => toggleMaterial(material.id)} /><span className="tianyi-material-context-copy"><strong>{material.title}</strong><small>{material.tags.includes("导入候选") ? "原始来源" : materialTypeLabel(material.type)} · 修订 {material.revisionToken.slice(0, 12)}</small><span>{material.body.slice(0, 120) || "（正文为空）"}</span></span></label>)}</div> : selectedMaterialFile ? null : <p>当前作品没有可引用的资料，或资料尚在读取。</p>}</fieldset>
               {runtime.sharedTianyiReferences.length ? <p>此前的未绑定引用不会参与本次发送；上传与来源绑定尚未接通，当前不再创建演示引用。</p> : null}
             </details> : null}

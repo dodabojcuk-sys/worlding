@@ -76,13 +76,22 @@ import {
 import {
   createVisualDocument as createVisualDocumentFile,
   importVisualAsset as importVisualAssetFile,
+  duplicateMapDocument as duplicateMapDocumentFile,
   listVisualDocuments as listVisualDocumentFiles,
+  listVisualDocumentRevisions as listVisualDocumentRevisionsFile,
   readVisualDocument as readVisualDocumentFile,
+  readVisualDocumentRevision as readVisualDocumentRevisionFile,
   restoreVisualDocumentSource,
   resolveVisualAsset as resolveVisualAssetFile,
   updateVisualDocument as updateVisualDocumentFile
   , validateVisualDocumentUpdate as validateVisualDocumentUpdateFile
 } from "../storyWorkspace/visualDocumentRepository.mjs";
+import {
+  acceptMapEditProposal as acceptMapEditProposalFile,
+  createMapEditProposal as createMapEditProposalFile,
+  listMapEditProposals as listMapEditProposalsFile,
+  rejectMapEditProposal as rejectMapEditProposalFile
+} from "../storyWorkspace/mapEditProposalRepository.mjs";
 import {
   createWorkspaceFolder as createWorkspaceFolderFile,
   readWorkspaceLayout,
@@ -2951,6 +2960,51 @@ export function createStoryStudioWorkspaceOperations(input: {
         recordCanonicalRevision(projectPath, { kind: "visual", id: result.document.id }, "save");
       }
       return clone({ conflict: Boolean(result.conflict), document: result.document as StoryStudioVisualDocument });
+    },
+
+    duplicateMapDocument(documentInput: { projectId: string; relativePath: string; title?: string }): StoryStudioVisualDocument {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      const document = duplicateMapDocumentFile(projectPath, {
+        relativePath: requireRelativeDocumentPath(documentInput.relativePath),
+        title: documentInput.title
+      }) as StoryStudioVisualDocument;
+      recordCanonicalRevision(projectPath, { kind: "visual", id: document.id }, "create");
+      return document;
+    },
+
+    listVisualDocumentRevisions(documentInput: { projectId: string; relativePath: string }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      return listVisualDocumentRevisionsFile(projectPath, requireRelativeDocumentPath(documentInput.relativePath));
+    },
+
+    readVisualDocumentRevision(documentInput: { projectId: string; relativePath: string; contentHash: string }): StoryStudioVisualDocument {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      return readVisualDocumentRevisionFile(projectPath, {
+        relativePath: requireRelativeDocumentPath(documentInput.relativePath),
+        contentHash: requireText(documentInput.contentHash, "Visual document revision", 128)
+      }) as StoryStudioVisualDocument;
+    },
+
+    createMapEditProposal(documentInput: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: unknown; capability: unknown; operations: unknown[] }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      return createMapEditProposalFile(projectPath, documentInput);
+    },
+
+    listMapEditProposals(documentInput: { projectId: string; relativePath: string }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      return listMapEditProposalsFile(projectPath, requireRelativeDocumentPath(documentInput.relativePath));
+    },
+
+    acceptMapEditProposal(documentInput: { projectId: string; operationId: string }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      const proposal = acceptMapEditProposalFile(projectPath, documentInput);
+      recordCanonicalRevision(projectPath, { kind: "visual", id: proposal.mapId }, "save");
+      return proposal;
+    },
+
+    rejectMapEditProposal(documentInput: { projectId: string; operationId: string }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      return rejectMapEditProposalFile(projectPath, documentInput);
     },
 
     validateTimelineDocument(documentInput: {

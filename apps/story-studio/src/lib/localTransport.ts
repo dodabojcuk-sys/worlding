@@ -832,13 +832,16 @@ export type VisualViewport = { x: number; y: number; zoom: number };
 export type VisualOverlay = Record<string, string | number | boolean>;
 
 export type MapAsset = { assetPath: string; mimeType: string; width: number; height: number };
-export type MapBackground = MapAsset & { id: string; title: string; opacity: number; visible: boolean };
+export type MapBackground = MapAsset & { id: string; title: string; opacity: number; visible: boolean; transform: { x: number; y: number; scale: number; rotation: number } };
 export type MapLayer = { id: string; title: string; visible: boolean; locked: boolean };
 export type MapMarker = { id: string; objectId: string; layerId: string; x: number; y: number; color: string; labelMode: "always" | "hover" | "hidden" };
 export type MapRegion = { id: string; title: string; layerId: string; points: Array<{ x: number; y: number }>; strokeColor: string; fillColor: string; fillOpacity: number; objectId: string | null };
 export type MapLabel = { id: string; text: string; layerId: string; x: number; y: number; fontSize: number; fontWeight: 400 | 500 | 600 | 700; align: "left" | "center" | "right"; rotation: number; visible: boolean; treatment: "none" | "outline" | "plate" };
 export type MapDrawing = { id: string; kind: "terrain" | "line" | "area" | "symbol"; subtype: string; layerId: string; points: Array<{ x: number; y: number }>; strokeColor: string; fillColor: string; fillOpacity: number; width: number; size: number; seed: number; rotation: number; label: string | null; objectId: string | null };
 export type MapEntrance = { id: string; title: string; layerId: string; x: number; y: number; targetMapId: string; kind: "entrance" | "floor" | "portal"; objectId: string | null };
+export type MapPlacement = { id: string; childMapId: string; kind: "point" | "range" | "calibrated"; point: { x: number; y: number } | null; bounds: Array<{ x: number; y: number }>; transform: null | { translateX: number; translateY: number; rotation: number; scale: number }; precision: "illustrative" | "calibrated"; note: string | null };
+export type MapEndpoint = { mapId: string; endpointId: string; x: number; y: number; layerId: string | null };
+export type MapConnection = { id: string; title: string; kind: "door" | "stairs" | "elevator" | "road" | "portal" | "passage"; direction: "forward" | "reverse" | "both"; from: MapEndpoint; to: MapEndpoint; relationId: string | null; note: string | null };
 export type MapContent = {
   baseImage: MapAsset | null;
   backgrounds: MapBackground[];
@@ -854,6 +857,11 @@ export type MapContent = {
   scopeObjectId: string | null;
   /** Explicit Relation Owner type IDs. Labels and free text are never inferred. */
   structure: { geographyRelationTypeIds: string[]; administrationRelationTypeIds: string[] };
+  lifecycle: { archived: boolean; copiedFromMapId: string | null };
+  coordinateSystem: { axis: "x-right-y-down"; bounds: { minX: number; minY: number; maxX: number; maxY: number }; unit: string | null; scaleKnown: boolean; precision: "illustrative" | "calibrated" };
+  placements: MapPlacement[];
+  connections: MapConnection[];
+  floor: null | { order: number; height: number | null; label: string | null };
 };
 
 export type GraphNode = { id: string; objectId: string; x: number; y: number };
@@ -945,6 +953,8 @@ type VisualDocumentBase = {
   version: "story-visual-document/v1";
   id: string;
   title: string;
+  revision: number;
+  updatedAt: string | null;
   objectRefs: string[];
   viewport: VisualViewport;
   overlays: { evidence: VisualOverlay[]; risks: VisualOverlay[]; candidateChanges: VisualOverlay[] };
@@ -959,6 +969,32 @@ export type CanvasDocument = VisualDocumentBase & { type: "canvas"; content: Can
 export type TimelineDocument = VisualDocumentBase & { type: "timeline"; content: TimelineContent; diagnostics: { timeline: TimelineDiagnostics } };
 export type TreeDocument = VisualDocumentBase & { type: "tree"; content: TreeContent };
 export type VisualDocument = MapDocument | GraphDocument | CanvasDocument | TimelineDocument | TreeDocument;
+export type MapEditOperation =
+  | { type: "add-drawing"; value: MapDrawing }
+  | { type: "update-drawing"; targetId: string; patch: Partial<MapDrawing> }
+  | { type: "delete-drawing"; targetId: string }
+  | { type: "set-placement"; value: MapPlacement }
+  | { type: "remove-placement"; targetId: string }
+  | { type: "set-connection"; value: MapConnection }
+  | { type: "remove-connection"; targetId: string };
+export type MapEditProposal = {
+  version: "story-map-edit-proposal/v1";
+  id: string;
+  operationId: string;
+  mapId: string;
+  relativePath: string;
+  baseContentHash: string;
+  baseRevision: number;
+  status: "pending" | "accepted" | "rejected";
+  scope: { kind: "map" | "selection" | "region"; mapId: string; objectIds: string[]; bounds: null | { x: number; y: number; width: number; height: number } };
+  capability: { mode: "text" | "vision" | "image"; imageInput: boolean; structuredOperations: boolean };
+  prompt: string;
+  operations: MapEditOperation[];
+  preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[] };
+  createdAt: string;
+  decidedAt: string | null;
+  resultContentHash: string | null;
+};
 
 export type VisualWorkbenchBootstrap = {
   documents: VisualDocument[];
@@ -3054,6 +3090,36 @@ export async function updateVisualDocument(input: {
 }): Promise<{ conflict: boolean; document: VisualDocument }> {
   const { token, ...body } = input;
   return request<{ conflict: boolean; document: VisualDocument }>(`${basePath}/visual-documents/update`, { method: "POST", token, body });
+}
+
+export async function duplicateMapDocument(input: { projectId: string; relativePath: string; title?: string; token: string }): Promise<MapDocument> {
+  const { token, ...body } = input;
+  return request<MapDocument>(`${basePath}/maps/duplicate`, { method: "POST", token, body });
+}
+
+export async function listMapRevisions(projectId: string, relativePath: string): Promise<Array<{ revision: number; updatedAt: string | null; contentHash: string; current: boolean }>> {
+  return request(`${basePath}/maps/revisions?projectId=${encodeURIComponent(projectId)}&relativePath=${encodeURIComponent(relativePath)}`);
+}
+
+export async function readMapRevision(projectId: string, relativePath: string, contentHash: string): Promise<MapDocument> {
+  return request(`${basePath}/maps/revision?projectId=${encodeURIComponent(projectId)}&relativePath=${encodeURIComponent(relativePath)}&contentHash=${encodeURIComponent(contentHash)}`);
+}
+
+export async function createMapEditProposal(input: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: MapEditProposal["scope"]; capability: MapEditProposal["capability"]; operations: MapEditOperation[]; token: string }): Promise<MapEditProposal> {
+  const { token, ...body } = input;
+  return request(`${basePath}/maps/proposals/create`, { method: "POST", token, body });
+}
+
+export async function listMapEditProposals(projectId: string, relativePath: string): Promise<MapEditProposal[]> {
+  return request(`${basePath}/maps/proposals?projectId=${encodeURIComponent(projectId)}&relativePath=${encodeURIComponent(relativePath)}`);
+}
+
+export async function acceptMapEditProposal(projectId: string, operationId: string, token: string): Promise<MapEditProposal> {
+  return request(`${basePath}/maps/proposals/accept`, { method: "POST", token, body: { projectId, operationId } });
+}
+
+export async function rejectMapEditProposal(projectId: string, operationId: string, token: string): Promise<MapEditProposal> {
+  return request(`${basePath}/maps/proposals/reject`, { method: "POST", token, body: { projectId, operationId } });
 }
 
 export async function validateTimelineDocument(input: {

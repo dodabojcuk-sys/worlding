@@ -419,6 +419,20 @@
       "tests": ["tests/domainTemplates/storyWritingWorkspace.test.ts", "tests/storyControlSurface/storyStudioWorkspaceLifecycle.test.ts"],
       "legacyProvenance": ["835ede158167d4bf2247a70b484ede9d5e417b75 return snapshot grammar reused"],
       "remainingGap": "Exact document, selection, scroll, and focus return is browser-verified across refresh; stale revisions intentionally discard positional restoration"
+    },
+    {
+      "id": "map-management-ai-editing-m4",
+      "status": "LOCAL_REVIEW",
+      "maturity": "multi-map-management-spatial-placement-history-and-validated-structured-proposal",
+      "entrypoints": ["apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx"],
+      "sourceFiles": ["src/storyWorkspace/visualDocumentRepository.mjs", "src/storyWorkspace/mapEditProposalRepository.mjs", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/server/server.mjs", "apps/story-studio/src/lib/localTransport.ts", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx"],
+      "domainOwners": ["src/storyWorkspace/visualDocumentRepository.mjs"],
+      "stateOwners": ["src/storyWorkspace/visualDocumentRepository.mjs", "src/storyWorkspace/mapEditProposalRepository.mjs"],
+      "persistenceOwner": "VisualDocumentRepository remains the only map-document owner; MapEditProposalRepository owns only pending structured operations, base-revision identity and decision receipts, then delegates accepted atomic writes back to VisualDocumentRepository",
+      "providerDependency": "text, vision or image-capable adapters may produce structured proposals only after explicit capability declaration; automated author acceptance uses a deterministic local fake and makes zero real Provider calls",
+      "tests": ["tests/storyWorkspace/mapSpatialAndProposal.test.ts", "tests/storyWorkspace/visualDocumentRepository.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
+      "legacyProvenance": ["MAP-M3 authoring and exact Tianyi map-source return", "portable workspace package owner"],
+      "remainingGap": "Real-model proposal quality, image understanding and independent Founder experience are unverified; explicit map links do not create Relation or WorldState facts, and geospatial/GIS precision remains outside this slice"
     }
   ]
 }
