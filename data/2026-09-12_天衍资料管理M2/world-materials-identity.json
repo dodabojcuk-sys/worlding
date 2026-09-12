@@ -1,0 +1,54 @@
+{
+  "projectId": "r061-e2e-a96168745f3b49a1b75b16ca66244a4b",
+  "workVersionId": "work-version.root.b939d1ff122fdb44a04a5f4889cbb722",
+  "mapId": "map.地点示意图",
+  "mapHashBeforeFileLink": "ab9b22f6a9e9543ed92bc3f4bab538d99b9adc4509854622a58f36c5d8301ea8",
+  "mapHashAfterFileLink": "3070219e5de618f73f77b0363171f60a279f72105210a6c6f5f27dae3f6b30dc",
+  "source": {
+    "sourceDocumentId": "source.315aa4dbacc4f3cb3187ca44",
+    "revision": "eb865b4a11cacec11de08d892c57eb22670a7d0ab56bf87299f1497e3ff95e1e",
+    "filename": "雾港设定笔记.md"
+  },
+  "material": {
+    "id": "rule.夜间宵禁",
+    "revision": "70476cf0129e97ac5c3ce97b3450d29a4f9d3ae0ce64f859723bb126928e2c98",
+    "changedRevision": "fc22ba17d3e335e2f60c2ad1a0f7ecf14f2b5afd83c51f138412fcff7cffcb96",
+    "type": "rule"
+  },
+  "genericFile": {
+    "id": "file.55cecb7d-438e-42e7-99eb-b9d8fe2fa381",
+    "originalRevision": "b1e8d6b141313cc58ffbd1bec63165d00585e424cc139269008178d2f4ec141e",
+    "selectedRange": {
+      "start": 14,
+      "end": 29
+    },
+    "folderId": "folder.16eca443-b509-484d-8d0d-69fa5af79fb9",
+    "linkedMapId": "map.地点示意图"
+  },
+  "associations": [
+    {
+      "id": "character.林昭",
+      "title": "林昭",
+      "type": "character"
+    },
+    {
+      "id": "location.雾港",
+      "title": "雾港",
+      "type": "location"
+    },
+    {
+      "id": "item.雾港设定笔记",
+      "title": "雾港设定笔记",
+      "type": "item"
+    },
+    {
+      "id": "faction.雾港守卫",
+      "title": "雾港守卫",
+      "type": "faction"
+    }
+  ],
+  "simulatedProviderDispatches": 2,
+  "realProviderDispatches": 0,
+  "sourceReturn": "exact-object-and-generic-file-selection-history",
+  "note": "Two local-fake grounded answers verify selected setting and selected generic-file text transfer; neither is a real Provider call."
+}

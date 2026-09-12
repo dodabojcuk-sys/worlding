@@ -393,18 +393,18 @@
       "remainingGap": "R0.6 searches routes, object metadata, source metadata and navigation commands only; text/body search and embeddings remain out of scope and any future index must stay rebuildable from existing owners."
     },
     {
-      "id": "world-materials-m1",
+      "id": "world-materials-m2",
       "status": "PRODUCTION_CONNECTED",
-      "maturity": "source-selection-stable-object-links-and-frozen-tianyi-return-browser-verified",
+      "maturity": "generic-file-owner-immutable-revisions-folders-source-selection-and-frozen-tianyi-return",
       "entrypoints": ["apps/story-studio/src/components/world/MaterialsWorkspace.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx"],
-      "sourceFiles": ["apps/story-studio/src/components/world/MaterialsWorkspace.tsx", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
-      "domainOwners": ["src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts"],
-      "stateOwners": ["src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
-      "persistenceOwner": "Source Import owns verbatim source revisions and anchors; the existing World Object owner owns setting content and stable links; Document Revision History owns old snapshots; Grounded Context receipts freeze the material hash used by Tianyi",
-      "providerDependency": "only the final Tianyi answer dispatch; import, selection, editing, linking, preview, revision lookup and return are local. Browser acceptance uses a local fake provider only",
-      "tests": ["tests/storyControlSurface/storyStudioVisualWorkbench.test.ts", "tests/storyContinuity/tianyiProductOperations.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
+      "sourceFiles": ["apps/story-studio/src/components/world/MaterialsWorkspace.tsx", "apps/story-studio/src/components/world/MapM1Workspace.tsx", "apps/story-studio/src/components/tianyi/workspace/TianyiConversationWorkspace.tsx", "apps/story-studio/src/lib/localTransport.ts", "src/storyWorkspace/materialFileRepository.mjs", "src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
+      "domainOwners": ["src/storyWorkspace/materialFileRepository.mjs", "src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "src/storyControlSurface/storyStudioTianyiOperations.ts"],
+      "stateOwners": ["src/storyWorkspace/materialFileRepository.mjs", "src/storyControlSurface/sourceImportReviewR0.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
+      "persistenceOwner": "MaterialFileRepository owns generic file identity, immutable byte revisions, folders, archive state, links and operation receipts without creating WorldObjects; Source Import retains legacy verbatim sources; the existing World Object owner owns settings; Document Revision History and Grounded Context receipts freeze exact material revisions",
+      "providerDependency": "only the final Tianyi answer dispatch; file import, byte download, selection, editing, linking, preview, revision lookup and return are local. Browser acceptance uses a local fake provider only",
+      "tests": ["tests/storyWorkspace/materialFileRepository.test.ts", "tests/storyStudio/materialFileTransport.test.ts", "tests/storyContinuity/tianyiProductOperations.test.ts", "apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs"],
       "legacyProvenance": ["existing source-import-review-r0", "existing World Object writer", "existing Grounded Context Gate", "MAP-M3 merged baseline"],
-      "remainingGap": "Real Provider quality and independent Founder experience are unverified; OCR, web capture, bulk parsing, automatic duplicate merging and a new memory engine remain outside M1."
+      "remainingGap": "Real Provider quality and independent Founder experience are unverified; PDF text extraction, OCR, Office parsing, media transcription/transcoding, web capture, automatic duplicate merging and a new memory engine remain outside M2."
     },
     {
       "id": "writing-navigation-continuity",

@@ -316,6 +316,48 @@ test("grounded answer sends the selected setting body and excludes an unselected
   }
 });
 
+test("grounded answer sends an explicitly selected generic file revision and preserves old-answer source identity", async () => {
+  const fixture = await createFixture();
+  try {
+    const oldText = "未选择：南仓仍按白天规则。\n旧修订：北闸宵禁后只允许持证守卫通行。\n未选择：渡口没有变化。";
+    const selectedText = "旧修订：北闸宵禁后只允许持证守卫通行。";
+    const selectionStart = oldText.indexOf(selectedText);
+    const imported = fixture.workspace.importMaterialFiles({
+      projectId: fixture.projectId,
+      operationId: "operation.material-file-import",
+      files: [{ name: "雾港巡夜笔记.md", mimeType: "text/markdown", base64: Buffer.from(oldText, "utf8").toString("base64") }]
+    });
+    const first = imported.results[0]!;
+    assert.equal(first.status, "created");
+    const file = fixture.workspace.readMaterialFile({ projectId: fixture.projectId, fileId: first.fileId! })!;
+    const oldRef = { version: "story-tianyi-object-context-ref/v1" as const, ownerType: "material-file" as const, objectType: "source" as const, stableId: `selection.${selectionStart}.${selectionStart + selectedText.length}`, projectId: fixture.projectId, ownerId: file.id, contentHash: file.revision.sha256, state: "current" as const, inclusion: "included" as const, label: file.displayName };
+    fixture.workspace.importMaterialFiles({
+      projectId: fixture.projectId,
+      operationId: "operation.material-file-revise",
+      files: [{ name: file.originalName, displayName: file.displayName, mimeType: file.mimeType, replaceFileId: file.id, base64: Buffer.from("新修订：北闸已经全天恢复通行。", "utf8").toString("base64") }]
+    });
+    let observedPrompt = "";
+    const gateway = fakeGroundedGateway((messages) => {
+      observedPrompt = messages.map((message) => message.content).join("\n");
+      const contract = messages[0]!.content.split("\n").find((line) => line.startsWith("includedSources must equal exactly: "))!;
+      const included = JSON.parse(contract.slice("includedSources must equal exactly: ".length)) as string[];
+      return { summary: "旧修订要求持证通行。", claims: [{ statement: "北闸只允许持证守卫通行。", status: "fact", sourceRefs: included, uncertaintyReason: null }], status: "fact", sourceRefs: included, uncertaintyReason: null, includedSources: included, excludedSources: [] };
+    });
+    const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.material-file-open" });
+    const answer = await tianyi.runTianyiGroundedAnswer!({ operationId: "operation.material-file-answer", submissionId: "submission.material-file-answer", profileId: "siliconflow-test", question: "北闸怎样通行？", contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [oldRef] } });
+    assert.match(observedPrompt, /旧修订：北闸宵禁后只允许持证守卫通行/u);
+    assert.doesNotMatch(observedPrompt, /南仓仍按白天规则/u);
+    assert.doesNotMatch(observedPrompt, /渡口没有变化/u);
+    assert.doesNotMatch(observedPrompt, /新修订：北闸已经全天恢复通行/u);
+    assert.equal(answer.includedSources[0]?.sourceType, "material-file");
+    assert.equal(answer.includedSources[0]?.contentHash, oldRef.contentHash);
+  } finally {
+    await rm(fixture.rootPath, { recursive: true, force: true });
+    await rm(fixture.stateFilePath, { force: true });
+  }
+});
+
 test("product Pack operations export explicit owners and return read-only staging DTOs", async () => {
   const fixture = await createFixture();
   try {

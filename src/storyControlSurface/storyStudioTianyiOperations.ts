@@ -590,7 +590,9 @@ export function createStoryStudioTianyiOperations(options: {
     lane: TianyiGroundedResolvedCandidate["lane"],
     knownScene: StoryStudioWritingDocument | null = null
   ): TianyiGroundedResolvedCandidate {
-    const sourceType = ref.ownerType === "visual-map"
+    const sourceType = ref.ownerType === "material-file"
+      ? "material-file"
+      : ref.ownerType === "visual-map"
       ? "map"
       : ref.ownerType === "markdown-writing"
       ? ref.objectType === "scene" ? "scene" : "writing"
@@ -598,7 +600,7 @@ export function createStoryStudioTianyiOperations(options: {
     const base = {
       sourceType,
       projectId: ref.projectId,
-      sourceId: ref.stableId,
+      sourceId: ref.ownerType === "material-file" ? ref.ownerId : ref.stableId,
       sourceKey: tianyiObjectContextRefKey(ref),
       requestedContentHash: ref.contentHash,
       lane
@@ -607,6 +609,15 @@ export function createStoryStudioTianyiOperations(options: {
       return { ...base, contentHash: ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "CROSS_PROJECT_REFERENCE" };
     }
     try {
+      if (ref.ownerType === "material-file") {
+        const material = workspace.readMaterialFile({ projectId: request.projectId, fileId: ref.ownerId, revisionId: ref.contentHash });
+        const selection = ref.stableId === ref.ownerId ? null : parseSelectionStableId(ref.stableId, material?.revision?.textContent?.length ?? 0);
+        if (!material || (ref.stableId !== ref.ownerId && !selection)) return { ...base, contentHash: ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "SOURCE_MISSING" };
+        const revision = material.revisions.find((item: { sha256: string }) => item.sha256 === ref.contentHash) ?? material.revision;
+        if (!revision || revision.textStatus !== "ready" || typeof revision.textContent !== "string") return { ...base, contentHash: revision?.sha256 ?? ref.contentHash, wireContent: null, knowledgeSubjectRefs: [], preAuthorizationReason: "SOURCE_MISSING" };
+        const selectedText = selection ? revision.textContent.slice(selection.start, selection.end) : revision.textContent;
+        return { ...base, contentHash: revision.sha256, wireContent: `${material.displayName}\nType: source file${selection ? " selection" : ""}\nOriginal: ${material.originalName}\nRevision: ${revision.id}\n${selectedText}`, knowledgeSubjectRefs: [], preAuthorizationReason: null };
+      }
       if (ref.ownerType === "markdown-object") {
         const object = workspace.readWorldObject({ projectId: request.projectId, objectId: ref.ownerId });
         if (object.type === "event") {
@@ -740,6 +751,15 @@ export function createStoryStudioTianyiOperations(options: {
     return refs.map((ref) => {
       if (ref.projectId !== currentProjectId) return excludedObjectContextRef(ref, "unauthorized");
       try {
+        if (ref.ownerType === "material-file") {
+          const material = workspace.readMaterialFile({ projectId: currentProjectId, fileId: ref.ownerId, revisionId: ref.contentHash });
+          if (!material) return excludedObjectContextRef(ref, "missing");
+          const revision = material.revisions.find((item: { sha256: string }) => item.sha256 === ref.contentHash) ?? null;
+          if (!revision) return excludedObjectContextRef(ref, "stale");
+          if (revision.textStatus !== "ready") return excludedObjectContextRef(ref, "unauthorized");
+          if (ref.stableId !== ref.ownerId && !parseSelectionStableId(ref.stableId, revision.textContent?.length ?? 0)) return excludedObjectContextRef(ref, "missing");
+          return includedObjectContextRef(ref);
+        }
         if (ref.ownerType === "markdown-object") {
           if (ref.objectType === "event") return excludedObjectContextRef(ref, "unauthorized");
           const object = workspace.readWorldObject({ projectId: currentProjectId, objectId: ref.ownerId });

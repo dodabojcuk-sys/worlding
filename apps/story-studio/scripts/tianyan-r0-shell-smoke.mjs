@@ -2871,6 +2871,93 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("materialId"), rule.id, "The visible return control opens the exact originating material.");
 
+  // Materials M2 uses the ordinary Materials entry and the new generic-file
+  // owner. None of these uploads creates an Item or silently enters grounding.
+  const itemCountBeforeFiles = (await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.objects.filter((object) => object.type === "item").length;
+  await page.getByRole("button", { name: "文件管理", exact: true }).click();
+  await page.getByLabel("普通文件管理").waitFor();
+  const genericFileInput = page.locator('.material-files-toolbar input[type="file"]');
+  const selectedEvidence = "北闸宵禁后只允许持证守卫通行。";
+  const genericText = `未选择：南仓仍按白天规则。\n${selectedEvidence}\n未选择：渡口没有变化。`;
+  await genericFileInput.setInputFiles([
+    { name: "雾港巡夜笔记.md", mimeType: "text/markdown", buffer: Buffer.from(genericText, "utf8") },
+    { name: "雾港底图.png", mimeType: "image/png", buffer: Buffer.from(mapPng, "base64") },
+    { name: "雾港参考.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF", "utf8") },
+    { name: "潮声.wav", mimeType: "audio/wav", buffer: Buffer.from("RIFF0000WAVEfmt ", "ascii") },
+    { name: "港务表.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("PK\u0003\u0004attachment", "binary") }
+  ]);
+  await page.getByRole("status").getByText(/导入完成：5 个新记录/u).waitFor();
+  await capture("09-m2-mixed-files.png");
+  const listing = await getFixture(`${base}/material-files?projectId=${encodeURIComponent(fixtureProjectId)}&archived=false&limit=50`);
+  assert.equal(listing.data.total, 5, "Five mixed generic files persist without placeholder object ids.");
+  assert.equal(listing.data.files.every((file) => file.revisions.every((revision) => revision.textContent === null)), true, "List projection does not transmit every file body.");
+  const libraryAfterFiles = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(libraryAfterFiles.data.objects.filter((object) => object.type === "item").length, itemCountBeforeFiles, "Generic files never auto-create Item objects; legacy source-backed Items remain unchanged.");
+
+  // Use the visible file manager for organization and lifecycle operations.
+  // These operations exercise the ordinary author entry, not fixture-only
+  // mutation endpoints.
+  await page.getByLabel("选择 雾港参考.pdf").check();
+  await page.getByRole("toolbar", { name: "批量操作" }).getByRole("button", { name: "归档", exact: true }).click();
+  await page.getByRole("status").getByText(/已归档/u).waitFor();
+  await page.getByRole("button", { name: "归档", exact: true }).click();
+  await page.getByRole("button", { name: /雾港参考.pdf/u }).waitFor();
+  await page.getByLabel("选择 雾港参考.pdf").check();
+  await page.getByRole("toolbar", { name: "批量操作" }).getByRole("button", { name: "恢复", exact: true }).click();
+  await page.getByRole("status").getByText(/已恢复/u).waitFor();
+  await page.getByRole("button", { name: "返回文件", exact: true }).click();
+
+  page.once("dialog", (dialog) => dialog.accept("雾港专题"));
+  await page.getByRole("button", { name: "新建文件夹", exact: true }).click();
+  await page.getByRole("status").getByText("文件夹已建立。", { exact: true }).waitFor();
+  const organizedListing = await getFixture(`${base}/material-files?projectId=${encodeURIComponent(fixtureProjectId)}&archived=false&limit=50`);
+  const fogFolder = organizedListing.data.folders.find((folder) => folder.title === "雾港专题");
+  assert.ok(fogFolder, "The visible New folder action persists a real folder identity.");
+  await page.getByLabel("选择 雾港巡夜笔记").check();
+  await page.getByLabel("选择 雾港底图.png").check();
+  const bulk = page.getByRole("toolbar", { name: "批量操作" });
+  await bulk.getByLabel("目标文件夹").selectOption(fogFolder.id);
+  await bulk.getByRole("button", { name: "移动", exact: true }).click();
+  await page.getByRole("status").getByText(/所选文件已移动/u).waitFor();
+  await page.getByLabel("当前文件夹").selectOption(fogFolder.id);
+  await page.getByRole("button", { name: /雾港底图.png/u }).click();
+  await page.getByLabel("作为底图加入").selectOption(map.id);
+  await page.getByRole("button", { name: "建立地图底图修订", exact: true }).click();
+  await page.getByRole("status").getByText(/图片已显式复制/u).waitFor();
+  const visualAfterFileMap = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const mapAfterFileUse = visualAfterFileMap.data.documents.find((document) => document.id === map.id);
+  assert.ok(mapAfterFileUse?.content.backgrounds.some((background) => background.title === "雾港底图.png" && background.assetPath), "Explicit file-to-map conversion creates a real map Owner revision with its saved asset.");
+  await capture("09a-m2-organized-and-map-linked.png");
+
+  await page.getByRole("button", { name: /雾港巡夜笔记/u }).click();
+  const reader = page.getByLabel("普通文本文件正文");
+  await reader.waitFor();
+  const selectedRange = await reader.evaluate((element, text) => { const textarea = element; const start = textarea.value.indexOf(text); textarea.focus(); textarea.setSelectionRange(start, start + text.length - 1); return { start, end: start + text.length }; }, selectedEvidence);
+  await reader.press("Shift+ArrowRight");
+  await page.getByText(/已选择第/u).waitFor();
+  await page.getByRole("button", { name: "在天意引用选段", exact: true }).click();
+  await page.getByText("明确选段", { exact: false }).waitFor();
+  await capture("10-m2-tianyi-selection-preview.png");
+  await page.locator(".tianyi-workspace-composer textarea").fill("北闸宵禁后谁能通行？");
+  await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+  const fileReceipt = page.getByLabel("本问来源回执");
+  await fileReceipt.waitFor();
+  await fileReceipt.getByText(/明确选段/u).waitFor();
+  const fileSource = fileReceipt.locator("li").filter({ hasText: "普通文本文件 · 明确选段" });
+  await fileSource.getByText("实际采用正文", { exact: true }).click();
+  const adopted = fileSource.getByText(selectedEvidence, { exact: true });
+  await adopted.waitFor();
+  assert.equal((await fileReceipt.innerText()).includes("南仓仍按白天规则"), false, "Unselected text does not enter the visible sent-text receipt.");
+  await capture("11-m2-file-answer-receipt.png");
+  const textRecord = listing.data.files.find((file) => file.originalName === "雾港巡夜笔记.md");
+  assert.ok(textRecord, "The generic text file has a stable identity.");
+  await postFixture(`${base}/material-files/import`, { projectId: fixtureProjectId, operationId: `materials-e2e-revise-${fixture.fixtureId}`, files: [{ name: textRecord.originalName, displayName: textRecord.displayName, mimeType: textRecord.mimeType, replaceFileId: textRecord.id, base64: Buffer.from("新修订：北闸已经全天恢复通行。", "utf8").toString("base64") }] });
+  await fileReceipt.getByRole("button", { name: /返回来源/u }).click();
+  await page.getByText(selectedEvidence, { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("materialFileRevision"), textRecord.revisions[0].sha256, "The old answer returns to the exact original file revision.");
+  assert.equal(new URL(page.url()).searchParams.get("materialFileStart"), String(selectedRange.start), "The old answer returns to the exact selected character range.");
+  await capture("12-m2-old-file-selection-return.png");
+
   await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
   await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).waitFor();
   assert.equal(await page.locator('[data-shell-destination="library"]').getAttribute("aria-current"), "page", "A legacy World map link remains compatible while visibly belonging to Materials.");
@@ -2886,7 +2973,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   assert.equal(new URL(page.url()).searchParams.get("materialId"), unversionedLocation.id, "An unversioned legacy project keeps the material return target instead of remaining in a loading state.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
-  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHash: map.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 1, realProviderDispatches: 0, sourceReturn: "exact-object-history-by-content-hash", note: "One local-fake grounded answer verifies selected body transfer and frozen source return; it is not a real Provider call." }, null, 2)}\n`, "utf8");
+  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHashBeforeFileLink: map.contentHash, mapHashAfterFileLink: mapAfterFileUse.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, genericFile: { id: textRecord.id, originalRevision: textRecord.revisions[0].sha256, selectedRange, folderId: fogFolder.id, linkedMapId: map.id }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 2, realProviderDispatches: 0, sourceReturn: "exact-object-and-generic-file-selection-history", note: "Two local-fake grounded answers verify selected setting and selected generic-file text transfer; neither is a real Provider call." }, null, 2)}\n`, "utf8");
 }
 
 async function setupR1CausalFixture() {

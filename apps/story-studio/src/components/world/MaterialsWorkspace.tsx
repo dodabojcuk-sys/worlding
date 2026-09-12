@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Archive,
   BookOpen,
+  Download,
+  FolderPlus,
   FileText,
   FileUp,
   Link2,
@@ -10,21 +13,47 @@ import {
   Quote,
   Save,
   Sparkles,
+  Upload,
   UsersRound,
 } from "lucide-react";
 
 import {
   createWorldObject,
+  createWorkspaceFolder,
+  createMaterialFileFolder,
+  createMaterialNote,
+  downloadMaterialFile,
   getDocumentRevisionHistory,
   getWorldLibrary,
+  getVisualWorkbench,
+  importVisualAsset,
   importSourceDocument,
+  importMaterialFiles,
+  listMaterialFiles,
   listSourceImportReviews,
+  moveMaterialFiles,
+  moveWorldObjectsToFolder,
   previewDocumentRevision,
+  readMaterialFile,
+  readMaterialOperationReceipt,
   readWorldObject,
+  setMaterialFilesArchived,
+  updateMaterialFile,
+  updateMaterialFileFolder,
+  updateWorkspaceFolders,
+  updateVisualDocument,
   updateWorldObject,
+  type MaterialFileList,
+  type MaterialFileRecord,
+  type MaterialFileType,
+  type MaterialOperationReceipt,
+  type MapBackground,
+  type MapDocument,
   type WorldObject,
   type WorldObjectSummary,
   type WorldObjectType,
+  type WorkspaceFolder,
+  type WorkspacePlacement,
 } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
@@ -138,6 +167,11 @@ export function MaterialsWorkspace(props: {
   const [linkTargetId, setLinkTargetId] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fileMode, setFileMode] = useState(() => new URLSearchParams(window.location.search).get("materialMode") === "files");
+  const [categories, setCategories] = useState<WorkspaceFolder[]>([]);
+  const [placements, setPlacements] = useState<WorkspacePlacement[]>([]);
+  const [folderRevision, setFolderRevision] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(() => new URLSearchParams(window.location.search).get("materialCategory"));
   const fileInput = useRef<HTMLInputElement | null>(null);
   const internalRouteChange = useRef(false);
   const writeInternalRoute = (input: Parameters<typeof writeMaterialRoute>[0]) => { internalRouteChange.current = true; writeMaterialRoute(input); };
@@ -148,6 +182,7 @@ export function MaterialsWorkspace(props: {
           !sourceLibraryObjectIds.has(item.id) &&
           (type === "all" || item.type === type) &&
           (statusFilter === "all" || (statusFilter === "draft" ? item.status === "draft" : item.status !== "draft")) &&
+          (!categoryId || placements.some((placement) => placement.documentId === item.id && placement.folderId === categoryId)) &&
           `${item.title} ${item.tags.join(" ")} ${item.aliases.join(" ")}`
             .toLocaleLowerCase()
             .includes(query.trim().toLocaleLowerCase()),
@@ -155,10 +190,10 @@ export function MaterialsWorkspace(props: {
       .sort((left, right) => sort === "title"
         ? left.title.localeCompare(right.title, "zh-CN")
         : (right.updatedAt ?? "").localeCompare(left.updatedAt ?? "") || left.title.localeCompare(right.title, "zh-CN")),
-    [items, query, sort, sourceLibraryObjectIds, statusFilter, type]);
+    [categoryId, items, placements, query, sort, sourceLibraryObjectIds, statusFilter, type]);
   const filteredSources = useMemo(() => sources
-    .filter((source) => (type === "all" || type === "source") && `${source.title} ${source.filename} ${currentSourceRevision(source)?.content ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-    .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN") : right.updatedAt.localeCompare(left.updatedAt)), [query, sort, sources, type]);
+    .filter((source) => !categoryId && (type === "all" || type === "source") && `${source.title} ${source.filename} ${currentSourceRevision(source)?.content ?? ""}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    .sort((left, right) => sort === "title" ? left.title.localeCompare(right.title, "zh-CN") : right.updatedAt.localeCompare(left.updatedAt)), [categoryId, query, sort, sources, type]);
   const linkable = useMemo(
     () => items.filter((item) => item.id !== selected?.id),
     [items, selected?.id],
@@ -191,6 +226,9 @@ export function MaterialsWorkspace(props: {
     const next = library.objects.filter((item) => item.status !== "archived");
     setItems(next);
     setSources(sourceDocuments);
+    setCategories(library.folders.filter((folder) => folder.kind === "custom-category"));
+    setPlacements(library.placements);
+    setFolderRevision(library.folderRevision);
     return next;
   };
   const open = (summary: WorldObjectSummary) => {
@@ -413,6 +451,33 @@ export function MaterialsWorkspace(props: {
     );
     setMessage(`已插入到正文：${link}。保存后会由既有链接解析建立来源往返。`);
   };
+  const createCategory = async () => {
+    if (!projectId) return;
+    const title = window.prompt("分类名称");
+    if (!title?.trim()) return;
+    setBusy(true);
+    try { const result = await props.runtime.withConnection((token) => createWorkspaceFolder({ projectId, title: title.trim(), kind: "custom-category", token })); await refresh(); setCategoryId(result.folder.id); setMessage("世界设定分类已建立；它不会改变对象的正式事实。"); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "分类建立失败。"); }
+    finally { setBusy(false); }
+  };
+  const renameCategory = async () => {
+    if (!projectId || !categoryId || !folderRevision) return;
+    const current = categories.find((folder) => folder.id === categoryId);
+    if (!current) return;
+    const title = window.prompt("分类名称", current.title);
+    if (!title?.trim() || title.trim() === current.title) return;
+    setBusy(true);
+    try { const result = await props.runtime.withConnection((token) => updateWorkspaceFolders({ projectId, expectedContentHash: folderRevision, folders: categories.map((folder) => folder.id === categoryId ? { ...folder, title: title.trim() } : folder), token })); if (result.conflict) throw new Error("分类已被其他窗口修改，请刷新后重试。"); await refresh(); setMessage("分类已重命名；对象和引用身份不变。"); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "分类重命名失败。"); }
+    finally { setBusy(false); }
+  };
+  const assignSelectedCategory = async (nextCategoryId: string | null) => {
+    if (!projectId || !selected) return;
+    setBusy(true);
+    try { const result = await props.runtime.withConnection((token) => moveWorldObjectsToFolder({ projectId, objectIds: [selected.id], folderId: nextCategoryId, token })); if (result.conflict) throw new Error("分类放置发生冲突，请刷新后重试。"); await refresh(); setMessage(nextCategoryId ? "资料已加入所选分类；正文和对象身份未改变。" : "资料已移出分类；正文和对象身份未改变。"); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "资料分类失败。"); }
+    finally { setBusy(false); }
+  };
   if (!projectId)
     return (
       <main className="shell-workspace">
@@ -444,7 +509,10 @@ export function MaterialsWorkspace(props: {
                 返回来源
               </button>
             ) : null}
-            <button
+            <button type="button" aria-pressed={fileMode} onClick={() => { setFileMode((value) => !value); const params = new URLSearchParams(window.location.search); if (!fileMode) params.set("materialMode", "files"); else params.delete("materialMode"); window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`); }}>
+              <FileText aria-hidden="true" />{fileMode ? "世界资料" : "文件管理"}
+            </button>
+            {!fileMode ? <button
               type="button"
               onClick={() => {
                 setCreating(true);
@@ -459,14 +527,14 @@ export function MaterialsWorkspace(props: {
             >
               <Plus aria-hidden="true" />
               新建资料
-            </button>
-            <button type="button" onClick={() => { setImporting(true); setCreating(false); setSelected(null); setSelectedSource(null); writeInternalRoute({ materialId: null, sourceDocumentId: null }); }}>
+            </button> : null}
+            {!fileMode ? <button type="button" onClick={() => { setImporting(true); setCreating(false); setSelected(null); setSelectedSource(null); writeInternalRoute({ materialId: null, sourceDocumentId: null }); }}>
               <FileUp aria-hidden="true" />
               导入来源
-            </button>
+            </button> : null}
           </div>
         </header>
-        <div className="materials-workspace-grid">
+        {fileMode ? <MaterialFilesWorkspace projectId={projectId} runtime={props.runtime} worldObjects={items} onMessage={setMessage} message={message} /> : <div className="materials-workspace-grid">
           <aside className="materials-workspace-sidebar" aria-label="资料检索">
             <label>
               搜索资料
@@ -497,6 +565,8 @@ export function MaterialsWorkspace(props: {
               <label>状态<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MaterialStatusFilter)}><option value="all">全部状态</option><option value="draft">草稿</option><option value="confirmed">已确认内容</option></select></label>
               <label>排序<select value={sort} onChange={(event) => setSort(event.target.value as MaterialSort)}><option value="recent">最近编辑</option><option value="title">按名称</option></select></label>
             </div>
+            <label>世界设定分类<select value={categoryId ?? ""} onChange={(event) => { const value = event.target.value || null; setCategoryId(value); writeMaterialRoute({ categoryId: value }); }}><option value="">全部分类</option>{categories.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select></label>
+            <div className="materials-category-actions"><button type="button" onClick={() => void createCategory()} disabled={busy}>新建分类</button>{categoryId ? <button type="button" onClick={() => void renameCategory()} disabled={busy}>重命名分类</button> : null}</div>
             <div className="materials-workspace-list">
               {filteredSources.map((source) => (
                 <button key={source.sourceDocumentId} type="button" aria-pressed={selectedSource?.sourceDocumentId === source.sourceDocumentId} onClick={() => openSource(source)}>
@@ -655,6 +725,13 @@ export function MaterialsWorkspace(props: {
                         <Link2 aria-hidden="true" />
                         插入到正文
                       </button>
+                      <label>
+                        世界设定分类
+                        <select value={placements.find((placement) => placement.documentId === selected.id)?.folderId ?? ""} onChange={(event) => void assignSelectedCategory(event.target.value || null)}>
+                          <option value="">不放入分类</option>
+                          {categories.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}
+                        </select>
+                      </label>
                     </section>
                     <section aria-label="资料版本">
                       <h2>可核对版本</h2>
@@ -734,11 +811,301 @@ export function MaterialsWorkspace(props: {
               <p>选择一项资料开始阅读和编辑，或新建第一条世界设定。</p>
             )}
           </section>
-        </div>
+        </div>}
       </section>
     </main>
   );
 }
+
+function MaterialFilesWorkspace(props: { projectId: string; runtime: TianyanShellRuntimeState; worldObjects: WorldObjectSummary[]; message: string; onMessage(value: string): void }) {
+  const [snapshot, setSnapshot] = useState<MaterialFileList | null>(null);
+  const [selected, setSelected] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState<MaterialFileType | "">("");
+  const [folderId, setFolderId] = useState<string | null>(null);
+  const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
+  const [folderParentTargetId, setFolderParentTargetId] = useState<string | null>(null);
+  const [archived, setArchived] = useState(false);
+  const [fileSort, setFileSort] = useState<"recent" | "name" | "size" | "type">("recent");
+  const [offset, setOffset] = useState(0);
+  const [lastReceipt, setLastReceipt] = useState<MaterialOperationReceipt | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string | null>(null);
+  const [fileSelection, setFileSelection] = useState<SourceSelection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [maps, setMaps] = useState<MapDocument[]>([]);
+  const [targetMapId, setTargetMapId] = useState("");
+  const input = useRef<HTMLInputElement | null>(null);
+  const replaceInput = useRef<HTMLInputElement | null>(null);
+  const refresh = async () => {
+    const value = await listMaterialFiles({ projectId: props.projectId, query, type, archived, folderId, sort: fileSort, offset, limit: 50 });
+    setSnapshot(value);
+    return value;
+  };
+  useEffect(() => { void refresh().catch((error: unknown) => props.onMessage(error instanceof Error ? error.message : "文件读取失败。")); }, [archived, fileSort, folderId, offset, props.projectId, query, type]);
+  useEffect(() => { void getVisualWorkbench(props.projectId).then((value) => { const next = value.documents.filter((document): document is MapDocument => document.type === "map"); setMaps(next); setTargetMapId((current) => current && next.some((map) => map.id === current) ? current : next[0]?.id ?? ""); }).catch(() => setMaps([])); }, [props.projectId]);
+  useEffect(() => { const operationId = window.sessionStorage.getItem(`tianyan.material-files.last-operation.${props.projectId}`); if (operationId) void readMaterialOperationReceipt(props.projectId, operationId).then(setLastReceipt).catch(() => setLastReceipt(null)); }, [props.projectId]);
+  useEffect(() => { setOffset(0); }, [archived, fileSort, folderId, props.projectId, query, type]);
+  useEffect(() => {
+    const protect = (event: BeforeUnloadEvent) => { if (editingText == null || editingText === selected?.revision.textContent) return; event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", protect); return () => window.removeEventListener("beforeunload", protect);
+  }, [editingText, selected?.revision.textContent]);
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fileId = params.get("materialFileId");
+    const revisionId = params.get("materialFileRevision");
+    const rangeStart = Number(params.get("materialFileStart"));
+    const rangeEnd = Number(params.get("materialFileEnd"));
+    if (!fileId) return;
+    void readMaterialFile(props.projectId, fileId, revisionId).then(async (value) => {
+      if (!value) { props.onMessage("指定文件或历史修订不存在；没有打开同名文件替代。"); return; }
+      setSelected(value); setEditingText(null);
+      const body = value.revision.textContent ?? "";
+      if (Number.isSafeInteger(rangeStart) && Number.isSafeInteger(rangeEnd) && rangeStart >= 0 && rangeEnd > rangeStart && rangeEnd <= body.length) setFileSelection({ charStart: rangeStart, charEnd: rangeEnd, lineStart: body.slice(0, rangeStart).split("\n").length, lineEnd: body.slice(0, rangeEnd).split("\n").length, text: body.slice(rangeStart, rangeEnd) });
+      if (["image", "pdf", "audio", "video"].includes(value.type)) {
+        const downloaded = await props.runtime.withConnection((token) => downloadMaterialFile(props.projectId, value.id, token, revisionId));
+        setPreviewUrl(URL.createObjectURL(downloaded.blob));
+      }
+    }).catch(() => props.onMessage("指定文件无法读取；没有回退到当前版本。"));
+  }, [props.projectId]);
+  const open = async (file: MaterialFileRecord) => {
+    if (editingText != null && editingText !== selected?.revision.textContent && !window.confirm("当前普通笔记有未保存修改。确定离开并放弃这些修改吗？")) return;
+    setBusy(true);
+    try {
+      const value = await readMaterialFile(props.projectId, file.id);
+      setSelected(value);
+      setEditingText(null);
+      setFileSelection(null);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      if (value && ["image", "pdf", "audio", "video"].includes(value.type)) {
+        const downloaded = await props.runtime.withConnection((token) => downloadMaterialFile(props.projectId, value.id, token));
+        setPreviewUrl(URL.createObjectURL(downloaded.blob));
+      }
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "文件无法打开。"); }
+    finally { setBusy(false); }
+  };
+  const importFiles = async (files: FileList | File[]) => {
+    const chosen = Array.from(files).slice(0, 20);
+    if (!chosen.length) return;
+    setBusy(true);
+    try {
+      const payload = await Promise.all(chosen.map(async (file) => ({ name: file.name, mimeType: file.type || undefined, base64: await fileBase64(file) })));
+      const operationId = `materials.import.${crypto.randomUUID()}`;
+      const receipt = await props.runtime.withConnection((token) => importMaterialFiles({ projectId: props.projectId, operationId, folderId, files: payload, token }));
+      setLastReceipt(receipt); window.sessionStorage.setItem(`tianyan.material-files.last-operation.${props.projectId}`, operationId);
+      await refresh();
+      const failed = receipt.results.filter((entry) => entry.status === "failed");
+      const duplicates = receipt.results.filter((entry) => entry.status === "duplicate");
+      props.onMessage(`导入完成：${receipt.results.length - failed.length - duplicates.length} 个新记录，${duplicates.length} 个重复，${failed.length} 个失败。成功项已保存，失败项可重新选择重试。`);
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "导入失败；未完成的文件可安全重试。"); }
+    finally { setBusy(false); if (input.current) input.current.value = ""; }
+  };
+  const mutateSelected = async (kind: "move" | "archive" | "restore") => {
+    if (!snapshot || !selectedIds.length) return;
+    setBusy(true);
+    try {
+      if (kind === "move") await props.runtime.withConnection((token) => moveMaterialFiles({ projectId: props.projectId, operationId: `materials.move.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileIds: selectedIds, folderId: moveTargetId, token }));
+      else await props.runtime.withConnection((token) => setMaterialFilesArchived({ projectId: props.projectId, operationId: `materials.${kind}.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileIds: selectedIds, archived: kind === "archive", token }));
+      setSelectedIds([]); setSelected(null); await refresh(); props.onMessage(kind === "move" ? "所选文件已移动；稳定文件身份和历史修订不变。" : kind === "archive" ? "所选文件已归档，可在归档中恢复。" : "所选文件已恢复。 ");
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "批量操作失败；请刷新后重试。"); }
+    finally { setBusy(false); }
+  };
+  const createFolder = async () => {
+    if (!snapshot) return;
+    const title = window.prompt("文件夹名称");
+    if (!title?.trim()) return;
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => createMaterialFileFolder({ projectId: props.projectId, title: title.trim(), parentId: folderId, expectedRevision: snapshot.catalogRevision, token })); await refresh(); props.onMessage("文件夹已建立。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "文件夹建立失败。"); }
+    finally { setBusy(false); }
+  };
+  const renameFolder = async () => {
+    if (!snapshot || !folderId) return;
+    const current = snapshot.folders.find((folder) => folder.id === folderId);
+    if (!current) return;
+    const title = window.prompt("文件夹名称", current.title);
+    if (!title?.trim() || title.trim() === current.title) return;
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => updateMaterialFileFolder({ projectId: props.projectId, folderId, title: title.trim(), expectedRevision: snapshot.catalogRevision, token })); await refresh(); props.onMessage("文件夹已重命名；文件与引用身份不变。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "文件夹重命名失败。"); }
+    finally { setBusy(false); }
+  };
+  const moveFolder = async () => {
+    if (!snapshot || !folderId) return;
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => updateMaterialFileFolder({ projectId: props.projectId, folderId, parentId: folderParentTargetId, expectedRevision: snapshot.catalogRevision, token })); setFolderId(null); setFolderParentTargetId(null); await refresh(); props.onMessage("文件夹层级已更新；循环包含会被服务端拒绝。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "文件夹移动失败。"); }
+    finally { setBusy(false); }
+  };
+  const pasteText = async () => {
+    setBusy(true);
+    try {
+      const content = await navigator.clipboard.readText();
+      if (!content.trim()) throw new Error("剪贴板没有可保存的文本。");
+      const timestamp = new Date().toLocaleString("zh-CN", { hour12: false }).replace(/[/:]/gu, "-");
+      await props.runtime.withConnection((token) => createMaterialNote({ projectId: props.projectId, operationId: `materials.paste.${crypto.randomUUID()}`, name: `随手笔记-${timestamp}.md`, displayName: `随手笔记 ${timestamp}`, content, folderId, token }));
+      await refresh(); props.onMessage("剪贴板文本已作为普通笔记保存；没有自动建立正式对象。");
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "无法读取剪贴板；可改用新建笔记或选择文件。"); }
+    finally { setBusy(false); }
+  };
+  const createNote = async () => {
+    if (!snapshot) return;
+    const title = window.prompt("笔记名称", "新建笔记");
+    if (!title?.trim()) return;
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => createMaterialNote({ projectId: props.projectId, operationId: `materials.note.${crypto.randomUUID()}`, name: `${title.trim()}.md`, displayName: title.trim(), content: "", folderId, token })); await refresh(); props.onMessage("普通笔记已建立；它不是物品或正式设定。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "笔记建立失败。"); }
+    finally { setBusy(false); }
+  };
+  const renameSelected = async () => {
+    if (!snapshot || !selected) return;
+    const name = window.prompt("显示名称", selected.displayName);
+    if (!name?.trim()) return;
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => updateMaterialFile({ projectId: props.projectId, operationId: `materials.rename.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileId: selected.id, displayName: name.trim(), token })); const next = await refresh(); const updated = next.files.find((file) => file.id === selected.id); if (updated) await open(updated); props.onMessage("名称已更新；引用身份没有改变。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "重命名失败。"); }
+    finally { setBusy(false); }
+  };
+  const editSelectedTags = async () => {
+    if (!snapshot || !selected) return;
+    const value = window.prompt("标签（用逗号或顿号分隔）", selected.tags.join("、"));
+    if (value == null) return;
+    const tags = value.split(/[、,]/u).map((entry) => entry.trim()).filter(Boolean);
+    setBusy(true);
+    try { await props.runtime.withConnection((token) => updateMaterialFile({ projectId: props.projectId, operationId: `materials.tags.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileId: selected.id, tags, token })); const next = await refresh(); const updated = next.files.find((file) => file.id === selected.id); if (updated) await open(updated); props.onMessage("标签已更新；确认状态和世界事实未改变。"); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "标签保存失败。"); }
+    finally { setBusy(false); }
+  };
+  const download = async () => {
+    if (!selected) return;
+    try { const value = await props.runtime.withConnection((token) => downloadMaterialFile(props.projectId, selected.id, token)); const link = document.createElement("a"); link.href = URL.createObjectURL(value.blob); link.download = value.filename; link.click(); URL.revokeObjectURL(link.href); props.onMessage(`已下载原件；SHA-256 ${value.sha256 ?? "未返回"}。`); }
+    catch (error) { props.onMessage(error instanceof Error ? error.message : "下载失败。"); }
+  };
+  const saveTextRevision = async () => {
+    if (!selected || editingText == null) return;
+    setBusy(true);
+    try {
+      const receipt = await props.runtime.withConnection((token) => importMaterialFiles({ projectId: props.projectId, operationId: `materials.edit.${crypto.randomUUID()}`, files: [{ name: selected.originalName, displayName: selected.displayName, mimeType: selected.mimeType, base64: textBase64(editingText), replaceFileId: selected.id }], token }));
+      const revisionId = receipt.results[0]?.revisionId;
+      await refresh();
+      const updated = await readMaterialFile(props.projectId, selected.id, revisionId);
+      if (updated) setSelected(updated);
+      setEditingText(null);
+      props.onMessage("笔记已保存为新修订；旧回答仍可按原 SHA-256 打开旧正文。");
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "笔记保存失败，编辑内容仍保留。"); }
+    finally { setBusy(false); }
+  };
+  const replaceSelectedBytes = async (file: File) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const base64 = await fileBase64(file);
+      const receipt = await props.runtime.withConnection((token) => importMaterialFiles({ projectId: props.projectId, operationId: `materials.replace.${crypto.randomUUID()}`, files: [{ name: file.name, displayName: selected.displayName, mimeType: file.type || undefined, base64, replaceFileId: selected.id }], token }));
+      const result = receipt.results[0];
+      if (result?.status === "failed") throw new Error(result.error || "替换文件未保存。");
+      const updated = await readMaterialFile(props.projectId, selected.id, result?.revisionId);
+      if (updated) setSelected(updated);
+      await refresh(); props.onMessage(result?.status === "duplicate" ? "所选内容与该文件已有修订完全相同，没有重复建立版本。" : "已明确追加文件修订；旧修订和既有回答保持可定位。");
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "替换文件失败；当前修订未改变。"); }
+    finally { setBusy(false); if (replaceInput.current) replaceInput.current.value = ""; }
+  };
+  const createRuleFromFileSelection = async () => {
+    if (!selected || !fileSelection?.text.trim() || !snapshot) return;
+    setBusy(true);
+    try {
+      const object = await props.runtime.withConnection((token) => createWorldObject({ projectId: props.projectId, type: "rule", title: `来自“${selected.displayName}”的世界设定`, body: `${fileSelection.text.trim()}\n\n来源文件：${selected.displayName}\n来源位置：第 ${fileSelection.lineStart}–${fileSelection.lineEnd} 行\n来源修订：${selected.revision.sha256}\n来源文件标识：${selected.id}\n`, tags: ["世界设定", "待确认"], status: "draft", token }));
+      await props.runtime.withConnection((token) => updateMaterialFile({ projectId: props.projectId, operationId: `materials.link-rule.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileId: selected.id, links: [...selected.links, { kind: "world-object", id: object.id, label: object.title }], token }));
+      const returnTarget = currentMaterialRoute();
+      window.location.assign(`/library?materialId=${encodeURIComponent(object.id)}&materialReturn=${encodeURIComponent(returnTarget)}`);
+    } catch (error) { props.onMessage(error instanceof Error ? error.message : "设定草稿建立失败；原文件和选段没有改变。"); }
+    finally { setBusy(false); }
+  };
+  const useImageAsMapBackground = async () => {
+    if (!selected || selected.type !== "image" || !snapshot || !targetMapId) return;
+    const target = maps.find((map) => map.id === targetMapId);
+    if (!target) return;
+    setBusy(true);
+    let mapRevisionSaved = false;
+    try {
+      const downloaded = await props.runtime.withConnection((token) => downloadMaterialFile(props.projectId, selected.id, token, selected.revision.id));
+      const dimensions = await imageDimensions(downloaded.blob);
+      const base64 = await blobBase64(downloaded.blob);
+      const asset = await props.runtime.withConnection((token) => importVisualAsset({ projectId: props.projectId, category: "maps", filename: selected.originalName, mimeType: selected.mimeType, base64, token }));
+      const background: MapBackground = { id: `background.${crypto.randomUUID()}`, title: selected.displayName, assetPath: asset.relativePath, mimeType: asset.mimeType, width: dimensions.width, height: dimensions.height, opacity: 1, visible: true };
+      const document: MapDocument = { ...target, content: { ...target.content, backgrounds: [...target.content.backgrounds, background], activeBackgroundId: background.id, baseImage: { assetPath: background.assetPath, mimeType: background.mimeType, width: background.width, height: background.height } } };
+      const written = await props.runtime.withConnection((token) => updateVisualDocument({ projectId: props.projectId, relativePath: target.relativePath, expectedHash: target.contentHash, document, token }));
+      mapRevisionSaved = true;
+      setMaps((current) => current.map((map) => map.id === target.id ? written.document as MapDocument : map));
+      await props.runtime.withConnection((token) => updateMaterialFile({ projectId: props.projectId, operationId: `materials.link-map.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileId: selected.id, links: [...selected.links.filter((link) => !(link.kind === "visual-document" && link.id === target.id)), { kind: "visual-document", id: target.id, label: target.title }], token }));
+      await refresh(); props.onMessage("图片已显式复制为所选地图的底图修订；原始文件身份保留，并已记录地图关联。");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "未知错误";
+      props.onMessage(mapRevisionSaved
+        ? `地图底图修订已保存，但文件关联回写失败：${detail}。请刷新文件后重新建立关联；不会重复覆盖原始文件。`
+        : `底图建立失败：${detail}。原始文件未改变。`);
+    }
+    finally { setBusy(false); }
+  };
+  const capability = selected ? formatCapabilities(selected) : [];
+  return <section className="material-files-workspace" aria-label="普通文件管理" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void importFiles(event.dataTransfer.files); }}>
+    {props.message ? <p className="materials-workspace-message" role="status">{props.message}</p> : null}
+    <div className="material-files-toolbar">
+      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件名或标签" aria-label="搜索普通文件" />
+      <select value={type} onChange={(event) => setType(event.target.value as MaterialFileType | "")} aria-label="文件类型"><option value="">全部格式</option>{["text", "image", "pdf", "audio", "video", "office", "archive", "attachment"].map((value) => <option key={value} value={value}>{fileTypeLabel(value as MaterialFileType)}</option>)}</select>
+      <select value={folderId ?? ""} onChange={(event) => setFolderId(event.target.value || null)} aria-label="当前文件夹"><option value="">未分类／全部根目录</option>{snapshot?.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select>
+      <select value={fileSort} onChange={(event) => setFileSort(event.target.value as typeof fileSort)} aria-label="文件排序"><option value="recent">最近修改</option><option value="name">按名称</option><option value="size">按大小</option><option value="type">按类型</option></select>
+      <button type="button" onClick={() => input.current?.click()} disabled={busy}><Upload aria-hidden="true" />选择文件</button>
+      <input ref={input} hidden type="file" multiple onChange={(event) => { if (event.target.files) void importFiles(event.target.files); }} />
+      <button type="button" onClick={createNote} disabled={busy}>新建笔记</button>
+      <button type="button" onClick={() => void pasteText()} disabled={busy}>粘贴为笔记</button>
+      <button type="button" onClick={createFolder} disabled={busy}><FolderPlus aria-hidden="true" />新建文件夹</button>
+      {folderId ? <><button type="button" onClick={() => void renameFolder()} disabled={busy}>重命名文件夹</button><label>文件夹移至<select value={folderParentTargetId ?? ""} onChange={(event) => setFolderParentTargetId(event.target.value || null)}><option value="">根目录</option>{snapshot?.folders.filter((folder) => folder.id !== folderId).map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select></label><button type="button" onClick={() => void moveFolder()} disabled={busy}>移动文件夹</button></> : null}
+      <button type="button" aria-pressed={archived} onClick={() => { setArchived((value) => !value); setSelectedIds([]); setSelected(null); }}><Archive aria-hidden="true" />{archived ? "返回文件" : "归档"}</button>
+    </div>
+    {selectedIds.length ? <div className="material-files-bulk" role="toolbar" aria-label="批量操作"><strong>已选 {selectedIds.length} 项</strong><label>目标文件夹<select value={moveTargetId ?? ""} onChange={(event) => setMoveTargetId(event.target.value || null)}><option value="">未分类</option>{snapshot?.folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.title}</option>)}</select></label><button type="button" onClick={() => void mutateSelected("move")}>移动</button><button type="button" onClick={() => void mutateSelected(archived ? "restore" : "archive")}>{archived ? "恢复" : "归档"}</button></div> : null}
+    {lastReceipt?.kind === "import" ? <details className="material-files-receipt" open={lastReceipt.state === "partial"}><summary>最近导入：{lastReceipt.state === "partial" ? "部分完成" : "已完成"} · {lastReceipt.results.length} 项</summary><ul>{lastReceipt.results.map((result, index) => <li key={`${result.index ?? index}:${result.name ?? "file"}`} data-status={result.status}><strong>{result.name ?? `第 ${index + 1} 项`}</strong><span>{result.status === "created" ? "已保存" : result.status === "duplicate" ? "内容重复，未新建" : result.status === "failed" ? `失败：${result.error ?? "未知错误"}` : result.status}</span></li>)}</ul>{lastReceipt.state === "partial" ? <p>成功项已持久化；失败文件的字节没有留存。刷新后仍可查看此回执，请重新选择失败文件安全重试。</p> : null}</details> : null}
+    <div className={selected ? "material-files-layout has-preview" : "material-files-layout"}>
+      <div className="material-files-list" aria-label="文件列表">
+        <p>拖入文件也可保存。当前 {snapshot?.total ?? 0} 项；列表按需加载，不读取全部正文或媒体。</p>
+        {snapshot?.files.map((file) => <div key={file.id} className="material-file-row">
+          <input type="checkbox" aria-label={`选择 ${file.displayName}`} checked={selectedIds.includes(file.id)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...ids, file.id] : ids.filter((id) => id !== file.id))} />
+          <button type="button" onClick={() => void open(file)} aria-pressed={selected?.id === file.id}><strong>{file.displayName}</strong><span>{fileTypeLabel(file.type)} · {formatBytes(file.size)} · {file.revisions.length} 个版本</span></button>
+        </div>)}
+        {!snapshot?.files.length ? <p>这个范围还没有文件。可直接选择、拖入或新建普通笔记。</p> : null}
+        {snapshot && snapshot.total > snapshot.limit ? <nav className="material-files-pagination" aria-label="文件翻页"><button type="button" disabled={snapshot.offset === 0} onClick={() => setOffset(Math.max(0, snapshot.offset - snapshot.limit))}>上一页</button><span>{snapshot.offset + 1}–{Math.min(snapshot.offset + snapshot.files.length, snapshot.total)} / {snapshot.total}</span><button type="button" disabled={snapshot.offset + snapshot.limit >= snapshot.total} onClick={() => setOffset(snapshot.offset + snapshot.limit)}>下一页</button></nav> : null}
+      </div>
+      {selected ? <article className="material-file-preview" aria-label="文件预览">
+        <header><div><small>{fileTypeLabel(selected.type)} · {selected.originalName}</small><h2>{selected.displayName}</h2></div><button type="button" onClick={() => { setSelected(null); if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }}>关闭</button></header>
+        <div className="material-file-capabilities">{capability.map((entry) => <span key={entry.label} data-ready={entry.ready}>{entry.label}：{entry.ready ? "是" : "否"}</span>)}</div>
+        {selected.type === "text" ? editingText == null ? <textarea className="material-file-text-reader" aria-label="普通文本文件正文" readOnly value={selected.revision.textContent ?? ""} rows={20} onSelect={(event) => setFileSelection(textareaSelection(event.currentTarget))} onMouseUp={(event) => setFileSelection(textareaSelection(event.currentTarget))} onKeyUp={(event) => setFileSelection(textareaSelection(event.currentTarget))} /> : <textarea className="material-file-text-editor" aria-label="编辑普通笔记" value={editingText} onChange={(event) => setEditingText(event.target.value)} rows={20} /> : selected.type === "image" && previewUrl ? <img src={previewUrl} alt={selected.displayName} /> : selected.type === "audio" && previewUrl ? <audio controls src={previewUrl}>当前浏览器不能播放该编码，请下载原件。</audio> : selected.type === "video" && previewUrl ? <video controls src={previewUrl}>当前浏览器不能播放该编码，请下载原件。</video> : selected.type === "pdf" && previewUrl ? <iframe title={`${selected.displayName} PDF 阅读`} sandbox="" src={previewUrl} /> : <p>原件已安全保存；此格式本轮不解析或编辑，可下载后使用原生应用打开。</p>}
+        {fileSelection ? <aside className="material-file-selection"><strong>已选择第 {fileSelection.lineStart}–{fileSelection.lineEnd} 行</strong><p>{fileSelection.text}</p></aside> : null}
+        <div className="materials-editor-actions"><button type="button" onClick={download}><Download aria-hidden="true" />下载原件</button><button type="button" onClick={renameSelected}>重命名</button><button type="button" onClick={() => void editSelectedTags()}>编辑标签</button><button type="button" onClick={() => replaceInput.current?.click()}>替换内容并建立新版本</button><input ref={replaceInput} hidden type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) void replaceSelectedBytes(file); }} />{selected.type === "text" ? editingText == null ? <><button type="button" onClick={() => setEditingText(selected.revision.textContent ?? "")}>编辑笔记</button><button type="button" disabled={!fileSelection?.text.trim()} onClick={() => void createRuleFromFileSelection()}><Plus aria-hidden="true" />从选段建立设定</button></> : <><button type="button" onClick={() => void saveTextRevision()}>保存新修订</button><button type="button" onClick={() => setEditingText(null)}>取消编辑</button></> : null}{selected.type === "text" ? <button type="button" onClick={() => { const params = new URLSearchParams({ tianyiLane: "work", materialFileId: selected.id, materialFileRevision: selected.revision.sha256, materialReturn: currentMaterialRoute() }); if (fileSelection) { params.set("materialFileStart", String(fileSelection.charStart)); params.set("materialFileEnd", String(fileSelection.charEnd)); } window.location.assign(`/tianyi?${params.toString()}`); }}><Sparkles aria-hidden="true" />{fileSelection ? "在天意引用选段" : "在天意明确引用"}</button> : null}</div>
+        {selected.type === "image" ? <section className="material-file-map-use"><label>作为底图加入<select value={targetMapId} onChange={(event) => setTargetMapId(event.target.value)}><option value="">选择现有地图</option>{maps.map((map) => <option key={map.id} value={map.id}>{map.title}</option>)}</select></label><button type="button" disabled={!targetMapId || busy} onClick={() => void useImageAsMapBackground()}><MapPin aria-hidden="true" />建立地图底图修订</button><small>这是作者明确的兼容转换：原图片仍是普通文件，地图 Owner 保存自己的底图资源与修订。</small></section> : null}
+        <label>关联已有对象<select defaultValue="" onChange={(event) => { const target = props.worldObjects.find((item) => item.id === event.target.value); if (!target || !snapshot) return; void props.runtime.withConnection((token) => updateMaterialFile({ projectId: props.projectId, operationId: `materials.link.${crypto.randomUUID()}`, expectedRevision: snapshot.catalogRevision, fileId: selected.id, links: [...selected.links.filter((link) => !(link.kind === "world-object" && link.id === target.id)), { kind: "world-object", id: target.id, label: target.title }], token })).then(() => refresh()).then(() => props.onMessage(`已关联 ${target.title}。`)); }}><option value="">选择人物、地点、组织或设定</option>{props.worldObjects.map((item) => <option key={item.id} value={item.id}>{typeLabel(item.type)} · {item.title}</option>)}</select></label>
+        {selected.links.length ? <p>关联：{selected.links.map((link) => link.kind === "world-object" ? <button key={`${link.kind}:${link.id}`} type="button" onClick={() => window.location.assign(`/library?materialId=${encodeURIComponent(link.id)}&materialReturn=${encodeURIComponent(currentMaterialRoute())}`)}>{link.label}</button> : <span key={`${link.kind}:${link.id}`}>{link.label}</span>)}</p> : null}
+        <details><summary>技术详情</summary><code>文件 {selected.id}</code><code>修订 {selected.revision.id}</code><code>SHA-256 {selected.revision.sha256}</code></details>
+      </article> : null}
+    </div>
+  </section>;
+}
+
+function fileBase64(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error || new Error("文件读取失败。")); reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || ""); reader.readAsDataURL(file); }); }
+function textBase64(value: string) { const bytes = new TextEncoder().encode(value); let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte); return window.btoa(binary); }
+function blobBase64(blob: Blob): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(reader.error || new Error("文件读取失败。")); reader.onload = () => resolve(String(reader.result).split(",", 2)[1] || ""); reader.readAsDataURL(blob); }); }
+function imageDimensions(blob: Blob): Promise<{ width: number; height: number }> { return new Promise((resolve, reject) => { const url = URL.createObjectURL(blob); const image = new Image(); image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片无法读取；没有建立地图底图。")); }; image.onload = () => { URL.revokeObjectURL(url); resolve({ width: image.naturalWidth, height: image.naturalHeight }); }; image.src = url; }); }
+function textareaSelection(element: HTMLTextAreaElement): SourceSelection | null { const charStart = element.selectionStart; const charEnd = element.selectionEnd; if (charEnd <= charStart) return null; return { charStart, charEnd, lineStart: element.value.slice(0, charStart).split("\n").length, lineEnd: element.value.slice(0, charEnd).split("\n").length, text: element.value.slice(charStart, charEnd) }; }
+function fileTypeLabel(type: MaterialFileType) { return ({ text: "文本", image: "图片", pdf: "PDF", audio: "音频", video: "视频", office: "Office", archive: "压缩包", attachment: "附件" })[type]; }
+function formatBytes(value: number) { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KiB` : `${(value / 1024 / 1024).toFixed(1)} MiB`; }
+function formatCapabilities(file: MaterialFileRecord) { return [
+  { label: "已保存", ready: true },
+  { label: "可预览", ready: ["text", "image", "pdf", "audio", "video"].includes(file.type) },
+  { label: "可提取", ready: file.type === "text" },
+  { label: "可编辑", ready: file.type === "text" },
+  { label: "可供天意使用", ready: file.type === "text" }
+]; }
 
 function safeReturn(value: string | null): string | null {
   return value && value.startsWith("/") && !value.startsWith("//")
@@ -808,7 +1175,7 @@ function currentMaterialRoute(): string {
   return `${target.pathname}${target.search}`;
 }
 
-function writeMaterialRoute(input: Partial<{ materialId: string | null; sourceDocumentId: string | null; revision: string | null; query: string; type: WorldObjectType | "source" | "all"; status: MaterialStatusFilter; sort: MaterialSort }>): void {
+function writeMaterialRoute(input: Partial<{ materialId: string | null; sourceDocumentId: string | null; revision: string | null; query: string; type: WorldObjectType | "source" | "all"; status: MaterialStatusFilter; sort: MaterialSort; categoryId: string | null }>): void {
   const params = new URLSearchParams(window.location.search);
   if (input.materialId !== undefined) setRouteValue(params, "materialId", input.materialId);
   if (input.sourceDocumentId !== undefined) { setRouteValue(params, "sourceDocumentId", input.sourceDocumentId); params.delete("directorySource"); }
@@ -817,6 +1184,7 @@ function writeMaterialRoute(input: Partial<{ materialId: string | null; sourceDo
   if (input.type !== undefined) setRouteValue(params, "materialType", input.type === "all" ? null : input.type);
   if (input.status !== undefined) setRouteValue(params, "materialStatus", input.status === "all" ? null : input.status);
   if (input.sort !== undefined) setRouteValue(params, "materialSort", input.sort === "recent" ? null : input.sort);
+  if (input.categoryId !== undefined) setRouteValue(params, "materialCategory", input.categoryId);
   window.history.replaceState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`);
 }
 

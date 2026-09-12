@@ -4,6 +4,7 @@ import { TIANYAN_EXPORT_EXCLUDED_PREFIXES, TIANYAN_WORKSPACE_LAYOUT_V1, isWorksp
 import { validatePortableWorkspacePackage } from "../../src/storyWorkspace/portableWorkspacePackage.mjs";
 import { createWorkspacePackagePort } from "../../src/storyWorkspace/workspacePackagePort.mjs";
 import { createStoryWorkspace } from "../../src/storyWorkspace/storyWorkspaceRepository.mjs";
+import { importMaterialFiles, readMaterialFile, resolveMaterialFileBytes } from "../../src/storyWorkspace/materialFileRepository.mjs";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +32,8 @@ test("package port round-trips durable files without copying cache or accepting 
   const project = path.join(library, "package-project");
   createStoryWorkspace({ rootPath: project, title: "中文项目" });
   writeFileSync(path.join(project, "assets", "images", "封面.bin"), Buffer.from([0, 1, 2, 3]));
+  const materialReceipt = importMaterialFiles(project, { operationId: "operation.portable.material", files: [{ name: "雾港笔记.md", mimeType: "text/markdown", base64: Buffer.from("宵禁原文", "utf8").toString("base64") }] });
+  const materialFileId = materialReceipt.results[0].fileId;
   writeFileSync(path.join(project, ".world-os", "cache", "ignore.json"), "cache");
   mkdirSync(path.join(project, "continuity", "agents", "tianyi", "sessions"), { recursive: true });
   writeFileSync(path.join(project, "continuity", "agents", "tianyi", "sessions", "session.000001.jsonl"), "session\n");
@@ -44,6 +47,9 @@ test("package port round-trips durable files without copying cache or accepting 
   assert.equal(port.importProject({ packageText: JSON.stringify(payload) }).projectId, "package-project");
   assert.deepEqual(readFileSync(path.join(project, "assets", "images", "封面.bin")), Buffer.from([0, 1, 2, 3]));
   assert.equal(readFileSync(path.join(project, "continuity", "agents", "tianyi", "sessions", "session.000001.jsonl"), "utf8"), "session\n");
+  const restoredMaterial = readMaterialFile(project, materialFileId);
+  assert.equal(restoredMaterial.revision.textContent, "宵禁原文");
+  assert.equal(resolveMaterialFileBytes(project, materialFileId).bytes.toString("utf8"), "宵禁原文");
   assert.throws(() => port.importProject({ packageText: JSON.stringify(payload) }), /already exists/);
   const linked = path.join(library, "link"); symlinkSync(backup, linked, "dir");
   assert.throws(() => createWorkspacePackagePort({ libraryRoot: linked, backupRoot: backup, resolveProjectPath: () => project }), /real directory/);

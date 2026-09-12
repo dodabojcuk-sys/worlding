@@ -1669,6 +1669,107 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => operations.moveWorldObjectsToFolder(body)) });
     return;
   }
+  if (request.method === "GET" && pathname === "/__local/story-studio/material-files") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    const archived = url.searchParams.get("archived") === "true";
+    const folder = url.searchParams.has("folderId") ? url.searchParams.get("folderId") : undefined;
+    sendJson(response, 200, { data: runProductOperation(() => operations.listMaterialFiles({ projectId, query: url.searchParams.get("query") || "", type: url.searchParams.get("type") || undefined, archived, folderId: folder, sort: url.searchParams.get("sort") || "recent", offset: Number(url.searchParams.get("offset") || "0"), limit: Number(url.searchParams.get("limit") || "100") })) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/material-file") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    sendJson(response, 200, { data: runProductOperation(() => operations.readMaterialFile({ projectId, fileId: requireQueryValue(url, "fileId"), revisionId: url.searchParams.get("revisionId") })) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/material-file/content") {
+    requireToken(request);
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    const resolved = runProductOperation(() => operations.resolveMaterialFileBytes({ projectId, fileId: requireQueryValue(url, "fileId"), revisionId: url.searchParams.get("revisionId") }));
+    const disposition = url.searchParams.get("download") === "1" ? "attachment" : "inline";
+    response.writeHead(200, {
+      "content-type": resolved.record.revision.mimeType,
+      "content-length": String(resolved.bytes.length),
+      "content-disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(resolved.record.originalName)}`,
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "default-src 'none'; sandbox",
+      "cache-control": "private, no-store",
+      "x-tianyan-content-sha256": resolved.record.revision.sha256
+    });
+    response.end(resolved.bytes);
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-files/import") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "operationId", "folderId", "files"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-files", Array.isArray(body.files) ? body.files.map((file) => file?.name).filter(Boolean) : []);
+    sendJson(response, 201, { data: runProductOperation(() => operations.importMaterialFiles(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-files/note") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "operationId", "name", "displayName", "content", "folderId", "tags"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-note", [body.displayName || body.name]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.createMaterialNote(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-files/update") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "operationId", "expectedRevision", "fileId", "displayName", "folderId", "tags", "links"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-file", [body.fileId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.updateMaterialFileMetadata(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-files/move") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "operationId", "expectedRevision", "fileIds", "folderId"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-selection", body.fileIds);
+    sendJson(response, 200, { data: runProductOperation(() => operations.moveMaterialFiles(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-files/archive") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "operationId", "expectedRevision", "fileIds", "archived"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", body.archived ? "material-archive" : "material-restore", body.fileIds);
+    sendJson(response, 200, { data: runProductOperation(() => operations.setMaterialFilesArchived(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-folders/create") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "title", "parentId", "expectedRevision"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-folder", [body.title]);
+    sendJson(response, 201, { data: runProductOperation(() => operations.createMaterialFileFolder(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/material-folders/update") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "folderId", "title", "parentId", "expectedRevision"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "material-folder", [body.folderId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.updateMaterialFileFolder(body)) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/material-operations/receipt") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    sendJson(response, 200, { data: runProductOperation(() => operations.readMaterialOperationReceipt({ projectId, operationId: requireQueryValue(url, "operationId") })) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/library/import-text") {
     requireToken(request);
     const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
