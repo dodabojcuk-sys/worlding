@@ -133,6 +133,30 @@ test("map stores an explicit scope and typed structure without creating relation
   }), /unknown world object/i);
 });
 
+test("map authoring geometry and local entrances remain visual-document data", () => {
+  const fixture = createFixture();
+  const map = createVisualDocument(fixture.rootPath, {
+    type: "map", title: "北湾绘图", content: {
+      baseImage: null,
+      layers: [{ id: "layer.terrain", title: "地形", visible: true, locked: false }],
+      markers: [], regions: [], labels: [], template: "geography",
+      drawings: [
+        { id: "drawing.river", kind: "line", subtype: "river", layerId: "layer.terrain", points: [{ x: 10, y: 20 }, { x: 70, y: 80 }], strokeColor: "#167b7a", fillColor: "#167b7a", width: 4 },
+        { id: "drawing.forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 30, y: 25 }, { x: 45, y: 40 }], objectId: fixture.location.id }
+      ],
+      entrances: [{ id: "entrance.city", title: "进入城市", layerId: "layer.terrain", x: 40, y: 50, targetMapId: "map.city", kind: "entrance", objectId: fixture.location.id }]
+    }
+  });
+  assert.equal(map.content.template, "geography");
+  assert.equal(map.content.drawings[0].subtype, "river");
+  assert.equal(map.content.entrances[0].targetMapId, "map.city");
+  assert.deepEqual(map.objectRefs, [fixture.location.id]);
+  assert.throws(() => updateVisualDocument(fixture.rootPath, {
+    relativePath: map.relativePath, expectedContentHash: map.contentHash,
+    document: { ...map, content: { ...map.content, drawings: [{ ...map.content.drawings[0], points: [{ x: 101, y: 5 }, { x: 9, y: 9 }] }] } }
+  }), /must be between 0 and 100/i);
+});
+
 test("Map 2.0 validates multiple backgrounds, polygon styles, and label bounds", () => {
   const fixture = createFixture();
   const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";

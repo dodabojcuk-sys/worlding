@@ -341,7 +341,47 @@ function normalizeMapContent(root, value) {
       treatment: ["none", "outline", "plate"].includes(label?.treatment) ? label.treatment : "outline"
     };
   });
-  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, scopeObjectId, structure };
+  const template = ["blank", "starfield", "geography", "building"].includes(input.template) ? input.template : "blank";
+  const drawings = normalizeUniqueItems(input.drawings, "Map drawing", (drawing) => {
+    const layerId = requireText(drawing?.layerId, "Map drawing layer", 120);
+    if (!layerIds.has(layerId)) throw new Error("Map drawing references an unknown layer.");
+    const kind = ["terrain", "line", "area", "symbol"].includes(drawing?.kind) ? drawing.kind : null;
+    if (!kind) throw new Error("Map drawing kind is invalid.");
+    const points = Array.isArray(drawing?.points) ? drawing.points.map((point) => ({
+      x: boundedNumber(point?.x, "Map drawing x", 0, 100),
+      y: boundedNumber(point?.y, "Map drawing y", 0, 100)
+    })) : [];
+    const minimum = kind === "area" ? 3 : kind === "symbol" ? 1 : 2;
+    if (points.length < minimum) throw new Error(`Map ${kind} drawing requires at least ${minimum} point${minimum === 1 ? "" : "s"}.`);
+    return {
+      id: requireText(drawing?.id, "Map drawing id", 120),
+      kind,
+      subtype: requireText(drawing?.subtype, "Map drawing subtype", 60),
+      layerId,
+      points,
+      strokeColor: normalizeColor(drawing?.strokeColor ?? "#167b7a"),
+      fillColor: normalizeColor(drawing?.fillColor ?? "#49a99b"),
+      fillOpacity: boundedNumber(drawing?.fillOpacity ?? .25, "Map drawing opacity", 0, 1),
+      width: boundedNumber(drawing?.width ?? 3, "Map drawing width", .25, 30),
+      size: boundedNumber(drawing?.size ?? 4, "Map drawing size", 1, 30),
+      seed: Math.round(boundedNumber(drawing?.seed ?? 1, "Map drawing seed", 0, 999999)),
+      rotation: boundedNumber(drawing?.rotation ?? 0, "Map drawing rotation", -180, 180),
+      label: drawing?.label == null || drawing.label === "" ? null : requireText(drawing.label, "Map drawing label", 120),
+      objectId: drawing?.objectId == null || drawing.objectId === "" ? null : requireText(drawing.objectId, "Map drawing object", 160)
+    };
+  });
+  const entrances = normalizeUniqueItems(input.entrances, "Map entrance", (entrance) => ({
+    id: requireText(entrance?.id, "Map entrance id", 120),
+    title: requireText(entrance?.title, "Map entrance title", 100),
+    layerId: requireText(entrance?.layerId, "Map entrance layer", 120),
+    x: boundedNumber(entrance?.x, "Map entrance x", 0, 100),
+    y: boundedNumber(entrance?.y, "Map entrance y", 0, 100),
+    targetMapId: requireText(entrance?.targetMapId, "Map entrance target", 160),
+    kind: ["entrance", "floor", "portal"].includes(entrance?.kind) ? entrance.kind : "entrance",
+    objectId: entrance?.objectId == null || entrance.objectId === "" ? null : requireText(entrance.objectId, "Map entrance object", 160)
+  }));
+  for (const entrance of entrances) if (!layerIds.has(entrance.layerId)) throw new Error("Map entrance references an unknown layer.");
+  return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, drawings, entrances, template, scopeObjectId, structure };
 }
 
 /**
@@ -595,7 +635,7 @@ function normalizeBaseImage(root, value) {
 
 function deriveObjectRefs(root, type, content) {
   const refs = type === "map"
-    ? [...content.markers.map((marker) => marker.objectId), ...content.regions.map((region) => region.objectId).filter(Boolean), ...(content.scopeObjectId ? [content.scopeObjectId] : [])]
+    ? [...content.markers.map((marker) => marker.objectId), ...content.regions.map((region) => region.objectId).filter(Boolean), ...content.drawings.map((drawing) => drawing.objectId).filter(Boolean), ...content.entrances.map((entrance) => entrance.objectId).filter(Boolean), ...(content.scopeObjectId ? [content.scopeObjectId] : [])]
     : type === "graph"
       ? content.nodes.map((node) => node.objectId)
       : type === "canvas"
@@ -633,7 +673,7 @@ function validateObjectRefs(root, refs) {
 }
 
 function defaultContent(type) {
-  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] } };
+  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], drawings: [], entrances: [], template: "blank", scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] } };
   if (type === "graph") return { nodes: [], edges: [], proposals: [], filters: { objectTypes: [] } };
   if (type === "canvas") return { nodes: [], edges: [], groups: [] };
   if (type === "timeline") return {

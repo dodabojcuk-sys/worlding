@@ -826,6 +826,8 @@ export type MapLayer = { id: string; title: string; visible: boolean; locked: bo
 export type MapMarker = { id: string; objectId: string; layerId: string; x: number; y: number; color: string; labelMode: "always" | "hover" | "hidden" };
 export type MapRegion = { id: string; title: string; layerId: string; points: Array<{ x: number; y: number }>; strokeColor: string; fillColor: string; fillOpacity: number; objectId: string | null };
 export type MapLabel = { id: string; text: string; layerId: string; x: number; y: number; fontSize: number; fontWeight: 400 | 500 | 600 | 700; align: "left" | "center" | "right"; rotation: number; visible: boolean; treatment: "none" | "outline" | "plate" };
+export type MapDrawing = { id: string; kind: "terrain" | "line" | "area" | "symbol"; subtype: string; layerId: string; points: Array<{ x: number; y: number }>; strokeColor: string; fillColor: string; fillOpacity: number; width: number; size: number; seed: number; rotation: number; label: string | null; objectId: string | null };
+export type MapEntrance = { id: string; title: string; layerId: string; x: number; y: number; targetMapId: string; kind: "entrance" | "floor" | "portal"; objectId: string | null };
 export type MapContent = {
   baseImage: MapAsset | null;
   backgrounds: MapBackground[];
@@ -834,6 +836,9 @@ export type MapContent = {
   markers: MapMarker[];
   regions: MapRegion[];
   labels: MapLabel[];
+  drawings: MapDrawing[];
+  entrances: MapEntrance[];
+  template: "blank" | "starfield" | "geography" | "building";
   /** The range this presentation map is about; it is not a containment fact. */
   scopeObjectId: string | null;
   /** Explicit Relation Owner type IDs. Labels and free text are never inferred. */
