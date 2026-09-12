@@ -81,7 +81,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const returnTarget = safeReturn(params.get("relationReturn"));
 
   if (!projectId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
-  if (!workVersionId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>正在确定作品版本</h1><p>不会以其他版本的正式关系代替当前范围。</p></section></main>;
+  if (!workVersionId) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>当前作品尚未建立作品版本</h1><p>关系按作品版本读取；没有为旧作品猜造版本，也没有读取其他版本关系。</p><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button></section></main>;
   if (error) return <main className="shell-workspace"><section className="focused-relations" role="alert"><h1>关系暂时无法读取</h1><p>{error}</p><button type="button" onClick={back}>返回</button></section></main>;
   if (!data) return <main className="shell-workspace"><section className="focused-relations" aria-busy="true"><p>正在读取当前作品版本的正式关系……</p></section></main>;
 

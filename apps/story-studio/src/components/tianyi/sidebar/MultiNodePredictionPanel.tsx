@@ -15,6 +15,7 @@ import {
   predictionViewAfterEscape,
   predictionViewAfterPathSelection,
   predictionRunStatusAfterTerminalFence,
+  selectPredictionRunForRecovery,
   resolvePredictionAbandonment,
   predictionViewStateFromDraftedReceiptRecovery,
   predictionViewStateFromPersistence,
@@ -94,11 +95,18 @@ export function MultiNodePredictionPanel(props: { runtime: TianyanShellRuntimeSt
       beginPendingAbandonmentRecovery(pendingRunId);
       return () => { active = false; };
     }
-    void props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)).then((history) => {
+    void Promise.all([
+      props.runtime.withConnection((token) => listMultiNodePredictionRuns(project.id, token)),
+      listMultiNodePredictionReviews(project.id).catch(() => [] as MultiNodePredictionReviewProjection[])
+    ]).then(([history, reviews]) => {
       if (!active || historyLoadGeneration.current !== generation) return;
       setRuns(history);
-      const matching = history.find((candidate) => candidate.runId === props.runtime.activePageAgentRunId)
-        ?? history.find((candidate) => candidate.sourceSnapshot.map((reference) => `${reference.eventId}:${reference.revisionToken}`).join("|") === sourceKey)
+      const matching = selectPredictionRunForRecovery({
+        runs: history,
+        activeRunId: props.runtime.activePageAgentRunId,
+        sourceKey,
+        draftedRunIds: reviews.filter((review) => review.status === "drafted").map((review) => review.runId)
+      })
         ?? replayedPredictionRun(project.id, props.eventRefs)
         ?? null;
       if (matching && shouldDeferPredictionRunSnapshotForPendingAbandonment({ abandonmentPending: isPredictionAbandonmentPending(project.id, matching.runId), incomingStatus: matching.status })) {
