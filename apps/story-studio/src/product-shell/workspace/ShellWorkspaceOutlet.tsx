@@ -61,7 +61,9 @@ export function ShellWorkspaceOutlet(props: {
     return <MultiverseB1Workspace runtime={props.runtime} />;
   }
 
-  const libraryView = new URL(window.location.href).searchParams.get("libraryView");
+  const location = new URL(window.location.href);
+  const libraryView = location.searchParams.get("libraryView")
+    ?? (props.destination.id === "library" ? location.searchParams.get("worldView") : null);
   if (!props.shellLab && props.destination.id === "library" && libraryView === "map") {
     return <MapM1Workspace runtime={props.runtime} />;
   }
@@ -71,14 +73,6 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "library") return <MaterialsWorkspace runtime={props.runtime} />;
-
-  if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "map") {
-    return <MapM1Workspace runtime={props.runtime} />;
-  }
-
-  if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "relations") {
-    return <FocusedRelationsWorkspace runtime={props.runtime} />;
-  }
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "character" && props.characterObjectId) {
     return <CharacterWorkspace runtime={props.runtime} objectId={props.characterObjectId} onEdit={props.onEditCharacter} onAddToNuwa={() => props.onAddCharacterToNuwa(props.characterObjectId!)} onClose={props.onCloseCharacterWorkspace} />;

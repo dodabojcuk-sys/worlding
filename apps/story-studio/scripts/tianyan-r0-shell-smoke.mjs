@@ -25,7 +25,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -177,7 +177,7 @@ try {
   await waitForServer();
   await assertDevelopmentRuntimeMode();
   browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
-  const recordingDirectory = mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -2564,7 +2564,11 @@ async function setupWorldMaterialsFixture() {
   const guard = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "faction", title: "雾港守卫", status: "active", body: "守卫负责执行港区规则。" })).data;
   const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
   const root = createWorldMaterialsFixtureRoot();
-  worldMaterialsFixture = { fogHarbor, northGate, guard, lin, root };
+  const typeState = await getFixture(`${base}/relations/types?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const relationType = (await postFixture(`${base}/relations/types/create`, { projectId: fixtureProjectId, label: "执行规则", description: "人物在地点执行已确认规则。", expectedRepositoryRevision: typeState.data.repositoryRevision, operationId: `materials-relation-type-${fixture.fixtureId}`, sourceRef: "world-materials-author-flow" })).data.type;
+  const relation = (await postFixture(`${base}/relations/create`, { projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, sourceObjectId: lin.id, targetObjectId: fogHarbor.id, relationTypeId: relationType.relationTypeId, relationLabelSnapshot: relationType.label, direction: "forward", sourceRef: "world-materials-author-flow", operationId: `materials-relation-${fixture.fixtureId}` })).data.relation;
+  await postFixture(`${base}/relations/confirm`, { projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: relation.relationId, expectedRelationRevision: relation.revision, operationId: `materials-relation-confirm-${fixture.fixtureId}` });
+  worldMaterialsFixture = { fogHarbor, northGate, guard, lin, root, relationId: relation.relationId };
 }
 
 function createWorldMaterialsFixtureRoot() {
@@ -2588,7 +2592,11 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   const capture = async (name) => { if (worldMaterialsEvidenceDirectory) await page.screenshot({ path: path.join(worldMaterialsEvidenceDirectory, name), fullPage: false }); };
   const base = `${apiUrl}/__local/story-studio`;
   await page.setViewportSize({ width: 1440, height: 900 });
-  await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN`);
+  await page.locator('[data-shell-destination="library"]').click();
+  await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).click();
+  await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).waitFor();
+  assert.equal(await page.locator('[data-shell-destination="library"]').getAttribute("aria-current"), "page", "The ordinary Materials entry owns the map workspace in the top-level rail.");
   await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
   const background = page.locator(".map-background-file-input");
   // Draw a recognisable local map rather than a placeholder pixel: the file
@@ -2626,7 +2634,19 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.locator('[aria-label="地点示意图画布"]').click({ position: { x: 280, y: 240 } });
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
   await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  const primaryMapUrl = page.url();
+  const fogLocalRow = page.locator(".map-authoring-place-row").filter({ hasText: "雾港" });
+  await fogLocalRow.getByRole("button", { name: "进入局部图", exact: true }).click();
+  await page.getByRole("status").getByText(/局部地图和明确入口已保存/u).waitFor();
+  await page.getByRole("button", { name: "上层", exact: true }).click();
+  await page.getByLabel("选择地图").selectOption({ label: "地点示意图" });
+  assert.equal(new URL(page.url()).searchParams.get("mapId"), new URL(primaryMapUrl).searchParams.get("mapId"), "Returning from the local map restores the original map identity.");
+  await page.getByRole("button", { name: "专注地图", exact: true }).click();
   await capture("01-map-base-and-north-gate.png");
+  const mapIdentityBeforeRefresh = new URL(page.url()).searchParams.get("mapId");
+  await reloadProduct(page);
+  await page.locator(".map-workbench-marker").filter({ hasText: "北闸" }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("mapId"), mapIdentityBeforeRefresh, "Refreshing restores the edited map identity and saved marker.");
 
   await gotoProduct(page, `${baseUrl}/library?locale=zh-CN`);
   await page.getByRole("button", { name: "导入来源", exact: true }).click();
@@ -2660,6 +2680,12 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("status").getByText(/资料已保存/u).waitFor();
   await page.getByText("雾港守卫", { exact: true }).last().waitFor();
   await page.getByText("林昭", { exact: true }).last().waitFor();
+  const savedTitle = await page.getByLabel("标题").inputValue();
+  await page.getByLabel("标题").fill(`${savedTitle}（未保存）`);
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).click();
+  assert.equal(new URL(page.url()).pathname, "/library", "Cancelling the unsaved-edit warning keeps the author in Materials.");
+  await page.getByLabel("标题").fill(savedTitle);
   await capture("03-material-rule-links-and-version.png");
   const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const rule = library.data.objects.find((object) => object.title === "夜间宵禁");
@@ -2679,8 +2705,20 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   const linLink = page.locator(".materials-linked-object").filter({ hasText: "林昭" });
   await linLink.getByRole("button", { name: "关系", exact: true }).click();
   await page.getByTestId("focused-relations-workspace").waitFor();
+  assert.equal(new URL(page.url()).pathname, "/library", "Relations use the canonical Materials route rather than the legacy World owner.");
+  assert.equal(await page.locator('[data-shell-destination="library"]').getAttribute("aria-current"), "page", "The top-level Materials entry remains selected in Relations.");
+  await page.locator(".focused-relations-edge-label").filter({ hasText: "执行规则" }).waitFor();
+  await capture("04-relations-object-return.png");
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
+  const materialIdAfterReturn = new URL(page.url()).searchParams.get("materialId");
+  await page.goBack({ waitUntil: "domcontentloaded" });
+  await waitForProductReady(page);
+  await page.getByTestId("focused-relations-workspace").waitFor();
+  await page.goForward({ waitUntil: "domcontentloaded" });
+  await waitForProductReady(page);
+  await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("materialId"), materialIdAfterReturn, "Browser back and forward restore the exact material after the Relations round trip.");
 
   await page.getByRole("button", { name: "在天意明确引用", exact: true }).click();
   const materialPicker = page.locator(".tianyi-material-context-picker");
@@ -2739,9 +2777,16 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   await receipt.waitFor();
   assert.equal(new URL(page.url()).pathname, "/tianyi", "Material source return must restore the saved Tianyi receipt route.");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await capture("07-1280-tianyi-source-return.png");
   await page.setViewportSize({ width: 1152, height: 720 });
   await receipt.scrollIntoViewIfNeeded();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "Materials and receipt layouts must not create page-level horizontal overflow at 1152px.");
+  await capture("08-1152-tianyi-source-return.png");
+
+  await gotoProduct(page, `${baseUrl}/world?worldView=map&locale=zh-CN`);
+  await page.getByRole("navigation", { name: "资料工作区导航" }).getByRole("link", { name: "地图", exact: true }).waitFor();
+  assert.equal(await page.locator('[data-shell-destination="library"]').getAttribute("aria-current"), "page", "A legacy World map link remains compatible while visibly belonging to Materials.");
 
   const unversionedProjectId = `materials-unversioned-${fixture.fixtureId}`;
   await postFixture(`${base}/projects/create`, { title: "旧作品兼容 · 尚未建立版本", folderSlug: unversionedProjectId });
