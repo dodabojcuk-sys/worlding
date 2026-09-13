@@ -100,7 +100,8 @@ const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-auth
 const mapR3Only = process.env.TIANYAN_E2E_SCOPE === "map-author-workspace-r3";
 const mapR4Only = process.env.TIANYAN_E2E_SCOPE === "map-place-creation-link-r4";
 const mapR5Only = process.env.TIANYAN_E2E_SCOPE === "map-tianyi-creation-start-r5";
-const tianyiR6Only = process.env.TIANYAN_E2E_SCOPE === "tianyi-creation-result-r6";
+const tianyiR6Only = process.env.TIANYAN_E2E_SCOPE === "tianyi-creation-result-r6" || process.env.TIANYAN_E2E_SCOPE === "tianyi-real-creation-r6";
+const tianyiR6LiveAcceptance = process.env.TIANYAN_E2E_SCOPE === "tianyi-real-creation-r6" && process.env.TIANYAN_TIANYI_REAL_CREATION_ACCEPTANCE === "1";
 const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
 const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
 const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
@@ -168,9 +169,9 @@ async function findAvailablePort(requestedPort, excludedPort) {
 }
 
 try {
-  ollamaFixture = mapRealAiLiveAcceptance ? null : await startProviderCatalogOllamaFixture();
+  ollamaFixture = mapRealAiLiveAcceptance || tianyiR6LiveAcceptance ? null : await startProviderCatalogOllamaFixture();
   const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
-  if (mapRealAiLiveAcceptance) {
+  if (mapRealAiLiveAcceptance || tianyiR6LiveAcceptance) {
     Object.assign(apiEnvironment, { NODE_ENV: "development", PROVIDER_MODE: "REAL_PROVIDER_ALLOWED", REAL_PROVIDER_CREDENTIALS_USED: "1", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: "1", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "0" });
     delete apiEnvironment.TIANYAN_PROVIDER_APP_DATA_ROOT;
   }
@@ -208,6 +209,7 @@ try {
   }
   const page = await browserContext.newPage();
   const consoleProblems = [];
+  const groundedAnswerResponses = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
     const problem = `${message.type()}: ${message.text()}`;
@@ -220,6 +222,11 @@ try {
   });
   page.on("pageerror", (error) => consoleProblems.push(error.message));
   page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && !(expectedMapCompensationConflict && response.url().endsWith("/maps/proposals/compensate")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("response", (response) => {
+    if (response.status() === 200 && response.url().endsWith("/model-service/tianyi-grounded-answer")) {
+      groundedAnswerResponses.push(response.text().then(parseGroundedAnswerSse).catch(() => null));
+    }
+  });
 
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
@@ -237,7 +244,7 @@ try {
   } else if (mapR5Only) {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
-    await assertMapPlaceCreationLinkR4(page, consoleProblems, true);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems, true, groundedAnswerResponses);
   } else if (tianyiR6Only) {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
@@ -2715,10 +2722,11 @@ async function assertMapAuthorWorkspaceR3(page, consoleProblems) {
   if(mapM3EvidenceDirectory)writeFileSync(path.join(mapM3EvidenceDirectory,"R3地图作者身份.json"),JSON.stringify({sourceRevision:runRevision,projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,mapId:reopened.id,contentHash:reopened.contentHash,revision:reopened.revision,editableDrawingCount:10,editableLabelCount:1,realProviderDispatches:0,proposalSource:"local-fixture-not-real-model"},null,2));
 }
 
-async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiStart = false) {
+async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiStart = false, groundedAnswerResponses = []) {
   assert.ok(mapM2Fixture, "R4 needs the isolated map and location fixture.");
   const base = `${apiUrl}/__local/story-studio`;
   const verifyCreativeResults = tianyiR6Only;
+  const liveCreation = tianyiR6LiveAcceptance;
   const evidenceDirectory = verifyCreativeResults ? tianyiR6EvidenceDirectory : verifyTianyiStart ? mapR5EvidenceDirectory : mapR4EvidenceDirectory;
   const capture = async (name) => { if (evidenceDirectory) { mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
   const visual = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents;
@@ -2775,19 +2783,26 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     await capture("02-R5地图进入天意首屏-1440x900.png");
     const locationRef = page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" });
     await locationRef.waitFor();
-    await locationRef.getByRole("button", { name: "移除", exact: true }).click();
-    assert.equal(await page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" }).count(), 0, "Removing a location reference only removes it from this request context.");
-    await page.getByRole("button", { name: "三个场景构想", exact: true }).click();
-    await composer.locator("textarea").fill(`${await composer.locator("textarea").inputValue()} 请突出河道与山路的交汇。`);
+    if (liveCreation) {
+      await composer.locator("textarea").fill("根据我选择的雾港资料，提出三个不同的场景构想，每个约80至120字。新增人物、组织和历史作为创意建议，不要冒充已有设定。请分别给出标题和核心冲突，不修改任何正式资料。");
+    } else {
+      await locationRef.getByRole("button", { name: "移除", exact: true }).click();
+      assert.equal(await page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" }).count(), 0, "Removing a location reference only removes it from this request context.");
+      await page.getByRole("button", { name: "三个场景构想", exact: true }).click();
+      await composer.locator("textarea").fill(`${await composer.locator("textarea").inputValue()} 请突出河道与山路的交汇。`);
+    }
     const retainedDraft = await composer.locator("textarea").inputValue();
     await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
     await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
     await page.locator(".tianyi-map-composer").waitFor();
     assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), retainedDraft, "The per-project Work draft survives the map round trip.");
     await page.locator(".tianyi-map-composer .tianyi-send").click();
-    await page.getByLabel("本问来源回执").waitFor();
-    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed local-fixture answer clears only the submitted draft.");
+    await page.getByLabel("本问来源回执").waitFor({ timeout: liveCreation ? 120_000 : 30_000 });
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed answer clears only the submitted draft.");
     if (verifyCreativeResults) {
+      if (liveCreation) {
+        await assertTianyiRealCreationResult(page, context, composer, capture);
+      } else {
       const result = page.getByLabel("地图创作请求结果");
       await result.getByText("雾港的三个场景构想", { exact: true }).waitFor();
       await result.getByText(/潮闸停灯/u).waitFor();
@@ -2815,6 +2830,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
       assert.match(await reopenedCreativeDraft.inputValue(), /修改后的第二个构想：山路来信/u, "The per-project Creative draft survives a full page reopen.");
       await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
       await page.getByLabel("地图创作请求结果").getByText("修改后的第二个构想：山路来信", { exact: true }).waitFor();
+      }
     }
     await page.setViewportSize({ width: 1152, height: 720 });
     await page.getByLabel("地图创作请求结果").scrollIntoViewIfNeeded();
@@ -2858,13 +2874,85 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
   if (verifyCreativeResults) {
     await gotoProduct(page, `${baseUrl}/tianyi?tianyiLane=work`);
     assert.equal(await page.locator(".tianyi-map-creation-start").count(), 0, "The ordinary Tianyi entry does not invent a map source.");
-    const ordinaryComposer = page.locator(".tianyi-workspace-composer");
-    await ordinaryComposer.locator("textarea").fill("整理我接下来需要补充的地点创作问题，不要写入事实。");
-    await ordinaryComposer.getByRole("button", { name: "发送到当前工作", exact: true }).click();
-    await page.getByLabel("本问来源回执").getByText("围绕当前资料的讨论", { exact: true }).waitFor();
+    if (!liveCreation) {
+      const ordinaryComposer = page.locator(".tianyi-workspace-composer");
+      await ordinaryComposer.locator("textarea").fill("整理我接下来需要补充的地点创作问题，不要写入事实。");
+      await ordinaryComposer.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+      await page.getByLabel("本问来源回执").getByText("围绕当前资料的讨论", { exact: true }).waitFor();
+    }
   }
   assert.deepEqual(consoleProblems, []);
-  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, verifyCreativeResults ? "R6天意创作结果身份.json" : verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: 0, requestEvidence: verifyCreativeResults ? "substantive-local-content-revision-save-reopen-and-failure" : verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: "normal-page-isolated-fixture" }, null, 2));
+  if (evidenceDirectory) {
+    const groundedResults = (await Promise.all(groundedAnswerResponses)).filter(Boolean);
+    writeFileSync(path.join(evidenceDirectory, verifyCreativeResults ? "R6天意创作结果身份.json" : verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: liveCreation ? groundedResults.reduce((sum, item) => sum + Number(item.providerDispatchCount || 0), 0) : 0, provider: liveCreation ? { providerId: process.env.TIANYAN_REAL_PROVIDER_ID || null, modelId: process.env.TIANYAN_REAL_PROVIDER_MODEL_ID || null } : null, requestEvidence: liveCreation ? "two-turn-real-provider-creation-and-named-revision" : verifyCreativeResults ? "substantive-local-content-revision-save-reopen-and-failure" : verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: liveCreation ? "normal-page-isolated-real-provider" : "normal-page-isolated-fixture", results: groundedResults.map((item) => ({ responseMessageId: item.responseMessageId, providerDispatchCount: item.providerDispatchCount, usage: item.usage, summary: item.answer?.summary })) }, null, 2));
+  }
+}
+
+async function assertTianyiRealCreationResult(page, context, composer, capture) {
+  const result = page.getByLabel("地图创作请求结果");
+  const body = result.locator(".tianyi-creation-result-body");
+  await body.waitFor({ timeout: 120_000 });
+  const firstText = (await body.innerText()).trim();
+  const ideas = extractNumberedCreationIdeas(firstText);
+  assert.equal(ideas.length, 3, `The first real answer must contain exactly three distinguishable numbered ideas. Actual=${firstText}`);
+  assert.ok(ideas.every((idea) => idea.title && idea.text.length >= 20), `Each real idea must have a readable title and body. Actual=${JSON.stringify(ideas)}`);
+  await result.scrollIntoViewIfNeeded();
+  await capture("01-R6真实创作正文-1440x900.png");
+
+  const selected = ideas[1];
+  await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
+  const continuedDraft = await composer.locator("textarea").inputValue();
+  assert.match(continuedDraft, /回复（event\./u, "The real continuation targets the durable response message.");
+  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.title), "u"), "The real continuation includes the selected idea title from the first answer.");
+  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.text.slice(0, Math.min(24, selected.text.length))), "u"), "The real continuation includes the selected idea body rather than only an ordinal.");
+  const revisionRequest = `只修改《${selected.title}》这个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`;
+  await composer.locator("textarea").fill(`${continuedDraft}\n\n${revisionRequest}`);
+  await composer.locator(".tianyi-send").click();
+  await page.waitForFunction(({ selector, previous }) => document.querySelector(selector)?.textContent?.trim() !== previous, { selector: ".tianyi-map-entry-result .tianyi-creation-result-body", previous: firstText }, { timeout: 120_000 });
+  const revisedText = (await body.innerText()).trim();
+  assert.notEqual(revisedText, firstText, "The second real answer appends a distinct revision instead of replaying the first answer.");
+  assert.match(revisedText, new RegExp(escapeRegExp(selected.title), "u"), "The second real answer names the selected idea.");
+  assert.ok(!ideas.filter((_, index) => index !== 1).every((idea) => revisedText.includes(idea.title)), `The second real answer must not rewrite all three ideas. Actual=${revisedText}`);
+  assert.equal(await page.locator(".tianyi-work-history .is-tianyi").count() >= 2, true, "The original and revised real replies remain separately traceable.");
+  await result.getByRole("button", { name: "保存为创意草稿", exact: true }).click();
+  await page.getByRole("status").getByText(/已保存到当前作品的创意编辑草稿；仅保存在当前浏览器/u).waitFor();
+  await result.scrollIntoViewIfNeeded();
+  await capture("02-R6真实续改与本机草稿-1440x900.png");
+
+  await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+  await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+  await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
+  const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
+  await creativeDraft.waitFor();
+  assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The selected real revision opens in the existing Creative composer.");
+  assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(revisedText.slice(0, Math.min(32, revisedText.length))), "u"), "The local Creative draft contains the exact revised real answer.");
+  await page.reload();
+  const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");
+  await reopenedCreativeDraft.waitFor();
+  assert.match(await reopenedCreativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The real revision survives a full application reopen in the current browser profile.");
+  await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
+  await page.getByLabel("地图创作请求结果").getByText(new RegExp(escapeRegExp(selected.title), "u")).first().waitFor();
+}
+
+function extractNumberedCreationIdeas(text) {
+  const markers = [...text.matchAll(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:构想\s*)?([123一二三])[.)、：:]\s*(?:《([^》\n]+)》|([^：:\n]+))?\s*[:：]?/gu)];
+  if (markers.length !== 3) return [];
+  return markers.map((marker, index) => {
+    const start = (marker.index || 0) + marker[0].length;
+    const end = index + 1 < markers.length ? markers[index + 1].index : text.length;
+    return { title: String(marker[2] || marker[3] || "").trim(), text: text.slice(start, end).trim() };
+  });
+}
+
+function parseGroundedAnswerSse(source) {
+  const complete = source.split(/\n\n/u).map((block) => block.trim()).find((block) => /^event:\s*complete$/mu.test(block));
+  if (!complete) return null;
+  const data = complete.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+  return data ? JSON.parse(data) : null;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 async function assertMapM3AuthorExperience(page, consoleProblems) {
