@@ -2927,7 +2927,7 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByText("一层入口", { exact: true }).waitFor();
   await capture("02-fog-harbor-building.png");
   await page.getByRole("button", { name: "北湾作者地图", exact: true }).click();
-  await page.getByRole("button", { name: "进入雾港", exact: true }).waitFor();
+  await page.getByRole("button", { name: /雾港 · 局部地图.*局部图位置/u }).waitFor();
 
   await openMapMenu(page);
   await page.getByLabel("新地图起点").selectOption("starfield");
