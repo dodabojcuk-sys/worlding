@@ -2279,19 +2279,24 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   assert.equal(afterManual.content.drawings.find((item) => item.id === "drawing.ai-road").width, 5, "Protected compensation never overwrites the later author edit.");
   await capture("14-后续人工修改受补偿保护-1440x900.png");
 
-  await panel.getByRole("button", { name: "基于当前地图新请求", exact: true }).click();
-  await panel.getByRole("tab", { name: "区域内新增", exact: true }).click();
-  await panel.getByLabel("可编辑图层").selectOption("layer.main");
-  await panel.getByLabel("告诉天意要怎样改").fill("在明确框选范围内新增一个北侧观察点，保留所有既有内容。");
-  await page.setViewportSize({ width: 1152, height: 720 });
-  await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
-  await panel.getByText("待作者审阅", { exact: true }).waitFor();
-  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
-  assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /新增/u : /新增[\s\S]*北侧观察点/u);
-  await capture("15-真实AI区域新增待审-1152x720.png");
-  await panel.getByRole("button", { name: "拒绝", exact: true }).click();
-  const rejected = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
-  assert.equal(rejected.content.drawings.some((item) => item.label === "北侧观察点"), false, "Rejecting the second proposal leaves the formal map unchanged.");
+  // R2 spends at most one live dispatch on the corrected explicit-area case.
+  // The bounded local Provider still covers the independent region-add/reject
+  // path without consuming a second paid call merely to refresh UI evidence.
+  if (!mapRealAiLiveAcceptance) {
+    await panel.getByRole("button", { name: "基于当前地图新请求", exact: true }).click();
+    await panel.getByRole("tab", { name: "区域内新增", exact: true }).click();
+    await panel.getByLabel("可编辑图层").selectOption("layer.main");
+    await panel.getByLabel("告诉天意要怎样改").fill("在明确框选范围内新增一个北侧观察点，保留所有既有内容。");
+    await page.setViewportSize({ width: 1152, height: 720 });
+    await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
+    await panel.getByText("待作者审阅", { exact: true }).waitFor();
+    await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+    assert.match(await panel.textContent(), /新增[\s\S]*北侧观察点/u);
+    await capture("15-本地夹具区域新增待审-1152x720.png");
+    await panel.getByRole("button", { name: "拒绝", exact: true }).click();
+    const rejected = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+    assert.equal(rejected.content.drawings.some((item) => item.label === "北侧观察点"), false, "Rejecting the second proposal leaves the formal map unchanged.");
+  }
   if (!mapRealAiLiveAcceptance) assert.equal(ollamaFixture.calls.chat, 2, "The bounded browser story performs exactly two model-boundary sends.");
   if (mapRealAiEvidenceDirectory) {
     const recordedProposals = await getFixture(`${base}/maps/proposals?projectId=${encodeURIComponent(fixtureProjectId)}&relativePath=${encodeURIComponent(mapAiFixture.map.relativePath)}`);
