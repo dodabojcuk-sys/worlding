@@ -1,0 +1,13 @@
+3818a2c2df1db5832d7ada708970106b9b8cf509924974d381817baea4fc34a5  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/calibration-r1-continuous-author-flow.webm
+7bce41a96a530864ed5f962e02f30c3733851e76bcfda1961a336e939e4d6f89  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/01-map-manager-list.png
+b128487528f79d8eccba7950679f4d47761a3bd4fde45f2ff30aa3d9185680ae  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02-spatial-placement-overview.png
+7ee06db936940d7950e19ecf43e50b1e78c9b56287796f1f0e384b60d4b7e699  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02a-range-placement-reopened.png
+f1c780f5e7f4c95797de2b4f28d88facf18de30007e00ee795a63dea1e7bc41d  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02b-range-placement-editor.png
+3ba7add2e3818c4ae3698c65ba342ac679bfeeb3d1c851f81f6fdf37241edd94  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02c-calibration-preview.png
+d106b7990c3187edb27c5d5d4b87f05543670cfd219884b128d0ae8813d2b2f6  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02d-calibration-reopened-parent-map.png
+0afaeb045597b23bf8a2458edb1446f6b03cd43fecbf8d46cefa417c1313b2d2  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/02e-calibration-1152x720.png
+4b5e75974913c9a51d0096f3e7015fc1efca1ab5b43e2893330b986c1cc972bb  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/03-connection-visible-from-target.png
+a43e1ee9d09a92b84d965f172332b8b9e0f973e440a81baab8c31b286a0d9d9a  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/04-exact-map-history.png
+716b0c71362eae4c50b0282a53e23160923ede49675ebb1c06dd613dcc92686a  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/05-ai-structured-proposal.png
+3297fbc226bbfd1cb9431f5f1960e3023ea265d981f9862aed81aed04ebe1811  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/06-ai-proposal-accepted.png
+fdea5cc9055e800e7bf0bb135f5660ac5acd7722c673fd9a5acc99c89aa4b309  data/2026-09-13_天衍地图管理与AI共同编辑M4/calibration-r1-final/07-ai-proposal-compensated.png
