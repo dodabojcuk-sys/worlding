@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createStoryWorkspace } from "../../src/storyWorkspace/storyWorkspaceRepository.mjs";
+import { createStoryWorkspace, createWorkspaceNote } from "../../src/storyWorkspace/storyWorkspaceRepository.mjs";
 import {
   createVisualDocument,
   duplicateMapDocument,
@@ -33,6 +33,22 @@ function save(rootPath: string, map: any, content: any) {
   assert.equal(result.ok, true);
   return result.document;
 }
+
+test("map drawings preserve an explicit optional location reference without turning labels into facts", () => {
+  const root = fixture();
+  try {
+    let map = createVisualDocument(root, { type: "map", title: "北湾地点图示" });
+    const location = createWorkspaceNote(root, { type: "location", title: "雾港", status: "active", body: "雾港是北湾的港口。" });
+    const visualOnly = { id: "drawing.fog-harbor", kind: "symbol", subtype: "settlement", layerId: "layer.main", points: [{ x: 62, y: 58 }], strokeColor: "#315f52", fillColor: "#d8eee8", fillOpacity: .85, width: 2, size: 4, seed: 1, rotation: 0, label: "雾港", objectId: null };
+    map = save(root, map, { ...map.content, drawings: [visualOnly] });
+    assert.equal(readVisualDocument(root, map.relativePath).content.drawings[0].objectId, null, "a named symbol remains a visual-only object until the author explicitly links it");
+
+    map = save(root, map, { ...map.content, drawings: [{ ...visualOnly, objectId: location.id }] });
+    assert.equal(readVisualDocument(root, map.relativePath).content.drawings[0].objectId, location.id);
+    map = save(root, map, { ...map.content, drawings: [{ ...visualOnly, objectId: null }] });
+    assert.equal(readVisualDocument(root, map.relativePath).content.drawings[0].objectId, null, "unlinking removes only the optional reference and keeps the drawing");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test("map placements keep directory-independent point, range and calibrated identities without parent overwrite", () => {
   const root = fixture();
