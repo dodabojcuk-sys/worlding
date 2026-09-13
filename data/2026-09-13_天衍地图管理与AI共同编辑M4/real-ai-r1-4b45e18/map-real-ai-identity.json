@@ -1,0 +1,36 @@
+{
+  "sourceRevision": "4b45e18bf1e4623444cbb48c1198ca58cc1018b8",
+  "projectId": "r061-e2e-d563c6816feb4d6ba72f68c30fcf49b4",
+  "workVersionId": "work-version.root.4948322a619a1cfa8a528a4a29de0e83",
+  "mapId": "map.北湾-AI-协作隔离图",
+  "realProvider": true,
+  "providerDispatches": 2,
+  "proposals": [
+    {
+      "operationId": "operation.map-real-ai.369aacab-d2d1-4a5f-8fdd-012134d81fc4",
+      "status": "rejected",
+      "generation": {
+        "kind": "real-provider",
+        "providerId": "radeon-cloud",
+        "modelId": "self-dploy/DeepSeek-V4-Flash-Vision-Exp",
+        "providerDispatches": 1,
+        "sessionId": "session.000001",
+        "workVersionId": "work-version.root.4948322a619a1cfa8a528a4a29de0e83",
+        "receiptEnvelopeId": null
+      }
+    },
+    {
+      "operationId": "operation.map-real-ai.f5dedc00-cfe2-454a-a1c4-5e592b0a32fb",
+      "status": "accepted",
+      "generation": {
+        "kind": "real-provider",
+        "providerId": "radeon-cloud",
+        "modelId": "self-dploy/DeepSeek-V4-Flash-Vision-Exp",
+        "providerDispatches": 1,
+        "sessionId": "session.000001",
+        "workVersionId": "work-version.root.4948322a619a1cfa8a528a4a29de0e83",
+        "receiptEnvelopeId": null
+      }
+    }
+  ]
+}
