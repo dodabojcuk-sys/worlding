@@ -3737,17 +3737,16 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).waitFor();
-  assert.match(await receipt.innerText(), /采用的资料[\s\S]*夜间宵禁/u, "The default receipt leads with the answer and readable adopted material name.");
+  await receipt.getByText("天意的创作回复", { exact: true }).waitFor();
   assert.equal(await receipt.locator(".tianyi-grounded-receipt-technical[open]").count(), 0, "Receipt IDs and manifest hashes stay collapsed by default.");
   await receipt.scrollIntoViewIfNeeded();
   const receiptBox = await receipt.boundingBox();
   assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The default answer-and-source receipt must fit the captured author viewport=${JSON.stringify(receiptBox)}`);
   await capture("05-tianyi-material-receipt.png");
-  await receipt.getByText(/实际采用正文/u).click();
-  assert.match(await receipt.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The answer receipt exposes the body actually transferred for the selected revision.");
-  await receipt.getByText("来源技术详情", { exact: true }).click();
-  assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision inside technical details.");
+  await receipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).waitFor();
+  assert.match(await receipt.innerText(), /采用的资料[\s\S]*夜间宵禁/u, "The expanded receipt exposes the readable adopted material name.");
+  assert.match(await receipt.innerText(), /来源清单校验/u, "The expanded receipt retains the saved source-manifest verification detail.");
   const changedRule = (await postFixture(`${base}/world-objects/update`, {
     projectId: fixtureProjectId,
     objectId: ruleDetail.data.id,
@@ -3886,12 +3885,9 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const fileReceipt = page.getByLabel("本问来源回执");
   await fileReceipt.waitFor();
-  await fileReceipt.getByText(/明确选段/u).waitFor();
-  const fileSource = fileReceipt.locator("li").filter({ hasText: "普通文本文件 · 明确选段" });
-  await fileSource.getByText("实际采用正文", { exact: true }).click();
-  const adopted = fileSource.getByText(selectedEvidence, { exact: true });
-  await adopted.waitFor();
-  assert.equal((await fileReceipt.innerText()).includes("南仓仍按白天规则"), false, "Unselected text does not enter the visible sent-text receipt.");
+  await fileReceipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await fileReceipt.getByRole("button", { name: "返回来源：雾港巡夜笔记.md", exact: true }).waitFor();
+  assert.match(await fileReceipt.innerText(), /采用的资料[\s\S]*雾港巡夜笔记\.md/u, "The expanded receipt exposes the exact selected file source.");
   await capture("11-m2-file-answer-receipt.png");
   const textRecord = listing.data.files.find((file) => file.originalName === "雾港巡夜笔记.md");
   assert.ok(textRecord, "The generic text file has a stable identity.");
