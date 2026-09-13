@@ -215,6 +215,7 @@ try {
     await setupMapM2Fixture();
     await assertMapM3AuthorExperience(page, consoleProblems);
     await assertMapM4ManagementAiEditing(page, consoleProblems);
+    await assertMapAuthorWorkspaceR2(page, consoleProblems);
   } else if (worldMaterialsOnly) {
     await setupWorldMaterialsFixture();
     await assertWorldMaterialsM1(page, consoleProblems);
@@ -2186,6 +2187,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.mouse.down();
   await page.mouse.move(panBox.x + 220, panBox.y + 204);
   await page.mouse.up();
+  await page.locator('details[aria-label="故事观察位置"] > summary').click();
   const observationTabs = page.getByRole("tablist", { name: "选择故事观察位置", exact: true });
   const closedTab = observationTabs.getByRole("tab", { name: /北闸封闭/u });
   const reopenedTab = observationTabs.getByRole("tab", { name: /北闸恢复通行/u });
@@ -2578,19 +2580,23 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await capture("01-map-manager-list.png");
   const northBayCard = manager.getByRole("heading", { name: "北湾作者地图", exact: true }).locator("xpath=ancestor::article");
   const copyResponsePromise = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/maps/duplicate"));
+  await northBayCard.locator("summary").click();
   await northBayCard.getByRole("button", { name: /复制/u }).click();
   const copyResponse = await copyResponsePromise;
   assert.equal(copyResponse.status(), 201, `Map copy failed: ${await copyResponse.text()}`);
   await page.getByRole("status").getByText(/地图副本已建立/u).waitFor();
   const copiedCard = manager.getByRole("heading", { name: "北湾作者地图 副本", exact: true }).locator("xpath=ancestor::article");
   await copiedCard.waitFor();
+  await copiedCard.locator("summary").click();
   await copiedCard.getByRole("button", { name: /归档/u }).click();
   await page.getByRole("status").getByText(/地图已归档/u).waitFor();
+  await manager.getByText("管理选项", {exact:true}).click();
   await manager.getByRole("checkbox", { name: /显示已归档/u }).check();
+  await copiedCard.locator("summary").click();
   await copiedCard.getByRole("button", { name: /恢复/u }).click();
   await page.getByRole("status").getByText(/地图已恢复/u).waitFor();
   await manager.getByRole("button", { name: "空间总览", exact: true }).click();
-  await manager.getByText("尚未定位", { exact: true }).waitFor();
+  await manager.getByText("可放入当前父图", { exact: true }).waitFor();
   await capture("02-spatial-placement-overview.png");
 
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
@@ -2614,6 +2620,13 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await pointEditor.getByRole("button", { name: "改为坐标校准", exact: true }).click();
   const calibrationPanel = page.getByRole("region", { name: "坐标校准" });
   await calibrationPanel.waitFor();
+  for (const [side, x, y] of [["子图",10,10],["父图",60,20],["子图",50,10],["父图",60,36]]) {
+    const surface=calibrationPanel.getByLabel(side+"对应点选择画布");
+    const box=await surface.boundingBox();
+    assert.ok(box && box.width>400 && box.height>230,"Each correspondence is picked on a recognizable map, not a tiny preview.");
+    await surface.click({position:{x:box.width*x/100,y:box.height*y/100}});
+  }
+  await calibrationPanel.getByText("高级：精确坐标调整",{exact:true}).click();
   await calibrationPanel.getByLabel("子图点 A X").fill("10");
   await calibrationPanel.getByLabel("子图点 A Y").fill("10");
   await calibrationPanel.getByLabel("子图点 B X").fill("50");
@@ -2626,22 +2639,17 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   const calibrationPreview = calibrationPanel.getByLabel("校准实际对应预览");
   assert.equal(await calibrationPreview.getAttribute("data-third-x"), "54.0000", "An independent third child point projects through the preview transform.");
   assert.equal(await calibrationPreview.getAttribute("data-third-y"), "28.0000", "The third-point preview proves more than the two fitted controls.");
+  await calibrationPanel.getByText("高级：精确坐标调整",{exact:true}).click();
   await capture("02c-calibration-preview.png");
   await page.setViewportSize({ width: 1152, height: 720 });
-  const compactCalibrationGeometry = await page.evaluate(() => {
-    const panel = document.querySelector(".map-calibration-panel")?.getBoundingClientRect();
-    const managerHeader = document.querySelector(".map-manager > header")?.getBoundingClientRect();
-    const editor = document.querySelector(".map-manager-spatial aside")?.getBoundingClientRect();
-    if (!panel || !managerHeader || !editor) throw new Error("Calibration layout surfaces are unavailable.");
-    return { panel: { left: panel.left, right: panel.right, top: panel.top }, headerBottom: managerHeader.bottom, editorLeft: editor.left };
-  });
-  assert.ok(compactCalibrationGeometry.panel.top >= compactCalibrationGeometry.headerBottom - 1, `The 1152x720 calibration panel must not cover the manager header: ${JSON.stringify(compactCalibrationGeometry)}`);
-  assert.ok(compactCalibrationGeometry.panel.right <= compactCalibrationGeometry.editorLeft + 1, `The 1152x720 calibration panel must leave save and cancel reachable: ${JSON.stringify(compactCalibrationGeometry)}`);
+  const compactCalibrationGeometry = await calibrationPanel.boundingBox();
+  const saveGeometry=await calibrationPanel.getByRole("button",{name:"保存定位",exact:true}).boundingBox();
+  assert.ok(compactCalibrationGeometry && saveGeometry && saveGeometry.y+saveGeometry.height<=720,"Alignment task actions remain visible at 1152x720.");
   await capture("02e-calibration-1152x720.png");
   await page.setViewportSize({ width: 1440, height: 900 });
   const beforeCalibrationSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const beforeCalibrationRevision = beforeCalibrationSave.data.documents.find((document) => document.id === northBay.id).revision;
-  await pointEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await calibrationPanel.getByRole("button", { name: "保存定位", exact: true }).click();
   await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
   const afterCalibrationSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const calibratedParent = afterCalibrationSave.data.documents.find((document) => document.id === northBay.id);
@@ -2657,16 +2665,19 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
   await page.getByRole("button", { name: /编辑 雾港 · 局部地图 的坐标校准/u }).click();
   const reopenedCalibration = page.getByRole("region", { name: "坐标校准" });
+  await reopenedCalibration.getByText("高级：精确坐标调整",{exact:true}).click();
   assert.equal(await reopenedCalibration.getByLabel("父图点 A X").inputValue(), "60", "Reload reopens the persisted calibration controls.");
   await reopenedCalibration.getByLabel("父图点 B X").fill("60");
   await reopenedCalibration.getByLabel("父图点 B Y").fill("20");
   await reopenedCalibration.getByRole("alert").getByText(/父图的两个对应点不能重合/u).waitFor();
-  assert.equal(await pointEditor.getByRole("button", { name: "保存定位", exact: true }).isDisabled(), true, "Degenerate controls cannot replace the saved calibration.");
-  await pointEditor.getByRole("button", { name: "取消", exact: true }).click();
+  assert.equal(await reopenedCalibration.getByRole("button", { name: "保存定位", exact: true }).isDisabled(), true, "Degenerate controls cannot replace the saved calibration.");
+  await reopenedCalibration.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: /编辑 雾港 · 局部地图 的坐标校准/u }).click();
+  await reopenedCalibration.getByText("高级：精确坐标调整",{exact:true}).click();
   assert.equal(await page.getByRole("region", { name: "坐标校准" }).getByLabel("父图点 B Y").inputValue(), "36", "Cancel restores the prior saved calibration after invalid edits.");
-  await pointEditor.getByRole("button", { name: "取消", exact: true }).click();
+  await reopenedCalibration.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
+  await page.getByRole("button",{name:"预览子图内容",exact:true}).click();
   const calibratedOverlay = page.getByLabel("雾港 · 局部地图 校准叠加");
   await calibratedOverlay.waitFor();
   const overlayScale = await calibratedOverlay.getAttribute("data-calibration-scale");
@@ -2679,11 +2690,11 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByRole("button", { name: "空间总览", exact: true }).click();
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
 
-  const copiedUnlocated = manager.getByText("北湾作者地图 副本", { exact: true }).locator("xpath=parent::div");
+  const copiedUnlocated = manager.getByText("北湾作者地图 副本", { exact: true }).locator("xpath=parent::section");
   await copiedUnlocated.getByRole("button", { name: "建立范围", exact: true }).click();
   const spatialEditor = page.getByRole("region", { name: "空间定位编辑器" });
   await spatialEditor.waitFor();
-  await spatialEditor.getByText(/父图：北湾作者地图 · 范围定位/u).waitFor();
+  await spatialEditor.getByText(/父图：北湾作者地图/u).waitFor();
   await spatialEditor.getByRole("button", { name: "保存定位", exact: true }).click();
   await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
   const rangePlacement = page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u });
@@ -2694,7 +2705,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByRole("status").getByText(/已取消空间定位编辑/u).waitFor();
   await rangePlacement.click();
   assert.equal(await spatialEditor.getByLabel("定位水平位置").inputValue(), savedX, "Cancel restores the persisted placement rather than the preview.");
-  const originalVertexCount = await spatialEditor.getByLabel(/范围点 \d+ X/u).count();
+  const originalVertexCount = await page.getByRole("button", {name:/范围控制点 \d+/u}).count();
   assert.ok(originalVertexCount >= 3, "The existing range exposes its original polygon vertices.");
   await spatialEditor.getByLabel("定位水平位置").fill("68");
   await spatialEditor.getByLabel("定位垂直位置").fill("36");
@@ -2715,7 +2726,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
   await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).click();
   await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel("定位水平位置").waitFor();
-  assert.equal(await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel(/范围点 \d+ X/u).count(), originalVertexCount, "Reload reopens the saved polygon without rectangularizing it.");
+  assert.equal(await page.getByRole("button", {name:/范围控制点 \d+/u}).count(), originalVertexCount, "Reload reopens the saved polygon without rectangularizing it.");
   await capture("02b-range-placement-editor.png");
   await page.getByRole("region", { name: "空间定位编辑器" }).getByRole("button", { name: "取消", exact: true }).click();
   await capture("02a-range-placement-reopened.png");
@@ -2734,6 +2745,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   const protectedParent = afterStaleAttempt.data.documents.find((document) => document.id === northBay.id);
   assert.deepEqual(protectedParent.content.placements.find((placement) => placement.childMapId === spatialChild.id), concurrentPlacement, "A stale page does not overwrite the newer saved placement.");
   assert.ok(protectedParent.content.labels.some((label) => label.text === "并发作者修订"), "The newer author revision remains intact after the stale save rejection.");
+  await staleEditor.getByRole("button",{name:"取消",exact:true}).click();
   await page.reload();
   await page.getByRole("region", { name: "地图管理" }).waitFor();
 
@@ -2799,6 +2811,161 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   assert.ok(currentNorthBay.revision > northBay.revision, "Accepting and compensating the structured proposal create auditable newer map revisions.");
   assert.deepEqual(consoleProblems, [], "MAP-M4 normal author flow must not produce browser errors.");
   if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, runCodeSha: runRevision, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, calibration: { parentMapId: northBay.id, childMapId: fog.id, controlPoints: persistedCalibration.calibration, transform: persistedCalibration.transform, independentThirdPoint: { child: { x: 30, y: 25 }, parent: { x: 54, y: 28 } }, savedAtRevision: calibratedParent.revision }, spatialPlacement: { parentMapId: northBay.id, childMapId: spatialChild.id, kind: persistedRange.kind, vertexCount: persistedRange.bounds.length, savedAtRevision: spatialParent.revision }, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
+}
+
+async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
+  const capture = async (name) => { if (mapM4EvidenceDirectory) await page.screenshot({ path: path.join(mapM4EvidenceDirectory,name), fullPage:false }); };
+  await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
+  const manager=page.getByRole("region",{name:"地图管理"});
+  const readMaps=async()=> (await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.filter(d=>d.type==="map");
+  const createMap=async(template,title)=>{
+    if (!(await manager.isVisible())) await page.getByRole("button",{name:"地图管理",exact:true}).click();
+    await manager.getByLabel("新地图起点").selectOption(template);
+    await manager.getByRole("button",{name:"新建地图",exact:true}).click();
+    await page.getByRole("status").getByText(/地图起点已建立/u).waitFor();
+    await page.getByLabel("地图名称",{exact:true}).fill(title);
+    await page.getByLabel("地图名称",{exact:true}).blur();
+    await page.getByRole("status").getByText(/地图名称已保存/u).waitFor();
+    return (await readMaps()).find(m=>m.title===title);
+  };
+  const north=await createMap("geography","北湾区域图");
+  const fog=await createMap("blank","雾港街区图");
+  const stage=page.locator(".map-workbench-stage");
+  const clickStage=async(x,y)=>{const b=await stage.boundingBox();assert.ok(b);await page.getByLabel("地点示意图画布").click({position:{x:(b.x-(await page.getByLabel("地点示意图画布").boundingBox()).x)+b.width*x/100,y:(b.y-(await page.getByLabel("地点示意图画布").boundingBox()).y)+b.height*y/100}});};
+  const stroke=async(points,name)=>{
+    await page.getByRole("button",{name:"线条",exact:true}).click();
+    await page.getByLabel("绘图样式").selectOption("road");
+    for(const [x,y] of points)await clickStage(x,y);
+    await page.getByRole("button",{name:"完成这一笔",exact:true}).click();
+    await page.getByRole("status").getByText(/绘图已保存/u).waitFor();
+    await page.getByLabel("图示名称").fill(name);await page.getByLabel("图示名称").blur();
+    await page.getByRole("status").getByText(/图示名称已保存/u).waitFor();
+  };
+  await stroke([[20,50],[50,50],[80,50]],"临港街 · 西桥至东码头");
+  await stroke([[60,20],[60,50],[60,80]],"海关巷");
+  await page.getByRole("button",{name:"标记",exact:true}).click();
+  await page.getByLabel("绘图样式").selectOption("building");
+  await clickStage(60,35);
+  await page.getByRole("status").getByText(/符号已保存/u).waitFor();
+  await page.getByLabel("图示名称").fill("海关楼");await page.getByLabel("图示名称").blur();
+  await page.getByRole("status").getByText(/图示名称已保存/u).waitFor();
+  const room=await createMap("building","海关楼一层室内图 · 门厅、查验室与临港入口");
+  await page.getByRole("button",{name:"地图管理",exact:true}).click();
+  await capture("r2-01-atlas-1440x900.png");
+  const card=manager.getByRole("heading",{name:"北湾区域图",exact:true}).locator("xpath=ancestor::article");
+  await card.getByRole("button",{name:"空间视图",exact:true}).click();
+  const fogAvailable=manager.getByText("雾港街区图",{exact:true}).locator("xpath=parent::section");
+  await fogAvailable.getByRole("button",{name:"在图上放置",exact:true}).click();
+  const space=page.getByLabel("空间地图画布",{exact:true});
+  let box=await space.boundingBox();
+  await space.click({position:{x:box.width*.57,y:box.height*.48}});
+  const editor=page.getByRole("region",{name:"空间定位编辑器"});
+  assert.ok(Math.abs(Number(await editor.getByLabel("定位水平位置").inputValue())-57)<.3);
+  await editor.getByRole("button",{name:"改为范围",exact:true}).click();
+  await page.getByLabel("空间视口缩放").selectOption("1.5");
+  const handle=page.getByRole("button",{name:"范围控制点 1",exact:true});
+  const hb=await handle.boundingBox();box=await space.boundingBox();
+  await page.mouse.move(hb.x+hb.width/2,hb.y+hb.height/2);await page.mouse.down();await page.mouse.move(hb.x+hb.width/2-30,hb.y+hb.height/2-18,{steps:6});await page.mouse.up();
+  await handle.focus();await handle.press("ArrowLeft");
+  await page.getByLabel("选择地图",{exact:true}).selectOption(room.id);
+  assert.ok(await editor.isVisible(),"An unsaved spatial task blocks map navigation.");
+  await page.getByRole("status").getByText(/未保存/u).waitFor();
+  await capture("r2-02-range-handles-1440x900.png");
+  await editor.getByRole("button",{name:"保存定位",exact:true}).click();
+  await page.getByRole("status").getByText(/空间定位已保存/u).waitFor();
+  const rangeSaved=(await readMaps()).find(m=>m.id===north.id).content.placements.find(p=>p.childMapId===fog.id);
+  assert.equal(rangeSaved.bounds.length,4);
+  assert.ok(rangeSaved.bounds[0].x<46,"Pointer and keyboard edits move the original vertex under 150% viewport zoom.");
+  await page.getByRole("button",{name:"编辑 雾港街区图 的范围定位",exact:true}).press("Enter");
+  await editor.getByLabel("定位水平位置").fill("100");
+  const edgeVertices=await page.locator(".map-spatial-placement.is-selected polygon").getAttribute("points");
+  assert.ok(edgeVertices.split(" ").every(p=>Number(p.split(",")[0])<=100),"Moving to the edge constrains the whole original polygon.");
+  await editor.getByRole("button",{name:"取消",exact:true}).click();
+  assert.deepEqual((await readMaps()).find(m=>m.id===north.id).content.placements.find(p=>p.childMapId===fog.id),rangeSaved);
+  await page.getByRole("button",{name:"编辑 雾港街区图 的范围定位",exact:true}).press("Enter");
+  await editor.getByRole("button",{name:"改为坐标校准",exact:true}).click();
+  const alignment=page.getByRole("region",{name:"坐标校准"});
+  for(const [side,x,y] of [["子图",20,50],["父图",43,52],["子图",80,50],["父图",66,48]]) {
+    const canvas=alignment.getByLabel(side+"对应点选择画布");const b=await canvas.boundingBox();
+    if(side==="子图"&&x===20) {
+      await alignment.getByLabel("对齐视口缩放").selectOption("1.5");
+      await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down({button:"middle"});await page.mouse.move(b.x+b.width/2+15,b.y+b.height/2+10,{steps:4});await page.mouse.up({button:"middle"});
+    }
+    const [left,top,width,height]=(await canvas.getAttribute("viewBox")).split(" ").map(Number);
+    await canvas.click({position:{x:b.width*(x-left)/width,y:b.height*(y-top)/height}});
+    await alignment.getByRole("button",{name:"适配视图",exact:true}).click();
+    if(side==="子图"&&x===20)await capture("r2-03-correspondence-1440x900.png");
+  }
+  await page.setViewportSize({width:1152,height:720});
+  const preview=alignment.getByLabel("校准实际对应预览");const pb=await preview.boundingBox();
+  const sb=await alignment.getByRole("button",{name:"保存定位",exact:true}).boundingBox();
+  assert.ok(pb.width>500&&pb.height>300&&sb.y+sb.height<=720,"The compact alignment task retains a large map and visible actions.");
+  await capture("r2-04-alignment-1152x720.png");
+  await page.setViewportSize({width:1440,height:900});
+  await alignment.getByRole("button",{name:"保存定位",exact:true}).click();
+  await page.getByRole("status").getByText(/空间定位已保存/u).waitFor();
+  const saved=(await readMaps()).find(m=>m.id===north.id);
+  const cal=saved.content.placements.find(p=>p.childMapId===fog.id);
+  const radians=cal.transform.rotation*Math.PI/180;
+  const third={x:cal.transform.translateX+cal.transform.scale*(50*Math.cos(radians)-50*Math.sin(radians)),y:cal.transform.translateY+cal.transform.scale*(50*Math.sin(radians)+50*Math.cos(radians))};
+  assert.ok(Math.abs(third.x-54.5)<.3&&Math.abs(third.y-50)<.3,"The independent mid-street landmark matches the parent road, not just the two chosen controls.");
+  await page.reload();await manager.waitFor();await manager.getByRole("button",{name:"空间总览",exact:true}).click();
+  await page.getByLabel("空间总览父地图").selectOption(north.id);
+  await page.getByRole("button",{name:"编辑 雾港街区图 的坐标校准",exact:true}).click();
+  await alignment.getByRole("button",{name:"5. 叠加预览",exact:true}).click();
+  await alignment.getByRole("button",{name:"取消",exact:true}).click();
+  const fogPlaced=manager.locator("aside section").filter({has:page.getByText("雾港街区图",{exact:true})});
+  await fogPlaced.getByRole("button",{name:"进入子图",exact:true}).click();
+  await page.getByLabel("地点示意图画布").waitFor();
+  await page.getByRole("button",{name:"专注地图",exact:true}).click();
+  await stroke([[25,65],[45,65]],"沿河步道");
+  await page.getByRole("button",{name:"浏览",exact:true}).click();
+  await page.getByRole("button",{name:"放大地图",exact:true}).click();
+  const fogView=new URL(page.url()).searchParams.get("mapZoom");
+  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  const roomAvailable=manager.getByText(room.title,{exact:true}).locator("xpath=parent::section");
+  await roomAvailable.getByRole("button",{name:"在图上放置",exact:true}).click();
+  box=await space.boundingBox();await space.click({position:{x:box.width*.6,y:box.height*.35}});
+  await editor.getByRole("button",{name:"保存定位",exact:true}).click();await page.getByRole("status").getByText(/空间定位已保存/u).waitFor();
+  const roomPlaced=manager.locator("aside section").filter({has:page.getByText(room.title,{exact:true})});
+  await roomPlaced.getByRole("button",{name:"进入子图",exact:true}).click();
+  await page.getByRole("button",{name:"文字",exact:true}).click();await page.getByLabel("标注文字").fill("查验柜台");await clickStage(68,35);
+  await page.getByRole("status").getByText(/文字已保存/u).waitFor();
+  await capture("r2-05-interior-drawing-1440x900.png");
+  await page.setViewportSize({width:1152,height:720});
+  const compactCanvas=await page.getByLabel("地点示意图画布").boundingBox();
+  assert.ok(compactCanvas.width>400&&compactCanvas.height>300);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,"Long map titles and task tools do not create page-level horizontal overflow.");
+  await capture("r2-06-interior-1152x720.png");
+  await page.setViewportSize({width:1440,height:900});
+  await page.getByRole("button",{name:"返回父图空间视图",exact:true}).click();
+  assert.equal(await page.getByLabel("空间总览父地图").inputValue(),fog.id,"Interior return restores the street parent, not the first map.");
+  await page.getByLabel("选择地图",{exact:true}).selectOption(fog.id);
+  await page.getByRole("button",{name:"上层",exact:true}).click();
+  assert.match(page.url(),new RegExp(encodeURIComponent(north.id)));
+  await page.getByLabel("选择地图",{exact:true}).selectOption(fog.id);
+  assert.equal(new URL(page.url()).searchParams.get("mapZoom"),fogView,"Reopening the street preserves its author viewport.");
+  const raster = await page.evaluate(() => {
+    const canvas=document.createElement("canvas");canvas.width=1000;canvas.height=800;
+    const c=canvas.getContext("2d");c.fillStyle="#dce9e6";c.fillRect(0,0,1000,800);
+    c.fillStyle="#a7c8d2";c.fillRect(0,0,180,800);c.strokeStyle="#8d7350";c.lineWidth=8;
+    c.beginPath();c.moveTo(200,400);c.lineTo(800,400);c.stroke();
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.locator(".map-background-file-input").setInputFiles({name:"雾港岸线底图.png",mimeType:"image/png",buffer:Buffer.from(raster,"base64")});
+  await page.getByRole("status").getByText(/底图已保存/u).waitFor();
+  await page.getByText("底图变换",{exact:true}).click();
+  const backgroundControls=page.locator("details").filter({has:page.locator("summary").getByText("底图变换",{exact:true})});
+  await backgroundControls.getByLabel("水平位置",{exact:true}).fill("100");
+  await page.getByRole("status").getByText(/底图位置已保存/u).waitFor();
+  const backgroundTransform=await page.locator(".map-workbench-background image").getAttribute("transform");
+  assert.match(backgroundTransform,/translate\(10 0\)/u,"A 100 source-pixel displacement on a 1000px image is 10 map units, not 100 screen pixels.");
+  await page.getByRole("button",{name:"放大地图",exact:true}).click();
+  assert.equal(await page.locator(".map-workbench-background image").getAttribute("transform"),backgroundTransform);
+  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  assert.equal(await space.locator(".map-background-content image").getAttribute("transform"),backgroundTransform,"Single-map and spatial view consume the same background projection.");
+  assert.deepEqual(consoleProblems,[]);
+  if(mapM4EvidenceDirectory)writeFileSync(path.join(mapM4EvidenceDirectory,"map-r2-identity.json"),JSON.stringify({projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,runCodeSha:runRevision,northMapId:north.id,streetMapId:fog.id,interiorMapId:room.id,calibrationRevision:saved.revision,transform:cal.transform,independentThirdPoint:third,finalMaps:(await readMaps()).filter(m=>[north.id,fog.id,room.id].includes(m.id)).map(m=>({id:m.id,revision:m.revision,contentHash:m.contentHash})),realProviderDispatches:0},null,2));
 }
 
 async function setupWorldMaterialsFixture() {
@@ -2867,9 +3034,11 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   });
   await background.setInputFiles({ name: "mist-harbor-base.png", mimeType: "image/png", buffer: Buffer.from(mapPng, "base64") });
   await page.getByRole("status").getByText(/底图已保存/u).waitFor();
-  await page.waitForFunction(() => {
-    const image = document.querySelector(".map-workbench-background");
-    return image instanceof HTMLImageElement && image.complete && image.naturalWidth >= 900 && image.naturalHeight >= 500;
+  await page.waitForFunction(async () => {
+    const rendered = document.querySelector(".map-workbench-background image");
+    if (!(rendered instanceof SVGImageElement)) return false;
+    const image = new Image(); image.src = rendered.href.baseVal;
+    try { await image.decode(); return image.naturalWidth >= 900 && image.naturalHeight >= 500; } catch { return false; }
   });
   const visual = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const map = visual.data.documents.find((document) => document.type === "map");
