@@ -1,0 +1,36 @@
+{
+  "sourceRevision": "local-uncommitted",
+  "projectId": "r061-e2e-48fb34d4197943e690b0d13db7a3aece",
+  "workVersionId": "work-version.root.a3a22abeba14264c7108eb58f8a726b8",
+  "mapId": "map.北湾-AI-协作隔离图",
+  "realProvider": false,
+  "providerDispatches": 2,
+  "proposals": [
+    {
+      "operationId": "operation.map-real-ai.9af3d59e-e8a5-44cb-b556-a79319856a11",
+      "status": "rejected",
+      "generation": {
+        "kind": "real-provider",
+        "providerId": "vllm",
+        "modelId": "fixture/map-text-r1",
+        "providerDispatches": 1,
+        "sessionId": "session.000001",
+        "workVersionId": "work-version.root.a3a22abeba14264c7108eb58f8a726b8",
+        "receiptEnvelopeId": null
+      }
+    },
+    {
+      "operationId": "operation.map-real-ai.2aeb780b-bc63-4b3b-ad6f-428e5085a0cf",
+      "status": "accepted",
+      "generation": {
+        "kind": "real-provider",
+        "providerId": "vllm",
+        "modelId": "fixture/map-text-r1",
+        "providerDispatches": 1,
+        "sessionId": "session.000001",
+        "workVersionId": "work-version.root.a3a22abeba14264c7108eb58f8a726b8",
+        "receiptEnvelopeId": null
+      }
+    }
+  ]
+}
