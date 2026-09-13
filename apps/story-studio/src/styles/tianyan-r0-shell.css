@@ -1104,6 +1104,32 @@ input:focus-visible {
 .tianyi-map-context-preview article small, .tianyi-map-context-preview article p { color: var(--color-text-muted); }
 .tianyi-map-context-preview pre { max-height: 10rem; margin: 0; padding: .5rem; overflow: auto; color: var(--color-text); background: var(--color-workspace-background); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
 .tianyi-map-context-preview button { justify-self: start; min-height: 2rem; padding-inline: .6rem; color: var(--color-accent); background: var(--color-workspace-background); border: 1px solid var(--color-accent); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.tianyi-map-creation-start { display: grid; gap: .8rem; padding: .9rem; background: color-mix(in srgb, var(--color-accent-soft) 22%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 34%, var(--color-border)); border-radius: var(--radius-md); }
+.tianyi-map-creation-start > header { display: flex; align-items: start; justify-content: space-between; gap: .8rem; }
+.tianyi-map-creation-start h2, .tianyi-map-creation-start p { margin: 0; }
+.tianyi-map-creation-start > header small, .tianyi-map-reference-strip small, .tianyi-map-reference-strip > p, .tianyi-map-composer-actions small { color: var(--color-text-muted); }
+.tianyi-map-creation-start button { min-height: 2rem; padding: .35rem .6rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.tianyi-map-creation-start > header button { display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto; color: var(--color-accent); border-color: var(--color-accent); }
+.tianyi-map-reference-strip { display: grid; gap: .45rem; }
+.tianyi-map-reference-strip > div, .tianyi-map-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.tianyi-map-reference-strip ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.tianyi-map-reference-strip li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .35rem; padding: .55rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.tianyi-map-reference-strip li > div { display: grid; min-width: 0; }
+.tianyi-map-reference-strip li > details { grid-column: 1 / -1; }
+.tianyi-map-reference-strip li > details p { margin-block: .45rem; color: var(--color-text-secondary); }
+.tianyi-map-reference-strip li.is-invalid { border-color: var(--color-danger); }
+.tianyi-map-composer { display: grid; gap: .5rem; }
+.tianyi-map-composer > label { color: var(--color-text); font-weight: 750; }
+.tianyi-map-composer textarea { width: 100%; min-height: 7rem; resize: vertical; padding: .7rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font: inherit; line-height: 1.5; }
+.tianyi-map-composer textarea:focus { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.tianyi-map-starters { display: flex; flex-wrap: wrap; gap: .4rem; }
+.tianyi-map-composer-actions .tianyi-send { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.tianyi-map-composer-actions .tianyi-send:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 72rem) {
+  .tianyi-map-creation-start > header, .tianyi-map-composer-actions { align-items: stretch; flex-direction: column; }
+  .tianyi-map-creation-start > header button, .tianyi-map-composer-actions .tianyi-send { justify-content: center; }
+  .tianyi-map-reference-strip ul { grid-template-columns: 1fr; }
+}
 .map-m1-canvas { position: relative; min-width: 0; min-height: 0; height: 100%; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-workspace-background); overflow: hidden; cursor: grab; isolation: isolate; touch-action: none; }
 .map-m1-canvas.is-editing { cursor: crosshair; outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent); outline-offset: 2px; }
 .map-workbench-grid { position: absolute; z-index: -1; inset: 0; pointer-events: none; background-image: linear-gradient(color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--color-border) 65%, transparent) 1px, transparent 1px); background-size: 2.5rem 2.5rem; mask-image: linear-gradient(to bottom, black, transparent 130%); }
