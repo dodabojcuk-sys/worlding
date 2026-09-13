@@ -50,6 +50,18 @@ test("map drawings preserve an explicit optional location reference without turn
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("linking an existing local map to a location does not invent a parent placement", () => {
+  const root = fixture();
+  try {
+    const location = createWorkspaceNote(root, { type: "location", title: "雾港", status: "active", body: "港区资料。" });
+    const parent = createVisualDocument(root, { type: "map", title: "北湾" });
+    let local = createVisualDocument(root, { type: "map", title: "雾港街区" });
+    local = save(root, local, { ...local.content, scopeObjectId: location.id });
+    assert.equal(readVisualDocument(root, local.relativePath).content.scopeObjectId, location.id);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements, [], "a document-to-location association remains separate from spatial parentage");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("map placements keep directory-independent point, range and calibrated identities without parent overwrite", () => {
   const root = fixture();
   try {
