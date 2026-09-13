@@ -51,6 +51,13 @@ test("real map Provider adapter assigns trusted identities and refuses implicit 
   await assert.rejects(() => adapter.generate({ projectId: "project.isolated", workVersionId: "work-version.root.1", sessionId: "session.1", operationId: "operation.4", profileId: "profile.text", prompt: "改整张地图", map, scope: { kind: "map" }, referenceObjectIds: [], preserveLineEndpoints: true }), /不能默认扩大/u);
 });
 
+test("ordinary line editing does not infer endpoint or avoidance constraints from read-only references", async () => {
+  const fake = gateway({ summary: "调整河线", operations: [{ action: "update", targetId: road.id, points: [{ x: 20, y: 50 }, { x: 80, y: 50 }], reason: "作者没有指定固定两端" }] });
+  const result = await createMapEditProposalProviderAdapter({gateway:fake}).generate({projectId:"project.isolated",workVersionId:"work-version.root.1",sessionId:"session.1",operationId:"operation.free-line",profileId:"profile.text",prompt:"调整整条线",map,scope:{kind:"selection",objectIds:[road.id]},referenceObjectIds:[forestArea.id]});
+  assert.deepEqual(result.constraints,{preserveLineEndpointIds:[],avoidAreaObjectIds:[]});
+  assert.equal(JSON.parse(fake.calls[0].messages[1].content).context.preserveLineEndpoints,false);
+});
+
 test("real map Provider adapter forwards cancellation without creating a parsed result", async () => {
   const abort = new AbortController();
   abort.abort();

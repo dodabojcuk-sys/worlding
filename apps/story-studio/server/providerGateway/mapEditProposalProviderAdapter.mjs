@@ -42,7 +42,7 @@ export function createMapEditProposalProviderAdapter({ gateway }) {
         },
         allowedOperations: scope.kind === "selection" ? ["update", "delete"] : ["add"],
         maximumOperations: MAX_OPERATIONS,
-        preserveLineEndpoints: scope.kind === "selection" && input.preserveLineEndpoints !== false,
+        preserveLineEndpoints: scope.kind === "selection" && input.preserveLineEndpoints === true,
         authorRequest: requireText(input.prompt, "Author request", 2_000)
       };
       const serialized = JSON.stringify({ dataBoundary: "UNTRUSTED_AUTHOR_AND_MAP_DATA", context });
