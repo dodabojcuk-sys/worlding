@@ -67,10 +67,10 @@ export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ 
   </svg>;
 }
 
-/** Background offsets use source-image pixels, independent of the displayed viewport. */
+/** Legacy background offsets are display pixels; the owner contract has no unit discriminator. */
 export function MapBackgroundContent(props: { content: MapContent; projectId: string }) {
   return <g className="map-background-content">
-    {props.content.backgrounds.filter((background) => background.visible && background.id === props.content.activeBackgroundId).map((background) => <image key={background.id} href={visualAssetUrl(props.projectId, background.assetPath)} width="100" height="100" preserveAspectRatio="none" opacity={background.opacity} transform={`translate(${background.transform.x / background.width * 100} ${background.transform.y / background.height * 100}) translate(50 50) rotate(${background.transform.rotation}) scale(${background.transform.scale}) translate(-50 -50)`} />)}
+    {props.content.backgrounds.filter((background) => background.visible && background.id === props.content.activeBackgroundId).map((background) => <image key={background.id} href={visualAssetUrl(props.projectId, background.assetPath)} width="100" height="100" preserveAspectRatio="none" opacity={background.opacity} style={{transform:`translate(${background.transform.x}px, ${background.transform.y}px) rotate(${background.transform.rotation}deg) scale(${background.transform.scale})`,transformOrigin:"center",transformBox:"fill-box"}} />)}
   </g>;
 }
 

@@ -178,7 +178,7 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true });
+  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapM4EvidenceDirectory ? 160 : 0 });
   const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
@@ -2751,7 +2751,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
 
   await page.getByRole("button", { name: "列表", exact: true }).click();
   const spatialChildCard = page.getByRole("heading", { name: "北湾作者地图 副本", exact: true }).locator("xpath=ancestor::article");
-  await spatialChildCard.getByRole("button", { name: "父图定位", exact: true }).click();
+  await spatialChildCard.getByRole("button", { name: "在上层图中查看位置", exact: true }).click();
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
   await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).waitFor();
 
@@ -2815,6 +2815,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
 
 async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   const capture = async (name) => { if (mapM4EvidenceDirectory) await page.screenshot({ path: path.join(mapM4EvidenceDirectory,name), fullPage:false }); };
+  const watch = async () => { if (mapM4EvidenceDirectory) await page.waitForTimeout(700); };
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
   const manager=page.getByRole("region",{name:"地图管理"});
   const readMaps=async()=> (await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.filter(d=>d.type==="map");
@@ -2853,7 +2854,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   await page.getByRole("button",{name:"地图管理",exact:true}).click();
   await capture("r2-01-atlas-1440x900.png");
   const card=manager.getByRole("heading",{name:"北湾区域图",exact:true}).locator("xpath=ancestor::article");
-  await card.getByRole("button",{name:"空间视图",exact:true}).click();
+  await card.getByRole("button",{name:"以此图为父图",exact:true}).click();
   const fogAvailable=manager.getByText("雾港街区图",{exact:true}).locator("xpath=parent::section");
   await fogAvailable.getByRole("button",{name:"在图上放置",exact:true}).click();
   const space=page.getByLabel("空间地图画布",{exact:true});
@@ -2895,13 +2896,30 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
     }
     const [left,top,width,height]=(await canvas.getAttribute("viewBox")).split(" ").map(Number);
     await canvas.click({position:{x:b.width*(x-left)/width,y:b.height*(y-top)/height}});
-    await alignment.getByRole("button",{name:"适配视图",exact:true}).click();
+    if (!(side==="父图"&&x===66)) await alignment.getByRole("button",{name:"适配视图",exact:true}).click();
     if(side==="子图"&&x===20)await capture("r2-03-correspondence-1440x900.png");
   }
   await page.setViewportSize({width:1152,height:720});
   const preview=alignment.getByLabel("校准实际对应预览");const pb=await preview.boundingBox();
   const sb=await alignment.getByRole("button",{name:"保存定位",exact:true}).boundingBox();
   assert.ok(pb.width>500&&pb.height>300&&sb.y+sb.height<=720,"The compact alignment task retains a large map and visible actions.");
+  const focusedBox=(await preview.getAttribute("viewBox")).split(" ").map(Number);
+  assert.ok(focusedBox[2]<80&&focusedBox[3]<80,"Preview opens focused on the aligned child area rather than shrinking both maps to the whole parent.");
+  await alignment.getByRole("button",{name:"临时隐藏子图",exact:true}).click();
+  assert.equal(await preview.locator(".map-alignment-child").count(),0,"The author can isolate the parent map without changing calibration.");
+  await alignment.getByRole("button",{name:"显示子图",exact:true}).click();
+  await alignment.getByLabel("子图叠加透明度").fill("0.45");
+  assert.equal(await preview.locator(".map-alignment-child").getAttribute("opacity"),"0.45");
+  assert.equal(await preview.locator(".map-calibration-control").count(),2,"A and B remain visible in the focused parent preview.");
+  assert.equal(await preview.locator(".map-calibration-third").count(),1,"The independent check position remains visible in the focused preview.");
+  await alignment.getByRole("button",{name:"2. 父图 · A",exact:true}).click();
+  const reference=alignment.getByText("查看子图对应点参考",{exact:true});await reference.click();
+  const referenceSvg=alignment.getByLabel("子图对应点参考");
+  assert.equal(await referenceSvg.locator(".map-calibration-control").count(),2,"Returning to a parent step preserves both child points and exposes the on-demand reference.");
+  const parentStepBox=await alignment.getByLabel("父图对应点选择画布").boundingBox();
+  assert.ok(parentStepBox.width>500&&parentStepBox.height>300,"The reference overlay does not squeeze the main parent canvas at 1152px.");
+  await alignment.getByRole("button",{name:"5. 叠加预览",exact:true}).click();
+  await watch();
   await capture("r2-04-alignment-1152x720.png");
   await page.setViewportSize({width:1440,height:900});
   await alignment.getByRole("button",{name:"保存定位",exact:true}).click();
@@ -2958,16 +2976,38 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   await page.getByRole("status").getByText(/底图已保存/u).waitFor();
   await page.getByText("底图变换",{exact:true}).click();
   const backgroundControls=page.locator("details").filter({has:page.locator("summary").getByText("底图变换",{exact:true})});
-  await backgroundControls.getByLabel("水平位置",{exact:true}).fill("100");
+  await backgroundControls.getByLabel("底图水平显示偏移",{exact:true}).fill("100");
   await page.getByRole("status").getByText(/底图位置已保存/u).waitFor();
-  const backgroundTransform=await page.locator(".map-workbench-background image").getAttribute("transform");
-  assert.match(backgroundTransform,/translate\(10 0\)/u,"A 100 source-pixel displacement on a 1000px image is 10 map units, not 100 screen pixels.");
+  const backgroundTransform=await page.locator(".map-workbench-background image").evaluate((image)=>image.style.transform);
+  assert.match(backgroundTransform,/translate\(100px, 0px\)/u,"Existing offsets retain their original display-pixel meaning rather than being reinterpreted from image dimensions.");
+  const savedBackground=(await readMaps()).find(m=>m.id===fog.id).content.backgrounds.at(-1);
+  assert.equal("offsetUnit" in savedBackground,false,"The legacy owner contract contains no unit discriminator; the UI must not claim that old records were source-image pixels.");
   await page.getByRole("button",{name:"放大地图",exact:true}).click();
-  assert.equal(await page.locator(".map-workbench-background image").getAttribute("transform"),backgroundTransform);
+  assert.equal(await page.locator(".map-workbench-background image").evaluate((image)=>image.style.transform),backgroundTransform);
   await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
-  assert.equal(await space.locator(".map-background-content image").getAttribute("transform"),backgroundTransform,"Single-map and spatial view consume the same background projection.");
+  assert.equal(await space.locator(".map-background-content image").evaluate((image)=>image.style.transform),backgroundTransform,"Single-map and spatial view consume the same legacy display-pixel value.");
+  await manager.getByRole("button",{name:"列表",exact:true}).click();
+  const fogCard=manager.getByRole("heading",{name:"雾港街区图",exact:true}).locator("xpath=ancestor::article");
+  assert.equal(await fogCard.locator(".map-manager-thumbnail image").evaluate((image)=>image.style.transform),backgroundTransform,"The atlas does not silently reinterpret the same old field as source-image pixels.");
+  await fogCard.getByRole("button",{name:"绘制此图",exact:true}).click();
+  const compactRaster=await page.evaluate(()=>{
+    const canvas=document.createElement("canvas");canvas.width=500;canvas.height=400;
+    const c=canvas.getContext("2d");c.fillStyle="#e3ddd1";c.fillRect(0,0,500,400);
+    c.fillStyle="#55756f";c.fillRect(0,180,500,16);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await page.locator(".map-background-file-input").setInputFiles({name:"雾港紧凑底图.png",mimeType:"image/png",buffer:Buffer.from(compactRaster,"base64")});
+  await page.getByRole("status").getByText(/底图已保存/u).waitFor();
+  await page.getByText("底图变换",{exact:true}).click();
+  const compactBackgroundControls=page.locator("details").filter({has:page.locator("summary").getByText("底图变换",{exact:true})});
+  await compactBackgroundControls.getByLabel("底图水平显示偏移",{exact:true}).fill("100");
+  await page.getByRole("status").getByText(/底图位置已保存/u).waitFor();
+  const compactBackgroundTransform=await page.locator(".map-workbench-background image").evaluate((image)=>image.style.transform);
+  assert.equal(compactBackgroundTransform,backgroundTransform,"Legacy display-pixel offsets remain unchanged across different source image dimensions.");
+  const compactSavedBackground=(await readMaps()).find(m=>m.id===fog.id).content.backgrounds.at(-1);
+  assert.deepEqual({width:compactSavedBackground.width,height:compactSavedBackground.height,x:compactSavedBackground.transform.x},{width:500,height:400,x:100});
   assert.deepEqual(consoleProblems,[]);
-  if(mapM4EvidenceDirectory)writeFileSync(path.join(mapM4EvidenceDirectory,"map-r2-identity.json"),JSON.stringify({projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,runCodeSha:runRevision,northMapId:north.id,streetMapId:fog.id,interiorMapId:room.id,calibrationRevision:saved.revision,transform:cal.transform,independentThirdPoint:third,finalMaps:(await readMaps()).filter(m=>[north.id,fog.id,room.id].includes(m.id)).map(m=>({id:m.id,revision:m.revision,contentHash:m.contentHash})),realProviderDispatches:0},null,2));
+  if(mapM4EvidenceDirectory)writeFileSync(path.join(mapM4EvidenceDirectory,"map-r2-identity.json"),JSON.stringify({projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,runCodeSha:runRevision,northMapId:north.id,streetMapId:fog.id,interiorMapId:room.id,calibrationRevision:saved.revision,transform:cal.transform,independentThirdPoint:third,backgroundCompatibility:{storedOffset:{x:savedBackground.transform.x,y:savedBackground.transform.y},sourceImageVariants:[{width:savedBackground.width,height:savedBackground.height,renderedTransform:backgroundTransform},{width:compactSavedBackground.width,height:compactSavedBackground.height,renderedTransform:compactBackgroundTransform}],declaredUnit:null,legacyRenderedTransform:backgroundTransform,crossViewExactMapCorrespondence:"not-guaranteed-without-versioned-migration"},finalMaps:(await readMaps()).filter(m=>[north.id,fog.id,room.id].includes(m.id)).map(m=>({id:m.id,revision:m.revision,contentHash:m.contentHash})),realProviderDispatches:0},null,2));
 }
 
 async function setupWorldMaterialsFixture() {
