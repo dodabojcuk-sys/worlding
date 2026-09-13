@@ -2614,8 +2614,10 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await historicalButton.click();
   const historicalResponse = await historicalResponsePromise;
   assert.equal(historicalResponse.status(), 200, `Exact map revision read failed: ${await historicalResponse.text()}`);
-  await page.getByText("历史地图修订 · 只读", { exact: true }).waitFor();
+  await page.getByText(/历史地图修订 · 只读/u).waitFor();
   await page.getByLabel("地点示意图画布").waitFor();
+  assert.equal(await page.locator(".map-authoring-palette").count(), 0, "Historical map does not expose authoring controls.");
+  assert.equal(await page.locator(".map-cross-connection").count(), 0, "Historical map does not splice a current foreign-owner connection into the selected old snapshot.");
   await capture("04-exact-map-history.png");
   await page.getByRole("button", { name: "返回当前地图", exact: true }).click();
 
@@ -2631,6 +2633,11 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await proposal.getByText(/已接受/u).waitFor();
   await proposal.getByText(/提案原子写入/u).waitFor();
   await capture("06-ai-proposal-accepted.png");
+  await proposal.getByRole("button", { name: "撤销本次提案", exact: true }).click();
+  await proposal.getByText(/已补偿/u).waitFor();
+  await proposal.getByText(/作为新修订补偿/u).waitFor();
+  await proposal.scrollIntoViewIfNeeded();
+  await capture("07-ai-proposal-compensated.png");
 
   const visualAfter = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const currentNorthBay = visualAfter.data.documents.find((document) => document.type === "map" && document.id === northBay.id);
@@ -2638,9 +2645,9 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   assert.ok(currentNorthBay.content.connections.some((connection) => connection.from.mapId === northBay.id && connection.to.mapId === fog.id), "Explicit map navigation endpoints persist in one owner document.");
   assert.equal(copied.content.lifecycle.copiedFromMapId, northBay.id);
   assert.equal(copied.content.lifecycle.archived, false);
-  assert.ok(currentNorthBay.revision > northBay.revision, "Accepted structured proposal creates a newer map revision.");
+  assert.ok(currentNorthBay.revision > northBay.revision, "Accepting and compensating the structured proposal create auditable newer map revisions.");
   assert.deepEqual(consoleProblems, [], "MAP-M4 normal author flow must not produce browser errors.");
-  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, acceptedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations" }, null, 2)}\n`, "utf8");
+  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
 }
 
 async function setupWorldMaterialsFixture() {

@@ -88,6 +88,7 @@ import {
 } from "../storyWorkspace/visualDocumentRepository.mjs";
 import {
   acceptMapEditProposal as acceptMapEditProposalFile,
+  compensateMapEditProposal as compensateMapEditProposalFile,
   createMapEditProposal as createMapEditProposalFile,
   listMapEditProposals as listMapEditProposalsFile,
   rejectMapEditProposal as rejectMapEditProposalFile
@@ -2998,6 +2999,13 @@ export function createStoryStudioWorkspaceOperations(input: {
     acceptMapEditProposal(documentInput: { projectId: string; operationId: string }) {
       const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
       const proposal = acceptMapEditProposalFile(projectPath, documentInput);
+      recordCanonicalRevision(projectPath, { kind: "visual", id: proposal.mapId }, "save");
+      return proposal;
+    },
+
+    compensateMapEditProposal(documentInput: { projectId: string; operationId: string }) {
+      const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
+      const proposal = compensateMapEditProposalFile(projectPath, documentInput);
       recordCanonicalRevision(projectPath, { kind: "visual", id: proposal.mapId }, "save");
       return proposal;
     },

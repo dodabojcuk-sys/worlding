@@ -985,7 +985,7 @@ export type MapEditProposal = {
   relativePath: string;
   baseContentHash: string;
   baseRevision: number;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | "compensated";
   scope: { kind: "map" | "selection" | "region"; mapId: string; objectIds: string[]; bounds: null | { x: number; y: number; width: number; height: number } };
   capability: { mode: "text" | "vision" | "image"; imageInput: boolean; structuredOperations: boolean };
   prompt: string;
@@ -994,6 +994,8 @@ export type MapEditProposal = {
   createdAt: string;
   decidedAt: string | null;
   resultContentHash: string | null;
+  compensatedAt?: string;
+  compensationContentHash?: string;
 };
 
 export type VisualWorkbenchBootstrap = {
@@ -3120,6 +3122,10 @@ export async function acceptMapEditProposal(projectId: string, operationId: stri
 
 export async function rejectMapEditProposal(projectId: string, operationId: string, token: string): Promise<MapEditProposal> {
   return request(`${basePath}/maps/proposals/reject`, { method: "POST", token, body: { projectId, operationId } });
+}
+
+export async function compensateMapEditProposal(projectId: string, operationId: string, token: string): Promise<MapEditProposal> {
+  return request(`${basePath}/maps/proposals/compensate`, { method: "POST", token, body: { projectId, operationId } });
 }
 
 export async function validateTimelineDocument(input: {

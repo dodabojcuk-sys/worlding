@@ -15,6 +15,7 @@ import {
 } from "../../src/storyWorkspace/visualDocumentRepository.mjs";
 import {
   acceptMapEditProposal,
+  compensateMapEditProposal,
   createMapEditProposal,
   rejectMapEditProposal
 } from "../../src/storyWorkspace/mapEditProposalRepository.mjs";
@@ -90,6 +91,12 @@ test("text-model map proposals validate locked layers, apply atomically, reject 
     assert.deepEqual(acceptMapEditProposal(root, { operationId: "proposal-valid" }), accepted);
     map = readVisualDocument(root, map.relativePath);
     assert.equal(map.content.drawings[0].points[0].x, 12);
+    const compensated = compensateMapEditProposal(root, { operationId: "proposal-valid" });
+    assert.equal(compensated.status, "compensated");
+    assert.ok(compensated.compensationContentHash);
+    assert.deepEqual(compensateMapEditProposal(root, { operationId: "proposal-valid" }), compensated);
+    map = readVisualDocument(root, map.relativePath);
+    assert.equal(map.content.drawings[0].points[0].x, 10, "compensation restores the exact proposal base as a new revision");
 
     const stale = createMapEditProposal(root, { relativePath: map.relativePath, operationId: "proposal-stale", baseContentHash: map.contentHash, prompt: "再调整", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 4 } }] });
     map = save(root, map, { ...map.content, labels: [...map.content.labels, { id: "label.manual", text: "人工修改", layerId: "layer.main", x: 50, y: 50, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
@@ -101,6 +108,14 @@ test("text-model map proposals validate locked layers, apply atomically, reject 
     const rejectableMap = save(root, map, { ...map.content, layers: map.content.layers.map((layer: any) => ({ ...layer, locked: false })) });
     const rejectable = createMapEditProposal(root, { relativePath: rejectableMap.relativePath, operationId: "proposal-reject", baseContentHash: rejectableMap.contentHash, prompt: "不要采用", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 5 } }] });
     assert.equal(rejectMapEditProposal(root, { operationId: rejectable.operationId }).status, "rejected");
+    assert.equal(readVisualDocument(root, rejectableMap.relativePath).content.drawings[0].width, rejectableMap.content.drawings[0].width, "rejection does not change the map");
+
+    const protectedProposal = createMapEditProposal(root, { relativePath: rejectableMap.relativePath, operationId: "proposal-protected-compensation", baseContentHash: rejectableMap.contentHash, prompt: "先接受再保护作者修改", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 6 } }] });
+    acceptMapEditProposal(root, { operationId: protectedProposal.operationId });
+    map = readVisualDocument(root, rejectableMap.relativePath);
+    map = save(root, map, { ...map.content, labels: [...map.content.labels, { id: "label.after-ai", text: "接受后人工修改", layerId: "layer.main", x: 55, y: 55, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
+    assert.throws(() => compensateMapEditProposal(root, { operationId: protectedProposal.operationId }), /后续修订/u);
+    assert.ok(readVisualDocument(root, map.relativePath).content.labels.some((item: any) => item.id === "label.after-ai"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
