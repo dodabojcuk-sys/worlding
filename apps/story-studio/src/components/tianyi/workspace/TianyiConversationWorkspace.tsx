@@ -954,6 +954,34 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const mapEntryDrawing = selectedMapEvidence?.elementId ? selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId) ?? null : null;
   const mapEntryLocation = mapEntryDrawing?.objectId ? selectedMaterials.find((item) => item.id === mapEntryDrawing.objectId) ?? null : null;
   const mapEntryPromptSubject = mapEntryLocation?.title ?? mapEntryDrawing?.label ?? selectedMapEvidence?.map.title ?? "这里";
+  const groundedResultText = lastGroundedAnswer?.answer?.summary.trim() ?? "";
+  const continueGroundedAnswer = () => {
+    if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
+    runtime.setWorkComposerDraft(`继续修改这条回复（${lastGroundedAnswer.responseMessageId}）：\n\n${groundedResultText}\n\n我的修改要求：`);
+    setError("");
+    window.requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLTextAreaElement>(mapEntry ? "#tianyi-map-work-draft" : ".tianyi-workspace-composer textarea");
+      target?.focus();
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+  const saveGroundedAnswerAsCreativeDraft = () => {
+    if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
+    const sourceLabels = explicitContextRefs.map((ref) => ref.label).filter(Boolean);
+    const nextDraft = `创意草稿 · 来自天意回复 ${lastGroundedAnswer.responseMessageId}\n来源：${sourceLabels.join("、") || project?.title || "当前作品"}\n\n${groundedResultText}`;
+    const existing = runtime.creativeComposerDraft.trim();
+    if (existing && existing !== nextDraft) {
+      setError("创意模式已有未完成草稿；为避免覆盖，本次内容尚未保存。请先打开并处理原草稿。");
+      return;
+    }
+    runtime.setCreativeComposerDraft(nextDraft);
+    setError("创意草稿已保存；它仍是草稿，不会写入故事事实。可打开创意模式继续编辑。");
+  };
+  const copyGroundedAnswer = async () => {
+    if (!groundedResultText) return;
+    try { await navigator.clipboard.writeText(groundedResultText); setError("创作内容已复制。"); }
+    catch { setError("浏览器未允许复制；正文仍在页面中，可手动选择复制。"); }
+  };
   const fillMapStarter = (value: string) => {
     if (runtime.workComposerDraft.trim()) { setError("已有草稿，未覆盖。可先编辑或清空后再选择建议。"); return; }
     runtime.setWorkComposerDraft(value);
@@ -1045,7 +1073,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
                 {selectedMaterials.map((material) => <li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0, 180) || "暂无正文"}</p><button type="button" onClick={() => openGroundedMaterial(material.id, material.revisionToken)}>打开资料</button></details><button type="button" onClick={() => setSelectedMaterialIds((current) => current.filter((id) => id !== material.id))}>移除</button></li>)}
               </ul><p>只有作者明确保留的结构化内容会参与本次请求；打开本页不会自动发送。</p></section>
               <section className="tianyi-map-composer"><label htmlFor="tianyi-map-work-draft">你想围绕{mapEntryPromptSubject}做什么？</label><textarea id="tianyi-map-work-draft" aria-label="当前工作范围对话" value={runtime.workComposerDraft} onChange={(event) => runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder={`你想围绕${mapEntryPromptSubject}做什么？`} /><div className="tianyi-map-starters" aria-label="创作起步建议"><button type="button" onClick={() => fillMapStarter(`根据已有资料，提出三个发生在${mapEntryPromptSubject}的场景构想。`)}>三个场景构想</button><button type="button" onClick={() => fillMapStarter(`整理${mapEntryPromptSubject}目前已知的信息和待补充问题。`)}>整理已知与待补充</button><button type="button" onClick={() => fillMapStarter(`结合我之后明确选择的人物，构思他们在${mapEntryPromptSubject}的一次相遇。`)}>构思人物相遇</button></div><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim() || busy || workContextState === "loading" || workContextState === "failed" || explicitContextRefs.length > MAX_EXPLICIT_MATERIAL_REFS} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{busy ? "请求中…" : "发送到当前工作"}</button></div></section>
-              {lastGroundedAnswer ? <section className="tianyi-map-entry-result" aria-label="地图创作请求结果"><header><strong>已返回结果</strong><small>{lastGroundedAnswer.providerDispatchCount} 次模型边界发送</small></header><p>{lastGroundedAnswer.answer?.summary}</p><small>结果已保留在当前会话；候选与事实仍按既有审阅流程处理。</small></section> : null}
+              {lastGroundedAnswer ? <section className="tianyi-map-entry-result tianyi-creation-result" aria-label="地图创作请求结果"><header><div><small>已保存到当前会话</small><strong>天意的创作回复</strong></div><span>{lastGroundedAnswer.answer?.status === "unknown" ? "依据不足" : "可继续加工"}</span></header><CreativeResultBody text={groundedResultText} /><div className="tianyi-creation-result-actions"><button type="button" onClick={continueGroundedAnswer}>继续修改这条回复</button><button type="button" onClick={() => void copyGroundedAnswer()}>复制内容</button><button type="button" onClick={saveGroundedAnswerAsCreativeDraft}>保存为创意草稿</button>{runtime.creativeComposerDraft.trim() ? <button type="button" onClick={() => changeLane("creative")}>打开创意草稿</button> : null}</div><details><summary>请求与保存详情</summary><p>{lastGroundedAnswer.providerDispatchCount} 次模型边界发送；回复已写入当前天意会话。保存为创意草稿不会确认任何故事事实。</p></details></section> : null}
             </section> : null}
             <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
             {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open={!mapEntry}>
@@ -1059,9 +1087,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             </details> : null}
             {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <>
               <section className="tianyi-visible-history tianyi-work-history" aria-label="当前工作对话">
-                {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
+                {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`} data-message-id={message.eventId}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span>{message.actor === "tianyi" ? <CreativeResultBody text={message.visibleContent} /> : <p>{message.visibleContent}</p>}</article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
               </section>
-              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt" aria-label="本问来源回执"><header><div><small>已保存回答回执</small><h3>“{lastGroundedQuestion}”</h3></div><span>{lastGroundedAnswer.providerDispatchCount} 次模型发送</span></header><p className="tianyi-grounded-answer">{lastGroundedAnswer.answer?.summary}</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const file = source.sourceType === "material-file" && selectedMaterialFile?.id === source.sourceId ? selectedMaterialFile : null; const label = file?.displayName ?? material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "material-file" ? "普通文本文件" : source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "material-file" ? () => openGroundedMaterialFile(source.sourceId, source.contentHash, source.sourceKey) : source.sourceType === "map" ? () => openGroundedMap("evidence") : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; const range = source.sourceType === "material-file" ? materialFileRangeFromSourceKey(source.sourceKey) : null; const currentFileText = file?.revision.sha256 === source.contentHash ? file.revision.textContent : null; const adoptedText = currentFileText != null ? range ? currentFileText.slice(range.start, range.end) : currentFileText : material?.revisionToken === source.contentHash ? material.body : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}{range ? " · 明确选段" : ""}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}{adoptedText != null ? <details><summary>实际采用正文</summary><p>{adoptedText}</p></details> : <small>资料后来已有修改；返回来源会按本次哈希读取历史正文，不使用当前版本替代。</small>}<details className="tianyi-grounded-source-technical"><summary>来源技术详情</summary><code>{source.sourceId}</code><code>修订 {source.contentHash}</code><code>通道 {source.lane}</code></details></li>; })}</ul></section><details className="tianyi-grounded-receipt-technical"><summary>回执技术详情</summary><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
+              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt tianyi-creation-result" aria-label="本问来源回执"><header><div><small>已保存到当前会话</small><h3>天意的创作回复</h3></div><span>{lastGroundedAnswer.answer?.status === "unknown" ? "依据不足" : "可继续加工"}</span></header><CreativeResultBody text={groundedResultText} /><div className="tianyi-creation-result-actions"><button type="button" onClick={continueGroundedAnswer}>继续修改这条回复</button><button type="button" onClick={() => void copyGroundedAnswer()}>复制内容</button><button type="button" onClick={saveGroundedAnswerAsCreativeDraft}>保存为创意草稿</button>{runtime.creativeComposerDraft.trim() ? <button type="button" onClick={() => changeLane("creative")}>打开创意草稿</button> : null}</div><details><summary>来源、请求与保存详情</summary><p>本次要求：“{lastGroundedQuestion}”</p><p>{lastGroundedAnswer.providerDispatchCount} 次模型发送；会话已保存，创意草稿需另行明确保存。</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const file = source.sourceType === "material-file" && selectedMaterialFile?.id === source.sourceId ? selectedMaterialFile : null; const label = file?.displayName ?? material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "material-file" ? "普通文本文件" : source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "material-file" ? () => openGroundedMaterialFile(source.sourceId, source.contentHash, source.sourceKey) : source.sourceType === "map" ? () => openGroundedMap("evidence") : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}</li>; })}</ul></section><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
             </>}
           </>}
         </section>}
@@ -1082,6 +1110,19 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       </aside> : null}
     </div>
   </main>;
+}
+
+function CreativeResultBody(props: { text: string }) {
+  const blocks = props.text.split(/\n{2,}/u).map((block) => block.trim()).filter(Boolean);
+  return <div className="tianyi-creation-result-body">{blocks.map((block, index) => {
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(block);
+    if (heading) return <h4 key={`${index}:${block}`}>{heading[2]}</h4>;
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length > 1 && lines.every((line) => /^(?:[-*]|\d+[.)])\s+/u.test(line))) {
+      return <ol key={`${index}:${block}`}>{lines.map((line, lineIndex) => <li key={`${lineIndex}:${line}`}>{line.replace(/^(?:[-*]|\d+[.)])\s+/u, "")}</li>)}</ol>;
+    }
+    return <p key={`${index}:${block}`}>{block}</p>;
+  })}</div>;
 }
 
 function storyIntakeStatusLabel(run: TianyiAgentRunProjection): string {
