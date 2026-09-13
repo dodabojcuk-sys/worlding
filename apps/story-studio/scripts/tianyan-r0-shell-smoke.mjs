@@ -3014,7 +3014,8 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByText("1 次模型发送", { exact: true }).waitFor();
+  await receipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await receipt.getByText(/1 次模型发送；会话已保存/u).waitFor();
   await receipt.scrollIntoViewIfNeeded();
   await capture("06-tianyi-map-answer-receipt.png");
   const mapSourceButton = receipt.getByRole("button", { name: "返回来源：当前地图图示", exact: true });
