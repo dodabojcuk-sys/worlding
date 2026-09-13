@@ -271,7 +271,7 @@
       "status": "PRODUCTION_CONNECTED",
       "maturity": "single-static-six-global-deep-link-registry",
       "entrypoints": ["src/storyContracts/storyStudioWorkspaceRegistry.ts", "apps/story-studio/src/product-shell/navigation/ProductShellNavigation.tsx", "apps/story-studio/src/App.tsx"],
-      "sourceFiles": ["apps/story-studio/src/product-shell/navigation/topLevelDestinationRegistry.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/src/lib/localTransport.ts"],
+      "sourceFiles": ["apps/story-studio/src/product-shell/navigation/topLevelDestinationRegistry.ts", "apps/story-studio/src/product-shell/navigation/workspaceNavigationGuard.ts", "src/storyControlSurface/storyStudioWorkspaceOperations.ts", "apps/story-studio/src/lib/localTransport.ts"],
       "domainOwners": [],
       "stateOwners": ["src/storyControlSurface/storyStudioWorkspaceOperations.ts"],
       "persistenceOwner": "Existing Writing continuity stores canonical workspace IDs; legacy creation is read-time migration only",

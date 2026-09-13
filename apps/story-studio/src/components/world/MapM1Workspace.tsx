@@ -11,6 +11,7 @@ import { createStarterContent, MAP_TOOL_OPTIONS, MapBackgroundContent, MapDrawin
 import { MapAtlasWorkspace } from "./MapAtlasWorkspace";
 import { CalibratedMapContent } from "./MapAlignmentWorkspace";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
+import { WORKSPACE_NAVIGATION_REQUEST } from "../../product-shell/navigation/workspaceNavigationGuard";
 
 type EventObservation = { kind: "event"; eventId: string; eventRevision: string; observedAt: string };
 type Observation = { kind: "current" } | EventObservation;
@@ -210,6 +211,16 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => { const guard = (event: BeforeUnloadEvent) => { if (spatialDraft || draftDrawingPoints.length || draftRegionPoints.length || busy) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload",guard); return ()=>window.removeEventListener("beforeunload",guard); }, [spatialDraft,draftDrawingPoints.length,draftRegionPoints.length,busy]);
   const selectMap = (id: string) => { if(!allowLeave())return; if(id){navigateToMap(id);return;} if(map && projectId) window.sessionStorage.setItem(`tianyan.map.viewport.${projectId}.${map.id}`,JSON.stringify({...viewport,selectedDrawingId,selectedId})); const params = new URLSearchParams(window.location.search); params.delete("mapRevision"); window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`); setHistoricalRevision(null); setMapId(id || null); setSelectedId(null); setInspectorOpen(false); saveRoute({ mapId: id || null, placeId: null }); };
   const showManager = () => selectMap("");
+  useEffect(() => {
+    const guard = (event: Event) => {
+      if (busy || spatialDraft || draftDrawingPoints.length || draftRegionPoints.length) {
+        event.preventDefault();
+        setMessage("仍有未保存或正在保存的地图编辑，请先在当前任务区保存或取消后离开。");
+      }
+    };
+    window.addEventListener(WORKSPACE_NAVIGATION_REQUEST, guard);
+    return () => window.removeEventListener(WORKSPACE_NAVIGATION_REQUEST, guard);
+  }, [busy, spatialDraft, draftDrawingPoints.length, draftRegionPoints.length]);
   const navigateToMap = (id: string, afterSave = false) => {
     if (!afterSave && !allowLeave()) return;
     if (!map && managerView === "spatial") setManagerReturn(true);

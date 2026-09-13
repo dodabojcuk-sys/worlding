@@ -2869,6 +2869,8 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   await handle.focus();await handle.press("ArrowLeft");
   await page.getByLabel("选择地图",{exact:true}).selectOption(room.id);
   assert.ok(await editor.isVisible(),"An unsaved spatial task blocks map navigation.");
+  await page.getByRole("button",{name:"世界",exact:true}).click();
+  assert.ok(await editor.isVisible(),"The Shell primary route must not discard an unsaved map task.");
   await page.getByRole("status").getByText(/未保存/u).waitFor();
   await capture("r2-02-range-handles-1440x900.png");
   await editor.getByRole("button",{name:"保存定位",exact:true}).click();
