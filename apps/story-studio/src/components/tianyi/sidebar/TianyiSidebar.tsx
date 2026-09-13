@@ -339,7 +339,7 @@ export function TianyiSidebar(props: {
   return <aside className="tianyi-sidebar" aria-label={t("panel.tianyiAgent")} role={props.overlay ? "dialog" : undefined} aria-modal={props.modal || undefined} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session" data-knowledge-observer={contextRequest?.knowledgeView?.observerId ?? "author"}>
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      {!contextRequest?.mapEdit ? <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} /> : <span className="tianyi-map-mode-label">地图协作</span>}
+      {!contextRequest?.mapEdit ? <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} /> : <span className="tianyi-map-mode-label">{t("tianyi.mapCollaboration")}</span>}
       <button type="button" aria-label={t("panel.closeTianyiAgent")} title={t("panel.closeTianyiAgent")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">

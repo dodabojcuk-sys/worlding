@@ -161,10 +161,15 @@ async function findAvailablePort(requestedPort, excludedPort) {
 
 try {
   ollamaFixture = mapRealAiLiveAcceptance ? null : await startProviderCatalogOllamaFixture();
+  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
+  if (mapRealAiLiveAcceptance) {
+    Object.assign(apiEnvironment, { NODE_ENV: "development", PROVIDER_MODE: "REAL_PROVIDER_ALLOWED", REAL_PROVIDER_CREDENTIALS_USED: "1", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: "1", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "0" });
+    delete apiEnvironment.TIANYAN_PROVIDER_APP_DATA_ROOT;
+  }
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: mapRealAiLiveAcceptance ? "development" : "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: mapRealAiLiveAcceptance ? "REAL_PROVIDER_ALLOWED" : "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: mapRealAiLiveAcceptance ? "1" : "0", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: mapRealAiLiveAcceptance ? "1" : process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH, TIANYAN_AGENT_FAKE_PROVIDER_STREAM: mapRealAiLiveAcceptance ? "0" : "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: mapRealAiLiveAcceptance ? "0" : "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", ...(mapRealAiLiveAcceptance ? {} : { TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }), TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: apiEnvironment
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -2207,7 +2212,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   const aiRoad = aiMapCanvas.locator('[data-drawing-id="drawing.ai-road"]');
   await aiRoad.focus();
   await aiRoad.press("Enter");
-  await page.getByRole("button", { name: /交给天意 · 1 个图示/u }).click();
+  await page.getByRole("button", { name: /AI 编辑 · 1 个图示/u }).click();
   const panel = page.getByRole("region", { name: "天意地图协作" });
   await panel.waitFor();
   await panel.getByText("北湾 AI 协作隔离图", { exact: true }).waitFor();
@@ -2241,7 +2246,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   await capture("13-真实AI接受后重开-1440x900.png");
   await aiRoad.focus();
   await aiRoad.press("Enter");
-  await page.getByRole("button", { name: /交给天意 · 1 个图示/u }).click();
+  await page.getByRole("button", { name: /AI 编辑 · 1 个图示/u }).click();
   await panel.getByText("已接受", { exact: true }).waitFor();
   const width = page.getByLabel("图示笔触宽度");
   await width.fill("5"); await width.press("Tab");
