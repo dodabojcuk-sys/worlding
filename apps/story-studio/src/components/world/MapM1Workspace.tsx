@@ -481,7 +481,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     const mapReturn = new URL(window.location.href);
     if (selectedDrawingId) mapReturn.searchParams.set("mapElement", selectedDrawingId);
     else mapReturn.searchParams.delete("mapElement");
-    const params = new URLSearchParams({ tianyiLane: "work", mapRef: map.id, mapRevision: map.contentHash, mapReturn: `${mapReturn.pathname}${mapReturn.search}` });
+    const params = new URLSearchParams({ tianyiLane: "work", mapMode: "authoring", mapRef: map.id, mapRevision: map.contentHash, mapReturn: `${mapReturn.pathname}${mapReturn.search}` });
     if (selectedDrawingId) params.set("mapElement", selectedDrawingId);
     if (linkedLocation) params.set("materialRef", linkedLocation.id);
     window.location.assign(`/tianyi?${params.toString()}`);

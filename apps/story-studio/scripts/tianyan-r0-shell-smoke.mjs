@@ -3217,8 +3217,14 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.locator(".map-drawing.is-road").first().focus();
   await page.locator(".map-drawing.is-road").first().press("Enter");
   await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
-  await page.locator(".tianyi-map-context-preview").waitFor();
-  await page.getByRole("button", { name: "用本地假服务生成结构化编辑提案", exact: true }).click();
+  await page.locator(".tianyi-map-creation-start").waitFor();
+  await page.locator(".tianyi-work-contract").getByText(/暂无可引用的正式事件|按问题选中/u).waitFor();
+  await page.locator(".tianyi-work-context-picker > summary").click();
+  const legacyMapContext = page.locator(".tianyi-map-context-preview");
+  await legacyMapContext.waitFor();
+  const localProposalButton = page.getByRole("button", { name: "用本地假服务生成结构化编辑提案", exact: true });
+  await localProposalButton.waitFor();
+  await localProposalButton.click();
   const proposal = page.locator(".tianyi-map-edit-proposal");
   await proposal.getByText(/待审/u).waitFor();
   await capture("05-ai-structured-proposal.png");
@@ -3373,7 +3379,9 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   await page.getByRole("button",{name:"浏览",exact:true}).click();
   await page.getByRole("button",{name:"放大地图",exact:true}).click();
   const fogView=new URL(page.url()).searchParams.get("mapZoom");
-  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  await openMapMenuAction(page, "地图管理");
+  await manager.getByRole("button",{name:"空间总览",exact:true}).click();
+  await page.getByLabel("空间总览父地图").selectOption(fog.id);
   const roomAvailable=manager.getByText(room.title,{exact:true}).locator("xpath=parent::section");
   await roomAvailable.getByRole("button",{name:"在图上放置",exact:true}).click();
   box=await space.boundingBox();await space.click({position:{x:box.width*.6,y:box.height*.35}});
@@ -3405,7 +3413,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   });
   await page.locator(".map-background-file-input").setInputFiles({name:"雾港岸线底图.png",mimeType:"image/png",buffer:Buffer.from(raster,"base64")});
   await page.getByRole("status").getByText(/底图已保存/u).waitFor();
-  await page.getByText("底图变换",{exact:true}).click();
+  await openMapProperties(page, "底图变换");
   const backgroundControls=page.locator("details").filter({has:page.locator("summary").getByText("底图变换",{exact:true})});
   await backgroundControls.getByLabel("底图水平显示偏移",{exact:true}).fill("100");
   await page.getByRole("status").getByText(/底图位置已保存/u).waitFor();
@@ -3415,7 +3423,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   assert.equal("offsetUnit" in savedBackground,false,"The legacy owner contract contains no unit discriminator; the UI must not claim that old records were source-image pixels.");
   await page.getByRole("button",{name:"放大地图",exact:true}).click();
   assert.equal(await page.locator(".map-workbench-background image").evaluate((image)=>image.style.transform),backgroundTransform);
-  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  await page.getByRole("button",{name:"调整本图子图位置",exact:true}).click();
   assert.equal(await space.locator(".map-background-content image").evaluate((image)=>image.style.transform),backgroundTransform,"Single-map and spatial view consume the same legacy display-pixel value.");
   await manager.getByRole("button",{name:"列表",exact:true}).click();
   const fogCard=manager.getByRole("heading",{name:"雾港街区图",exact:true}).locator("xpath=ancestor::article");

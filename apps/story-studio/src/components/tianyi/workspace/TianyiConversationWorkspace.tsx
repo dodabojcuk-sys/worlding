@@ -307,6 +307,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const params = new URLSearchParams(window.location.search);
     const mapId = params.get("mapRef");
     const requestedRevision = params.get("mapRevision");
+    const authoringHandoff = params.get("mapMode") === "authoring";
     const elementId = params.get("mapElement");
     if (!project || !mapId || !requestedRevision) { setSelectedMapEvidence(null); setMapEvidenceState("idle"); return; }
     let active = true; setMapEvidenceState("loading");
@@ -314,7 +315,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       if (!active) return;
       const current = workbench.documents.find((item): item is MapDocument => item.type === "map" && item.id === mapId);
       if (!current) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
-      const map = current.contentHash === requestedRevision ? current : await readMapRevision(project.id, current.relativePath, requestedRevision);
+      if (authoringHandoff && current.contentHash !== requestedRevision) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
+      const map = current.contentHash === requestedRevision || authoringHandoff ? current : await readMapRevision(project.id, current.relativePath, requestedRevision);
       if (!active) return;
       if (elementId && !map.content.drawings.some((item) => item.id === elementId)) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
       setSelectedMapEvidence({ map, elementId }); setMapEvidenceState("ready");
