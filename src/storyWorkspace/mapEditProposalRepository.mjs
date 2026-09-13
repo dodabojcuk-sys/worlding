@@ -20,6 +20,8 @@ export function createMapEditProposal(rootPath, input) {
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > MAX_REQUEST_BYTES) throw new Error("Map proposal input is too large.");
   const scope = normalizeScope(input.scope, map);
   const candidate = applyMapOperations(map, operations, scope);
+  const constraints = normalizeConstraints(input.constraints, map, scope);
+  const spatialChecks = validateSpatialConstraints(map, candidate, constraints);
   const validation = validateVisualDocumentUpdate(rootPath, {
     relativePath: map.relativePath,
     expectedContentHash: map.contentHash,
@@ -40,6 +42,9 @@ export function createMapEditProposal(rootPath, input) {
     prompt: requireText(input.prompt, "Map proposal prompt", 2000),
     operations: clone(operations),
     preview: diffMap(map, candidate),
+    referenceObjectIds: normalizeReferenceObjectIds(input.referenceObjectIds, map, scope),
+    constraints,
+    spatialChecks,
     ...(input.generation ? { generation: normalizeGeneration(input.generation) } : {}),
     ...(input.operationExplanations ? { operationExplanations: normalizeExplanations(input.operationExplanations, operations) } : {}),
     createdAt: new Date().toISOString(),
@@ -58,13 +63,14 @@ export function acceptMapEditProposal(rootPath, input) {
   const map = readMap(rootPath, proposal.relativePath);
   if (map.contentHash !== proposal.baseContentHash) throw new Error("地图已被人工修改；旧 AI 提案不会覆盖新修订。");
   const candidate = applyMapOperations(map, proposal.operations, proposal.scope);
+  validateSpatialConstraints(map, candidate, proposal.constraints);
   const result = updateVisualDocument(rootPath, {
     relativePath: map.relativePath,
     expectedContentHash: proposal.baseContentHash,
     document: candidate
   });
   if (!result.ok) throw new Error("地图已改变；旧 AI 提案没有写入。");
-  const accepted = { ...proposal, status: "accepted", decidedAt: new Date().toISOString(), resultContentHash: result.document.contentHash };
+  const accepted = { ...proposal, status: "accepted", decidedAt: new Date().toISOString(), resultContentHash: result.document.contentHash, resultRevision: result.document.revision };
   writeJsonAtomic(proposalPath, accepted);
   return clone(accepted);
 }
@@ -102,7 +108,8 @@ export function compensateMapEditProposal(rootPath, input) {
     ...proposal,
     status: "compensated",
     compensatedAt: new Date().toISOString(),
-    compensationContentHash: result.document.contentHash
+    compensationContentHash: result.document.contentHash,
+    compensationRevision: result.document.revision
   };
   writeJsonAtomic(proposalPath, compensated);
   return clone(compensated);
@@ -131,6 +138,7 @@ export function applyMapOperations(map, operations, scope) {
     if (scope.kind === "region" && operation.type !== "add-drawing") throw new Error("Region-scoped map proposals may only add drawings.");
     if (operation.type === "add-drawing") {
       assertLayerWritable(content, operation.value.layerId);
+      if (scope.kind === "region" && scope.layerId && operation.value.layerId !== scope.layerId) throw new Error("Map proposal drawing is outside the author-selected layer.");
       if (scope.kind === "region" && operation.value.points.some((point) => !pointInsideBounds(point, scope.bounds))) throw new Error("Map proposal drawing is outside the author-selected region.");
       if (content.drawings.some((item) => item.id === operation.value.id)) throw new Error("Map proposal drawing identity already exists.");
       content.drawings.push(operation.value);
@@ -179,8 +187,96 @@ function normalizeScope(value, map) {
     for (const key of ["x", "y", "width", "height"]) if (!Number.isFinite(bounds[key])) throw new Error("Map proposal region is invalid.");
     if (bounds.width <= 0 || bounds.height <= 0 || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > 100 || bounds.y + bounds.height > 100) throw new Error("Map proposal region must stay inside the map bounds.");
   }
-  return { kind, mapId: map.id, objectIds, bounds };
+  const layerId = kind === "region" ? requireText(value.layerId, "Map proposal region layer", 120) : null;
+  if (kind === "region") {
+    const layer = map.content.layers.find((item) => item.id === layerId);
+    if (!layer || layer.locked) throw new Error("Map proposal region layer is missing or locked.");
+  }
+  return { kind, mapId: map.id, objectIds, bounds, layerId };
 }
+
+function normalizeReferenceObjectIds(value, map, scope) {
+  const editable = new Set(scope.objectIds);
+  return [...new Set((Array.isArray(value) ? value : []).map((item) => requireText(item, "Map proposal reference", 120)))]
+    .filter((id) => !editable.has(id))
+    .map((id) => {
+      if (!map.content.drawings.some((drawing) => drawing.id === id)) throw new Error("Map proposal reference no longer exists.");
+      return id;
+    });
+}
+
+function normalizeConstraints(value, map, scope) {
+  if (value == null) return { preserveLineEndpointIds: [], avoidAreaObjectIds: [] };
+  const source = cloneObject(value);
+  const allowed = ["preserveLineEndpointIds", "avoidAreaObjectIds"];
+  if (Object.keys(source).some((key) => !allowed.includes(key))) throw new Error("Map proposal constraints contain unsupported fields.");
+  const preserveLineEndpointIds = normalizeConstraintIds(source.preserveLineEndpointIds, map, scope, (drawing) => drawing.kind === "line", "Endpoint constraint");
+  const avoidAreaObjectIds = normalizeConstraintIds(source.avoidAreaObjectIds, map, scope, (drawing) => drawing.kind === "area", "Avoidance constraint");
+  return { preserveLineEndpointIds, avoidAreaObjectIds };
+}
+
+function normalizeConstraintIds(value, map, scope, predicate, label) {
+  return [...new Set((Array.isArray(value) ? value : []).map((item) => requireText(item, label, 120)))].map((id) => {
+    const drawing = map.content.drawings.find((item) => item.id === id);
+    if (!drawing || !predicate(drawing)) throw new Error(`${label} references an incompatible drawing.`);
+    if (scope.objectIds.includes(id) && label === "Avoidance constraint") throw new Error("An editable drawing cannot also be an avoidance reference.");
+    return id;
+  });
+}
+
+function validateSpatialConstraints(before, after, constraints = {}) {
+  const checks = [];
+  const endpointIds = Array.isArray(constraints?.preserveLineEndpointIds) ? constraints.preserveLineEndpointIds : [];
+  for (const id of endpointIds) {
+    const original = before.content.drawings.find((item) => item.id === id);
+    const result = after.content.drawings.find((item) => item.id === id);
+    if (!original || !result || result.kind !== "line" || !sameMapPoint(original.points[0], result.points[0]) || !sameMapPoint(original.points.at(-1), result.points.at(-1))) throw new Error("地图提案改变了要求保留的道路端点。");
+  }
+  if (endpointIds.length) checks.push({ kind: "line-endpoints-preserved", status: "passed", objectIds: [...endpointIds], referenceObjectIds: [] });
+  const avoidAreaObjectIds = Array.isArray(constraints?.avoidAreaObjectIds) ? constraints.avoidAreaObjectIds : [];
+  const polygons = avoidAreaObjectIds.map((id) => before.content.drawings.find((item) => item.id === id)).filter(Boolean);
+  const changedLineIds = after.content.drawings.filter((item) => item.kind === "line" && before.content.drawings.some((previous) => previous.id === item.id && JSON.stringify(previous.points) !== JSON.stringify(item.points))).map((item) => item.id);
+  for (const lineId of changedLineIds) {
+    const line = after.content.drawings.find((item) => item.id === lineId);
+    if (polygons.some((polygon) => mapPolylineIntersectsPolygon(line.points, polygon.points))) throw new Error("建议道路进入了作者指定的避让范围；未创建或应用提案。");
+  }
+  if (avoidAreaObjectIds.length) checks.push({ kind: "avoids-explicit-areas", status: "passed", objectIds: changedLineIds, referenceObjectIds: [...avoidAreaObjectIds] });
+  return checks;
+}
+
+export function mapPolylineIntersectsPolygon(line, polygon) {
+  if (line.some((point) => pointInPolygonOrBoundary(point, polygon))) return true;
+  for (let lineIndex = 0; lineIndex < line.length - 1; lineIndex += 1) {
+    for (let polygonIndex = 0; polygonIndex < polygon.length; polygonIndex += 1) {
+      if (segmentsIntersect(line[lineIndex], line[lineIndex + 1], polygon[polygonIndex], polygon[(polygonIndex + 1) % polygon.length])) return true;
+    }
+  }
+  return false;
+}
+
+function pointInPolygonOrBoundary(point, polygon) {
+  let inside = false;
+  for (let left = 0, right = polygon.length - 1; left < polygon.length; right = left++) {
+    const a = polygon[right]; const b = polygon[left];
+    if (orientation(a, b, point) === 0 && onSegment(a, point, b)) return true;
+    if (((a.y > point.y) !== (b.y > point.y)) && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const o1 = orientation(a, b, c); const o2 = orientation(a, b, d); const o3 = orientation(c, d, a); const o4 = orientation(c, d, b);
+  if (o1 !== o2 && o3 !== o4) return true;
+  return (o1 === 0 && onSegment(a, c, b)) || (o2 === 0 && onSegment(a, d, b)) || (o3 === 0 && onSegment(c, a, d)) || (o4 === 0 && onSegment(c, b, d));
+}
+
+function orientation(a, b, c) {
+  const value = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+  return Math.abs(value) < 1e-9 ? 0 : value > 0 ? 1 : 2;
+}
+
+function onSegment(a, point, b) { return point.x <= Math.max(a.x, b.x) + 1e-9 && point.x >= Math.min(a.x, b.x) - 1e-9 && point.y <= Math.max(a.y, b.y) + 1e-9 && point.y >= Math.min(a.y, b.y) - 1e-9; }
+function sameMapPoint(left, right) { return Boolean(left && right && Math.abs(left.x - right.x) < 1e-9 && Math.abs(left.y - right.y) < 1e-9); }
 
 function normalizeGeneration(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Map proposal generation metadata is invalid.");

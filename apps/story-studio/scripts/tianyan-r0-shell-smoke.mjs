@@ -18,6 +18,7 @@ import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts
 import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
 import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createStoryStudioRelationOperations } from "../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import { mapPolylineIntersectsPolygon } from "../../../src/storyWorkspace/mapEditProposalRepository.mjs";
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
@@ -2195,7 +2196,8 @@ async function setupMapRealAiFixture() {
   const drawing = (value) => ({ strokeColor: "#167b7a", fillColor: "#49a99b", fillOpacity: .24, width: 3, size: 4, seed: 1, rotation: 0, label: null, objectId: null, ...value });
   map = operations.updateVisualDocument({ projectId: fixtureProjectId, relativePath: map.relativePath, expectedHash: map.contentHash, document: { ...map, content: { ...map.content, layers, drawings: [
     drawing({ id: "drawing.ai-road", kind: "line", subtype: "road", layerId: "layer.routes", points: [{ x: 10, y: 50 }, { x: 90, y: 50 }], strokeColor: "#765b3d", fillColor: "#765b3d", label: "北湾滨海道" }),
-    drawing({ id: "drawing.ai-forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 40, y: 45 }, { x: 50, y: 44 }, { x: 60, y: 45 }], width: 15, label: "雾松林" })
+    drawing({ id: "drawing.ai-forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 40, y: 47 }, { x: 50, y: 46 }, { x: 60, y: 47 }], width: 9, label: "雾松林树木图示" }),
+    drawing({ id: "drawing.ai-forest-area", kind: "area", subtype: "geography", layerId: "layer.terrain", points: [{ x: 36, y: 39 }, { x: 64, y: 39 }, { x: 64, y: 58 }, { x: 36, y: 58 }], fillColor: "#70a870", strokeColor: "#456d4f", fillOpacity: .24, width: 2, label: "雾松林明确范围" })
   ] } } }).document;
   mapAiFixture = { map, workVersionId: mapM2Fixture.root.identity.workVersionId };
 }
@@ -2218,26 +2220,44 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   await panel.getByText("北湾 AI 协作隔离图", { exact: true }).waitFor();
   assert.match(await panel.textContent(), /北湾 AI 协作隔离图[\s\S]*真实文本模型[\s\S]*可修改[\s\S]*北湾滨海道/u);
   await panel.getByText(/选择模型可读取的参考/u).click();
-  await panel.getByRole("checkbox", { name: /雾松林/u }).check();
-  await panel.getByLabel("告诉天意要怎样改").fill("让北湾滨海道绕开雾松林，并保持两个端点不变；其他对象不变。");
+  await panel.getByRole("checkbox", { name: "雾松林明确范围 只读", exact: true }).check();
+  await panel.getByRole("checkbox", { name: "将雾松林明确范围作为不可穿越范围", exact: true }).check();
+  await panel.getByLabel("告诉天意要怎样改").fill("让北湾滨海道绕开雾松林明确范围，并保持两个端点不变；其他对象不变。");
   await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
   await panel.getByText("待作者审阅", { exact: true }).waitFor();
   assert.equal(await page.locator(".map-ai-proposal-before").count(), 1, "The original geometry remains visible as an explicit before overlay.");
   assert.equal(await page.locator(".map-ai-proposal-after").count(), 1, "The Provider proposal is previewed on the same map before acceptance.");
+  assert.equal(await page.locator(".map-ai-proposal-reference").count(), 1, "The explicit read-only forest area remains visible as a distinct review reference.");
+  assert.match(await panel.textContent(), /系统已经检查[\s\S]*起点和终点[\s\S]*未接触或进入作者明确选择的范围/u);
+  await panel.getByRole("tab", { name: "修改前", exact: true }).click();
+  assert.equal(await page.locator(".map-ai-proposal-after").count(), 0, "Before view does not leave the suggested geometry visible.");
+  await capture("12a-真实AI道路提案-修改前-1440x900.png");
+  await panel.getByRole("tab", { name: /修改后/u }).click();
+  assert.equal(await page.locator(".map-ai-proposal-before").count(), 0, "After view does not leave the original geometry visible.");
+  await capture("12b-真实AI道路提案-修改后-1440x900.png");
+  await panel.getByRole("tab", { name: "叠加对比", exact: true }).click();
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
   assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /修改[\s\S]*北湾滨海道/u : /修改[\s\S]*北湾滨海道[\s\S]*雾松林北侧绕行/u);
-  await capture("12-真实AI道路提案预览-1440x900.png");
+  await capture("12c-真实AI道路提案-叠加对比-1440x900.png");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+  await capture("12d-真实AI道路提案-叠加对比-1152x720.png");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
   const beforeAccept = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
   assert.deepEqual(beforeAccept.content.drawings.find((item) => item.id === "drawing.ai-road").points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "Preview does not write the formal map.");
   await panel.getByRole("button", { name: "接受并保存", exact: true }).click();
   await page.getByRole("status").getByText(/提案已由作者接受/u).waitFor();
   const accepted = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
   const acceptedRoad = accepted.content.drawings.find((item) => item.id === "drawing.ai-road");
+  const acceptedForestArea = accepted.content.drawings.find((item) => item.id === "drawing.ai-forest-area");
   if (mapRealAiLiveAcceptance) {
     assert.deepEqual(acceptedRoad.points.at(0), { x: 10, y: 50 }, "The real result preserves the first endpoint.");
     assert.deepEqual(acceptedRoad.points.at(-1), { x: 90, y: 50 }, "The real result preserves the last endpoint.");
     assert.notDeepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "The real result makes an actual geometric change.");
   } else assert.deepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 34, y: 34 }, { x: 66, y: 34 }, { x: 90, y: 50 }]);
-  assert.deepEqual(accepted.content.drawings.find((item) => item.id === "drawing.ai-forest").points, mapAiFixture.map.content.drawings.find((item) => item.id === "drawing.ai-forest").points, "The read-only forest is unchanged.");
+  assert.equal(mapPolylineIntersectsPolygon(acceptedRoad.points, acceptedForestArea.points), false, "The accepted road does not touch or enter the explicit forest polygon.");
+  assert.deepEqual(accepted.content.drawings.find((item) => item.id === "drawing.ai-forest-area").points, mapAiFixture.map.content.drawings.find((item) => item.id === "drawing.ai-forest-area").points, "The explicit read-only forest area is unchanged.");
 
   await page.reload();
   await aiMapCanvas.waitFor();
@@ -2252,7 +2272,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   await width.fill("5"); await width.press("Tab");
   await page.getByRole("status").getByText(/图示尺寸已保存/u).waitFor();
   expectedMapCompensationConflict = true;
-  await panel.getByRole("button", { name: "补偿这次接受", exact: true }).click();
+  await panel.getByRole("button", { name: "撤销此次 AI 修改", exact: true }).click();
   await panel.getByRole("alert").getByText(/后续修订/u).waitFor();
   expectedMapCompensationConflict = false;
   const afterManual = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
@@ -2266,6 +2286,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   await page.setViewportSize({ width: 1152, height: 720 });
   await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
   await panel.getByText("待作者审阅", { exact: true }).waitFor();
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
   assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /新增/u : /新增[\s\S]*北侧观察点/u);
   await capture("15-真实AI区域新增待审-1152x720.png");
   await panel.getByRole("button", { name: "拒绝", exact: true }).click();

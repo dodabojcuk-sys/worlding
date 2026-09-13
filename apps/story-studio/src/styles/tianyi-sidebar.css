@@ -24,11 +24,12 @@
 .tianyi-knowledge-scope { margin: 0 0 .7rem; padding: .65rem .75rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border)); border-radius: .5rem; font-size: .72rem; line-height: 1.55; }
 .tianyi-knowledge-scope strong { color: var(--color-text); }
 .tianyi-sidebar-stage:has(.tianyi-knowledge-scope) .tianyi-agent-panel { min-height: 0; }
-.tianyi-map-collaboration { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
-.tianyi-map-collaboration > header { display: grid; gap: .15rem; }
-.tianyi-map-collaboration > header strong { color: var(--color-text); overflow-wrap: anywhere; }
-.tianyi-map-collaboration > header small,
-.tianyi-map-collaboration > small { color: var(--color-text-muted); line-height: 1.45; }
+.tianyi-map-collaboration { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.tianyi-map-review-scroll { display: grid; align-content: start; gap: var(--space-3); min-height: 0; padding-inline-end: .15rem; overflow: auto; }
+.tianyi-map-review-scroll > header { display: grid; gap: .15rem; }
+.tianyi-map-review-scroll > header strong { color: var(--color-text); overflow-wrap: anywhere; }
+.tianyi-map-review-scroll > header small,
+.tianyi-map-review-scroll > small { color: var(--color-text-muted); line-height: 1.45; }
 .tianyi-map-boundary { margin: 0; padding: .65rem; color: var(--color-text-muted); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-xs); line-height: 1.5; }
 .tianyi-map-scope-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; }
 .tianyi-map-scope-tabs button,
@@ -43,7 +44,10 @@
 .tianyi-map-collaboration details { padding: .65rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .tianyi-map-collaboration summary { color: var(--color-text); cursor: pointer; font-size: var(--font-size-sm); font-weight: 700; }
 .tianyi-map-reference-list { display: grid; gap: .35rem; padding-block-start: .55rem; }
+.tianyi-map-reference-list > div { display: grid; gap: .28rem; padding-block-end: .35rem; border-block-end: 1px solid var(--color-border); }
 .tianyi-map-reference-list label { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .4rem; font-size: var(--font-size-xs); }
+.tianyi-map-reference-list > div > small { padding-inline-start: 1.4rem; color: var(--color-text-muted); font-size: .68rem; line-height: 1.35; }
+.tianyi-map-reference-list .tianyi-map-avoidance { grid-template-columns: auto minmax(0, 1fr); padding-inline-start: 1.4rem; color: var(--color-text-secondary); }
 .tianyi-map-reference-list small { color: var(--color-text-muted); }
 .tianyi-map-region-controls,
 .tianyi-map-request,
@@ -73,6 +77,27 @@
 .tianyi-map-review li span { overflow-wrap: anywhere; }
 .tianyi-map-review li small { grid-column: 2; color: var(--color-text-muted); line-height: 1.4; }
 .tianyi-map-review > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
+.tianyi-map-status { display: grid; gap: .2rem; padding: .62rem; border-inline-start: 3px solid var(--color-accent); background: var(--color-accent-soft); border-radius: var(--radius-sm); }
+.tianyi-map-status strong { color: var(--color-text); font-size: var(--font-size-sm); }
+.tianyi-map-status span { color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.45; }
+.tianyi-map-status.is-accepted { border-inline-start-color: var(--color-success); }
+.tianyi-map-status.is-expired, .tianyi-map-status.is-undo-blocked, .tianyi-map-status.is-failed { border-inline-start-color: var(--color-danger); }
+.tianyi-map-review-views { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+.tianyi-map-review-views button { min-width: 0; font-size: .68rem; line-height: 1.25; }
+.tianyi-map-review-views button[aria-selected="true"] { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.tianyi-map-review-viewport-actions { display: flex !important; flex-wrap: wrap; grid-template-columns: none !important; }
+.tianyi-map-review-viewport-actions button { flex: 1 1 7rem; font-size: var(--font-size-xs); }
+.tianyi-map-review h3 { margin: .1rem 0; color: var(--color-text); font-size: var(--font-size-xs); }
+.tianyi-map-review-brief, .tianyi-map-review-checks { display: grid; gap: .38rem; }
+.tianyi-map-review-checks { padding: .6rem; background: var(--color-surface); border-radius: var(--radius-sm); }
+.tianyi-map-review-checks li { display: flex; grid-template-columns: none; align-items: flex-start; gap: .35rem; padding: 0; border: 0; }
+.tianyi-map-review-checks li svg { flex: 0 0 auto; inline-size: .9rem; block-size: .9rem; color: var(--color-success); }
+.tianyi-map-review-decision { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; padding: .65rem 0 0; background: var(--color-surface); border-block-start: 1px solid var(--color-border-strong); box-shadow: 0 -10px 18px color-mix(in srgb, var(--color-surface) 92%, transparent); }
+.tianyi-map-review-decision button { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 2.55rem; min-width: 0; padding: .4rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.tianyi-map-review-decision .primary-action { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); font-weight: 700; }
+.tianyi-map-review-decision svg { inline-size: 1rem; block-size: 1rem; }
+.tianyi-map-error { flex-wrap: wrap; }
+.tianyi-map-error span { flex-basis: 100%; padding-inline-start: 1.4rem; }
 .tianyi-sidebar[data-tianyi-mode="prediction"] { min-inline-size: var(--tianyi-sidebar-width); }
 .tianyi-sidebar[data-tianyi-mode="prediction"] .tianyi-sidebar-stage { display: block; padding: .75rem; background: color-mix(in srgb, var(--color-surface) 96%, var(--color-workspace-background)); }
 .tianyi-prediction-mode-label { margin-inline-start: auto; padding: .2rem .55rem; color: var(--color-accent); background: var(--color-accent-soft); border-radius: 999px; font-size: var(--font-size-xs); font-weight: 700; }

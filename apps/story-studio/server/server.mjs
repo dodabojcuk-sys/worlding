@@ -2767,7 +2767,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/generate") {
     requireToken(request);
     const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
-    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "relativePath", "operationId", "baseContentHash", "profileId", "prompt", "scope", "referenceObjectIds", "preserveLineEndpoints"]);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "relativePath", "operationId", "baseContentHash", "profileId", "prompt", "scope", "referenceObjectIds", "avoidAreaObjectIds", "preserveLineEndpoints"]);
     await runAsyncProductOperation(() => tianyi.readTianyiSessionMetadata({ projectId: body.projectId, sessionId: body.sessionId }));
     const map = runProductOperation(() => operations.readVisualDocument({ projectId: body.projectId, relativePath: body.relativePath }));
     if (map.type !== "map" || map.contentHash !== body.baseContentHash) throw productError("地图在生成前已改变；请基于当前修订重新发起。", 409);
@@ -2785,6 +2785,8 @@ async function handleProductRequest(request, response, url) {
       scope: body.scope,
       capability: { mode: "text", imageInput: false, structuredOperations: true },
       operations: generated.operations,
+      referenceObjectIds: generated.referenceObjectIds,
+      constraints: generated.constraints,
       generation: generated.generation,
       operationExplanations: generated.operationExplanations
     }));

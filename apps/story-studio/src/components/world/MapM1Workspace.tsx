@@ -92,7 +92,8 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   const [draftDrawingPoints, setDraftDrawingPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(() => route().mapElement);
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([]);
-  const [aiReview, setAiReview] = useState<{ proposal: MapEditProposal | null; regionBounds: { x: number; y: number; width: number; height: number } | null } | null>(null);
+  const [aiReview, setAiReview] = useState<{ proposal: MapEditProposal | null; regionBounds: { x: number; y: number; width: number; height: number } | null; referenceObjectIds: string[]; reviewView: "before" | "after" | "compare"; focusNonce: number; command: "focus" | "fit" | "restore" | null } | null>(null);
+  const aiReviewOriginalViewport = useRef<MapViewport | null>(null);
   const [templateChoice, setTemplateChoice] = useState<MapContent["template"]>("geography");
   const [undoContents, setUndoContents] = useState<MapContent[]>([]);
   const [redoContents, setRedoContents] = useState<MapContent[]>([]);
@@ -173,14 +174,14 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
 
   useEffect(() => {
     const review = (event: Event) => {
-      const detail = (event as CustomEvent<{ mapId?: string; proposal?: MapEditProposal | null; regionBounds?: { x: number; y: number; width: number; height: number } | null }>).detail;
-      if (detail?.mapId === mapId) setAiReview({ proposal: detail.proposal ?? null, regionBounds: detail.regionBounds ?? null });
+      const detail = (event as CustomEvent<{ mapId?: string; proposal?: MapEditProposal | null; regionBounds?: { x: number; y: number; width: number; height: number } | null; referenceObjectIds?: string[]; reviewView?: "before" | "after" | "compare"; focusNonce?: number; command?: "focus" | "fit" | "restore" | null }>).detail;
+      if (detail?.mapId === mapId) setAiReview({ proposal: detail.proposal ?? null, regionBounds: detail.regionBounds ?? null, referenceObjectIds: detail.referenceObjectIds ?? [], reviewView: detail.reviewView ?? "compare", focusNonce: detail.focusNonce ?? 0, command: detail.command ?? null });
     };
     const committed = (event: Event) => {
       const detail = (event as CustomEvent<{ mapId?: string; action?: string }>).detail;
       if (detail?.mapId !== mapId || !projectId) return;
-      setAiReview(null);
-      void refresh(projectId, workVersionId).then(() => setMessage(detail.action === "accept" ? "天意提案已由作者接受并保存为新地图修订。" : detail.action === "compensate" ? "天意提案已补偿为新地图修订。" : "天意提案已拒绝；正式地图没有改变。"), (cause: unknown) => setMessage(cause instanceof Error ? cause.message : "地图刷新失败。"));
+      if (detail.action !== "accept") setAiReview(null);
+      void refresh(projectId, workVersionId).then(() => setMessage(detail.action === "accept" ? "天意提案已由作者接受并保存为新地图修订。" : detail.action === "compensate" ? "此次 AI 修改已撤销为新地图修订；历史与接受回执保留。" : "天意提案已拒绝；正式地图没有改变。"), (cause: unknown) => setMessage(cause instanceof Error ? cause.message : "地图刷新失败。"));
     };
     window.addEventListener("story-studio-map-ai-review", review);
     window.addEventListener("story-studio-map-ai-committed", committed);
@@ -699,14 +700,59 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     moveViewport({ ...viewport, zoom: viewport.zoom + (event.deltaY < 0 ? .1 : -.1) });
   };
 
+  useEffect(() => {
+    const proposal = aiReview?.proposal;
+    if (!proposal) { aiReviewOriginalViewport.current = null; return; }
+    if (!aiReviewOriginalViewport.current) aiReviewOriginalViewport.current = viewport;
+    if (!aiReview?.command) return;
+    if (aiReview.command === "restore") {
+      if (aiReviewOriginalViewport.current) moveViewport(aiReviewOriginalViewport.current);
+      return;
+    }
+    const measuredCanvas = canvasRef.current
+      ? { width: canvasRef.current.clientWidth, height: canvasRef.current.clientHeight }
+      : canvasSize;
+    const currentStageSize = fittedMapStage(measuredCanvas, map?.content.baseImage ?? null);
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    const sidebarRect = document.querySelector<HTMLElement>(".tianyi-sidebar")?.getBoundingClientRect();
+    const visibleCanvasWidth = canvasRect && sidebarRect && sidebarRect.left > canvasRect.left && sidebarRect.left < canvasRect.right
+      ? sidebarRect.left - canvasRect.left
+      : measuredCanvas.width;
+    const visibleCenterOffsetX = (visibleCanvasWidth - measuredCanvas.width) / 2;
+    if (aiReview.command === "fit") {
+      const zoom = Math.max(.6, Math.min(1, .94 * Math.min(visibleCanvasWidth / currentStageSize.width, measuredCanvas.height / currentStageSize.height)));
+      moveViewport({ x: visibleCenterOffsetX, y: 0, zoom });
+      return;
+    }
+    const currentDrawings = map?.content.drawings ?? [];
+    const points = [
+      ...(proposal.preview.changes ?? []).flatMap((change) => [...(change.before?.points ?? []), ...(change.after?.points ?? [])]),
+      ...currentDrawings.filter((drawing) => aiReview.referenceObjectIds.includes(drawing.id)).flatMap((drawing) => drawing.points)
+    ];
+    if (!points.length || !measuredCanvas.width || !measuredCanvas.height || !currentStageSize.width || !currentStageSize.height) return;
+    const minX = Math.min(...points.map((point) => point.x)); const maxX = Math.max(...points.map((point) => point.x));
+    const minY = Math.min(...points.map((point) => point.y)); const maxY = Math.max(...points.map((point) => point.y));
+    // Keep complete endpoints and the selected reference inside the real canvas.
+    // A single-point addition still keeps enough surrounding geography visible
+    // for an author to judge where it lands.
+    const width = Math.max(28, maxX - minX + 10); const height = Math.max(28, maxY - minY + 16);
+    const zoom = Math.max(.6, Math.min(2.2, .86 * Math.min(visibleCanvasWidth / (currentStageSize.width * width / 100), measuredCanvas.height / (currentStageSize.height * height / 100))));
+    moveViewport({ zoom, x: visibleCenterOffsetX + (50 - (minX + maxX) / 2) * currentStageSize.width * zoom / 100, y: (50 - (minY + maxY) / 2) * currentStageSize.height * zoom / 100 });
+  }, [aiReview?.command, aiReview?.focusNonce, aiReview?.proposal?.id]);
+
   if (!projectId) return <main className="shell-workspace map-workbench-shell"><MaterialsSectionNavigation current="map" hasUnsavedChanges={Boolean(spatialDraft || draftDrawingPoints.length || draftRegionPoints.length)} /><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
   const selected = locations.find((item) => item.id === selectedId) || null;
   const state = markerState(selected, inspector);
   const scopedChildren = structure && map?.content.scopeObjectId ? structure.childrenByParentId.get(map.content.scopeObjectId) ?? [] : [];
   const visibleLayerIds = new Set(map?.content.layers.filter((layer) => layer.visible).map((layer) => layer.id) ?? []);
   const orderedDrawings = map ? [...map.content.drawings].sort((left, right) => map.content.layers.findIndex((layer) => layer.id === left.layerId) - map.content.layers.findIndex((layer) => layer.id === right.layerId)) : [];
-  const aiBeforeDrawings = aiReview?.proposal?.status === "pending" ? (aiReview.proposal.preview.changes ?? []).flatMap((change) => change.before ? [change.before] : []) : [];
-  const aiAfterDrawings = aiReview?.proposal?.status === "pending" ? (aiReview.proposal.preview.changes ?? []).flatMap((change) => change.after ? [change.after] : []) : [];
+  const aiReviewActive = Boolean(aiReview?.proposal && aiReview.proposal.status !== "rejected" && aiReview.proposal.status !== "compensated");
+  const aiBeforeReviewDrawings = aiReviewActive ? (aiReview?.proposal?.preview.changes ?? []).flatMap((change) => change.before ? [change.before] : []) : [];
+  const aiAfterDrawings = aiReviewActive ? (aiReview?.proposal?.preview.changes ?? []).flatMap((change) => change.after ? [change.after] : []) : [];
+  const aiChangedDrawingIds = new Set((aiReview?.proposal?.preview.changes ?? []).map((change) => change.drawingId));
+  const aiBaseDrawings = aiReviewActive ? orderedDrawings.filter((drawing) => !aiChangedDrawingIds.has(drawing.id)) : orderedDrawings;
+  const aiReferenceDrawings = aiReviewActive ? orderedDrawings.filter((drawing) => aiReview?.referenceObjectIds.includes(drawing.id)) : [];
+  const aiEndpointDrawing = (aiAfterDrawings.find((drawing) => drawing.kind === "line") ?? aiBeforeReviewDrawings.find((drawing) => drawing.kind === "line")) ?? null;
   const visibleAdministrationRegions = map?.content.regions.filter((region) => region.layerId === ADMINISTRATION_LAYER_ID && visibleLayerIds.has(region.layerId)) ?? [];
   const administrativeLocationIds = new Set(administrationStructure?.edges.flatMap((edge) => [edge.sourceObjectId, edge.targetObjectId]) ?? []);
   const administrativeLocations = locations.filter((location) => administrativeLocationIds.has(location.id));
@@ -787,12 +833,14 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
           <section ref={canvasRef} className={`map-m1-canvas map-workbench-canvas ${editingLayout ? "is-editing" : "is-browsing"}`} aria-label="地点示意图画布" onClick={handleCanvasClick} onPointerDown={startPan} onPointerMove={pan} onPointerUp={endPan} onPointerCancel={endPan} onWheel={zoomCanvas}>
             <div className="map-workbench-grid" aria-hidden="true" />
             <div className="map-m2-viewport" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})` }}>
-              <div ref={stageRef} className="map-workbench-stage" style={{ width: `${stageSize.width}px`, height: `${stageSize.height}px` }}>
+              <div ref={stageRef} className={`map-workbench-stage${aiReviewActive ? " is-ai-review" : ""}`} data-review-view={aiReviewActive ? aiReview?.reviewView : undefined} style={{ width: `${stageSize.width}px`, height: `${stageSize.height}px` }}>
                 <svg className="map-workbench-background" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="地图底图"><MapBackgroundContent content={map.content} projectId={projectId} /></svg>
-                <MapDrawingOverlay drawings={orderedDrawings} labels={map.content.labels} visibleLayerIds={visibleLayerIds} selectedId={selectedDrawingId} compact={viewport.zoom < .75} draft={draftDrawingPoints} draftKind={authoringTool} authoring={authoringTool !== "browse" || editingLayout || Boolean(editingRegionObjectId)} onSelect={(id) => { if (authoringTool === "browse" && !editingLayout) setSelectedDrawingId(id); }} />
-                {aiReview?.regionBounds ? <svg className="map-ai-region-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="天意可新增区域"><rect x={aiReview.regionBounds.x} y={aiReview.regionBounds.y} width={aiReview.regionBounds.width} height={aiReview.regionBounds.height}/><text x={aiReview.regionBounds.x + 1} y={aiReview.regionBounds.y + 3}>AI 可新增范围</text></svg> : null}
-                {aiBeforeDrawings.length ? <MapDrawingOverlay className="map-ai-proposal-before" ariaLabel="天意提案修改前" drawings={aiBeforeDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} compact draft={[]} draftKind="browse" authoring /> : null}
-                {aiAfterDrawings.length ? <MapDrawingOverlay className="map-ai-proposal-after" ariaLabel="天意提案修改后" drawings={aiAfterDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} compact draft={[]} draftKind="browse" authoring /> : null}
+                <MapDrawingOverlay drawings={aiBaseDrawings} labels={map.content.labels} visibleLayerIds={visibleLayerIds} selectedId={aiReviewActive ? null : selectedDrawingId} compact={viewport.zoom < .75} draft={draftDrawingPoints} draftKind={authoringTool} authoring={authoringTool !== "browse" || editingLayout || Boolean(editingRegionObjectId) || aiReviewActive} onSelect={(id) => { if (authoringTool === "browse" && !editingLayout && !aiReviewActive) setSelectedDrawingId(id); }} />
+                {aiReview?.regionBounds ? <svg className="map-ai-region-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="天意可新增区域"><rect x={aiReview.regionBounds.x} y={aiReview.regionBounds.y} width={aiReview.regionBounds.width} height={aiReview.regionBounds.height}/><text x={aiReview.regionBounds.x + 1} y={aiReview.regionBounds.y + aiReview.regionBounds.height - 1}>AI 可新增范围</text></svg> : null}
+                {aiReferenceDrawings.length ? <MapDrawingOverlay className="map-ai-proposal-reference" ariaLabel="天意提案只读参考" drawings={aiReferenceDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} draft={[]} draftKind="browse" authoring /> : null}
+                {aiBeforeReviewDrawings.length && aiReview?.reviewView !== "after" ? <MapDrawingOverlay className="map-ai-proposal-before" ariaLabel="天意提案修改前" drawings={aiBeforeReviewDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} draft={[]} draftKind="browse" authoring /> : null}
+                {aiAfterDrawings.length && aiReview?.reviewView !== "before" ? <MapDrawingOverlay className="map-ai-proposal-after" ariaLabel="天意提案修改后" drawings={aiAfterDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} draft={[]} draftKind="browse" authoring /> : null}
+                {aiEndpointDrawing ? <svg className="map-ai-keypoints-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="道路端点与变化位置">{[aiEndpointDrawing.points[0], aiEndpointDrawing.points.at(-1)].map((point, index) => point ? <g key={index}><circle cx={point.x} cy={point.y} r="1.15"/><text className={index === 0 ? "is-start" : "is-end"} x={point.x + (index === 0 ? 2 : -2)} y={point.y - 2}>{index === 0 ? "起点" : "终点"}</text></g> : null)}{aiEndpointDrawing.points.slice(1, -1).map((point, index) => <circle key={`change.${index}`} className="is-change-point" cx={point.x} cy={point.y} r=".7"/>)}</svg> : null}
                 {visibleAdministrationRegions.length ? <svg className="map-administration-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="行政边界叠加">
                   {visibleAdministrationRegions.map((region) => {
                     const label = locations.find((location) => location.id === region.objectId)?.title ?? region.title;
