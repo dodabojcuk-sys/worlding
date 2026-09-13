@@ -15,7 +15,7 @@ export function createMapEditProposal(rootPath, input) {
   if (existsSync(proposalPath)) return readProposalFile(proposalPath);
   const baseContentHash = requireText(input.baseContentHash, "Map proposal base revision", 128);
   if (map.contentHash !== baseContentHash) throw new Error("地图在提案生成前已经改变；请基于当前修订重新生成。");
-  const operations = Array.isArray(input.operations) ? input.operations : [];
+  const operations = Array.isArray(input.operations) ? input.operations.map(normalizeOperation) : [];
   if (operations.length === 0 || operations.length > MAX_OPERATIONS) throw new Error("Map proposal operation count is outside the allowed range.");
   if (Buffer.byteLength(JSON.stringify(input), "utf8") > MAX_REQUEST_BYTES) throw new Error("Map proposal input is too large.");
   const scope = normalizeScope(input.scope, map);
@@ -40,6 +40,8 @@ export function createMapEditProposal(rootPath, input) {
     prompt: requireText(input.prompt, "Map proposal prompt", 2000),
     operations: clone(operations),
     preview: diffMap(map, candidate),
+    ...(input.generation ? { generation: normalizeGeneration(input.generation) } : {}),
+    ...(input.operationExplanations ? { operationExplanations: normalizeExplanations(input.operationExplanations, operations) } : {}),
     createdAt: new Date().toISOString(),
     decidedAt: null,
     resultContentHash: null
@@ -122,11 +124,14 @@ export function applyMapOperations(map, operations, scope) {
   const content = candidate.content;
   for (const raw of operations) {
     const operation = normalizeOperation(raw);
-    if (scope.kind === "selection" && operation.targetId && !scope.objectIds.includes(operation.targetId)) {
-      throw new Error("Map proposal operation is outside the author-selected scope.");
+    if (scope.kind === "selection") {
+      if (operation.type === "add-drawing" || operation.type.includes("placement") || operation.type.includes("connection")) throw new Error("Selection-scoped map proposals may only change explicitly selected drawings.");
+      if (!operation.targetId || !scope.objectIds.includes(operation.targetId)) throw new Error("Map proposal operation is outside the author-selected scope.");
     }
+    if (scope.kind === "region" && operation.type !== "add-drawing") throw new Error("Region-scoped map proposals may only add drawings.");
     if (operation.type === "add-drawing") {
       assertLayerWritable(content, operation.value.layerId);
+      if (scope.kind === "region" && operation.value.points.some((point) => !pointInsideBounds(point, scope.bounds))) throw new Error("Map proposal drawing is outside the author-selected region.");
       if (content.drawings.some((item) => item.id === operation.value.id)) throw new Error("Map proposal drawing identity already exists.");
       content.drawings.push(operation.value);
     } else if (operation.type === "update-drawing") {
@@ -172,8 +177,27 @@ function normalizeScope(value, map) {
   const bounds = kind === "region" ? cloneObject(value.bounds) : null;
   if (kind === "region") {
     for (const key of ["x", "y", "width", "height"]) if (!Number.isFinite(bounds[key])) throw new Error("Map proposal region is invalid.");
+    if (bounds.width <= 0 || bounds.height <= 0 || bounds.x < 0 || bounds.y < 0 || bounds.x + bounds.width > 100 || bounds.y + bounds.height > 100) throw new Error("Map proposal region must stay inside the map bounds.");
   }
   return { kind, mapId: map.id, objectIds, bounds };
+}
+
+function normalizeGeneration(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Map proposal generation metadata is invalid.");
+  return {
+    kind: value.kind === "real-provider" ? "real-provider" : "local-fake",
+    providerId: requireText(value.providerId, "Map proposal Provider", 120),
+    modelId: requireText(value.modelId, "Map proposal model", 200),
+    providerDispatches: value.providerDispatches === 1 ? 1 : 0,
+    sessionId: requireText(value.sessionId, "Map proposal Tianyi Session", 200),
+    workVersionId: requireText(value.workVersionId, "Map proposal WorkVersion", 200),
+    receiptEnvelopeId: typeof value.receiptEnvelopeId === "string" && value.receiptEnvelopeId.trim() ? value.receiptEnvelopeId.trim().slice(0, 200) : null
+  };
+}
+
+function normalizeExplanations(value, operations) {
+  if (!Array.isArray(value) || value.length !== operations.length) throw new Error("Map proposal explanations do not match the operations.");
+  return value.map((item, index) => ({ operationIndex: index, reason: requireText(item?.reason, "Map proposal operation reason", 280) }));
 }
 
 function normalizeCapability(value) {
@@ -195,8 +219,17 @@ function diffMap(before, after) {
     modifiedDrawingIds: after.content.drawings.filter((item) => beforeIds.has(item.id) && JSON.stringify(item) !== JSON.stringify(before.content.drawings.find((beforeItem) => beforeItem.id === item.id))).map((item) => item.id),
     deletedDrawingIds: [...beforeIds].filter((id) => !afterIds.has(id)),
     placementIds: after.content.placements.map((item) => item.id),
-    connectionIds: after.content.connections.map((item) => item.id)
+    connectionIds: after.content.connections.map((item) => item.id),
+    changes: [
+      ...after.content.drawings.filter((item) => !beforeIds.has(item.id)).map((item) => ({ kind: "added", drawingId: item.id, before: null, after: clone(item) })),
+      ...after.content.drawings.filter((item) => beforeIds.has(item.id) && JSON.stringify(item) !== JSON.stringify(before.content.drawings.find((beforeItem) => beforeItem.id === item.id))).map((item) => ({ kind: "modified", drawingId: item.id, before: clone(before.content.drawings.find((beforeItem) => beforeItem.id === item.id)), after: clone(item) })),
+      ...before.content.drawings.filter((item) => !afterIds.has(item.id)).map((item) => ({ kind: "deleted", drawingId: item.id, before: clone(item), after: null }))
+    ]
   };
+}
+
+function pointInsideBounds(point, bounds) {
+  return Number.isFinite(point?.x) && Number.isFinite(point?.y) && point.x >= bounds.x && point.x <= bounds.x + bounds.width && point.y >= bounds.y && point.y <= bounds.y + bounds.height;
 }
 
 function readMap(rootPath, relativePath) {

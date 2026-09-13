@@ -8,6 +8,7 @@ import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference.ts";
 import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/TianyiConversationWorkspace";
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
+import type { TianyiMapEditContext } from "../../components/tianyi/sidebar/MapAiCollaborationPanel";
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
@@ -22,7 +23,7 @@ export function ShellWorkspaceOutlet(props: {
   settingsOpen: boolean;
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
-  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
+  onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext, mapEdit?: TianyiMapEditContext): void;
   onOpenPendingReview(): void;
   directoryObjectId: string | null;
   characterObjectId: string | null;
@@ -65,7 +66,7 @@ export function ShellWorkspaceOutlet(props: {
   const libraryView = location.searchParams.get("libraryView")
     ?? (props.destination.id === "library" ? location.searchParams.get("worldView") : null);
   if (!props.shellLab && props.destination.id === "library" && libraryView === "map") {
-    return <MapM1Workspace runtime={props.runtime} />;
+    return <MapM1Workspace runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} />;
   }
 
   if (!props.shellLab && props.destination.id === "library" && libraryView === "relations") {

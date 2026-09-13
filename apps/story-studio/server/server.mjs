@@ -77,6 +77,7 @@ import {
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
+import { createMapEditProposalProviderAdapter } from "./providerGateway/mapEditProposalProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
 import { createOpenAiCompatibleAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
@@ -389,6 +390,7 @@ const multiNodePredictionGateway = productPathRealProviderAllowed
 const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
   ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
   : createStoryModelingProviderAdapter({ gateway: providerGateway, maxProviderCalls: 16, maxOutputTokens: 512 });
+const mapEditProposalProvider = createMapEditProposalProviderAdapter({ gateway: providerGateway });
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,
   stateFilePath,
@@ -2760,6 +2762,33 @@ async function handleProductRequest(request, response, url) {
     const body = await readJsonBody(request);
     requireAllowedKeys(body, ["projectId", "relativePath", "operationId", "baseContentHash", "prompt", "scope", "capability", "operations"]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createMapEditProposal(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/generate") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "relativePath", "operationId", "baseContentHash", "profileId", "prompt", "scope", "referenceObjectIds", "preserveLineEndpoints"]);
+    await runAsyncProductOperation(() => tianyi.readTianyiSessionMetadata({ projectId: body.projectId, sessionId: body.sessionId }));
+    const map = runProductOperation(() => operations.readVisualDocument({ projectId: body.projectId, relativePath: body.relativePath }));
+    if (map.type !== "map" || map.contentHash !== body.baseContentHash) throw productError("地图在生成前已改变；请基于当前修订重新发起。", 409);
+    const controller = new AbortController();
+    request.once("aborted", () => controller.abort());
+    response.once("close", () => { if (!response.writableEnded) controller.abort(); });
+    const generated = await runAsyncProductOperation(() => mapEditProposalProvider.generate({ ...body, map, signal: controller.signal }));
+    if (controller.signal.aborted) throw productError("生成已取消；没有创建地图提案。", 499);
+    const proposal = runProductOperation(() => operations.createMapEditProposal({
+      projectId: body.projectId,
+      relativePath: body.relativePath,
+      operationId: body.operationId,
+      baseContentHash: body.baseContentHash,
+      prompt: body.prompt,
+      scope: body.scope,
+      capability: { mode: "text", imageInput: false, structuredOperations: true },
+      operations: generated.operations,
+      generation: generated.generation,
+      operationExplanations: generated.operationExplanations
+    }));
+    sendJson(response, 201, { data: { proposal, summary: generated.summary } });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/maps/proposals") {

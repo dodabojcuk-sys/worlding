@@ -38,6 +38,7 @@ import { storyStudioWorkspaceRoute } from "./navigation/topLevelDestinationRegis
 import type { GlobalSearchOpenRequest, GlobalSearchResult, GlobalSearchScope } from "./global-search/globalSearchTypes";
 import type { StoryStudioEventReference } from "../../../../src/storyContracts/storyStudioEventReference.ts";
 import { useWorkspaceDockSlot, workspaceDockCoordinator } from "./WorkspaceDockCoordinator";
+import type { TianyiMapEditContext } from "../components/tianyi/sidebar/MapAiCollaborationPanel";
 import { cssLength, resolveShellFocusLayout, type ShellFocusLayout } from "./layout/shellFocusLayout";
 import { tianyiStoryIntakeRunStorageKey } from "./runtime/tianyiShellSessionRecovery";
 import {
@@ -426,13 +427,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setSettingsOpen(false);
     workspaceDockCoordinator.close();
   };
-  const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext) => {
+  const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext, mapEdit?: TianyiMapEditContext) => {
     const eventRefs = reference ? (Array.isArray(reference) ? reference : [reference]) : [];
-    setTianyiContextRequest(reference || knowledgeView ? {
+    setTianyiContextRequest(reference || knowledgeView || mapEdit ? {
       productMode: "world",
-      activeOwner: { kind: "world-object", id: eventRefs[0]?.eventId ?? null },
-      selection: { documentId: null, objectId: eventRefs[0]?.eventId ?? null, timelinePointId: null },
-      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels, predictionSourceUnitSummary, knowledgeView
+      activeOwner: mapEdit ? { kind: "visual-document", id: mapEdit.mapId } : { kind: "world-object", id: eventRefs[0]?.eventId ?? null },
+      selection: { documentId: mapEdit?.mapId ?? null, objectId: mapEdit?.editableObjectIds[0] ?? eventRefs[0]?.eventId ?? null, timelinePointId: null },
+      sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs, predictionSourceLabels, predictionSourceUnitSummary, knowledgeView, mapEdit
     } : null);
     if (initialDraft !== undefined) {
       if (predictionSourceLabels?.length) props.runtime.setPageAgentTaskDraft(initialDraft);

@@ -990,7 +990,9 @@ export type MapEditProposal = {
   capability: { mode: "text" | "vision" | "image"; imageInput: boolean; structuredOperations: boolean };
   prompt: string;
   operations: MapEditOperation[];
-  preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[] };
+  preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[]; changes?: Array<{ kind: "added" | "modified" | "deleted"; drawingId: string; before: MapDrawing | null; after: MapDrawing | null }> };
+  generation?: { kind: "real-provider" | "local-fake"; providerId: string; modelId: string; providerDispatches: 0 | 1; sessionId: string; workVersionId: string; receiptEnvelopeId: string | null };
+  operationExplanations?: Array<{ operationIndex: number; reason: string }>;
   createdAt: string;
   decidedAt: string | null;
   resultContentHash: string | null;
@@ -3110,6 +3112,11 @@ export async function readMapRevision(projectId: string, relativePath: string, c
 export async function createMapEditProposal(input: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: MapEditProposal["scope"]; capability: MapEditProposal["capability"]; operations: MapEditOperation[]; token: string }): Promise<MapEditProposal> {
   const { token, ...body } = input;
   return request(`${basePath}/maps/proposals/create`, { method: "POST", token, body });
+}
+
+export async function generateMapEditProposal(input: { projectId: string; workVersionId: string; sessionId: string; relativePath: string; operationId: string; baseContentHash: string; profileId: string; prompt: string; scope: MapEditProposal["scope"] & { layerId?: string | null }; referenceObjectIds: string[]; preserveLineEndpoints: boolean; token: string; signal?: AbortSignal }): Promise<{ proposal: MapEditProposal; summary: string }> {
+  const { token, signal, ...body } = input;
+  return request(`${basePath}/maps/proposals/generate`, { method: "POST", token, body, signal });
 }
 
 export async function listMapEditProposals(projectId: string, relativePath: string): Promise<MapEditProposal[]> {

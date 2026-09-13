@@ -60,8 +60,8 @@ export function MapDrawingContent(props: DrawingContentProps) {
   </g>;
 }
 
-export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean }) {
-  return <svg className={`map-authoring-overlay${props.authoring ? " is-authoring" : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="地图绘图内容">
+export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean; className?: string; ariaLabel?: string }) {
+  return <svg className={`map-authoring-overlay${props.authoring ? " is-authoring" : ""}${props.className ? ` ${props.className}` : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label={props.ariaLabel ?? "地图绘图内容"}>
     <MapDrawingContent {...props} />
     {props.draft.length ? <polyline className="map-authoring-draft" points={props.draft.map(pointText).join(" ")} fill={props.draftKind === "area" ? "#49a99b" : "none"} fillOpacity=".18" /> : null}
   </svg>;

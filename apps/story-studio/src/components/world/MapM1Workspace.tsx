@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type WheelEvent } from "react";
 import { ArrowLeft, CircleHelp, Copy, DoorOpen, Eye, FileText, LocateFixed, LockKeyhole, MapPin, Minus, PanelLeftClose, PanelRight, PencilRuler, Plus, Redo2, RotateCcw, Trash2, Undo2 } from "lucide-react";
 
-import { createVisualDocument, duplicateMapDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, importVisualAsset, listMapRevisions, listRelationTypes, listRelations, readMapRevision, readWorldStateN4, updateVisualDocument, type MapBackground, type MapConnection, type MapContent, type MapDocument, type MapDrawing, type MapPlacement, type RelationTypeDefinition, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
+import { createVisualDocument, duplicateMapDocument, getVerifiedCanonEvent, getVisualWorkbench, getWorldLibrary, importVisualAsset, listMapRevisions, listRelationTypes, listRelations, readMapRevision, readWorldStateN4, updateVisualDocument, type MapBackground, type MapConnection, type MapContent, type MapDocument, type MapDrawing, type MapEditProposal, type MapPlacement, type RelationTypeDefinition, type WorldObject, type WorldObjectSummary } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { relationActiveAtWorldTime, relationWorldTimeUnknownReason } from "../../../../../src/storyContracts/relationTemporalComparison.ts";
 import { createTypedLocationStructureProjection, type LocationStructureKind } from "../../../../../src/storyContracts/storyStudioLocationTopology.ts";
@@ -12,6 +12,8 @@ import { MapAtlasWorkspace } from "./MapAtlasWorkspace";
 import { CalibratedMapContent } from "./MapAlignmentWorkspace";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
 import { WORKSPACE_NAVIGATION_REQUEST } from "../../product-shell/navigation/workspaceNavigationGuard";
+import { workspaceDockCoordinator } from "../../product-shell/WorkspaceDockCoordinator";
+import type { TianyiMapEditContext } from "../tianyi/sidebar/MapAiCollaborationPanel";
 
 type EventObservation = { kind: "event"; eventId: string; eventRevision: string; observedAt: string };
 type Observation = { kind: "current" } | EventObservation;
@@ -66,7 +68,7 @@ function scalePlacementBounds(placement: MapPlacement, percent: number): MapPlac
 }
 
 /** Author-facing spatial layout only. Location facts remain with their existing Owners. */
-export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
+export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: undefined, initialDraft?: string, predictionSourceLabels?: undefined, predictionSourceUnitSummary?: undefined, knowledgeView?: undefined, mapEdit?: TianyiMapEditContext): void }) {
   const projectId = props.runtime.project?.id ?? null;
   const workVersionId = props.runtime.workVersionId;
   const materialReturn = safeReturn(new URLSearchParams(window.location.search).get("materialReturn"));
@@ -90,6 +92,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [draftDrawingPoints, setDraftDrawingPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(() => route().mapElement);
   const [selectedDrawingIds, setSelectedDrawingIds] = useState<string[]>([]);
+  const [aiReview, setAiReview] = useState<{ proposal: MapEditProposal | null; regionBounds: { x: number; y: number; width: number; height: number } | null } | null>(null);
   const [templateChoice, setTemplateChoice] = useState<MapContent["template"]>("geography");
   const [undoContents, setUndoContents] = useState<MapContent[]>([]);
   const [redoContents, setRedoContents] = useState<MapContent[]>([]);
@@ -169,6 +172,22 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
 
   useEffect(() => {
+    const review = (event: Event) => {
+      const detail = (event as CustomEvent<{ mapId?: string; proposal?: MapEditProposal | null; regionBounds?: { x: number; y: number; width: number; height: number } | null }>).detail;
+      if (detail?.mapId === mapId) setAiReview({ proposal: detail.proposal ?? null, regionBounds: detail.regionBounds ?? null });
+    };
+    const committed = (event: Event) => {
+      const detail = (event as CustomEvent<{ mapId?: string; action?: string }>).detail;
+      if (detail?.mapId !== mapId || !projectId) return;
+      setAiReview(null);
+      void refresh(projectId, workVersionId).then(() => setMessage(detail.action === "accept" ? "天意提案已由作者接受并保存为新地图修订。" : detail.action === "compensate" ? "天意提案已补偿为新地图修订。" : "天意提案已拒绝；正式地图没有改变。"), (cause: unknown) => setMessage(cause instanceof Error ? cause.message : "地图刷新失败。"));
+    };
+    window.addEventListener("story-studio-map-ai-review", review);
+    window.addEventListener("story-studio-map-ai-committed", committed);
+    return () => { window.removeEventListener("story-studio-map-ai-review", review); window.removeEventListener("story-studio-map-ai-committed", committed); };
+  }, [mapId, projectId, workVersionId]);
+
+  useEffect(() => {
     setMaps([]); setLocations([]); setRelations([]); setRelationTypes([]); setMapId(route().mapId); setHistoricalRevision(route().mapRevision); setSelectedId(route().placeId); setObservation(observationFromRoute()); setViewport(viewportFromRoute()); setStructureKind(route().structureKind);
     setInspector(null); setInspectorError(null); setInspectorOpen(Boolean(route().placeId)); setMessage("");
     if (projectId) void refresh(projectId, workVersionId).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "地图读取失败。"));
@@ -209,7 +228,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const allowLeave = () => { if (busy) { setMessage("正在保存，请等待结果后离开。"); return false; } if (spatialDraft || draftDrawingPoints.length || draftRegionPoints.length) { setMessage("仍有未保存的编辑，请在当前任务区保存或取消后离开。"); return false; } return true; };
   useEffect(() => { const guard = (event: BeforeUnloadEvent) => { if (spatialDraft || draftDrawingPoints.length || draftRegionPoints.length || busy) { event.preventDefault(); event.returnValue = ""; } }; window.addEventListener("beforeunload",guard); return ()=>window.removeEventListener("beforeunload",guard); }, [spatialDraft,draftDrawingPoints.length,draftRegionPoints.length,busy]);
-  const selectMap = (id: string) => { if(!allowLeave())return; if(id){navigateToMap(id);return;} if(map && projectId) window.sessionStorage.setItem(`tianyan.map.viewport.${projectId}.${map.id}`,JSON.stringify({...viewport,selectedDrawingId,selectedId})); const params = new URLSearchParams(window.location.search); params.delete("mapRevision"); window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`); setHistoricalRevision(null); setMapId(id || null); setSelectedId(null); setInspectorOpen(false); saveRoute({ mapId: id || null, placeId: null }); };
+  const selectMap = (id: string) => { if(!allowLeave())return; if(id){navigateToMap(id);return;} workspaceDockCoordinator.closeQuickTianyi(); setAiReview(null); if(map && projectId) window.sessionStorage.setItem(`tianyan.map.viewport.${projectId}.${map.id}`,JSON.stringify({...viewport,selectedDrawingId,selectedId})); const params = new URLSearchParams(window.location.search); params.delete("mapRevision"); window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`); setHistoricalRevision(null); setMapId(id || null); setSelectedId(null); setInspectorOpen(false); saveRoute({ mapId: id || null, placeId: null }); };
   const showManager = () => selectMap("");
   useEffect(() => {
     const guard = (event: Event) => {
@@ -230,6 +249,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     try { if (stored) { const state=JSON.parse(stored); nextViewport = normalizeViewport(state); restoredDrawing=state.selectedDrawingId??null; restoredPlace=state.selectedId??null; } } catch { /* A broken local view preference is safely ignored. */ }
     const params = new URLSearchParams(window.location.search); params.delete("mapRevision"); window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`); setHistoricalRevision(null);
     const restoredParams=new URLSearchParams(window.location.search); setQuery(restoredParams,"mapElement",restoredDrawing); window.history.replaceState({},"",`${window.location.pathname}?${restoredParams.toString()}`);
+    workspaceDockCoordinator.closeQuickTianyi(); setAiReview(null);
     setMapId(id); setViewport(nextViewport); saveRoute({ mapId: id, viewport: nextViewport, placeId: restoredPlace }); setSelectedId(restoredPlace);setSelectedDrawingId(restoredDrawing);
   };
   useEffect(() => { setMapTitle(map?.title ?? ""); }, [map?.id, map?.title]);
@@ -417,12 +437,8 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const openTianyiWithMap = () => {
     if (!map || !projectId) return;
-    const mapReturn = new URL(window.location.href);
-    if (selectedDrawingId) mapReturn.searchParams.set("mapElement", selectedDrawingId);
-    else mapReturn.searchParams.delete("mapElement");
-    const params = new URLSearchParams({ tianyiLane: "work", mapRef: map.id, mapRevision: map.contentHash, mapReturn: `${mapReturn.pathname}${mapReturn.search}` });
-    if (selectedDrawingId) params.set("mapElement", selectedDrawingId);
-    window.location.assign(`/tianyi?${params.toString()}`);
+    const editableObjectIds = [...new Set([...selectedDrawingIds, ...(selectedDrawingId ? [selectedDrawingId] : [])])];
+    props.onOpenTianyi(undefined, undefined, undefined, undefined, undefined, { mapId: map.id, relativePath: map.relativePath, baseContentHash: map.contentHash, editableObjectIds, activeLayerId });
   };
   const saveScope = (scopeObjectId: string) => {
     if (!map) return;
@@ -680,6 +696,8 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const scopedChildren = structure && map?.content.scopeObjectId ? structure.childrenByParentId.get(map.content.scopeObjectId) ?? [] : [];
   const visibleLayerIds = new Set(map?.content.layers.filter((layer) => layer.visible).map((layer) => layer.id) ?? []);
   const orderedDrawings = map ? [...map.content.drawings].sort((left, right) => map.content.layers.findIndex((layer) => layer.id === left.layerId) - map.content.layers.findIndex((layer) => layer.id === right.layerId)) : [];
+  const aiBeforeDrawings = aiReview?.proposal?.status === "pending" ? (aiReview.proposal.preview.changes ?? []).flatMap((change) => change.before ? [change.before] : []) : [];
+  const aiAfterDrawings = aiReview?.proposal?.status === "pending" ? (aiReview.proposal.preview.changes ?? []).flatMap((change) => change.after ? [change.after] : []) : [];
   const visibleAdministrationRegions = map?.content.regions.filter((region) => region.layerId === ADMINISTRATION_LAYER_ID && visibleLayerIds.has(region.layerId)) ?? [];
   const administrativeLocationIds = new Set(administrationStructure?.edges.flatMap((edge) => [edge.sourceObjectId, edge.targetObjectId]) ?? []);
   const administrativeLocations = locations.filter((location) => administrativeLocationIds.has(location.id));
@@ -741,7 +759,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
               <button type="button" onClick={deleteDrawing} disabled={busy}><Trash2 aria-hidden="true" />删除选中图示</button>
             </section> : null}
             {selectedDrawingIds.length ? <section className="map-drawing-editor" aria-label="多选操作"><strong>已多选 {selectedDrawingIds.length} 项</strong><button type="button" onClick={duplicateSelectedDrawings} disabled={busy}>复制所选</button><button type="button" onClick={deleteSelectedDrawings} disabled={busy}>删除所选</button><button type="button" onClick={() => setSelectedDrawingIds([])}>取消多选</button></section> : null}
-            <button type="button" className="primary-action" onClick={openTianyiWithMap}>交给天意{selectedDrawingId ? " · 选中图示" : " · 当前地图"}</button>
+            <button type="button" className="primary-action" onClick={openTianyiWithMap}>交给天意{selectedDrawingIds.length || selectedDrawingId ? ` · ${[...new Set([...selectedDrawingIds, ...(selectedDrawingId ? [selectedDrawingId] : [])])].length} 个图示` : " · 区域新增"}</button>
             <details><summary>图层</summary>{map.content.layers.map((layer, index) => <div key={layer.id} className="map-authoring-layer-row"><span>{layer.title}</span><button type="button" aria-label={`上移${layer.title}`} disabled={index === 0} onClick={() => { const layers = [...map.content.layers]; [layers[index - 1], layers[index]] = [layers[index]!, layers[index - 1]!]; saveMap({ ...map, content: { ...map.content, layers } }, "图层顺序已保存。", "图层保存失败。"); }}>↑</button><button type="button" aria-label={`下移${layer.title}`} disabled={index === map.content.layers.length - 1} onClick={() => { const layers = [...map.content.layers]; [layers[index], layers[index + 1]] = [layers[index + 1]!, layers[index]!]; saveMap({ ...map, content: { ...map.content, layers } }, "图层顺序已保存。", "图层保存失败。"); }}>↓</button><button type="button" aria-pressed={layer.visible} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, visible: !item.visible } : item) } }, "图层显示已保存。", "图层保存失败。")}>{layer.visible ? "显示" : "隐藏"}</button><button type="button" aria-pressed={layer.locked} onClick={() => saveMap({ ...map, content: { ...map.content, layers: map.content.layers.map((item) => item.id === layer.id ? { ...item, locked: !item.locked } : item) } }, "图层锁定状态已保存。", "图层保存失败。")}>{layer.locked ? "解锁" : "锁定"}</button></div>)}</details>
             {map.content.activeBackgroundId ? <details><summary>底图变换</summary>{map.content.backgrounds.filter((item) => item.id === map.content.activeBackgroundId).map((background) => <div key={background.id} className="map-authoring-detail-stack"><label>透明度<input type="range" min="0" max="1" step="0.05" value={background.opacity} onChange={(event) => saveMap({ ...map, content: { ...map.content, backgrounds: map.content.backgrounds.map((item) => item.id === background.id ? { ...item, opacity: Number(event.target.value) } : item) } }, "底图透明度已保存。", "底图设置保存失败。")}/></label><label>水平显示偏移（像素）<input aria-label="底图水平显示偏移" type="number" value={background.transform.x} onChange={(event) => saveMap({ ...map, content: { ...map.content, backgrounds: map.content.backgrounds.map((item) => item.id === background.id ? { ...item, transform: { ...item.transform, x: Number(event.target.value) } } : item) } }, "底图位置已保存。", "底图设置保存失败。")}/></label><label>垂直显示偏移（像素）<input aria-label="底图垂直显示偏移" type="number" value={background.transform.y} onChange={(event) => saveMap({ ...map, content: { ...map.content, backgrounds: map.content.backgrounds.map((item) => item.id === background.id ? { ...item, transform: { ...item.transform, y: Number(event.target.value) } } : item) } }, "底图位置已保存。", "底图设置保存失败。")}/></label><label>缩放<input type="number" min="0.01" max="100" step="0.05" value={background.transform.scale} onChange={(event) => saveMap({ ...map, content: { ...map.content, backgrounds: map.content.backgrounds.map((item) => item.id === background.id ? { ...item, transform: { ...item.transform, scale: Number(event.target.value) } } : item) } }, "底图缩放已保存。", "底图设置保存失败。")}/></label><label>旋转<input type="number" min="-180" max="180" value={background.transform.rotation} onChange={(event) => saveMap({ ...map, content: { ...map.content, backgrounds: map.content.backgrounds.map((item) => item.id === background.id ? { ...item, transform: { ...item.transform, rotation: Number(event.target.value) } } : item) } }, "底图旋转已保存。", "底图设置保存失败。")}/></label><small>兼容说明：既有字段只记录显示像素，未记录基准画布或地图坐标单位；本页继续按旧语义显示，不静默改写。缩略图和空间图使用相同像素值，但画布尺寸不同时，底图与结构化坐标的相对位置可能不同；跨视图精确转换需要未来由作者确认版本化迁移。</small></div>)}</details> : null}
             <details><summary>跨图通道（{connectedMaps.length}）</summary><div className="map-authoring-detail-stack"><label>类型<select value={connectionKind} onChange={(event) => setConnectionKind(event.target.value as MapConnection["kind"])}><option value="door">门</option><option value="stairs">楼梯</option><option value="elevator">升降机</option><option value="road">道路接口</option><option value="passage">通道</option><option value="portal">传送门</option></select></label><label>目标地图<select value={connectionTargetId} onChange={(event) => setConnectionTargetId(event.target.value)}><option value="">选择地图</option>{maps.filter((item) => item.id !== map.id && !item.content.lifecycle.archived).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button type="button" onClick={addConnection} disabled={!connectionTargetId || busy}>建立两个端点</button>{connectedMaps.map(({ owner, connection }) => <div key={`${owner.id}:${connection.id}`} className="map-connection-row"><button type="button" onClick={() => navigateToMap(connection.from.mapId === map.id ? connection.to.mapId : connection.from.mapId)}>{connection.title} · {maps.find((item) => item.id === (connection.from.mapId === map.id ? connection.to.mapId : connection.from.mapId))?.title ?? "目标缺失"}</button><button type="button" onClick={() => removeConnection(owner, connection.id)}>移除</button></div>)}</div></details>
@@ -762,6 +780,9 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState }) {
               <div ref={stageRef} className="map-workbench-stage" style={{ width: `${stageSize.width}px`, height: `${stageSize.height}px` }}>
                 <svg className="map-workbench-background" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="地图底图"><MapBackgroundContent content={map.content} projectId={projectId} /></svg>
                 <MapDrawingOverlay drawings={orderedDrawings} labels={map.content.labels} visibleLayerIds={visibleLayerIds} selectedId={selectedDrawingId} compact={viewport.zoom < .75} draft={draftDrawingPoints} draftKind={authoringTool} authoring={authoringTool !== "browse" || editingLayout || Boolean(editingRegionObjectId)} onSelect={(id) => { if (authoringTool === "browse" && !editingLayout) setSelectedDrawingId(id); }} />
+                {aiReview?.regionBounds ? <svg className="map-ai-region-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="天意可新增区域"><rect x={aiReview.regionBounds.x} y={aiReview.regionBounds.y} width={aiReview.regionBounds.width} height={aiReview.regionBounds.height}/><text x={aiReview.regionBounds.x + 1} y={aiReview.regionBounds.y + 3}>AI 可新增范围</text></svg> : null}
+                {aiBeforeDrawings.length ? <MapDrawingOverlay className="map-ai-proposal-before" ariaLabel="天意提案修改前" drawings={aiBeforeDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} compact draft={[]} draftKind="browse" authoring /> : null}
+                {aiAfterDrawings.length ? <MapDrawingOverlay className="map-ai-proposal-after" ariaLabel="天意提案修改后" drawings={aiAfterDrawings} labels={[]} visibleLayerIds={new Set(map.content.layers.map((layer) => layer.id))} selectedId={null} compact draft={[]} draftKind="browse" authoring /> : null}
                 {visibleAdministrationRegions.length ? <svg className="map-administration-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="行政边界叠加">
                   {visibleAdministrationRegions.map((region) => {
                     const label = locations.find((location) => location.id === region.objectId)?.title ?? region.title;

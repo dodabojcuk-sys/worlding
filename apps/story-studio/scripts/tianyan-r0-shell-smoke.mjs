@@ -25,7 +25,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "world-materials-m1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -97,12 +97,15 @@ const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-me
 const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
 const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-author-experience";
 const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
+const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
+const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
 const worldMaterialsOnly = process.env.TIANYAN_E2E_SCOPE === "world-materials-m1";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
+const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
@@ -114,6 +117,7 @@ let narrativeFixture = null;
 let r1CausalFixture = null;
 let characterFixture = null;
 let mapM2Fixture = null;
+let mapAiFixture = null;
 let worldMaterialsFixture = null;
 let server;
 let apiServer;
@@ -123,6 +127,7 @@ let diagnosticTraceStarted = false;
 let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
+let expectedMapCompensationConflict = false;
 const r062Captures = [];
 
 async function runIsolatedE2eScope(scope) {
@@ -155,11 +160,11 @@ async function findAvailablePort(requestedPort, excludedPort) {
 }
 
 try {
-  ollamaFixture = await startProviderCatalogOllamaFixture();
+  ollamaFixture = mapRealAiLiveAcceptance ? null : await startProviderCatalogOllamaFixture();
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: { ...process.env, NODE_ENV: mapRealAiLiveAcceptance ? "development" : "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: mapRealAiLiveAcceptance ? "REAL_PROVIDER_ALLOWED" : "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: mapRealAiLiveAcceptance ? "1" : "0", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: mapRealAiLiveAcceptance ? "1" : process.env.TIANYAN_REAL_PROVIDER_PRODUCT_PATH, TIANYAN_AGENT_FAKE_PROVIDER_STREAM: mapRealAiLiveAcceptance ? "0" : "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: mapRealAiLiveAcceptance ? "0" : "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", ...(mapRealAiLiveAcceptance ? {} : { TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot }), TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -178,8 +183,8 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapM4EvidenceDirectory ? 160 : 0 });
-  const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 });
+  const recordingDirectory = mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -197,10 +202,11 @@ try {
       expectedProviderFailureConsoleBudget -= 1;
       return;
     }
+    if (expectedMapCompensationConflict && /Failed to load resource.*400/u.test(problem)) return;
     consoleProblems.push(problem);
   });
   page.on("pageerror", (error) => consoleProblems.push(error.message));
-  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && !(expectedMapCompensationConflict && response.url().endsWith("/maps/proposals/compensate")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
 
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
@@ -216,6 +222,10 @@ try {
     await assertMapM3AuthorExperience(page, consoleProblems);
     await assertMapM4ManagementAiEditing(page, consoleProblems);
     await assertMapAuthorWorkspaceR2(page, consoleProblems);
+  } else if (mapRealAiCollaborationOnly) {
+    await setupMapM2Fixture();
+    await setupMapRealAiFixture();
+    await assertMapRealAiCollaboration(page, consoleProblems);
   } else if (worldMaterialsOnly) {
     await setupWorldMaterialsFixture();
     await assertWorldMaterialsM1(page, consoleProblems);
@@ -543,7 +553,7 @@ async function assertProviderCatalogSettingsR0(page) {
 }
 
 async function startProviderCatalogOllamaFixture() {
-  const calls = { tags: 0, embed: 0 };
+  const calls = { tags: 0, embed: 0, chat: 0 };
   let lastEmbeddingInput = null;
   const server = createHttpServer((request, response) => {
     if (request.url === "/api/tags" && request.method === "GET") {
@@ -569,6 +579,27 @@ async function startProviderCatalogOllamaFixture() {
         lastEmbeddingInput = parsed.input?.[0] ?? null;
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ model: parsed.model, embeddings: [[0.1, 0.2, 0.3, 0.4]] }));
+      });
+      return;
+    }
+    if (request.url === "/v1/models" && request.method === "GET") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "fixture/map-text-r1" }] }));
+      return;
+    }
+    if (request.url === "/v1/chat/completions" && request.method === "POST") {
+      calls.chat += 1;
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const parsed = JSON.parse(body);
+        const user = JSON.parse(parsed.messages.find((message) => message.role === "user")?.content || "{}");
+        const context = user.context;
+        const operation = context.scope.kind === "selection"
+          ? { action: "update", targetId: context.editableObjects[0].id, points: [{ x: 10, y: 50 }, { x: 34, y: 34 }, { x: 66, y: 34 }, { x: 90, y: 50 }], reason: "从雾松林北侧绕行并保留道路端点" }
+          : { action: "add", kind: "symbol", subtype: "entrance", points: [{ x: context.scope.bounds.x + 4, y: context.scope.bounds.y + 4 }], label: "北侧观察点", reason: "在作者指定区域内新增少量标记" };
+        response.writeHead(200, { "content-type": "application/json", "x-request-id": `map-fixture-${calls.chat}` });
+        response.end(JSON.stringify({ model: "fixture/map-text-r1", choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [{ id: `call-map-${calls.chat}`, type: "function", function: { name: "propose_map_edit", arguments: JSON.stringify({ summary: context.scope.kind === "selection" ? "道路绕开森林，端点保持不变" : "在指定范围新增观察点", operations: [operation] }) } }] } }], usage: { prompt_tokens: 120, completion_tokens: 70, total_tokens: 190 } }));
       });
       return;
     }
@@ -2136,6 +2167,111 @@ async function setupMapM2Fixture() {
     return denseGraph;
   };
   mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph };
+}
+
+async function setupMapRealAiFixture() {
+  assert.ok(mapM2Fixture && (mapRealAiLiveAcceptance || ollamaFixture), "Map AI fixture requires the isolated project and a bounded Provider host.");
+  const base = `${apiUrl}/__local/story-studio`;
+  if (!mapRealAiLiveAcceptance) {
+    const profile = await getFixture(`${base}/model-service/profile`);
+    await postFixture(`${base}/model-service/profile/save`, {
+      expectedRevision: profile.data.revision,
+      provider: "vllm",
+      displayName: "隔离地图文本模型",
+      baseUrl: `${ollamaFixture.baseUrl}/v1`,
+      llmModelId: "fixture/map-text-r1",
+      embeddingModelId: "",
+      enabled: true
+    });
+  }
+  const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, ".story-studio", "state.json") });
+  let map = operations.createVisualDocument({ projectId: fixtureProjectId, type: "map", title: "北湾 AI 协作隔离图" });
+  const layers = [{ id: "layer.terrain", title: "地形", visible: true, locked: false }, { id: "layer.routes", title: "道路", visible: true, locked: false }, { id: "layer.main", title: "标记", visible: true, locked: false }];
+  const drawing = (value) => ({ strokeColor: "#167b7a", fillColor: "#49a99b", fillOpacity: .24, width: 3, size: 4, seed: 1, rotation: 0, label: null, objectId: null, ...value });
+  map = operations.updateVisualDocument({ projectId: fixtureProjectId, relativePath: map.relativePath, expectedHash: map.contentHash, document: { ...map, content: { ...map.content, layers, drawings: [
+    drawing({ id: "drawing.ai-road", kind: "line", subtype: "road", layerId: "layer.routes", points: [{ x: 10, y: 50 }, { x: 90, y: 50 }], strokeColor: "#765b3d", fillColor: "#765b3d", label: "北湾滨海道" }),
+    drawing({ id: "drawing.ai-forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 40, y: 45 }, { x: 50, y: 44 }, { x: 60, y: 45 }], width: 15, label: "雾松林" })
+  ] } } }).document;
+  mapAiFixture = { map, workVersionId: mapM2Fixture.root.identity.workVersionId };
+}
+
+async function assertMapRealAiCollaboration(page, consoleProblems) {
+  assert.ok(mapAiFixture, "Map AI author flow requires its isolated map.");
+  if (mapRealAiEvidenceDirectory) mkdirSync(mapRealAiEvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (mapRealAiEvidenceDirectory) await page.screenshot({ path: path.join(mapRealAiEvidenceDirectory, name), fullPage: false }); };
+  const base = `${apiUrl}/__local/story-studio`;
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/library?libraryView=map&mapId=${encodeURIComponent(mapAiFixture.map.id)}&locale=zh-CN`);
+  const aiMapCanvas = page.getByLabel("地点示意图画布");
+  await aiMapCanvas.waitFor();
+  const aiRoad = aiMapCanvas.locator('[data-drawing-id="drawing.ai-road"]');
+  await aiRoad.focus();
+  await aiRoad.press("Enter");
+  await page.getByRole("button", { name: /交给天意 · 1 个图示/u }).click();
+  const panel = page.getByRole("region", { name: "天意地图协作" });
+  await panel.waitFor();
+  await panel.getByText("北湾 AI 协作隔离图", { exact: true }).waitFor();
+  assert.match(await panel.textContent(), /北湾 AI 协作隔离图[\s\S]*真实文本模型[\s\S]*可修改[\s\S]*北湾滨海道/u);
+  await panel.getByText(/选择模型可读取的参考/u).click();
+  await panel.getByRole("checkbox", { name: /雾松林/u }).check();
+  await panel.getByLabel("告诉天意要怎样改").fill("让北湾滨海道绕开雾松林，并保持两个端点不变；其他对象不变。");
+  await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
+  await panel.getByText("待作者审阅", { exact: true }).waitFor();
+  assert.equal(await page.locator(".map-ai-proposal-before").count(), 1, "The original geometry remains visible as an explicit before overlay.");
+  assert.equal(await page.locator(".map-ai-proposal-after").count(), 1, "The Provider proposal is previewed on the same map before acceptance.");
+  assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /修改[\s\S]*北湾滨海道/u : /修改[\s\S]*北湾滨海道[\s\S]*雾松林北侧绕行/u);
+  await capture("12-真实AI道路提案预览-1440x900.png");
+  const beforeAccept = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.deepEqual(beforeAccept.content.drawings.find((item) => item.id === "drawing.ai-road").points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "Preview does not write the formal map.");
+  await panel.getByRole("button", { name: "接受并保存", exact: true }).click();
+  await page.getByRole("status").getByText(/提案已由作者接受/u).waitFor();
+  const accepted = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  const acceptedRoad = accepted.content.drawings.find((item) => item.id === "drawing.ai-road");
+  if (mapRealAiLiveAcceptance) {
+    assert.deepEqual(acceptedRoad.points.at(0), { x: 10, y: 50 }, "The real result preserves the first endpoint.");
+    assert.deepEqual(acceptedRoad.points.at(-1), { x: 90, y: 50 }, "The real result preserves the last endpoint.");
+    assert.notDeepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "The real result makes an actual geometric change.");
+  } else assert.deepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 34, y: 34 }, { x: 66, y: 34 }, { x: 90, y: 50 }]);
+  assert.deepEqual(accepted.content.drawings.find((item) => item.id === "drawing.ai-forest").points, mapAiFixture.map.content.drawings.find((item) => item.id === "drawing.ai-forest").points, "The read-only forest is unchanged.");
+
+  await page.reload();
+  await aiMapCanvas.waitFor();
+  const reopened = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.deepEqual(reopened.content.drawings.find((item) => item.id === "drawing.ai-road").points, acceptedRoad.points, "Accepted real-provider geometry survives reopen.");
+  await capture("13-真实AI接受后重开-1440x900.png");
+  await aiRoad.focus();
+  await aiRoad.press("Enter");
+  await page.getByRole("button", { name: /交给天意 · 1 个图示/u }).click();
+  await panel.getByText("已接受", { exact: true }).waitFor();
+  const width = page.getByLabel("图示笔触宽度");
+  await width.fill("5"); await width.press("Tab");
+  await page.getByRole("status").getByText(/图示尺寸已保存/u).waitFor();
+  expectedMapCompensationConflict = true;
+  await panel.getByRole("button", { name: "补偿这次接受", exact: true }).click();
+  await panel.getByRole("alert").getByText(/后续修订/u).waitFor();
+  expectedMapCompensationConflict = false;
+  const afterManual = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.equal(afterManual.content.drawings.find((item) => item.id === "drawing.ai-road").width, 5, "Protected compensation never overwrites the later author edit.");
+  await capture("14-后续人工修改受补偿保护-1440x900.png");
+
+  await panel.getByRole("button", { name: "基于当前地图新请求", exact: true }).click();
+  await panel.getByRole("tab", { name: "区域内新增", exact: true }).click();
+  await panel.getByLabel("可编辑图层").selectOption("layer.main");
+  await panel.getByLabel("告诉天意要怎样改").fill("在明确框选范围内新增一个北侧观察点，保留所有既有内容。");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
+  await panel.getByText("待作者审阅", { exact: true }).waitFor();
+  assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /新增/u : /新增[\s\S]*北侧观察点/u);
+  await capture("15-真实AI区域新增待审-1152x720.png");
+  await panel.getByRole("button", { name: "拒绝", exact: true }).click();
+  const rejected = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.equal(rejected.content.drawings.some((item) => item.label === "北侧观察点"), false, "Rejecting the second proposal leaves the formal map unchanged.");
+  if (!mapRealAiLiveAcceptance) assert.equal(ollamaFixture.calls.chat, 2, "The bounded browser story performs exactly two model-boundary sends.");
+  if (mapRealAiEvidenceDirectory) {
+    const recordedProposals = await getFixture(`${base}/maps/proposals?projectId=${encodeURIComponent(fixtureProjectId)}&relativePath=${encodeURIComponent(mapAiFixture.map.relativePath)}`);
+    writeFileSync(path.join(mapRealAiEvidenceDirectory, "map-real-ai-identity.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapAiFixture.workVersionId, mapId: mapAiFixture.map.id, realProvider: mapRealAiLiveAcceptance, providerDispatches: recordedProposals.data.reduce((sum, item) => sum + Number(item.generation?.providerDispatches || 0), 0), proposals: recordedProposals.data.map((item) => ({ operationId: item.operationId, status: item.status, generation: item.generation })) }, null, 2)}\n`);
+  }
+  assert.deepEqual(consoleProblems, []);
 }
 
 function createMapM2FixtureRoot() {
