@@ -2647,6 +2647,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).click();
   await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel("定位水平位置").waitFor();
   assert.equal(await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel(/范围点 \d+ X/u).count(), originalVertexCount, "Reload reopens the saved polygon without rectangularizing it.");
+  await capture("02b-range-placement-editor.png");
   await page.getByRole("region", { name: "空间定位编辑器" }).getByRole("button", { name: "取消", exact: true }).click();
   await capture("02a-range-placement-reopened.png");
 
