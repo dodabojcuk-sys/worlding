@@ -15,10 +15,12 @@ import {
 } from "../../src/storyWorkspace/visualDocumentRepository.mjs";
 import {
   acceptMapEditProposal,
+  compensateMapEditProposal,
   createMapEditProposal,
   rejectMapEditProposal
 } from "../../src/storyWorkspace/mapEditProposalRepository.mjs";
 import { createPortableWorkspacePackage, validatePortableWorkspacePackage } from "../../src/storyWorkspace/portableWorkspacePackage.mjs";
+import { applyMapSimilarityTransform, calibratedPlacementBounds, solveMapSimilarityTransform, type MapCalibrationControlPoints } from "../../src/storyContracts/mapCalibration.ts";
 
 function fixture() {
   const rootPath = mkdtempSync(path.join(os.tmpdir(), "tianyan-map-spatial-"));
@@ -47,6 +49,69 @@ test("map placements keep directory-independent point, range and calibrated iden
     assert.equal(readVisualDocument(root, region.relativePath).content.placements[0].kind, "point");
     assert.equal(readVisualDocument(root, atlas.relativePath).content.placements[0].kind, "range");
     assert.throws(() => save(root, city, { ...city.content, placements: [{ id: "cycle", childMapId: region.id, kind: "point", point: { x: 1, y: 1 }, bounds: [], transform: null, precision: "illustrative", note: null }] }), /cycle/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("spatial placement edits persist as one protected revision and preserve arbitrary range geometry", () => {
+  const root = fixture();
+  try {
+    let parent = createVisualDocument(root, { type: "map", title: "群岛总图" });
+    const child = createVisualDocument(root, { type: "map", title: "弯月港" });
+    parent = save(root, parent, { ...parent.content, placements: [{ id: "place.harbor", childMapId: child.id, kind: "point", point: { x: 50, y: 50 }, bounds: [], transform: null, precision: "illustrative", note: null }] });
+    const pointBase = parent;
+    parent = save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], point: { x: 27.5, y: 68.25 } }] });
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].point, { x: 27.5, y: 68.25 });
+    assert.equal(parent.revision, pointBase.revision + 1, "a completed drag/save creates one revision, not per-pixel revisions");
+
+    const triangle = [{ x: 10, y: 12 }, { x: 46, y: 18 }, { x: 31, y: 59 }];
+    parent = save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], kind: "range", point: null, bounds: triangle }] });
+    const reopened = readVisualDocument(root, parent.relativePath);
+    assert.deepEqual(reopened.content.placements[0].bounds, triangle, "non-rectangular range vertices survive close/reopen unchanged");
+
+    const stale = updateVisualDocument(root, { relativePath: parent.relativePath, expectedContentHash: pointBase.contentHash, document: { ...parent, content: { ...parent.content, placements: [{ ...parent.content.placements[0], bounds: triangle.map((point) => ({ x: point.x + 1, y: point.y })) }] } } });
+    assert.equal(stale.conflict, true);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].bounds, triangle, "a stale spatial editor cannot overwrite the current revision");
+
+    assert.throws(() => save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], childMapId: "map.missing" }] }), /unknown child map/u);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].bounds, triangle, "an invalid parent reference leaves no partial placement write");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("two corresponding points calibrate translation, uniform scale and rotation while a third point verifies the saved transform", () => {
+  const calibration: MapCalibrationControlPoints = { sourcePoints: [{ x: 10, y: 10 }, { x: 50, y: 10 }], targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 36 }] };
+  const transform = solveMapSimilarityTransform(calibration);
+  assert.ok(Math.abs(transform.scale - .4) < 1e-9);
+  assert.ok(Math.abs(transform.rotation - 90) < 1e-9);
+  assert.deepEqual(applyMapSimilarityTransform({ x: 30, y: 25 }, transform), { x: 54, y: 28 }, "the independent third point uses the solved transform, not a fitted display shortcut");
+  assert.throws(() => solveMapSimilarityTransform({ ...calibration, sourcePoints: [{ x: 10, y: 10 }, { x: 10, y: 10 }] }), /子图.*重合/u);
+  assert.throws(() => solveMapSimilarityTransform({ ...calibration, targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 20 }] }), /父图.*重合/u);
+  assert.throws(() => solveMapSimilarityTransform({ sourcePoints: [{ x: 10, y: 10 }, { x: 10.0000011, y: 10 }], targetPoints: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }), /缩放比例/u);
+});
+
+test("calibration persists and reopens through the sole visual document owner without stale or invalid partial writes", () => {
+  const root = fixture();
+  try {
+    let parent = createVisualDocument(root, { type: "map", title: "大陆总图" });
+    const child = createVisualDocument(root, { type: "map", title: "港城详图" });
+    const calibration: MapCalibrationControlPoints = { sourcePoints: [{ x: 10, y: 10 }, { x: 50, y: 10 }], targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 36 }] };
+    const transform = solveMapSimilarityTransform(calibration);
+    const placement = { id: "placement.calibrated", childMapId: child.id, kind: "calibrated", point: null, calibration, transform, bounds: calibratedPlacementBounds({ childBounds: child.content.coordinateSystem.bounds, parentBounds: parent.content.coordinateSystem.bounds, transform }), precision: "calibrated", note: "两个对应点" };
+    parent = save(root, parent, { ...parent.content, placements: [placement] });
+    const saved = readVisualDocument(root, parent.relativePath);
+    assert.deepEqual(saved.content.placements[0].calibration, calibration);
+    assert.deepEqual(saved.content.placements[0].transform, transform);
+    assert.deepEqual(saved.content.placements[0].bounds, placement.bounds);
+
+    const staleBase = parent;
+    parent = save(root, parent, { ...parent.content, labels: [{ id: "label.after-calibration", text: "作者后续修改", layerId: "layer.main", x: 50, y: 50, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
+    const stale = updateVisualDocument(root, { relativePath: parent.relativePath, expectedContentHash: staleBase.contentHash, document: { ...staleBase, content: { ...staleBase.content, placements: [{ ...placement, calibration: { ...calibration, targetPoints: [{ x: 55, y: 20 }, { x: 55, y: 36 }] } }] } } });
+    assert.equal(stale.conflict, true);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].calibration, calibration);
+
+    const outsideCalibration: MapCalibrationControlPoints = { ...calibration, targetPoints: [{ x: 101, y: 20 }, { x: 60, y: 36 }] };
+    const outsideTransform = solveMapSimilarityTransform(outsideCalibration);
+    assert.throws(() => save(root, parent, { ...parent.content, placements: [{ ...placement, calibration: outsideCalibration, transform: outsideTransform, bounds: calibratedPlacementBounds({ childBounds: child.content.coordinateSystem.bounds, parentBounds: parent.content.coordinateSystem.bounds, transform: outsideTransform }) }] }), /outside the parent map bounds/u);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].calibration, calibration, "invalid calibration leaves the prior saved state intact");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -90,6 +155,12 @@ test("text-model map proposals validate locked layers, apply atomically, reject 
     assert.deepEqual(acceptMapEditProposal(root, { operationId: "proposal-valid" }), accepted);
     map = readVisualDocument(root, map.relativePath);
     assert.equal(map.content.drawings[0].points[0].x, 12);
+    const compensated = compensateMapEditProposal(root, { operationId: "proposal-valid" });
+    assert.equal(compensated.status, "compensated");
+    assert.ok(compensated.compensationContentHash);
+    assert.deepEqual(compensateMapEditProposal(root, { operationId: "proposal-valid" }), compensated);
+    map = readVisualDocument(root, map.relativePath);
+    assert.equal(map.content.drawings[0].points[0].x, 10, "compensation restores the exact proposal base as a new revision");
 
     const stale = createMapEditProposal(root, { relativePath: map.relativePath, operationId: "proposal-stale", baseContentHash: map.contentHash, prompt: "再调整", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 4 } }] });
     map = save(root, map, { ...map.content, labels: [...map.content.labels, { id: "label.manual", text: "人工修改", layerId: "layer.main", x: 50, y: 50, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
@@ -101,6 +172,14 @@ test("text-model map proposals validate locked layers, apply atomically, reject 
     const rejectableMap = save(root, map, { ...map.content, layers: map.content.layers.map((layer: any) => ({ ...layer, locked: false })) });
     const rejectable = createMapEditProposal(root, { relativePath: rejectableMap.relativePath, operationId: "proposal-reject", baseContentHash: rejectableMap.contentHash, prompt: "不要采用", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 5 } }] });
     assert.equal(rejectMapEditProposal(root, { operationId: rejectable.operationId }).status, "rejected");
+    assert.equal(readVisualDocument(root, rejectableMap.relativePath).content.drawings[0].width, rejectableMap.content.drawings[0].width, "rejection does not change the map");
+
+    const protectedProposal = createMapEditProposal(root, { relativePath: rejectableMap.relativePath, operationId: "proposal-protected-compensation", baseContentHash: rejectableMap.contentHash, prompt: "先接受再保护作者修改", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 6 } }] });
+    acceptMapEditProposal(root, { operationId: protectedProposal.operationId });
+    map = readVisualDocument(root, rejectableMap.relativePath);
+    map = save(root, map, { ...map.content, labels: [...map.content.labels, { id: "label.after-ai", text: "接受后人工修改", layerId: "layer.main", x: 55, y: 55, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
+    assert.throws(() => compensateMapEditProposal(root, { operationId: protectedProposal.operationId }), /后续修订/u);
+    assert.ok(readVisualDocument(root, map.relativePath).content.labels.some((item: any) => item.id === "label.after-ai"));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

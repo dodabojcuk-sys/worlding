@@ -1,5 +1,5 @@
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
-import type { MapContent, MapDrawing, MapLabel } from "../../lib/localTransport";
+import { visualAssetUrl, type MapContent, type MapDrawing, type MapLabel } from "../../lib/localTransport";
 
 export type MapAuthoringTool = "browse" | "terrain" | "line" | "area" | "symbol" | "label";
 
@@ -43,27 +43,59 @@ export function createStarterContent(template: MapContent["template"]): Pick<Map
   return { template, layers, drawings, labels };
 }
 
-export function MapDrawingOverlay(props: { drawings: MapDrawing[]; labels: MapLabel[]; visibleLayerIds: Set<string>; selectedId: string | null; draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean; onSelect: (id: string) => void }) {
+type DrawingContentProps = { drawings: MapDrawing[]; labels: MapLabel[]; visibleLayerIds: Set<string>; selectedId?: string | null; onSelect?: (id: string) => void; compact?: boolean };
+
+/** The same geometry projection is used by the editor, atlas and alignment. */
+export function MapDrawingContent(props: DrawingContentProps) {
   const visible = props.drawings.filter((item) => props.visibleLayerIds.has(item.layerId));
+  const occupied: Array<{x:number;y:number}> = [];
+  return <g className={props.compact ? "map-content-compact" : ""}>
+    {visible.map((item) => {
+      const point = labelPoint(item.points);
+      const showName = item.id === props.selectedId || !occupied.some((other) => Math.abs(other.x-point.x)<15 && Math.abs(other.y-point.y)<7);
+      if (showName) occupied.push(point);
+      return <Drawing key={item.id} drawing={item} selected={item.id === props.selectedId} showName={showName && !props.compact} onSelect={props.onSelect ? () => props.onSelect!(item.id) : undefined} />;
+    })}
+    {!props.compact && props.labels.filter((item) => item.visible && props.visibleLayerIds.has(item.layerId)).map((item) => <text key={item.id} className={`map-authoring-label is-${item.treatment}`} x={item.x} y={item.y} fontSize={Math.min(3, item.fontSize / 6)} fontWeight={item.fontWeight} textAnchor={item.align === "left" ? "start" : item.align === "right" ? "end" : "middle"} transform={`rotate(${item.rotation} ${item.x} ${item.y})`}>{item.text}</text>)}
+  </g>;
+}
+
+export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean }) {
   return <svg className={`map-authoring-overlay${props.authoring ? " is-authoring" : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="地图绘图内容">
-    {visible.map((item) => <Drawing key={item.id} drawing={item} selected={item.id === props.selectedId} onSelect={() => props.onSelect(item.id)} />)}
-    {props.labels.filter((item) => item.visible && props.visibleLayerIds.has(item.layerId)).map((item) => <text key={item.id} className={`map-authoring-label is-${item.treatment}`} x={item.x} y={item.y} fontSize={item.fontSize / 4} fontWeight={item.fontWeight} textAnchor={item.align === "left" ? "start" : item.align === "right" ? "end" : "middle"} transform={`rotate(${item.rotation} ${item.x} ${item.y})`}>{item.text}</text>)}
+    <MapDrawingContent {...props} />
     {props.draft.length ? <polyline className="map-authoring-draft" points={props.draft.map(pointText).join(" ")} fill={props.draftKind === "area" ? "#49a99b" : "none"} fillOpacity=".18" /> : null}
   </svg>;
 }
 
-function Drawing(props: { drawing: MapDrawing; selected: boolean; onSelect: () => void }) {
+/** Legacy background offsets are display pixels; the owner contract has no unit discriminator. */
+export function MapBackgroundContent(props: { content: MapContent; projectId: string }) {
+  return <g className="map-background-content">
+    {props.content.backgrounds.filter((background) => background.visible && background.id === props.content.activeBackgroundId).map((background) => <image key={background.id} href={visualAssetUrl(props.projectId, background.assetPath)} width="100" height="100" preserveAspectRatio="none" opacity={background.opacity} style={{transform:`translate(${background.transform.x}px, ${background.transform.y}px) rotate(${background.transform.rotation}deg) scale(${background.transform.scale})`,transformOrigin:"center",transformBox:"fill-box"}} />)}
+  </g>;
+}
+
+export function MapReadOnlyContent(props: { content: MapContent; projectId: string; compact?: boolean }) {
+  const visibleLayerIds = new Set(props.content.layers.filter((layer) => layer.visible).map((layer) => layer.id));
+  return <g className="map-readonly-content">
+    <MapBackgroundContent content={props.content} projectId={props.projectId} />
+    <MapDrawingContent drawings={[...props.content.drawings].sort((a,b) => props.content.layers.findIndex((l)=>l.id===a.layerId)-props.content.layers.findIndex((l)=>l.id===b.layerId))} labels={props.content.labels} visibleLayerIds={visibleLayerIds} compact={props.compact} />
+    {props.content.regions.filter((r)=>visibleLayerIds.has(r.layerId)).map((r)=><polygon key={r.id} points={r.points.map(pointText).join(" ")} fill={r.fillColor} fillOpacity={r.fillOpacity} stroke={r.strokeColor} strokeWidth=".4" />)}
+    {props.content.markers.filter((m)=>visibleLayerIds.has(m.layerId)).map((m)=><circle key={m.id} cx={m.x} cy={m.y} r="1" fill={m.color} />)}
+  </g>;
+}
+
+function Drawing(props: { drawing: MapDrawing; selected: boolean; showName?: boolean; onSelect?: () => void }) {
   const item = props.drawing;
   const common = {
     className: `map-drawing is-${item.kind} is-${item.subtype}${props.selected ? " is-selected" : ""}`,
     "data-drawing-id": item.id,
-    role: "button",
-    tabIndex: 0,
+    role: props.onSelect ? "button" : undefined,
+    tabIndex: props.onSelect ? 0 : undefined,
     "aria-label": item.label ? `地图图示：${item.label}` : `地图图示：${item.subtype}`,
-    onClick: (event: MouseEvent) => { event.stopPropagation(); props.onSelect(); },
-    onKeyDown: (event: KeyboardEvent<SVGGElement>) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onSelect(); } }
+    onClick: props.onSelect ? (event: MouseEvent) => { event.stopPropagation(); props.onSelect?.(); } : undefined,
+    onKeyDown: (event: KeyboardEvent<SVGGElement>) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); props.onSelect?.(); } }
   };
-  const name = item.label ? <DrawingName drawing={item} /> : null;
+  const name = item.label ? props.showName !== false ? <DrawingName drawing={item} /> : <title>{item.label}</title> : null;
   if (item.kind === "symbol") {
     const point = item.points[0]!;
     if (item.subtype === "planet") return <g {...common}><g transform={`translate(${point.x} ${point.y})`}><circle r={item.size / 2} fill={item.fillColor} stroke={item.strokeColor} strokeWidth=".55" /><ellipse rx={item.size * .7} ry={item.size * .18} fill="none" stroke={item.strokeColor} strokeWidth=".45" transform="rotate(-18)" /></g>{name}</g>;

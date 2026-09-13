@@ -1,0 +1,19 @@
+{
+  "projectId": "r061-e2e-b932aa8736b447c0becd1871963fb872",
+  "workVersionId": "work-version.root.a94ee88e98858a76f9e0c65f5a6c3d98",
+  "runCodeSha": "77282f25aa9e2bdd16504ab2e3fb535564cc555f",
+  "sourceMapId": "map.地点示意图",
+  "targetMapId": "map.雾港-局部地图",
+  "copiedMapId": "map.北湾作者地图-副本",
+  "spatialPlacement": {
+    "parentMapId": "map.地点示意图",
+    "childMapId": "map.北湾作者地图-副本",
+    "kind": "range",
+    "vertexCount": 4,
+    "savedAtRevision": 20
+  },
+  "compensatedMapRevision": 24,
+  "simulatedProviderDispatches": 1,
+  "realProviderDispatches": 0,
+  "proposalBoundary": "validated-structured-operations-local-fake-only"
+}

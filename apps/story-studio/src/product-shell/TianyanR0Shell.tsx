@@ -18,6 +18,7 @@ import {
   type ShellRailPreference
 } from "./navigation/responsiveRailState";
 import { ProductShellNavigation } from "./navigation/ProductShellNavigation";
+import { requestWorkspaceNavigation } from "./navigation/workspaceNavigationGuard";
 import { GlobalStatusBar } from "./topbar/GlobalStatusBar";
 import { ProjectDirectoryPanel, type ProjectDirectoryMode } from "./project-directory/ProjectDirectoryPanel";
 import { PendingReviewWorkspace } from "./project-directory/PendingReviewPanel";
@@ -266,6 +267,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, [directoryPresented, dock.state.activeToolId, focusLayout, rightWorkSurface.mode]);
 
   const navigate = (destination: StoryStudioShellDestination) => {
+    if (!requestWorkspaceNavigation()) return;
     if (destination.id === "event-line") props.runtime.setActiveTianyiCandidateId(null);
     const query = shellLab ? window.location.search : "";
     window.history.pushState({}, "", `${destination.route}${query}`);
@@ -281,6 +283,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     : { projectId: null, workVersionId: null };
   const requestSearch = (scope: GlobalSearchScope) => setSearchRequest((current) => ({ requestId: (current?.requestId ?? 0) + 1, scope }));
   const navigateSearchResult = (result: GlobalSearchResult) => {
+    if (!requestWorkspaceNavigation()) return;
     const params = new URLSearchParams(result.target.query ?? {});
     if (shellLab) params.set("shellLab", "1");
     const query = params.size ? `?${params.toString()}` : "";
@@ -299,6 +302,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     // navigating the workspace here would also close the directory before the
     // author can reach a nested entry.
     if (node.children) return;
+    if (!requestWorkspaceNavigation()) return;
     const destination = node.id.startsWith("directory.story") || node.id.startsWith("unit:") ? "event-line" : "library";
     const route = storyStudioWorkspaceRoute(destination);
     window.history.pushState({}, "", route);
@@ -331,6 +335,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     navigate(storyStudioShellDestinationById("nuwa"));
   };
   const openCharacterWorkspace = (objectId: string) => {
+    if (!requestWorkspaceNavigation()) return;
     const current = `${window.location.pathname}${window.location.search}`;
     const params = new URLSearchParams({ worldView: "character", characterId: objectId });
     if (!(activeId === "world" && locationParams.get("worldView") === "character")) params.set("characterOrigin", current);
@@ -356,6 +361,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   };
   const closeCharacterDirectory = () => { updateDirectoryState({ ...directoryState, path: [] }); const params = new URLSearchParams(window.location.search); params.delete("directoryView"); params.delete("directoryObject"); params.delete("directoryType"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); };
   const openDirectoryReference = (reference: ProjectDirectoryStableReference) => {
+    if (!requestWorkspaceNavigation()) return;
     const destination = reference.objectType === "event" || reference.objectType === "story-unit" ? "event-line" : "library";
     const params = reference.objectType === "source-document"
       ? new URLSearchParams({ directorySource: reference.objectId, directoryProject: reference.projectId, directoryWorkVersion: reference.workVersionId ?? "work-version.unversioned", directoryVersion: reference.version })
@@ -365,6 +371,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     if (destination === "event-line" && focusLayout !== "wide") setWorkspaceDirectorySuppressed(true);
   };
   const openPendingReview = (target: StoryIntakeReviewTarget | null) => {
+    if (!requestWorkspaceNavigation()) return;
     const params = target
       ? new URLSearchParams({ tianyiLane: "review", directoryMode: "pending", pendingProject: target.projectId, pendingWorkVersion: target.workVersionId, tianyiSession: target.sessionId, tianyiRun: target.runId, tianyiEnvelope: target.envelopeId, tianyiCandidate: target.candidateId })
       : new URLSearchParams({ directoryReview: "pending", directoryMode: "pending" });
@@ -391,6 +398,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setLocationRevision((value) => value + 1);
   };
   const openPendingRelationReview = () => {
+    if (!requestWorkspaceNavigation()) return;
     const params = new URLSearchParams({ eventTask: "story", eventAdvanced: "graph", eventPending: "relations", directoryMode: "pending" });
     window.history.pushState({}, "", `/event-line?${params.toString()}`);
     window.dispatchEvent(new Event("tianyan-location-change"));
@@ -406,12 +414,14 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
   const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
   const openSettings = () => {
+    if (!requestWorkspaceNavigation()) return;
     if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
     setSettingsOpen(true);
     setAccountOpen(false);
     workspaceDockCoordinator.close();
   };
   const openAccount = () => {
+    if (!requestWorkspaceNavigation()) return;
     setAccountOpen(true);
     setSettingsOpen(false);
     workspaceDockCoordinator.close();

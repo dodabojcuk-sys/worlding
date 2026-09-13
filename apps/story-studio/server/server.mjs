@@ -2783,6 +2783,14 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 200, { data: runProductOperation(() => operations.rejectMapEditProposal(body)) });
     return;
   }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/compensate") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "operationId"]);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "visual-document", [body.operationId]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.compensateMapEditProposal(body)) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/timeline/validate") {
     requireToken(request);
     const body = await readJsonBody(request);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-import { readVisualDocument, updateVisualDocument, validateVisualDocumentUpdate } from "./visualDocumentRepository.mjs";
+import { readVisualDocument, readVisualDocumentRevision, updateVisualDocument, validateVisualDocumentUpdate } from "./visualDocumentRepository.mjs";
 
 const VERSION = "story-map-edit-proposal/v1";
 const MAX_OPERATIONS = 100;
@@ -75,6 +75,35 @@ export function rejectMapEditProposal(rootPath, input) {
   const rejected = { ...proposal, status: "rejected", decidedAt: new Date().toISOString() };
   writeJsonAtomic(proposalPath, rejected);
   return clone(rejected);
+}
+
+export function compensateMapEditProposal(rootPath, input) {
+  const proposalPath = proposalFile(rootPath, input.operationId);
+  const proposal = readProposalFile(proposalPath);
+  if (proposal.status === "compensated") return proposal;
+  if (proposal.status !== "accepted") throw new Error("Only an accepted map proposal can be compensated.");
+  const map = readMap(rootPath, proposal.relativePath);
+  if (!proposal.resultContentHash || map.contentHash !== proposal.resultContentHash) {
+    throw new Error("地图在提案接受后已有修改；不会用补偿覆盖作者的后续修订。");
+  }
+  const base = readVisualDocumentRevision(rootPath, {
+    relativePath: proposal.relativePath,
+    contentHash: proposal.baseContentHash
+  });
+  const result = updateVisualDocument(rootPath, {
+    relativePath: proposal.relativePath,
+    expectedContentHash: proposal.resultContentHash,
+    document: base
+  });
+  if (!result.ok) throw new Error("地图已改变；本次提案补偿没有写入。");
+  const compensated = {
+    ...proposal,
+    status: "compensated",
+    compensatedAt: new Date().toISOString(),
+    compensationContentHash: result.document.contentHash
+  };
+  writeJsonAtomic(proposalPath, compensated);
+  return clone(compensated);
 }
 
 export function listMapEditProposals(rootPath, relativePath) {
