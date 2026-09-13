@@ -973,11 +973,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const nextDraft = `创意草稿 · 来自天意回复 ${lastGroundedAnswer.responseMessageId}\n来源：${sourceLabels.join("、") || project?.title || "当前作品"}\n\n${groundedResultText}`;
     const existing = runtime.creativeComposerDraft.trim();
     if (existing && existing !== nextDraft) {
-      setError("创意模式已有未完成草稿；为避免覆盖，本次内容尚未保存。请先打开并处理原草稿。");
+      setError("当前作品的创意编辑区已有一份本机草稿；为避免覆盖，本次内容尚未保存。请先打开已有草稿，或取消本次保存。");
       return;
     }
     runtime.setCreativeComposerDraft(nextDraft);
-    setNotice("创意草稿已保存；它仍是草稿，不会写入故事事实。可打开创意模式继续编辑。");
+    setNotice("已保存到当前作品的创意编辑草稿；仅保存在当前浏览器，不会写入故事事实。可打开创意模式继续编辑。");
     setError("");
   };
   const copyGroundedAnswer = async () => {
