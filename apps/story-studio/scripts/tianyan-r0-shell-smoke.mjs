@@ -99,6 +99,7 @@ const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-stor
 const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-author-experience";
 const mapR3Only = process.env.TIANYAN_E2E_SCOPE === "map-author-workspace-r3";
 const mapR4Only = process.env.TIANYAN_E2E_SCOPE === "map-place-creation-link-r4";
+const mapR5Only = process.env.TIANYAN_E2E_SCOPE === "map-tianyi-creation-start-r5";
 const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
 const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
 const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
@@ -108,6 +109,7 @@ const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EV
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
 const mapR4EvidenceDirectory = process.env.TIANYAN_MAP_R4_EVIDENCE_DIR || null;
+const mapR5EvidenceDirectory = process.env.TIANYAN_MAP_R5_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
@@ -192,8 +194,8 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 });
-  const recordingDirectory = mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 });
+  const recordingDirectory = mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -230,6 +232,10 @@ try {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
     await assertMapPlaceCreationLinkR4(page, consoleProblems);
+  } else if (mapR5Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems, true);
   } else if (mapM3AuthorExperienceOnly) {
     await setupMapM2Fixture();
     await assertMapM3AuthorExperience(page, consoleProblems);
@@ -2099,7 +2105,7 @@ async function setupMapM2Fixture() {
   await postFixture(`${base}/projects/create`, { title: "北闸地图观察 · 隔离验收", folderSlug: fixtureProjectId });
   await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
   const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", tags: ["地点", "通行状态"] })).data;
-  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道", "北湾", "松林", "东郡", "西郡", "澜星"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", tags: ["地点", "地图密度验收"] })).data));
+  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道", "北湾", "松林", "东郡", "西郡", "澜星"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", body: title === "雾港" ? "雾港是北湾沿岸的旧港镇，河道与山路在此交汇。" : "", tags: ["地点", "地图密度验收"] })).data));
   const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
   const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
@@ -2703,10 +2709,11 @@ async function assertMapAuthorWorkspaceR3(page, consoleProblems) {
   if(mapM3EvidenceDirectory)writeFileSync(path.join(mapM3EvidenceDirectory,"R3地图作者身份.json"),JSON.stringify({sourceRevision:runRevision,projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,mapId:reopened.id,contentHash:reopened.contentHash,revision:reopened.revision,editableDrawingCount:10,editableLabelCount:1,realProviderDispatches:0,proposalSource:"local-fixture-not-real-model"},null,2));
 }
 
-async function assertMapPlaceCreationLinkR4(page, consoleProblems) {
+async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiStart = false) {
   assert.ok(mapM2Fixture, "R4 needs the isolated map and location fixture.");
   const base = `${apiUrl}/__local/story-studio`;
-  const capture = async (name) => { if (mapR4EvidenceDirectory) { mkdirSync(mapR4EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapR4EvidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
+  const evidenceDirectory = verifyTianyiStart ? mapR5EvidenceDirectory : mapR4EvidenceDirectory;
+  const capture = async (name) => { if (evidenceDirectory) { mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
   const visual = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents;
   const saved = async (pattern) => page.getByRole("status").getByText(pattern).waitFor();
   const reviewReturn = page.getByRole("button", { name: "返回绘制", exact: true });
@@ -2727,8 +2734,9 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems) {
   const introduction = card.locator(":scope > p");
   await introduction.waitFor();
   assert.ok((await introduction.innerText()).trim().length > 0, "The place card shows the saved introduction or an explicit empty-state sentence.");
-  await capture("01-R4完整地图与地点卡-1440x900.png");
+  await capture(verifyTianyiStart ? "01-R5地图地点卡-1440x900.png" : "01-R4完整地图与地点卡-1440x900.png");
 
+  await card.getByText("管理局部地图", { exact: true }).click();
   await card.getByRole("button", { name: "新建并放置局部地图", exact: true }).click();
   await saved(/局部地图和明确入口已保存/u);
   await page.getByLabel("地点示意图画布").waitFor();
@@ -2746,14 +2754,49 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems) {
   await capture("02-R4局部图返回并恢复选择-1440x900.png");
 
   await card.getByRole("button", { name: "交给天意", exact: true }).click();
-  const context = page.locator(".tianyi-map-context-preview");
-  await context.getByText("北湾手绘区域", { exact: true }).waitFor();
+  const context = page.locator(".tianyi-map-creation-start");
+  await context.getByRole("heading", { name: /北湾手绘区域/u }).waitFor();
   await page.getByText("雾港", { exact: true }).last().waitFor();
   assert.match(page.url(), new RegExp(`mapElement=${encodeURIComponent(fogDrawing.id)}`, "u"));
   assert.match(page.url(), new RegExp(`materialRef=${encodeURIComponent(mapM2Fixture.fogHarbor.id)}`, "u"));
-  assert.equal(await page.locator(".tianyi-workspace-composer textarea").inputValue(), "", "Opening Tianyi prepares context but does not send or invent a prompt.");
+  assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "Opening Tianyi prepares context but does not send or invent a prompt.");
   await capture("03-R4天意地图地点引用准备-1440x900.png");
+  if (verifyTianyiStart) {
+    const composer = page.locator(".tianyi-map-composer");
+    const composerBox = await composer.boundingBox(); const workDetailsBox = await page.locator(".tianyi-work-context-picker").boundingBox();
+    assert.ok(composerBox && workDetailsBox && composerBox.y < workDetailsBox.y, "The map creation composer is visible before technical work context.");
+    await capture("02-R5地图进入天意首屏-1440x900.png");
+    const locationRef = page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" });
+    await locationRef.waitFor();
+    await locationRef.getByRole("button", { name: "移除", exact: true }).click();
+    assert.equal(await page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" }).count(), 0, "Removing a location reference only removes it from this request context.");
+    await page.getByRole("button", { name: "三个场景构想", exact: true }).click();
+    await composer.locator("textarea").fill(`${await composer.locator("textarea").inputValue()} 请突出河道与山路的交汇。`);
+    const retainedDraft = await composer.locator("textarea").inputValue();
+    await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+    await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+    await page.locator(".tianyi-map-composer").waitFor();
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), retainedDraft, "The per-project Work draft survives the map round trip.");
+    await page.locator(".tianyi-map-composer .tianyi-send").click();
+    await page.getByLabel("本问来源回执").waitFor();
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed local-fixture answer clears only the submitted draft.");
+    await page.setViewportSize({ width: 1152, height: 720 });
+    await capture("03-R5窄屏输入与本地结果-1152x720.png");
+    await page.route("**/model-service/tianyi-grounded-answer", async (route) => route.fulfill({ status: 503, body: "fixture failure" }));
+    expectedProviderFailureConsoleBudget += 1;
+    await page.locator(".tianyi-map-composer textarea").fill("这次请求用于验证失败后保留草稿。");
+    await page.locator(".tianyi-map-composer .tianyi-send").click();
+    await page.getByRole("alert").getByText(/请求无法开始/u).waitFor();
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "这次请求用于验证失败后保留草稿。", "A failed request preserves the draft and context without retrying.");
+    await page.unroute("**/model-service/tianyi-grounded-answer");
+    const expectedFailureIndex = consoleProblems.findIndex((item) => /HTTP 503:.*tianyi-grounded-answer/u.test(item));
+    assert.notEqual(expectedFailureIndex, -1, "The simulated request failure is recorded once instead of being hidden as success.");
+    consoleProblems.splice(expectedFailureIndex, 1);
+    await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+    await page.getByLabel("地点卡").waitFor();
+  } else {
   await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+  }
   await page.getByLabel("地点示意图画布").waitFor();
 
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -2769,13 +2812,14 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems) {
   await page.getByLabel("地点示意图画布").waitFor();
   const reopenedFog = page.locator(`[data-drawing-id="${fogDrawing.id}"]`).first();
   await reopenedFog.focus(); await reopenedFog.press("Enter");
-  await page.getByLabel("地点卡").getByRole("button", { name: "更换或解除地点关联", exact: true }).click();
+  await page.getByLabel("地点卡").getByText("地点关联管理", { exact: true }).click();
+  await page.getByLabel("地点卡").getByRole("button", { name: "更换或解除关联", exact: true }).click();
   await page.getByRole("button", { name: "解除关联", exact: true }).click();
   await saved(/地点资料和局部地图仍保留/u);
   const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.ok(library.data.objects.some((item) => item.id === mapM2Fixture.fogHarbor.id), "Unlinking the visual symbol does not delete the formal location.");
   assert.deepEqual(consoleProblems, []);
-  if (mapR4EvidenceDirectory) writeFileSync(path.join(mapR4EvidenceDirectory, "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: 0, evidence: "normal-page-local-fixture" }, null, 2));
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: 0, requestEvidence: verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: "normal-page-isolated-fixture" }, null, 2));
 }
 
 async function assertMapM3AuthorExperience(page, consoleProblems) {
