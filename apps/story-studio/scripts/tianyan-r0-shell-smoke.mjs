@@ -3851,7 +3851,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   const textRecord = listing.data.files.find((file) => file.originalName === "雾港巡夜笔记.md");
   assert.ok(textRecord, "The generic text file has a stable identity.");
   await postFixture(`${base}/material-files/import`, { projectId: fixtureProjectId, operationId: `materials-e2e-revise-${fixture.fixtureId}`, files: [{ name: textRecord.originalName, displayName: textRecord.displayName, mimeType: textRecord.mimeType, replaceFileId: textRecord.id, base64: Buffer.from("新修订：北闸已经全天恢复通行。", "utf8").toString("base64") }] });
-  await fileReceipt.getByRole("button", { name: /返回来源/u }).click();
+  await fileReceipt.getByRole("button", { name: "返回来源：雾港巡夜笔记.md", exact: true }).click();
   await page.getByText(selectedEvidence, { exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("materialFileRevision"), textRecord.revisions[0].sha256, "The old answer returns to the exact original file revision.");
   assert.equal(new URL(page.url()).searchParams.get("materialFileStart"), String(selectedRange.start), "The old answer returns to the exact selected character range.");
