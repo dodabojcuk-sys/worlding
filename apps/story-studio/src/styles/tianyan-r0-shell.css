@@ -1467,7 +1467,8 @@ input:focus-visible {
 .map-author-workspace .map-workbench-notice { display:flex; align-items:center; gap:.5rem; min-height:1.25rem; color:var(--color-text-muted); font-size:var(--font-size-sm); }
 .map-author-workspace .map-workbench-message { padding:0; border:0; background:none; }
 .map-author-workspace .map-workbench-notice > span { flex-shrink:0; }
-.map-creation-toolbar { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
+.map-creation-toolbar { display:flex; flex-wrap:nowrap; gap:.35rem; align-items:center; overflow-x:auto; scrollbar-width:thin; }
+.map-creation-toolbar > * { flex:0 0 auto; }
 .map-author-workspace button, .map-author-workspace input, .map-author-workspace select, .map-author-workspace summary { font:inherit; }
 .map-creation-toolbar button, .map-authoring-palette button { display:inline-flex; align-items:center; justify-content:center; gap:.35rem; min-height:2.25rem; padding:.35rem .6rem; color:var(--color-text); background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); cursor:pointer; }
 .map-creation-toolbar button svg { width:1rem; height:1rem; }
@@ -1498,6 +1499,7 @@ input:focus-visible {
 .map-author-workspace.has-ai-panel .map-workbench { width:calc(100% - var(--map-ai-inset,0px)); }
 .map-author-workspace.has-ai-panel .materials-section-navigation { display:none; }
 .map-author-workspace .map-workbench-stage.is-ai-review > .map-authoring-overlay:not(.map-ai-proposal-before):not(.map-ai-proposal-after):not(.map-ai-proposal-reference) .map-drawing-name { display:block; opacity:.8; }
+.map-author-workspace .map-workbench-stage.is-ai-review > .map-authoring-overlay:not(.map-ai-proposal-before):not(.map-ai-proposal-after):not(.map-ai-proposal-reference) .map-drawing { opacity:.82; }
 .map-drawing-location-link { display:grid; gap:.45rem; padding:.55rem; background:var(--color-workspace-background); border:1px solid var(--color-border); border-radius:var(--radius-sm); }
 .map-link-state { color:var(--color-text-muted); font-size:var(--font-size-xs); }
 .map-link-state.is-linked { color:var(--color-accent); }

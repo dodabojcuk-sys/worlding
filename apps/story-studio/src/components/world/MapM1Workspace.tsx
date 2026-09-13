@@ -874,7 +874,10 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     const query = placeIndexSearch.trim().toLocaleLowerCase();
     return !query || [location?.title, drawing.label, drawing.subtype].some((value) => value?.toLocaleLowerCase().includes(query));
   });
-  const linkedPlaceCount = new Set(map?.content.drawings.flatMap((drawing) => drawing.objectId && locations.some((item) => item.id === drawing.objectId) ? [drawing.objectId] : []) ?? []).size;
+  const linkedPlaceCount = new Set([
+    ...(map?.content.markers.flatMap((marker) => locations.some((item) => item.id === marker.objectId) ? [marker.objectId] : []) ?? []),
+    ...(map?.content.drawings.flatMap((drawing) => drawing.objectId && locations.some((item) => item.id === drawing.objectId) ? [drawing.objectId] : []) ?? [])
+  ]).size;
   const focusPlaceDrawing = (drawing: MapDrawing) => {
     if (!map) return;
     const layer = map.content.layers.find((item) => item.id === drawing.layerId);
@@ -920,8 +923,8 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
           <button type="button" onClick={undoAuthoring} disabled={!undoContents.length || busy} aria-label="撤销"><Undo2 aria-hidden="true"/></button>
           <button type="button" onClick={redoAuthoring} disabled={!redoContents.length || busy} aria-label="重做"><Redo2 aria-hidden="true"/></button>
           <button type="button" aria-expanded={placeIndexOpen} onClick={()=>{workspaceDockCoordinator.closeQuickTianyi();setPropertiesOpen(false);setInspectorOpen(false);setPlaceIndexOpen(!placeIndexOpen);}}><LocateFixed aria-hidden="true"/>本图地点</button>
-          <button type="button" aria-expanded={propertiesOpen && !showInspector} onClick={()=>{workspaceDockCoordinator.closeQuickTianyi();setInspectorOpen(false);setPropertiesOpen(showInspector || !propertiesOpen);}}><Settings2 aria-hidden="true"/>属性 / 图层</button>
-          <button type="button" onClick={openAiMapEdit}>AI 编辑{selectedDrawingIds.length || selectedDrawingId ? ` · ${[...new Set([...selectedDrawingIds, ...(selectedDrawingId ? [selectedDrawingId] : [])])].length} 个图示` : " · 明确区域"}</button>
+          <button type="button" aria-expanded={propertiesOpen && !showInspector} onClick={()=>{workspaceDockCoordinator.closeQuickTianyi();setPlaceIndexOpen(false);setInspectorOpen(false);setPropertiesOpen(showInspector || !propertiesOpen);}}><Settings2 aria-hidden="true"/>属性 / 图层</button>
+          <button type="button" onClick={()=>{setPlaceIndexOpen(false);setInspectorOpen(false);setPropertiesOpen(false);openAiMapEdit();}}>AI 编辑{selectedDrawingIds.length || selectedDrawingId ? ` · ${[...new Set([...selectedDrawingIds, ...(selectedDrawingId ? [selectedDrawingId] : [])])].length} 个图示` : " · 明确区域"}</button>
         </> }</div> : null}
         <div className={`map-workbench-body ${showInspector ? "has-inspector" : "is-inspector-collapsed"} ${historicalRevision ? "is-history-readonly" : ""} ${propertiesOpen && !aiPanelOpen ? "has-properties" : "is-properties-collapsed"}` }>
           {!historicalRevision ? <aside hidden={!propertiesOpen || aiPanelOpen || showInspector} className="map-authoring-palette" aria-label="地图绘图工具"><fieldset className="map-properties-fields" disabled={busy}>
