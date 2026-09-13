@@ -2206,6 +2206,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   assert.ok(mapAiFixture, "Map AI author flow requires its isolated map.");
   if (mapRealAiEvidenceDirectory) mkdirSync(mapRealAiEvidenceDirectory, { recursive: true });
   const capture = async (name) => { if (mapRealAiEvidenceDirectory) await page.screenshot({ path: path.join(mapRealAiEvidenceDirectory, name), fullPage: false }); };
+  const pauseForReview = async () => { if (mapRealAiEvidenceDirectory) await page.waitForTimeout(900); };
   const base = `${apiUrl}/__local/story-studio`;
   await page.setViewportSize({ width: 1440, height: 900 });
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&mapId=${encodeURIComponent(mapAiFixture.map.id)}&locale=zh-CN`);
@@ -2231,13 +2232,16 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   assert.match(await panel.textContent(), /系统已经检查[\s\S]*起点和终点[\s\S]*未接触或进入作者明确选择的范围/u);
   await panel.getByRole("tab", { name: "修改前", exact: true }).click();
   assert.equal(await page.locator(".map-ai-proposal-after").count(), 0, "Before view does not leave the suggested geometry visible.");
+  await pauseForReview();
   await capture("12a-真实AI道路提案-修改前-1440x900.png");
   await panel.getByRole("tab", { name: /修改后/u }).click();
   assert.equal(await page.locator(".map-ai-proposal-before").count(), 0, "After view does not leave the original geometry visible.");
+  await pauseForReview();
   await capture("12b-真实AI道路提案-修改后-1440x900.png");
   await panel.getByRole("tab", { name: "叠加对比", exact: true }).click();
   await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
   assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /修改[\s\S]*北湾滨海道/u : /修改[\s\S]*北湾滨海道[\s\S]*雾松林北侧绕行/u);
+  await pauseForReview();
   await capture("12c-真实AI道路提案-叠加对比-1440x900.png");
   await page.setViewportSize({ width: 1152, height: 720 });
   await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
@@ -2248,6 +2252,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   assert.deepEqual(beforeAccept.content.drawings.find((item) => item.id === "drawing.ai-road").points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "Preview does not write the formal map.");
   await panel.getByRole("button", { name: "接受并保存", exact: true }).click();
   await page.getByRole("status").getByText(/提案已由作者接受/u).waitFor();
+  await pauseForReview();
   const accepted = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
   const acceptedRoad = accepted.content.drawings.find((item) => item.id === "drawing.ai-road");
   const acceptedForestArea = accepted.content.drawings.find((item) => item.id === "drawing.ai-forest-area");
@@ -2274,6 +2279,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   expectedMapCompensationConflict = true;
   await panel.getByRole("button", { name: "撤销此次 AI 修改", exact: true }).click();
   await panel.getByRole("alert").getByText(/后续修订/u).waitFor();
+  await pauseForReview();
   expectedMapCompensationConflict = false;
   const afterManual = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
   assert.equal(afterManual.content.drawings.find((item) => item.id === "drawing.ai-road").width, 5, "Protected compensation never overwrites the later author edit.");
@@ -2292,6 +2298,7 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
     await panel.getByText("待作者审阅", { exact: true }).waitFor();
     await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
     assert.match(await panel.textContent(), /新增[\s\S]*北侧观察点/u);
+    await pauseForReview();
     await capture("15-本地夹具区域新增待审-1152x720.png");
     await panel.getByRole("button", { name: "拒绝", exact: true }).click();
     const rejected = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
