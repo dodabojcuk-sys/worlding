@@ -100,6 +100,7 @@ const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-auth
 const mapR3Only = process.env.TIANYAN_E2E_SCOPE === "map-author-workspace-r3";
 const mapR4Only = process.env.TIANYAN_E2E_SCOPE === "map-place-creation-link-r4";
 const mapR5Only = process.env.TIANYAN_E2E_SCOPE === "map-tianyi-creation-start-r5";
+const tianyiR6Only = process.env.TIANYAN_E2E_SCOPE === "tianyi-creation-result-r6";
 const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
 const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
 const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
@@ -110,6 +111,7 @@ const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
 const mapR4EvidenceDirectory = process.env.TIANYAN_MAP_R4_EVIDENCE_DIR || null;
 const mapR5EvidenceDirectory = process.env.TIANYAN_MAP_R5_EVIDENCE_DIR || null;
+const tianyiR6EvidenceDirectory = process.env.TIANYAN_TIANYI_R6_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
@@ -194,8 +196,8 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 });
-  const recordingDirectory = mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 });
+  const recordingDirectory = tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   browserContext = await browser.newContext(recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -233,6 +235,10 @@ try {
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
     await assertMapPlaceCreationLinkR4(page, consoleProblems);
   } else if (mapR5Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems, true);
+  } else if (tianyiR6Only) {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
     await assertMapPlaceCreationLinkR4(page, consoleProblems, true);
@@ -2712,7 +2718,8 @@ async function assertMapAuthorWorkspaceR3(page, consoleProblems) {
 async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiStart = false) {
   assert.ok(mapM2Fixture, "R4 needs the isolated map and location fixture.");
   const base = `${apiUrl}/__local/story-studio`;
-  const evidenceDirectory = verifyTianyiStart ? mapR5EvidenceDirectory : mapR4EvidenceDirectory;
+  const verifyCreativeResults = tianyiR6Only;
+  const evidenceDirectory = verifyCreativeResults ? tianyiR6EvidenceDirectory : verifyTianyiStart ? mapR5EvidenceDirectory : mapR4EvidenceDirectory;
   const capture = async (name) => { if (evidenceDirectory) { mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
   const visual = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents;
   const saved = async (pattern) => page.getByRole("status").getByText(pattern).waitFor();
@@ -2734,7 +2741,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
   const introduction = card.locator(":scope > p");
   await introduction.waitFor();
   assert.ok((await introduction.innerText()).trim().length > 0, "The place card shows the saved introduction or an explicit empty-state sentence.");
-  await capture(verifyTianyiStart ? "01-R5地图地点卡-1440x900.png" : "01-R4完整地图与地点卡-1440x900.png");
+  await capture(verifyCreativeResults ? "00-R6地图地点入口-1440x900.png" : verifyTianyiStart ? "01-R5地图地点卡-1440x900.png" : "01-R4完整地图与地点卡-1440x900.png");
 
   await card.getByText("管理局部地图", { exact: true }).click();
   await card.getByRole("button", { name: "新建并放置局部地图", exact: true }).click();
@@ -2780,9 +2787,37 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     await page.locator(".tianyi-map-composer .tianyi-send").click();
     await page.getByLabel("本问来源回执").waitFor();
     assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed local-fixture answer clears only the submitted draft.");
+    if (verifyCreativeResults) {
+      const result = page.getByLabel("地图创作请求结果");
+      await result.getByText("雾港的三个场景构想", { exact: true }).waitFor();
+      await result.getByText(/潮闸停灯/u).waitFor();
+      await capture("01-R6实际创作结果-1440x900.png");
+      await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
+      const continuedDraft = await composer.locator("textarea").inputValue();
+      assert.match(continuedDraft, /回复（event\./u, "Continue targets the durable response message instead of an implicit previous item.");
+      await composer.locator("textarea").fill(`${continuedDraft} 保留第二个构想，把冲突改为是否相信守灯人的临时决定。`);
+      await composer.locator(".tianyi-send").click();
+      await result.getByText("修改后的第二个构想：潮闸停灯", { exact: true }).waitFor();
+      assert.equal(await page.locator(".tianyi-work-history .is-tianyi").count() >= 2, true, "The original and revised replies remain separately visible in the same durable Session.");
+      await result.getByRole("button", { name: "保存为创意草稿", exact: true }).click();
+      await page.getByRole("status").getByText(/创意草稿已保存/u).waitFor();
+      await capture("02-R6继续修改并保存草稿-1440x900.png");
+      await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+      await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+      await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
+      const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
+      await creativeDraft.waitFor();
+      assert.match(await creativeDraft.inputValue(), /修改后的第二个构想：潮闸停灯/u, "The saved creative draft opens through the existing Creative lane.");
+      await page.reload();
+      const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");
+      await reopenedCreativeDraft.waitFor();
+      assert.match(await reopenedCreativeDraft.inputValue(), /修改后的第二个构想：潮闸停灯/u, "The per-project Creative draft survives a full page reopen.");
+      await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
+      await page.getByLabel("地图创作请求结果").getByText("修改后的第二个构想：潮闸停灯", { exact: true }).waitFor();
+    }
     await page.setViewportSize({ width: 1152, height: 720 });
     await page.getByLabel("地图创作请求结果").scrollIntoViewIfNeeded();
-    await capture("03-R5窄屏输入与本地结果-1152x720.png");
+    await capture(verifyCreativeResults ? "03-R6窄屏输入与结果-1152x720.png" : "03-R5窄屏输入与本地结果-1152x720.png");
     await page.route("**/model-service/tianyi-grounded-answer", async (route) => route.fulfill({ status: 503, body: "fixture failure" }));
     expectedProviderFailureConsoleBudget += 1;
     await page.locator(".tianyi-map-composer textarea").fill("这次请求用于验证失败后保留草稿。");
@@ -2819,8 +2854,16 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
   await saved(/地点资料和局部地图仍保留/u);
   const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.ok(library.data.objects.some((item) => item.id === mapM2Fixture.fogHarbor.id), "Unlinking the visual symbol does not delete the formal location.");
+  if (verifyCreativeResults) {
+    await gotoProduct(page, `${baseUrl}/tianyi?tianyiLane=work`);
+    assert.equal(await page.locator(".tianyi-map-creation-start").count(), 0, "The ordinary Tianyi entry does not invent a map source.");
+    const ordinaryComposer = page.locator(".tianyi-workspace-composer");
+    await ordinaryComposer.locator("textarea").fill("整理我接下来需要补充的地点创作问题，不要写入事实。");
+    await ordinaryComposer.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+    await page.getByLabel("本问来源回执").getByText("围绕当前资料的讨论", { exact: true }).waitFor();
+  }
   assert.deepEqual(consoleProblems, []);
-  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: 0, requestEvidence: verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: "normal-page-isolated-fixture" }, null, 2));
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, verifyCreativeResults ? "R6天意创作结果身份.json" : verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: 0, requestEvidence: verifyCreativeResults ? "substantive-local-content-revision-save-reopen-and-failure" : verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: "normal-page-isolated-fixture" }, null, 2));
 }
 
 async function assertMapM3AuthorExperience(page, consoleProblems) {
