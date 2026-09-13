@@ -2610,6 +2610,75 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   const afterPointSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.equal(afterPointSave.data.documents.find((document) => document.id === northBay.id).revision, beforePointRevision + 1, "One completed point drag creates one formal revision.");
 
+  await page.getByRole("button", { name: /编辑 雾港 · 局部地图 的点定位/u }).click();
+  await pointEditor.getByRole("button", { name: "改为坐标校准", exact: true }).click();
+  const calibrationPanel = page.getByRole("region", { name: "坐标校准" });
+  await calibrationPanel.waitFor();
+  await calibrationPanel.getByLabel("子图点 A X").fill("10");
+  await calibrationPanel.getByLabel("子图点 A Y").fill("10");
+  await calibrationPanel.getByLabel("子图点 B X").fill("50");
+  await calibrationPanel.getByLabel("子图点 B Y").fill("10");
+  await calibrationPanel.getByLabel("父图点 A X").fill("60");
+  await calibrationPanel.getByLabel("父图点 A Y").fill("20");
+  await calibrationPanel.getByLabel("父图点 B X").fill("60");
+  await calibrationPanel.getByLabel("父图点 B Y").fill("36");
+  await calibrationPanel.getByText(/缩放 0\.400 倍 · 旋转 90\.00°/u).waitFor();
+  const calibrationPreview = calibrationPanel.getByLabel("校准实际对应预览");
+  assert.equal(await calibrationPreview.getAttribute("data-third-x"), "54.0000", "An independent third child point projects through the preview transform.");
+  assert.equal(await calibrationPreview.getAttribute("data-third-y"), "28.0000", "The third-point preview proves more than the two fitted controls.");
+  await capture("02c-calibration-preview.png");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  const compactCalibrationGeometry = await page.evaluate(() => {
+    const panel = document.querySelector(".map-calibration-panel")?.getBoundingClientRect();
+    const managerHeader = document.querySelector(".map-manager > header")?.getBoundingClientRect();
+    const editor = document.querySelector(".map-manager-spatial aside")?.getBoundingClientRect();
+    if (!panel || !managerHeader || !editor) throw new Error("Calibration layout surfaces are unavailable.");
+    return { panel: { left: panel.left, right: panel.right, top: panel.top }, headerBottom: managerHeader.bottom, editorLeft: editor.left };
+  });
+  assert.ok(compactCalibrationGeometry.panel.top >= compactCalibrationGeometry.headerBottom - 1, `The 1152x720 calibration panel must not cover the manager header: ${JSON.stringify(compactCalibrationGeometry)}`);
+  assert.ok(compactCalibrationGeometry.panel.right <= compactCalibrationGeometry.editorLeft + 1, `The 1152x720 calibration panel must leave save and cancel reachable: ${JSON.stringify(compactCalibrationGeometry)}`);
+  await capture("02e-calibration-1152x720.png");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const beforeCalibrationSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const beforeCalibrationRevision = beforeCalibrationSave.data.documents.find((document) => document.id === northBay.id).revision;
+  await pointEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
+  const afterCalibrationSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const calibratedParent = afterCalibrationSave.data.documents.find((document) => document.id === northBay.id);
+  const persistedCalibration = calibratedParent.content.placements.find((placement) => placement.childMapId === fog.id);
+  assert.equal(calibratedParent.revision, beforeCalibrationRevision + 1, "Calibration preview saves as one protected map revision.");
+  assert.equal(persistedCalibration.kind, "calibrated");
+  assert.equal(persistedCalibration.transform.scale, .4);
+  assert.equal(persistedCalibration.transform.rotation, 90);
+  assert.deepEqual(persistedCalibration.calibration.targetPoints, [{ x: 60, y: 20 }, { x: 60, y: 36 }]);
+  await page.reload();
+  await page.getByRole("region", { name: "地图管理" }).waitFor();
+  await page.getByRole("button", { name: "空间总览", exact: true }).click();
+  await page.getByLabel("空间总览父地图").selectOption(northBay.id);
+  await page.getByRole("button", { name: /编辑 雾港 · 局部地图 的坐标校准/u }).click();
+  const reopenedCalibration = page.getByRole("region", { name: "坐标校准" });
+  assert.equal(await reopenedCalibration.getByLabel("父图点 A X").inputValue(), "60", "Reload reopens the persisted calibration controls.");
+  await reopenedCalibration.getByLabel("父图点 B X").fill("60");
+  await reopenedCalibration.getByLabel("父图点 B Y").fill("20");
+  await reopenedCalibration.getByRole("alert").getByText(/父图的两个对应点不能重合/u).waitFor();
+  assert.equal(await pointEditor.getByRole("button", { name: "保存定位", exact: true }).isDisabled(), true, "Degenerate controls cannot replace the saved calibration.");
+  await pointEditor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: /编辑 雾港 · 局部地图 的坐标校准/u }).click();
+  assert.equal(await page.getByRole("region", { name: "坐标校准" }).getByLabel("父图点 B Y").inputValue(), "36", "Cancel restores the prior saved calibration after invalid edits.");
+  await pointEditor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
+  const calibratedOverlay = page.getByLabel("雾港 · 局部地图 校准叠加");
+  await calibratedOverlay.waitFor();
+  const overlayScale = await calibratedOverlay.getAttribute("data-calibration-scale");
+  const overlayRotation = await calibratedOverlay.getAttribute("data-calibration-rotation");
+  await page.getByRole("button", { name: "放大地图", exact: true }).click();
+  assert.equal(await calibratedOverlay.getAttribute("data-calibration-scale"), overlayScale, "Viewport zoom does not mutate map-coordinate scale.");
+  assert.equal(await calibratedOverlay.getAttribute("data-calibration-rotation"), overlayRotation, "Viewport zoom does not mutate map-coordinate rotation.");
+  await capture("02d-calibration-reopened-parent-map.png");
+  await page.getByRole("button", { name: "地图管理", exact: true }).click();
+  await page.getByRole("button", { name: "空间总览", exact: true }).click();
+  await page.getByLabel("空间总览父地图").selectOption(northBay.id);
+
   const copiedUnlocated = manager.getByText("北湾作者地图 副本", { exact: true }).locator("xpath=parent::div");
   await copiedUnlocated.getByRole("button", { name: "建立范围", exact: true }).click();
   const spatialEditor = page.getByRole("region", { name: "空间定位编辑器" });
@@ -2699,6 +2768,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.getByLabel("地点示意图画布").waitFor();
   assert.equal(await page.locator(".map-authoring-palette").count(), 0, "Historical map does not expose authoring controls.");
   assert.equal(await page.locator(".map-cross-connection").count(), 0, "Historical map does not splice a current foreign-owner connection into the selected old snapshot.");
+  assert.equal(await page.locator(".map-calibrated-child-overlay").count(), 0, "Historical map does not splice current child drawings into the selected parent revision.");
   await capture("04-exact-map-history.png");
   await page.getByRole("button", { name: "返回当前地图", exact: true }).click();
 
@@ -2728,7 +2798,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   assert.equal(copied.content.lifecycle.archived, false);
   assert.ok(currentNorthBay.revision > northBay.revision, "Accepting and compensating the structured proposal create auditable newer map revisions.");
   assert.deepEqual(consoleProblems, [], "MAP-M4 normal author flow must not produce browser errors.");
-  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, runCodeSha: runRevision, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, spatialPlacement: { parentMapId: northBay.id, childMapId: spatialChild.id, kind: persistedRange.kind, vertexCount: persistedRange.bounds.length, savedAtRevision: spatialParent.revision }, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
+  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, runCodeSha: runRevision, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, calibration: { parentMapId: northBay.id, childMapId: fog.id, controlPoints: persistedCalibration.calibration, transform: persistedCalibration.transform, independentThirdPoint: { child: { x: 30, y: 25 }, parent: { x: 54, y: 28 } }, savedAtRevision: calibratedParent.revision }, spatialPlacement: { parentMapId: northBay.id, childMapId: spatialChild.id, kind: persistedRange.kind, vertexCount: persistedRange.bounds.length, savedAtRevision: spatialParent.revision }, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
 }
 
 async function setupWorldMaterialsFixture() {

@@ -20,6 +20,7 @@ import {
   rejectMapEditProposal
 } from "../../src/storyWorkspace/mapEditProposalRepository.mjs";
 import { createPortableWorkspacePackage, validatePortableWorkspacePackage } from "../../src/storyWorkspace/portableWorkspacePackage.mjs";
+import { applyMapSimilarityTransform, calibratedPlacementBounds, solveMapSimilarityTransform, type MapCalibrationControlPoints } from "../../src/storyContracts/mapCalibration.ts";
 
 function fixture() {
   const rootPath = mkdtempSync(path.join(os.tmpdir(), "tianyan-map-spatial-"));
@@ -73,6 +74,44 @@ test("spatial placement edits persist as one protected revision and preserve arb
 
     assert.throws(() => save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], childMapId: "map.missing" }] }), /unknown child map/u);
     assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].bounds, triangle, "an invalid parent reference leaves no partial placement write");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("two corresponding points calibrate translation, uniform scale and rotation while a third point verifies the saved transform", () => {
+  const calibration: MapCalibrationControlPoints = { sourcePoints: [{ x: 10, y: 10 }, { x: 50, y: 10 }], targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 36 }] };
+  const transform = solveMapSimilarityTransform(calibration);
+  assert.ok(Math.abs(transform.scale - .4) < 1e-9);
+  assert.ok(Math.abs(transform.rotation - 90) < 1e-9);
+  assert.deepEqual(applyMapSimilarityTransform({ x: 30, y: 25 }, transform), { x: 54, y: 28 }, "the independent third point uses the solved transform, not a fitted display shortcut");
+  assert.throws(() => solveMapSimilarityTransform({ ...calibration, sourcePoints: [{ x: 10, y: 10 }, { x: 10, y: 10 }] }), /子图.*重合/u);
+  assert.throws(() => solveMapSimilarityTransform({ ...calibration, targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 20 }] }), /父图.*重合/u);
+  assert.throws(() => solveMapSimilarityTransform({ sourcePoints: [{ x: 10, y: 10 }, { x: 10.0000011, y: 10 }], targetPoints: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }), /缩放比例/u);
+});
+
+test("calibration persists and reopens through the sole visual document owner without stale or invalid partial writes", () => {
+  const root = fixture();
+  try {
+    let parent = createVisualDocument(root, { type: "map", title: "大陆总图" });
+    const child = createVisualDocument(root, { type: "map", title: "港城详图" });
+    const calibration: MapCalibrationControlPoints = { sourcePoints: [{ x: 10, y: 10 }, { x: 50, y: 10 }], targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 36 }] };
+    const transform = solveMapSimilarityTransform(calibration);
+    const placement = { id: "placement.calibrated", childMapId: child.id, kind: "calibrated", point: null, calibration, transform, bounds: calibratedPlacementBounds({ childBounds: child.content.coordinateSystem.bounds, parentBounds: parent.content.coordinateSystem.bounds, transform }), precision: "calibrated", note: "两个对应点" };
+    parent = save(root, parent, { ...parent.content, placements: [placement] });
+    const saved = readVisualDocument(root, parent.relativePath);
+    assert.deepEqual(saved.content.placements[0].calibration, calibration);
+    assert.deepEqual(saved.content.placements[0].transform, transform);
+    assert.deepEqual(saved.content.placements[0].bounds, placement.bounds);
+
+    const staleBase = parent;
+    parent = save(root, parent, { ...parent.content, labels: [{ id: "label.after-calibration", text: "作者后续修改", layerId: "layer.main", x: 50, y: 50, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
+    const stale = updateVisualDocument(root, { relativePath: parent.relativePath, expectedContentHash: staleBase.contentHash, document: { ...staleBase, content: { ...staleBase.content, placements: [{ ...placement, calibration: { ...calibration, targetPoints: [{ x: 55, y: 20 }, { x: 55, y: 36 }] } }] } } });
+    assert.equal(stale.conflict, true);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].calibration, calibration);
+
+    const outsideCalibration: MapCalibrationControlPoints = { ...calibration, targetPoints: [{ x: 101, y: 20 }, { x: 60, y: 36 }] };
+    const outsideTransform = solveMapSimilarityTransform(outsideCalibration);
+    assert.throws(() => save(root, parent, { ...parent.content, placements: [{ ...placement, calibration: outsideCalibration, transform: outsideTransform, bounds: calibratedPlacementBounds({ childBounds: child.content.coordinateSystem.bounds, parentBounds: parent.content.coordinateSystem.bounds, transform: outsideTransform }) }] }), /outside the parent map bounds/u);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].calibration, calibration, "invalid calibration leaves the prior saved state intact");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -12,6 +12,8 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { calibratedPlacementBounds, solveMapSimilarityTransform, transformsApproximatelyEqual } from "../storyContracts/mapCalibration.ts";
+
 import { getWorkspaceLinkedNotes, listWorkspaceNotes, openStoryWorkspace } from "./storyWorkspaceRepository.mjs";
 import {
   RELATION_PROJECTION_VERSION,
@@ -453,12 +455,19 @@ function normalizeMapContent(root, value) {
     const bounds = Array.isArray(placement?.bounds) ? placement.bounds.map((item) => normalizeMapPoint(item, "Map placement bounds")) : [];
     if (kind === "point" && !point) throw new Error("Point placement requires a point.");
     if ((kind === "range" || kind === "calibrated") && bounds.length < 3) throw new Error("Range placement requires at least three boundary points.");
-    const transform = kind === "calibrated" ? {
+    const suppliedTransform = kind === "calibrated" ? {
       translateX: finiteNumber(placement?.transform?.translateX, "Map placement translation x"),
       translateY: finiteNumber(placement?.transform?.translateY, "Map placement translation y"),
       rotation: boundedNumber(placement?.transform?.rotation ?? 0, "Map placement rotation", -180, 180),
       scale: boundedNumber(placement?.transform?.scale, "Map placement scale", .0001, 10000)
     } : null;
+    const calibration = kind === "calibrated" && placement?.calibration != null ? {
+      sourcePoints: normalizeCalibrationPair(placement.calibration.sourcePoints, "Map calibration child point"),
+      targetPoints: normalizeCalibrationPair(placement.calibration.targetPoints, "Map calibration parent point")
+    } : null;
+    const solvedTransform = calibration ? solveMapSimilarityTransform(calibration) : null;
+    if (solvedTransform && suppliedTransform && !transformsApproximatelyEqual(solvedTransform, suppliedTransform)) throw new Error("Map calibration points do not match the saved transform.");
+    const transform = solvedTransform ?? suppliedTransform;
     return {
       id: requireText(placement?.id, "Map placement id", 120),
       childMapId: requireText(placement?.childMapId, "Map placement child", 160),
@@ -466,6 +475,7 @@ function normalizeMapContent(root, value) {
       point,
       bounds,
       transform,
+      ...(calibration ? { calibration } : {}),
       precision: kind === "calibrated" ? "calibrated" : "illustrative",
       note: placement?.note == null || placement.note === "" ? null : requireText(placement.note, "Map placement note", 240)
     };
@@ -486,6 +496,11 @@ function normalizeMapContent(root, value) {
     label: input.floor.label == null || input.floor.label === "" ? null : requireText(input.floor.label, "Map floor label", 80)
   };
   return { baseImage, backgrounds, activeBackgroundId, layers, markers, regions, labels, drawings, entrances, template, scopeObjectId, structure, lifecycle, coordinateSystem, placements, connections, floor };
+}
+
+function normalizeCalibrationPair(value, label) {
+  if (!Array.isArray(value) || value.length !== 2) throw new Error(`${label} requires exactly two points.`);
+  return value.map((point, index) => normalizeMapPoint(point, `${label} ${index + 1}`));
 }
 
 function normalizeMapLifecycle(value) {
@@ -541,6 +556,15 @@ function validateMapTopology(root, candidate, relativePath) {
     for (const placement of map.content.placements || []) {
       if (placement.childMapId === map.id) throw new Error("Map placement cannot contain its own map.");
       if (!byId.has(placement.childMapId)) throw new Error("Map placement references an unknown child map.");
+      if (placement.kind === "calibrated" && placement.calibration) {
+        const child = byId.get(placement.childMapId);
+        if (placement.calibration.sourcePoints.some((point) => !pointWithinCoordinateBounds(point, child.content.coordinateSystem.bounds))) throw new Error("Map calibration child point is outside the child map bounds.");
+        if (placement.calibration.targetPoints.some((point) => !pointWithinCoordinateBounds(point, map.content.coordinateSystem.bounds))) throw new Error("Map calibration parent point is outside the parent map bounds.");
+        const transform = solveMapSimilarityTransform(placement.calibration);
+        if (!transformsApproximatelyEqual(transform, placement.transform)) throw new Error("Map calibration transform is inconsistent.");
+        const projectedBounds = calibratedPlacementBounds({ childBounds: child.content.coordinateSystem.bounds, parentBounds: map.content.coordinateSystem.bounds, transform });
+        if (projectedBounds.length !== placement.bounds.length || projectedBounds.some((point, index) => Math.abs(point.x - placement.bounds[index].x) > 1e-7 || Math.abs(point.y - placement.bounds[index].y) > 1e-7)) throw new Error("Map calibration preview bounds are inconsistent.");
+      }
     }
     for (const connection of map.content.connections || []) {
       for (const endpoint of [connection.from, connection.to]) {
@@ -564,6 +588,10 @@ function validateMapTopology(root, candidate, relativePath) {
     visited.add(id);
   };
   for (const id of adjacency.keys()) visit(id);
+}
+
+function pointWithinCoordinateBounds(point, bounds) {
+  return point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
 }
 
 function snapshotVisualDocument(root, document) {
