@@ -3831,15 +3831,16 @@ function createLocalFakeGroundedAdapter() {
     status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
     async openChatStream(input) {
       const system = input.messages.find((message) => message.role === "system")?.content || "";
+      const authorRequest = [...input.messages].reverse().find((message) => message.role === "user")?.content || "";
       const includedSources = readGroundedFixtureJson(system, "includedSources must equal exactly:", []);
       const excludedSources = readGroundedFixtureJson(system, "excludedSources must equal exactly:", []);
       const answer = includedSources.length
         ? {
-            summary: "本地假服务已按当前明确选择读取正式事件；未写入故事事实。",
-            claims: [{ statement: "已附加事件仅作为本轮工作依据。", status: "fact", sourceRefs: includedSources, uncertaintyReason: null }],
-            status: "fact",
+            summary: localFakeCreativeAnswer(authorRequest),
+            claims: [{ statement: "以下内容是基于作者明确引用形成的创意建议，不是既有故事事实。", status: "candidate", sourceRefs: includedSources, uncertaintyReason: "人物动机、冲突结果和新增细节仍待作者选择。" }],
+            status: "candidate",
             sourceRefs: includedSources,
-            uncertaintyReason: null,
+            uncertaintyReason: "创意内容尚未由作者确认为故事事实。",
             includedSources,
             excludedSources
           }
@@ -3861,6 +3862,16 @@ function createLocalFakeGroundedAdapter() {
       });
     }
   });
+}
+
+function localFakeCreativeAnswer(authorRequest) {
+  if (/继续修改这条回复/u.test(authorRequest)) {
+    return "## 修改后的第二个构想：潮闸停灯\n\n雾港一年一度的潮闸检修夜，守灯人主动熄灭外港灯塔，诱使一艘没有登记的盐船靠向旧码头。主角原以为这是走私交易，却发现守灯人是在掩护被追捕的测潮学徒。\n\n冲突从“阻止交易”改为“是否相信守灯人的临时决定”：若立即报信，港口秩序得以维持，但学徒掌握的潮灾证据可能永远消失；若协助隐瞒，主角必须承担下一次涨潮前暴露的风险。\n\n建议保留为创意草稿：守灯人的真实动机、盐船所属和潮灾是否会发生均未成为既有事实。";
+  }
+  if (/三个|场景构想/u.test(authorRequest)) {
+    return "## 雾港的三个场景构想\n\n1. 潮闸停灯：检修夜里外港灯塔突然熄灭，一艘未登记盐船借黑暗靠岸。作者可进一步决定守灯人是在走私、救人，还是执行一项未公开命令。\n\n2. 山路来信：暴雨切断河道，信使只能沿山路进入雾港，却带来两封落款相同、内容相反的信。冲突集中在主角先相信哪一封，以及错误选择会伤害谁。\n\n3. 河口空席：雾港与上游聚落议价时，最熟悉水情的船匠没有出现，只留下刚修到一半的渡船。缺席原因和渡船用途都保持为建议，等待作者补充。\n\n以上均为本地测试夹具产生的创意候选，没有写入地点、事件或其他正式事实。";
+  }
+  return "## 围绕当前资料的讨论\n\n可以先区分三层：资料已经明确的内容、作者希望探索的方向，以及仍需补充的问题。本地测试回复只演示可阅读正文、会话恢复和继续修改，不会把讨论自动写成正式事实。";
 }
 
 function createNuwaN1LocalHostAdapter(baseUrl) {
