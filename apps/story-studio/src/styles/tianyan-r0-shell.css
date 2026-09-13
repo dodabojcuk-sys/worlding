@@ -1125,7 +1125,11 @@ input:focus-visible {
 .tianyi-map-starters { display: flex; flex-wrap: wrap; gap: .4rem; }
 .tianyi-map-composer-actions .tianyi-send { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
 .tianyi-map-composer-actions .tianyi-send:disabled { opacity: .55; cursor: not-allowed; }
-@media (max-width: 72rem) {
+.tianyi-map-entry-result { display: grid; gap: .3rem; padding: .6rem .7rem; background: var(--color-surface); border-inline-start: 3px solid var(--color-accent); border-radius: var(--radius-sm); }
+.tianyi-map-entry-result header { display: flex; justify-content: space-between; gap: .5rem; }
+.tianyi-map-entry-result p { color: var(--color-text); }
+.tianyi-map-entry-result small { color: var(--color-text-muted); }
+@media (max-width: 56rem) {
   .tianyi-map-creation-start > header, .tianyi-map-composer-actions { align-items: stretch; flex-direction: column; }
   .tianyi-map-creation-start > header button, .tianyi-map-composer-actions .tianyi-send { justify-content: center; }
   .tianyi-map-reference-strip ul { grid-template-columns: 1fr; }
