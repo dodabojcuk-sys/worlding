@@ -2340,7 +2340,9 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
   await page.locator(".map-structure-children").getByRole("button", { name: /松林/u }).waitFor();
   await page.getByRole("button", { name: "地理", exact: true }).click();
+  const restoreGeographyScope = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"));
   await page.getByLabel("地图范围").selectOption(mapM2Fixture.northBay.id);
+  assert.equal((await restoreGeographyScope).status(), 200, "Restoring the geographical scope must finish its VisualDocument write before checking projected children.");
   await page.getByRole("status").getByText(/地图范围已保存/u).waitFor();
   await page.locator(".map-structure-children").getByRole("button", { name: /雾港/u }).waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-geography-administration.png"), fullPage: true });
