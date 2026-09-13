@@ -2954,18 +2954,19 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByRole("status").getByText(/局部地图和明确入口已保存/u).waitFor();
   await capture("03-planet-local-map.png");
   await page.getByRole("button", { name: "北湾星域", exact: true }).click();
-  await page.getByRole("button", { name: "进入澜星", exact: true }).waitFor();
+  await page.getByRole("button", { name: /澜星 · 局部地图.*局部图位置/u }).waitFor();
   await capture("04-named-starfield.png");
 
   await page.getByLabel("选择地图", { exact: true }).selectOption({ label: "北湾作者地图" });
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).focus();
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).press("Enter");
   await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
-  const mapPreview = page.locator(".tianyi-map-context-preview");
+  const mapPreview = page.locator(".tianyi-map-creation-start");
   await mapPreview.waitFor();
-  await mapPreview.getByText(/仅为作者图示，非世界事实/u).waitFor();
+  await mapPreview.getByText("查看来源", { exact: true }).first().click();
+  await mapPreview.getByText(/周围空间不自动成为剧情事实/u).waitFor();
   await capture("05-tianyi-map-preview.png");
-  await page.locator(".tianyi-workspace-composer textarea").fill("北湾地图中的雾港、山脉与跨郡松林，会怎样影响故事中的通行选择？");
+  await page.locator(".tianyi-map-composer textarea").fill("北湾地图中的雾港、山脉与跨郡松林，会怎样影响故事中的通行选择？");
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
