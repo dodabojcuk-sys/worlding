@@ -1,0 +1,37 @@
+{
+  "projectId": "r061-e2e-cf3f30a8ddf842dcb68b17749f17ebad",
+  "workVersionId": "work-version.root.0d59a11bec097ff09d4116458806f4c7",
+  "runCodeSha": "44860a9df6071366b390be4de5d6fbf053baa6b6",
+  "northMapId": "map.地点示意图-2",
+  "streetMapId": "map.地点示意图-3",
+  "interiorMapId": "map.建筑平面",
+  "calibrationRevision": 5,
+  "transform": {
+    "translateX": 32.00548222764614,
+    "translateY": 34.14454614415886,
+    "rotation": -9.992711311465582,
+    "scale": 0.38813644287325283
+  },
+  "independentThirdPoint": {
+    "x": 54.48542768472272,
+    "y": 49.88943559052752
+  },
+  "finalMaps": [
+    {
+      "id": "map.地点示意图-2",
+      "revision": 5,
+      "contentHash": "1901dc897df3925eef0547b06b8e9b7ca2222301744c04118197a0c11809a8a0"
+    },
+    {
+      "id": "map.建筑平面",
+      "revision": 4,
+      "contentHash": "cda65d42f740a55df3a1c1a35424284f82d6e008798341da026572cf6f7d3b8a"
+    },
+    {
+      "id": "map.地点示意图-3",
+      "revision": 14,
+      "contentHash": "7019193afd66a5438d54a2e5bfd61450a0cf66c91b0c2dd42aa1244559738504"
+    }
+  ],
+  "realProviderDispatches": 0
+}

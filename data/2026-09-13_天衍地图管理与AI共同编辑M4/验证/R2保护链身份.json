@@ -1,0 +1,62 @@
+{
+  "projectId": "r061-e2e-cf3f30a8ddf842dcb68b17749f17ebad",
+  "workVersionId": "work-version.root.0d59a11bec097ff09d4116458806f4c7",
+  "runCodeSha": "44860a9df6071366b390be4de5d6fbf053baa6b6",
+  "sourceMapId": "map.地点示意图",
+  "targetMapId": "map.雾港-局部地图",
+  "copiedMapId": "map.北湾作者地图-副本",
+  "calibration": {
+    "parentMapId": "map.地点示意图",
+    "childMapId": "map.雾港-局部地图",
+    "controlPoints": {
+      "sourcePoints": [
+        {
+          "x": 10,
+          "y": 10
+        },
+        {
+          "x": 50,
+          "y": 10
+        }
+      ],
+      "targetPoints": [
+        {
+          "x": 60,
+          "y": 20
+        },
+        {
+          "x": 60,
+          "y": 36
+        }
+      ]
+    },
+    "transform": {
+      "translateX": 64,
+      "translateY": 16,
+      "rotation": 90,
+      "scale": 0.4
+    },
+    "independentThirdPoint": {
+      "child": {
+        "x": 30,
+        "y": 25
+      },
+      "parent": {
+        "x": 54,
+        "y": 28
+      }
+    },
+    "savedAtRevision": 19
+  },
+  "spatialPlacement": {
+    "parentMapId": "map.地点示意图",
+    "childMapId": "map.北湾作者地图-副本",
+    "kind": "range",
+    "vertexCount": 4,
+    "savedAtRevision": 21
+  },
+  "compensatedMapRevision": 25,
+  "simulatedProviderDispatches": 1,
+  "realProviderDispatches": 0,
+  "proposalBoundary": "validated-structured-operations-local-fake-only"
+}
