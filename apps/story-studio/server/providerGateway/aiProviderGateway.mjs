@@ -44,7 +44,10 @@ export const DEFAULT_MODEL_PROFILES = Object.freeze([
     modelId: "DeepSeek-V4-Flash-Vision-Exp",
     maxOutputTokens: 2_400,
     temperature: 0.35,
-    timeoutMs: 45_000,
+    // Radeon Cloud can acknowledge a short request quickly while taking
+    // longer to finish constrained JSON. Keep this below the explicitly
+    // bounded two-minute author-facing acceptance window.
+    timeoutMs: 120_000,
     enableThinking: false
   })
 ]);
