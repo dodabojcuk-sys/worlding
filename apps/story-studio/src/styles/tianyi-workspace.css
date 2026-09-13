@@ -161,6 +161,7 @@
 .tianyi-impact-card ul { padding-left: 20px; color: var(--color-text-secondary); line-height: 1.7; }
 .tianyi-work-empty { border: 1px dashed var(--color-border-subtle); padding: 22px; border-radius: 12px; color: var(--color-text-muted); }
 .tianyi-workspace-error { max-width: 920px; margin: 0 auto 12px; color: var(--color-danger); }
+.tianyi-workspace-message { max-width: 920px; margin: 0 auto 12px; color: var(--color-accent); }
 .tianyi-workspace-composer { max-width: 920px; margin: 0 auto; position: sticky; bottom: 0; border: 1px solid var(--color-border-subtle); border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 96%, transparent); box-shadow: 0 12px 34px rgba(0,0,0,.08); padding: 12px; }
 .tianyi-workspace-composer textarea { width: 100%; resize: vertical; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; min-height: 62px; }
 .tianyi-workspace-composer > div { display: flex; align-items: center; gap: 8px; }

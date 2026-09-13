@@ -89,6 +89,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [intakeStreamText, setIntakeStreamText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [activeIntakeRef, setActiveIntakeRef] = useState<ActiveStoryIntakeCandidateRef | null>(null);
   const [selectedIntakeCandidateIds, setSelectedIntakeCandidateIds] = useState<string[]>([]);
   const [workContextEvents, setWorkContextEvents] = useState<WorldObject[]>([]);
@@ -148,6 +149,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setLastGroundedQuestion("");
     setBusy(false);
     setError("");
+    setNotice("");
   }, [project?.id, workVersionId]);
 
   useEffect(() => {
@@ -722,7 +724,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const text = (conversationLane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft).trim();
     if (!text || !project || busy) return;
     const visit = conversationProjectVisit.current;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setNotice("");
     try {
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (conversationLane === "work" && workContextState === "failed") throw new Error("工作依据读取失败；草稿已保留。请重新读取正式事件后再发送，避免把失败误作无上下文。");
@@ -975,11 +977,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       return;
     }
     runtime.setCreativeComposerDraft(nextDraft);
-    setError("创意草稿已保存；它仍是草稿，不会写入故事事实。可打开创意模式继续编辑。");
+    setNotice("创意草稿已保存；它仍是草稿，不会写入故事事实。可打开创意模式继续编辑。");
+    setError("");
   };
   const copyGroundedAnswer = async () => {
     if (!groundedResultText) return;
-    try { await navigator.clipboard.writeText(groundedResultText); setError("创作内容已复制。"); }
+    try { await navigator.clipboard.writeText(groundedResultText); setNotice("创作内容已复制。"); setError(""); }
     catch { setError("浏览器未允许复制；正文仍在页面中，可手动选择复制。"); }
   };
   const fillMapStarter = (value: string) => {
@@ -1093,6 +1096,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             </>}
           </>}
         </section>}
+          {notice ? <p className="tianyi-workspace-message" role="status">{notice}</p> : null}
           {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
         </div>
         {(lane === "creative" || (lane === "work" && !activeIntakeCandidate && !mapEntry)) ? <section className="tianyi-workspace-composer">
