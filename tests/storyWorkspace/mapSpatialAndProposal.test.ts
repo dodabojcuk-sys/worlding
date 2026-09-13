@@ -51,6 +51,31 @@ test("map placements keep directory-independent point, range and calibrated iden
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("spatial placement edits persist as one protected revision and preserve arbitrary range geometry", () => {
+  const root = fixture();
+  try {
+    let parent = createVisualDocument(root, { type: "map", title: "群岛总图" });
+    const child = createVisualDocument(root, { type: "map", title: "弯月港" });
+    parent = save(root, parent, { ...parent.content, placements: [{ id: "place.harbor", childMapId: child.id, kind: "point", point: { x: 50, y: 50 }, bounds: [], transform: null, precision: "illustrative", note: null }] });
+    const pointBase = parent;
+    parent = save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], point: { x: 27.5, y: 68.25 } }] });
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].point, { x: 27.5, y: 68.25 });
+    assert.equal(parent.revision, pointBase.revision + 1, "a completed drag/save creates one revision, not per-pixel revisions");
+
+    const triangle = [{ x: 10, y: 12 }, { x: 46, y: 18 }, { x: 31, y: 59 }];
+    parent = save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], kind: "range", point: null, bounds: triangle }] });
+    const reopened = readVisualDocument(root, parent.relativePath);
+    assert.deepEqual(reopened.content.placements[0].bounds, triangle, "non-rectangular range vertices survive close/reopen unchanged");
+
+    const stale = updateVisualDocument(root, { relativePath: parent.relativePath, expectedContentHash: pointBase.contentHash, document: { ...parent, content: { ...parent.content, placements: [{ ...parent.content.placements[0], bounds: triangle.map((point) => ({ x: point.x + 1, y: point.y })) }] } } });
+    assert.equal(stale.conflict, true);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].bounds, triangle, "a stale spatial editor cannot overwrite the current revision");
+
+    assert.throws(() => save(root, parent, { ...parent.content, placements: [{ ...parent.content.placements[0], childMapId: "map.missing" }] }), /unknown child map/u);
+    assert.deepEqual(readVisualDocument(root, parent.relativePath).content.placements[0].bounds, triangle, "an invalid parent reference leaves no partial placement write");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("map connections require explicit endpoints while copy, archive and history preserve identity boundaries", () => {
   const root = fixture();
   try {

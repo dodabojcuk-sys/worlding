@@ -2593,6 +2593,86 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await manager.getByText("尚未定位", { exact: true }).waitFor();
   await capture("02-spatial-placement-overview.png");
 
+  await page.getByLabel("空间总览父地图").selectOption(northBay.id);
+  const pointPlacement = page.getByRole("button", { name: /编辑 雾港 · 局部地图 的点定位/u });
+  await pointPlacement.click();
+  const pointEditor = page.getByRole("region", { name: "空间定位编辑器" });
+  const pointBeforeDrag = Number(await pointEditor.getByLabel("定位水平位置").inputValue());
+  const pointBox = await pointPlacement.boundingBox();
+  assert.ok(pointBox, "The existing point placement must be draggable on the parent map.");
+  await page.mouse.move(pointBox.x + pointBox.width / 2, pointBox.y + pointBox.height / 2);
+  await page.mouse.down(); await page.mouse.move(pointBox.x + pointBox.width / 2 + 90, pointBox.y + pointBox.height / 2 + 35, { steps: 8 }); await page.mouse.up();
+  assert.notEqual(Number(await pointEditor.getByLabel("定位水平位置").inputValue()), pointBeforeDrag, "Dragging changes only the point preview before save.");
+  const beforePointSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const beforePointRevision = beforePointSave.data.documents.find((document) => document.id === northBay.id).revision;
+  await pointEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
+  const afterPointSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.equal(afterPointSave.data.documents.find((document) => document.id === northBay.id).revision, beforePointRevision + 1, "One completed point drag creates one formal revision.");
+
+  const copiedUnlocated = manager.getByText("北湾作者地图 副本", { exact: true }).locator("xpath=parent::div");
+  await copiedUnlocated.getByRole("button", { name: "建立范围", exact: true }).click();
+  const spatialEditor = page.getByRole("region", { name: "空间定位编辑器" });
+  await spatialEditor.waitFor();
+  await spatialEditor.getByText(/父图：北湾作者地图 · 范围定位/u).waitFor();
+  await spatialEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
+  const rangePlacement = page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u });
+  await rangePlacement.click();
+  const savedX = await spatialEditor.getByLabel("定位水平位置").inputValue();
+  await spatialEditor.getByLabel("定位水平位置").fill("72");
+  await spatialEditor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("status").getByText(/已取消空间定位编辑/u).waitFor();
+  await rangePlacement.click();
+  assert.equal(await spatialEditor.getByLabel("定位水平位置").inputValue(), savedX, "Cancel restores the persisted placement rather than the preview.");
+  const originalVertexCount = await spatialEditor.getByLabel(/范围点 \d+ X/u).count();
+  assert.ok(originalVertexCount >= 3, "The existing range exposes its original polygon vertices.");
+  await spatialEditor.getByLabel("定位水平位置").fill("68");
+  await spatialEditor.getByLabel("定位垂直位置").fill("36");
+  await spatialEditor.getByLabel("范围整体大小").fill("125");
+  const beforeSpatialSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const beforeSpatialRevision = beforeSpatialSave.data.documents.find((document) => document.id === northBay.id).revision;
+  await spatialEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await page.getByRole("status").getByText(/空间定位已保存为一个地图修订/u).waitFor();
+  const afterSpatialSave = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const spatialParent = afterSpatialSave.data.documents.find((document) => document.id === northBay.id);
+  const spatialChild = afterSpatialSave.data.documents.find((document) => document.title === "北湾作者地图 副本");
+  const persistedRange = spatialParent.content.placements.find((placement) => placement.childMapId === spatialChild.id);
+  assert.equal(spatialParent.revision, beforeSpatialRevision + 1, "A drag/numeric edit saves exactly one formal revision.");
+  assert.equal(persistedRange.bounds.length, originalVertexCount, "Range editing preserves the original polygon vertex count.");
+  await page.reload();
+  await page.getByRole("region", { name: "地图管理" }).waitFor();
+  await page.getByRole("button", { name: "空间总览", exact: true }).click();
+  await page.getByLabel("空间总览父地图").selectOption(northBay.id);
+  await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).click();
+  await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel("定位水平位置").waitFor();
+  assert.equal(await page.getByRole("region", { name: "空间定位编辑器" }).getByLabel(/范围点 \d+ X/u).count(), originalVertexCount, "Reload reopens the saved polygon without rectangularizing it.");
+  await page.getByRole("region", { name: "空间定位编辑器" }).getByRole("button", { name: "取消", exact: true }).click();
+  await capture("02a-range-placement-reopened.png");
+
+  await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).click();
+  const staleEditor = page.getByRole("region", { name: "空间定位编辑器" });
+  await staleEditor.getByLabel("定位水平位置").fill("22");
+  const beforeConcurrentWrite = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const concurrentParent = beforeConcurrentWrite.data.documents.find((document) => document.id === northBay.id);
+  const concurrentPlacement = structuredClone(concurrentParent.content.placements.find((placement) => placement.childMapId === spatialChild.id));
+  const concurrentResult = await postFixture(`${apiUrl}/__local/story-studio/visual-documents/update`, { projectId: fixtureProjectId, relativePath: concurrentParent.relativePath, expectedHash: concurrentParent.contentHash, document: { ...concurrentParent, content: { ...concurrentParent.content, labels: [...concurrentParent.content.labels, { id: `label.concurrent-${fixture.fixtureId}`, text: "并发作者修订", layerId: "layer.main", x: 12, y: 12, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] } } });
+  assert.equal(concurrentResult.data.conflict, false, "The isolated concurrent author write establishes a newer revision.");
+  await staleEditor.getByRole("button", { name: "保存定位", exact: true }).click();
+  await page.getByRole("status").getByText(/空间定位保存失败.*父地图已有更新/u).waitFor();
+  const afterStaleAttempt = await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const protectedParent = afterStaleAttempt.data.documents.find((document) => document.id === northBay.id);
+  assert.deepEqual(protectedParent.content.placements.find((placement) => placement.childMapId === spatialChild.id), concurrentPlacement, "A stale page does not overwrite the newer saved placement.");
+  assert.ok(protectedParent.content.labels.some((label) => label.text === "并发作者修订"), "The newer author revision remains intact after the stale save rejection.");
+  await page.reload();
+  await page.getByRole("region", { name: "地图管理" }).waitFor();
+
+  await page.getByRole("button", { name: "列表", exact: true }).click();
+  const spatialChildCard = page.getByRole("heading", { name: "北湾作者地图 副本", exact: true }).locator("xpath=ancestor::article");
+  await spatialChildCard.getByRole("button", { name: "父图定位", exact: true }).click();
+  await page.getByLabel("空间总览父地图").selectOption(northBay.id);
+  await page.getByRole("button", { name: /编辑 北湾作者地图 副本 的范围定位/u }).waitFor();
+
   await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
   await page.getByLabel("地点示意图画布").waitFor();
   await page.locator(".map-authoring-palette details").filter({ hasText: "跨图通道" }).click();
@@ -2647,7 +2727,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   assert.equal(copied.content.lifecycle.archived, false);
   assert.ok(currentNorthBay.revision > northBay.revision, "Accepting and compensating the structured proposal create auditable newer map revisions.");
   assert.deepEqual(consoleProblems, [], "MAP-M4 normal author flow must not produce browser errors.");
-  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
+  if (mapM4EvidenceDirectory) writeFileSync(path.join(mapM4EvidenceDirectory, "map-m4-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, runCodeSha: runRevision, sourceMapId: northBay.id, targetMapId: fog.id, copiedMapId: copied.id, spatialPlacement: { parentMapId: northBay.id, childMapId: spatialChild.id, kind: persistedRange.kind, vertexCount: persistedRange.bounds.length, savedAtRevision: spatialParent.revision }, compensatedMapRevision: currentNorthBay.revision, simulatedProviderDispatches: 1, realProviderDispatches: 0, proposalBoundary: "validated-structured-operations-local-fake-only" }, null, 2)}\n`, "utf8");
 }
 
 async function setupWorldMaterialsFixture() {
