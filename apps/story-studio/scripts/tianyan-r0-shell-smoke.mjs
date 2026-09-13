@@ -2791,6 +2791,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
       const result = page.getByLabel("地图创作请求结果");
       await result.getByText("雾港的三个场景构想", { exact: true }).waitFor();
       await result.getByText(/潮闸停灯/u).waitFor();
+      await result.scrollIntoViewIfNeeded();
       await capture("01-R6实际创作结果-1440x900.png");
       await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
       const continuedDraft = await composer.locator("textarea").inputValue();
