@@ -2781,6 +2781,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     await page.getByLabel("本问来源回执").waitFor();
     assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed local-fixture answer clears only the submitted draft.");
     await page.setViewportSize({ width: 1152, height: 720 });
+    await page.getByLabel("地图创作请求结果").scrollIntoViewIfNeeded();
     await capture("03-R5窄屏输入与本地结果-1152x720.png");
     await page.route("**/model-service/tianyi-grounded-answer", async (route) => route.fulfill({ status: 503, body: "fixture failure" }));
     expectedProviderFailureConsoleBudget += 1;
