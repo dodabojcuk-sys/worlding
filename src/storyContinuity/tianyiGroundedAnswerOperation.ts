@@ -708,6 +708,8 @@ function buildGroundedMessages(question: string, compiled: TianyiCompiledGrounde
         "Preserve explicit constraints and negations. Do not turn a conditional conclusion into an unconditional claim.",
         `Context manifest digest: ${compiled.manifest.digest}`,
         `Return exactly one JSON object with this schema: ${schema}`,
+        "Put the complete author-facing answer in summary. It must answer the author's request directly; never use summary to restate or describe the task. Preserve requested headings, numbering, and readable prose inside that string.",
+        "Use claims only to classify atomic assertions from that answer. Claims do not replace or hide the author-facing answer.",
         "Every sourceRefs entry must copy one identifier exactly from the allowed included source IDs below. Do not paraphrase source IDs.",
         `includedSources must equal exactly: ${JSON.stringify(compiled.manifest.included.map((entry) => entry.sourceKey))}`,
         `excludedSources must equal exactly: ${JSON.stringify(excluded.map((entry) => ({ sourceRef: entry.sourceKey, reason: entry.reasonCode })))}`

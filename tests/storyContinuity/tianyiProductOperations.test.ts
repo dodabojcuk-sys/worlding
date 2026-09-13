@@ -308,6 +308,8 @@ test("grounded answer sends the selected setting body and excludes an unselected
       contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixture.projectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] }
     });
     assert.match(observedPrompt, /夜间进入北闸需要守卫签发通行凭据/u);
+    assert.match(observedPrompt, /complete author-facing answer in summary/u);
+    assert.match(observedPrompt, /never use summary to restate or describe the task/u);
     assert.doesNotMatch(observedPrompt, /救援船只可以登记通行/u, "An unselected source document must not leak into the Provider request.");
     assert.ok(imported.libraryObjectId, "The source import remains available for a separate explicit author choice.");
   } finally {
