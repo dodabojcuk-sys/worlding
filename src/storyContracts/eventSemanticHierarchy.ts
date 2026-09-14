@@ -206,6 +206,9 @@ function parseStatus(status: string | null | undefined, tags: readonly string[])
   if (/(?:unknown|未知|未定|不明)/iu.test(explicitStatus)) return "unknown";
   if (/(?:confirmed|已确认|作者确认)/iu.test(explicitStatus)) return "confirmed";
   if (/committed/iu.test(explicitStatus) && tags.includes("作者确认")) return "confirmed";
+  // 作者草稿/规划事件没有走完作者确认链，必须保持非正式投影；
+  // 未识别状态（如无状态的历史行）仍按既有约定投为正式。
+  if (/(?:draft|草稿|planned|规划)/iu.test(explicitStatus)) return "candidate";
 
   const raw = tags.join(" ");
   if (/(?:prediction|预测)/iu.test(raw)) return "prediction";

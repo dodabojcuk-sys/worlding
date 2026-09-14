@@ -21,6 +21,7 @@ export function GlobalStatusBar(props: {
   searchRequest: GlobalSearchOpenRequest | null;
   onSearchNavigate(result: GlobalSearchResult): void;
   onOpenProject(projectId: string): Promise<void>;
+  onCreateProject?(title: string): Promise<void>;
   onToggleTheme(): void;
   onToggleDirectory(): void;
   onToggleTianyi(): void;
@@ -35,6 +36,10 @@ export function GlobalStatusBar(props: {
   const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [projectOpenError, setProjectOpenError] = useState<string | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectBusy, setNewProjectBusy] = useState(false);
+  const [newProjectError, setNewProjectError] = useState<string | null>(null);
   const themeLabel = t(SHELL_THEME_REGISTRY[props.theme].labelKey);
   const searchEngine = useMemo(() => createGlobalSearchEngine(createProductGlobalSearchReadAdapter()), []);
   const searchLabels = useMemo(() => ({
@@ -135,6 +140,38 @@ export function GlobalStatusBar(props: {
           }}
         >{project.title}</button>)}
         {projectOpenError && <p role="alert">{projectOpenError}</p>}
+        {props.onCreateProject ? <form
+          className="shell-project-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const title = newProjectTitle.trim();
+            if (!title || newProjectBusy) return;
+            setNewProjectBusy(true);
+            setNewProjectError(null);
+            void props.onCreateProject!(title)
+              .then(() => {
+                setNewProjectOpen(false);
+                setNewProjectTitle("");
+                setProjectSelectorOpen(false);
+              })
+              .catch(() => setNewProjectError(t("topbar.newProjectFailed")))
+              .finally(() => setNewProjectBusy(false));
+          }}
+        >
+          {newProjectOpen ? <>
+            <input
+              value={newProjectTitle}
+              maxLength={80}
+              autoFocus
+              placeholder={t("topbar.newProjectPlaceholder")}
+              aria-label={t("topbar.newProjectTitle")}
+              onChange={(event) => setNewProjectTitle(event.target.value)}
+            />
+            <button type="submit" className="primary-action" disabled={newProjectBusy || !newProjectTitle.trim()}>{newProjectBusy ? t("topbar.newProjectBusy") : t("topbar.newProjectCreate")}</button>
+            <button type="button" onClick={() => { setNewProjectOpen(false); setNewProjectError(null); }}>{t("common.cancel")}</button>
+            {newProjectError && <p role="alert">{newProjectError}</p>}
+          </> : <button type="button" onClick={() => setNewProjectOpen(true)}>{t("topbar.newProject")}</button>}
+        </form> : null}
       </section>}
     </div>
     <div className="shell-topbar-actions">

@@ -517,6 +517,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       searchRequest={searchRequest}
       onSearchNavigate={navigateSearchResult}
       onOpenProject={props.runtime.openProject}
+      onCreateProject={props.runtime.createProject}
       onToggleTheme={toggleTheme}
       onToggleDirectory={toggleDirectory}
       onToggleTianyi={toggleTianyi}
