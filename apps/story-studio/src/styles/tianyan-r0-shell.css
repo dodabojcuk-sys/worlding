@@ -1550,6 +1550,18 @@ input:focus-visible {
 .map-location-card-actions,.map-location-card section { display:grid; gap:.45rem; }
 .map-location-card button { min-height:2.15rem; padding:.35rem .5rem; color:var(--color-text); text-align:start; background:var(--color-workspace-background); border:1px solid var(--color-border); border-radius:var(--radius-sm); cursor:pointer; }
 .map-location-card select { box-sizing:border-box; width:100%; min-height:2.15rem; color:var(--color-text); background:var(--color-workspace-background); border:1px solid var(--color-border); border-radius:var(--radius-sm); }
+.map-location-section-heading { display:flex; align-items:center; justify-content:space-between; gap:.55rem; }
+.map-location-section-heading > button { min-height:1.9rem; }
+.map-location-related > ul { display:grid; gap:.55rem; margin:0; padding:0; list-style:none; }
+.map-location-related > ul > li { display:grid; gap:.35rem; padding:.55rem; background:var(--color-workspace-background); border:1px solid var(--color-border); border-radius:var(--radius-sm); }
+.map-location-related > ul > li > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.map-location-card .map-related-character { min-height:0; padding:0; color:var(--color-accent); background:transparent; border:0; font-weight:700; }
+.map-related-relation { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.35rem; align-items:center; }
+.map-related-relation > button:first-child { display:grid; gap:.12rem; min-width:0; }
+.map-related-relation .map-related-evidence { min-height:1.9rem; white-space:nowrap; }
+.map-related-relation > span { color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.map-local-placement { border-style:dashed; transform:translate(-50%, .65rem); }
+.map-local-placement.is-calibrated { border-style:solid; }
 @media (max-width:76rem) {
  .map-author-workspace .map-workbench-toolbar > label:last-of-type { display:flex; }
  .map-author-workspace .map-workbench-toolbar > label { max-width:16rem; }

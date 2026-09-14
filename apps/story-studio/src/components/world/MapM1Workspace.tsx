@@ -11,6 +11,7 @@ import { createStarterContent, MAP_TOOL_OPTIONS, MapBackgroundContent, MapDrawin
 import { MapAtlasWorkspace } from "./MapAtlasWorkspace";
 import { CalibratedMapContent } from "./MapAlignmentWorkspace";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
+import { confirmedEventReference, mapRelatedCharacters, mapRelationDirection } from "./mapRelatedContext";
 import { WORKSPACE_NAVIGATION_REQUEST } from "../../product-shell/navigation/workspaceNavigationGuard";
 import { workspaceDockCoordinator, useWorkspaceDockSlot } from "../../product-shell/WorkspaceDockCoordinator";
 import type { TianyiMapEditContext } from "../tianyi/sidebar/MapAiCollaborationPanel";
@@ -84,6 +85,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   const materialReturn = safeReturn(new URLSearchParams(window.location.search).get("materialReturn"));
   const [maps, setMaps] = useState<MapDocument[]>([]);
   const [locations, setLocations] = useState<WorldObjectSummary[]>([]);
+  const [worldObjects, setWorldObjects] = useState<WorldObjectSummary[]>([]);
   const [relations, setRelations] = useState<RelationReadProjectionR0[]>([]);
   const [relationTypes, setRelationTypes] = useState<RelationTypeDefinition[]>([]);
   const [mapId, setMapId] = useState(() => route().mapId);
@@ -193,6 +195,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     ]);
     if (props.runtime.project?.id !== id) return;
     let nextMaps = workbench.documents.filter((item): item is MapDocument => item.type === "map");
+    setWorldObjects(library.objects.filter((item) => item.status !== "archived"));
     setLocations(library.objects.filter((item) => item.type === "location" && item.status !== "archived"));
     setRelations(relationRead.relations);
     setRelationTypes(typeRead.types);
@@ -231,7 +234,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   }, [mapId, projectId, workVersionId]);
 
   useEffect(() => {
-    setMaps([]); setLocations([]); setRelations([]); setRelationTypes([]); setMapId(route().mapId); setHistoricalRevision(route().mapRevision); setSelectedId(route().placeId); setObservation(observationFromRoute()); setViewport(viewportFromRoute()); setStructureKind(route().structureKind);
+    setMaps([]); setLocations([]); setWorldObjects([]); setRelations([]); setRelationTypes([]); setMapId(route().mapId); setHistoricalRevision(route().mapRevision); setSelectedId(route().placeId); setObservation(observationFromRoute()); setViewport(viewportFromRoute()); setStructureKind(route().structureKind);
     setInspector(null); setInspectorError(null); setInspectorOpen(Boolean(route().placeId)); setMessage("");
     if (projectId) void refresh(projectId, workVersionId).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "地图读取失败。"));
   }, [projectId, workVersionId]);
@@ -870,6 +873,8 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   const connectedMaps = map ? (historicalRevision ? [map] : maps).flatMap((owner) => owner.content.connections.filter((connection) => connection.from.mapId === map.id || connection.to.mapId === map.id).map((connection) => ({ owner, connection }))) : [];
   const showInspector = inspectorOpen && Boolean(selected) && !aiPanelOpen;
   const linkedLocalMaps = linkedLocation ? maps.filter((item) => !item.content.lifecycle.archived && item.content.scopeObjectId === linkedLocation.id) : [];
+  const relatedCharacters = mapRelatedCharacters(linkedLocation?.id, worldObjects, relations);
+  const worldLabels = new Map(worldObjects.map((item) => [item.id, item.title]));
   const locationCandidates = locations.filter((item) => {
     const query = locationSearch.trim().toLocaleLowerCase();
     return !query || [item.title, ...item.aliases, ...item.tags].some((value) => value.toLocaleLowerCase().includes(query));
@@ -894,6 +899,25 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     setSelectedDrawingId(drawing.id); setSelectedLabelId(null); setPlaceIndexOpen(false);
     if (drawing.objectId) { selectPlace(drawing.objectId); setInspectorOpen(true); setPropertiesOpen(false); }
     else { setInspectorOpen(false); setPropertiesOpen(true); }
+  };
+  const openCharacterFromMap = (characterId: string) => {
+    const current = `${window.location.pathname}${window.location.search}`;
+    const query = new URLSearchParams({ worldView: "character", characterId, characterOrigin: current });
+    window.location.assign(`/world?${query.toString()}`);
+  };
+  const openLocationRelations = (selection?: RelationReadProjectionR0) => {
+    if (!linkedLocation) return;
+    const current = `${window.location.pathname}${window.location.search}`;
+    const query = new URLSearchParams({ libraryView: "relations", relationCenter: linkedLocation.id, relationReturn: current });
+    if (selection) query.set("relationSelection", `edge:${[selection.sourceObjectId, selection.targetObjectId].sort().join("\u0000")}`);
+    window.location.assign(`/library?${query.toString()}`);
+  };
+  const openRelationEvidenceFromMap = (relation: RelationReadProjectionR0) => {
+    const evidence = confirmedEventReference(relation);
+    if (!evidence || !workVersionId) { setMessage("这条关系没有可精确打开的正式事件修订；没有用同名资料替代。"); return; }
+    const current = `${window.location.pathname}${window.location.search}`;
+    const query = new URLSearchParams({ projectId, workVersionId, eventId: evidence.eventId, eventRevision: evidence.revision, mapReturn: current });
+    window.location.assign(`/event-line?${query.toString()}`);
   };
   const managerParent = managerParentId ? maps.find((item) => item.id === managerParentId && !item.content.lifecycle.archived) ?? null : maps.find((item) => !item.content.lifecycle.archived) ?? null;
   return <main ref={workspaceRef} style={{"--map-ai-inset":`${dockInset}px`} as React.CSSProperties} className={`shell-workspace map-workbench-shell map-author-workspace${aiPanelOpen ? " has-ai-panel" : ""}`} aria-label="地点地图">
@@ -1032,7 +1056,18 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
             </div>
             <p className="map-workbench-canvas-hint">{editingRegionObjectId ? `行政边界编辑：已放置 ${draftRegionPoints.length} 个点，点击画布继续描绘。` : authoringTool !== "browse" ? `${authoringTool === "terrain" ? "地形画笔" : authoringTool === "line" ? "线条" : authoringTool === "area" ? "区域" : "标记"}：在画布取点，图形保存后仍只是图示。` : editingLayout ? "布局编辑：选择地点后点击画布保存位置。" : "浏览：拖动平移、滚轮缩放，点击地点或图示查看。"}</p>
           </section>
-          {showInspector && linkedLocation && selectedDrawing?.objectId === linkedLocation.id ? <aside id="map-m2-inspector" className="map-workbench-inspector map-location-card" aria-label="地点卡"><header><span>已关联地点</span><button type="button" onClick={()=>setInspectorOpen(false)}>关闭</button></header><h2>{linkedLocation.title}</h2><p>{locationIntroduction(locationDetail)}</p><div className="map-location-card-actions"><button type="button" onClick={()=>{const current=`${window.location.pathname}${window.location.search}`;window.location.assign(`/library?materialId=${encodeURIComponent(linkedLocation.id)}&materialReturn=${encodeURIComponent(current)}`);}}><FileText aria-hidden="true"/>查看资料</button><button type="button" onClick={openTianyiWithMap}>交给天意</button></div><section><strong>局部地图</strong>{linkedLocalMaps.length ? linkedLocalMaps.map(local=><button type="button" className="map-location-card-primary" key={local.id} onClick={()=>navigateToMap(local.id)}><span>打开局部图</span><small>{local.title}</small></button>) : <p>尚未关联局部地图。</p>}<details><summary>管理局部地图</summary><label>选择已有地图<select aria-label="选择已有局部地图" value={localMapChoice} onChange={event=>setLocalMapChoice(event.target.value)}><option value="">选择地图</option>{maps.filter(item=>item.id!==map.id&&!item.content.lifecycle.archived&&!linkedLocalMaps.some(local=>local.id===item.id)).map(item=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button type="button" disabled={!localMapChoice||busy} onClick={linkExistingLocalMap}>关联为局部地图</button><button type="button" disabled={busy} onClick={()=>openLocalMap(linkedLocation.id)}>新建并放置局部地图</button><small>资料关联、局部图和上层空间位置相互独立。</small></details></section><details><summary>地点关联管理</summary><p>更换或解除只影响这个地图图示，不删除地点资料或局部图。</p><button type="button" onClick={()=>{setInspectorOpen(false);setPropertiesOpen(true);}}>更换或解除关联</button></details></aside> : showInspector ? <MapInspector selected={selected} data={inspector} error={inspectorError} versionReady={Boolean(workVersionId)} projectId={projectId} workVersionId={workVersionId} mapId={map.id} observation={observation} scopeMap={() => selected && openLocalMap(selected.id)} /> : null}
+          {showInspector && linkedLocation && selectedDrawing?.objectId === linkedLocation.id ? <aside id="map-m2-inspector" className="map-workbench-inspector map-location-card" aria-label="地点卡">
+            <header><span>已关联地点</span><button type="button" onClick={()=>setInspectorOpen(false)}>关闭</button></header>
+            <h2>{linkedLocation.title}</h2>
+            <p>{locationIntroduction(locationDetail)}</p>
+            <div className="map-location-card-actions"><button type="button" onClick={()=>{const current=`${window.location.pathname}${window.location.search}`;window.location.assign(`/library?materialId=${encodeURIComponent(linkedLocation.id)}&materialReturn=${encodeURIComponent(current)}`);}}><FileText aria-hidden="true"/>查看资料</button><button type="button" onClick={openTianyiWithMap}>交给天意</button></div>
+            <section className="map-location-related" aria-label="地点相关人物">
+              <div className="map-location-section-heading"><strong>相关人物</strong><button type="button" onClick={()=>openLocationRelations()}>查看关系图</button></div>
+              {relatedCharacters.length ? <ul>{relatedCharacters.map(({ character, relations: characterRelations })=><li key={character.id}><div><button type="button" className="map-related-character" onClick={()=>openCharacterFromMap(character.id)}>{character.title}</button><small>{characterRelations.length} 条已确认关系</small></div>{characterRelations.map(relation=><div className="map-related-relation" key={relation.relationId}><button type="button" onClick={()=>openLocationRelations(relation)}><strong>{relation.currentTypeLabel ?? relation.relationLabelSnapshot}</strong><small>{mapRelationDirection(relation, worldLabels)}</small></button>{confirmedEventReference(relation)?<button type="button" className="map-related-evidence" onClick={()=>openRelationEvidenceFromMap(relation)}>依据</button>:<span>未记录事件依据</span>}</div>)}</li>)}</ul> : <p>当前作品版本没有记录此地点与人物的已确认关系；没有根据距离或文字猜测。</p>}
+            </section>
+            <section><strong>局部地图</strong>{linkedLocalMaps.length ? linkedLocalMaps.map(local=><button type="button" className="map-location-card-primary" key={local.id} onClick={()=>navigateToMap(local.id)}><span>打开局部图</span><small>{local.title}</small></button>) : <p>尚未关联局部地图。</p>}<details><summary>管理局部地图</summary><label>选择已有地图<select aria-label="选择已有局部地图" value={localMapChoice} onChange={event=>setLocalMapChoice(event.target.value)}><option value="">选择地图</option>{maps.filter(item=>item.id!==map.id&&!item.content.lifecycle.archived&&!linkedLocalMaps.some(local=>local.id===item.id)).map(item=><option key={item.id} value={item.id}>{item.title}</option>)}</select></label><button type="button" disabled={!localMapChoice||busy} onClick={linkExistingLocalMap}>关联为局部地图</button><button type="button" disabled={busy} onClick={()=>openLocalMap(linkedLocation.id)}>新建并放置局部地图</button><small>资料关联、局部图和上层空间位置相互独立。</small></details></section>
+            <details><summary>地点关联管理</summary><p>更换或解除只影响这个地图图示，不删除地点资料或局部图。</p><button type="button" onClick={()=>{setInspectorOpen(false);setPropertiesOpen(true);}}>更换或解除关联</button></details>
+          </aside> : showInspector ? <MapInspector selected={selected} data={inspector} error={inspectorError} versionReady={Boolean(workVersionId)} projectId={projectId} workVersionId={workVersionId} mapId={map.id} observation={observation} scopeMap={() => selected && openLocalMap(selected.id)} /> : null}
         </div>
         <details className="map-structure-details-legacy" aria-label="旧地理与行政结构"><summary>空间结构与同图行政叠加 · {structureKind === "geography" ? "地理与空间" : "行政与管辖"}</summary><section className="map-structure-panel">
           <div className="map-structure-heading"><div><span>空间结构</span><strong>{structureKind === "geography" ? "地理与空间" : "行政与管辖"}</strong></div><div role="group" aria-label="结构视图"><button type="button" aria-pressed={structureKind === "geography"} onClick={() => selectStructureKind("geography")}>地理</button><button type="button" aria-pressed={structureKind === "administration"} onClick={() => selectStructureKind("administration")}>行政</button></div></div>
