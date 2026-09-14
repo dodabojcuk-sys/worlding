@@ -29,3 +29,16 @@ export function removeTianyanE2eFixture(fixture) {
   }
   rmSync(resolvedRoot, { recursive: true, force: true });
 }
+
+export function inspectTianyanE2eFixture(fixtureRoot) {
+  const tmpRoot = path.resolve(os.tmpdir());
+  const resolvedRoot = path.resolve(fixtureRoot);
+  if (path.dirname(resolvedRoot) !== tmpRoot || !path.basename(resolvedRoot).startsWith(TIANYAN_E2E_FIXTURE_PREFIX)) {
+    throw new Error("Refusing to inspect an E2E fixture outside its exact temporary root.");
+  }
+  const markerPath = path.join(resolvedRoot, MARKER_NAME);
+  if (!existsSync(markerPath)) throw new Error("E2E fixture ownership marker is missing.");
+  const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+  if (marker.createdBy !== "tianyan-r0-shell-smoke") throw new Error("E2E fixture ownership marker is invalid.");
+  return { fixtureRoot: resolvedRoot, fixtureId: marker.fixtureId, projectId: marker.projectId };
+}

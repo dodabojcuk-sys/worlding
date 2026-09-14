@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { inspectCanonicalRuntime } from "../../scripts/canonical-runtime.mjs";
-import { createTianyanE2eFixture, removeTianyanE2eFixture } from "../../scripts/tianyan-e2e-fixture.mjs";
+import { createTianyanE2eFixture, inspectTianyanE2eFixture, removeTianyanE2eFixture } from "../../scripts/tianyan-e2e-fixture.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 
 test("acceptance runtime diagnostics require the canonical Node 22 and npm 10 pair", () => {
@@ -15,6 +15,16 @@ test("acceptance runtime diagnostics require the canonical Node 22 and npm 10 pa
   const rejected = inspectCanonicalRuntime({ nodeVersion: "24.16.0", npmUserAgent: "npm/11.13.0 node/v24.16.0 linux x64" });
   assert.match(rejected.issues.join("\n"), /Node 22/u);
   assert.match(rejected.issues.join("\n"), /npm 10/u);
+});
+
+test("a preserved acceptance fixture remains inspectable until explicit cleanup", () => {
+  const fixture = createTianyanE2eFixture();
+  try {
+    assert.deepEqual(inspectTianyanE2eFixture(fixture.fixtureRoot), fixture);
+    assert.equal(existsSync(fixture.fixtureRoot), true);
+  } finally {
+    removeTianyanE2eFixture(fixture);
+  }
 });
 
 test("E2E fixture roots and project identifiers are unique, while production still rejects a duplicate project folder", () => {
