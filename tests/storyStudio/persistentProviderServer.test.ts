@@ -12,7 +12,7 @@ test("Provider Settings persists non-sensitive profile across restart and protec
   const storyRoot = mkdtempSync(path.join(tmpdir(), "tianyan-provider-server-story-"));
   const providerRoot = mkdtempSync(path.join(tmpdir(), "tianyan-provider-server-config-"));
   const stateFilePath = path.join(storyRoot, "state.json");
-  const port = 48_000 + (process.pid % 1_000);
+  const port = await allocateLoopbackPort();
   const base = `http://127.0.0.1:${port}`;
   const fakeProvider = await startFakeSiliconFlow();
   const env = {
@@ -237,7 +237,7 @@ test("Provider Settings persists non-sensitive profile across restart and protec
 test("Provider Settings can select AMD Radeon Cloud with an isolated credential and a verified local OpenAI-compatible response", async () => {
   const storyRoot = mkdtempSync(path.join(tmpdir(), "tianyan-radeon-server-story-"));
   const providerRoot = mkdtempSync(path.join(tmpdir(), "tianyan-radeon-server-config-"));
-  const port = 49_000 + (process.pid % 800);
+  const port = await allocateLoopbackPort();
   const base = `http://127.0.0.1:${port}`;
   const fakeProvider = await startFakeRadeonCloud();
   const env = {
@@ -375,6 +375,22 @@ async function startFakeRadeonCloud(): Promise<{ server: Server; baseUrl: string
 async function closeServer(server: Server): Promise<void> {
   if (!server.listening) return;
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+async function allocateLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await closeServer(server);
+    throw new Error("Provider profile test could not allocate a loopback port.");
+  }
+  const port = address.port;
+  await closeServer(server);
+  return port;
 }
 
 function spawnServer(env: NodeJS.ProcessEnv, logs: string[]): ChildProcess {
