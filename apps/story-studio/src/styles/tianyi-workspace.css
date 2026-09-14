@@ -162,6 +162,17 @@
 .tianyi-work-empty { border: 1px dashed var(--color-border-subtle); padding: 22px; border-radius: 12px; color: var(--color-text-muted); }
 .tianyi-workspace-error { max-width: 920px; margin: 0 auto 12px; color: var(--color-danger); }
 .tianyi-workspace-message { max-width: 920px; margin: 0 auto 12px; color: var(--color-accent); }
+.tianyi-image-observation { display: grid; gap: .65rem; padding: .8rem; border: 1px solid var(--color-border-subtle); border-radius: 12px; background: var(--color-surface); }
+.tianyi-image-observation > header { display: flex; align-items: start; justify-content: space-between; gap: .75rem; }
+.tianyi-image-observation > header > div { display: grid; gap: .15rem; min-width: 0; }
+.tianyi-image-observation > header span, .tianyi-image-observation > p, .tianyi-image-observation-result small { color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.tianyi-image-observation > p, .tianyi-image-observation-result p { margin: 0; line-height: 1.55; }
+.tianyi-image-observation > button { justify-self: start; display: inline-flex; align-items: center; gap: .35rem; }
+.tianyi-image-observation .is-error { color: var(--color-danger); }
+.tianyi-image-observation-result { display: grid; gap: .45rem; padding: .65rem; border-inline-start: 3px solid var(--color-border); background: var(--color-workspace-background); }
+.tianyi-image-observation-result.is-consistent { border-inline-start-color: var(--color-accent); }
+.tianyi-image-observation-result.is-conflict { border-inline-start-color: var(--color-danger); }
+.tianyi-image-observation-result ul { margin: 0; padding-inline-start: 1.2rem; }
 .tianyi-continuation-target, .tianyi-continuation-choice { max-width: 920px; margin: 0 auto 10px; border: 1px solid var(--color-border-subtle); border-radius: 10px; background: var(--color-surface); padding: .65rem .75rem; }
 .tianyi-continuation-target { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .tianyi-continuation-target > div { display: grid; gap: .15rem; }

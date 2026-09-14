@@ -19,6 +19,7 @@ import {
   getVerifiedCanonEvent,
   getVerifiedCanonEventList,
   handoffTianyiCreativeCandidate,
+  inspectTianyiImage,
   listStoryUnits,
   listMapEditProposals,
   openTianyiSession,
@@ -41,6 +42,7 @@ import {
   type MapDocument,
   type MapEditProposal,
   type MaterialFileRecord,
+  type TianyiImageObservation,
   type WorldObject
 } from "../../../lib/localTransport";
 import { createStoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
@@ -115,6 +117,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [removedWorkEventIds, setRemovedWorkEventIds] = useState<string[]>([]);
   const [lastGroundedAnswer, setLastGroundedAnswer] = useState<Awaited<ReturnType<typeof streamTianyiGroundedAnswer>> | null>(null);
   const [lastGroundedQuestion, setLastGroundedQuestion] = useState("");
+  const [imageObservation, setImageObservation] = useState<TianyiImageObservation | null>(null);
+  const [imageObservationBusy, setImageObservationBusy] = useState(false);
+  const [imageObservationError, setImageObservationError] = useState("");
   const [continuationSource, setContinuationSource] = useState<TianyiContinuationSource | null>(null);
   const [continuationChoice, setContinuationChoice] = useState<{ reason: string; candidates: TianyiContinuationTarget[] } | null>(null);
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
@@ -161,6 +166,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setRemovedWorkEventIds([]);
     setLastGroundedAnswer(null);
     setLastGroundedQuestion("");
+    setImageObservation(null);
+    setImageObservationBusy(false);
+    setImageObservationError("");
     let restoredContinuation: TianyiContinuationSource | null = null;
     try {
       restoredContinuation = project ? JSON.parse(window.localStorage.getItem(tianyiContinuationSourceStorageKey(project.id)) ?? "null") : null;
@@ -426,7 +434,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     let active = true;
     void readMaterialFile(project.id, fileId, revisionId).then((file) => {
       if (!active) return;
-      if (!file || file.revision.textStatus !== "ready") { setSelectedMaterialFile(null); setError("所选文件修订不可作为文本依据；没有发送附件或较新正文代替。"); return; }
+      if (!file || (file.type !== "image" && file.revision.textStatus !== "ready")) { setSelectedMaterialFile(null); setError("所选文件修订不可作为当前依据；没有发送附件或较新正文代替。"); return; }
       const contentLength = file.revision.textContent?.length ?? 0;
       const range = Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end > start && end <= contentLength ? { start, end } : null;
       setSelectedMaterialFile(file); setSelectedMaterialFileRange(range);
@@ -471,7 +479,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     projectId: project.id, ownerId: selectedMapEvidence.map.id, contentHash: selectedMapEvidence.map.contentHash,
     state: "current", inclusion: "included", label: selectedMapEvidence.elementId ? `${selectedMapEvidence.map.title} · 选中图示` : `${selectedMapEvidence.map.title} · 地图范围`
   }] : [], [project, selectedMapEvidence]);
-  const materialFileRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterialFile && project ? [{
+  const materialFileRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterialFile && selectedMaterialFile.type === "text" && project ? [{
     version: "story-tianyi-object-context-ref/v1", ownerType: "material-file", objectType: "source",
     stableId: selectedMaterialFileRange ? `selection.${selectedMaterialFileRange.start}.${selectedMaterialFileRange.end}` : selectedMaterialFile.id, projectId: project.id, ownerId: selectedMaterialFile.id,
     contentHash: selectedMaterialFile.revision.sha256, state: "current", inclusion: "included", label: selectedMaterialFile.displayName
@@ -1063,6 +1071,34 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     runtime.setWorkComposerDraft(value);
     setError("");
   };
+  const inspectSelectedImage = async () => {
+    if (!project || !selectedMaterialFile || selectedMaterialFile.type !== "image" || imageObservationBusy) return;
+    const prompt = runtime.workComposerDraft.trim();
+    if (!prompt) { setImageObservationError("请先写下要检查的文字或问题；不会自动发送整部作品内容。"); return; }
+    const selectedModelId = runtime.modelStatus?.profile.profile?.modelId;
+    const profile = runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId);
+    const model = runtime.modelStatus?.models.find((item) => item.providerId === profile?.providerId && item.id === selectedModelId);
+    if (!profile || !model?.capabilities.includes("vlm")) { setImageObservationError("当前选择的模型没有已确认的图片能力；发送前已停止。请在 Provider 设置中选择支持图片的模型。"); return; }
+    const north = selectedMapEvidence?.map.content.coordinateSystem.north ?? null;
+    setImageObservationBusy(true); setImageObservationError(""); setImageObservation(null);
+    const controller = new AbortController();
+    try {
+      const result = await runtime.withConnection((token) => inspectTianyiImage({
+        projectId: project.id,
+        fileId: selectedMaterialFile.id,
+        revisionId: selectedMaterialFile.revision.id,
+        profileId: profile.id,
+        prompt,
+        directionBasis: north ? "map-north" : "image-up",
+        ...(north ? { northDegrees: north.degreesClockwiseFromMapUp } : {}),
+        operationId: `operation.image-observation.${crypto.randomUUID()}`,
+        token,
+        signal: controller.signal
+      }));
+      setImageObservation(result);
+    } catch (cause) { setImageObservationError(cause instanceof Error ? cause.message : "图片检查失败；没有修改任何正式资料。"); }
+    finally { setImageObservationBusy(false); }
+  };
   const intakeCandidateCount = intakeRun?.storyIntakeEnvelope?.candidates.length ?? projection?.candidates.length ?? 0;
   const task = lane === "creative"
     ? { eyebrow: "连续创作", title: "保留原话，和天意一起展开故事", detail: runtime.tianyiConversationId ? `当前对话已保存 · ${intakeCandidateCount ? `已有 ${intakeCandidateCount} 项候选` : "可随时整理候选"}` : "从一段真实故事内容开始" }
@@ -1158,6 +1194,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
               </ul><p>这里使用现有的正式关系记录和作者选择的来源事件。打开本页不会发送，也不会修改正式事实。</p></section>
               <section className="tianyi-map-composer"><label htmlFor="tianyi-relation-work-draft">接下来想围绕这些人物、地点和依据做什么？</label><textarea id="tianyi-relation-work-draft" aria-label="关系工作范围对话" value={runtime.workComposerDraft} onChange={(event)=>runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder="写下创作意图；发送前可继续移除引用。"/><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim()||busy||workContextState==="loading"||workContextState==="failed"||explicitContextRefs.length>MAX_EXPLICIT_MATERIAL_REFS} onClick={()=>void submitConversation("work")}>{busy?<LoaderCircle className="is-spinning"/>:<Send/>}{busy?"请求中…":"发送到当前工作"}</button></div></section>
             </section> : null}
+            {selectedMaterialFile?.type === "image" ? <section className="tianyi-image-observation" aria-label="图片与文字检查">
+              <header><div><small>明确选择的图片</small><strong>{selectedMaterialFile.displayName}</strong></div><span>{selectedMapEvidence?.map.content.coordinateSystem.north ? "按地图北向判断" : "仅按画面上下左右判断"}</span></header>
+              <p>图片原始字节会在你点击后发送给当前已配置的视觉模型；文件名或文字摘要不会冒充图片内容。观察结果只是建议，不写入地图或故事事实。</p>
+              <button type="button" className="primary-action" disabled={imageObservationBusy || !runtime.workComposerDraft.trim()} onClick={() => void inspectSelectedImage()}>{imageObservationBusy ? <LoaderCircle className="is-spinning" /> : <Send />}{imageObservationBusy ? "正在检查…" : "检查图片与文字"}</button>
+              {imageObservationError ? <p role="alert" className="is-error">{imageObservationError}</p> : null}
+              {imageObservation ? <section className={`tianyi-image-observation-result is-${imageObservation.observation.consistency}`}><strong>{imageObservation.observation.consistency === "consistent" ? "图片与文字一致" : imageObservation.observation.consistency === "conflict" ? "发现图片与文字矛盾" : "目前无法判断"}</strong>{imageObservation.generation.kind === "local-fixture" ? <small>本地视觉夹具 · 不代表真实模型识别</small> : null}<p>{imageObservation.observation.explanation}</p>{imageObservation.observation.objects.length ? <p>识别对象：{imageObservation.observation.objects.join("、")}</p> : null}{imageObservation.observation.relativePositions.length ? <ul>{imageObservation.observation.relativePositions.map((item, index) => <li key={`${index}:${item.subject}:${item.object}`}>{item.subject} · {imageRelationLabel(item.relation)} · {item.object}</li>)}</ul> : null}<small>不确定性：{imageObservation.observation.uncertainty}</small><details><summary>请求详情</summary><p>{imageObservation.generation.modelId} · 1 次模型边界发送 · {imageObservation.generation.finishReason ?? "结束原因未知"}</p></details></section> : null}
+            </section> : null}
             <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
             {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open={!mapEntry && !relationEntry}>
               <summary>工作依据 · {globalWorkContextLabel}</summary>
@@ -1216,6 +1259,10 @@ function CreativeResultBody(props: { text: string }) {
     }
     return <p key={`${index}:${block}`}>{block}</p>;
   })}</div>;
+}
+
+function imageRelationLabel(value: "above" | "below" | "left-of" | "right-of" | "overlap" | "unknown"): string {
+  return ({ above: "位于上方", below: "位于下方", "left-of": "位于左侧", "right-of": "位于右侧", overlap: "位置重叠", unknown: "相对位置不确定" })[value];
 }
 
 function storyIntakeStatusLabel(run: TianyiAgentRunProjection): string {

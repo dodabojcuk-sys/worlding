@@ -78,6 +78,7 @@ import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
 import { createMapEditProposalProviderAdapter } from "./providerGateway/mapEditProposalProviderAdapter.mjs";
+import { createImageObservationProviderAdapter } from "./providerGateway/imageObservationProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
 import { createOpenAiCompatibleAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
@@ -391,6 +392,7 @@ const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER ==
   ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
   : createStoryModelingProviderAdapter({ gateway: providerGateway, maxProviderCalls: 16, maxOutputTokens: 512 });
 const mapEditProposalProvider = createMapEditProposalProviderAdapter({ gateway: providerGateway });
+const imageObservationProvider = createImageObservationProviderAdapter({ gateway: providerGateway });
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,
   stateFilePath,
@@ -2892,6 +2894,24 @@ async function handleModelServiceRequest(request, response, url) {
   requireToken(request);
   requireSameOrigin(request);
   const route = url.pathname.slice("/__local/story-studio/model-service/".length);
+  if (request.method === "POST" && route === "image-observation") {
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "fileId", "revisionId", "profileId", "prompt", "directionBasis", "northDegrees", "relatedText", "operationId"]);
+    requireProject(body.projectId);
+    const resolved = runProductOperation(() => operations.resolveMaterialFileBytes({ projectId: body.projectId, fileId: body.fileId, revisionId: body.revisionId }));
+    const controller = new AbortController();
+    request.once("aborted", () => controller.abort());
+    response.once("close", () => { if (!response.writableEnded) controller.abort(); });
+    const result = await runAsyncProductOperation(() => imageObservationProvider.inspect({
+      ...body,
+      mimeType: resolved.record.revision.mimeType,
+      sha256: resolved.record.revision.sha256,
+      bytes: resolved.bytes,
+      signal: controller.signal
+    }));
+    sendJson(response, 200, { data: result });
+    return;
+  }
   if (request.method === "GET" && route === "profile") {
     sendJson(response, 200, { data: readProviderProfileProjection() });
     return;
@@ -3827,8 +3847,31 @@ function createLocalFakeGroundedAdapter() {
   return Object.freeze({
     id: "local-fake",
     label: "本地假服务",
-    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat"]) }]),
+    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat", "vlm"]) }]),
     status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
+    async openChatCompletion(input) {
+      const user = [...input.messages].reverse().find((message) => message.role === "user");
+      const parts = Array.isArray(user?.content) ? user.content : [];
+      if (!parts.some((part) => part.type === "image_url")) throw new Error("Local image fixture requires selected image bytes.");
+      const requestPart = parts.find((part) => part.type === "text")?.text || "{}";
+      const request = JSON.parse(requestPart);
+      const authorRequest = String(request.authorRequest || "");
+      const consistency = /无法判断|看不清|模糊/u.test(authorRequest) ? "indeterminate" : /相反|矛盾|冲突/u.test(authorRequest) ? "conflict" : "consistent";
+      return Object.freeze({
+        modelId: input.modelId,
+        traceId: `trace.local-fake.image.${stableHash(requestPart).slice(0, 16)}`,
+        content: JSON.stringify({
+          objects: ["A 城", "B 城"],
+          relativePositions: [{ subject: "A 城", relation: consistency === "indeterminate" ? "unknown" : "above", object: "B 城" }],
+          consistency,
+          explanation: consistency === "consistent" ? "本地夹具观察到 A 城位于 B 城画面上方，与所给文字一致。" : consistency === "conflict" ? "本地夹具观察到的位置与所给文字相反。" : "本地夹具无法从当前画面可靠辨认相对位置。",
+          uncertainty: request.directionBasis?.kind === "map-north" ? "按作者设置的地图北向换算；仍需作者检查原图。" : "图片没有地图北向，只能描述画面上下左右。"
+        }),
+        finishReason: "stop",
+        usage: { promptTokens: 20, completionTokens: 24, totalTokens: 44 },
+        toolCalls: []
+      });
+    },
     async openChatStream(input) {
       const system = input.messages.find((message) => message.role === "system")?.content || "";
       const authorRequest = [...input.messages].reverse().find((message) => message.role === "user")?.content || "";

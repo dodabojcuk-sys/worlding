@@ -715,6 +715,10 @@ export type MaterialFileRecord = {
 export type MaterialFolder = { id: string; title: string; parentId: string | null; createdAt: string; updatedAt: string };
 export type MaterialFileList = { files: MaterialFileRecord[]; total: number; offset: number; limit: number; folders: MaterialFolder[]; catalogRevision: number; contentHash: string };
 export type MaterialOperationReceipt = { version: "tianyan-material-file-operation-receipt/v1"; operationId: string; kind: string; state: "completed" | "partial"; results: Array<{ index?: number; name?: string; fileId: string | null; revisionId?: string | null; duplicateOf?: string | null; status: string; error: string | null }>; createdAt: string; replayed?: boolean; catalogRevision?: number };
+export type TianyiImageObservation = {
+  observation: { objects: string[]; relativePositions: Array<{ subject: string; relation: "above" | "below" | "left-of" | "right-of" | "overlap" | "unknown"; object: string }>; consistency: "consistent" | "conflict" | "indeterminate"; explanation: string; uncertainty: string };
+  generation: { kind: "real-provider" | "local-fixture"; modelId: string; providerDispatches: 1; receiptEnvelopeId: string | null; finishReason: string | null; usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null } | null };
+};
 export type R9AWorkflowTask = { id: string; title: string; lane: "library" | "relationship" | "event" | "nuwa" | "creation" | "recovery" | "multiverse"; state: "queued" | "active" | "blocked" | "done"; sourceRefs: string[]; createdAt: string; updatedAt: string };
 export type R9AWorkflowState = { version: "story-studio-r9a-workflow/v1"; tasks: R9AWorkflowTask[]; updatedAt: string; contentHash: string };
 export type R9AProjectBackup = { id: string; title: string; kind: "backup" | "pre-restore-checkpoint"; createdAt: string; fileCount: number; totalBytes: number; fingerprint: string };
@@ -1955,6 +1959,11 @@ export async function readMaterialFile(projectId: string, fileId: string, revisi
   const parameters = new URLSearchParams({ projectId, fileId });
   if (revisionId) parameters.set("revisionId", revisionId);
   return request(`${basePath}/material-file?${parameters.toString()}`);
+}
+
+export async function inspectTianyiImage(input: { projectId: string; fileId: string; revisionId: string; profileId: string; prompt: string; directionBasis: "image-up" | "map-north"; northDegrees?: number; relatedText?: string; operationId: string; token: string; signal?: AbortSignal }): Promise<TianyiImageObservation> {
+  const { token, signal, ...body } = input;
+  return request(`${basePath}/model-service/image-observation`, { method: "POST", token, body, signal });
 }
 
 export async function importMaterialFiles(input: { projectId: string; operationId: string; folderId?: string | null; files: Array<{ name: string; displayName?: string; mimeType?: string; base64: string; tags?: string[]; replaceFileId?: string | null }>; token: string }): Promise<MaterialOperationReceipt> {

@@ -5,11 +5,11 @@ export const MODEL_CAPABILITIES = Object.freeze(["llm", "embedding", "vlm", "rer
 export const CAPABILITY_SOURCES = Object.freeze(["preset-declared", "user-declared", "probed", "unknown"]);
 export const MODEL_CATALOG_STATES = Object.freeze(["never_fetched", "loading", "ready", "stale", "failed", "unsupported"]);
 
-const llmSuggestion = (id, label = id) => Object.freeze({
+const llmSuggestion = (id, label = id, capabilities = ["llm"]) => Object.freeze({
   id,
   label,
   source: "preset",
-  capabilityClaims: Object.freeze([{ capability: "llm", source: "preset-declared" }])
+  capabilityClaims: Object.freeze(capabilities.map((capability) => Object.freeze({ capability, source: "preset-declared" })))
 });
 
 export const PROVIDER_PRESETS = Object.freeze([
@@ -19,7 +19,7 @@ export const PROVIDER_PRESETS = Object.freeze([
     llmSuggestion("Qwen/Qwen3.5-4B", "Qwen 3.5 4B")
   ]) }),
   Object.freeze({ id: "radeon-cloud", label: "AMD Radeon Cloud", protocolAdapter: "openai-compatible", defaultBaseUrl: "https://developer.amd.com.cn/radeon/api/v1", credentialRequired: true, catalogPath: "models", suggestedModels: Object.freeze([
-    llmSuggestion("DeepSeek-V4-Flash-Vision-Exp", "DeepSeek V4 Flash Vision Exp")
+    llmSuggestion("DeepSeek-V4-Flash-Vision-Exp", "DeepSeek V4 Flash Vision Exp", ["llm", "vlm"])
   ]) }),
   Object.freeze({ id: "openai", label: "OpenAI", protocolAdapter: "openai-compatible", defaultBaseUrl: "https://api.openai.com/v1", credentialRequired: true, catalogPath: "models", suggestedModels: Object.freeze([]) }),
   Object.freeze({ id: "deepseek", label: "DeepSeek", protocolAdapter: "openai-compatible", defaultBaseUrl: "https://api.deepseek.com/v1", credentialRequired: true, catalogPath: "models", suggestedModels: Object.freeze([]) }),

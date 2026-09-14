@@ -26,6 +26,7 @@ test("preset suggestions never count as a fetched catalog", () => {
   assert.equal(amd.catalog.fetchedAt, null);
   assert.equal(amd.catalog.entries.filter((entry) => entry.source === "endpoint").length, 0);
   assert.equal(amd.suggestedModels.length, 1);
+  assert.deepEqual(amd.suggestedModels[0].capabilityClaims.map((claim) => claim.capability).sort(), ["llm", "vlm"]);
 });
 
 test("legacy static catalogs without a success timestamp migrate to unverified", () => {
