@@ -2508,7 +2508,10 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await tabs.nth(2).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
-  await page.locator('[data-state="closed"]').getByText("封闭", { exact: true }).waitFor();
+  const northGateMarker = page.locator(".map-workbench-marker").filter({ hasText: "北闸" });
+  assert.equal(await northGateMarker.count(), 1, "The selected formal location must retain one map marker even when the author's viewport pans it outside the visible canvas.");
+  assert.equal(await northGateMarker.getAttribute("data-state"), "closed", "The North Gate marker must carry the closed story-state projection without requiring it to be inside the current viewport.");
+  assert.match(await northGateMarker.textContent() ?? "", /封闭/u, "The closed marker keeps its readable author label.");
   if (mapM2EvidenceDirectory) { mkdirSync(mapM2EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-closed.png"), fullPage: true }); }
   await page.getByTestId("map-m2-inspector").getByRole("button", { name: "查看关系图", exact: true }).click();
   const relationsWorkspace = page.getByTestId("focused-relations-workspace");
@@ -2581,7 +2584,8 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await tabs.nth(3).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
-  await page.locator('[data-state="open"]').getByText("可通行", { exact: true }).waitFor();
+  assert.equal(await northGateMarker.getAttribute("data-state"), "open", "The same North Gate marker must update to the reopened story-state projection.");
+  assert.match(await northGateMarker.textContent() ?? "", /可通行/u, "The reopened marker keeps its readable author label.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-reopened.png"), fullPage: true });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-reopened-1440x900.png"), fullPage: false });
   await page.getByRole("link", { name: "查看状态依据", exact: true }).click();
