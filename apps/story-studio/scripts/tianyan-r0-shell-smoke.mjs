@@ -19,6 +19,7 @@ import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characte
 import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createStoryStudioRelationOperations } from "../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { mapPolylineIntersectsPolygon } from "../../../src/storyWorkspace/mapEditProposalRepository.mjs";
+import { recognizeTianyiCreationIdeas } from "../../../src/storyContinuity/tianyiCreationResultEvidence.ts";
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
@@ -126,6 +127,7 @@ let observationFixture = null;
 let narrativeFixture = null;
 let activePage = null;
 const tianyiR6Lifecycle = { requestCount: 0, providerReturned: false, applicationParsed: false, sessionSaved: false, bodyDisplayed: false, continuationCompleted: false, draftSaved: false, reopened: false };
+let tianyiR6ContentAssessment = null;
 let r1CausalFixture = null;
 let characterFixture = null;
 let mapM2Fixture = null;
@@ -442,7 +444,7 @@ try {
   if (preserveTianyiR6Fixture && tianyiR6EvidenceDirectory) {
     mkdirSync(tianyiR6EvidenceDirectory, { recursive: true });
     try { if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: path.join(tianyiR6EvidenceDirectory, "R6验收失败现场.png"), fullPage: false }); } catch {}
-    writeFileSync(path.join(tianyiR6EvidenceDirectory, "R6验收现场.json"), `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "failed", lifecycle: tianyiR6Lifecycle, failure: error instanceof Error ? error.message.slice(0, 600) : "unknown" }, null, 2)}\n`, "utf8");
+    writeFileSync(path.join(tianyiR6EvidenceDirectory, "R6验收现场.json"), `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "failed", lifecycle: tianyiR6Lifecycle, contentAssessment: tianyiR6ContentAssessment, failure: error instanceof Error ? error.message.slice(0, 600) : "unknown" }, null, 2)}\n`, "utf8");
   }
   console.error("tianyan R0 shell smoke FAILED:", error);
   throw error;
@@ -461,7 +463,7 @@ try {
   if (preserveTianyiR6Fixture) {
     if (tianyiR6EvidenceDirectory) {
       const lifecyclePath = path.join(tianyiR6EvidenceDirectory, "R6验收现场.json");
-      if (!existsSync(lifecyclePath)) writeFileSync(lifecyclePath, `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "completed", lifecycle: tianyiR6Lifecycle }, null, 2)}\n`, "utf8");
+      if (!existsSync(lifecyclePath)) writeFileSync(lifecyclePath, `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "completed", lifecycle: tianyiR6Lifecycle, contentAssessment: tianyiR6ContentAssessment }, null, 2)}\n`, "utf8");
       writeFileSync(path.join(tianyiR6EvidenceDirectory, "R6保留现场.json"), `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, cleanupCommand: `node scripts/cleanup-preserved-tianyan-e2e-fixture.mjs ${fixtureRoot}` }, null, 2)}\n`, "utf8");
     }
     console.log(`tianyan R6 acceptance fixture preserved: ${fixtureRoot}`);
@@ -2830,7 +2832,8 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed answer clears only the submitted draft.");
     if (verifyCreativeResults) {
       if (liveCreation) {
-        await assertTianyiRealCreationResult(page, context, composer, capture);
+        const firstGroundedResult = (await Promise.all(groundedAnswerResponses)).filter(Boolean).at(-1) || null;
+        await assertTianyiRealCreationResult(page, context, composer, capture, firstGroundedResult);
       } else {
       const result = page.getByLabel("地图创作请求结果");
       await result.getByText("雾港的三个场景构想", { exact: true }).waitFor();
@@ -2924,7 +2927,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
   }
 }
 
-async function assertTianyiRealCreationResult(page, context, composer, capture) {
+async function assertTianyiRealCreationResult(page, context, composer, capture, groundedResult) {
   const result = page.getByLabel("地图创作请求结果");
   const body = result.locator(".tianyi-creation-result-body");
   await body.waitFor({ timeout: 120_000 });
@@ -2932,9 +2935,21 @@ async function assertTianyiRealCreationResult(page, context, composer, capture) 
   tianyiR6Lifecycle.sessionSaved = true;
   tianyiR6Lifecycle.bodyDisplayed = true;
   const firstText = (await body.innerText()).trim();
-  const ideas = extractNumberedCreationIdeas(firstText);
-  assert.equal(ideas.length, 3, `The first real answer must contain exactly three distinguishable numbered ideas. Actual=${firstText}`);
-  assert.ok(ideas.every((idea) => idea.title && idea.text.length >= 20), `Each real idea must have a readable title and body. Actual=${JSON.stringify(ideas)}`);
+  const renderedListItems = await body.locator("ol > li, ul > li").allInnerTexts();
+  const renderedHeadingBlocks = await body.locator("h1, h2, h3, h4").evaluateAll((headings) => headings.map((heading) => {
+    const bodyParts = [];
+    let sibling = heading.nextElementSibling;
+    while (sibling && !/^H[1-4]$/u.test(sibling.tagName)) { bodyParts.push(sibling.textContent || ""); sibling = sibling.nextElementSibling; }
+    return { title: heading.textContent || "", body: bodyParts.join("\n") };
+  }));
+  const assessment = recognizeTianyiCreationIdeas({ renderedListItems, renderedHeadingBlocks, markdown: groundedResult?.answer?.summary || "" });
+  const ideas = assessment?.ideas || [];
+  const creativeSuggestionIdentity = groundedResult?.answer?.claims?.some((claim) => claim.status === "candidate") === true || groundedResult?.answer?.status === "candidate";
+  tianyiR6ContentAssessment = { recognitionSource: assessment?.recognitionSource || null, entryCount: ideas.length, characterCountMethod: assessment?.characterCountMethod || null, entries: ideas.map(({ title, bodyCharacterCount, hasConcreteConflict }) => ({ title, bodyCharacterCount, hasConcreteConflict, withinRequested80To120: bodyCharacterCount >= 80 && bodyCharacterCount <= 120 })), creativeSuggestionIdentity, applicationState: { parsed: tianyiR6Lifecycle.applicationParsed, sessionSaved: tianyiR6Lifecycle.sessionSaved, bodyDisplayed: tianyiR6Lifecycle.bodyDisplayed } };
+  assert.equal(ideas.length, 3, `The first real answer must contain exactly three structurally distinguishable ideas. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(ideas.every((idea) => idea.hasConcreteConflict), true, `Each real idea must contain a concrete conflict. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(creativeSuggestionIdentity, true, `New setting must remain a creative candidate rather than a fact. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(ideas.every((idea) => idea.bodyCharacterCount >= 80 && idea.bodyCharacterCount <= 120), true, `Each body must contain 80-120 counted characters. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
   await result.scrollIntoViewIfNeeded();
   await capture("01-R6真实创作正文-1440x900.png");
   if (process.env.TIANYAN_TIANIYI_R6_FAIL_AFTER_FIRST_RESULT === "1") throw new Error("Injected R6 post-result assertion failure for preservation verification.");
@@ -2944,7 +2959,7 @@ async function assertTianyiRealCreationResult(page, context, composer, capture) 
   const continuedDraft = await composer.locator("textarea").inputValue();
   assert.match(continuedDraft, /回复（event\./u, "The real continuation targets the durable response message.");
   assert.match(continuedDraft, new RegExp(escapeRegExp(selected.title), "u"), "The real continuation includes the selected idea title from the first answer.");
-  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.text.slice(0, Math.min(24, selected.text.length))), "u"), "The real continuation includes the selected idea body rather than only an ordinal.");
+  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.body.slice(0, Math.min(24, selected.body.length))), "u"), "The real continuation includes the selected idea body rather than only an ordinal.");
   const revisionRequest = `只修改《${selected.title}》这个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`;
   await composer.locator("textarea").fill(`${continuedDraft}\n\n${revisionRequest}`);
   await composer.locator(".tianyi-send").click();
@@ -2975,16 +2990,6 @@ async function assertTianyiRealCreationResult(page, context, composer, capture) 
   assert.match(await reopenedCreativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The real revision survives a full application reopen in the current browser profile.");
   await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
   await page.getByLabel("地图创作请求结果").getByText(new RegExp(escapeRegExp(selected.title), "u")).first().waitFor();
-}
-
-function extractNumberedCreationIdeas(text) {
-  const markers = [...text.matchAll(/(?:^|\n)\s*(?:#{1,4}\s*)?(?:构想\s*)?([123一二三])[.)、：:]\s*(?:《([^》\n]+)》|([^：:\n]+))?\s*[:：]?/gu)];
-  if (markers.length !== 3) return [];
-  return markers.map((marker, index) => {
-    const start = (marker.index || 0) + marker[0].length;
-    const end = index + 1 < markers.length ? markers[index + 1].index : text.length;
-    return { title: String(marker[2] || marker[3] || "").trim(), text: text.slice(start, end).trim() };
-  });
 }
 
 function parseGroundedAnswerSse(source) {
