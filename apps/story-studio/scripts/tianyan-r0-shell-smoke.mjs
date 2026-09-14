@@ -3009,7 +3009,8 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   const canvas = page.getByTestId("focused-relations-canvas");
   await workspace.waitFor(); await canvas.waitFor();
   assert.equal(await canvas.locator(".focused-relations-node").count(), 9, "The global observed network shows seven connected people and two places; the isolated person is not fabricated into an edge.");
-  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 8, "Nine relations render as eight readable endpoint groups because one pair has two distinct relations.");
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 3, "The global graph labels the three groups attached to the current center instead of piling every context label over the network.");
+  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 5, "Five non-focused endpoint groups remain visible as quiet context lines.");
   assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 9 \/ 9 条/u);
   const nodeRects = await canvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }; }));
   assert.equal(nodeRects.every((rect, index) => nodeRects.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top)), true, "Global relationship nodes must not overlap at the author viewport.");
@@ -3049,7 +3050,7 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   await singleDetail.getByRole("button", { name: "带着双方与依据进入天意", exact: true }).click();
   const tianyi = page.getByLabel("从关系开始创作");
   await tianyi.waitFor();
-  await tianyi.getByRole("heading", { name: /顾澜 ← 程野 · 航线分歧/u }).waitFor();
+  await page.getByRole("heading", { name: /顾澜 ← 程野 · 航线分歧/u }).waitFor();
   const sourceItem = tianyi.locator(".tianyi-map-reference-strip li").filter({ hasText: "雾港潮闸争议" });
   await sourceItem.getByText("查看来源内容", { exact: true }).click();
   await sourceItem.getByText(/两人在雾港议事厅留下了各自署名的处置意见/u).waitFor();
@@ -3057,7 +3058,7 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   await tianyi.getByLabel("关系工作范围对话").fill("围绕顾澜、程野的航线分歧与来源事件，构思一个两难场面；不要改写正式事实。");
   assert.equal(tianyiR6Lifecycle.requestCount, 0, "Preparing a relationship task must not send a Provider request.");
   await capture("04-关系带入天意-1152x720.png");
-  await tianyi.getByRole("button", { name: "返回关系图", exact: true }).first().click();
+  await page.getByRole("button", { name: "返回关系图", exact: true }).first().click();
   await workspace.waitFor();
   assert.equal(await workspace.getByLabel("筛选关系类型").inputValue(), "航线分歧", "Returning from Tianyi restores the relationship filter.");
   assert.equal(await workspace.getByLabel("所选关系详情").isVisible(), true, "Returning from Tianyi restores the selected relationship.");
