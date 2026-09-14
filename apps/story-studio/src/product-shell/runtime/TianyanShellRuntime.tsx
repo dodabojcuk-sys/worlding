@@ -22,6 +22,7 @@ export type TianyanShellRuntimeState = {
   projects: StoryStudioProject[];
   workVersionLabel: string | null;
   workVersionId: string | null;
+  workVersionState?: "loading" | "ready" | "error";
   connectionState: "loading" | "ready" | "unavailable";
   modelStatus: ModelServiceStatus | null;
   permissionState: AgentPermissionState | null;
@@ -59,6 +60,7 @@ export function TianyanShellRuntime() {
   const [projects, setProjects] = useState<StoryStudioProject[]>([]);
   const [workVersionLabel, setWorkVersionLabel] = useState<string | null>(null);
   const [workVersionId, setWorkVersionId] = useState<string | null>(null);
+  const [workVersionState, setWorkVersionState] = useState<"loading" | "ready" | "error">("loading");
   const [connectionState, setConnectionState] = useState<TianyanShellRuntimeState["connectionState"]>("loading");
   const [modelStatus, setModelStatus] = useState<ModelServiceStatus | null>(null);
   const [permissionState, setPermissionState] = useState<AgentPermissionState | null>(null);
@@ -87,6 +89,7 @@ export function TianyanShellRuntime() {
         setActivePageAgentRunId(null);
         setWorkVersionLabel(null);
         setWorkVersionId(null);
+        setWorkVersionState("ready");
         setConnectionState("ready");
         return;
       }
@@ -98,24 +101,36 @@ export function TianyanShellRuntime() {
       // a read-only status projection, not the connection owner.
       setWorkVersionLabel(null);
       setWorkVersionId(null);
+      setWorkVersionState("loading");
       void getCreationSourcePortState({ projectId: activeProject.id }).then((version) => {
         if (!active) return;
         const root = version.root;
         setWorkVersionLabel(root ? `${root.name} · r${root.revision}` : null);
         setWorkVersionId(root?.id ?? null);
+        setWorkVersionState("ready");
       }).catch(() => {
         if (!active) return;
         setWorkVersionLabel(null);
         setWorkVersionId(null);
+        setWorkVersionState("error");
       });
-      void withConnection(async (token) => Promise.all([
-        getModelServiceStatus(token),
-        getAgentPermissionState(activeProject.id)
-      ])).then((runtime) => {
+      // Shell readiness belongs to the storage connection. Provider and
+      // permission projections are optional page capabilities: a slow or
+      // failed model-status read must not strand map/event navigation in a
+      // permanent loading state after storage has already connected.
+      void storageProvider.connect().then(() => {
         if (!active) return;
-        setModelStatus(runtime[0]);
-        setPermissionState(runtime[1]);
         setConnectionState("ready");
+        void withConnection((token) => getModelServiceStatus(token)).then((status) => {
+          if (active) setModelStatus(status);
+        }).catch(() => {
+          if (active) setModelStatus(null);
+        });
+        void getAgentPermissionState(activeProject.id).then((state) => {
+          if (active) setPermissionState(state);
+        }).catch(() => {
+          if (active) setPermissionState(null);
+        });
       }).catch(() => {
         if (active) setConnectionState("unavailable");
       });
@@ -148,6 +163,7 @@ export function TianyanShellRuntime() {
     setSharedTianyiReferences([]);
     setWorkVersionLabel(null);
     setWorkVersionId(null);
+    setWorkVersionState("loading");
     setModelStatus(null);
     setPermissionState(null);
     setConnectionRevision((revision) => revision + 1);
@@ -165,6 +181,7 @@ export function TianyanShellRuntime() {
     setSharedTianyiReferences([]);
     setWorkVersionLabel(null);
     setWorkVersionId(null);
+    setWorkVersionState("loading");
     setModelStatus(null);
     setPermissionState(null);
     setConnectionRevision((revision) => revision + 1);
@@ -206,6 +223,7 @@ export function TianyanShellRuntime() {
     projects,
     workVersionLabel,
     workVersionId,
+    workVersionState,
     connectionState,
     modelStatus,
     permissionState,
@@ -230,7 +248,7 @@ export function TianyanShellRuntime() {
     createProject: createNewProject,
     setPermissionProfile,
     withConnection
-  }), [activePageAgentRunId, activeTianyiCandidateId, addSharedTianyiReference, connectionState, createNewProject, creativeComposerDraft, modelStatus, openActiveProject, pageAgentTaskDraft, permissionState, persistCreativeComposerDraft, persistTianyiConversationId, persistWorkComposerDraft, project, projects, retryConnection, setPermissionProfile, sharedTianyiReferences, withConnection, workComposerDraft, workScope, workVersionId, workVersionLabel]);
+  }), [activePageAgentRunId, activeTianyiCandidateId, addSharedTianyiReference, connectionState, createNewProject, creativeComposerDraft, modelStatus, openActiveProject, pageAgentTaskDraft, permissionState, persistCreativeComposerDraft, persistTianyiConversationId, persistWorkComposerDraft, project, projects, retryConnection, setPermissionProfile, sharedTianyiReferences, withConnection, workComposerDraft, workScope, workVersionId, workVersionLabel, workVersionState]);
 
   return <TianyanR0Shell runtime={runtime} />;
 }

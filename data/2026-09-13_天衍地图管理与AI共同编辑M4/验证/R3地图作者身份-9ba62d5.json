@@ -1,0 +1,12 @@
+{
+  "sourceRevision": "9ba62d52f8fa72185c3f3c39479875244f5750fe",
+  "projectId": "r061-e2e-2a43d0d3a4264b758d3baf2763438a75",
+  "workVersionId": "work-version.root.31f80caa77537ca9c7d02725e857a8b1",
+  "mapId": "map.地点示意图",
+  "contentHash": "255d534dba98dd475d1d456f531ba9a31e76a8a9039d9d279239b0e9387fda38",
+  "revision": 32,
+  "editableDrawingCount": 10,
+  "editableLabelCount": 1,
+  "realProviderDispatches": 0,
+  "proposalSource": "local-fixture-not-real-model"
+}

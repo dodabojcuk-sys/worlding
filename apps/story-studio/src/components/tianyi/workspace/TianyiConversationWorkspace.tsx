@@ -19,6 +19,7 @@ import {
   getVerifiedCanonEvent,
   getVerifiedCanonEventList,
   handoffTianyiCreativeCandidate,
+  inspectTianyiImage,
   listStoryUnits,
   listMapEditProposals,
   openTianyiSession,
@@ -41,19 +42,23 @@ import {
   type MapDocument,
   type MapEditProposal,
   type MaterialFileRecord,
+  type TianyiImageObservation,
   type WorldObject
 } from "../../../lib/localTransport";
 import { createStoryStudioEventReference } from "../../../../../../src/storyContracts/storyStudioEventReference.ts";
 import {
   selectTianyiGroundedEvidence
 } from "../../../../../../src/storyContinuity/tianyiGroundedEvidenceRetrieval.ts";
+import { prepareTianyiContinuationRequest, type TianyiContinuationSource, type TianyiContinuationTarget } from "../../../../../../src/storyContinuity/tianyiContinuationRequest.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
 import { StoryIntakeWorkSurface } from "./StoryIntakeWorkSurface";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
-import { tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { tianyiContinuationSourceStorageKey, tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { readCreativeComposerDraft, writeCreativeComposerDraftBody } from "./creativeComposerDraft";
+import { readTianyiRelationHandoff } from "./tianyiRelationHandoff";
 import {
   createActiveStoryIntakeCandidateRef,
   filterStoryIntakeSelection,
@@ -72,6 +77,7 @@ type ConversationProjectVisit = { projectId: string | null; workVersionId: strin
 /** Must stay at or below the Grounded Context Gate's server-enforced cap. */
 const MAX_GLOBAL_WORK_EVENT_REFS = 6;
 const MAX_EXPLICIT_MATERIAL_REFS = 4;
+const materialSelectionStorageKey = (projectId: string) => `tianyi-explicit-materials:${projectId}`;
 
 function sameConversationProjectVisit(current: ConversationProjectVisit, expected: ConversationProjectVisit) {
   return current.projectId === expected.projectId && current.workVersionId === expected.workVersionId && current.generation === expected.generation;
@@ -88,14 +94,17 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [intakeStreamText, setIntakeStreamText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [activeIntakeRef, setActiveIntakeRef] = useState<ActiveStoryIntakeCandidateRef | null>(null);
   const [selectedIntakeCandidateIds, setSelectedIntakeCandidateIds] = useState<string[]>([]);
   const [workContextEvents, setWorkContextEvents] = useState<WorldObject[]>([]);
   const [workContextUnits, setWorkContextUnits] = useState<StoryUnit[]>([]);
   const [workMaterials, setWorkMaterials] = useState<WorldObject[]>([]);
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>(() => {
-    const id = new URLSearchParams(window.location.search).get("materialRef");
-    return id ? [id] : [];
+    const ids = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
+    let stored: string[] = [];
+    try { stored = project ? JSON.parse(window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) ?? "[]") : []; } catch { stored = []; }
+    return [...new Set([...ids, ...stored])].slice(0, MAX_EXPLICIT_MATERIAL_REFS);
   });
   const [selectedMapEvidence, setSelectedMapEvidence] = useState<{ map: MapDocument; elementId: string | null } | null>(null);
   const [selectedMaterialFile, setSelectedMaterialFile] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
@@ -108,10 +117,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [removedWorkEventIds, setRemovedWorkEventIds] = useState<string[]>([]);
   const [lastGroundedAnswer, setLastGroundedAnswer] = useState<Awaited<ReturnType<typeof streamTianyiGroundedAnswer>> | null>(null);
   const [lastGroundedQuestion, setLastGroundedQuestion] = useState("");
+  const [imageObservation, setImageObservation] = useState<TianyiImageObservation | null>(null);
+  const [imageObservationBusy, setImageObservationBusy] = useState(false);
+  const [imageObservationError, setImageObservationError] = useState("");
+  const [continuationSource, setContinuationSource] = useState<TianyiContinuationSource | null>(null);
+  const [continuationChoice, setContinuationChoice] = useState<{ reason: string; candidates: TianyiContinuationTarget[] } | null>(null);
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const materialSelectionProject = useRef(project?.id ?? null);
   const conversationProjectVisit = useRef({ projectId: project?.id ?? null, workVersionId, generation: 0 });
   if (conversationProjectVisit.current.projectId !== (project?.id ?? null) || conversationProjectVisit.current.workVersionId !== workVersionId) {
     conversationProjectVisit.current = { projectId: project?.id ?? null, workVersionId, generation: conversationProjectVisit.current.generation + 1 };
@@ -119,6 +134,15 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
   const materialReturn = safeWorkspaceReturn(new URLSearchParams(window.location.search).get("materialReturn"));
+  const relationHandoff = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
+
+  useEffect(() => {
+    if (!relationHandoff.active || lane !== "work") return;
+    window.requestAnimationFrame(() => {
+      const scroll = document.querySelector<HTMLElement>(".tianyi-global-work-scroll");
+      if (scroll) scroll.scrollTop = 0;
+    });
+  }, [lane, project?.id, relationHandoff.relationId]);
 
   useEffect(() => {
     intakeAbort.current?.abort();
@@ -131,7 +155,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setWorkContextEvents([]);
     setWorkContextUnits([]);
     setWorkMaterials([]);
-    setSelectedMaterialIds([]);
+    let restoredMaterials: string[] = [];
+    try { restoredMaterials = project ? JSON.parse(window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) ?? "[]") : []; } catch { restoredMaterials = []; }
+    setSelectedMaterialIds(restoredMaterials.slice(0, MAX_EXPLICIT_MATERIAL_REFS));
     setSelectedMapEvidence(null); setMapEvidenceState("idle");
     setSelectedMaterialFile(null);
     setSelectedWorkUnitId(null);
@@ -140,9 +166,34 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setRemovedWorkEventIds([]);
     setLastGroundedAnswer(null);
     setLastGroundedQuestion("");
+    setImageObservation(null);
+    setImageObservationBusy(false);
+    setImageObservationError("");
+    let restoredContinuation: TianyiContinuationSource | null = null;
+    try {
+      restoredContinuation = project ? JSON.parse(window.localStorage.getItem(tianyiContinuationSourceStorageKey(project.id)) ?? "null") : null;
+    } catch { restoredContinuation = null; }
+    setContinuationSource(restoredContinuation);
+    setContinuationChoice(null);
     setBusy(false);
     setError("");
+    setNotice("");
   }, [project?.id, workVersionId]);
+
+  const persistContinuationSource = useCallback((source: TianyiContinuationSource | null) => {
+    setContinuationSource(source);
+    setContinuationChoice(null);
+    if (!project) return;
+    const key = tianyiContinuationSourceStorageKey(project.id);
+    if (source) window.localStorage.setItem(key, JSON.stringify(source));
+    else window.localStorage.removeItem(key);
+  }, [project]);
+
+  useEffect(() => {
+    if (!project) return;
+    if (materialSelectionProject.current !== project.id) { materialSelectionProject.current = project.id; return; }
+    window.sessionStorage.setItem(materialSelectionStorageKey(project.id), JSON.stringify(selectedMaterialIds));
+  }, [project?.id, selectedMaterialIds]);
 
   const globalWorkTargetIds = useMemo(() => {
     const currentUnit = workContextUnits.find((unit) => unit.id === selectedWorkUnitId) ?? null;
@@ -168,6 +219,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     removedEventIds: removedWorkEventIds
   }), [pinnedWorkEventIds, removedWorkEventIds, runtime.workComposerDraft, runtime.workScope, scopedWorkEvents, selectedWorkEventIds]);
   const globalWorkEvents = useMemo(() => globalWorkEvidence.selected.map((item) => workContextEvents.find((event) => event.id === item.event.id)).filter((event): event is WorldObject => Boolean(event)), [globalWorkEvidence.selected, workContextEvents]);
+  const relationHandoffEvents = useMemo(() => relationHandoff.eventRefs.flatMap((reference) => {
+    const event = workContextEvents.find((item) => item.id === reference.eventId && item.revisionToken === reference.revision && selectedWorkEventIds.includes(item.id));
+    return event ? [event] : [];
+  }), [relationHandoff.eventRefs, selectedWorkEventIds, workContextEvents]);
   const globalWorkEventRefs = useMemo(() => {
     if (!project) return [];
     return globalWorkEvents.map((event) => createStoryStudioEventReference({ projectId: project.id, event, requestedUse: "constraint" }));
@@ -254,13 +309,21 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setWorkContextEvents(events);
       setWorkContextUnits(units);
       setWorkMaterials(materials);
-      const requestedMaterial = new URLSearchParams(window.location.search).get("materialRef");
-      setSelectedMaterialIds((current) => [...new Set([
-        ...(requestedMaterial && materials.some((item) => item.id === requestedMaterial) ? [requestedMaterial] : []),
+      const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
+      const requestedMaterials = requested.materialIds;
+      setSelectedMaterialIds((current) => {
+        const next = [...new Set([
+        ...requestedMaterials.filter((id) => materials.some((item) => item.id === id)),
         ...current.filter((id) => materials.some((item) => item.id === id))
-      ])].slice(0, MAX_EXPLICIT_MATERIAL_REFS));
+        ])];
+        if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
+        return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+      });
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
-      setSelectedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)).slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      const exactRequestedEvents = requested.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
+      if (requested.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
+      if (requested.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
+      setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
       setPinnedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setRemovedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setWorkContextState("ready");
@@ -275,15 +338,23 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [project?.id, refreshWorkContext]);
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("materialRef");
-    if (!requested) return;
-    setSelectedMaterialIds((current) => current.includes(requested) ? current : [...current, requested].slice(0, MAX_EXPLICIT_MATERIAL_REFS));
-  }, [lane, project?.id]);
+    const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
+    if (!requested.length) return;
+    setSelectedMaterialIds((current) => {
+      const additions = requested.filter((id) => !current.includes(id));
+      if (current.length + additions.length + (selectedMapEvidence ? 1 : 0) > MAX_EXPLICIT_MATERIAL_REFS) {
+        setError(`地图与资料引用已达 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；原选择保持不变，请先移除一项。`);
+        return current;
+      }
+      return [...current, ...additions];
+    });
+  }, [lane, project?.id, selectedMapEvidence]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const mapId = params.get("mapRef");
     const requestedRevision = params.get("mapRevision");
+    const authoringHandoff = params.get("mapMode") === "authoring";
     const elementId = params.get("mapElement");
     if (!project || !mapId || !requestedRevision) { setSelectedMapEvidence(null); setMapEvidenceState("idle"); return; }
     let active = true; setMapEvidenceState("loading");
@@ -291,7 +362,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       if (!active) return;
       const current = workbench.documents.find((item): item is MapDocument => item.type === "map" && item.id === mapId);
       if (!current) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
-      const map = current.contentHash === requestedRevision ? current : await readMapRevision(project.id, current.relativePath, requestedRevision);
+      if (authoringHandoff && current.contentHash !== requestedRevision) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
+      const map = current.contentHash === requestedRevision || authoringHandoff ? current : await readMapRevision(project.id, current.relativePath, requestedRevision);
       if (!active) return;
       if (elementId && !map.content.drawings.some((item) => item.id === elementId)) { setSelectedMapEvidence(null); setMapEvidenceState("failed"); return; }
       setSelectedMapEvidence({ map, elementId }); setMapEvidenceState("ready");
@@ -362,7 +434,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     let active = true;
     void readMaterialFile(project.id, fileId, revisionId).then((file) => {
       if (!active) return;
-      if (!file || file.revision.textStatus !== "ready") { setSelectedMaterialFile(null); setError("所选文件修订不可作为文本依据；没有发送附件或较新正文代替。"); return; }
+      if (!file || (file.type !== "image" && file.revision.textStatus !== "ready")) { setSelectedMaterialFile(null); setError("所选文件修订不可作为当前依据；没有发送附件或较新正文代替。"); return; }
       const contentLength = file.revision.textContent?.length ?? 0;
       const range = Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && end > start && end <= contentLength ? { start, end } : null;
       setSelectedMaterialFile(file); setSelectedMaterialFileRange(range);
@@ -381,6 +453,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [runtime.workScope, selectedWorkUnitId, workVersionId]);
 
   const selectedMaterials = useMemo(() => selectedMaterialIds.map((id) => workMaterials.find((item) => item.id === id)).filter((item): item is WorldObject => Boolean(item)), [selectedMaterialIds, workMaterials]);
+  const relationReadableSummary = useMemo(() => {
+    if (!relationHandoff.active || !relationHandoff.sourceObjectId || !relationHandoff.targetObjectId) return null;
+    const source = workMaterials.find((item) => item.id === relationHandoff.sourceObjectId)?.title ?? "来源对象已失效";
+    const target = workMaterials.find((item) => item.id === relationHandoff.targetObjectId)?.title ?? "目标对象已失效";
+    const arrow = relationHandoff.direction === "both" ? "↔" : relationHandoff.direction === "reverse" ? "←" : relationHandoff.direction === "forward" ? "→" : "—";
+    return `${source} ${arrow} ${target}${relationHandoff.relationLabel ? ` · ${relationHandoff.relationLabel}` : ""}`;
+  }, [relationHandoff.active, relationHandoff.direction, relationHandoff.relationLabel, relationHandoff.sourceObjectId, relationHandoff.targetObjectId, workMaterials]);
   const materialRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterials.map((material) => ({
     version: "story-tianyi-object-context-ref/v1",
     ownerType: "markdown-object",
@@ -400,16 +479,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     projectId: project.id, ownerId: selectedMapEvidence.map.id, contentHash: selectedMapEvidence.map.contentHash,
     state: "current", inclusion: "included", label: selectedMapEvidence.elementId ? `${selectedMapEvidence.map.title} · 选中图示` : `${selectedMapEvidence.map.title} · 地图范围`
   }] : [], [project, selectedMapEvidence]);
-  const materialFileRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterialFile && project ? [{
+  const materialFileRefs = useMemo<TianyiObjectContextRef[]>(() => selectedMaterialFile && selectedMaterialFile.type === "text" && project ? [{
     version: "story-tianyi-object-context-ref/v1", ownerType: "material-file", objectType: "source",
     stableId: selectedMaterialFileRange ? `selection.${selectedMaterialFileRange.start}.${selectedMaterialFileRange.end}` : selectedMaterialFile.id, projectId: project.id, ownerId: selectedMaterialFile.id,
     contentHash: selectedMaterialFile.revision.sha256, state: "current", inclusion: "included", label: selectedMaterialFile.displayName
   }] : [], [project, selectedMaterialFile, selectedMaterialFileRange]);
-  const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialFileRefs, ...materialRefs].slice(0, MAX_EXPLICIT_MATERIAL_REFS), [mapEvidenceRefs, materialFileRefs, materialRefs]);
+  const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialFileRefs, ...materialRefs], [mapEvidenceRefs, materialFileRefs, materialRefs]);
 
   function toggleMaterial(materialId: string) {
     if (selectedMaterialIds.includes(materialId)) { setSelectedMaterialIds((current) => current.filter((id) => id !== materialId)); return; }
-    if (selectedMaterialIds.length + mapEvidenceRefs.length >= MAX_EXPLICIT_MATERIAL_REFS) { setError(`本次地图与资料合计最多明确引用 ${MAX_EXPLICIT_MATERIAL_REFS} 项；请先取消一项。`); return; }
+    if (explicitContextRefs.length >= MAX_EXPLICIT_MATERIAL_REFS) { setError(`本次地图与资料合计最多明确引用 ${MAX_EXPLICIT_MATERIAL_REFS} 项；原选择保持不变，请先取消一项。`); return; }
     setSelectedMaterialIds((current) => [...current, materialId]);
   }
 
@@ -473,7 +552,17 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   useEffect(() => {
     if (!project || runtime.tianyiConversationId) return;
     const savedSessionId = window.sessionStorage.getItem(tianyiConversationStorageKey(project.id));
-    if (savedSessionId) runtime.setTianyiConversationId(savedSessionId);
+    if (savedSessionId) { runtime.setTianyiConversationId(savedSessionId); return; }
+    const requestedSessionId = new URLSearchParams(window.location.search).get("tianyiSession");
+    if (!requestedSessionId) return;
+    const visit = conversationProjectVisit.current;
+    let active = true;
+    void runtime.withConnection((token) => getTianyiSessionMetadata(project.id, requestedSessionId, token)).then((restored) => {
+      if (!active || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+      const session = Array.isArray(restored) ? restored.find((item) => item.id === requestedSessionId) : restored;
+      if (session?.id === requestedSessionId) runtime.setTianyiConversationId(requestedSessionId);
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [project?.id, runtime, runtime.tianyiConversationId]);
   const ensureConversation = useCallback(async (visit = conversationProjectVisit.current): Promise<string | null> => {
     if (!project) throw new Error(t("tianyi.workspace.noProject"));
@@ -650,7 +739,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
 
   const submitCreative = async () => {
-    const text = runtime.creativeComposerDraft.trim();
+    const text = readCreativeComposerDraft(runtime.creativeComposerDraft).body.trim();
     if (!text || !project || busy) return;
     const visit = conversationProjectVisit.current;
     const projectId = project.id;
@@ -694,11 +783,19 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
 
   const submitConversation = async (conversationLane: "creative" | "work") => {
-    const text = (conversationLane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft).trim();
+    const text = (conversationLane === "creative" ? readCreativeComposerDraft(runtime.creativeComposerDraft).body : runtime.workComposerDraft).trim();
     if (!text || !project || busy) return;
     const visit = conversationProjectVisit.current;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setNotice("");
     try {
+      const prepared = conversationLane === "work"
+        ? prepareTianyiContinuationRequest({ draft: text, continuationSource, currentResponseMessageId: continuationSource && lastGroundedAnswer ? lastGroundedAnswer.responseMessageId : undefined, currentResponseText: continuationSource && lastGroundedAnswer ? groundedResultText : undefined })
+        : { requestText: text };
+      if ("kind" in prepared && prepared.kind === "needs-selection") {
+        setContinuationChoice({ reason: prepared.reason, candidates: prepared.candidates });
+        return;
+      }
+      const requestText = prepared.requestText;
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (conversationLane === "work" && workContextState === "failed") throw new Error("工作依据读取失败；草稿已保留。请重新读取正式事件后再发送，避免把失败误作无上下文。");
       if (conversationLane === "work" && runtime.workScope !== "current-story" && globalWorkEventRefs.length === 0) throw new Error("当前工作范围没有可追溯的正式事件；请选择故事单元或事件后再发送。");
@@ -718,7 +815,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           operationId: operationId("conversation.answer"),
           submissionId: operationId("conversation.submission"),
           profileId: localFakeRuntime ? "local-fake-grounded-answer" : profileId!,
-          question: text,
+          question: requestText,
           contextRequest: {
             version: "story-tianyi-grounded-context-request/v1",
             projectId: project.id,
@@ -736,7 +833,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         if (result.status !== "current" || !result.answer) throw new Error("天意回答未完整落盘；已保留原问题，可按回执重试。");
         if (conversationLane === "work") {
           setLastGroundedAnswer(result);
-          setLastGroundedQuestion(text);
+          setLastGroundedQuestion(requestText);
         }
       } else if (localFakeRuntime) {
         const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
@@ -760,7 +857,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       } else throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       if (conversationLane === "creative") runtime.setCreativeComposerDraft("");
-      else runtime.setWorkComposerDraft("");
+      else {
+        runtime.setWorkComposerDraft("");
+        persistContinuationSource(null);
+      }
       await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
     } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。"); }
     finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
@@ -894,19 +994,19 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (range) { params.set("materialFileStart", String(range.start)); params.set("materialFileEnd", String(range.end)); }
     window.location.assign(`/library?${params.toString()}`);
   };
-  const openGroundedMap = () => {
+  const openGroundedMap = (mode: "authoring" | "evidence" = "evidence") => {
     const returnTarget = new URLSearchParams(window.location.search).get("mapReturn");
     if (!selectedMapEvidence) return;
     if (returnTarget?.startsWith("/library?") || returnTarget?.startsWith("/world?")) {
       const target = new URL(returnTarget, window.location.origin);
       target.searchParams.set("mapId", selectedMapEvidence.map.id);
-      if (mapEditProposal?.status === "accepted" || mapEditProposal?.status === "compensated") target.searchParams.delete("mapRevision");
+      if (mode === "authoring" || mapEditProposal?.status === "accepted" || mapEditProposal?.status === "compensated") target.searchParams.delete("mapRevision");
       else target.searchParams.set("mapRevision", selectedMapEvidence.map.contentHash);
       if (selectedMapEvidence.elementId) target.searchParams.set("mapElement", selectedMapEvidence.elementId);
       window.location.assign(`${target.pathname}${target.search}`);
       return;
     }
-    const revision = mapEditProposal?.status === "accepted" || mapEditProposal?.status === "compensated" ? "" : `&mapRevision=${encodeURIComponent(selectedMapEvidence.map.contentHash)}`;
+    const revision = mode === "authoring" || mapEditProposal?.status === "accepted" || mapEditProposal?.status === "compensated" ? "" : `&mapRevision=${encodeURIComponent(selectedMapEvidence.map.contentHash)}`;
     window.location.assign(`/library?libraryView=map&mapId=${encodeURIComponent(selectedMapEvidence.map.id)}${revision}`);
   };
 
@@ -923,8 +1023,82 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     try { return selectStoryIntakeCandidateScope(envelope, selectedIntakeCandidateIds.length ? selectedIntakeCandidateIds : activeIntakeCandidate ? [activeIntakeCandidate.candidateId] : []); }
     catch { return activeIntakeCandidate ? [activeIntakeCandidate] : []; }
   }, [activeIntakeCandidate, intakeRun, selectedIntakeCandidateIds]);
-  const draft = lane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft;
-  const setDraft = lane === "creative" ? runtime.setCreativeComposerDraft : runtime.setWorkComposerDraft;
+  const creativeDraftView = readCreativeComposerDraft(runtime.creativeComposerDraft);
+  const draft = lane === "creative" ? creativeDraftView.body : runtime.workComposerDraft;
+  const setDraft = lane === "creative" ? (value: string) => runtime.setCreativeComposerDraft(writeCreativeComposerDraftBody(runtime.creativeComposerDraft, value)) : runtime.setWorkComposerDraft;
+  const mapEntry = lane === "work" && mapEvidenceState !== "idle";
+  const relationEntry = lane === "work" && relationHandoff.active;
+  const mapEntryDrawing = selectedMapEvidence?.elementId ? selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId) ?? null : null;
+  const mapEntryLocation = mapEntryDrawing?.objectId ? selectedMaterials.find((item) => item.id === mapEntryDrawing.objectId) ?? null : null;
+  const mapEntryPromptSubject = mapEntryLocation?.title ?? mapEntryDrawing?.label ?? selectedMapEvidence?.map.title ?? "这里";
+  const groundedResultText = lastGroundedAnswer?.answer?.summary.trim() ?? "";
+  const continueGroundedAnswer = () => {
+    if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
+    if (runtime.workComposerDraft.trim()) {
+      setError("当前工作输入中已有草稿；为避免覆盖，请先发送、清空或保存后，再选择继续修改这条回复。");
+      return;
+    }
+    persistContinuationSource({ responseMessageId: lastGroundedAnswer.responseMessageId, responseText: groundedResultText });
+    runtime.setWorkComposerDraft("");
+    setNotice("已绑定这条回复作为续改来源；请写明要修改的标题、序号或整条回复。");
+    setError("");
+    window.requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLTextAreaElement>(mapEntry ? "#tianyi-map-work-draft" : relationEntry ? "#tianyi-relation-work-draft" : ".tianyi-workspace-composer textarea");
+      target?.focus();
+      target?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  };
+  const saveGroundedAnswerAsCreativeDraft = () => {
+    if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
+    const sourceLabels = explicitContextRefs.map((ref) => ref.label).filter(Boolean);
+    const nextDraft = `创意草稿 · 来自天意回复 ${lastGroundedAnswer.responseMessageId}\n来源：${sourceLabels.join("、") || project?.title || "当前作品"}\n\n${groundedResultText}`;
+    const existing = runtime.creativeComposerDraft.trim();
+    if (existing && existing !== nextDraft) {
+      setError("当前作品的创意编辑区已有一份本机草稿；为避免覆盖，本次内容尚未保存。请先打开已有草稿，或取消本次保存。");
+      return;
+    }
+    runtime.setCreativeComposerDraft(nextDraft);
+    setNotice("已保存到当前作品的创意编辑草稿；仅保存在当前浏览器，不会写入故事事实。可打开创意模式继续编辑。");
+    setError("");
+  };
+  const copyGroundedAnswer = async () => {
+    if (!groundedResultText) return;
+    try { await navigator.clipboard.writeText(groundedResultText); setNotice("创作内容已复制。"); setError(""); }
+    catch { setError("浏览器未允许复制；正文仍在页面中，可手动选择复制。"); }
+  };
+  const fillMapStarter = (value: string) => {
+    if (runtime.workComposerDraft.trim()) { setError("已有草稿，未覆盖。可先编辑或清空后再选择建议。"); return; }
+    runtime.setWorkComposerDraft(value);
+    setError("");
+  };
+  const inspectSelectedImage = async () => {
+    if (!project || !selectedMaterialFile || selectedMaterialFile.type !== "image" || imageObservationBusy) return;
+    const prompt = runtime.workComposerDraft.trim();
+    if (!prompt) { setImageObservationError("请先写下要检查的文字或问题；不会自动发送整部作品内容。"); return; }
+    const selectedModelId = dialogueRuntime === "local-fake" ? "deterministic-grounded-fixture" : runtime.modelStatus?.profile.profile?.modelId;
+    const profile = dialogueRuntime === "local-fake" ? runtime.modelStatus?.profiles.find((item) => item.id === "local-fake-grounded-answer") : runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId);
+    const model = runtime.modelStatus?.models.find((item) => item.providerId === profile?.providerId && item.id === selectedModelId);
+    if (!profile || !model?.capabilities.includes("vlm")) { setImageObservationError("当前选择的模型没有已确认的图片能力；发送前已停止。请在 Provider 设置中选择支持图片的模型。"); return; }
+    const north = selectedMapEvidence?.map.content.coordinateSystem.north ?? null;
+    setImageObservationBusy(true); setImageObservationError(""); setImageObservation(null);
+    const controller = new AbortController();
+    try {
+      const result = await runtime.withConnection((token) => inspectTianyiImage({
+        projectId: project.id,
+        fileId: selectedMaterialFile.id,
+        revisionId: selectedMaterialFile.revision.id,
+        profileId: profile.id,
+        prompt,
+        directionBasis: north ? "map-north" : "image-up",
+        ...(north ? { northDegrees: north.degreesClockwiseFromMapUp } : {}),
+        operationId: `operation.image-observation.${crypto.randomUUID()}`,
+        token,
+        signal: controller.signal
+      }));
+      setImageObservation(result);
+    } catch (cause) { setImageObservationError(cause instanceof Error ? cause.message : "图片检查失败；没有修改任何正式资料。"); }
+    finally { setImageObservationBusy(false); }
+  };
   const intakeCandidateCount = intakeRun?.storyIntakeEnvelope?.candidates.length ?? projection?.candidates.length ?? 0;
   const task = lane === "creative"
     ? { eyebrow: "连续创作", title: "保留原话，和天意一起展开故事", detail: runtime.tianyiConversationId ? `当前对话已保存 · ${intakeCandidateCount ? `已有 ${intakeCandidateCount} 项候选` : "可随时整理候选"}` : "从一段真实故事内容开始" }
@@ -950,8 +1124,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     </header>
 
     <section className="tianyi-task-header" aria-label="当前任务">
-      <div><small>{task.eyebrow}</small><h2>{task.title}</h2><p>{task.detail}</p></div>
-      <div className="tianyi-task-actions">{materialReturn ? <button type="button" className="tianyi-material-return" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />返回资料</button> : null}<div className="tianyi-task-status"><span>{project.title}</span><span>{runtime.workVersionLabel ?? "当前主线"}</span>{intakeRun?.storyIntakeEnvelope ? <span>批次已恢复</span> : null}</div></div>
+      <div><small>{relationEntry ? "来自关系图" : task.eyebrow}</small><h2>{relationEntry ? relationReadableSummary ?? (relationHandoff.relationLabel ? `围绕“${relationHandoff.relationLabel}”继续创作` : "围绕所选关系继续创作") : task.title}</h2><p>{relationEntry ? "已带入作者明确选择的双方资料与来源事件；尚未发送。" : task.detail}</p></div>
+      <div className="tianyi-task-actions">{materialReturn ? <button type="button" className="tianyi-material-return" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />{relationEntry ? "返回关系图" : mapEntry ? "返回地图" : "返回资料"}</button> : null}<div className="tianyi-task-status"><span>{project.title}</span><span>{runtime.workVersionLabel ?? "当前主线"}</span>{intakeRun?.storyIntakeEnvelope ? <span>批次已恢复</span> : null}</div></div>
     </section>
 
     <div className="tianyi-workspace-body" data-full-work-surface={lane !== "creative"} data-global-work={lane === "work" && !activeIntakeCandidate ? "true" : undefined}>
@@ -1004,27 +1178,60 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             onLocateCandidate={(candidateId) => { focusIntakeCandidate(candidateId); changeLane("review"); }}
           /> : activeIntakeResolution ? <div className="story-intake-recovery" role="alert"><strong>无法恢复原候选</strong><p>{storyIntakeRecoveryMessage(activeIntakeResolution.status)}</p><button type="button" onClick={() => changeLane("review")}>返回当前批次审阅</button></div> : <>
             <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div>
+            {mapEntry ? <section className="tianyi-map-creation-start" aria-label="从地图开始创作">
+              <header><div><small>来自地图 · 已保留工作模式草稿</small><h2>{selectedMapEvidence?.map.title ?? "地图上下文"}{mapEntryPromptSubject !== selectedMapEvidence?.map.title ? ` · ${mapEntryPromptSubject}` : ""}</h2></div>{selectedMapEvidence ? <button type="button" onClick={() => openGroundedMap("authoring")}><ArrowLeft aria-hidden="true" />返回地图继续创作</button> : null}</header>
+              <section className="tianyi-map-reference-strip" aria-label="本次带入的引用"><div><strong>本次带入</strong><small>{explicitContextRefs.length}/{MAX_EXPLICIT_MATERIAL_REFS} 项 · 发送前会再核验</small></div><ul>
+                {selectedMapEvidence ? <li><div><strong>{mapEntryDrawing?.label ?? selectedMapEvidence.map.title}</strong><small>{mapEntryDrawing ? `${selectedMapEvidence.map.title} · 选中图示` : "地图"}</small></div><details><summary>查看来源</summary><p>{mapEntryDrawing ? "仅带入这个图示的结构化几何；周围空间不自动成为剧情事实。" : "带入当前地图的结构化范围。"}</p><button type="button" onClick={() => openGroundedMap("evidence")}>查看准确来源</button></details><button type="button" onClick={() => { setSelectedMapEvidence(null); setMapEvidenceState("idle"); }}>移除</button></li> : mapEvidenceState === "failed" ? <li className="is-invalid"><div><strong>地图引用已失效</strong><small>请返回原地图重新选择</small></div></li> : null}
+                {selectedMaterials.map((material) => <li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0, 180) || "暂无正文"}</p><button type="button" onClick={() => openGroundedMaterial(material.id, material.revisionToken)}>打开资料</button></details><button type="button" onClick={() => setSelectedMaterialIds((current) => current.filter((id) => id !== material.id))}>移除</button></li>)}
+              </ul><p>只有作者明确保留的结构化内容会参与本次请求；打开本页不会自动发送。</p></section>
+              <section className="tianyi-map-composer"><label htmlFor="tianyi-map-work-draft">你想围绕{mapEntryPromptSubject}做什么？</label><textarea id="tianyi-map-work-draft" aria-label="当前工作范围对话" value={runtime.workComposerDraft} onChange={(event) => runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder={`你想围绕${mapEntryPromptSubject}做什么？`} /><div className="tianyi-map-starters" aria-label="创作起步建议"><button type="button" onClick={() => fillMapStarter(`根据已有资料，提出三个发生在${mapEntryPromptSubject}的场景构想。`)}>三个场景构想</button><button type="button" onClick={() => fillMapStarter(`整理${mapEntryPromptSubject}目前已知的信息和待补充问题。`)}>整理已知与待补充</button><button type="button" onClick={() => fillMapStarter(`结合我之后明确选择的人物，构思他们在${mapEntryPromptSubject}的一次相遇。`)}>构思人物相遇</button></div><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim() || busy || workContextState === "loading" || workContextState === "failed" || explicitContextRefs.length > MAX_EXPLICIT_MATERIAL_REFS} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{busy ? "请求中…" : "发送到当前工作"}</button></div></section>
+              {lastGroundedAnswer ? <section className="tianyi-map-entry-result tianyi-creation-result" aria-label="地图创作请求结果"><header><div><small>已保存到当前会话</small><strong>天意的创作回复</strong></div><span>{lastGroundedAnswer.answer?.status === "unknown" ? "依据不足" : "可继续加工"}</span></header><CreativeResultBody text={groundedResultText} /><div className="tianyi-creation-result-actions"><button type="button" onClick={continueGroundedAnswer}>继续修改这条回复</button><button type="button" onClick={() => void copyGroundedAnswer()}>复制内容</button><button type="button" onClick={saveGroundedAnswerAsCreativeDraft}>保存为创意草稿</button>{runtime.creativeComposerDraft.trim() ? <button type="button" onClick={() => changeLane("creative")}>打开创意草稿</button> : null}</div><details><summary>请求与保存详情</summary><p>{lastGroundedAnswer.providerDispatchCount} 次模型边界发送；回复已写入当前天意会话。保存为创意草稿不会确认任何故事事实。</p></details></section> : null}
+            </section> : null}
+            {relationEntry ? <section className="tianyi-map-creation-start tianyi-relation-creation-start" aria-label="从关系开始创作">
+              <section className="tianyi-map-reference-strip" aria-label="关系图带入的引用"><div><strong>本次明确带入</strong><small>{selectedMaterials.length} 项人物／地点 · {relationHandoffEvents.length} 项正式事件依据</small></div><ul>
+                {selectedMaterials.map((material)=><li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0,180)||"暂无正文"}</p><button type="button" onClick={()=>openGroundedMaterial(material.id,material.revisionToken)}>打开资料</button></details><button type="button" onClick={()=>setSelectedMaterialIds((current)=>current.filter((id)=>id!==material.id))}>移除</button></li>)}
+                {relationHandoffEvents.map((event)=><li key={event.id}><div><strong>{event.title}</strong><small>来源事件 · 已核对版本</small></div><details><summary>查看来源内容</summary><p>{event.body.slice(0,240)||"暂无正文"}</p><button type="button" onClick={()=>project&&openGroundedEvidenceEvent({projectId:project.id,sourceId:event.id,contentHash:event.revisionToken})}>打开完整事件</button></details><button type="button" onClick={()=>setSelectedWorkEventIds((current)=>current.filter((id)=>id!==event.id))}>移除</button></li>)}
+              </ul><p>这里使用现有的正式关系记录和作者选择的来源事件。打开本页不会发送，也不会修改正式事实。</p></section>
+              <section className="tianyi-map-composer"><label htmlFor="tianyi-relation-work-draft">接下来想围绕这些人物、地点和依据做什么？</label><textarea id="tianyi-relation-work-draft" aria-label="关系工作范围对话" value={runtime.workComposerDraft} onChange={(event)=>runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder="写下创作意图；发送前可继续移除引用。"/><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim()||busy||workContextState==="loading"||workContextState==="failed"||explicitContextRefs.length>MAX_EXPLICIT_MATERIAL_REFS} onClick={()=>void submitConversation("work")}>{busy?<LoaderCircle className="is-spinning"/>:<Send/>}{busy?"请求中…":"发送到当前工作"}</button></div></section>
+            </section> : null}
+            {selectedMaterialFile?.type === "image" ? <section className="tianyi-image-observation" aria-label="图片与文字检查">
+              <header><div><small>明确选择的图片</small><strong>{selectedMaterialFile.displayName}</strong></div><span>{selectedMapEvidence?.map.content.coordinateSystem.north ? "按地图北向判断" : "仅按画面上下左右判断"}</span></header>
+              <p>图片原始字节会在你点击后发送给当前已配置的视觉模型；文件名或文字摘要不会冒充图片内容。观察结果只是建议，不写入地图或故事事实。</p>
+              <button type="button" className="primary-action" disabled={imageObservationBusy || !runtime.workComposerDraft.trim()} onClick={() => void inspectSelectedImage()}>{imageObservationBusy ? <LoaderCircle className="is-spinning" /> : <Send />}{imageObservationBusy ? "正在检查…" : "检查图片与文字"}</button>
+              {imageObservationError ? <p role="alert" className="is-error">{imageObservationError}</p> : null}
+              {imageObservation ? <section className={`tianyi-image-observation-result is-${imageObservation.observation.consistency}`}><strong>{imageObservation.observation.consistency === "consistent" ? "图片与文字一致" : imageObservation.observation.consistency === "conflict" ? "发现图片与文字矛盾" : "目前无法判断"}</strong>{imageObservation.generation.kind === "local-fixture" ? <small>本地视觉夹具 · 不代表真实模型识别</small> : null}<p>{imageObservation.observation.explanation}</p>{imageObservation.observation.objects.length ? <p>识别对象：{imageObservation.observation.objects.join("、")}</p> : null}{imageObservation.observation.relativePositions.length ? <ul>{imageObservation.observation.relativePositions.map((item, index) => <li key={`${index}:${item.subject}:${item.object}`}>{item.subject} · {imageRelationLabel(item.relation)} · {item.object}</li>)}</ul> : null}<small>不确定性：{imageObservation.observation.uncertainty}</small><details><summary>请求详情</summary><p>{imageObservation.generation.modelId} · 1 次模型边界发送 · {imageObservation.generation.finishReason ?? "结束原因未知"}</p></details></section> : null}
+            </section> : null}
             <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
-            {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open>
+            {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open={!mapEntry && !relationEntry}>
               <summary>工作依据 · {globalWorkContextLabel}</summary>
               {runtime.workScope === "current-unit" ? <label>故事单元<select value={selectedWorkUnitId ?? ""} onChange={(event) => setSelectedWorkUnitId(event.target.value || null)}><option value="">尚未选择</option>{workContextUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : null}
               {runtime.workScope === "selected-events" ? <fieldset><legend>显式选择至多 {MAX_GLOBAL_WORK_EVENT_REFS} 项正式事件（不会因低相关度被丢弃）</legend><p aria-live="polite">已明确指定 {explicitWorkEventCount}/{MAX_GLOBAL_WORK_EVENT_REFS} 项；还可加入 {explicitWorkEventSlots} 项。</p>{workContextEvents.map((event) => <label key={event.id}><input type="checkbox" data-event-id={event.id} checked={selectedWorkEventIds.includes(event.id)} onChange={() => toggleSelectedWorkEvent(event.id)} />{event.title} · {event.status}</label>)}</fieldset> : null}
               {workContextState === "loading" ? <p>正在读取当前项目的正式事件；发送暂不把它当成无上下文。</p> : workContextState === "failed" ? <p>正式事件暂时读取失败。草稿不会丢失；<button type="button" onClick={() => void refreshWorkContext()}>重新读取</button>后再发送。</p> : !runtime.workComposerDraft.trim() ? <p>输入一个问题后，天意会在当前范围内检索依据；预览不调用 Provider，只有点击发送才进入既有回答链。</p> : <><p>本次按问题选中 {globalWorkEvents.length} 项可校验 Event；服务端会在发送前重新核验项目、状态和修订。</p>{globalWorkEvidence.selected.length ? <ul className="tianyi-work-context-events tianyi-grounded-evidence-preview">{globalWorkEvidence.selected.map((item) => <li key={`${item.event.id}:${item.event.revisionToken}`}><div><strong>{item.event.title}</strong><span>{item.event.status} · {item.reason}</span><p>{item.excerpt}</p></div><nav><button type="button" onClick={() => togglePinnedWorkEvent(item.event.id)}>{item.pinned ? "取消置顶" : "置顶"}</button><button type="button" onClick={() => setRemovedWorkEventIds((current) => [...new Set([...current, item.event.id])])}>移除</button><button type="button" onClick={() => project && openGroundedEvidenceEvent({ projectId: project.id, sourceId: item.event.id, contentHash: item.event.revisionToken })}>查看来源</button></nav></li>)}</ul> : <p>{globalWorkEvidence.availableCount ? "范围内存在正式事件，但本问题没有匹配依据；可切换到“所选事件”明确指定来源。" : "当前范围没有正式事件；可以继续提问，但回答会明确来源不足。"}</p>}{omittedGlobalWorkEventCount ? <p>另有 {omittedGlobalWorkEventCount} 项未进入本次上下文；可切换范围、置顶，或在“所选事件”明确指定。</p> : null}{removedWorkEventIds.length ? <button type="button" className="tianyi-grounded-restore" onClick={() => setRemovedWorkEventIds([])}>恢复本问已移除的来源</button> : null}</>}
-              {mapEvidenceState !== "idle" ? <fieldset className="tianyi-map-context-preview"><legend>作者明确地图依据</legend>{mapEvidenceState === "loading" ? <p>正在读取地图的准确修订；读取完成前不会发送。</p> : mapEvidenceState === "failed" ? <p role="alert">地图或选中图示已变化、缺失或不属于当前作品；本次不会将它作为依据。</p> : selectedMapEvidence ? <article><div><strong>{selectedMapEvidence.map.title}</strong><small>修订 {selectedMapEvidence.map.revision} · {selectedMapEvidence.map.contentHash.slice(0, 12)} · {selectedMapEvidence.map.content.coordinateSystem.precision === "calibrated" ? "已校准坐标" : "示意坐标"}</small></div>{selectedMapEvidence.elementId ? (() => { const drawing = selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId); return <><p>{drawing?.kind} / {drawing?.subtype} · {drawing?.objectId ? `已绑定正式对象 ${drawing.objectId}` : "仅为作者图示，非世界事实"}</p><details><summary>预览几何</summary><pre><code>{JSON.stringify({ id: drawing?.id, points: drawing?.points, objectId: drawing?.objectId }, null, 2)}</code></pre></details></>; })() : <p>引用当前地图范围；图上靠近、线条或边界均不自动解释为道路、管辖或通行事实。</p>}<p>本次范围：{selectedMapEvidence.elementId ? "一个选中图示" : "当前地图结构化文档"}。文本模型只接收对象、坐标和必要邻近说明，不发送整张图片。</p>{dialogueRuntime === "local-fake" ? <button type="button" onClick={() => void createDeterministicMapProposal()} disabled={busy}>用本地假服务生成结构化编辑提案</button> : <small>当前 Provider 的地图编辑能力需由能力声明返回结构化操作；不会根据模型名字猜测图片能力。</small>}<button type="button" onClick={openGroundedMap}>返回地图</button>{mapEditProposal ? <section className="tianyi-map-edit-proposal" data-status={mapEditProposal.status}><header><strong>地图修改提案 · {mapEditProposal.status === "pending" ? "待审" : mapEditProposal.status === "accepted" ? "已接受" : mapEditProposal.status === "compensated" ? "已补偿" : "已拒绝"}</strong><small>基于修订 {mapEditProposal.baseRevision}</small></header><p>新增 {mapEditProposal.preview.addedDrawingIds.length} · 修改 {mapEditProposal.preview.modifiedDrawingIds.length} · 删除 {mapEditProposal.preview.deletedDrawingIds.length} · 通道 {mapEditProposal.preview.connectionIds.length}</p><details><summary>查看受约束操作</summary><pre><code>{JSON.stringify(mapEditProposal.operations, null, 2)}</code></pre></details>{mapEditProposal.status === "pending" ? <div><button type="button" onClick={() => void decideMapProposal("reject")} disabled={busy}>拒绝</button><button type="button" className="primary-action" onClick={() => void decideMapProposal("accept")} disabled={busy}>整批接受</button></div> : mapEditProposal.status === "accepted" ? <button type="button" onClick={() => void compensateMapProposal()} disabled={busy}>撤销本次提案</button> : null}<small>{mapEditProposal.status === "compensated" ? "本批提案已作为新修订补偿；原提案与接受回执保留。" : "提案原子写入；地图若在等待期间变化，服务端会拒绝旧基准。"}</small></section> : null}</article> : null}</fieldset> : null}
+              {mapEvidenceState !== "idle" ? <fieldset className="tianyi-map-context-preview"><legend>作者明确地图依据</legend>{mapEvidenceState === "loading" ? <p>正在读取地图的准确修订；读取完成前不会发送。</p> : mapEvidenceState === "failed" ? <p role="alert">地图或选中图示已变化、缺失或不属于当前作品；本次不会将它作为依据。</p> : selectedMapEvidence ? <article><div><strong>{selectedMapEvidence.map.title}</strong><small>修订 {selectedMapEvidence.map.revision} · {selectedMapEvidence.map.contentHash.slice(0, 12)} · {selectedMapEvidence.map.content.coordinateSystem.precision === "calibrated" ? "已校准坐标" : "示意坐标"}</small></div>{selectedMapEvidence.elementId ? (() => { const drawing = selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId); return <><p>{drawing?.kind} / {drawing?.subtype} · {drawing?.objectId ? `已绑定正式对象 ${drawing.objectId}` : "仅为作者图示，非世界事实"}</p><details><summary>预览几何</summary><pre><code>{JSON.stringify({ id: drawing?.id, points: drawing?.points, objectId: drawing?.objectId }, null, 2)}</code></pre></details></>; })() : <p>引用当前地图范围；图上靠近、线条或边界均不自动解释为道路、管辖或通行事实。</p>}<p>本次范围：{selectedMapEvidence.elementId ? "一个选中图示" : "当前地图结构化文档"}。文本模型只接收对象、坐标和必要邻近说明，不发送整张图片。</p>{dialogueRuntime === "local-fake" ? <button type="button" onClick={() => void createDeterministicMapProposal()} disabled={busy}>用本地假服务生成结构化编辑提案</button> : <small>当前 Provider 的地图编辑能力需由能力声明返回结构化操作；不会根据模型名字猜测图片能力。</small>}<button type="button" onClick={() => openGroundedMap("authoring")}>返回地图继续创作</button>{mapEditProposal ? <section className="tianyi-map-edit-proposal" data-status={mapEditProposal.status}><header><strong>地图修改提案 · {mapEditProposal.status === "pending" ? "待审" : mapEditProposal.status === "accepted" ? "已接受" : mapEditProposal.status === "compensated" ? "已补偿" : "已拒绝"}</strong><small>基于修订 {mapEditProposal.baseRevision}</small></header><p>新增 {mapEditProposal.preview.addedDrawingIds.length} · 修改 {mapEditProposal.preview.modifiedDrawingIds.length} · 删除 {mapEditProposal.preview.deletedDrawingIds.length} · 通道 {mapEditProposal.preview.connectionIds.length}</p><details><summary>查看受约束操作</summary><pre><code>{JSON.stringify(mapEditProposal.operations, null, 2)}</code></pre></details>{mapEditProposal.status === "pending" ? <div><button type="button" onClick={() => void decideMapProposal("reject")} disabled={busy}>拒绝</button><button type="button" className="primary-action" onClick={() => void decideMapProposal("accept")} disabled={busy}>整批接受</button></div> : mapEditProposal.status === "accepted" ? <button type="button" onClick={() => void compensateMapProposal()} disabled={busy}>撤销本次提案</button> : null}<small>{mapEditProposal.status === "compensated" ? "本批提案已作为新修订补偿；原提案与接受回执保留。" : "提案原子写入；地图若在等待期间变化，服务端会拒绝旧基准。"}</small></section> : null}</article> : null}</fieldset> : null}
               <fieldset className="tianyi-material-context-picker"><legend>作者明确资料引用（地图与资料合计至多 {MAX_EXPLICIT_MATERIAL_REFS} 项）</legend><p>预览不发送模型；点击发送时会重新核对项目、对象和修订。规则在这里作为作者选择的证据，不会自动升级为场景硬约束。</p>{selectedMaterialFile ? <article className="tianyi-material-file-preview"><strong>{selectedMaterialFile.displayName}</strong><small>普通文本文件 · {selectedMaterialFileRange ? "明确选段" : "全文"} · 修订 {selectedMaterialFile.revision.id.slice(0, 20)}</small><p>{selectedMaterialFileRange ? selectedMaterialFile.revision.textContent?.slice(selectedMaterialFileRange.start, selectedMaterialFileRange.end) : selectedMaterialFile.revision.textContent?.slice(0, 240) || "（正文为空）"}</p><button type="button" onClick={() => { setSelectedMaterialFile(null); setSelectedMaterialFileRange(null); }}>取消本文件</button></article> : null}{workMaterials.length ? <div className="tianyi-material-context-list">{workMaterials.map((material) => <label key={material.id}><input type="checkbox" checked={selectedMaterialIds.includes(material.id)} onChange={() => toggleMaterial(material.id)} /><span className="tianyi-material-context-copy"><strong>{material.title}</strong><small>{material.tags.includes("导入候选") ? "原始来源" : materialTypeLabel(material.type)} · 修订 {material.revisionToken.slice(0, 12)}</small><span>{material.body.slice(0, 120) || "（正文为空）"}</span></span></label>)}</div> : selectedMaterialFile ? null : <p>当前作品没有可引用的资料，或资料尚在读取。</p>}</fieldset>
               {runtime.sharedTianyiReferences.length ? <p>此前的未绑定引用不会参与本次发送；上传与来源绑定尚未接通，当前不再创建演示引用。</p> : null}
             </details> : null}
             {activeLegacyCandidate ? <TianyiAdoptionPanel runtime={runtime} onOpenEventLine={openEventLine} /> : <>
               <section className="tianyi-visible-history tianyi-work-history" aria-label="当前工作对话">
-                {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
+                {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`} data-message-id={message.eventId}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span>{message.actor === "tianyi" ? <CreativeResultBody text={message.visibleContent} /> : <p>{message.visibleContent}</p>}</article>) : <p className="tianyi-work-empty">这里没有待处理候选。你仍可就当前故事提问、补充引用或设定下一步范围。</p>}
               </section>
-              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt" aria-label="本问来源回执"><header><div><small>已保存回答回执</small><h3>“{lastGroundedQuestion}”</h3></div><span>{lastGroundedAnswer.providerDispatchCount} 次模型发送</span></header><p className="tianyi-grounded-answer">{lastGroundedAnswer.answer?.summary}</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const file = source.sourceType === "material-file" && selectedMaterialFile?.id === source.sourceId ? selectedMaterialFile : null; const label = file?.displayName ?? material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "material-file" ? "普通文本文件" : source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "material-file" ? () => openGroundedMaterialFile(source.sourceId, source.contentHash, source.sourceKey) : source.sourceType === "map" ? openGroundedMap : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; const range = source.sourceType === "material-file" ? materialFileRangeFromSourceKey(source.sourceKey) : null; const currentFileText = file?.revision.sha256 === source.contentHash ? file.revision.textContent : null; const adoptedText = currentFileText != null ? range ? currentFileText.slice(range.start, range.end) : currentFileText : material?.revisionToken === source.contentHash ? material.body : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}{range ? " · 明确选段" : ""}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}{adoptedText != null ? <details><summary>实际采用正文</summary><p>{adoptedText}</p></details> : <small>资料后来已有修改；返回来源会按本次哈希读取历史正文，不使用当前版本替代。</small>}<details className="tianyi-grounded-source-technical"><summary>来源技术详情</summary><code>{source.sourceId}</code><code>修订 {source.contentHash}</code><code>通道 {source.lane}</code></details></li>; })}</ul></section><details className="tianyi-grounded-receipt-technical"><summary>回执技术详情</summary><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
+              {lastGroundedAnswer ? <section className="tianyi-grounded-answer-receipt tianyi-creation-result" aria-label="本问来源回执"><header><div><small>已保存到当前会话</small><h3>天意的创作回复</h3></div><span>{lastGroundedAnswer.answer?.status === "unknown" ? "依据不足" : "可继续加工"}</span></header><CreativeResultBody text={groundedResultText} /><div className="tianyi-creation-result-actions"><button type="button" onClick={continueGroundedAnswer}>继续修改这条回复</button><button type="button" onClick={() => void copyGroundedAnswer()}>复制内容</button><button type="button" onClick={saveGroundedAnswerAsCreativeDraft}>保存为创意草稿</button>{runtime.creativeComposerDraft.trim() ? <button type="button" onClick={() => changeLane("creative")}>打开创意草稿</button> : null}</div><details><summary>来源、请求与保存详情</summary><p>本次要求：“{lastGroundedQuestion}”</p><p>{lastGroundedAnswer.providerDispatchCount} 次模型发送；会话已保存，创意草稿需另行明确保存。</p><section className="tianyi-grounded-sources" aria-label="本问采用的资料"><strong>采用的资料</strong><ul>{lastGroundedAnswer.includedSources.map((source) => { const material = workMaterials.find((item) => item.id === source.sourceId); const file = source.sourceType === "material-file" && selectedMaterialFile?.id === source.sourceId ? selectedMaterialFile : null; const label = file?.displayName ?? material?.title ?? (source.sourceType === "map" ? "当前地图图示" : source.sourceId); const sourceKind = source.sourceType === "material-file" ? "普通文本文件" : source.sourceType === "map" ? "地图依据" : materialTypeLabel(material?.type ?? (source.sourceType === "rule" ? "rule" : "item")); const returnSource = lastGroundedAnswer.sourceManifest.request.eventRefs?.includes(source.sourceKey) ? () => openGroundedEvidenceEvent(source) : source.sourceType === "material-file" ? () => openGroundedMaterialFile(source.sourceId, source.contentHash, source.sourceKey) : source.sourceType === "map" ? () => openGroundedMap("evidence") : source.sourceType === "world-object" || source.sourceType === "rule" ? () => openGroundedMaterial(source.sourceId, source.contentHash) : null; return <li key={source.sourceKey}><div><strong>{label}</strong><span>{sourceKind}</span></div>{returnSource ? <button type="button" aria-label={`返回来源：${label}`} onClick={returnSource}>返回来源</button> : null}</li>; })}</ul></section><dl><div><dt>Receipt</dt><dd>{lastGroundedAnswer.receiptId}</dd></div><div><dt>来源清单校验</dt><dd>{lastGroundedAnswer.sourceManifest.digest}</dd></div></dl></details></section> : null}
             </>}
           </>}
         </section>}
+          {continuationSource ? <section className="tianyi-continuation-target" aria-label="续改目标">
+            <div><strong>正在继续修改一条已保存回复</strong><span>{continuationSource.selectedTargetIndex === undefined ? "请在要求中写明标题、序号或整条回复" : continuationSource.selectedTargetIndex === null ? "目标：整条回复" : `目标：第 ${continuationSource.selectedTargetIndex + 1} 项`}</span></div>
+            <button type="button" onClick={() => persistContinuationSource(null)}>取消续改</button>
+          </section> : null}
+          {continuationChoice ? <section className="tianyi-continuation-choice" aria-label="选择要修改的构想" role="alert">
+            <strong>发送前请选择目标</strong><p>{continuationChoice.reason}</p>
+            <div>{continuationChoice.candidates.map((candidate) => <button type="button" key={`${candidate.ideaIndex}:${candidate.title}`} onClick={() => continuationSource && persistContinuationSource({ ...continuationSource, selectedTargetIndex: candidate.ideaIndex })}>第 {candidate.ideaIndex + 1} 项 · {candidate.title}</button>)}</div>
+          </section> : null}
+          {notice ? <p className="tianyi-workspace-message" role="status">{notice}</p> : null}
           {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
         </div>
-        {(lane === "creative" || (lane === "work" && !activeIntakeCandidate)) ? <section className="tianyi-workspace-composer">
+        {(lane === "creative" || (lane === "work" && !activeIntakeCandidate && !mapEntry && !relationEntry)) ? <section className={`tianyi-workspace-composer${lane === "creative" && creativeDraftView.source ? " is-sourced-creative-draft" : ""}`}>
+          {lane === "creative" && creativeDraftView.source ? <section className="tianyi-creative-draft-source" aria-label="创意草稿来源信息"><div><strong>当前作品的创意编辑草稿</strong><span>来源：{creativeDraftView.source.labels}</span></div><details><summary>查看原回复身份</summary><code>{creativeDraftView.source.responseMessageId}</code><p>来源信息随本浏览器草稿保留；下方只编辑正文。</p></details></section> : null}
           <p className="tianyi-dialogue-runtime" role="status">{dialogueRuntime === "local-fake" ? "本地假服务 · 非真实 Pi；发送仅用于本地连续性测试。" : dialogueRuntime === "provider" ? "已配置 Provider；仅在明确发送时调用。" : "当前没有可用的真实 Provider；草稿会保留，发送不会生成假回复。"}</p>
           <textarea aria-label={t(lane === "creative" ? "tianyi.workspace.creativeDraft" : "tianyi.workspace.workDraft")} value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} placeholder={t(lane === "creative" ? "tianyi.workspace.creativePlaceholder" : "tianyi.workspace.workPlaceholder")} />
           <div>{lane === "work" ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy || workContextState === "loading" || workContextState === "failed"} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}发送到当前工作</button> : legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}><MessageSquareText />发送消息</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}整理为故事候选</button></>}</div>
@@ -1039,6 +1246,23 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       </aside> : null}
     </div>
   </main>;
+}
+
+function CreativeResultBody(props: { text: string }) {
+  const blocks = props.text.split(/\n{2,}/u).map((block) => block.trim()).filter(Boolean);
+  return <div className="tianyi-creation-result-body">{blocks.map((block, index) => {
+    const heading = /^(#{1,3})\s+(.+)$/u.exec(block);
+    if (heading) return <h4 key={`${index}:${block}`}>{heading[2]}</h4>;
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length > 1 && lines.every((line) => /^(?:[-*]|\d+[.)])\s+/u.test(line))) {
+      return <ol key={`${index}:${block}`}>{lines.map((line, lineIndex) => <li key={`${lineIndex}:${line}`}>{line.replace(/^(?:[-*]|\d+[.)])\s+/u, "")}</li>)}</ol>;
+    }
+    return <p key={`${index}:${block}`}>{block}</p>;
+  })}</div>;
+}
+
+function imageRelationLabel(value: "above" | "below" | "left-of" | "right-of" | "overlap" | "unknown"): string {
+  return ({ above: "位于上方", below: "位于下方", "left-of": "位于左侧", "right-of": "位于右侧", overlap: "位置重叠", unknown: "相对位置不确定" })[value];
 }
 
 function storyIntakeStatusLabel(run: TianyiAgentRunProjection): string {

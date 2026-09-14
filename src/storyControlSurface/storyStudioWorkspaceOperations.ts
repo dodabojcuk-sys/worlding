@@ -2986,7 +2986,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       }) as StoryStudioVisualDocument;
     },
 
-    createMapEditProposal(documentInput: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: unknown; capability: unknown; operations: unknown[] }) {
+    createMapEditProposal(documentInput: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: unknown; capability: unknown; operations: unknown[]; generation?: unknown; operationExplanations?: unknown }) {
       const projectPath = resolveProjectPath(rootPath, documentInput.projectId);
       return createMapEditProposalFile(projectPath, documentInput);
     },

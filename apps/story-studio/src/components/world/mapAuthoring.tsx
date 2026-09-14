@@ -6,8 +6,8 @@ export type MapAuthoringTool = "browse" | "terrain" | "line" | "area" | "symbol"
 export const MAP_TOOL_OPTIONS: Record<Exclude<MapAuthoringTool, "browse" | "label">, Array<{ value: string; label: string }>> = {
   terrain: [{ value: "land", label: "陆地" }, { value: "water", label: "水域" }, { value: "forest", label: "森林" }, { value: "mountain", label: "山脉" }, { value: "sand", label: "沙地" }],
   line: [{ value: "river", label: "河流" }, { value: "road", label: "道路" }, { value: "wall", label: "墙体" }, { value: "connector", label: "连接示意" }],
-  area: [{ value: "geography", label: "地理范围" }, { value: "district", label: "行政范围图示" }, { value: "room", label: "房间" }],
-  symbol: [{ value: "settlement", label: "聚落" }, { value: "building", label: "建筑" }, { value: "door", label: "门" }, { value: "entrance", label: "入口" }, { value: "planet", label: "星球" }]
+  area: [{ value: "land", label: "陆地" }, { value: "water", label: "水域" }, { value: "geography", label: "地理范围" }, { value: "district", label: "行政范围图示" }, { value: "room", label: "房间" }],
+  symbol: [{ value: "village", label: "聚落" }, { value: "settlement", label: "聚落（旧图示）" }, { value: "building", label: "建筑" }, { value: "door", label: "门" }, { value: "entrance", label: "入口" }, { value: "planet", label: "星球" }]
 };
 
 export function createStarterContent(template: MapContent["template"]): Pick<MapContent, "template" | "layers" | "drawings" | "labels"> {
@@ -43,26 +43,31 @@ export function createStarterContent(template: MapContent["template"]): Pick<Map
   return { template, layers, drawings, labels };
 }
 
-type DrawingContentProps = { drawings: MapDrawing[]; labels: MapLabel[]; visibleLayerIds: Set<string>; selectedId?: string | null; onSelect?: (id: string) => void; compact?: boolean };
+type DrawingContentProps = { drawings: MapDrawing[]; labels: MapLabel[]; visibleLayerIds: Set<string>; selectedId?: string | null; onSelect?: (id: string) => void; compact?: boolean; selectedLabelId?: string | null; onSelectLabel?: (id:string)=>void };
 
 /** The same geometry projection is used by the editor, atlas and alignment. */
 export function MapDrawingContent(props: DrawingContentProps) {
   const visible = props.drawings.filter((item) => props.visibleLayerIds.has(item.layerId));
   const occupied: Array<{x:number;y:number}> = [];
+  const named = new Set<string>();
+  for (const item of [...visible].sort((a,b)=>(b.id===props.selectedId?3:b.kind==="symbol"?2:0)-(a.id===props.selectedId?3:a.kind==="symbol"?2:0))) {
+    if(!item.label) continue;
+    const point=labelPoint(item.points);
+    if(item.id===props.selectedId || !occupied.some(other=>Math.abs(other.x-point.x)<12 && Math.abs(other.y-point.y)<5)) {named.add(item.id);occupied.push(point);}
+  }
   return <g className={props.compact ? "map-content-compact" : ""}>
     {visible.map((item) => {
-      const point = labelPoint(item.points);
-      const showName = item.id === props.selectedId || !occupied.some((other) => Math.abs(other.x-point.x)<15 && Math.abs(other.y-point.y)<7);
-      if (showName) occupied.push(point);
+      const showName = named.has(item.id);
       return <Drawing key={item.id} drawing={item} selected={item.id === props.selectedId} showName={showName && !props.compact} onSelect={props.onSelect ? () => props.onSelect!(item.id) : undefined} />;
     })}
-    {!props.compact && props.labels.filter((item) => item.visible && props.visibleLayerIds.has(item.layerId)).map((item) => <text key={item.id} className={`map-authoring-label is-${item.treatment}`} x={item.x} y={item.y} fontSize={Math.min(3, item.fontSize / 6)} fontWeight={item.fontWeight} textAnchor={item.align === "left" ? "start" : item.align === "right" ? "end" : "middle"} transform={`rotate(${item.rotation} ${item.x} ${item.y})`}>{item.text}</text>)}
+    {!props.compact && props.labels.filter((item) => item.visible && props.visibleLayerIds.has(item.layerId)).map((item) => <text key={item.id} data-label-id={item.id} role={props.onSelectLabel ? "button" : undefined} tabIndex={props.onSelectLabel ? 0 : undefined} aria-label={`地图文字：${item.text}`} onClick={props.onSelectLabel ? event=>{event.stopPropagation();props.onSelectLabel!(item.id);} : undefined} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();props.onSelectLabel?.(item.id);}}} className={`map-authoring-label is-${item.treatment}${props.selectedLabelId===item.id ? " is-selected" : ""}`} x={item.x} y={item.y} fontSize={Math.min(3, item.fontSize / 6)} fontWeight={item.fontWeight} textAnchor={item.align === "left" ? "start" : item.align === "right" ? "end" : "middle"} transform={`rotate(${item.rotation} ${item.x} ${item.y})`}>{item.text}</text>)}
   </g>;
 }
 
-export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean }) {
-  return <svg className={`map-authoring-overlay${props.authoring ? " is-authoring" : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="地图绘图内容">
+export function MapDrawingOverlay(props: DrawingContentProps & { draft: Array<{ x: number; y: number }>; draftKind: MapAuthoringTool; authoring: boolean; nodeEditing?: boolean; className?: string; ariaLabel?: string }) {
+  return <svg className={`map-authoring-overlay${props.authoring ? " is-authoring" : ""}${props.className ? ` ${props.className}` : ""}`} viewBox="0 0 100 100" preserveAspectRatio="none" aria-label={props.ariaLabel ?? "地图绘图内容"}>
     <MapDrawingContent {...props} />
+    {props.nodeEditing ? props.drawings.filter(item=>item.id===props.selectedId && props.visibleLayerIds.has(item.layerId)).map(item=><g key={item.id} data-drawing-id={item.id} className="map-edit-nodes">{item.points.map((p,i)=><circle key={i} tabIndex={0} role="button" aria-label={`移动节点 ${i+1}（方向键）`} data-node-index={i} cx={p.x} cy={p.y} r=".8"/>)}</g>) : null}
     {props.draft.length ? <polyline className="map-authoring-draft" points={props.draft.map(pointText).join(" ")} fill={props.draftKind === "area" ? "#49a99b" : "none"} fillOpacity=".18" /> : null}
   </svg>;
 }
@@ -99,6 +104,7 @@ function Drawing(props: { drawing: MapDrawing; selected: boolean; showName?: boo
   if (item.kind === "symbol") {
     const point = item.points[0]!;
     if (item.subtype === "planet") return <g {...common}><g transform={`translate(${point.x} ${point.y})`}><circle r={item.size / 2} fill={item.fillColor} stroke={item.strokeColor} strokeWidth=".55" /><ellipse rx={item.size * .7} ry={item.size * .18} fill="none" stroke={item.strokeColor} strokeWidth=".45" transform="rotate(-18)" /></g>{name}</g>;
+    if (item.subtype === "village") return <g {...common}><g transform={`translate(${point.x} ${point.y}) rotate(${item.rotation}) scale(${item.size/4})`}><path d="M -2 1.5 V -1 L -.7 -2.1 L .6 -1 V 1.5 Z M .6 1.5 V -.4 L 1.7 -1.3 L 2.8 -.4 V 1.5 Z" fill={item.fillColor} stroke={item.strokeColor} strokeWidth=".35"/><path d="M -1.1 1.5 V .2 H -.4 V 1.5" fill="none" stroke={item.strokeColor} strokeWidth=".25"/></g>{name}</g>;
     if (item.subtype === "building") return <g {...common}><g transform={`translate(${point.x} ${point.y})`}><rect x={-item.size / 2} y={-item.size / 2} width={item.size} height={item.size} rx=".5" fill={item.fillColor} stroke={item.strokeColor} strokeWidth=".55" /><path d={`M ${-item.size * .65} ${-item.size / 2} L 0 ${-item.size} L ${item.size * .65} ${-item.size / 2}`} fill="none" stroke={item.strokeColor} strokeWidth=".55" /></g>{name}</g>;
     if (item.subtype === "door") return <g {...common}><g transform={`translate(${point.x} ${point.y}) rotate(${item.rotation})`}><path d={`M ${-item.size / 2} ${item.size / 2} V ${-item.size / 2} H ${item.size / 2}`} fill="none" stroke={item.strokeColor} strokeWidth=".65" /><path d={`M ${-item.size / 2} ${item.size / 2} A ${item.size} ${item.size} 0 0 1 ${item.size / 2} ${-item.size / 2}`} fill="none" stroke={item.strokeColor} strokeWidth=".28" strokeDasharray=".7 .45" /></g>{name}</g>;
     return <g {...common}><g transform={`translate(${point.x} ${point.y}) rotate(${item.rotation})`}><path d="M -2 2 L 0 -2 L 2 2 Z" fill={item.fillColor} stroke={item.strokeColor} vectorEffect="non-scaling-stroke" /></g>{name}</g>;

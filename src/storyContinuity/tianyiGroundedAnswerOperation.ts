@@ -45,6 +45,7 @@ import type { ContinuityContext } from "./continuityFilesystem.ts";
 const QUESTION_VERSION = "tianyi-grounded-question-operation/v3" as const;
 const RESPONSE_VERSION = "tianyi-grounded-response-operation/v3" as const;
 const ATTEMPT_STATE_VERSION = "tianyi-grounded-attempt-state/v1" as const;
+const TIANYI_GROUNDED_MAX_OUTPUT_TOKENS = 1_200;
 const ATTEMPT_KEY_VERSION = "story-tianyi-question-attempt-key/v1" as const;
 const INTENT_VERSION = "story-tianyi-request-intent/v1" as const;
 
@@ -386,6 +387,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
       const stream = await dependencies.gateway.openChatStream({
         profileId,
         messages: attemptMessages,
+        maxOutputTokens: TIANYI_GROUNDED_MAX_OUTPUT_TOKENS,
         responseFormat: "json-object",
         signal: input.signal,
         idempotencyKey: `tianyi-grounded.${questionAttemptKey}.${invocationAttempt}`,
@@ -708,6 +710,8 @@ function buildGroundedMessages(question: string, compiled: TianyiCompiledGrounde
         "Preserve explicit constraints and negations. Do not turn a conditional conclusion into an unconditional claim.",
         `Context manifest digest: ${compiled.manifest.digest}`,
         `Return exactly one JSON object with this schema: ${schema}`,
+        "Put the complete author-facing answer in summary. It must answer the author's request directly; never use summary to restate or describe the task. Preserve requested headings, numbering, and readable prose inside that string.",
+        "Use claims only to classify atomic assertions from that answer. Claims do not replace or hide the author-facing answer.",
         "Every sourceRefs entry must copy one identifier exactly from the allowed included source IDs below. Do not paraphrase source IDs.",
         `includedSources must equal exactly: ${JSON.stringify(compiled.manifest.included.map((entry) => entry.sourceKey))}`,
         `excludedSources must equal exactly: ${JSON.stringify(excluded.map((entry) => ({ sourceRef: entry.sourceKey, reason: entry.reasonCode })))}`

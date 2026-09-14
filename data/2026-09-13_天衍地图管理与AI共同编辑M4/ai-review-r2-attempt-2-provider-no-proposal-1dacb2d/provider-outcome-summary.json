@@ -1,0 +1,14 @@
+{
+  "sourceRevision": "1dacb2df81552784df16618290e20edafd6e596a",
+  "provider": "radeon-cloud",
+  "modelId": "DeepSeek-V4-Flash-Vision-Exp",
+  "request": "保持道路两个端点，避开作者明确选择的森林 area 多边形",
+  "ledgerBefore": { "generationCalls": 36, "totalCalls": 40 },
+  "ledgerAfter": { "generationCalls": 37, "totalCalls": 41 },
+  "reservationId": "provider-reservation-ec2c5b5ec82b869d18b63ed2",
+  "transportOutcome": "success",
+  "productOutcome": "no-reviewable-proposal-within-30-seconds",
+  "formalMapWrite": false,
+  "automaticRetry": false,
+  "note": "Provider 边界已成功返回，但正常页面未进入待审状态。本轮证据不足以在结构输出、应用校验或界面回显之间进一步归因，因此不声称模型已正确绕行。"
+}

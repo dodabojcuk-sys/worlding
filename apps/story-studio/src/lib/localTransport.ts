@@ -715,6 +715,10 @@ export type MaterialFileRecord = {
 export type MaterialFolder = { id: string; title: string; parentId: string | null; createdAt: string; updatedAt: string };
 export type MaterialFileList = { files: MaterialFileRecord[]; total: number; offset: number; limit: number; folders: MaterialFolder[]; catalogRevision: number; contentHash: string };
 export type MaterialOperationReceipt = { version: "tianyan-material-file-operation-receipt/v1"; operationId: string; kind: string; state: "completed" | "partial"; results: Array<{ index?: number; name?: string; fileId: string | null; revisionId?: string | null; duplicateOf?: string | null; status: string; error: string | null }>; createdAt: string; replayed?: boolean; catalogRevision?: number };
+export type TianyiImageObservation = {
+  observation: { objects: string[]; relativePositions: Array<{ subject: string; relation: "above" | "below" | "left-of" | "right-of" | "overlap" | "unknown"; object: string }>; consistency: "consistent" | "conflict" | "indeterminate"; explanation: string; uncertainty: string };
+  generation: { kind: "real-provider" | "local-fixture"; modelId: string; providerDispatches: 1; receiptEnvelopeId: string | null; finishReason: string | null; usage: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null } | null };
+};
 export type R9AWorkflowTask = { id: string; title: string; lane: "library" | "relationship" | "event" | "nuwa" | "creation" | "recovery" | "multiverse"; state: "queued" | "active" | "blocked" | "done"; sourceRefs: string[]; createdAt: string; updatedAt: string };
 export type R9AWorkflowState = { version: "story-studio-r9a-workflow/v1"; tasks: R9AWorkflowTask[]; updatedAt: string; contentHash: string };
 export type R9AProjectBackup = { id: string; title: string; kind: "backup" | "pre-restore-checkpoint"; createdAt: string; fileCount: number; totalBytes: number; fingerprint: string };
@@ -858,7 +862,7 @@ export type MapContent = {
   /** Explicit Relation Owner type IDs. Labels and free text are never inferred. */
   structure: { geographyRelationTypeIds: string[]; administrationRelationTypeIds: string[] };
   lifecycle: { archived: boolean; copiedFromMapId: string | null };
-  coordinateSystem: { axis: "x-right-y-down"; bounds: { minX: number; minY: number; maxX: number; maxY: number }; unit: string | null; scaleKnown: boolean; precision: "illustrative" | "calibrated" };
+  coordinateSystem: { axis: "x-right-y-down"; bounds: { minX: number; minY: number; maxX: number; maxY: number }; unit: string | null; scaleKnown: boolean; precision: "illustrative" | "calibrated"; north: null | { degreesClockwiseFromMapUp: number; source: "author" } };
   placements: MapPlacement[];
   connections: MapConnection[];
   floor: null | { order: number; height: number | null; label: string | null };
@@ -986,16 +990,23 @@ export type MapEditProposal = {
   baseContentHash: string;
   baseRevision: number;
   status: "pending" | "accepted" | "rejected" | "compensated";
-  scope: { kind: "map" | "selection" | "region"; mapId: string; objectIds: string[]; bounds: null | { x: number; y: number; width: number; height: number } };
+  scope: { kind: "map" | "selection" | "region"; mapId: string; objectIds: string[]; bounds: null | { x: number; y: number; width: number; height: number }; layerId?: string | null };
   capability: { mode: "text" | "vision" | "image"; imageInput: boolean; structuredOperations: boolean };
   prompt: string;
   operations: MapEditOperation[];
-  preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[] };
+  preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[]; changes?: Array<{ kind: "added" | "modified" | "deleted"; drawingId: string; before: MapDrawing | null; after: MapDrawing | null }> };
+  referenceObjectIds?: string[];
+  constraints?: { preserveLineEndpointIds: string[]; avoidAreaObjectIds: string[]; relativePosition?: null | { targetObjectId: string; referenceObjectId: string; relation: "north-of"; minimumDistance: number; northDegrees: number } };
+  spatialChecks?: Array<{ kind: "line-endpoints-preserved" | "avoids-explicit-areas" | "north-of-reference"; status: "passed"; objectIds: string[]; referenceObjectIds: string[] }>;
+  generation?: { kind: "real-provider" | "local-fake"; providerId: string; modelId: string; providerDispatches: 0 | 1; sessionId: string; workVersionId: string; receiptEnvelopeId: string | null };
+  operationExplanations?: Array<{ operationIndex: number; reason: string }>;
   createdAt: string;
   decidedAt: string | null;
   resultContentHash: string | null;
+  resultRevision?: number;
   compensatedAt?: string;
   compensationContentHash?: string;
+  compensationRevision?: number;
 };
 
 export type VisualWorkbenchBootstrap = {
@@ -1948,6 +1959,11 @@ export async function readMaterialFile(projectId: string, fileId: string, revisi
   const parameters = new URLSearchParams({ projectId, fileId });
   if (revisionId) parameters.set("revisionId", revisionId);
   return request(`${basePath}/material-file?${parameters.toString()}`);
+}
+
+export async function inspectTianyiImage(input: { projectId: string; fileId: string; revisionId: string; profileId: string; prompt: string; directionBasis: "image-up" | "map-north"; northDegrees?: number; relatedText?: string; operationId: string; token: string; signal?: AbortSignal }): Promise<TianyiImageObservation> {
+  const { token, signal, ...body } = input;
+  return request(`${basePath}/model-service/image-observation`, { method: "POST", token, body, signal });
 }
 
 export async function importMaterialFiles(input: { projectId: string; operationId: string; folderId?: string | null; files: Array<{ name: string; displayName?: string; mimeType?: string; base64: string; tags?: string[]; replaceFileId?: string | null }>; token: string }): Promise<MaterialOperationReceipt> {
@@ -3091,7 +3107,9 @@ export async function updateVisualDocument(input: {
   token: string;
 }): Promise<{ conflict: boolean; document: VisualDocument }> {
   const { token, ...body } = input;
-  return request<{ conflict: boolean; document: VisualDocument }>(`${basePath}/visual-documents/update`, { method: "POST", token, body });
+  const result = await request<{ conflict: boolean; document: VisualDocument }>(`${basePath}/visual-documents/update`, { method: "POST", token, body });
+  if (result.conflict) throw new LocalTransportError("地图已在其他页面更新；本次修改未保存，请刷新后重试。", 409);
+  return result;
 }
 
 export async function duplicateMapDocument(input: { projectId: string; relativePath: string; title?: string; token: string }): Promise<MapDocument> {
@@ -3110,6 +3128,11 @@ export async function readMapRevision(projectId: string, relativePath: string, c
 export async function createMapEditProposal(input: { projectId: string; relativePath: string; operationId: string; baseContentHash: string; prompt: string; scope: MapEditProposal["scope"]; capability: MapEditProposal["capability"]; operations: MapEditOperation[]; token: string }): Promise<MapEditProposal> {
   const { token, ...body } = input;
   return request(`${basePath}/maps/proposals/create`, { method: "POST", token, body });
+}
+
+export async function generateMapEditProposal(input: { projectId: string; workVersionId: string; sessionId: string; relativePath: string; operationId: string; baseContentHash: string; profileId: string; prompt: string; scope: MapEditProposal["scope"] & { layerId?: string | null }; referenceObjectIds: string[]; avoidAreaObjectIds: string[]; preserveLineEndpoints: boolean; token: string; signal?: AbortSignal }): Promise<{ proposal: MapEditProposal; summary: string }> {
+  const { token, signal, ...body } = input;
+  return request(`${basePath}/maps/proposals/generate`, { method: "POST", token, body, signal });
 }
 
 export async function listMapEditProposals(projectId: string, relativePath: string): Promise<MapEditProposal[]> {

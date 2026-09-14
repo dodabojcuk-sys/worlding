@@ -77,6 +77,8 @@ import {
 import { fileManagerCommand, revealLocalPath } from "./localFileManager.mjs";
 import { DEFAULT_MODEL_PROFILES, createAiProviderGateway } from "./providerGateway/aiProviderGateway.mjs";
 import { createStoryModelingProviderAdapter } from "./providerGateway/storyModelingProviderAdapter.mjs";
+import { createMapEditProposalProviderAdapter } from "./providerGateway/mapEditProposalProviderAdapter.mjs";
+import { createImageObservationProviderAdapter } from "./providerGateway/imageObservationProviderAdapter.mjs";
 import { PROVIDER_PRESETS, providerPreset } from "./providerGateway/providerCatalog.mjs";
 import { createProviderProtocolAdapter } from "./providerGateway/providerProtocolAdapterFactory.mjs";
 import { createOpenAiCompatibleAdapter } from "./providerGateway/siliconFlowAdapter.mjs";
@@ -358,7 +360,7 @@ const localFakeGroundedProfile = Object.freeze({
   purpose: "structured-story",
   providerId: "local-fake",
   modelId: "deterministic-grounded-fixture",
-  maxOutputTokens: 512,
+  maxOutputTokens: 1_200,
   temperature: 0,
   timeoutMs: 5_000,
   enableThinking: false
@@ -389,6 +391,8 @@ const multiNodePredictionGateway = productPathRealProviderAllowed
 const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
   ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
   : createStoryModelingProviderAdapter({ gateway: providerGateway, maxProviderCalls: 16, maxOutputTokens: 512 });
+const mapEditProposalProvider = createMapEditProposalProviderAdapter({ gateway: providerGateway });
+const imageObservationProvider = createImageObservationProviderAdapter({ gateway: providerGateway });
 const tianyi = createStoryStudioTianyiOperations({
   rootPath,
   stateFilePath,
@@ -2762,6 +2766,35 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 201, { data: runProductOperation(() => operations.createMapEditProposal(body)) });
     return;
   }
+  if (request.method === "POST" && pathname === "/__local/story-studio/maps/proposals/generate") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "relativePath", "operationId", "baseContentHash", "profileId", "prompt", "scope", "referenceObjectIds", "avoidAreaObjectIds", "preserveLineEndpoints"]);
+    await runAsyncProductOperation(() => tianyi.readTianyiSessionMetadata({ projectId: body.projectId, sessionId: body.sessionId }));
+    const map = runProductOperation(() => operations.readVisualDocument({ projectId: body.projectId, relativePath: body.relativePath }));
+    if (map.type !== "map" || map.contentHash !== body.baseContentHash) throw productError("地图在生成前已改变；请基于当前修订重新发起。", 409);
+    const controller = new AbortController();
+    request.once("aborted", () => controller.abort());
+    response.once("close", () => { if (!response.writableEnded) controller.abort(); });
+    const generated = await runAsyncProductOperation(() => mapEditProposalProvider.generate({ ...body, map, signal: controller.signal }));
+    if (controller.signal.aborted) throw productError("生成已取消；没有创建地图提案。", 499);
+    const proposal = runProductOperation(() => operations.createMapEditProposal({
+      projectId: body.projectId,
+      relativePath: body.relativePath,
+      operationId: body.operationId,
+      baseContentHash: body.baseContentHash,
+      prompt: body.prompt,
+      scope: body.scope,
+      capability: { mode: "text", imageInput: false, structuredOperations: true },
+      operations: generated.operations,
+      referenceObjectIds: generated.referenceObjectIds,
+      constraints: generated.constraints,
+      generation: generated.generation,
+      operationExplanations: generated.operationExplanations
+    }));
+    sendJson(response, 201, { data: { proposal, summary: generated.summary } });
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/maps/proposals") {
     const projectId = requireQueryValue(url, "projectId");
     const relativePath = requireQueryValue(url, "relativePath");
@@ -2861,6 +2894,24 @@ async function handleModelServiceRequest(request, response, url) {
   requireToken(request);
   requireSameOrigin(request);
   const route = url.pathname.slice("/__local/story-studio/model-service/".length);
+  if (request.method === "POST" && route === "image-observation") {
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "fileId", "revisionId", "profileId", "prompt", "directionBasis", "northDegrees", "relatedText", "operationId"]);
+    requireProject(body.projectId);
+    const resolved = runProductOperation(() => operations.resolveMaterialFileBytes({ projectId: body.projectId, fileId: body.fileId, revisionId: body.revisionId }));
+    const controller = new AbortController();
+    request.once("aborted", () => controller.abort());
+    response.once("close", () => { if (!response.writableEnded) controller.abort(); });
+    const result = await runAsyncProductOperation(() => imageObservationProvider.inspect({
+      ...body,
+      mimeType: resolved.record.revision.mimeType,
+      sha256: resolved.record.revision.sha256,
+      bytes: resolved.bytes,
+      signal: controller.signal
+    }));
+    sendJson(response, 200, { data: result });
+    return;
+  }
   if (request.method === "GET" && route === "profile") {
     sendJson(response, 200, { data: readProviderProfileProjection() });
     return;
@@ -3434,7 +3485,7 @@ async function handleModelServiceRequest(request, response, url) {
       capabilityClaims: entry.capabilityClaims,
       source: entry.source,
       revision: entry.revision || "unknown"
-    }));
+    })).concat(agentFakeProviderStreamAllowed ? metadata.models.filter((model) => model.providerId === "local-fake").map((model) => ({ ...model, providerInstanceId: "local-fake", capabilityClaims: model.capabilities.map((capability) => ({ capability, source: "runtime-discovered" })), source: "endpoint", revision: "local-fixture" })) : []);
     sendJson(response, 200, {
       data: {
         version: "story-studio-model-service/v1",
@@ -3796,19 +3847,43 @@ function createLocalFakeGroundedAdapter() {
   return Object.freeze({
     id: "local-fake",
     label: "本地假服务",
-    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat"]) }]),
+    models: Object.freeze([{ id: localFakeGroundedProfile.modelId, label: localFakeGroundedProfile.label, capabilities: Object.freeze(["chat", "vlm"]) }]),
     status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
+    async openChatCompletion(input) {
+      const user = [...input.messages].reverse().find((message) => message.role === "user");
+      const parts = Array.isArray(user?.content) ? user.content : [];
+      if (!parts.some((part) => part.type === "image_url")) throw new Error("Local image fixture requires selected image bytes.");
+      const requestPart = parts.find((part) => part.type === "text")?.text || "{}";
+      const request = JSON.parse(requestPart);
+      const authorRequest = String(request.authorRequest || "");
+      const consistency = /无法判断|看不清|模糊/u.test(authorRequest) ? "indeterminate" : /相反|矛盾|冲突/u.test(authorRequest) ? "conflict" : "consistent";
+      return Object.freeze({
+        modelId: input.modelId,
+        traceId: `trace.local-fake.image.${stableHash(requestPart).slice(0, 16)}`,
+        content: JSON.stringify({
+          objects: ["A 城", "B 城"],
+          relativePositions: [{ subject: "A 城", relation: consistency === "indeterminate" ? "unknown" : "above", object: "B 城" }],
+          consistency,
+          explanation: consistency === "consistent" ? "本地夹具观察到 A 城位于 B 城画面上方，与所给文字一致。" : consistency === "conflict" ? "本地夹具观察到的位置与所给文字相反。" : "本地夹具无法从当前画面可靠辨认相对位置。",
+          uncertainty: request.directionBasis?.kind === "map-north" ? "按作者设置的地图北向换算；仍需作者检查原图。" : "图片没有地图北向，只能描述画面上下左右。"
+        }),
+        finishReason: "stop",
+        usage: { promptTokens: 20, completionTokens: 24, totalTokens: 44 },
+        toolCalls: []
+      });
+    },
     async openChatStream(input) {
       const system = input.messages.find((message) => message.role === "system")?.content || "";
+      const authorRequest = [...input.messages].reverse().find((message) => message.role === "user")?.content || "";
       const includedSources = readGroundedFixtureJson(system, "includedSources must equal exactly:", []);
       const excludedSources = readGroundedFixtureJson(system, "excludedSources must equal exactly:", []);
       const answer = includedSources.length
         ? {
-            summary: "本地假服务已按当前明确选择读取正式事件；未写入故事事实。",
-            claims: [{ statement: "已附加事件仅作为本轮工作依据。", status: "fact", sourceRefs: includedSources, uncertaintyReason: null }],
-            status: "fact",
+            summary: localFakeCreativeAnswer(authorRequest),
+            claims: [{ statement: "以下内容是基于作者明确引用形成的创意建议，不是既有故事事实。", status: "candidate", sourceRefs: includedSources, uncertaintyReason: "人物动机、冲突结果和新增细节仍待作者选择。" }],
+            status: "candidate",
             sourceRefs: includedSources,
-            uncertaintyReason: null,
+            uncertaintyReason: "创意内容尚未由作者确认为故事事实。",
             includedSources,
             excludedSources
           }
@@ -3830,6 +3905,19 @@ function createLocalFakeGroundedAdapter() {
       });
     }
   });
+}
+
+function localFakeCreativeAnswer(authorRequest) {
+  if (/继续修改这条回复|继续加工已保存的天意回复/u.test(authorRequest)) {
+    if (/山路来信/u.test(authorRequest)) {
+      return "## 修改后的第二个构想：山路来信\n\n暴雨切断河道后，信使沿山路进入雾港，带来两封落款相同、内容相反的信。一方要求立刻封闭山路，避免更多人被困；另一方要求保持通行，让急需药材的沿岸聚落获得补给。\n\n冲突调整为两方都有合理动机的两难选择：封路能保护信使和守路人，却可能延误救治；保持通行能争取救援时间，却让更多人暴露在塌方风险中。主角必须判断哪一种损失更不可承受。\n\n新增的来信来源、聚落伤情和塌方风险均保留为创意建议，没有写入既有事实。";
+    }
+    return "## 续改目标不明确\n\n本地测试夹具没有在请求中找到要修改的构想标题，因此没有替作者猜测目标，也没有改写原回复。";
+  }
+  if (/三个|场景构想/u.test(authorRequest)) {
+    return "## 雾港的三个场景构想\n\n1. 潮闸停灯：检修夜里外港灯塔突然熄灭，一艘未登记盐船借黑暗靠岸。守灯人认出船上载着救治疫病的药材，却也发现领航者正是被通缉的旧友。若立即报警，药材会被扣押；若放船入港，他将亲手破坏守了十年的港规。新增人物与疫病均为创意建议。\n\n2. 山路来信：暴雨切断河道，信使只能沿山路进入雾港，却带来两封落款相同、内容相反的信。一封要求封闭山路保护守路人，另一封要求保持通行输送补给。主角必须先判断哪封是真信，并承担误判造成的伤亡或断粮后果。来信来源与灾情均为创意建议。\n\n3. 河口空席：雾港与上游聚落议价时，最熟悉水情的船匠没有出现，只留下刚修到一半的渡船。学徒声称师父去勘察暗礁，商会却拿出他私卖航道图的证据。若继续等待，潮期将过；若由学徒领航，整支船队都要押在一个未经证实的承诺上。组织与交易均为创意建议。\n\n以上均为本地测试夹具产生的创意候选，没有写入地点、事件或其他正式事实。";
+  }
+  return "## 围绕当前资料的讨论\n\n可以先区分三层：资料已经明确的内容、作者希望探索的方向，以及仍需补充的问题。本地测试回复只演示可阅读正文、会话恢复和继续修改，不会把讨论自动写成正式事实。";
 }
 
 function createNuwaN1LocalHostAdapter(baseUrl) {

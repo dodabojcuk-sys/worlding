@@ -98,7 +98,19 @@ test("Standard browser verification waits for the product-owned Shell readiness 
   const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");
 
   assert.match(shell, /data-connection-state=\{props\.runtime\.connectionState\}/);
+  assert.match(shell, /data-work-version-state=\{props\.runtime\.workVersionState \?\? "ready"\}/);
   assert.match(smoke, /async function waitForProductReady/);
   assert.match(smoke, /getAttribute\("data-connection-state"\) === "ready"/);
+  assert.doesNotMatch(smoke.match(/async function waitForProductReady[\s\S]*?\n\}/u)?.[0] ?? "", /data-work-version-state/u);
   assert.doesNotMatch(smoke, /networkidle/);
+});
+
+test("Shell readiness follows storage access instead of waiting on optional model and permission projections", () => {
+  const runtime = source("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx");
+  const activeProjectBlock = runtime.slice(runtime.indexOf("void storageProvider.connect()"), runtime.indexOf("}).catch(() => {\n      if (active) setConnectionState(\"unavailable\");", runtime.indexOf("void storageProvider.connect()")));
+
+  assert.match(activeProjectBlock, /storageProvider\.connect\(\)[\s\S]*setConnectionState\("ready"\)/u);
+  assert.match(activeProjectBlock, /setConnectionState\("ready"\)[\s\S]*getModelServiceStatus/u);
+  assert.match(activeProjectBlock, /setConnectionState\("ready"\)[\s\S]*getAgentPermissionState/u);
+  assert.doesNotMatch(activeProjectBlock, /Promise\.all/u);
 });

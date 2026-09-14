@@ -44,7 +44,10 @@ export const DEFAULT_MODEL_PROFILES = Object.freeze([
     modelId: "DeepSeek-V4-Flash-Vision-Exp",
     maxOutputTokens: 2_400,
     temperature: 0.35,
-    timeoutMs: 45_000,
+    // Radeon Cloud can acknowledge a short request quickly while taking
+    // longer to finish constrained JSON. Keep this below the explicitly
+    // bounded two-minute author-facing acceptance window.
+    timeoutMs: 120_000,
     enableThinking: false
   })
 ]);
@@ -52,6 +55,8 @@ export const DEFAULT_MODEL_PROFILES = Object.freeze([
 const MAX_MESSAGES = 24;
 const MAX_MESSAGE_CHARACTERS = 24_000;
 const MAX_TOTAL_MESSAGE_CHARACTERS = 64_000;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_IMAGES = 4;
 const MAX_TOOLS = 16;
 const MAX_TOOL_SCHEMA_CHARACTERS = 16_000;
 export const EMBEDDING_PROBE_TEXT = "Tianyan embedding capability probe. No author content.";
@@ -96,6 +101,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       let toolChoice;
       try {
         messages = validateMessages(input?.messages);
+        assertImageCapability(adapter, profile, messages);
         tools = validateTools(input?.tools);
         toolChoice = validateToolChoice(input?.toolChoice, tools);
       } catch (error) {
@@ -177,6 +183,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       if (!profile) throw providerGatewayError("invalid-request");
       const adapter = adapterMap.get(profile.providerId);
       const messages = validateMessages(input?.messages);
+      assertImageCapability(adapter, profile, messages);
       const tools = validateTools(input?.tools);
       const toolChoice = validateToolChoice(input?.toolChoice, tools);
       if (typeof adapter.openChatCompletion !== "function") throw providerGatewayError("unavailable");
@@ -483,14 +490,15 @@ function validateMessages(value) {
   const messages = value.map((message) => {
     if (!message || typeof message !== "object") throw invalidMessage("message-shape");
     if (!new Set(["system", "user", "assistant", "tool"]).has(message.role)) throw invalidMessage("message-role");
-    const content = typeof message.content === "string" ? message.content.trim() : "";
+    const content = Array.isArray(message.content) ? validateMessageParts(message.content, message.role) : typeof message.content === "string" ? message.content.trim() : "";
     const toolCalls = message.role === "assistant" ? validateAssistantToolCalls(message.toolCalls) : [];
     const toolCallId = message.role === "tool" ? boundedToolString(message.toolCallId, 160, "tool-result-id") : null;
     // Native tool-call continuations are keyed solely by tool_call_id.  Do
     // not require the retired function-calling `name` field while deliberately
     // omitting it from the outbound OpenAI-compatible payload.
-    if ((!content && toolCalls.length === 0) || content.length > MAX_MESSAGE_CHARACTERS) throw invalidMessage(message.role === "tool" ? "tool-result-content" : "message-content");
-    totalCharacters += content.length;
+    const contentCharacters = Array.isArray(content) ? content.reduce((sum, part) => sum + (part.type === "text" ? part.text.length : 0), 0) : content.length;
+    if (((Array.isArray(content) ? content.length === 0 : !content) && toolCalls.length === 0) || contentCharacters > MAX_MESSAGE_CHARACTERS) throw invalidMessage(message.role === "tool" ? "tool-result-content" : "message-content");
+    totalCharacters += contentCharacters;
     // OpenAI permits null assistant content beside tool_calls, but several
     // OpenAI-compatible endpoints reject that exact continuation payload.
     // An explicit empty string preserves the same semantics and lets the
@@ -505,6 +513,35 @@ function validateMessages(value) {
   });
   if (totalCharacters > MAX_TOTAL_MESSAGE_CHARACTERS) throw invalidMessage("message-total-content");
   return Object.freeze(messages);
+}
+
+function validateMessageParts(parts, role) {
+  if (role !== "user" || parts.length < 1 || parts.length > 8) throw invalidMessage("message-content-parts");
+  let imageCount = 0;
+  return Object.freeze(parts.map((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) throw invalidMessage("message-content-part");
+    if (part.type === "text") {
+      const text = typeof part.text === "string" ? part.text.trim() : "";
+      if (!text) throw invalidMessage("message-text-part");
+      return Object.freeze({ type: "text", text });
+    }
+    if (part.type !== "image_url" || !part.image_url || typeof part.image_url !== "object") throw invalidMessage("message-image-part");
+    imageCount += 1;
+    if (imageCount > MAX_IMAGES) throw invalidMessage("message-image-count");
+    const url = typeof part.image_url.url === "string" ? part.image_url.url : "";
+    const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/u.exec(url);
+    if (!match) throw invalidMessage("message-image-url");
+    const bytes = Buffer.from(match[2], "base64");
+    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES || bytes.toString("base64").replace(/=+$/u, "") !== match[2].replace(/=+$/u, "")) throw invalidMessage("message-image-bytes");
+    const detail = part.image_url.detail === "high" ? "high" : part.image_url.detail === "low" ? "low" : "auto";
+    return Object.freeze({ type: "image_url", image_url: Object.freeze({ url, detail }) });
+  }));
+}
+
+function assertImageCapability(adapter, profile, messages) {
+  if (!messages.some((message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image_url"))) return;
+  const model = adapter.models.find((candidate) => candidate.id === profile.modelId);
+  if (!model || !model.capabilities.some((capability) => ["vlm", "vision", "image"].includes(capability))) throw providerGatewayError("invalid-request");
 }
 
 function validateTools(value) {

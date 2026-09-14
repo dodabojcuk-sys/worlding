@@ -30,6 +30,7 @@ import { TianyiWorkPanel } from "./TianyiWorkPanel";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, shouldCommitTianyiAgentRunProjection, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 import { TianyiAdoptionPanel } from "../workspace/TianyiAdoptionPanel";
+import { MapAiCollaborationPanel, type TianyiMapEditContext } from "./MapAiCollaborationPanel";
 
 export type TianyiKnowledgeViewContext = CharacterKnowledgeHandoff;
 
@@ -44,6 +45,7 @@ export type TianyiSidebarContextRequest = {
   predictionSourceLabels?: string[];
   predictionSourceUnitSummary?: string;
   knowledgeView?: TianyiKnowledgeViewContext;
+  mapEdit?: TianyiMapEditContext;
 };
 
 export function TianyiSidebar(props: {
@@ -337,12 +339,12 @@ export function TianyiSidebar(props: {
   return <aside className="tianyi-sidebar" aria-label={t("panel.tianyiAgent")} role={props.overlay ? "dialog" : undefined} aria-modal={props.modal || undefined} data-tianyi-mode={mode} data-tianyi-conversation-id={props.runtime.tianyiConversationId ?? "not-started"} data-work-lane="shared" data-page-agent-session-owner="none" data-session-owner="story-continuity/session" data-knowledge-observer={contextRequest?.knowledgeView?.observerId ?? "author"}>
     <header className="tianyi-sidebar-header">
       <div className="tianyi-sidebar-heading"><Sparkles aria-hidden="true" /><strong>{t("space.tianyi")}</strong></div>
-      <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} />
+      {!contextRequest?.mapEdit ? <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} /> : <span className="tianyi-map-mode-label">{t("tianyi.mapCollaboration")}</span>}
       <button type="button" aria-label={t("panel.closeTianyiAgent")} title={t("panel.closeTianyiAgent")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <section className="tianyi-sidebar-stage">
       {contextRequest?.knowledgeView ? <p className="tianyi-knowledge-scope" data-testid="page-agent-knowledge-scope" data-context-access={contextRequest.knowledgeView.contextAccess}><strong>{contextRequest.knowledgeView.observerLabel}</strong> · {roleContext ? t("tianyi.characterContextScope") : displayOnlyContext ? t("tianyi.readerContextScope") : t("tianyi.knowledgeScope")}{contextRequest.knowledgeView.hiddenEventCount ? `；${t("tianyi.knowledgeExcluded").replace("{count}", String(contextRequest.knowledgeView.hiddenEventCount))}` : ""}</p> : null}
-      {mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady && !displayOnlyContext} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
+      {contextRequest?.mapEdit ? <MapAiCollaborationPanel key={`${project?.id}:${contextRequest.mapEdit.mapId}:${contextRequest.mapEdit.baseContentHash}`} runtime={props.runtime} context={contextRequest.mapEdit} ensureConversation={ensureConversation} /> : mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady && !displayOnlyContext} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
     </section>
   </aside>;
 }

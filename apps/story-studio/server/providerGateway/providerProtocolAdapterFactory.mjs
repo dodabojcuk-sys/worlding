@@ -23,7 +23,7 @@ export function createProviderProtocolAdapter(options) {
     fetchImpl: options.fetchImpl,
     apiKeyProvider: options.apiKeyProvider,
     baseUrlProvider: options.baseUrlProvider,
-    modelMetadata: preset.suggestedModels.map((entry) => ({ id: entry.id, label: entry.label, capabilities: [] })),
+    modelMetadata: preset.suggestedModels.map((entry) => ({ id: entry.id, label: entry.label, capabilities: entry.capabilityClaims.map((claim) => claim.capability) })),
     modelDiscovery: preset.catalogPath ? { pathname: preset.catalogPath, ...(preset.catalogSearch ? { search: preset.catalogSearch } : {}) } : null,
     credentialRequired: preset.credentialRequired,
     traceHeader: preset.id === "siliconflow" ? "x-siliconcloud-trace-id" : "x-request-id",

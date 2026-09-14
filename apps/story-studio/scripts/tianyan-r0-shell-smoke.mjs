@@ -18,6 +18,8 @@ import { stableJson } from "../../../src/storyContinuity/continuityValidation.ts
 import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characterMemoryRepository.ts";
 import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
 import { createStoryStudioRelationOperations } from "../../../src/storyControlSurface/storyStudioRelationOperations.ts";
+import { mapPolylineIntersectsPolygon } from "../../../src/storyWorkspace/mapEditProposalRepository.mjs";
+import { recognizeTianyiCreationIdeas } from "../../../src/storyContinuity/tianyiCreationResultEvidence.ts";
 
 assertCanonicalRuntime();
 if (!process.env.TIANYAN_E2E_SCOPE) {
@@ -25,7 +27,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "world-materials-m1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -96,13 +98,29 @@ const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-
 const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
 const mapM3AuthorExperienceOnly = process.env.TIANYAN_E2E_SCOPE === "map-m3-author-experience";
+const mapR3Only = process.env.TIANYAN_E2E_SCOPE === "map-author-workspace-r3";
+const mapR4Only = process.env.TIANYAN_E2E_SCOPE === "map-place-creation-link-r4";
+const mapR5Only = process.env.TIANYAN_E2E_SCOPE === "map-tianyi-creation-start-r5";
+const mapCharacterRelationsR1Only = process.env.TIANYAN_E2E_SCOPE === "map-character-relations-r1";
+const relationNetworkEvidenceR2Only = process.env.TIANYAN_E2E_SCOPE === "relation-network-evidence-r2";
+const tianyiR6Only = ["tianyi-creation-result-r6", "tianyi-creation-result-r6-preserve", "tianyi-real-creation-r6"].includes(process.env.TIANYAN_E2E_SCOPE || "");
+const tianyiR6LiveAcceptance = process.env.TIANYAN_E2E_SCOPE === "tianyi-real-creation-r6" && process.env.TIANYAN_TIANYI_REAL_CREATION_ACCEPTANCE === "1";
+const preserveTianyiR6Fixture = process.env.TIANYAN_E2E_SCOPE === "tianyi-creation-result-r6-preserve" || tianyiR6LiveAcceptance;
 const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-management-ai-editing";
+const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
+const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
 const worldMaterialsOnly = process.env.TIANYAN_E2E_SCOPE === "world-materials-m1";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
 const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
+const mapR4EvidenceDirectory = process.env.TIANYAN_MAP_R4_EVIDENCE_DIR || null;
+const mapR5EvidenceDirectory = process.env.TIANYAN_MAP_R5_EVIDENCE_DIR || null;
+const mapCharacterRelationsR1EvidenceDirectory = process.env.TIANYAN_MAP_CHARACTER_RELATIONS_R1_EVIDENCE_DIR || null;
+const relationNetworkEvidenceR2Directory = process.env.TIANYAN_RELATION_NETWORK_R2_EVIDENCE_DIR || null;
+const tianyiR6EvidenceDirectory = process.env.TIANYAN_TIANYI_R6_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
+const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
@@ -111,9 +129,13 @@ const runRevision = process.env.GITHUB_SHA || process.env.TIANYAN_E2E_SOURCE_REV
 let timelineFixture = null;
 let observationFixture = null;
 let narrativeFixture = null;
+let activePage = null;
+const tianyiR6Lifecycle = { requestCount: 0, providerReturned: false, applicationParsed: false, sessionSaved: false, bodyDisplayed: false, continuationCompleted: false, draftSaved: false, reopened: false };
+let tianyiR6ContentAssessment = null;
 let r1CausalFixture = null;
 let characterFixture = null;
 let mapM2Fixture = null;
+let mapAiFixture = null;
 let worldMaterialsFixture = null;
 let server;
 let apiServer;
@@ -123,6 +145,7 @@ let diagnosticTraceStarted = false;
 let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
+let expectedMapCompensationConflict = false;
 const r062Captures = [];
 
 async function runIsolatedE2eScope(scope) {
@@ -155,11 +178,16 @@ async function findAvailablePort(requestedPort, excludedPort) {
 }
 
 try {
-  ollamaFixture = await startProviderCatalogOllamaFixture();
+  ollamaFixture = mapRealAiLiveAcceptance || tianyiR6LiveAcceptance ? null : await startProviderCatalogOllamaFixture();
+  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
+  if (mapRealAiLiveAcceptance || tianyiR6LiveAcceptance) {
+    Object.assign(apiEnvironment, { NODE_ENV: "development", PROVIDER_MODE: "REAL_PROVIDER_ALLOWED", REAL_PROVIDER_CREDENTIALS_USED: "1", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: "1", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "0" });
+    delete apiEnvironment.TIANYAN_PROVIDER_APP_DATA_ROOT;
+  }
   apiServer = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
     cwd: process.cwd(),
     stdio: process.env.TIANYAN_E2E_DEBUG_STDIO === "1" ? "inherit" : ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" }
+    env: apiEnvironment
   });
   apiServer.stdout?.resume();
   apiServer.stderr?.resume();
@@ -178,18 +206,25 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  browser = await chromium.launch({ executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapM4EvidenceDirectory ? 160 : 0 });
-  const recordingDirectory = worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: relationNetworkEvidenceR2Only && relationNetworkEvidenceR2Directory ? 110 : mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
+  if (!preserveTianyiR6Fixture) browser = await chromium.launch(browserOptions);
+  const recordingDirectory = relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
-  browserContext = await browser.newContext(recordingDirectory
+  const contextOptions = recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
-    : { viewport: { width: 1152, height: 720 } });
+    : { viewport: { width: 1152, height: 720 } };
+  if (preserveTianyiR6Fixture) {
+    browserContext = await chromium.launchPersistentContext(path.join(fixtureRoot, ".browser-profile"), { ...browserOptions, ...contextOptions });
+    browser = browserContext.browser();
+  } else browserContext = await browser.newContext(contextOptions);
   if (diagnosticEvidenceDirectory) {
     await browserContext.tracing.start({ screenshots: true, snapshots: true, sources: false });
     diagnosticTraceStarted = true;
   }
   const page = await browserContext.newPage();
+  activePage = page;
   const consoleProblems = [];
+  const groundedAnswerResponses = [];
   page.on("console", (message) => {
     if (!["error", "warning"].includes(message.type())) return;
     const problem = `${message.type()}: ${message.text()}`;
@@ -197,10 +232,24 @@ try {
       expectedProviderFailureConsoleBudget -= 1;
       return;
     }
+    if (expectedMapCompensationConflict && /Failed to load resource.*400/u.test(problem)) return;
     consoleProblems.push(problem);
   });
   page.on("pageerror", (error) => consoleProblems.push(error.message));
-  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer")) tianyiR6Lifecycle.requestCount += 1;
+  });
+  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && !(expectedMapCompensationConflict && response.url().endsWith("/maps/proposals/compensate")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("response", (response) => {
+    if (response.status() === 200 && response.url().endsWith("/model-service/tianyi-grounded-answer")) {
+      tianyiR6Lifecycle.providerReturned = true;
+      groundedAnswerResponses.push(response.text().then((value) => {
+        const parsed = parseGroundedAnswerSse(value);
+        tianyiR6Lifecycle.applicationParsed = Boolean(parsed);
+        return parsed;
+      }).catch(() => null));
+    }
+  });
 
   await gotoProduct(page, `${baseUrl}/world`);
   if (storyIntakeOnly) {
@@ -208,6 +257,28 @@ try {
   } else if (mapM2StoryObservationOnly) {
     await setupMapM2Fixture();
     await assertMapM2StoryObservation(page, consoleProblems);
+  } else if (mapR3Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+  } else if (mapR4Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems);
+  } else if (mapR5Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems, true, groundedAnswerResponses);
+  } else if (mapCharacterRelationsR1Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapCharacterRelationsR1(page, consoleProblems);
+  } else if (relationNetworkEvidenceR2Only) {
+    await setupMapM2Fixture();
+    await assertRelationNetworkEvidenceR2(page, consoleProblems);
+  } else if (tianyiR6Only) {
+    await setupMapM2Fixture();
+    await assertMapAuthorWorkspaceR3(page, consoleProblems);
+    await assertMapPlaceCreationLinkR4(page, consoleProblems, true, groundedAnswerResponses);
   } else if (mapM3AuthorExperienceOnly) {
     await setupMapM2Fixture();
     await assertMapM3AuthorExperience(page, consoleProblems);
@@ -216,6 +287,10 @@ try {
     await assertMapM3AuthorExperience(page, consoleProblems);
     await assertMapM4ManagementAiEditing(page, consoleProblems);
     await assertMapAuthorWorkspaceR2(page, consoleProblems);
+  } else if (mapRealAiCollaborationOnly) {
+    await setupMapM2Fixture();
+    await setupMapRealAiFixture();
+    await assertMapRealAiCollaboration(page, consoleProblems);
   } else if (worldMaterialsOnly) {
     await setupWorldMaterialsFixture();
     await assertWorldMaterialsM1(page, consoleProblems);
@@ -377,6 +452,11 @@ try {
   assert.deepEqual(consoleProblems, [], "R0 shell smoke must not produce console warnings or errors");
   console.log("tianyan R0 shell smoke PASS: responsive rail plus real character directory and read-only inspector");
 } catch (error) {
+  if (preserveTianyiR6Fixture && tianyiR6EvidenceDirectory) {
+    mkdirSync(tianyiR6EvidenceDirectory, { recursive: true });
+    try { if (activePage && !activePage.isClosed()) await activePage.screenshot({ path: path.join(tianyiR6EvidenceDirectory, "R6验收失败现场.png"), fullPage: false }); } catch {}
+    writeFileSync(path.join(tianyiR6EvidenceDirectory, "R6验收现场.json"), `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "failed", lifecycle: tianyiR6Lifecycle, contentAssessment: tianyiR6ContentAssessment, failure: error instanceof Error ? error.message.slice(0, 600) : "unknown" }, null, 2)}\n`, "utf8");
+  }
   console.error("tianyan R0 shell smoke FAILED:", error);
   throw error;
 } finally {
@@ -391,7 +471,14 @@ try {
   if (server) await terminateChildProcess(server, { label: "Tianyan R0 shell smoke server" });
   if (apiServer) await terminateChildProcess(apiServer, { label: "Tianyan R0 shell smoke API" });
   if (ollamaFixture) await new Promise((resolve) => ollamaFixture.server.close(resolve));
-  removeTianyanE2eFixture(fixture);
+  if (preserveTianyiR6Fixture) {
+    if (tianyiR6EvidenceDirectory) {
+      const lifecyclePath = path.join(tianyiR6EvidenceDirectory, "R6验收现场.json");
+      if (!existsSync(lifecyclePath)) writeFileSync(lifecyclePath, `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, status: "completed", lifecycle: tianyiR6Lifecycle, contentAssessment: tianyiR6ContentAssessment }, null, 2)}\n`, "utf8");
+      writeFileSync(path.join(tianyiR6EvidenceDirectory, "R6保留现场.json"), `${JSON.stringify({ sourceRevision: runRevision, fixtureRoot, projectId: fixtureProjectId, cleanupCommand: `node scripts/cleanup-preserved-tianyan-e2e-fixture.mjs ${fixtureRoot}` }, null, 2)}\n`, "utf8");
+    }
+    console.log(`tianyan R6 acceptance fixture preserved: ${fixtureRoot}`);
+  } else removeTianyanE2eFixture(fixture);
 }
 
 async function assertTianyiStoryIntake(page, consoleProblems) {
@@ -543,7 +630,7 @@ async function assertProviderCatalogSettingsR0(page) {
 }
 
 async function startProviderCatalogOllamaFixture() {
-  const calls = { tags: 0, embed: 0 };
+  const calls = { tags: 0, embed: 0, chat: 0 };
   let lastEmbeddingInput = null;
   const server = createHttpServer((request, response) => {
     if (request.url === "/api/tags" && request.method === "GET") {
@@ -569,6 +656,27 @@ async function startProviderCatalogOllamaFixture() {
         lastEmbeddingInput = parsed.input?.[0] ?? null;
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ model: parsed.model, embeddings: [[0.1, 0.2, 0.3, 0.4]] }));
+      });
+      return;
+    }
+    if (request.url === "/v1/models" && request.method === "GET") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "fixture/map-text-r1" }] }));
+      return;
+    }
+    if (request.url === "/v1/chat/completions" && request.method === "POST") {
+      calls.chat += 1;
+      let body = "";
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        const parsed = JSON.parse(body);
+        const user = JSON.parse(parsed.messages.find((message) => message.role === "user")?.content || "{}");
+        const context = user.context;
+        const operation = context.scope.kind === "selection"
+          ? { action: "update", targetId: context.editableObjects[0].id, points: [{ x: 10, y: 50 }, { x: 34, y: 34 }, { x: 66, y: 34 }, { x: 90, y: 50 }], reason: "从雾松林北侧绕行并保留道路端点" }
+          : { action: "add", kind: "symbol", subtype: "entrance", points: [{ x: context.scope.bounds.x + 4, y: context.scope.bounds.y + 4 }], label: "北侧观察点", reason: "在作者指定区域内新增少量标记" };
+        response.writeHead(200, { "content-type": "application/json", "x-request-id": `map-fixture-${calls.chat}` });
+        response.end(JSON.stringify({ model: "fixture/map-text-r1", choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [{ id: `call-map-${calls.chat}`, type: "function", function: { name: "propose_map_edit", arguments: JSON.stringify({ summary: context.scope.kind === "selection" ? "道路绕开森林，端点保持不变" : "在指定范围新增观察点", operations: [operation] }) } }] } }], usage: { prompt_tokens: 120, completion_tokens: 70, total_tokens: 190 } }));
       });
       return;
     }
@@ -2052,19 +2160,20 @@ async function setupMapM2Fixture() {
   await postFixture(`${base}/projects/create`, { title: "北闸地图观察 · 隔离验收", folderSlug: fixtureProjectId });
   await postFixture(`${base}/projects/open`, { projectId: fixtureProjectId });
   const northGate = (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title: "北闸", status: "active", tags: ["地点", "通行状态"] })).data;
-  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道", "北湾", "松林", "东郡", "西郡", "澜星"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", tags: ["地点", "地图密度验收"] })).data));
+  const extraLocations = await Promise.all(["渡口", "旧仓库", "雾港", "烽火台", "山道", "北湾", "松林", "东郡", "西郡", "澜星"].map(async (title) => (await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "location", title, status: "active", body: title === "雾港" ? "雾港是北湾沿岸的旧港镇，河道与山路在此交汇。" : "", tags: ["地点", "地图密度验收"] })).data));
   const lin = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "林昭", mode: "freeform", subtype: "主要角色" })).data.object;
   const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
   const unit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, { projectId: fixtureProjectId, title: "北闸通行", summary: "地图故事位置的隔离作者验收。" });
-  const makeConfirmedEvent = async (title) => {
-    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, title, body: `${title}是地图故事位置验收中经作者确认的事实。` });
+  const makeConfirmedEvent = async (title, body = `${title}是地图故事位置验收中经作者确认的事实。`) => {
+    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, title, body });
     await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
     await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
   };
   await makeConfirmedEvent("北闸开放");
   await makeConfirmedEvent("北闸封闭");
   await makeConfirmedEvent("北闸恢复通行");
+  await makeConfirmedEvent("雾港潮闸争议", "潮闸受损后，顾澜主张先封闭旧港航道检修，以免夜潮冲毁栈桥；程野则坚持保留山路货队的渡口时段，因为镇上的药材已不足三日。两人在雾港议事厅留下了各自署名的处置意见，约定日落前共同勘查潮闸。\n\n这份记录只确认两人的公开立场与共同勘查安排，没有确认彼此信任，也没有把争议解释成敌对关系。");
   const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const events = await Promise.all(verified.data.eventIds.map(async (eventId) => (await getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)).data.event));
   const eventByTitle = (title) => {
@@ -2075,8 +2184,21 @@ async function setupMapM2Fixture() {
   const opened = eventByTitle("北闸开放");
   const closed = eventByTitle("北闸封闭");
   const reopened = eventByTitle("北闸恢复通行");
+  let harbourDispute = eventByTitle("雾港潮闸争议");
   const root = createMapM2FixtureRoot();
   const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, ".story-studio", "state.json") });
+  harbourDispute = operations.updateWorldObject({
+    projectId: fixtureProjectId,
+    objectId: harbourDispute.id,
+    expectedHash: harbourDispute.revisionToken,
+    writeMarkdown: true,
+    writePresentation: false,
+    title: harbourDispute.title,
+    status: harbourDispute.status,
+    tags: harbourDispute.tags,
+    aliases: harbourDispute.aliases,
+    body: "# 雾港潮闸争议\n\n潮闸受损后，顾澜主张先封闭旧港航道检修，以免夜潮冲毁栈桥；程野则坚持保留山路货队的渡口时段，因为镇上的药材已不足三日。两人在雾港议事厅留下了各自署名的处置意见，约定日落前共同勘查潮闸。\n\n这份记录只确认两人的公开立场与共同勘查安排，没有确认彼此信任，也没有把争议解释成敌对关系。"
+  }).object;
   const apply = (expectedRevision, effectiveAt, value, event, operationId) => operations.applyWorldStateN4({
     projectId: fixtureProjectId, objectId: northGate.id, workVersionId: root.identity.workVersionId,
     expectedObjectRevision: operations.readWorldObject({ projectId: fixtureProjectId, objectId: northGate.id }).revisionToken,
@@ -2120,6 +2242,24 @@ async function setupMapM2Fixture() {
   confirmLocationRelation(`map-m2-fog-harbor-admin-${fixture.fixtureId}`, fogHarbor.id, eastPrefecture.id, administrationType.type.relationTypeId);
   confirmLocationRelation(`map-m2-forest-east-admin-${fixture.fixtureId}`, pineForest.id, eastPrefecture.id, administrationType.type.relationTypeId);
   confirmLocationRelation(`map-m2-forest-west-admin-${fixture.fixtureId}`, pineForest.id, westPrefecture.id, administrationType.type.relationTypeId);
+  const guLan = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "顾澜", mode: "freeform", subtype: "港务记录员" })).data.object;
+  const chengYe = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "程野", mode: "freeform", subtype: "山路信使" })).data.object;
+  const harbourDutyType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-harbour-duty-type-${fixture.fixtureId}`, label: "驻港调查" });
+  const mountainContactType = relations.createRelationType({ projectId: fixtureProjectId, operationId: `map-m2-mountain-contact-type-${fixture.fixtureId}`, label: "山路联络" });
+  const confirmPersonAtHarbour = (operationId, sourceObjectId, targetObjectId, relationTypeId, direction) => {
+    const candidate = relations.createRelationCandidate({
+      projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId,
+      sourceObjectId, targetObjectId, relationTypeId, direction,
+      temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-03T00:00:00Z", validTo: null, confidence: "high", sourceAnchors: [reopened.id] },
+      evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: reopened.id, revisionToken: reopened.revisionToken, state: "committed", requestedUse: "constraint" } }]
+    });
+    return relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: candidate.relation.relationId, expectedRelationRevision: candidate.relation.revision, operationId: `${operationId}.confirm` }).relation;
+  };
+  const fogHarbourRelations = [
+    confirmPersonAtHarbour(`map-m2-fog-gu-lan-${fixture.fixtureId}`, fogHarbor.id, guLan.id, harbourDutyType.type.relationTypeId, "forward"),
+    confirmPersonAtHarbour(`map-m2-fog-cheng-ye-${fixture.fixtureId}`, chengYe.id, fogHarbor.id, mountainContactType.type.relationTypeId, "both"),
+    confirmPersonAtHarbour(`map-m2-fog-lin-${fixture.fixtureId}`, fogHarbor.id, lin.id, keySupportType.type.relationTypeId, "reverse")
+  ];
   let denseGraph = null;
   const createDenseGraph = async () => {
     if (denseGraph) return denseGraph;
@@ -2135,7 +2275,182 @@ async function setupMapM2Fixture() {
     denseGraph = { neighbours, expandedLocation };
     return denseGraph;
   };
-  mapM2Fixture = { northGate, extraLocations, lin, awu, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph };
+  let relationReadingGraph = null;
+  const createRelationReadingGraph = async () => {
+    if (relationReadingGraph) return relationReadingGraph;
+    const [shenYan, suXian, luYan, wenZhou] = await Promise.all([
+      ["沈砚", "潮闸工匠"], ["苏弦", "港口医师"], ["陆衍", "北湾船主"], ["闻舟", "远行抄写员"]
+    ].map(async ([title, subtype]) => (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title, mode: "freeform", subtype })).data.object));
+    const relationTypes = {};
+    for (const label of ["港务协作", "航线分歧", "委托调查", "情报互换", "护送约定"]) relationTypes[label] = relations.createRelationType({ projectId: fixtureProjectId, operationId: `relation-r2-type-${label}-${fixture.fixtureId}`, label }).type.relationTypeId;
+    const confirm = (label, sourceObjectId, targetObjectId, direction) => {
+      const operationId = `relation-r2-${label}-${sourceObjectId}-${targetObjectId}-${fixture.fixtureId}`;
+      const candidate = relations.createRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId, sourceObjectId, targetObjectId, relationTypeId: relationTypes[label], direction, temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-03T00:00:00Z", validTo: null, confidence: "high", sourceAnchors: [harbourDispute.id] }, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: harbourDispute.id, revisionToken: harbourDispute.revisionToken, state: "committed", requestedUse: "constraint" } }] });
+      return relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: candidate.relation.relationId, expectedRelationRevision: candidate.relation.revision, operationId: `${operationId}.confirm` }).relation;
+    };
+    const createdRelations = [
+      confirm("港务协作", guLan.id, chengYe.id, "forward"),
+      confirm("航线分歧", guLan.id, chengYe.id, "reverse"),
+      confirm("委托调查", shenYan.id, guLan.id, "forward"),
+      confirm("情报互换", suXian.id, lin.id, "both"),
+      confirm("护送约定", luYan.id, awu.id, "forward"),
+      confirm("委托调查", northBay.id, shenYan.id, "forward")
+    ];
+    relationReadingGraph = { people: [lin, awu, guLan, chengYe, shenYan, suXian, luYan, wenZhou], places: [fogHarbor, northBay], isolated: wenZhou, sourceEvent: harbourDispute, createdRelations, pairedRelations: createdRelations.slice(0, 2) };
+    return relationReadingGraph;
+  };
+  mapM2Fixture = { northGate, extraLocations, lin, awu, guLan, chengYe, opened, closed, reopened, harbourDispute, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, fogHarbourRelations, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph, createRelationReadingGraph };
+}
+
+async function setupMapRealAiFixture() {
+  assert.ok(mapM2Fixture && (mapRealAiLiveAcceptance || ollamaFixture), "Map AI fixture requires the isolated project and a bounded Provider host.");
+  const base = `${apiUrl}/__local/story-studio`;
+  if (!mapRealAiLiveAcceptance) {
+    const profile = await getFixture(`${base}/model-service/profile`);
+    await postFixture(`${base}/model-service/profile/save`, {
+      expectedRevision: profile.data.revision,
+      provider: "vllm",
+      displayName: "隔离地图文本模型",
+      baseUrl: `${ollamaFixture.baseUrl}/v1`,
+      llmModelId: "fixture/map-text-r1",
+      embeddingModelId: "",
+      enabled: true
+    });
+  }
+  const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, ".story-studio", "state.json") });
+  let map = operations.createVisualDocument({ projectId: fixtureProjectId, type: "map", title: "北湾 AI 协作隔离图" });
+  const layers = [{ id: "layer.terrain", title: "地形", visible: true, locked: false }, { id: "layer.routes", title: "道路", visible: true, locked: false }, { id: "layer.main", title: "标记", visible: true, locked: false }];
+  const drawing = (value) => ({ strokeColor: "#167b7a", fillColor: "#49a99b", fillOpacity: .24, width: 3, size: 4, seed: 1, rotation: 0, label: null, objectId: null, ...value });
+  map = operations.updateVisualDocument({ projectId: fixtureProjectId, relativePath: map.relativePath, expectedHash: map.contentHash, document: { ...map, content: { ...map.content, layers, drawings: [
+    drawing({ id: "drawing.ai-road", kind: "line", subtype: "road", layerId: "layer.routes", points: [{ x: 10, y: 50 }, { x: 90, y: 50 }], strokeColor: "#765b3d", fillColor: "#765b3d", label: "北湾滨海道" }),
+    drawing({ id: "drawing.ai-forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 40, y: 47 }, { x: 50, y: 46 }, { x: 60, y: 47 }], width: 9, label: "雾松林树木图示" }),
+    drawing({ id: "drawing.ai-forest-area", kind: "area", subtype: "geography", layerId: "layer.terrain", points: [{ x: 36, y: 39 }, { x: 64, y: 39 }, { x: 64, y: 58 }, { x: 36, y: 58 }], fillColor: "#70a870", strokeColor: "#456d4f", fillOpacity: .24, width: 2, label: "雾松林明确范围" })
+  ] } } }).document;
+  mapAiFixture = { map, workVersionId: mapM2Fixture.root.identity.workVersionId };
+}
+
+async function assertMapRealAiCollaboration(page, consoleProblems) {
+  assert.ok(mapAiFixture, "Map AI author flow requires its isolated map.");
+  if (mapRealAiEvidenceDirectory) mkdirSync(mapRealAiEvidenceDirectory, { recursive: true });
+  const capture = async (name) => { if (mapRealAiEvidenceDirectory) await page.screenshot({ path: path.join(mapRealAiEvidenceDirectory, name), fullPage: false }); };
+  const pauseForReview = async () => { if (mapRealAiEvidenceDirectory) await page.waitForTimeout(900); };
+  const base = `${apiUrl}/__local/story-studio`;
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/library?libraryView=map&mapId=${encodeURIComponent(mapAiFixture.map.id)}&locale=zh-CN`);
+  const aiMapCanvas = page.getByLabel("地点示意图画布");
+  await aiMapCanvas.waitFor();
+  await openMapProperties(page, "地图方向");
+  await page.getByText("北向未设置", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "上方设为北", exact: true }).click();
+  await page.getByRole("status").getByText(/已明确设置上方为北/u).waitFor();
+  await page.reload();
+  await aiMapCanvas.waitFor();
+  await openMapProperties(page, "地图方向");
+  await page.getByText("北向已设置 · 相对画布上方顺时针 0°", { exact: true }).waitFor();
+  await capture("11-作者北向保存并重开-1440x900.png");
+  const aiRoad = aiMapCanvas.locator('[data-drawing-id="drawing.ai-road"]');
+  await aiRoad.focus();
+  await aiRoad.press("Enter");
+  await page.getByRole("button", { name: /AI 编辑 · 1 个图示/u }).click();
+  const panel = page.getByRole("region", { name: "天意地图协作" });
+  await panel.waitFor();
+  await panel.getByText("北湾 AI 协作隔离图", { exact: true }).waitFor();
+  assert.match(await panel.textContent(), /北湾 AI 协作隔离图[\s\S]*真实文本模型[\s\S]*可修改[\s\S]*北湾滨海道/u);
+  await panel.getByText(/选择模型可读取的参考/u).click();
+  await panel.getByRole("checkbox", { name: "雾松林明确范围 只读", exact: true }).check();
+  await panel.getByRole("checkbox", { name: "将雾松林明确范围作为不可穿越范围", exact: true }).check();
+  await panel.getByRole("checkbox", { name: "固定所选线条的两端", exact: true }).check();
+  await panel.getByLabel("告诉天意要怎样改").fill("让北湾滨海道绕开雾松林明确范围，并保持两个端点不变；其他对象不变。");
+  await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
+  await panel.getByText("待作者审阅", { exact: true }).waitFor();
+  assert.equal(await page.locator(".map-ai-proposal-before").count(), 1, "The original geometry remains visible as an explicit before overlay.");
+  assert.equal(await page.locator(".map-ai-proposal-after").count(), 1, "The Provider proposal is previewed on the same map before acceptance.");
+  assert.equal(await page.locator(".map-ai-proposal-reference").count(), 1, "The explicit read-only forest area remains visible as a distinct review reference.");
+  assert.match(await panel.textContent(), /系统已经检查[\s\S]*起点和终点[\s\S]*未接触或进入作者明确选择的范围/u);
+  await panel.getByRole("tab", { name: "修改前", exact: true }).click();
+  assert.equal(await page.locator(".map-ai-proposal-after").count(), 0, "Before view does not leave the suggested geometry visible.");
+  await pauseForReview();
+  await capture("12a-真实AI道路提案-修改前-1440x900.png");
+  await panel.getByRole("tab", { name: /修改后/u }).click();
+  assert.equal(await page.locator(".map-ai-proposal-before").count(), 0, "After view does not leave the original geometry visible.");
+  await pauseForReview();
+  await capture("12b-真实AI道路提案-修改后-1440x900.png");
+  await panel.getByRole("tab", { name: "叠加对比", exact: true }).click();
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+  assert.match(await panel.textContent(), mapRealAiLiveAcceptance ? /修改[\s\S]*北湾滨海道/u : /修改[\s\S]*北湾滨海道[\s\S]*雾松林北侧绕行/u);
+  await pauseForReview();
+  await capture("12c-真实AI道路提案-叠加对比-1440x900.png");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+  await capture("12d-真实AI道路提案-叠加对比-1152x720.png");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+  const beforeAccept = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.deepEqual(beforeAccept.content.drawings.find((item) => item.id === "drawing.ai-road").points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "Preview does not write the formal map.");
+  await panel.getByRole("button", { name: "接受并保存", exact: true }).click();
+  await page.getByRole("status").getByText(/提案已由作者接受/u).waitFor();
+  await pauseForReview();
+  const accepted = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  const acceptedRoad = accepted.content.drawings.find((item) => item.id === "drawing.ai-road");
+  const acceptedForestArea = accepted.content.drawings.find((item) => item.id === "drawing.ai-forest-area");
+  if (mapRealAiLiveAcceptance) {
+    assert.deepEqual(acceptedRoad.points.at(0), { x: 10, y: 50 }, "The real result preserves the first endpoint.");
+    assert.deepEqual(acceptedRoad.points.at(-1), { x: 90, y: 50 }, "The real result preserves the last endpoint.");
+    assert.notDeepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 90, y: 50 }], "The real result makes an actual geometric change.");
+  } else assert.deepEqual(acceptedRoad.points, [{ x: 10, y: 50 }, { x: 34, y: 34 }, { x: 66, y: 34 }, { x: 90, y: 50 }]);
+  assert.equal(mapPolylineIntersectsPolygon(acceptedRoad.points, acceptedForestArea.points), false, "The accepted road does not touch or enter the explicit forest polygon.");
+  assert.deepEqual(accepted.content.drawings.find((item) => item.id === "drawing.ai-forest-area").points, mapAiFixture.map.content.drawings.find((item) => item.id === "drawing.ai-forest-area").points, "The explicit read-only forest area is unchanged.");
+
+  await page.reload();
+  await aiMapCanvas.waitFor();
+  const reopened = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.deepEqual(reopened.content.drawings.find((item) => item.id === "drawing.ai-road").points, acceptedRoad.points, "Accepted real-provider geometry survives reopen.");
+  await capture("13-真实AI接受后重开-1440x900.png");
+  await aiRoad.focus();
+  await aiRoad.press("Enter");
+  await page.getByRole("button", { name: /AI 编辑 · 1 个图示/u }).click();
+  await panel.getByText("已接受", { exact: true }).waitFor();
+  await page.getByRole("button",{name:"返回绘制",exact:true}).click();
+  await openMapProperties(page);
+  const width = page.getByLabel("图示笔触宽度");
+  await width.fill("5"); await width.press("Tab");
+  await page.getByRole("status").getByText(/图示尺寸已保存/u).waitFor();
+  await page.getByRole("button", { name: /AI 编辑 · 1 个图示/u }).click();
+  await panel.getByText("已接受", { exact: true }).waitFor();
+  expectedMapCompensationConflict = true;
+  await panel.getByRole("button", { name: "撤销此次 AI 修改", exact: true }).click();
+  await panel.getByRole("alert").getByText(/后续修订/u).waitFor();
+  await pauseForReview();
+  expectedMapCompensationConflict = false;
+  const afterManual = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+  assert.equal(afterManual.content.drawings.find((item) => item.id === "drawing.ai-road").width, 5, "Protected compensation never overwrites the later author edit.");
+  await capture("14-后续人工修改受补偿保护-1440x900.png");
+
+  // R2 spends at most one live dispatch on the corrected explicit-area case.
+  // The bounded local Provider still covers the independent region-add/reject
+  // path without consuming a second paid call merely to refresh UI evidence.
+  if (!mapRealAiLiveAcceptance) {
+    await panel.getByRole("button", { name: "基于当前地图新请求", exact: true }).click();
+    await panel.getByRole("tab", { name: "区域内新增", exact: true }).click();
+    await panel.getByLabel("可编辑图层").selectOption("layer.main");
+    await panel.getByLabel("告诉天意要怎样改").fill("在明确框选范围内新增一个北侧观察点，保留所有既有内容。");
+    await page.setViewportSize({ width: 1152, height: 720 });
+    await panel.getByRole("button", { name: "请求真实模型", exact: true }).click();
+    await panel.getByText("待作者审阅", { exact: true }).waitFor();
+    await panel.getByRole("button", { name: "聚焦本次变化", exact: true }).click();
+    assert.match(await panel.textContent(), /新增[\s\S]*北侧观察点/u);
+    await pauseForReview();
+    await capture("15-本地夹具区域新增待审-1152x720.png");
+    await panel.getByRole("button", { name: "拒绝", exact: true }).click();
+    const rejected = (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find((item) => item.id === mapAiFixture.map.id);
+    assert.equal(rejected.content.drawings.some((item) => item.label === "北侧观察点"), false, "Rejecting the second proposal leaves the formal map unchanged.");
+  }
+  if (!mapRealAiLiveAcceptance) assert.equal(ollamaFixture.calls.chat, 2, "The bounded browser story performs exactly two model-boundary sends.");
+  if (mapRealAiEvidenceDirectory) {
+    const recordedProposals = await getFixture(`${base}/maps/proposals?projectId=${encodeURIComponent(fixtureProjectId)}&relativePath=${encodeURIComponent(mapAiFixture.map.relativePath)}`);
+    writeFileSync(path.join(mapRealAiEvidenceDirectory, "map-real-ai-identity.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapAiFixture.workVersionId, mapId: mapAiFixture.map.id, realProvider: mapRealAiLiveAcceptance, providerDispatches: recordedProposals.data.reduce((sum, item) => sum + Number(item.generation?.providerDispatches || 0), 0), proposals: recordedProposals.data.map((item) => ({ operationId: item.operationId, status: item.status, generation: item.generation })) }, null, 2)}\n`);
+  }
+  assert.deepEqual(consoleProblems, []);
 }
 
 function createMapM2FixtureRoot() {
@@ -2160,6 +2475,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
   await page.locator(`[data-work-version-id="${mapM2Fixture.root.identity.workVersionId}"]`).waitFor();
   await page.getByRole("button", { name: "建立地点示意图", exact: true }).click();
+  await openMapProperties(page,"地点与局部图");
   await page.locator('[aria-label="地点"]').getByRole("button", { name: /北闸/u }).click();
   const canvas = page.locator('[aria-label="地点示意图画布"]');
   await canvas.waitFor();
@@ -2173,21 +2489,41 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await canvas.click({ position: { x: 180, y: 180 } });
   const afterBrowse = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
-  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await openMapMenuAction(page, "编辑布局");
+  await page.locator('.map-workbench-menu button[aria-pressed="true"]').waitFor({ state: "attached" });
+  const initialLayoutSave = page.waitForResponse((response) => {
+    if (response.request().method() !== "POST" || !response.url().includes("/visual-documents/update")) return false;
+    try {
+      const requestBody = response.request().postDataJSON();
+      return requestBody?.document?.content?.markers?.some((marker) => marker.objectId === mapM2Fixture.northGate.id) === true;
+    } catch {
+      return false;
+    }
+  }, { timeout: 60_000 });
   await canvas.click({ position: { x: 220, y: 190 } });
+  const initialLayoutResponse = await initialLayoutSave;
+  assert.equal(initialLayoutResponse.status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
+  const initialLayoutReceipt = await initialLayoutResponse.json();
+  assert.equal(initialLayoutReceipt.data.conflict, false, "The target marker write must not be reported as saved when its base map revision is stale.");
+  assert.equal(initialLayoutReceipt.data.document.content.markers.some((marker) => marker.objectId === mapM2Fixture.northGate.id), true, "The write receipt must contain the exact North Gate marker before the UI assertion continues.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
-  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
-  await page.getByRole("button", { name: "收起地点详情", exact: true }).click();
+  const northGateMarker = page.locator(`.map-workbench-marker[data-object-id="${mapM2Fixture.northGate.id}"]`);
+  await northGateMarker.waitFor({ state: "attached" });
+  await openMapMenuAction(page, "浏览地图");
+  await openMapMenuAction(page, "收起地点详情");
   await page.getByRole("button", { name: "放大地图", exact: true }).click();
   await canvas.hover({ position: { x: 180, y: 180 } });
   await page.mouse.wheel(0, -160);
   const panBox = await canvas.boundingBox();
   assert.ok(panBox, "Map canvas must be visible before exercising browse-mode panning.");
+  await page.getByRole("button", { name: "平移", exact: true }).click();
   await page.mouse.move(panBox.x + 180, panBox.y + 180);
   await page.mouse.down();
   await page.mouse.move(panBox.x + 220, panBox.y + 204);
   await page.mouse.up();
-  await page.locator('details[aria-label="故事观察位置"] > summary').click();
+  await page.waitForFunction(() => new URL(window.location.href).searchParams.has("mapPanX"));
+  await page.getByRole("button", { name: "浏览", exact: true }).click();
+  await openMapProperties(page, "故事观察位置");
   const observationTabs = page.getByRole("tablist", { name: "选择故事观察位置", exact: true });
   const closedTab = observationTabs.getByRole("tab", { name: /北闸封闭/u });
   const reopenedTab = observationTabs.getByRole("tab", { name: /北闸恢复通行/u });
@@ -2198,7 +2534,9 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await tabs.nth(2).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
-  await page.locator('[data-state="closed"]').getByText("封闭", { exact: true }).waitFor();
+  assert.equal(await northGateMarker.count(), 1, "The selected formal location must retain one map marker even when the author's viewport pans it outside the visible canvas.");
+  assert.equal(await northGateMarker.getAttribute("data-state"), "closed", "The North Gate marker must carry the closed story-state projection without requiring it to be inside the current viewport.");
+  assert.match(await northGateMarker.textContent() ?? "", /封闭/u, "The closed marker keeps its readable author label.");
   if (mapM2EvidenceDirectory) { mkdirSync(mapM2EvidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-closed.png"), fullPage: true }); }
   await page.getByTestId("map-m2-inspector").getByRole("button", { name: "查看关系图", exact: true }).click();
   const relationsWorkspace = page.getByTestId("focused-relations-workspace");
@@ -2207,10 +2545,11 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await relationsWorkspace.getByText("北闸的关系", { exact: true }).waitFor();
   const relationCanvas = page.getByTestId("focused-relations-canvas");
   await relationCanvas.waitFor();
-  assert.equal(await relationCanvas.locator("svg line").count(), 1, "The focused graph must render one formal relation edge, not only object cards and a text list.");
-  await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).waitFor();
-  await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).click();
-  await relationsWorkspace.getByLabel("所选关系详情").getByText("同一对象间的关系", { exact: true }).waitFor();
+  assert.equal(await relationCanvas.locator("svg.focused-relations-edges > path").count(), 1, "The focused graph must render one grouped formal relation edge, not only object cards and a text list.");
+  const groupedEdge = relationCanvas.locator(".focused-relations-edge-label").filter({ hasText: "通行协作" }).filter({ hasText: "铜钥匙交接支持" });
+  await groupedEdge.waitFor();
+  await groupedEdge.click();
+  await relationsWorkspace.getByLabel("所选关系详情").getByText("同一对对象的多条关系", { exact: true }).waitFor();
   await page.waitForFunction(() => {
     const canvas = document.querySelector('[data-testid="focused-relations-canvas"]')?.getBoundingClientRect();
     const nodes = [...document.querySelectorAll('.focused-relations-node')].map((node) => node.getBoundingClientRect());
@@ -2224,7 +2563,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.waitForFunction(() => new URL(window.location.href).searchParams.has("relationZoom"));
   const selectedTransform = await relationCanvas.locator(".focused-relations-canvas-world").evaluate((world) => (world instanceof HTMLElement ? world.style.transform : ""));
   const selectedRelationRoute = new URL(page.url());
-  await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "依据", exact: true }).first().click();
+  await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "打开依据", exact: true }).first().click();
   await page.getByTestId("event-line-workbench").waitFor();
   assert.match(page.url(), /eventRevision=/u, "A selected relation source must carry the exact evidence revision.");
   await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
@@ -2252,7 +2591,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The compact focused relation toolbar must not introduce horizontal page overflow at 1152px.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-list-1152x720.png"), fullPage: false });
   const relationRouteBeforeSource = new URL(page.url());
-  await relationsWorkspace.getByRole("button", { name: "依据", exact: true }).first().click();
+  await relationsWorkspace.getByRole("button", { name: "打开依据", exact: true }).first().click();
   await page.getByTestId("event-line-workbench").waitFor();
   assert.match(page.url(), /eventRevision=/u, "A focused relation source navigation must carry the exact evidence revision.");
   await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
@@ -2266,10 +2605,12 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   assert.match(page.url(), /\/library\?libraryView=map/u, "Returning from relations must recover the Materials map entry.");
   assert.match(page.url(), /mapObservationEvent=/u, "Returning from focused relations must recover the map observation identity.");
+  await openMapProperties(page, "故事观察位置");
   await tabs.nth(3).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("此观察位置没有可定位的已确认正式关系。", { exact: true }).waitFor();
-  await page.locator('[data-state="open"]').getByText("可通行", { exact: true }).waitFor();
+  assert.equal(await northGateMarker.getAttribute("data-state"), "open", "The same North Gate marker must update to the reopened story-state projection.");
+  assert.match(await northGateMarker.textContent() ?? "", /可通行/u, "The reopened marker keeps its readable author label.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-north-gate-reopened.png"), fullPage: true });
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-reopened-1440x900.png"), fullPage: false });
   await page.getByRole("link", { name: "查看状态依据", exact: true }).click();
@@ -2292,9 +2633,10 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.getByTestId("map-m2-inspector").getByText("通行状态：可通行。", { exact: true }).waitFor();
   await page.setViewportSize({ width: 1152, height: 720 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The normal map controls must remain usable without page-level horizontal overflow at 1152px.");
+  await openMapProperties(page, "故事观察位置");
   const nodeStrip = page.locator('[aria-label="故事观察位置"]');
   const nodeStripBox = await nodeStrip.boundingBox();
-  assert.ok(nodeStripBox && nodeStripBox.y >= 0 && nodeStripBox.y + nodeStripBox.height <= 720, "The story-node strip must remain fully usable in the 1152px first viewport while the inspector has long evidence.");
+  assert.ok(nodeStripBox && nodeStripBox.y >= 0 && nodeStripBox.y + nodeStripBox.height <= 720, "The story-node strip must remain fully usable in the 1152px first viewport after switching from long location evidence to map properties.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-r11-return-1152x720.png"), fullPage: false });
   await page.setViewportSize({ width: 1440, height: 900 });
   // Explicit type IDs, not relation-label matching, control the two structures.
@@ -2347,10 +2689,13 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.locator(".map-structure-children").getByRole("button", { name: /雾港/u }).waitFor();
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-geography-administration.png"), fullPage: true });
   await page.locator(".map-structure-details > summary").click();
+  await openMapMenu(page);
   await page.getByRole("button", { name: "编辑布局", exact: true }).waitFor({ state: "visible" });
-  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await openMapMenuAction(page, "编辑布局");
+  await openMapMenu(page);
   await page.getByRole("button", { name: "浏览地图", exact: true }).waitFor();
   for (const [index, location] of mapM2Fixture.extraLocations.slice(0, 5).entries()) {
+  await openMapProperties(page,"地点与局部图");
     await page.locator('[aria-label="地点"]').getByRole("button", { name: new RegExp(location.title, "u") }).click();
     await page.getByTestId("map-m2-inspector").getByRole("heading", { name: location.title, exact: true }).waitFor();
     // The isolated browser has already proved a write was dispatched.  Give
@@ -2362,9 +2707,9 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
     await canvas.dispatchEvent("click", { clientX: currentCanvasBox.x + currentCanvasBox.width * (.2 + index * .12), clientY: currentCanvasBox.y + currentCanvasBox.height * (.15 + (index % 2) * .08) });
     assert.equal((await layoutSave).status(), 200, `Map layout save for ${location.title} must succeed.`);
     await page.getByRole("status").getByText(/布局已保存/u).waitFor();
-    await page.getByText(`${index + 2} 个已放置地点`, { exact: false }).waitFor();
+    await page.getByText(new RegExp(`已关联地点 ${index + 2}`, "u"), { exact: false }).waitFor();
   }
-  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await openMapMenuAction(page, "浏览地图");
   const markerStates = await page.locator(".map-workbench-marker").evaluateAll((markers) => markers.map((marker) => ({ state: marker.getAttribute("data-state"), text: marker.textContent })));
   assert.ok(markerStates.filter((marker) => marker.state === "unloaded" || marker.state === "unknown").length >= 5, `Additional formal locations must remain visibly unresolved rather than inheriting North Gate's state: ${JSON.stringify(markerStates)}`);
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "map-m2-multi-location.png"), fullPage: true });
@@ -2402,6 +2747,533 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.deepEqual(consoleProblems, [], "Map M2 normal author browsing must not produce browser errors.");
 }
 
+async function openMapMenuAction(page, name) {
+  const menu = page.locator(".map-workbench-menu");
+  if(await menu.getAttribute("open") === null) await menu.locator("summary").first().click();
+  await menu.getByRole("button",{name,exact:true}).click();
+}
+async function openMapMenu(page) {
+  const menu=page.locator(".map-workbench-menu");
+  if(await menu.getAttribute("open")===null) await menu.locator("summary").first().click();
+}
+async function openMapProperties(page, section) {
+  const menu=page.locator(".map-workbench-menu");
+  if(await menu.getAttribute("open")!==null) await menu.locator("summary").first().click();
+  const palette=page.locator(".map-authoring-palette");
+  if(!await palette.isVisible()) await page.getByRole("button",{name:"属性 / 图层",exact:true}).click();
+  if(section) {const details=palette.locator("details").filter({has:page.locator("summary",{hasText:section})}).first();if(await details.getAttribute("open")===null)await details.locator("summary").first().click();}
+}
+
+async function assertMapAuthorWorkspaceR3(page, consoleProblems) {
+  const base = `${apiUrl}/__local/story-studio`;
+  const capture = async name => { if(mapM3EvidenceDirectory) { mkdirSync(mapM3EvidenceDirectory,{recursive:true}); await page.screenshot({path:path.join(mapM3EvidenceDirectory,name)}); } };
+  const dwell = async () => { if(mapM3EvidenceDirectory) await page.waitForTimeout(1200); };
+  const saved = async text => page.getByRole("status").getByText(text).waitFor();
+  const readMap = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.find(item=>item.title==="北湾手绘区域");
+  await page.setViewportSize({width:1440,height:900});
+  await gotoProduct(page,`${baseUrl}/library?libraryView=map&locale=zh-CN`);
+  await page.getByLabel("地图起点",{exact:true}).selectOption("blank");
+  await page.getByRole("button",{name:"建立地点示意图",exact:true}).click();
+  await saved(/地图起点已建立/u);
+  const directory = page.locator('[data-panel-toggle="project-directory"]');
+  if(await page.locator(".project-directory-panel").isVisible()) await directory.click();
+  await openMapMenu(page);
+  await page.getByLabel("地图名称",{exact:true}).fill("北湾手绘区域");
+  await page.getByLabel("地图名称",{exact:true}).blur(); await saved(/地图名称已保存/u);
+  const canvas=page.getByLabel("地点示意图画布");
+  const tool=async(name,style,layer)=>{await page.getByRole("button",{name,exact:true}).click();if(style)await page.getByLabel("绘图样式",{exact:true}).selectOption(style);if(layer)await page.getByLabel("当前绘图图层").selectOption(layer);};
+  const point=async(x,y)=>{const b=await page.locator(".map-workbench-stage").boundingBox();assert.ok(b);return{x:b.x+b.width*x/100,y:b.y+b.height*y/100};};
+  const rename=async(name)=>{await page.getByLabel("图示名称",{exact:true}).fill(name);await page.getByLabel("图示名称",{exact:true}).blur();await saved(/图示名称已保存/u);};
+  const polygon=async(style,points,name)=>{await tool("区域",style,"layer.terrain");for(const [x,y] of points){const p=await point(x,y);await page.mouse.click(p.x,p.y);}await page.getByRole("button",{name:"完成这一笔",exact:true}).click();await saved(/绘图已保存/u);await rename(name);await dwell();};
+  await polygon("land",[[8,16],[40,10],[66,18],[72,37],[67,57],[79,72],[65,89],[8,89]],"北湾海岸");
+  await polygon("water",[[75,5],[96,5],[96,96],[73,96],[84,73],[72,57],[78,37]],"东海水域");
+  const brush=async(style,points,name)=>{await tool("地形",style,"layer.terrain");const p=await point(...points[0]);await page.mouse.move(p.x,p.y);await page.mouse.down();for(const xy of points.slice(1)){const q=await point(...xy);await page.mouse.move(q.x,q.y,{steps:18});}await page.mouse.up();await saved(/连续地形笔触已保存/u);await rename(name);await dwell();};
+  await brush("mountain",[[22,28],[34,22],[49,27]],"北岭");
+  await brush("forest",[[18,43],[28,49],[39,42]],"松林");
+  await brush("forest",[[56,33],[64,40],[60,47]],"东岸林");
+  const line=async(style,points,name)=>{await tool("线条",style,"layer.routes");for(const xy of points){const p=await point(...xy);await page.mouse.click(p.x,p.y);}await page.getByRole("button",{name:"完成这一笔",exact:true}).click();await saved(/绘图已保存/u);await rename(name);await dwell();};
+  await line("river",[[47,28],[49,38],[45,50],[54,59],[54,76],[65,85]],"雾河");
+  await line("road",[[18,68],[33,60],[47,71],[63,61]],"湾岸驿道");
+  for(const [x,y,name] of [[18,68,"西溪镇"],[47,71,"双桥"],[63,61,"雾港"]]){
+    await tool("标记","village","layer.main");const p=await point(x,y);await page.mouse.click(p.x,p.y);await saved(/符号已保存/u);await rename(name);
+  }
+  await tool("文字",null,"layer.main");await page.getByLabel("标注文字",{exact:true}).fill("北湾 · 东海");
+  {const p=await point(83,27);await page.mouse.click(p.x,p.y);}await saved(/文字已保存/u);
+  await tool("浏览");
+  const textObject=page.getByRole("button",{name:"地图文字：北湾 · 东海",exact:true});
+  await textObject.focus();await textObject.press("Enter");
+  await page.getByLabel("选中文字",{exact:true}).fill("东海湾");await page.getByLabel("选中文字",{exact:true}).blur();await saved(/文字已保存/u);
+  await page.getByRole("button",{name:"复制文字",exact:true}).click();await saved(/文字副本已保存/u);
+  await page.getByRole("button",{name:"删除文字",exact:true}).click();await saved(/文字已删除/u);
+  const remainingText=page.getByRole("button",{name:"地图文字：东海湾",exact:true});
+  await remainingText.focus();await remainingText.press("Enter");await remainingText.press("ArrowRight");await saved(/文字位置已保存/u);
+  await tool("浏览");await dwell();await capture("01-R3完整区域地图-1440x900.png");
+  const before=await readMap();assert.equal(before.content.drawings.length,10);assert.equal(before.content.labels.length,1);
+  const road=before.content.drawings.find(d=>d.label==="湾岸驿道");
+  const drawing=page.locator(`[data-drawing-id="${road.id}"]`).first();
+  await drawing.focus();await drawing.press("Enter");await page.getByRole("button",{name:"编辑节点",exact:true}).click();
+  const node=page.locator('.map-edit-nodes [data-node-index="1"]');const n=await node.boundingBox();assert.ok(n);
+  await page.mouse.move(n.x+n.width/2,n.y+n.height/2);await page.mouse.down();await page.mouse.move(n.x+n.width/2+30,n.y+n.height/2+16,{steps:12});await page.mouse.up();await saved(/对象位置已保存/u);
+  const adjusted=await readMap();assert.equal(adjusted.revision,before.revision+1,"A completed node drag creates one revision, not one revision per pixel.");
+  assert.notDeepEqual(adjusted.content.drawings.find(d=>d.id===road.id).points,road.points);
+  await dwell();await capture("02-R3选中道路节点编辑-1440x900.png");
+  const layers=page.locator(".map-authoring-layer-row");
+  const terrain=layers.filter({hasText:"地形"});
+  await terrain.getByRole("button",{name:"显示",exact:true}).click();await saved(/图层显示已保存/u);
+  assert.equal(await page.locator('.map-drawing.is-mountain').count(),0);
+  await terrain.getByRole("button",{name:"隐藏",exact:true}).click();await saved(/图层显示已保存/u);
+  await terrain.getByRole("button",{name:"锁定",exact:true}).click();await saved(/图层锁定状态已保存/u);
+  const snapshot=await readMap();
+  const mountain=page.locator(".map-drawing.is-mountain").first();
+  await mountain.focus();await mountain.press("Enter");await mountain.press("ArrowRight");
+  assert.equal((await readMap()).contentHash,snapshot.contentHash,"Keyboard movement cannot modify a locked terrain layer.");
+  await page.reload();await canvas.waitFor();await page.locator(`[data-drawing-id="${road.id}"]`).first().waitFor();
+  const reopened=await readMap();assert.equal(reopened.contentHash,snapshot.contentHash);
+  await tool("浏览");await dwell();
+  await page.setViewportSize({width:1152,height:720});
+  await capture("03-R3保存重开-1152x720.png");
+  const geometry=await canvas.boundingBox();assert.ok(geometry.width>700 && geometry.height>300,JSON.stringify(geometry));
+  const proposal=await postFixture(`${base}/maps/proposals/create`,{projectId:fixtureProjectId,relativePath:reopened.relativePath,operationId:`r3-local-review-${fixture.fixtureId}`,baseContentHash:reopened.contentHash,prompt:"本地夹具演示：将湾岸驿道中段向海湾一侧调整，保留周围地形和聚落；未调用真实模型。",scope:{kind:"selection",objectIds:[road.id]},capability:{mode:"text"},operations:[{type:"update-drawing",targetId:road.id,patch:{points:[{x:18,y:68},{x:31,y:73},{x:47,y:71},{x:63,y:61}]}}]});
+  assert.equal(proposal.data.status,"pending");
+  await page.locator(`[data-drawing-id="${road.id}"]`).first().focus();await page.locator(`[data-drawing-id="${road.id}"]`).first().press("Enter");
+  await page.getByRole("button",{name:/AI 编辑 · 1 个图示/u}).click();
+  const panel=page.getByRole("region",{name:"天意地图协作"});await panel.getByText("待作者审阅",{exact:true}).waitFor();
+  await panel.getByRole("button",{name:"查看整张地图",exact:true}).click();await dwell();
+  assert.equal(await page.locator(".map-ai-keypoints-overlay").count(),0,"No implicit endpoint constraint annotations.");
+  const accept=await panel.getByRole("button",{name:"接受并保存",exact:true}).boundingBox();assert.ok(accept && accept.y+accept.height<=720);
+  assert.equal(await page.locator(".map-authoring-palette").isVisible(),false,"AI and properties do not occupy two wide panels.");
+  await capture("04-R3完整地图AI审阅-1152x720.png");
+  await page.setViewportSize({width:1440,height:900});await panel.getByRole("button",{name:"查看整张地图",exact:true}).click();await dwell();await capture("05-R3完整地图AI审阅-1440x900.png");
+  await panel.getByRole("button",{name:"拒绝",exact:true}).click();await panel.getByText("已拒绝",{exact:true}).waitFor();
+  assert.equal((await readMap()).contentHash,reopened.contentHash,"Reject leaves the complete authored map unchanged.");
+  assert.deepEqual(consoleProblems,[]);
+  if(mapM3EvidenceDirectory)writeFileSync(path.join(mapM3EvidenceDirectory,"R3地图作者身份.json"),JSON.stringify({sourceRevision:runRevision,projectId:fixtureProjectId,workVersionId:mapM2Fixture.root.identity.workVersionId,mapId:reopened.id,contentHash:reopened.contentHash,revision:reopened.revision,editableDrawingCount:10,editableLabelCount:1,realProviderDispatches:0,proposalSource:"local-fixture-not-real-model"},null,2));
+}
+
+async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiStart = false, groundedAnswerResponses = []) {
+  assert.ok(mapM2Fixture, "R4 needs the isolated map and location fixture.");
+  const base = `${apiUrl}/__local/story-studio`;
+  const verifyCreativeResults = tianyiR6Only;
+  const liveCreation = tianyiR6LiveAcceptance;
+  const evidenceDirectory = verifyCreativeResults ? tianyiR6EvidenceDirectory : verifyTianyiStart ? mapR5EvidenceDirectory : mapR4EvidenceDirectory;
+  const capture = async (name) => { if (evidenceDirectory) { mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
+  const visual = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents;
+  const saved = async (pattern) => page.getByRole("status").getByText(pattern).waitFor();
+  const reviewReturn = page.getByRole("button", { name: "返回绘制", exact: true });
+  if (await reviewReturn.isVisible()) await reviewReturn.click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let region = (await visual()).find((item) => item.title === "北湾手绘区域");
+  const fogDrawing = region.content.drawings.find((item) => item.label === "雾港");
+  assert.ok(fogDrawing && fogDrawing.objectId === null, "The authored Fog Harbor symbol starts as a visual-only object.");
+  const fogNode = page.locator(`[data-drawing-id="${fogDrawing.id}"]`).first();
+  await fogNode.focus(); await fogNode.press("Enter");
+  await page.getByLabel("搜索地点资料").fill("雾港");
+  await page.getByLabel("待关联地点").selectOption(mapM2Fixture.fogHarbor.id);
+  await page.getByRole("button", { name: "完成关联", exact: true }).click();
+  await saved(/已将图示关联到地点资料“雾港”/u);
+  await page.getByRole("button", { name: "查看地点卡", exact: true }).click();
+  const card = page.getByLabel("地点卡");
+  await card.getByRole("heading", { name: "雾港", exact: true }).waitFor();
+  const introduction = card.locator(":scope > p");
+  await introduction.waitFor();
+  assert.ok((await introduction.innerText()).trim().length > 0, "The place card shows the saved introduction or an explicit empty-state sentence.");
+  await capture(verifyCreativeResults ? "00-R6地图地点入口-1440x900.png" : verifyTianyiStart ? "01-R5地图地点卡-1440x900.png" : "01-R4完整地图与地点卡-1440x900.png");
+
+  await card.getByText("管理局部地图", { exact: true }).click();
+  await card.getByRole("button", { name: "新建并放置局部地图", exact: true }).click();
+  await saved(/局部地图和明确入口已保存/u);
+  await page.getByLabel("地点示意图画布").waitFor();
+  await page.getByRole("button", { name: "标记", exact: true }).click();
+  await page.getByLabel("绘图样式", { exact: true }).selectOption("building");
+  const stage = await page.locator(".map-workbench-stage").boundingBox(); assert.ok(stage);
+  await page.mouse.click(stage.x + stage.width * .52, stage.y + stage.height * .48);
+  await saved(/符号已保存/u);
+  const parentButton = page.getByRole("button", { name: "北湾手绘区域", exact: true });
+  await parentButton.click();
+  await page.locator(`[data-drawing-id="${fogDrawing.id}"]`).waitFor();
+  assert.equal(await card.isVisible(), true, "Returning from the local map restores the linked selection and place card.");
+  region = (await visual()).find((item) => item.title === "北湾手绘区域");
+  assert.ok(region.content.placements.length > 0, "The explicit create-and-place action records the separate spatial placement.");
+  await capture("02-R4局部图返回并恢复选择-1440x900.png");
+
+  await card.getByRole("button", { name: "交给天意", exact: true }).click();
+  const context = page.locator(".tianyi-map-creation-start");
+  await context.getByRole("heading", { name: /北湾手绘区域/u }).waitFor();
+  await page.getByText("雾港", { exact: true }).last().waitFor();
+  assert.match(page.url(), new RegExp(`mapElement=${encodeURIComponent(fogDrawing.id)}`, "u"));
+  assert.match(page.url(), new RegExp(`materialRef=${encodeURIComponent(mapM2Fixture.fogHarbor.id)}`, "u"));
+  assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "Opening Tianyi prepares context but does not send or invent a prompt.");
+  await capture("03-R4天意地图地点引用准备-1440x900.png");
+  if (verifyTianyiStart) {
+    const composer = page.locator(".tianyi-map-composer");
+    const composerBox = await composer.boundingBox(); const workDetailsBox = await page.locator(".tianyi-work-context-picker").boundingBox();
+    assert.ok(composerBox && workDetailsBox && composerBox.y < workDetailsBox.y, "The map creation composer is visible before technical work context.");
+    await capture("02-R5地图进入天意首屏-1440x900.png");
+    const locationRef = page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" });
+    await locationRef.waitFor();
+    if (liveCreation) {
+      await composer.locator("textarea").fill("根据所选雾港资料，创作三个不同的场景构想。每个提供标题和80至120字正文，写清人物面临的具体冲突。新增设定作为创意建议，不冒充已有事实。请直接给出构想，不复述我的要求，不修改正式资料。");
+    } else {
+      await locationRef.getByRole("button", { name: "移除", exact: true }).click();
+      assert.equal(await page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" }).count(), 0, "Removing a location reference only removes it from this request context.");
+      await page.getByRole("button", { name: "三个场景构想", exact: true }).click();
+      await composer.locator("textarea").fill(`${await composer.locator("textarea").inputValue()} 请突出河道与山路的交汇。`);
+    }
+    const retainedDraft = await composer.locator("textarea").inputValue();
+    await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+    await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+    await page.locator(".tianyi-map-composer").waitFor();
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), retainedDraft, "The per-project Work draft survives the map round trip.");
+    await page.locator(".tianyi-map-composer .tianyi-send").click();
+    await page.getByLabel("本问来源回执").waitFor({ timeout: liveCreation ? 120_000 : 30_000 });
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "", "A completed answer clears only the submitted draft.");
+    if (verifyCreativeResults) {
+      if (liveCreation) {
+        const firstGroundedResult = (await Promise.all(groundedAnswerResponses)).filter(Boolean).at(-1) || null;
+        await assertTianyiRealCreationResult(page, context, composer, capture, firstGroundedResult);
+      } else {
+      const result = page.getByLabel("地图创作请求结果");
+      await result.getByText("雾港的三个场景构想", { exact: true }).waitFor();
+      await result.getByText(/潮闸停灯/u).waitFor();
+      tianyiR6Lifecycle.applicationParsed = true;
+      tianyiR6Lifecycle.sessionSaved = true;
+      tianyiR6Lifecycle.bodyDisplayed = true;
+      await result.scrollIntoViewIfNeeded();
+      await capture("01-R6实际创作结果-1440x900.png");
+      if (process.env.TIANYAN_TIANIYI_R6_FAIL_AFTER_FIRST_RESULT === "1") throw new Error("Injected R6 post-result assertion failure for preservation verification.");
+      await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
+      const continuedDraft = await composer.locator("textarea").inputValue();
+      assert.match(continuedDraft, /回复（event\./u, "Continue targets the durable response message instead of an implicit previous item.");
+      await composer.locator("textarea").fill(`${continuedDraft} 只修改第二个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`);
+      const continuationRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer"));
+      await composer.locator(".tianyi-send").click();
+      const continuationPayload = (await continuationRequest).postDataJSON();
+      assert.match(continuationPayload.question, /指定构想：第2项《山路来信》/u, "An ordinal request resolves to the second idea's actual title before Provider dispatch.");
+      assert.match(continuationPayload.question, /指定构想原文：[\s\S]*暴雨切断河道/u, "The Provider receives the selected idea body, not only an ambiguous ordinal.");
+      assert.match(continuationPayload.question, /来源回复 ID：event\./u, "The continuation keeps the durable source reply identity.");
+      await result.getByText("修改后的第二个构想：山路来信", { exact: true }).waitFor();
+      tianyiR6Lifecycle.continuationCompleted = true;
+      assert.equal(await page.locator(".tianyi-work-history .is-tianyi").count() >= 2, true, "The original and revised replies remain separately visible in the same durable Session.");
+      await result.getByRole("button", { name: "保存为创意草稿", exact: true }).click();
+      await page.getByRole("status").getByText(/已保存到当前作品的创意编辑草稿；仅保存在当前浏览器/u).waitFor();
+      tianyiR6Lifecycle.draftSaved = true;
+      await capture("02-R6继续修改并保存草稿-1440x900.png");
+      await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+      await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+      await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
+      const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
+      await creativeDraft.waitFor();
+      await page.getByLabel("创意草稿来源信息").getByText(/来自天意回复|查看原回复身份/u).waitFor();
+      assert.match(await creativeDraft.inputValue(), /修改后的第二个构想：山路来信/u, "The saved creative draft opens through the existing Creative lane.");
+      assert.doesNotMatch(await creativeDraft.inputValue(), /创意草稿 · 来自天意回复/u, "The editable first screen separates provenance from creative prose.");
+      await page.reload();
+      const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");
+      await reopenedCreativeDraft.waitFor();
+      tianyiR6Lifecycle.reopened = true;
+      assert.match(await reopenedCreativeDraft.inputValue(), /修改后的第二个构想：山路来信/u, "The per-project Creative draft survives a full page reopen.");
+      await page.getByLabel("创意草稿来源信息").waitFor();
+      await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
+      await page.getByLabel("地图创作请求结果").getByText("修改后的第二个构想：山路来信", { exact: true }).waitFor();
+      }
+    }
+    await page.setViewportSize({ width: 1152, height: 720 });
+    await page.getByLabel("地图创作请求结果").scrollIntoViewIfNeeded();
+    await capture(verifyCreativeResults ? "03-R6窄屏输入与结果-1152x720.png" : "03-R5窄屏输入与本地结果-1152x720.png");
+    await page.route("**/model-service/tianyi-grounded-answer", async (route) => route.fulfill({ status: 503, body: "fixture failure" }));
+    expectedProviderFailureConsoleBudget += 1;
+    await page.locator(".tianyi-map-composer textarea").fill("这次请求用于验证失败后保留草稿。");
+    await page.locator(".tianyi-map-composer .tianyi-send").click();
+    await page.getByRole("alert").getByText(/请求无法开始/u).waitFor();
+    assert.equal(await page.locator(".tianyi-map-composer textarea").inputValue(), "这次请求用于验证失败后保留草稿。", "A failed request preserves the draft and context without retrying.");
+    await page.unroute("**/model-service/tianyi-grounded-answer");
+    const expectedFailureIndex = consoleProblems.findIndex((item) => /HTTP 503:.*tianyi-grounded-answer/u.test(item));
+    assert.notEqual(expectedFailureIndex, -1, "The simulated request failure is recorded once instead of being hidden as success.");
+    consoleProblems.splice(expectedFailureIndex, 1);
+    await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+    await page.getByLabel("地点卡").waitFor();
+  } else {
+  await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+  }
+  await page.getByLabel("地点示意图画布").waitFor();
+
+  await page.setViewportSize({ width: 1152, height: 720 });
+  const toolbarButtons = await page.locator(".map-creation-toolbar > button").all();
+  const boxes = (await Promise.all(toolbarButtons.map((button) => button.boundingBox()))).filter(Boolean);
+  assert.ok(boxes.length && Math.max(...boxes.map((box) => box.y)) - Math.min(...boxes.map((box) => box.y)) < 4, "The 1152px toolbar remains on one horizontal strip instead of isolating AI on a second row.");
+  await page.getByRole("button", { name: "本图地点", exact: true }).click();
+  const placeIndex = page.getByLabel("本图地点");
+  await placeIndex.getByText("已关联地点资料", { exact: true }).waitFor();
+  await placeIndex.getByRole("button", { name: /西溪镇/u }).click();
+  assert.equal(await page.getByLabel("地点卡").count(), 0, "An unlinked place symbol remains a visual object and does not open a fabricated place card.");
+  await page.reload();
+  await page.getByLabel("地点示意图画布").waitFor();
+  const reopenedFog = page.locator(`[data-drawing-id="${fogDrawing.id}"]`).first();
+  await reopenedFog.focus(); await reopenedFog.press("Enter");
+  await page.getByLabel("地点卡").getByText("地点关联管理", { exact: true }).click();
+  await page.getByLabel("地点卡").getByRole("button", { name: "更换或解除关联", exact: true }).click();
+  await page.getByRole("button", { name: "解除关联", exact: true }).click();
+  await saved(/地点资料和局部地图仍保留/u);
+  const library = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.ok(library.data.objects.some((item) => item.id === mapM2Fixture.fogHarbor.id), "Unlinking the visual symbol does not delete the formal location.");
+  if (verifyCreativeResults) {
+    await gotoProduct(page, `${baseUrl}/tianyi?tianyiLane=work`);
+    assert.equal(await page.locator(".tianyi-map-creation-start").count(), 0, "The ordinary Tianyi entry does not invent a map source.");
+    if (!liveCreation) {
+      const ordinaryComposer = page.locator(".tianyi-workspace-composer");
+      await ordinaryComposer.locator("textarea").fill("整理我接下来需要补充的地点创作问题，不要写入事实。");
+      await ordinaryComposer.getByRole("button", { name: "发送到当前工作", exact: true }).click();
+      await page.getByLabel("本问来源回执").getByText("围绕当前资料的讨论", { exact: true }).waitFor();
+    }
+  }
+  assert.deepEqual(consoleProblems, []);
+  if (evidenceDirectory) {
+    const groundedResults = (await Promise.all(groundedAnswerResponses)).filter(Boolean);
+    writeFileSync(path.join(evidenceDirectory, verifyCreativeResults ? "R6天意创作结果身份.json" : verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: liveCreation ? groundedResults.reduce((sum, item) => sum + Number(item.providerDispatchCount || 0), 0) : 0, provider: liveCreation ? { providerId: process.env.TIANYAN_REAL_PROVIDER_ID || null, modelId: process.env.TIANYAN_REAL_PROVIDER_MODEL_ID || null } : null, requestEvidence: liveCreation ? "two-turn-real-provider-creation-and-named-revision" : verifyCreativeResults ? "substantive-local-content-revision-save-reopen-and-failure" : verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: liveCreation ? "normal-page-isolated-real-provider" : "normal-page-isolated-fixture", results: groundedResults.map((item) => ({ responseMessageId: item.responseMessageId, providerDispatchCount: item.providerDispatchCount, usage: item.usage, summary: item.answer?.summary })) }, null, 2));
+  }
+}
+
+async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
+  assert.ok(mapM2Fixture, "Relation R2 needs the isolated relationship and event owners.");
+  const graph = await mapM2Fixture.createRelationReadingGraph();
+  const evidenceDirectory = relationNetworkEvidenceR2Directory;
+  const capture = async (name) => { if (!evidenceDirectory) return; mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.guLan.id)}&relationScope=all&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
+  await gotoProduct(page, route);
+  const workspace = page.getByTestId("focused-relations-workspace");
+  const canvas = page.getByTestId("focused-relations-canvas");
+  await workspace.waitFor(); await canvas.waitFor();
+  assert.equal(await canvas.locator(".focused-relations-node").count(), 9, "The global observed network shows seven connected people and two places; the isolated person is not fabricated into an edge.");
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 3, "The global graph labels the three groups attached to the current center instead of piling every context label over the network.");
+  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 5, "Five non-focused endpoint groups remain visible as quiet context lines.");
+  assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 9 \/ 9 条/u);
+  const nodeRects = await canvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }; }));
+  assert.equal(nodeRects.every((rect, index) => nodeRects.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top)), true, "Global relationship nodes must not overlap at the author viewport.");
+  await capture("01-全局人物关系网络-1440x900.png");
+
+  await workspace.getByRole("button", { name: "直接关系", exact: true }).click();
+  await workspace.getByLabel("搜索人物或地点").fill(graph.isolated.title);
+  await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(graph.isolated.title, "u") }).click();
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 0, "An isolated person remains explicitly relation-free instead of gaining an inferred edge.");
+  assert.match(await workspace.locator("footer").innerText(), /直接正式关系 0 条/u);
+
+  await workspace.getByLabel("搜索人物或地点").fill(mapM2Fixture.guLan.title);
+  await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(mapM2Fixture.guLan.title, "u") }).click();
+  await workspace.getByLabel("筛选关系类型").selectOption({ label: "港务协作" });
+  assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 1 \/ 9 条.*港务协作/u);
+  await workspace.getByRole("button", { name: "清除类型筛选", exact: true }).click();
+  await workspace.locator(".focused-relations-filter-summary").getByText(/当前显示 4 \/ 9 条/u).waitFor();
+  const multiEdge = canvas.locator(".focused-relations-edge-label").filter({ hasText: "港务协作" }).filter({ hasText: "航线分歧" });
+  await multiEdge.click();
+  const detail = workspace.getByLabel("所选关系详情");
+  await detail.waitFor();
+  const multiRelationText = await detail.innerText();
+  assert.match(multiRelationText, /港务协作[\s\S]*由左至右/u, "The first relation keeps its own type and direction.");
+  assert.match(multiRelationText, /航线分歧[\s\S]*由右至左/u, "The second relation keeps its own type and direction.");
+  const divergenceChoice = detail.getByRole("button", { name: "航线分歧", exact: true });
+  await divergenceChoice.click();
+  assert.equal(await divergenceChoice.getAttribute("aria-pressed"), "true", "A same-pair relation is selected independently instead of relying on a merged edge label.");
+  assert.ok(new URL(page.url()).searchParams.get("relationItem"), "The exact relation identity is retained in the return route.");
+  await detail.getByRole("button", { name: "适配当前关系", exact: true }).click();
+  await capture("02-人物聚焦与同对多关系-1440x900.png");
+  const evidence = detail.locator(".focused-relations-evidence").first();
+  await page.waitForFunction((element) => element?.getAttribute("aria-busy") === "false", await evidence.elementHandle());
+  const evidenceText = await evidence.innerText();
+  assert.match(evidenceText, /雾港潮闸争议/u, "The inline reader resolves the referenced event title.");
+  assert.match(evidenceText, /顾澜主张先封闭旧港航道检修[\s\S]*程野则坚持保留山路货队的渡口时段/u, "The inline reader exposes the actual exact-revision event prose, not only a title or route.");
+  await capture("03-关系依据正文-1440x900.png");
+
+  await workspace.getByLabel("筛选关系类型").selectOption({ label: "航线分歧" });
+  await canvas.locator(".focused-relations-edge-label").filter({ hasText: "航线分歧" }).click();
+  const singleDetail = workspace.getByLabel("所选关系详情");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await singleDetail.getByRole("button", { name: "带着这条关系与依据进入天意", exact: true }).click();
+  const tianyi = page.getByLabel("从关系开始创作");
+  await tianyi.waitFor();
+  await page.getByRole("heading", { name: /顾澜 ← 程野 · 航线分歧/u }).waitFor();
+  const sourceItem = tianyi.locator(".tianyi-map-reference-strip li").filter({ hasText: "雾港潮闸争议" });
+  await sourceItem.getByText("查看来源内容", { exact: true }).click();
+  await sourceItem.getByText(/两人在雾港议事厅留下了各自署名的处置意见/u).waitFor();
+  await sourceItem.getByText("查看来源内容", { exact: true }).click();
+  await tianyi.getByLabel("关系工作范围对话").fill("围绕顾澜、程野的航线分歧与来源事件，构思一个两难场面；不要改写正式事实。");
+  assert.equal(tianyiR6Lifecycle.requestCount, 0, "Preparing a relationship task must not send a Provider request.");
+  await capture("04-关系带入天意-1152x720.png");
+  await page.getByRole("button", { name: "返回关系图", exact: true }).first().click();
+  await workspace.waitFor();
+  assert.equal(await workspace.getByLabel("筛选关系类型").inputValue(), "航线分歧", "Returning from Tianyi restores the relationship filter.");
+  assert.equal(await workspace.getByLabel("所选关系详情").isVisible(), true, "Returning from Tianyi restores the selected relationship.");
+  await capture("05-返回关系现场-1152x720.png");
+  assert.deepEqual(consoleProblems, [], "The relation network, inline evidence, Tianyi handoff and return flow must not produce browser errors.");
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "人物关系网络与依据阅读R2身份.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, people: graph.people.map((item) => ({ id: item.id, title: item.title })), places: graph.places.map((item) => ({ id: item.id, title: item.title })), isolatedPersonId: graph.isolated.id, relationIds: graph.createdRelations.map((item) => item.relationId), evidence: { eventId: graph.sourceEvent.id, revision: graph.sourceEvent.revisionToken }, viewportChecks: ["1440x900", "1152x720"], providerDispatches: 0 }, null, 2)}\n`, "utf8");
+}
+
+async function assertMapCharacterRelationsR1(page, consoleProblems) {
+  assert.ok(mapM2Fixture, "Map-character R1 needs the isolated map, people, relations and exact Canon evidence.");
+  const base = `${apiUrl}/__local/story-studio`;
+  const evidenceDirectory = mapCharacterRelationsR1EvidenceDirectory;
+  const capture = async (name) => { if (evidenceDirectory) { mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); } };
+  const saved = async (pattern) => page.getByRole("status").getByText(pattern).waitFor();
+  const visual = async () => (await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents;
+  const reviewReturn = page.getByRole("button", { name: "返回绘制", exact: true });
+  if (await reviewReturn.isVisible()) await reviewReturn.click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const region = (await visual()).find((item) => item.title === "北湾手绘区域");
+  const fogDrawing = region.content.drawings.find((item) => item.label === "雾港");
+  assert.ok(fogDrawing, "The complete region map keeps the authored Fog Harbor symbol.");
+  const fogNode = page.locator(`[data-drawing-id="${fogDrawing.id}"]`).first();
+  await fogNode.focus(); await fogNode.press("Enter");
+  await page.getByLabel("搜索地点资料").fill("雾港");
+  await page.getByLabel("待关联地点").selectOption(mapM2Fixture.fogHarbor.id);
+  await page.getByRole("button", { name: "完成关联", exact: true }).click();
+  await saved(/已将图示关联到地点资料“雾港”/u);
+  await page.getByRole("button", { name: "查看地点卡", exact: true }).click();
+  const card = page.getByLabel("地点卡");
+  await card.getByRole("heading", { name: "雾港", exact: true }).waitFor();
+  const people = card.getByLabel("地点相关人物");
+  for (const name of ["顾澜", "程野", "林昭"]) await people.getByRole("button", { name, exact: true }).waitFor();
+  assert.match(await people.innerText(), /驻港调查[\s\S]*雾港 → 顾澜/u, "The place card presents the Relation Owner direction rather than inferring presence from the map.");
+  assert.match(await people.innerText(), /山路联络[\s\S]*程野 ↔ 雾港/u, "A two-way formal relation remains visibly distinct from one-way direction.");
+  await capture("01-完整地图与地点相关人物-1440x900.png");
+  const expectedMapReturn = new URL(page.url());
+  expectedMapReturn.searchParams.set("mapElement", fogDrawing.id);
+  expectedMapReturn.searchParams.set("mapPlace", mapM2Fixture.fogHarbor.id);
+  const mapRoute = `${expectedMapReturn.pathname}${expectedMapReturn.search}`;
+
+  await people.getByRole("button", { name: "顾澜", exact: true }).click();
+  const character = page.getByTestId("character-workspace");
+  await character.getByRole("heading", { name: "顾澜", exact: true }).waitFor();
+  assert.match(await character.innerText(), /驻港调查[\s\S]*雾港/u, "The character workspace reads the same confirmed relation.");
+  await character.getByRole("button", { name: "查看关系图", exact: true }).click();
+  const relations = page.getByTestId("focused-relations-workspace");
+  await relations.waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("relationCenter"), mapM2Fixture.guLan.id, "Character-to-relations navigation retains the selected person identity.");
+  await relations.getByLabel("搜索人物或地点").fill("顾澜");
+  await relations.locator(".focused-relations-search-results").getByRole("button", { name: /顾澜/u }).click();
+  await relations.getByLabel("筛选关系类型").selectOption({ label: "驻港调查" });
+  const edge = relations.locator(".focused-relations-edge-label").filter({ hasText: "驻港调查" });
+  await edge.click();
+  const detail = relations.getByLabel("所选关系详情");
+  await detail.waitFor();
+  assert.match(await detail.innerText(), /顾澜[\s\S]*雾港[\s\S]*由左至右/u, "The selected relation keeps endpoints, direction and selection state readable.");
+  await capture("02-人物关系聚焦-1440x900.png");
+  await detail.getByRole("button", { name: "打开依据", exact: true }).click();
+  await page.getByTestId("event-line-workbench").waitFor();
+  await page.getByText(/北闸恢复通行/u).first().waitFor();
+  await capture("03-关系正式依据-1440x900.png");
+  await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
+  await relations.waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("relationType"), "驻港调查", "Returning from evidence restores the relationship filter.");
+  assert.match(new URL(page.url()).searchParams.get("relationSelection") ?? "", /^edge:/u, "Returning from evidence restores the selected relation.");
+  await reloadProduct(page);
+  await detail.waitFor();
+  assert.equal(await relations.getByLabel("筛选关系类型").inputValue(), "驻港调查", "Reloading preserves the route-backed filter and selected edge.");
+
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await detail.getByRole("button", { name: "带着这条关系与依据进入天意", exact: true }).click();
+  const tianyi = page.getByLabel("从关系开始创作");
+  await tianyi.waitFor();
+  await tianyi.getByText("顾澜", { exact: true }).waitFor();
+  await tianyi.getByText("雾港", { exact: true }).waitFor();
+  await tianyi.locator(".tianyi-map-reference-strip li").filter({ has: page.getByText(/北闸恢复通行/u) }).first().waitFor();
+  const draft = tianyi.getByLabel("关系工作范围对话");
+  await draft.fill("结合雾港、顾澜与这条已确认关系，构思一次港务抉择；不要修改正式事实。");
+  assert.equal(tianyiR6Lifecycle.requestCount, 0, "Preparing an explicit relationship context and draft must not send a Provider request.");
+  const tianyiBox = await tianyi.boundingBox();
+  assert.ok(tianyiBox && tianyiBox.y >= 0 && tianyiBox.y < 720, `The relation source, references and input remain reachable at 1152x720: ${JSON.stringify(tianyiBox)}`);
+  await capture("04-关系进入天意引用准备-1152x720.png");
+  await tianyi.getByRole("button", { name: "返回关系图", exact: true }).click();
+  await relations.waitFor();
+  assert.equal(await detail.isVisible(), true, "Returning from Tianyi restores the selected relation detail.");
+  await relations.getByRole("button", { name: "返回角色", exact: true }).click();
+  await character.waitFor();
+  await character.getByRole("button", { name: "返回世界总览", exact: true }).click();
+  await page.getByLabel("地点示意图画布").waitFor();
+  assert.equal(`${new URL(page.url()).pathname}${new URL(page.url()).search}`, mapRoute, "The full relation and character round trip restores the exact map route, viewport and selection.");
+  await card.waitFor();
+  assert.equal(await page.locator(`[data-drawing-id="${fogDrawing.id}"]`).first().evaluate((element)=>element.classList.contains("is-selected")), true, "The Fog Harbor symbol remains selected after the round trip.");
+  assert.deepEqual(consoleProblems, [], "The connected map, character, relation, evidence and Tianyi flow must not produce browser errors.");
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "地图人物关系R1身份.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, mapRevision: region.contentHash, mapDrawingId: fogDrawing.id, locationId: mapM2Fixture.fogHarbor.id, characterIds: [mapM2Fixture.guLan.id, mapM2Fixture.chengYe.id, mapM2Fixture.lin.id], relationIds: mapM2Fixture.fogHarbourRelations.map((item) => item.relationId), evidence: { eventId: mapM2Fixture.reopened.id, revision: mapM2Fixture.reopened.revisionToken }, providerDispatches: 0, persisted: ["map document and association", "formal objects and relations"], browserSessionOnly: ["map viewport and selection route", "relationship filters and selection route", "Tianyi work draft"] }, null, 2)}\n`, "utf8");
+}
+
+async function assertTianyiRealCreationResult(page, context, composer, capture, groundedResult) {
+  const result = page.getByLabel("地图创作请求结果");
+  const body = result.locator(".tianyi-creation-result-body");
+  await body.waitFor({ timeout: 120_000 });
+  tianyiR6Lifecycle.applicationParsed = true;
+  tianyiR6Lifecycle.sessionSaved = true;
+  tianyiR6Lifecycle.bodyDisplayed = true;
+  const firstText = (await body.innerText()).trim();
+  const renderedListItems = await body.locator("ol > li, ul > li").allInnerTexts();
+  const renderedHeadingBlocks = await body.locator("h1, h2, h3, h4").evaluateAll((headings) => headings.map((heading) => {
+    const bodyParts = [];
+    let sibling = heading.nextElementSibling;
+    while (sibling && !/^H[1-4]$/u.test(sibling.tagName)) { bodyParts.push(sibling.textContent || ""); sibling = sibling.nextElementSibling; }
+    return { title: heading.textContent || "", body: bodyParts.join("\n") };
+  }));
+  const assessment = recognizeTianyiCreationIdeas({ renderedListItems, renderedHeadingBlocks, markdown: groundedResult?.answer?.summary || "" });
+  const ideas = assessment?.ideas || [];
+  const creativeSuggestionIdentity = groundedResult?.answer?.claims?.some((claim) => claim.status === "candidate") === true || groundedResult?.answer?.status === "candidate";
+  tianyiR6ContentAssessment = { recognitionSource: assessment?.recognitionSource || null, entryCount: ideas.length, characterCountMethod: assessment?.characterCountMethod || null, entries: ideas.map(({ title, bodyCharacterCount, hasConcreteConflict }) => ({ title, bodyCharacterCount, hasConcreteConflict, withinRequested80To120: bodyCharacterCount >= 80 && bodyCharacterCount <= 120 })), creativeSuggestionIdentity, applicationState: { parsed: tianyiR6Lifecycle.applicationParsed, sessionSaved: tianyiR6Lifecycle.sessionSaved, bodyDisplayed: tianyiR6Lifecycle.bodyDisplayed } };
+  assert.equal(ideas.length, 3, `The first real answer must contain exactly three structurally distinguishable ideas. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(ideas.every((idea) => idea.hasConcreteConflict), true, `Each real idea must contain a concrete conflict. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(creativeSuggestionIdentity, true, `New setting must remain a creative candidate rather than a fact. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  assert.equal(ideas.every((idea) => idea.bodyCharacterCount >= 80 && idea.bodyCharacterCount <= 120), true, `Each body must contain 80-120 counted characters. Actual=${JSON.stringify(tianyiR6ContentAssessment)}`);
+  await result.scrollIntoViewIfNeeded();
+  await capture("01-R6真实创作正文-1440x900.png");
+  if (process.env.TIANYAN_TIANIYI_R6_FAIL_AFTER_FIRST_RESULT === "1") throw new Error("Injected R6 post-result assertion failure for preservation verification.");
+
+  const selected = ideas[1];
+  await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
+  const continuedDraft = await composer.locator("textarea").inputValue();
+  assert.match(continuedDraft, /回复（event\./u, "The real continuation targets the durable response message.");
+  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.title), "u"), "The real continuation includes the selected idea title from the first answer.");
+  assert.match(continuedDraft, new RegExp(escapeRegExp(selected.body.slice(0, Math.min(24, selected.body.length))), "u"), "The real continuation includes the selected idea body rather than only an ordinal.");
+  const revisionRequest = `只修改《${selected.title}》这个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`;
+  await composer.locator("textarea").fill(`${continuedDraft}\n\n${revisionRequest}`);
+  await composer.locator(".tianyi-send").click();
+  await page.waitForFunction(({ selector, previous }) => document.querySelector(selector)?.textContent?.trim() !== previous, { selector: ".tianyi-map-entry-result .tianyi-creation-result-body", previous: firstText }, { timeout: 120_000 });
+  const revisedText = (await body.innerText()).trim();
+  tianyiR6Lifecycle.continuationCompleted = true;
+  assert.notEqual(revisedText, firstText, "The second real answer appends a distinct revision instead of replaying the first answer.");
+  assert.match(revisedText, new RegExp(escapeRegExp(selected.title), "u"), "The second real answer names the selected idea.");
+  assert.ok(!ideas.filter((_, index) => index !== 1).every((idea) => revisedText.includes(idea.title)), `The second real answer must not rewrite all three ideas. Actual=${revisedText}`);
+  assert.equal(await page.locator(".tianyi-work-history .is-tianyi").count() >= 2, true, "The original and revised real replies remain separately traceable.");
+  await result.getByRole("button", { name: "保存为创意草稿", exact: true }).click();
+  await page.getByRole("status").getByText(/已保存到当前作品的创意编辑草稿；仅保存在当前浏览器/u).waitFor();
+  tianyiR6Lifecycle.draftSaved = true;
+  await result.scrollIntoViewIfNeeded();
+  await capture("02-R6真实续改与本机草稿-1440x900.png");
+
+  await context.getByRole("button", { name: "返回地图继续创作", exact: true }).click();
+  await page.getByLabel("地点卡").getByRole("button", { name: "交给天意", exact: true }).click();
+  await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
+  const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
+  await creativeDraft.waitFor();
+  await page.getByLabel("创意草稿来源信息").waitFor();
+  assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The selected real revision opens in the existing Creative composer.");
+  assert.doesNotMatch(await creativeDraft.inputValue(), /创意草稿 · 来自天意回复/u, "The real reply identity stays in the separate source area rather than the editable prose.");
+  assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(revisedText.slice(0, Math.min(32, revisedText.length))), "u"), "The local Creative draft contains the exact revised real answer.");
+  await page.reload();
+  const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");
+  await reopenedCreativeDraft.waitFor();
+  tianyiR6Lifecycle.reopened = true;
+  assert.match(await reopenedCreativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The real revision survives a full application reopen in the current browser profile.");
+  await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
+  await page.getByLabel("地图创作请求结果").getByText(new RegExp(escapeRegExp(selected.title), "u")).first().waitFor();
+}
+
+function parseGroundedAnswerSse(source) {
+  const normalized = source.replaceAll("\r\n", "\n");
+  const complete = normalized.split(/\n\n/u).map((block) => block.trim()).find((block) => /^event:\s*complete$/mu.test(block));
+  if (!complete) return null;
+  const data = complete.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+  return data ? JSON.parse(data) : null;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 async function assertMapM3AuthorExperience(page, consoleProblems) {
   assert.ok(mapM2Fixture, "MAP-M3 author experience needs the isolated formal location fixture.");
   if (mapM3EvidenceDirectory) mkdirSync(mapM3EvidenceDirectory, { recursive: true });
@@ -2418,17 +3290,18 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
   if ((await directoryToggle.getAttribute("aria-pressed")) !== "true") await directoryToggle.click();
   await page.locator(".project-directory-panel").waitFor();
-  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await openMapMenuAction(page, "专注地图");
   await page.locator(".project-directory-panel").waitFor({ state: "detached" });
   assert.equal(await directoryToggle.getAttribute("aria-pressed"), "true", "Map focus temporarily collapses the global directory without discarding the author's open preference.");
   await directoryToggle.click();
   await page.locator(".project-directory-panel").waitFor();
   assert.equal(await directoryToggle.getAttribute("aria-pressed"), "true", "The global directory remains available on demand after map focus.");
-  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await openMapMenuAction(page, "专注地图");
   await page.locator(".project-directory-panel").waitFor({ state: "detached" });
   const toolbarGeometry = await page.locator(".map-workbench-toolbar-actions button").evaluateAll((buttons) => buttons.map((button) => ({ writingMode: getComputedStyle(button).writingMode, width: button.getBoundingClientRect().width, height: button.getBoundingClientRect().height, text: button.textContent?.trim() })));
   assert.ok(toolbarGeometry.every((item) => item.writingMode === "horizontal-tb" && item.width >= item.height), `Toolbar actions remain readable horizontal controls=${JSON.stringify(toolbarGeometry)}`);
 
+  await openMapMenu(page);
   const titleInput = page.getByLabel("地图名称");
   await titleInput.fill("北湾作者地图"); await titleInput.blur();
   await page.getByRole("status").getByText(/地图名称已保存/u).waitFor();
@@ -2468,16 +3341,17 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByRole("status").getByText(/已重做/u).waitFor();
   await page.getByText("跨郡松林", { exact: true }).waitFor();
 
+  await openMapProperties(page,"地点与局部图");
   const fogRow = palette.locator(".map-authoring-place-row").filter({ hasText: "雾港" });
   await fogRow.getByRole("button", { name: /雾港/u }).click();
-  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await openMapMenuAction(page, "编辑布局");
   const layoutBox = await canvas.boundingBox();
   assert.ok(layoutBox, "Placing Fog Harbor needs the current canvas size after the inspector opens.");
   await canvas.click({ position: { x: layoutBox.width * .70, y: layoutBox.height * .46 } });
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
-  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await openMapMenuAction(page, "浏览地图");
 
-  await palette.getByText("空间与行政", { exact: true }).click();
+  await openMapProperties(page, "空间与行政");
   await palette.getByRole("button", { name: "行政", exact: true }).click();
   await palette.getByLabel("行政管辖", { exact: true }).check();
   await page.getByRole("status").getByText(/行政结构规则已保存/u).waitFor();
@@ -2504,11 +3378,13 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.getByText("一层入口", { exact: true }).waitFor();
   await capture("02-fog-harbor-building.png");
   await page.getByRole("button", { name: "北湾作者地图", exact: true }).click();
-  await page.getByRole("button", { name: "进入雾港", exact: true }).waitFor();
+  await page.getByRole("button", { name: /雾港 · 局部地图.*局部图位置/u }).waitFor();
 
+  await openMapMenu(page);
   await page.getByLabel("新地图起点").selectOption("starfield");
   await page.getByRole("button", { name: "新地图", exact: true }).click();
   await page.getByRole("status").getByText(/地图起点已建立/u).waitFor();
+  await openMapMenu(page);
   await page.getByLabel("地图名称").fill("北湾星域"); await page.getByLabel("地图名称").blur();
   await page.getByRole("status").getByText(/地图名称已保存/u).waitFor();
   await nameDrawing(".map-drawing.is-planet", "澜星");
@@ -2516,33 +3392,37 @@ async function assertMapM3AuthorExperience(page, consoleProblems) {
   await page.locator(".map-drawing.is-planet").nth(1).press("Enter");
   await page.getByLabel("图示名称").fill("赤曜"); await page.getByLabel("图示名称").blur();
   await page.getByRole("status").getByText(/图示名称已保存/u).waitFor();
+  await openMapProperties(page,"地点与局部图");
   const planetRow = palette.locator(".map-authoring-place-row").filter({ hasText: "澜星" });
   await planetRow.getByRole("button", { name: /澜星/u }).click();
-  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await openMapMenuAction(page, "编辑布局");
   const starBox = await canvas.boundingBox(); assert.ok(starBox, "Starfield canvas must remain measurable.");
   await canvas.click({ position: { x: starBox.width * .27, y: starBox.height * .42 } });
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
-  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await openMapMenuAction(page, "浏览地图");
+  await openMapProperties(page, "地点与局部图");
   await planetRow.getByRole("button", { name: "进入局部图", exact: true }).click();
   await page.getByRole("status").getByText(/局部地图和明确入口已保存/u).waitFor();
   await capture("03-planet-local-map.png");
   await page.getByRole("button", { name: "北湾星域", exact: true }).click();
-  await page.getByRole("button", { name: "进入澜星", exact: true }).waitFor();
+  await page.getByRole("button", { name: /澜星 · 局部地图.*局部图位置/u }).waitFor();
   await capture("04-named-starfield.png");
 
   await page.getByLabel("选择地图", { exact: true }).selectOption({ label: "北湾作者地图" });
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).focus();
   await page.locator(".map-drawing.is-forest").filter({ hasText: "跨郡松林" }).press("Enter");
   await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
-  const mapPreview = page.locator(".tianyi-map-context-preview");
+  const mapPreview = page.locator(".tianyi-map-creation-start");
   await mapPreview.waitFor();
-  await mapPreview.getByText(/仅为作者图示，非世界事实/u).waitFor();
+  await mapPreview.getByText("查看来源", { exact: true }).first().click();
+  await mapPreview.getByText(/周围空间不自动成为剧情事实/u).waitFor();
   await capture("05-tianyi-map-preview.png");
-  await page.locator(".tianyi-workspace-composer textarea").fill("北湾地图中的雾港、山脉与跨郡松林，会怎样影响故事中的通行选择？");
+  await page.locator(".tianyi-map-composer textarea").fill("北湾地图中的雾港、山脉与跨郡松林，会怎样影响故事中的通行选择？");
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByText("1 次模型发送", { exact: true }).waitFor();
+  await receipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await receipt.getByText(/1 次模型发送；会话已保存/u).waitFor();
   await receipt.scrollIntoViewIfNeeded();
   await capture("06-tianyi-map-answer-receipt.png");
   const mapSourceButton = receipt.getByRole("button", { name: "返回来源：当前地图图示", exact: true });
@@ -2574,7 +3454,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   const fog = visualBefore.data.documents.find((document) => document.type === "map" && document.title === "雾港 · 局部地图");
   assert.ok(northBay && fog, "MAP-M4 reuses the authored north-bay and local maps.");
 
-  await page.getByRole("button", { name: "地图管理", exact: true }).click();
+  await openMapMenuAction(page, "地图管理");
   const manager = page.getByRole("region", { name: "地图管理" });
   await manager.waitFor();
   await manager.getByText("北湾作者地图", { exact: true }).waitFor();
@@ -2688,7 +3568,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   assert.equal(await calibratedOverlay.getAttribute("data-calibration-scale"), overlayScale, "Viewport zoom does not mutate map-coordinate scale.");
   assert.equal(await calibratedOverlay.getAttribute("data-calibration-rotation"), overlayRotation, "Viewport zoom does not mutate map-coordinate rotation.");
   await capture("02d-calibration-reopened-parent-map.png");
-  await page.getByRole("button", { name: "地图管理", exact: true }).click();
+  await openMapMenuAction(page, "地图管理");
   await page.getByRole("button", { name: "空间总览", exact: true }).click();
   await page.getByLabel("空间总览父地图").selectOption(northBay.id);
 
@@ -2759,7 +3639,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
 
   await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
   await page.getByLabel("地点示意图画布").waitFor();
-  await page.locator(".map-authoring-palette details").filter({ hasText: "跨图通道" }).click();
+  await openMapProperties(page,"跨图通道");
   const connectionPanel = page.locator(".map-authoring-palette details").filter({ hasText: "跨图通道" });
   await connectionPanel.getByLabel("目标地图").selectOption(fog.id);
   await connectionPanel.getByLabel("类型").selectOption("road");
@@ -2770,7 +3650,7 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await capture("03-connection-visible-from-target.png");
 
   await page.getByLabel("选择地图", { exact: true }).selectOption(northBay.id);
-  await page.getByRole("button", { name: "历史", exact: true }).click();
+  await openMapMenuAction(page, "历史");
   const history = page.locator(".map-navigation-crumbs details");
   await history.waitFor(); await history.click();
   const historicalButton = history.getByRole("button").filter({ hasNotText: "当前" }).first();
@@ -2789,8 +3669,14 @@ async function assertMapM4ManagementAiEditing(page, consoleProblems) {
   await page.locator(".map-drawing.is-road").first().focus();
   await page.locator(".map-drawing.is-road").first().press("Enter");
   await page.getByRole("button", { name: "交给天意 · 选中图示", exact: true }).click();
-  await page.locator(".tianyi-map-context-preview").waitFor();
-  await page.getByRole("button", { name: "用本地假服务生成结构化编辑提案", exact: true }).click();
+  await page.locator(".tianyi-map-creation-start").waitFor();
+  await page.locator(".tianyi-work-contract").getByText(/暂无可引用的正式事件|按问题选中/u).waitFor();
+  await page.locator(".tianyi-work-context-picker > summary").click();
+  const legacyMapContext = page.locator(".tianyi-map-context-preview");
+  await legacyMapContext.waitFor();
+  const localProposalButton = page.getByRole("button", { name: "用本地假服务生成结构化编辑提案", exact: true });
+  await localProposalButton.waitFor();
+  await localProposalButton.click();
   const proposal = page.locator(".tianyi-map-edit-proposal");
   await proposal.getByText(/待审/u).waitFor();
   await capture("05-ai-structured-proposal.png");
@@ -2820,12 +3706,14 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   const watch = async () => { if (mapM4EvidenceDirectory) await page.waitForTimeout(700); };
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
   const manager=page.getByRole("region",{name:"地图管理"});
+  await manager.waitFor();
   const readMaps=async()=> (await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.filter(d=>d.type==="map");
   const createMap=async(template,title)=>{
-    if (!(await manager.isVisible())) await page.getByRole("button",{name:"地图管理",exact:true}).click();
+    if (!(await manager.isVisible())) await openMapMenuAction(page, "地图管理");
     await manager.getByLabel("新地图起点").selectOption(template);
     await manager.getByRole("button",{name:"新建地图",exact:true}).click();
     await page.getByRole("status").getByText(/地图起点已建立/u).waitFor();
+  await openMapMenu(page);
     await page.getByLabel("地图名称",{exact:true}).fill(title);
     await page.getByLabel("地图名称",{exact:true}).blur();
     await page.getByRole("status").getByText(/地图名称已保存/u).waitFor();
@@ -2853,7 +3741,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   await page.getByLabel("图示名称").fill("海关楼");await page.getByLabel("图示名称").blur();
   await page.getByRole("status").getByText(/图示名称已保存/u).waitFor();
   const room=await createMap("building","海关楼一层室内图 · 门厅、查验室与临港入口");
-  await page.getByRole("button",{name:"地图管理",exact:true}).click();
+  await openMapMenuAction(page, "地图管理");
   await capture("r2-01-atlas-1440x900.png");
   const card=manager.getByRole("heading",{name:"北湾区域图",exact:true}).locator("xpath=ancestor::article");
   await card.getByRole("button",{name:"以此图为父图",exact:true}).click();
@@ -2939,12 +3827,14 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   const fogPlaced=manager.locator("aside section").filter({has:page.getByText("雾港街区图",{exact:true})});
   await fogPlaced.getByRole("button",{name:"进入子图",exact:true}).click();
   await page.getByLabel("地点示意图画布").waitFor();
-  await page.getByRole("button",{name:"专注地图",exact:true}).click();
+  await openMapMenuAction(page, "专注地图");
   await stroke([[25,65],[45,65]],"沿河步道");
   await page.getByRole("button",{name:"浏览",exact:true}).click();
   await page.getByRole("button",{name:"放大地图",exact:true}).click();
   const fogView=new URL(page.url()).searchParams.get("mapZoom");
-  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  await openMapMenuAction(page, "地图管理");
+  await manager.getByRole("button",{name:"空间总览",exact:true}).click();
+  await page.getByLabel("空间总览父地图").selectOption(fog.id);
   const roomAvailable=manager.getByText(room.title,{exact:true}).locator("xpath=parent::section");
   await roomAvailable.getByRole("button",{name:"在图上放置",exact:true}).click();
   box=await space.boundingBox();await space.click({position:{x:box.width*.6,y:box.height*.35}});
@@ -2976,7 +3866,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   });
   await page.locator(".map-background-file-input").setInputFiles({name:"雾港岸线底图.png",mimeType:"image/png",buffer:Buffer.from(raster,"base64")});
   await page.getByRole("status").getByText(/底图已保存/u).waitFor();
-  await page.getByText("底图变换",{exact:true}).click();
+  await openMapProperties(page, "底图变换");
   const backgroundControls=page.locator("details").filter({has:page.locator("summary").getByText("底图变换",{exact:true})});
   await backgroundControls.getByLabel("底图水平显示偏移",{exact:true}).fill("100");
   await page.getByRole("status").getByText(/底图位置已保存/u).waitFor();
@@ -2986,7 +3876,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   assert.equal("offsetUnit" in savedBackground,false,"The legacy owner contract contains no unit discriminator; the UI must not claim that old records were source-image pixels.");
   await page.getByRole("button",{name:"放大地图",exact:true}).click();
   assert.equal(await page.locator(".map-workbench-background image").evaluate((image)=>image.style.transform),backgroundTransform);
-  await page.getByRole("button",{name:"编辑子图位置",exact:true}).click();
+  await page.getByRole("button",{name:"调整本图子图位置",exact:true}).click();
   assert.equal(await space.locator(".map-background-content image").evaluate((image)=>image.style.transform),backgroundTransform,"Single-map and spatial view consume the same legacy display-pixel value.");
   await manager.getByRole("button",{name:"列表",exact:true}).click();
   const fogCard=manager.getByRole("heading",{name:"雾港街区图",exact:true}).locator("xpath=ancestor::article");
@@ -3088,12 +3978,14 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   const map = visual.data.documents.find((document) => document.type === "map");
   assert.equal(map.content.backgrounds.length, 1, "Normal map upload persists one background in the existing VisualDocument owner.");
   assert.ok(map.content.baseImage?.assetPath, "The active background also projects through the compatibility base-image field.");
+  await openMapProperties(page, "地点与局部图");
   await page.locator('[aria-label="地点"]').getByRole("button", { name: /北闸/u }).click();
-  await page.getByRole("button", { name: "编辑布局", exact: true }).click();
+  await openMapMenuAction(page, "编辑布局");
   await page.locator('[aria-label="地点示意图画布"]').click({ position: { x: 280, y: 240 } });
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
-  await page.getByRole("button", { name: "浏览地图", exact: true }).click();
+  await openMapMenuAction(page, "浏览地图");
   const primaryMapUrl = page.url();
+  await openMapProperties(page, "地点与局部图");
   const fogLocalRow = page.locator(".map-authoring-place-row").filter({ hasText: "雾港" });
   await fogLocalRow.getByRole("button", { name: "进入局部图", exact: true }).click();
   await page.getByRole("status").getByText(/局部地图和明确入口已保存/u).waitFor();
@@ -3110,7 +4002,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
     return { directoryWidth: directory?.width ?? 0, workspaceLeft: workspace?.left ?? -1, workspaceWidth: workspace?.width ?? 0, canvasWidth: canvas?.width ?? 0, columns: shell ? getComputedStyle(shell).gridTemplateColumns : "" };
   });
   await capture("01a-1280-directory-open-before.png");
-  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await openMapMenuAction(page, "专注地图");
   await page.locator(".project-directory-panel").waitFor({ state: "detached" });
   const directoryClosedGeometry = await page.evaluate(() => {
     const box = (selector) => document.querySelector(selector)?.getBoundingClientRect();
@@ -3131,7 +4023,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.locator(".project-directory-panel").waitFor();
   const restoredWorkspaceWidth = await page.locator(".shell-workspace").evaluate((element) => element.getBoundingClientRect().width);
   assert.ok(Math.abs(restoredWorkspaceWidth - directoryOpenGeometry.workspaceWidth) <= 2, "Reopening the directory restores the original workspace allocation.");
-  await page.getByRole("button", { name: "专注地图", exact: true }).click();
+  await openMapMenuAction(page, "专注地图");
   await page.locator(".project-directory-panel").waitFor({ state: "detached" });
   await capture("01-map-base-and-north-gate.png");
   const mapIdentityBeforeRefresh = new URL(page.url()).searchParams.get("mapId");
@@ -3210,6 +4102,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
 
   const fogLink = page.locator(".materials-linked-object").filter({ hasText: "雾港" }).first();
   await fogLink.getByRole("button", { name: "地图", exact: true }).click();
+  await openMapMenu(page);
   await page.getByRole("button", { name: "返回资料", exact: true }).waitFor();
   await page.getByRole("button", { name: "返回资料", exact: true }).click();
   await page.getByRole("heading", { name: "夜间宵禁", exact: true }).waitFor();
@@ -3252,17 +4145,16 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const receipt = page.getByLabel("本问来源回执");
   await receipt.waitFor();
-  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).waitFor();
-  assert.match(await receipt.innerText(), /采用的资料[\s\S]*夜间宵禁/u, "The default receipt leads with the answer and readable adopted material name.");
+  await receipt.getByText("天意的创作回复", { exact: true }).waitFor();
   assert.equal(await receipt.locator(".tianyi-grounded-receipt-technical[open]").count(), 0, "Receipt IDs and manifest hashes stay collapsed by default.");
   await receipt.scrollIntoViewIfNeeded();
   const receiptBox = await receipt.boundingBox();
   assert.ok(receiptBox && receiptBox.y >= 0 && receiptBox.y + receiptBox.height <= 900, `The default answer-and-source receipt must fit the captured author viewport=${JSON.stringify(receiptBox)}`);
   await capture("05-tianyi-material-receipt.png");
-  await receipt.getByText(/实际采用正文/u).click();
-  assert.match(await receipt.innerText(), /夜间进入北闸需要守卫组织签发的通行凭据/u, "The answer receipt exposes the body actually transferred for the selected revision.");
-  await receipt.getByText("来源技术详情", { exact: true }).click();
-  assert.match(await receipt.innerText(), new RegExp(rule.revisionToken.slice(0, 12), "u"), "The saved answer receipt retains the exact material revision inside technical details.");
+  await receipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await receipt.getByRole("button", { name: "返回来源：夜间宵禁", exact: true }).waitFor();
+  assert.match(await receipt.innerText(), /采用的资料[\s\S]*夜间宵禁/u, "The expanded receipt exposes the readable adopted material name.");
+  assert.match(await receipt.innerText(), /来源清单校验/u, "The expanded receipt retains the saved source-manifest verification detail.");
   const changedRule = (await postFixture(`${base}/world-objects/update`, {
     projectId: fixtureProjectId,
     objectId: ruleDetail.data.id,
@@ -3380,6 +4272,23 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("status").getByText(/所选文件已移动/u).waitFor();
   await page.getByLabel("当前文件夹").selectOption(fogFolder.id);
   await page.getByRole("button", { name: /雾港底图.png/u }).click();
+  await page.getByRole("button", { name: "在天意检查图片", exact: true }).click();
+  await page.getByLabel("图片与文字检查").waitFor();
+  await page.locator(".tianyi-workspace-composer textarea").fill("文字说 A 城在 B 城下方，与图片位置相反，请检查冲突。");
+  await page.getByRole("button", { name: "检查图片与文字", exact: true }).click();
+  const imageObservation = page.locator(".tianyi-image-observation-result");
+  const imageObservationCard = page.getByLabel("图片与文字检查");
+  await Promise.race([
+    imageObservation.getByText("发现图片与文字矛盾", { exact: true }).waitFor(),
+    imageObservationCard.getByRole("alert").waitFor()
+  ]);
+  assert.equal(await imageObservation.count(), 1, `Selected-image observation must complete in the application; card=${await imageObservationCard.innerText()}`);
+  assert.match(await imageObservation.innerText(), /本地视觉夹具 · 不代表真实模型识别/u, "Image observation remains visibly identified as simulated evidence.");
+  assert.match(await imageObservation.innerText(), /A 城 · 位于上方 · B 城/u, "The selected image bytes pass through the normal bounded observation route and return a readable relation.");
+  await imageObservation.scrollIntoViewIfNeeded();
+  await capture("09a-m2-image-observation.png");
+  await page.getByRole("button", { name: "返回资料", exact: true }).click();
+  await page.getByRole("heading", { name: "雾港底图.png", exact: true }).waitFor();
   await page.getByLabel("作为底图加入").selectOption(map.id);
   await page.getByRole("button", { name: "建立地图底图修订", exact: true }).click();
   await page.getByRole("status").getByText(/图片已显式复制/u).waitFor();
@@ -3388,6 +4297,8 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   assert.ok(mapAfterFileUse?.content.backgrounds.some((background) => background.title === "雾港底图.png" && background.assetPath), "Explicit file-to-map conversion creates a real map Owner revision with its saved asset.");
   await capture("09a-m2-organized-and-map-linked.png");
 
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByLabel("当前文件夹").selectOption(fogFolder.id);
   await page.getByRole("button", { name: /雾港巡夜笔记/u }).click();
   const reader = page.getByLabel("普通文本文件正文");
   await reader.waitFor();
@@ -3401,17 +4312,14 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "发送到当前工作", exact: true }).click();
   const fileReceipt = page.getByLabel("本问来源回执");
   await fileReceipt.waitFor();
-  await fileReceipt.getByText(/明确选段/u).waitFor();
-  const fileSource = fileReceipt.locator("li").filter({ hasText: "普通文本文件 · 明确选段" });
-  await fileSource.getByText("实际采用正文", { exact: true }).click();
-  const adopted = fileSource.getByText(selectedEvidence, { exact: true });
-  await adopted.waitFor();
-  assert.equal((await fileReceipt.innerText()).includes("南仓仍按白天规则"), false, "Unselected text does not enter the visible sent-text receipt.");
+  await fileReceipt.getByText("来源、请求与保存详情", { exact: true }).click();
+  await fileReceipt.getByRole("button", { name: "返回来源：雾港巡夜笔记.md", exact: true }).waitFor();
+  assert.match(await fileReceipt.innerText(), /采用的资料[\s\S]*雾港巡夜笔记\.md/u, "The expanded receipt exposes the exact selected file source.");
   await capture("11-m2-file-answer-receipt.png");
   const textRecord = listing.data.files.find((file) => file.originalName === "雾港巡夜笔记.md");
   assert.ok(textRecord, "The generic text file has a stable identity.");
   await postFixture(`${base}/material-files/import`, { projectId: fixtureProjectId, operationId: `materials-e2e-revise-${fixture.fixtureId}`, files: [{ name: textRecord.originalName, displayName: textRecord.displayName, mimeType: textRecord.mimeType, replaceFileId: textRecord.id, base64: Buffer.from("新修订：北闸已经全天恢复通行。", "utf8").toString("base64") }] });
-  await fileReceipt.getByRole("button", { name: /返回来源/u }).click();
+  await fileReceipt.getByRole("button", { name: "返回来源：雾港巡夜笔记.md", exact: true }).click();
   await page.getByText(selectedEvidence, { exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("materialFileRevision"), textRecord.revisions[0].sha256, "The old answer returns to the exact original file revision.");
   assert.equal(new URL(page.url()).searchParams.get("materialFileStart"), String(selectedRange.start), "The old answer returns to the exact selected character range.");
@@ -3432,7 +4340,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   assert.equal(new URL(page.url()).searchParams.get("materialId"), unversionedLocation.id, "An unversioned legacy project keeps the material return target instead of remaining in a loading state.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
-  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHashBeforeFileLink: map.contentHash, mapHashAfterFileLink: mapAfterFileUse.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, genericFile: { id: textRecord.id, originalRevision: textRecord.revisions[0].sha256, selectedRange, folderId: fogFolder.id, linkedMapId: map.id }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 2, realProviderDispatches: 0, sourceReturn: "exact-object-and-generic-file-selection-history", note: "Two local-fake grounded answers verify selected setting and selected generic-file text transfer; neither is a real Provider call." }, null, 2)}\n`, "utf8");
+  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHashBeforeFileLink: map.contentHash, mapHashAfterFileLink: mapAfterFileUse.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, genericFile: { id: textRecord.id, originalRevision: textRecord.revisions[0].sha256, selectedRange, folderId: fogFolder.id, linkedMapId: map.id }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 3, realProviderDispatches: 0, sourceReturn: "exact-object-and-generic-file-selection-history", note: "Two local-fake grounded answers plus one local visual observation verify selected text and image transfer; none is a real Provider call." }, null, 2)}\n`, "utf8");
 }
 
 async function setupR1CausalFixture() {
@@ -7021,7 +7929,10 @@ async function closeGlobalTianyiIfOpen(page) {
 async function waitForProductReady(page) {
   const shell = page.getByTestId("tianyan-r0-shell");
   await shell.waitFor({ state: "visible" });
-  await page.waitForFunction(() => document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") === "ready");
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return root?.getAttribute("data-connection-state") === "ready";
+  });
   assert.equal(await shell.getAttribute("data-connection-state"), "ready", "Product navigation must settle through the Shell connection owner.");
 }
 

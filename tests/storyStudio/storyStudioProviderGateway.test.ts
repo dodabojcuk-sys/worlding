@@ -507,7 +507,7 @@ test("missing DONE, malformed JSON, and non-SSE responses fail closed", async ()
   }
 });
 
-test("server wiring keeps credentials server-only and exposes only the bounded grounded-answer route", () => {
+test("server wiring keeps credentials server-only and exposes only bounded product routes", () => {
   const server = readFileSync("apps/story-studio/server/server.mjs", "utf8");
   const adapter = readFileSync("apps/story-studio/server/providerGateway/siliconFlowAdapter.mjs", "utf8");
   const localTransport = readFileSync("apps/story-studio/src/lib/localTransport.ts", "utf8");
@@ -517,6 +517,10 @@ test("server wiring keeps credentials server-only and exposes only the bounded g
   assert.match(server, /handleModelServiceRequest[\s\S]*requireToken\(request\);[\s\S]*requireSameOrigin\(request\);/);
   assert.match(server, /route === "tianyi-grounded-answer"/);
   assert.match(server, /runTianyiGroundedAnswer/);
+  assert.match(server, /route === "image-observation"/);
+  assert.match(server, /createImageObservationProviderAdapter/);
+  assert.match(server, /resolveMaterialFileBytes/);
+  assert.match(localTransport, /model-service\/image-observation/);
   assert.match(server, /TIANYAN_REAL_PROVIDER_PRODUCT_PATH/);
   assert.match(server, /createRealProviderMultiNodePredictionGateway/);
   assert.match(server, /maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1/);
