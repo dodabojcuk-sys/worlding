@@ -900,14 +900,22 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     if (drawing.objectId) { selectPlace(drawing.objectId); setInspectorOpen(true); setPropertiesOpen(false); }
     else { setInspectorOpen(false); setPropertiesOpen(true); }
   };
+  const currentMapReturn = () => {
+    const target = new URL(window.location.href);
+    setQuery(target.searchParams, "mapElement", selectedDrawingId);
+    setQuery(target.searchParams, "mapPlace", selectedId);
+    writeViewport(target.searchParams, viewport);
+    if (map && projectId) window.sessionStorage.setItem(`tianyan.map.viewport.${projectId}.${map.id}`, JSON.stringify({ ...viewport, selectedDrawingId, selectedId, inspectorOpen, propertiesOpen }));
+    return `${target.pathname}${target.search}`;
+  };
   const openCharacterFromMap = (characterId: string) => {
-    const current = `${window.location.pathname}${window.location.search}`;
+    const current = currentMapReturn();
     const query = new URLSearchParams({ worldView: "character", characterId, characterOrigin: current });
     window.location.assign(`/world?${query.toString()}`);
   };
   const openLocationRelations = (selection?: RelationReadProjectionR0) => {
     if (!linkedLocation) return;
-    const current = `${window.location.pathname}${window.location.search}`;
+    const current = currentMapReturn();
     const query = new URLSearchParams({ libraryView: "relations", relationCenter: linkedLocation.id, relationReturn: current });
     if (selection) query.set("relationSelection", `edge:${[selection.sourceObjectId, selection.targetObjectId].sort().join("\u0000")}`);
     window.location.assign(`/library?${query.toString()}`);
@@ -915,7 +923,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   const openRelationEvidenceFromMap = (relation: RelationReadProjectionR0) => {
     const evidence = confirmedEventReference(relation);
     if (!evidence || !workVersionId) { setMessage("这条关系没有可精确打开的正式事件修订；没有用同名资料替代。"); return; }
-    const current = `${window.location.pathname}${window.location.search}`;
+    const current = currentMapReturn();
     const query = new URLSearchParams({ projectId, workVersionId, eventId: evidence.eventId, eventRevision: evidence.revision, mapReturn: current });
     window.location.assign(`/event-line?${query.toString()}`);
   };
