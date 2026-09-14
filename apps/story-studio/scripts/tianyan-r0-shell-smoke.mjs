@@ -2481,8 +2481,13 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   const afterBrowse = await getFixture(`${base}/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
   await openMapMenuAction(page, "编辑布局");
+  await page.locator('.map-workbench-menu button[aria-pressed="true"]').waitFor({ state: "attached" });
+  const initialLayoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"), { timeout: 60_000 });
   await canvas.click({ position: { x: 220, y: 190 } });
+  assert.equal((await initialLayoutSave).status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
+  const northGateMarker = page.locator(`.map-workbench-marker[data-object-id="${mapM2Fixture.northGate.id}"]`);
+  await northGateMarker.waitFor({ state: "attached" });
   await openMapMenuAction(page, "浏览地图");
   await openMapMenuAction(page, "收起地点详情");
   await page.getByRole("button", { name: "放大地图", exact: true }).click();
@@ -2508,7 +2513,6 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await tabs.nth(2).click();
   await page.getByTestId("map-m2-inspector").getByText("通行状态：封闭。", { exact: true }).waitFor();
   await page.getByTestId("map-m2-inspector").getByText("通行协作", { exact: true }).waitFor();
-  const northGateMarker = page.locator(".map-workbench-marker").filter({ hasText: "北闸" });
   assert.equal(await northGateMarker.count(), 1, "The selected formal location must retain one map marker even when the author's viewport pans it outside the visible canvas.");
   assert.equal(await northGateMarker.getAttribute("data-state"), "closed", "The North Gate marker must carry the closed story-state projection without requiring it to be inside the current viewport.");
   assert.match(await northGateMarker.textContent() ?? "", /封闭/u, "The closed marker keeps its readable author label.");

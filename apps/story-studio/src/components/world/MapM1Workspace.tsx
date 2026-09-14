@@ -1046,7 +1046,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
                 {map.content.markers.filter((marker) => visibleLayerIds.has(marker.layerId)).map((marker) => {
                 const location = locations.find((item) => item.id === marker.objectId);
                 const markerStateValue = location?.id === selected?.id ? state : "unloaded";
-                return location ? <button key={marker.id} className={`map-workbench-marker is-${markerStateValue}`} data-state={markerStateValue} type="button" style={{ left: `${marker.x}%`, top: `${marker.y}%` }} aria-pressed={selectedId === location.id} onClick={(event) => { event.stopPropagation(); selectPlace(location.id); setInspectorOpen(true); }}>
+                return location ? <button key={marker.id} className={`map-workbench-marker is-${markerStateValue}`} data-object-id={location.id} data-state={markerStateValue} type="button" style={{ left: `${marker.x}%`, top: `${marker.y}%` }} aria-pressed={selectedId === location.id} onClick={(event) => { event.stopPropagation(); selectPlace(location.id); setInspectorOpen(true); }}>
                   <MarkerIcon state={markerStateValue} /><span>{location.title}</span><small>{markerStateLabel(markerStateValue)}</small>
                 </button> : null;
                 })}
