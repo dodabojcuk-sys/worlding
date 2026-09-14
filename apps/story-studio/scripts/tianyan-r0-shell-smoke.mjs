@@ -102,6 +102,7 @@ const mapR3Only = process.env.TIANYAN_E2E_SCOPE === "map-author-workspace-r3";
 const mapR4Only = process.env.TIANYAN_E2E_SCOPE === "map-place-creation-link-r4";
 const mapR5Only = process.env.TIANYAN_E2E_SCOPE === "map-tianyi-creation-start-r5";
 const mapCharacterRelationsR1Only = process.env.TIANYAN_E2E_SCOPE === "map-character-relations-r1";
+const relationNetworkEvidenceR2Only = process.env.TIANYAN_E2E_SCOPE === "relation-network-evidence-r2";
 const tianyiR6Only = ["tianyi-creation-result-r6", "tianyi-creation-result-r6-preserve", "tianyi-real-creation-r6"].includes(process.env.TIANYAN_E2E_SCOPE || "");
 const tianyiR6LiveAcceptance = process.env.TIANYAN_E2E_SCOPE === "tianyi-real-creation-r6" && process.env.TIANYAN_TIANYI_REAL_CREATION_ACCEPTANCE === "1";
 const preserveTianyiR6Fixture = process.env.TIANYAN_E2E_SCOPE === "tianyi-creation-result-r6-preserve" || tianyiR6LiveAcceptance;
@@ -116,6 +117,7 @@ const mapM3EvidenceDirectory = process.env.TIANYAN_MAP_M3_EVIDENCE_DIR || null;
 const mapR4EvidenceDirectory = process.env.TIANYAN_MAP_R4_EVIDENCE_DIR || null;
 const mapR5EvidenceDirectory = process.env.TIANYAN_MAP_R5_EVIDENCE_DIR || null;
 const mapCharacterRelationsR1EvidenceDirectory = process.env.TIANYAN_MAP_CHARACTER_RELATIONS_R1_EVIDENCE_DIR || null;
+const relationNetworkEvidenceR2Directory = process.env.TIANYAN_RELATION_NETWORK_R2_EVIDENCE_DIR || null;
 const tianyiR6EvidenceDirectory = process.env.TIANYAN_TIANYI_R6_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
@@ -204,9 +206,9 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
+  const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: relationNetworkEvidenceR2Only && relationNetworkEvidenceR2Directory ? 110 : mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
   if (!preserveTianyiR6Fixture) browser = await chromium.launch(browserOptions);
-  const recordingDirectory = mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   const contextOptions = recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -270,6 +272,9 @@ try {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
     await assertMapCharacterRelationsR1(page, consoleProblems);
+  } else if (relationNetworkEvidenceR2Only) {
+    await setupMapM2Fixture();
+    await assertRelationNetworkEvidenceR2(page, consoleProblems);
   } else if (tianyiR6Only) {
     await setupMapM2Fixture();
     await assertMapAuthorWorkspaceR3(page, consoleProblems);
@@ -2160,14 +2165,15 @@ async function setupMapM2Fixture() {
   const awu = (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title: "阿芜", mode: "freeform", subtype: "配角" })).data.object;
   await postFixture(`${base}/world-objects/create`, { projectId: fixtureProjectId, type: "item", title: "铜钥匙", status: "active", tags: ["关键物件"] });
   const unit = await postFixture(`${base}/event-line/normal-creation/create-story-unit`, { projectId: fixtureProjectId, title: "北闸通行", summary: "地图故事位置的隔离作者验收。" });
-  const makeConfirmedEvent = async (title) => {
-    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, title, body: `${title}是地图故事位置验收中经作者确认的事实。` });
+  const makeConfirmedEvent = async (title, body = `${title}是地图故事位置验收中经作者确认的事实。`) => {
+    const candidate = await postFixture(`${base}/event-line/normal-creation/create-candidate`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, title, body });
     await postFixture(`${base}/event-line/normal-creation/begin-impact`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
     await postFixture(`${base}/event-line/normal-creation/confirm`, { projectId: fixtureProjectId, storyUnitId: unit.data.result.id, planningEventId: candidate.data.result.planning.id });
   };
   await makeConfirmedEvent("北闸开放");
   await makeConfirmedEvent("北闸封闭");
   await makeConfirmedEvent("北闸恢复通行");
+  await makeConfirmedEvent("雾港潮闸争议", "潮闸受损后，顾澜主张先封闭旧港航道检修，以免夜潮冲毁栈桥；程野则坚持保留山路货队的渡口时段，因为镇上的药材已不足三日。两人在雾港议事厅留下了各自署名的处置意见，约定日落前共同勘查潮闸。\n\n这份记录只确认两人的公开立场与共同勘查安排，没有确认彼此信任，也没有把争议解释成敌对关系。");
   const verified = await getFixture(`${base}/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const events = await Promise.all(verified.data.eventIds.map(async (eventId) => (await getFixture(`${base}/event-line/event?projectId=${encodeURIComponent(fixtureProjectId)}&eventId=${encodeURIComponent(eventId)}`)).data.event));
   const eventByTitle = (title) => {
@@ -2178,8 +2184,21 @@ async function setupMapM2Fixture() {
   const opened = eventByTitle("北闸开放");
   const closed = eventByTitle("北闸封闭");
   const reopened = eventByTitle("北闸恢复通行");
+  let harbourDispute = eventByTitle("雾港潮闸争议");
   const root = createMapM2FixtureRoot();
   const operations = createStoryStudioWorkspaceOperations({ rootPath: fixtureRoot, stateFilePath: path.join(fixtureRoot, ".story-studio", "state.json") });
+  harbourDispute = operations.updateWorldObject({
+    projectId: fixtureProjectId,
+    objectId: harbourDispute.id,
+    expectedHash: harbourDispute.revisionToken,
+    writeMarkdown: true,
+    writePresentation: false,
+    title: harbourDispute.title,
+    status: harbourDispute.status,
+    tags: harbourDispute.tags,
+    aliases: harbourDispute.aliases,
+    body: "# 雾港潮闸争议\n\n潮闸受损后，顾澜主张先封闭旧港航道检修，以免夜潮冲毁栈桥；程野则坚持保留山路货队的渡口时段，因为镇上的药材已不足三日。两人在雾港议事厅留下了各自署名的处置意见，约定日落前共同勘查潮闸。\n\n这份记录只确认两人的公开立场与共同勘查安排，没有确认彼此信任，也没有把争议解释成敌对关系。"
+  }).object;
   const apply = (expectedRevision, effectiveAt, value, event, operationId) => operations.applyWorldStateN4({
     projectId: fixtureProjectId, objectId: northGate.id, workVersionId: root.identity.workVersionId,
     expectedObjectRevision: operations.readWorldObject({ projectId: fixtureProjectId, objectId: northGate.id }).revisionToken,
@@ -2256,7 +2275,31 @@ async function setupMapM2Fixture() {
     denseGraph = { neighbours, expandedLocation };
     return denseGraph;
   };
-  mapM2Fixture = { northGate, extraLocations, lin, awu, guLan, chengYe, opened, closed, reopened, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, fogHarbourRelations, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph };
+  let relationReadingGraph = null;
+  const createRelationReadingGraph = async () => {
+    if (relationReadingGraph) return relationReadingGraph;
+    const [shenYan, suXian, luYan, wenZhou] = await Promise.all([
+      ["沈砚", "潮闸工匠"], ["苏弦", "港口医师"], ["陆衍", "北湾船主"], ["闻舟", "远行抄写员"]
+    ].map(async ([title, subtype]) => (await postFixture(`${base}/characters/create`, { projectId: fixtureProjectId, title, mode: "freeform", subtype })).data.object));
+    const relationTypes = {};
+    for (const label of ["港务协作", "航线分歧", "委托调查", "情报互换", "护送约定"]) relationTypes[label] = relations.createRelationType({ projectId: fixtureProjectId, operationId: `relation-r2-type-${label}-${fixture.fixtureId}`, label }).type.relationTypeId;
+    const confirm = (label, sourceObjectId, targetObjectId, direction) => {
+      const operationId = `relation-r2-${label}-${sourceObjectId}-${targetObjectId}-${fixture.fixtureId}`;
+      const candidate = relations.createRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, operationId, sourceObjectId, targetObjectId, relationTypeId: relationTypes[label], direction, temporal: { version: "story-relation-temporal/v1", validFrom: "2000-01-03T00:00:00Z", validTo: null, confidence: "high", sourceAnchors: [harbourDispute.id] }, evidenceRefs: [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId: fixtureProjectId, eventId: harbourDispute.id, revisionToken: harbourDispute.revisionToken, state: "committed", requestedUse: "constraint" } }] });
+      return relations.confirmRelationCandidate({ projectId: fixtureProjectId, workVersionId: root.identity.workVersionId, relationId: candidate.relation.relationId, expectedRelationRevision: candidate.relation.revision, operationId: `${operationId}.confirm` }).relation;
+    };
+    const createdRelations = [
+      confirm("港务协作", guLan.id, chengYe.id, "forward"),
+      confirm("航线分歧", guLan.id, chengYe.id, "reverse"),
+      confirm("委托调查", shenYan.id, guLan.id, "forward"),
+      confirm("情报互换", suXian.id, lin.id, "both"),
+      confirm("护送约定", luYan.id, awu.id, "forward"),
+      confirm("委托调查", northBay.id, shenYan.id, "forward")
+    ];
+    relationReadingGraph = { people: [lin, awu, guLan, chengYe, shenYan, suXian, luYan, wenZhou], places: [fogHarbor, northBay], isolated: wenZhou, sourceEvent: harbourDispute, createdRelations, pairedRelations: createdRelations.slice(0, 2) };
+    return relationReadingGraph;
+  };
+  mapM2Fixture = { northGate, extraLocations, lin, awu, guLan, chengYe, opened, closed, reopened, harbourDispute, root, relationId: relationCandidate.relation.relationId, keySupportRelationId: keySupportCandidate.relation.relationId, fogHarbourRelations, northBay, fogHarbor, pineForest, eastPrefecture, westPrefecture, geographyType, administrationType, createDenseGraph, createRelationReadingGraph };
 }
 
 async function setupMapRealAiFixture() {
@@ -2952,6 +2995,74 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     const groundedResults = (await Promise.all(groundedAnswerResponses)).filter(Boolean);
     writeFileSync(path.join(evidenceDirectory, verifyCreativeResults ? "R6天意创作结果身份.json" : verifyTianyiStart ? "R5地图进入天意身份.json" : "R4地图地点衔接身份.json"), JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, mapId: region.id, locationId: mapM2Fixture.fogHarbor.id, realProviderDispatches: liveCreation ? groundedResults.reduce((sum, item) => sum + Number(item.providerDispatchCount || 0), 0) : 0, provider: liveCreation ? { providerId: process.env.TIANYAN_REAL_PROVIDER_ID || null, modelId: process.env.TIANYAN_REAL_PROVIDER_MODEL_ID || null } : null, requestEvidence: liveCreation ? "two-turn-real-provider-creation-and-named-revision" : verifyCreativeResults ? "substantive-local-content-revision-save-reopen-and-failure" : verifyTianyiStart ? "local-fixture-success-and-intercepted-failure" : "not-sent", evidence: liveCreation ? "normal-page-isolated-real-provider" : "normal-page-isolated-fixture", results: groundedResults.map((item) => ({ responseMessageId: item.responseMessageId, providerDispatchCount: item.providerDispatchCount, usage: item.usage, summary: item.answer?.summary })) }, null, 2));
   }
+}
+
+async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
+  assert.ok(mapM2Fixture, "Relation R2 needs the isolated relationship and event owners.");
+  const graph = await mapM2Fixture.createRelationReadingGraph();
+  const evidenceDirectory = relationNetworkEvidenceR2Directory;
+  const capture = async (name) => { if (!evidenceDirectory) return; mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); };
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.guLan.id)}&relationScope=all&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
+  await gotoProduct(page, route);
+  const workspace = page.getByTestId("focused-relations-workspace");
+  const canvas = page.getByTestId("focused-relations-canvas");
+  await workspace.waitFor(); await canvas.waitFor();
+  assert.equal(await canvas.locator(".focused-relations-node").count(), 9, "The global observed network shows seven connected people and two places; the isolated person is not fabricated into an edge.");
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 8, "Nine relations render as eight readable endpoint groups because one pair has two distinct relations.");
+  assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 9 \/ 9 条/u);
+  const nodeRects = await canvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }; }));
+  assert.equal(nodeRects.every((rect, index) => nodeRects.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top)), true, "Global relationship nodes must not overlap at the author viewport.");
+  await capture("01-全局人物关系网络-1440x900.png");
+
+  await workspace.getByRole("button", { name: "直接关系", exact: true }).click();
+  await workspace.getByLabel("搜索人物或地点").fill(graph.isolated.title);
+  await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(graph.isolated.title, "u") }).click();
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 0, "An isolated person remains explicitly relation-free instead of gaining an inferred edge.");
+  assert.match(await workspace.locator("footer").innerText(), /直接正式关系 0 条/u);
+
+  await workspace.getByLabel("搜索人物或地点").fill(mapM2Fixture.guLan.title);
+  await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(mapM2Fixture.guLan.title, "u") }).click();
+  await workspace.getByLabel("筛选关系类型").selectOption({ label: "港务协作" });
+  assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 1 \/ 9 条.*港务协作/u);
+  await workspace.getByRole("button", { name: "清除类型筛选", exact: true }).click();
+  await workspace.locator(".focused-relations-filter-summary").getByText(/当前显示 4 \/ 9 条/u).waitFor();
+  const multiEdge = canvas.locator(".focused-relations-edge-label").filter({ hasText: "港务协作" }).filter({ hasText: "航线分歧" });
+  await multiEdge.click();
+  const detail = workspace.getByLabel("所选关系详情");
+  await detail.waitFor();
+  const multiRelationText = await detail.innerText();
+  assert.match(multiRelationText, /港务协作[\s\S]*由左至右/u, "The first relation keeps its own type and direction.");
+  assert.match(multiRelationText, /航线分歧[\s\S]*由右至左/u, "The second relation keeps its own type and direction.");
+  await capture("02-人物聚焦与同对多关系-1440x900.png");
+  const evidence = detail.locator(".focused-relations-evidence").first();
+  await page.waitForFunction((element) => element?.getAttribute("aria-busy") === "false", await evidence.elementHandle());
+  const evidenceText = await evidence.innerText();
+  assert.match(evidenceText, /雾港潮闸争议/u, "The inline reader resolves the referenced event title.");
+  assert.match(evidenceText, /顾澜主张先封闭旧港航道检修[\s\S]*程野则坚持保留山路货队的渡口时段/u, "The inline reader exposes the actual exact-revision event prose, not only a title or route.");
+  await capture("03-关系依据正文-1440x900.png");
+
+  await workspace.getByLabel("筛选关系类型").selectOption({ label: "航线分歧" });
+  await canvas.locator(".focused-relations-edge-label").filter({ hasText: "航线分歧" }).click();
+  const singleDetail = workspace.getByLabel("所选关系详情");
+  await page.setViewportSize({ width: 1152, height: 720 });
+  await singleDetail.getByRole("button", { name: "带着双方与依据进入天意", exact: true }).click();
+  const tianyi = page.getByLabel("从关系开始创作");
+  await tianyi.waitFor();
+  await tianyi.getByRole("heading", { name: /顾澜 ← 程野 · 航线分歧/u }).waitFor();
+  const sourceItem = tianyi.locator(".tianyi-map-reference-strip li").filter({ hasText: "雾港潮闸争议" });
+  await sourceItem.getByText("查看来源内容", { exact: true }).click();
+  await sourceItem.getByText(/两人在雾港议事厅留下了各自署名的处置意见/u).waitFor();
+  await tianyi.getByLabel("关系工作范围对话").fill("围绕顾澜、程野的航线分歧与来源事件，构思一个两难场面；不要改写正式事实。");
+  assert.equal(tianyiR6Lifecycle.requestCount, 0, "Preparing a relationship task must not send a Provider request.");
+  await capture("04-关系带入天意-1152x720.png");
+  await tianyi.getByRole("button", { name: "返回关系图", exact: true }).first().click();
+  await workspace.waitFor();
+  assert.equal(await workspace.getByLabel("筛选关系类型").inputValue(), "航线分歧", "Returning from Tianyi restores the relationship filter.");
+  assert.equal(await workspace.getByLabel("所选关系详情").isVisible(), true, "Returning from Tianyi restores the selected relationship.");
+  await capture("05-返回关系现场-1152x720.png");
+  assert.deepEqual(consoleProblems, [], "The relation network, inline evidence, Tianyi handoff and return flow must not produce browser errors.");
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "人物关系网络与依据阅读R2身份.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, people: graph.people.map((item) => ({ id: item.id, title: item.title })), places: graph.places.map((item) => ({ id: item.id, title: item.title })), isolatedPersonId: graph.isolated.id, relationIds: graph.createdRelations.map((item) => item.relationId), evidence: { eventId: graph.sourceEvent.id, revision: graph.sourceEvent.revisionToken }, viewportChecks: ["1440x900", "1152x720"], providerDispatches: 0 }, null, 2)}\n`, "utf8");
 }
 
 async function assertMapCharacterRelationsR1(page, consoleProblems) {
