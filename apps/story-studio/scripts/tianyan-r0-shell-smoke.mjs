@@ -3053,6 +3053,7 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   const sourceItem = tianyi.locator(".tianyi-map-reference-strip li").filter({ hasText: "雾港潮闸争议" });
   await sourceItem.getByText("查看来源内容", { exact: true }).click();
   await sourceItem.getByText(/两人在雾港议事厅留下了各自署名的处置意见/u).waitFor();
+  await sourceItem.getByText("查看来源内容", { exact: true }).click();
   await tianyi.getByLabel("关系工作范围对话").fill("围绕顾澜、程野的航线分歧与来源事件，构思一个两难场面；不要改写正式事实。");
   assert.equal(tianyiR6Lifecycle.requestCount, 0, "Preparing a relationship task must not send a Provider request.");
   await capture("04-关系带入天意-1152x720.png");
