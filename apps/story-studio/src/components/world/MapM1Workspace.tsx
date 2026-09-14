@@ -209,7 +209,15 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
         setHistoricalRevision(requestedRevision);
       } else setHistoricalRevision(requestedRevision);
     } else setHistoricalRevision(null);
-    setMaps(nextMaps);
+    setMaps((current) => {
+      if (requestedRevision) return nextMaps;
+      const refreshedIds = new Set(nextMaps.map((item) => item.id));
+      const merged = nextMaps.map((incoming) => {
+        const existing = current.find((item) => item.id === incoming.id);
+        return existing && existing.revision > incoming.revision ? existing : incoming;
+      });
+      return [...merged, ...current.filter((item) => !refreshedIds.has(item.id))];
+    });
     if (requested && !nextMaps.some((item) => item.id === requested)) {
       setMessage("请求的地图已不存在或不属于当前作品；没有改为打开另一张地图。");
       setMapId(null);
@@ -393,7 +401,12 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     setBusy(true); setMessage("正在保存空间定位；当前画布仍是临时预览。");
     void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: parent.relativePath, expectedHash: draft.baseContentHash, document: { ...parent, content: { ...parent.content, placements } }, token }))
       .then((next) => { if (next.conflict) throw new Error("父地图已有更新，请刷新后重新应用当前预览"); const saved = next.document as MapDocument; setMaps((items) => items.map((item) => item.id === saved.id ? saved : item)); setSpatialDraft(null); setMessage("空间定位已保存为一个地图修订；刷新或重新打开后会恢复。"); })
-      .catch((error: unknown) => { setMessage(error instanceof Error ? `空间定位保存失败：${error.message}；预览仍保留，可取消或刷新后重试。` : "空间定位保存失败；预览仍保留。"); })
+      .catch((error: unknown) => {
+        const reason = error instanceof Error && error.message.startsWith("地图已在其他页面更新")
+          ? "父地图已有更新，请刷新后重新应用当前预览"
+          : error instanceof Error ? error.message : null;
+        setMessage(reason ? `空间定位保存失败：${reason}；预览仍保留，可取消或刷新后重试。` : "空间定位保存失败；预览仍保留。");
+      })
       .finally(() => setBusy(false));
   };
   const saveMap = (document: MapDocument, success: string, failure: string, after?: { success?: () => void; failure?: () => void }) => {
@@ -641,10 +654,10 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     if (selected) place(selected, event);
     if (!editingLayout) { setSelectedDrawingId(null); setSelectedLabelId(null); setPropertiesOpen(false); }
   };
-  const saveMapTitle = () => {
-    if (!map || !projectId || !mapTitle.trim() || mapTitle.trim() === map.title) return;
+  const saveMapTitle = (nextTitle = mapTitle) => {
+    if (!map || !projectId || !nextTitle.trim() || nextTitle.trim() === map.title) return;
     const placeholder = map.content.template === "starfield" ? "未命名星域" : map.content.template === "geography" ? "未命名区域" : null;
-    const document: MapDocument = { ...map, title: mapTitle.trim(), content: placeholder ? { ...map.content, labels: map.content.labels.map((label) => label.text === placeholder ? { ...label, text: mapTitle.trim() } : label) } : map.content };
+    const document: MapDocument = { ...map, title: nextTitle.trim(), content: placeholder ? { ...map.content, labels: map.content.labels.map((label) => label.text === placeholder ? { ...label, text: nextTitle.trim() } : label) } : map.content };
     setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("地图名称已保存；地点事实未被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "地图名称保存冲突，请刷新后重试。" )).finally(() => setBusy(false));
   };
   const removeMarker = (locationId: string) => {
@@ -935,7 +948,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
         <div className="map-workbench-title"><MapPin aria-hidden="true" /><div><strong>地点地图</strong></div></div>
         <label>当前地图<select aria-label="选择地图" value={mapId ?? ""} onChange={(event) => selectMap(event.target.value)}><option value="">地图管理</option>{maps.filter((item) => !item.content.lifecycle.archived).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
         <details className="map-workbench-menu" onKeyDown={event=>{if(event.key==="Escape"){event.currentTarget.removeAttribute("open");event.currentTarget.querySelector("summary")?.focus();}}}><summary>地图与历史</summary><div className="map-workbench-toolbar-actions" onClick={event=>{if((event.target as Element).closest("button")) event.currentTarget.closest("details")?.removeAttribute("open");}}>
-        {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={event=>{saveMapTitle();event.currentTarget.closest("details")?.removeAttribute("open");}} disabled={busy || Boolean(historicalRevision)} /></label> : null}
+        {map ? <label>地图名称<input aria-label="地图名称" value={mapTitle} onChange={(event) => setMapTitle(event.target.value)} onBlur={event=>{saveMapTitle(event.currentTarget.value);event.currentTarget.closest("details")?.removeAttribute("open");}} disabled={busy || Boolean(historicalRevision)} /></label> : null}
           {materialReturn ? <button type="button" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />返回资料</button> : null}
           {map ? <><button type="button" onClick={showManager}><MapPin aria-hidden="true" />地图管理</button><button type="button" onClick={openMapHistory}><RotateCcw aria-hidden="true" />历史</button></> : null}
           {map && !historicalRevision ? <><label className="map-new-template">新地图起点<select aria-label="新地图起点" value={templateChoice} onChange={(event) => setTemplateChoice(event.target.value as MapContent["template"])}><option value="geography">地理</option><option value="starfield">星域</option><option value="building">建筑</option><option value="blank">空白</option></select></label><button type="button" onClick={create} disabled={busy}>新地图</button></> : null}

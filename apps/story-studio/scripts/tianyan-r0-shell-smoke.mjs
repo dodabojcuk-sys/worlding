@@ -2495,6 +2495,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   const initialLayoutResponse = await initialLayoutSave;
   assert.equal(initialLayoutResponse.status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
   const initialLayoutReceipt = await initialLayoutResponse.json();
+  assert.equal(initialLayoutReceipt.data.conflict, false, "The target marker write must not be reported as saved when its base map revision is stale.");
   assert.equal(initialLayoutReceipt.data.document.content.markers.some((marker) => marker.objectId === mapM2Fixture.northGate.id), true, "The write receipt must contain the exact North Gate marker before the UI assertion continues.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
   const northGateMarker = page.locator(`.map-workbench-marker[data-object-id="${mapM2Fixture.northGate.id}"]`);

@@ -3098,7 +3098,9 @@ export async function updateVisualDocument(input: {
   token: string;
 }): Promise<{ conflict: boolean; document: VisualDocument }> {
   const { token, ...body } = input;
-  return request<{ conflict: boolean; document: VisualDocument }>(`${basePath}/visual-documents/update`, { method: "POST", token, body });
+  const result = await request<{ conflict: boolean; document: VisualDocument }>(`${basePath}/visual-documents/update`, { method: "POST", token, body });
+  if (result.conflict) throw new LocalTransportError("地图已在其他页面更新；本次修改未保存，请刷新后重试。", 409);
+  return result;
 }
 
 export async function duplicateMapDocument(input: { projectId: string; relativePath: string; title?: string; token: string }): Promise<MapDocument> {
