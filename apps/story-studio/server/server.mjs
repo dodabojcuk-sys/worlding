@@ -3865,7 +3865,7 @@ function createLocalFakeGroundedAdapter() {
 }
 
 function localFakeCreativeAnswer(authorRequest) {
-  if (/继续修改这条回复/u.test(authorRequest)) {
+  if (/继续修改这条回复|继续加工已保存的天意回复/u.test(authorRequest)) {
     if (/山路来信/u.test(authorRequest)) {
       return "## 修改后的第二个构想：山路来信\n\n暴雨切断河道后，信使沿山路进入雾港，带来两封落款相同、内容相反的信。一方要求立刻封闭山路，避免更多人被困；另一方要求保持通行，让急需药材的沿岸聚落获得补给。\n\n冲突调整为两方都有合理动机的两难选择：封路能保护信使和守路人，却可能延误救治；保持通行能争取救援时间，却让更多人暴露在塌方风险中。主角必须判断哪一种损失更不可承受。\n\n新增的来信来源、聚落伤情和塌方风险均保留为创意建议，没有写入既有事实。";
     }

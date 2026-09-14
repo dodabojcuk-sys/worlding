@@ -47,6 +47,7 @@ import { createStoryStudioEventReference } from "../../../../../../src/storyCont
 import {
   selectTianyiGroundedEvidence
 } from "../../../../../../src/storyContinuity/tianyiGroundedEvidenceRetrieval.ts";
+import { createTianyiContinuationDraft, prepareTianyiContinuationRequest } from "../../../../../../src/storyContinuity/tianyiContinuationRequest.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
@@ -762,6 +763,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const visit = conversationProjectVisit.current;
     setBusy(true); setError(""); setNotice("");
     try {
+      const prepared = conversationLane === "work"
+        ? prepareTianyiContinuationRequest({ draft: text, currentResponseMessageId: lastGroundedAnswer?.responseMessageId, currentResponseText: groundedResultText })
+        : { requestText: text };
+      const requestText = prepared.requestText;
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (conversationLane === "work" && workContextState === "failed") throw new Error("工作依据读取失败；草稿已保留。请重新读取正式事件后再发送，避免把失败误作无上下文。");
       if (conversationLane === "work" && runtime.workScope !== "current-story" && globalWorkEventRefs.length === 0) throw new Error("当前工作范围没有可追溯的正式事件；请选择故事单元或事件后再发送。");
@@ -781,7 +786,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           operationId: operationId("conversation.answer"),
           submissionId: operationId("conversation.submission"),
           profileId: localFakeRuntime ? "local-fake-grounded-answer" : profileId!,
-          question: text,
+          question: requestText,
           contextRequest: {
             version: "story-tianyi-grounded-context-request/v1",
             projectId: project.id,
@@ -799,7 +804,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         if (result.status !== "current" || !result.answer) throw new Error("天意回答未完整落盘；已保留原问题，可按回执重试。");
         if (conversationLane === "work") {
           setLastGroundedAnswer(result);
-          setLastGroundedQuestion(text);
+          setLastGroundedQuestion(requestText);
         }
       } else if (localFakeRuntime) {
         const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
@@ -997,7 +1002,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const groundedResultText = lastGroundedAnswer?.answer?.summary.trim() ?? "";
   const continueGroundedAnswer = () => {
     if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
-    runtime.setWorkComposerDraft(`继续修改这条回复（${lastGroundedAnswer.responseMessageId}）：\n\n${groundedResultText}\n\n我的修改要求：`);
+    runtime.setWorkComposerDraft(createTianyiContinuationDraft(lastGroundedAnswer.responseMessageId, groundedResultText));
     setError("");
     window.requestAnimationFrame(() => {
       const target = document.querySelector<HTMLTextAreaElement>(mapEntry ? "#tianyi-map-work-draft" : relationEntry ? "#tianyi-relation-work-draft" : ".tianyi-workspace-composer textarea");

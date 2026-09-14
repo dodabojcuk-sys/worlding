@@ -2914,8 +2914,13 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
       await result.getByRole("button", { name: "继续修改这条回复", exact: true }).click();
       const continuedDraft = await composer.locator("textarea").inputValue();
       assert.match(continuedDraft, /回复（event\./u, "Continue targets the durable response message instead of an implicit previous item.");
-      await composer.locator("textarea").fill(`${continuedDraft} 只修改《山路来信》这个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`);
+      await composer.locator("textarea").fill(`${continuedDraft} 只修改第二个构想。保留其主要场景，把核心冲突调整为两方都各有合理动机的两难选择。不要改写另外两个构想，新增设定仍是建议。`);
+      const continuationRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer"));
       await composer.locator(".tianyi-send").click();
+      const continuationPayload = (await continuationRequest).postDataJSON();
+      assert.match(continuationPayload.question, /指定构想：第2项《山路来信》/u, "An ordinal request resolves to the second idea's actual title before Provider dispatch.");
+      assert.match(continuationPayload.question, /指定构想原文：[\s\S]*暴雨切断河道/u, "The Provider receives the selected idea body, not only an ambiguous ordinal.");
+      assert.match(continuationPayload.question, /来源回复 ID：event\./u, "The continuation keeps the durable source reply identity.");
       await result.getByText("修改后的第二个构想：山路来信", { exact: true }).waitFor();
       tianyiR6Lifecycle.continuationCompleted = true;
       assert.equal(await page.locator(".tianyi-work-history .is-tianyi").count() >= 2, true, "The original and revised replies remain separately visible in the same durable Session.");
@@ -3035,6 +3040,11 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   const multiRelationText = await detail.innerText();
   assert.match(multiRelationText, /港务协作[\s\S]*由左至右/u, "The first relation keeps its own type and direction.");
   assert.match(multiRelationText, /航线分歧[\s\S]*由右至左/u, "The second relation keeps its own type and direction.");
+  const divergenceChoice = detail.getByRole("button", { name: "航线分歧", exact: true });
+  await divergenceChoice.click();
+  assert.equal(await divergenceChoice.getAttribute("aria-pressed"), "true", "A same-pair relation is selected independently instead of relying on a merged edge label.");
+  assert.ok(new URL(page.url()).searchParams.get("relationItem"), "The exact relation identity is retained in the return route.");
+  await detail.getByRole("button", { name: "适配当前关系", exact: true }).click();
   await capture("02-人物聚焦与同对多关系-1440x900.png");
   const evidence = detail.locator(".focused-relations-evidence").first();
   await page.waitForFunction((element) => element?.getAttribute("aria-busy") === "false", await evidence.elementHandle());
@@ -3047,7 +3057,7 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   await canvas.locator(".focused-relations-edge-label").filter({ hasText: "航线分歧" }).click();
   const singleDetail = workspace.getByLabel("所选关系详情");
   await page.setViewportSize({ width: 1152, height: 720 });
-  await singleDetail.getByRole("button", { name: "带着双方与依据进入天意", exact: true }).click();
+  await singleDetail.getByRole("button", { name: "带着这条关系与依据进入天意", exact: true }).click();
   const tianyi = page.getByLabel("从关系开始创作");
   await tianyi.waitFor();
   await page.getByRole("heading", { name: /顾澜 ← 程野 · 航线分歧/u }).waitFor();
@@ -3129,7 +3139,7 @@ async function assertMapCharacterRelationsR1(page, consoleProblems) {
   assert.equal(await relations.getByLabel("筛选关系类型").inputValue(), "驻港调查", "Reloading preserves the route-backed filter and selected edge.");
 
   await page.setViewportSize({ width: 1152, height: 720 });
-  await detail.getByRole("button", { name: "带着双方与依据进入天意", exact: true }).click();
+  await detail.getByRole("button", { name: "带着这条关系与依据进入天意", exact: true }).click();
   const tianyi = page.getByLabel("从关系开始创作");
   await tianyi.waitFor();
   await tianyi.getByText("顾澜", { exact: true }).waitFor();
