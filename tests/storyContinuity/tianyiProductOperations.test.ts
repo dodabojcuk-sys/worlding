@@ -127,7 +127,9 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
     }).object;
     const objectRef = { version: "story-tianyi-object-context-ref/v1" as const, ownerType: "markdown-object" as const, objectType: "character" as const, stableId: updated.id, projectId: fixture.projectId, ownerId: updated.id, contentHash: updated.revisionToken, state: "current" as const, inclusion: "included" as const, label: updated.title };
     const sourceRef = `${fixture.projectId}:markdown-object:${updated.id}:character:${updated.id}`;
-    const gateway = fakeGroundedGateway((messages, call) => {
+    let observedMaxOutputTokens = 0;
+    const gateway = fakeGroundedGateway((messages, call, maxOutputTokens) => {
+      observedMaxOutputTokens = maxOutputTokens;
       if (call === 1) return { summary: "invalid first attempt" };
       const included = messages[0].content.includes(`includedSources must equal exactly: [\"${sourceRef}\"]`);
       return included ? {
@@ -159,6 +161,7 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
       question: "林岚为什么背叛顾寒？",
       contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
     });
+    assert.equal(observedMaxOutputTokens, 1_200, "ordinary grounded creation stays within the explicit output-token ceiling");
     assert.equal(result.answer?.status, "fact");
     assert.equal(result.attemptCount, 2, "schema-invalid provider output receives exactly one bounded repair");
     assert.equal(result.includedSources.length, 1);
@@ -727,13 +730,13 @@ async function makeWritable(root: string): Promise<void> {
   }
 }
 
-function fakeGroundedGateway(answer: (messages: Array<{ role: "system" | "user" | "assistant"; content: string }>, call: number) => unknown) {
+function fakeGroundedGateway(answer: (messages: Array<{ role: "system" | "user" | "assistant"; content: string }>, call: number, maxOutputTokens: number) => unknown) {
   let call = 0;
   return {
     metadata() { return { profiles: [{ id: "siliconflow-test", providerId: "siliconflow", modelId: "test/model" }] }; },
-    async openChatStream(input: { messages: Array<{ role: "system" | "user" | "assistant"; content: string }> }) {
+    async openChatStream(input: { messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; maxOutputTokens: number }) {
       call += 1;
-      const source = JSON.stringify(answer(input.messages, call));
+      const source = JSON.stringify(answer(input.messages, call, input.maxOutputTokens));
       return { events: (async function* () { yield { type: "chunk" as const, text: source, usage: { promptTokens: 10, completionTokens: 8, totalTokens: 18 } }; yield { type: "done" as const }; })() };
     }
   };

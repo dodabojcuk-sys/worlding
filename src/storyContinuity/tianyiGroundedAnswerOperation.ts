@@ -45,6 +45,7 @@ import type { ContinuityContext } from "./continuityFilesystem.ts";
 const QUESTION_VERSION = "tianyi-grounded-question-operation/v3" as const;
 const RESPONSE_VERSION = "tianyi-grounded-response-operation/v3" as const;
 const ATTEMPT_STATE_VERSION = "tianyi-grounded-attempt-state/v1" as const;
+const TIANYI_GROUNDED_MAX_OUTPUT_TOKENS = 1_200;
 const ATTEMPT_KEY_VERSION = "story-tianyi-question-attempt-key/v1" as const;
 const INTENT_VERSION = "story-tianyi-request-intent/v1" as const;
 
@@ -386,6 +387,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
       const stream = await dependencies.gateway.openChatStream({
         profileId,
         messages: attemptMessages,
+        maxOutputTokens: TIANYI_GROUNDED_MAX_OUTPUT_TOKENS,
         responseFormat: "json-object",
         signal: input.signal,
         idempotencyKey: `tianyi-grounded.${questionAttemptKey}.${invocationAttempt}`,

@@ -2784,7 +2784,7 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
     const locationRef = page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" });
     await locationRef.waitFor();
     if (liveCreation) {
-      await composer.locator("textarea").fill("根据我选择的雾港资料，提出三个不同的场景构想，每个约80至120字。新增人物、组织和历史作为创意建议，不要冒充已有设定。请分别给出标题和核心冲突，不修改任何正式资料。");
+      await composer.locator("textarea").fill("根据所选雾港资料，创作三个不同的场景构想。每个提供标题和80至120字正文，写清人物面临的具体冲突。新增设定作为创意建议，不冒充已有事实。请直接给出构想，不复述我的要求，不修改正式资料。");
     } else {
       await locationRef.getByRole("button", { name: "移除", exact: true }).click();
       assert.equal(await page.locator(".tianyi-map-reference-strip li").filter({ hasText: "地点 ·" }).count(), 0, "Removing a location reference only removes it from this request context.");
