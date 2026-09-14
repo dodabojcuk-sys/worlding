@@ -1046,7 +1046,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     </header>
 
     <section className="tianyi-task-header" aria-label="当前任务">
-      <div><small>{task.eyebrow}</small><h2>{task.title}</h2><p>{task.detail}</p></div>
+      <div><small>{relationEntry ? "来自关系图" : task.eyebrow}</small><h2>{relationEntry ? relationHandoff.relationLabel ? `围绕“${relationHandoff.relationLabel}”继续创作` : "围绕所选关系继续创作" : task.title}</h2><p>{relationEntry ? "已带入作者明确选择的双方资料与可验证事件依据；尚未发送。" : task.detail}</p></div>
       <div className="tianyi-task-actions">{materialReturn ? <button type="button" className="tianyi-material-return" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />{relationEntry ? "返回关系图" : mapEntry ? "返回地图" : "返回资料"}</button> : null}<div className="tianyi-task-status"><span>{project.title}</span><span>{runtime.workVersionLabel ?? "当前主线"}</span>{intakeRun?.storyIntakeEnvelope ? <span>批次已恢复</span> : null}</div></div>
     </section>
 
