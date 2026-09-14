@@ -1175,7 +1175,7 @@ function currentMaterialRoute(): string {
   return `${target.pathname}${target.search}`;
 }
 
-function currentMaterialFileRoute(file: MaterialFileRecord): string {
+function currentMaterialFileRoute(file: MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number] }): string {
   const target = new URL(currentMaterialRoute(), window.location.origin);
   target.searchParams.set("materialFileId", file.id);
   target.searchParams.set("materialFileRevision", file.revision.id);
