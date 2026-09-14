@@ -3485,7 +3485,7 @@ async function handleModelServiceRequest(request, response, url) {
       capabilityClaims: entry.capabilityClaims,
       source: entry.source,
       revision: entry.revision || "unknown"
-    }));
+    })).concat(agentFakeProviderStreamAllowed ? metadata.models.filter((model) => model.providerId === "local-fake").map((model) => ({ ...model, providerInstanceId: "local-fake", capabilityClaims: model.capabilities.map((capability) => ({ capability, source: "runtime-discovered" })), source: "endpoint", revision: "local-fixture" })) : []);
     sendJson(response, 200, {
       data: {
         version: "story-studio-model-service/v1",

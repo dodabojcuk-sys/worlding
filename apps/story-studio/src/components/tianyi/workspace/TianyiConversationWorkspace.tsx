@@ -1075,8 +1075,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (!project || !selectedMaterialFile || selectedMaterialFile.type !== "image" || imageObservationBusy) return;
     const prompt = runtime.workComposerDraft.trim();
     if (!prompt) { setImageObservationError("请先写下要检查的文字或问题；不会自动发送整部作品内容。"); return; }
-    const selectedModelId = runtime.modelStatus?.profile.profile?.modelId;
-    const profile = runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId);
+    const selectedModelId = dialogueRuntime === "local-fake" ? "deterministic-grounded-fixture" : runtime.modelStatus?.profile.profile?.modelId;
+    const profile = dialogueRuntime === "local-fake" ? runtime.modelStatus?.profiles.find((item) => item.id === "local-fake-grounded-answer") : runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId);
     const model = runtime.modelStatus?.models.find((item) => item.providerId === profile?.providerId && item.id === selectedModelId);
     if (!profile || !model?.capabilities.includes("vlm")) { setImageObservationError("当前选择的模型没有已确认的图片能力；发送前已停止。请在 Provider 设置中选择支持图片的模型。"); return; }
     const north = selectedMapEvidence?.map.content.coordinateSystem.north ?? null;

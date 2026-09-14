@@ -4263,6 +4263,22 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("status").getByText(/所选文件已移动/u).waitFor();
   await page.getByLabel("当前文件夹").selectOption(fogFolder.id);
   await page.getByRole("button", { name: /雾港底图.png/u }).click();
+  await page.getByRole("button", { name: "在天意检查图片", exact: true }).click();
+  await page.getByLabel("图片与文字检查").waitFor();
+  await page.locator(".tianyi-workspace-composer textarea").fill("文字说 A 城在 B 城下方，与图片位置相反，请检查冲突。");
+  await page.getByRole("button", { name: "检查图片与文字", exact: true }).click();
+  const imageObservation = page.locator(".tianyi-image-observation-result");
+  const imageObservationCard = page.getByLabel("图片与文字检查");
+  await Promise.race([
+    imageObservation.getByText("发现图片与文字矛盾", { exact: true }).waitFor(),
+    imageObservationCard.getByRole("alert").waitFor()
+  ]);
+  assert.equal(await imageObservation.count(), 1, `Selected-image observation must complete in the application; card=${await imageObservationCard.innerText()}`);
+  assert.match(await imageObservation.innerText(), /本地视觉夹具 · 不代表真实模型识别/u, "Image observation remains visibly identified as simulated evidence.");
+  assert.match(await imageObservation.innerText(), /A 城 · 位于上方 · B 城/u, "The selected image bytes pass through the normal bounded observation route and return a readable relation.");
+  await capture("09a-m2-image-observation.png");
+  await page.getByRole("button", { name: "返回资料", exact: true }).click();
+  await page.getByRole("heading", { name: "雾港底图.png", exact: true }).waitFor();
   await page.getByLabel("作为底图加入").selectOption(map.id);
   await page.getByRole("button", { name: "建立地图底图修订", exact: true }).click();
   await page.getByRole("status").getByText(/图片已显式复制/u).waitFor();
@@ -4271,6 +4287,8 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   assert.ok(mapAfterFileUse?.content.backgrounds.some((background) => background.title === "雾港底图.png" && background.assetPath), "Explicit file-to-map conversion creates a real map Owner revision with its saved asset.");
   await capture("09a-m2-organized-and-map-linked.png");
 
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await page.getByLabel("当前文件夹").selectOption(fogFolder.id);
   await page.getByRole("button", { name: /雾港巡夜笔记/u }).click();
   const reader = page.getByLabel("普通文本文件正文");
   await reader.waitFor();
@@ -4312,7 +4330,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   await page.getByRole("button", { name: "返回来源", exact: true }).click();
   assert.equal(new URL(page.url()).searchParams.get("materialId"), unversionedLocation.id, "An unversioned legacy project keeps the material return target instead of remaining in a loading state.");
   assert.deepEqual(consoleProblems, [], "World materials browser flow must not produce browser errors.");
-  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHashBeforeFileLink: map.contentHash, mapHashAfterFileLink: mapAfterFileUse.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, genericFile: { id: textRecord.id, originalRevision: textRecord.revisions[0].sha256, selectedRange, folderId: fogFolder.id, linkedMapId: map.id }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 2, realProviderDispatches: 0, sourceReturn: "exact-object-and-generic-file-selection-history", note: "Two local-fake grounded answers verify selected setting and selected generic-file text transfer; neither is a real Provider call." }, null, 2)}\n`, "utf8");
+  if (worldMaterialsEvidenceDirectory) writeFileSync(path.join(worldMaterialsEvidenceDirectory, "world-materials-identity.json"), `${JSON.stringify({ projectId: fixtureProjectId, workVersionId: worldMaterialsFixture.root.identity.workVersionId, mapId: map.id, mapHashBeforeFileLink: map.contentHash, mapHashAfterFileLink: mapAfterFileUse.contentHash, source: { sourceDocumentId: sourceDocument.sourceDocumentId, revision: sourceDocument.currentRevisionHash, filename: sourceDocument.filename }, material: { id: rule.id, revision: rule.revisionToken, changedRevision: changedRule.revisionToken, type: rule.type }, genericFile: { id: textRecord.id, originalRevision: textRecord.revisions[0].sha256, selectedRange, folderId: fogFolder.id, linkedMapId: map.id }, associations: ruleDetail.data.linkedObjects.map((item) => ({ id: item.id, title: item.title, type: item.type })), simulatedProviderDispatches: 3, realProviderDispatches: 0, sourceReturn: "exact-object-and-generic-file-selection-history", note: "Two local-fake grounded answers plus one local visual observation verify selected text and image transfer; none is a real Provider call." }, null, 2)}\n`, "utf8");
 }
 
 async function setupR1CausalFixture() {
