@@ -50,7 +50,9 @@ function clampMapPoint(point: { x: number; y: number }): { x: number; y: number 
   return { x: Math.max(0, Math.min(100, point.x)), y: Math.max(0, Math.min(100, point.y)) };
 }
 
-function locationIntroduction(object: WorldObject | null): string {
+function locationIntroduction(object: WorldObject | null | undefined): string {
+  if (object === undefined) return "正在读取简介…";
+  if (object === null) return "简介暂时无法读取";
   const text = object?.body.replace(/^#+\s*/gm, "").replace(/\s+/g, " ").trim() ?? "";
   const introduction = object && (text === object.title || text.replace(/[\s：:|·—-]+/gu, "") === object.title.replace(/[\s：:|·—-]+/gu, "")) ? "" : text;
   return introduction ? `${introduction.slice(0, 150)}${introduction.length > 150 ? "…" : ""}` : "暂无简介";
@@ -112,7 +114,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
   const [pendingLocationId, setPendingLocationId] = useState("");
   const [placeIndexOpen, setPlaceIndexOpen] = useState(false);
   const [placeIndexSearch, setPlaceIndexSearch] = useState("");
-  const [locationDetail, setLocationDetail] = useState<WorldObject | null>(null);
+  const [locationDetail, setLocationDetail] = useState<WorldObject | null | undefined>(undefined);
   const [localMapChoice, setLocalMapChoice] = useState("");
   const [aiReview, setAiReview] = useState<{ proposal: MapEditProposal | null; regionBounds: { x: number; y: number; width: number; height: number } | null; referenceObjectIds: string[]; reviewView: "before" | "after" | "compare"; focusNonce: number; command: "focus" | "fit" | "restore" | null } | null>(null);
   const aiReviewOriginalViewport = useRef<MapViewport | null>(null);
@@ -164,6 +166,7 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     const objectId = linkedLocation?.id;
     if (!projectId || !objectId) { setLocationDetail(null); return; }
     let active = true;
+    setLocationDetail(undefined);
     void readWorldObject(projectId, objectId).then((object) => { if (active) setLocationDetail(object); }).catch(() => { if (active) setLocationDetail(null); });
     return () => { active = false; };
   }, [projectId, linkedLocation?.id]);

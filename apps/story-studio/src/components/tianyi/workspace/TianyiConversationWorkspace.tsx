@@ -54,6 +54,7 @@ import { StoryIntakeWorkSurface } from "./StoryIntakeWorkSurface";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
 import { tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { readCreativeComposerDraft, writeCreativeComposerDraftBody } from "./creativeComposerDraft";
 import {
   createActiveStoryIntakeCandidateRef,
   filterStoryIntakeSelection,
@@ -500,7 +501,17 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   useEffect(() => {
     if (!project || runtime.tianyiConversationId) return;
     const savedSessionId = window.sessionStorage.getItem(tianyiConversationStorageKey(project.id));
-    if (savedSessionId) runtime.setTianyiConversationId(savedSessionId);
+    if (savedSessionId) { runtime.setTianyiConversationId(savedSessionId); return; }
+    const requestedSessionId = new URLSearchParams(window.location.search).get("tianyiSession");
+    if (!requestedSessionId) return;
+    const visit = conversationProjectVisit.current;
+    let active = true;
+    void runtime.withConnection((token) => getTianyiSessionMetadata(project.id, requestedSessionId, token)).then((restored) => {
+      if (!active || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
+      const session = Array.isArray(restored) ? restored.find((item) => item.id === requestedSessionId) : restored;
+      if (session?.id === requestedSessionId) runtime.setTianyiConversationId(requestedSessionId);
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [project?.id, runtime, runtime.tianyiConversationId]);
   const ensureConversation = useCallback(async (visit = conversationProjectVisit.current): Promise<string | null> => {
     if (!project) throw new Error(t("tianyi.workspace.noProject"));
@@ -677,7 +688,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
 
   const submitCreative = async () => {
-    const text = runtime.creativeComposerDraft.trim();
+    const text = readCreativeComposerDraft(runtime.creativeComposerDraft).body.trim();
     if (!text || !project || busy) return;
     const visit = conversationProjectVisit.current;
     const projectId = project.id;
@@ -721,7 +732,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
 
   const submitConversation = async (conversationLane: "creative" | "work") => {
-    const text = (conversationLane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft).trim();
+    const text = (conversationLane === "creative" ? readCreativeComposerDraft(runtime.creativeComposerDraft).body : runtime.workComposerDraft).trim();
     if (!text || !project || busy) return;
     const visit = conversationProjectVisit.current;
     setBusy(true); setError(""); setNotice("");
@@ -950,8 +961,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     try { return selectStoryIntakeCandidateScope(envelope, selectedIntakeCandidateIds.length ? selectedIntakeCandidateIds : activeIntakeCandidate ? [activeIntakeCandidate.candidateId] : []); }
     catch { return activeIntakeCandidate ? [activeIntakeCandidate] : []; }
   }, [activeIntakeCandidate, intakeRun, selectedIntakeCandidateIds]);
-  const draft = lane === "creative" ? runtime.creativeComposerDraft : runtime.workComposerDraft;
-  const setDraft = lane === "creative" ? runtime.setCreativeComposerDraft : runtime.setWorkComposerDraft;
+  const creativeDraftView = readCreativeComposerDraft(runtime.creativeComposerDraft);
+  const draft = lane === "creative" ? creativeDraftView.body : runtime.workComposerDraft;
+  const setDraft = lane === "creative" ? (value: string) => runtime.setCreativeComposerDraft(writeCreativeComposerDraftBody(runtime.creativeComposerDraft, value)) : runtime.setWorkComposerDraft;
   const mapEntry = lane === "work" && mapEvidenceState !== "idle";
   const mapEntryDrawing = selectedMapEvidence?.elementId ? selectedMapEvidence.map.content.drawings.find((item) => item.id === selectedMapEvidence.elementId) ?? null : null;
   const mapEntryLocation = mapEntryDrawing?.objectId ? selectedMaterials.find((item) => item.id === mapEntryDrawing.objectId) ?? null : null;
@@ -1099,7 +1111,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           {notice ? <p className="tianyi-workspace-message" role="status">{notice}</p> : null}
           {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
         </div>
-        {(lane === "creative" || (lane === "work" && !activeIntakeCandidate && !mapEntry)) ? <section className="tianyi-workspace-composer">
+        {(lane === "creative" || (lane === "work" && !activeIntakeCandidate && !mapEntry)) ? <section className={`tianyi-workspace-composer${lane === "creative" && creativeDraftView.source ? " is-sourced-creative-draft" : ""}`}>
+          {lane === "creative" && creativeDraftView.source ? <section className="tianyi-creative-draft-source" aria-label="创意草稿来源信息"><div><strong>当前作品的创意编辑草稿</strong><span>来源：{creativeDraftView.source.labels}</span></div><details><summary>查看原回复身份</summary><code>{creativeDraftView.source.responseMessageId}</code><p>来源信息随本浏览器草稿保留；下方只编辑正文。</p></details></section> : null}
           <p className="tianyi-dialogue-runtime" role="status">{dialogueRuntime === "local-fake" ? "本地假服务 · 非真实 Pi；发送仅用于本地连续性测试。" : dialogueRuntime === "provider" ? "已配置 Provider；仅在明确发送时调用。" : "当前没有可用的真实 Provider；草稿会保留，发送不会生成假回复。"}</p>
           <textarea aria-label={t(lane === "creative" ? "tianyi.workspace.creativeDraft" : "tianyi.workspace.workDraft")} value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} placeholder={t(lane === "creative" ? "tianyi.workspace.creativePlaceholder" : "tianyi.workspace.workPlaceholder")} />
           <div>{lane === "work" ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy || workContextState === "loading" || workContextState === "failed"} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}发送到当前工作</button> : legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}><MessageSquareText />发送消息</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}整理为故事候选</button></>}</div>

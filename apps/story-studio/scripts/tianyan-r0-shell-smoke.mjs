@@ -2861,12 +2861,15 @@ async function assertMapPlaceCreationLinkR4(page, consoleProblems, verifyTianyiS
       await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
       const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
       await creativeDraft.waitFor();
+      await page.getByLabel("创意草稿来源信息").getByText(/来自天意回复|查看原回复身份/u).waitFor();
       assert.match(await creativeDraft.inputValue(), /修改后的第二个构想：山路来信/u, "The saved creative draft opens through the existing Creative lane.");
+      assert.doesNotMatch(await creativeDraft.inputValue(), /创意草稿 · 来自天意回复/u, "The editable first screen separates provenance from creative prose.");
       await page.reload();
       const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");
       await reopenedCreativeDraft.waitFor();
       tianyiR6Lifecycle.reopened = true;
       assert.match(await reopenedCreativeDraft.inputValue(), /修改后的第二个构想：山路来信/u, "The per-project Creative draft survives a full page reopen.");
+      await page.getByLabel("创意草稿来源信息").waitFor();
       await page.locator('.tianyi-lane-switch [role="tab"]').nth(1).click();
       await page.getByLabel("地图创作请求结果").getByText("修改后的第二个构想：山路来信", { exact: true }).waitFor();
       }
@@ -2981,7 +2984,9 @@ async function assertTianyiRealCreationResult(page, context, composer, capture, 
   await page.getByLabel("地图创作请求结果").getByRole("button", { name: "打开创意草稿", exact: true }).click();
   const creativeDraft = page.locator(".tianyi-workspace-composer textarea");
   await creativeDraft.waitFor();
+  await page.getByLabel("创意草稿来源信息").waitFor();
   assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(selected.title), "u"), "The selected real revision opens in the existing Creative composer.");
+  assert.doesNotMatch(await creativeDraft.inputValue(), /创意草稿 · 来自天意回复/u, "The real reply identity stays in the separate source area rather than the editable prose.");
   assert.match(await creativeDraft.inputValue(), new RegExp(escapeRegExp(revisedText.slice(0, Math.min(32, revisedText.length))), "u"), "The local Creative draft contains the exact revised real answer.");
   await page.reload();
   const reopenedCreativeDraft = page.locator(".tianyi-workspace-composer textarea");

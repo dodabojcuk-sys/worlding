@@ -164,6 +164,14 @@
 .tianyi-workspace-message { max-width: 920px; margin: 0 auto 12px; color: var(--color-accent); }
 .tianyi-workspace-composer { max-width: 920px; margin: 0 auto; position: sticky; bottom: 0; border: 1px solid var(--color-border-subtle); border-radius: 14px; background: color-mix(in srgb, var(--color-surface) 96%, transparent); box-shadow: 0 12px 34px rgba(0,0,0,.08); padding: 12px; }
 .tianyi-workspace-composer textarea { width: 100%; resize: vertical; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; min-height: 62px; }
+.tianyi-workspace-composer.is-sourced-creative-draft { position: relative; }
+.tianyi-workspace-composer.is-sourced-creative-draft textarea { min-height: clamp(12rem, 34vh, 22rem); line-height: 1.7; }
+.tianyi-creative-draft-source { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin: 0 0 .55rem; padding: 0 0 .6rem; border-bottom: 1px solid var(--color-border-subtle); }
+.tianyi-creative-draft-source > div { display: grid; gap: .15rem; min-width: 0; }
+.tianyi-creative-draft-source span, .tianyi-creative-draft-source p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.tianyi-creative-draft-source details { max-width: 22rem; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.tianyi-creative-draft-source summary { cursor: pointer; color: var(--color-accent); white-space: nowrap; }
+.tianyi-creative-draft-source code { display: block; margin-top: .35rem; overflow-wrap: anywhere; }
 .tianyi-workspace-composer > div { display: flex; align-items: center; gap: 8px; }
 .tianyi-workspace-composer button { border: 0; background: transparent; color: var(--color-text-secondary); padding: 8px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .tianyi-workspace-composer button svg { width: 16px; }
