@@ -47,6 +47,7 @@ import {
 import { PageContextDock, type PageContextDockLens, type PageContextDockState } from "./PageContextDock";
 import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../src/storyContracts/eventSemanticHierarchy";
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
+import { NormalEventCreationDock } from "./event-observation/NormalEventCreationDock";
 import { TemporalCanvas } from "./event-observation/TemporalCanvas";
 import { EventObservationControls } from "./event-observation/EventObservationControls";
 import { ParticipationObservation } from "./event-observation/ParticipationObservation";
@@ -81,7 +82,7 @@ import {
 import { NarrativeArrangementInspector, StoryProgressionWorkspace, type NarrativeArrangementSelection } from "./event-observation/StoryProgressionWorkspace";
 import { buildEventCausalIndex, causalRelationLabel, type EventCausalIndexItem } from "../../../../src/storyContracts/eventCausalIndex.ts";
 
-export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create" | "arrange";
+export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create" | "arrange" | "normal";
 export type EventDraftInput = {
   title: string;
   summary: string;
@@ -133,6 +134,7 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
+  onNormalCreationAction?(input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<import("../lib/localTransport").NormalEventCreationState | null>;
   onTrashDraftEvent?(eventId: string): Promise<void>;
   onCreateUnit?(title: string): Promise<void>;
   onRenameUnit?(unitId: string, nextTitle: string): Promise<void>;
@@ -871,6 +873,7 @@ export function EventLineWorkbench(props: {
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
     ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} characters={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").map((object) => ({ id: object.id, label: object.label }))} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
+    ...(props.onNormalCreationAction ? [{ id: "normal" as const, label: "常规创作", icon: <ShieldCheck />, content: <NormalEventCreationDock projectId={props.projectId} fallbackUnits={(props.storyUnits ?? []).filter((unit) => unit.lifecycle !== "archived").map((unit) => ({ id: unit.id, title: unit.title }))} onChanged={props.onRetry} runAction={(input) => props.onNormalCreationAction!(input)} /> }] : []),
     { id: "detail", label: "详情", icon: <FileText />, content: <EventDetailDock event={selectedEvent} detail={selectedDetail} loading={detailLoading} error={detailError} metadata={selectedEvent ? metadataById[selectedEvent.id] : null} onOpenTianyi={() => props.onOpenTianyi(selectedEventRef ?? undefined, undefined, undefined, undefined, knowledgeViewContext)} onCreateFromEvent={props.onCreateFromEvent} /> },
     { id: "relations", label: "因果", icon: <Link2 />, content: <EventCausalIndexDock event={selectedEvent} events={knowledgeEvents} relations={formalRelations.filter((relation) => knowledgeEvents.some((event) => event.id === relation.sourceObjectId) && knowledgeEvents.some((event) => event.id === relation.targetObjectId))} originEventId={causalOriginId} history={causalHistory} onSelectEvent={openCausalEvent} onBack={returnToPreviousCausalEvent} onReturnToOrigin={returnToCausalOrigin} /> },
     { id: "branches", label: "候选", icon: <GitBranch />, badge: pendingCandidateCount, content: <EventBranchesDock candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} selectedId={selectedCandidateId} onSelect={openCandidate} /> },
