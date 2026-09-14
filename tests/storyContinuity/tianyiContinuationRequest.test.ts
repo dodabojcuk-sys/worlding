@@ -25,6 +25,49 @@ test("continuation resolves a real title without hard-coding fixture titles", ()
   assert.equal(prepared.target?.ideaIndex, 1);
 });
 
+test("continuation ignores excluded titles and resolves common item ordinals", () => {
+  const excluded = prepareTianyiContinuationRequest({
+    draft: "不要修改《潮汐停灯》，只修改《山路来信》。",
+    continuationSource: { responseMessageId: "message-7", responseText: response }
+  });
+  assert.equal(excluded.kind, "continuation");
+  assert.equal(excluded.target?.title, "山路来信");
+
+  const ordinal = prepareTianyiContinuationRequest({
+    draft: "只修改第二项，让双方都有合理动机。",
+    continuationSource: { responseMessageId: "message-7", responseText: response }
+  });
+  assert.equal(ordinal.kind, "continuation");
+  assert.equal(ordinal.target?.title, "山路来信");
+});
+
+test("continuation asks the author when title and ordinal conflict", () => {
+  const prepared = prepareTianyiContinuationRequest({
+    draft: "只修改第二项《潮汐停灯》。",
+    continuationSource: { responseMessageId: "message-7", responseText: response }
+  });
+  assert.equal(prepared.kind, "needs-selection");
+  if (prepared.kind !== "needs-selection") return;
+  assert.equal(prepared.candidates.length, 3);
+  assert.match(prepared.reason, /标题与序号/u);
+});
+
+test("continuation keeps whole-reply editing explicit and selected target identity separate", () => {
+  const whole = prepareTianyiContinuationRequest({
+    draft: "润色整条回复，保留三个构想。",
+    continuationSource: { responseMessageId: "message-7", responseText: response }
+  });
+  assert.equal(whole.kind, "continuation");
+  assert.equal(whole.target, null);
+
+  const selected = prepareTianyiContinuationRequest({
+    draft: "把冲突改成两难选择。",
+    continuationSource: { responseMessageId: "message-7", responseText: response, selectedTargetIndex: 1 }
+  });
+  assert.equal(selected.kind, "continuation");
+  assert.equal(selected.target?.title, "山路来信");
+});
+
 test("continuation refuses missing instructions, stale replies, and absent targets", () => {
   assert.throws(() => prepareTianyiContinuationRequest({ draft: createTianyiContinuationDraft("message-7", response), currentResponseMessageId: "message-7", currentResponseText: response }), /请先写下/u);
   assert.throws(() => prepareTianyiContinuationRequest({ draft: `${createTianyiContinuationDraft("message-7", response)}只修改第二个构想。`, currentResponseMessageId: "message-9", currentResponseText: response }), /目标已变化/u);

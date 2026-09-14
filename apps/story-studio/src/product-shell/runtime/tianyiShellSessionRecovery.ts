@@ -12,3 +12,8 @@ export function tianyiStoryIntakeRunStorageKey(projectId: string, workVersionId:
 export function tianyiComposerDraftStorageKey(projectId: string, lane: "creative" | "work"): string {
   return `tianyi-composer-draft:${projectId}:${lane}`;
 }
+
+/** Project-scoped pointer to a saved reply being continued; the reply remains owned by the Tianyi session. */
+export function tianyiContinuationSourceStorageKey(projectId: string): string {
+  return `tianyi-continuation-source:${projectId}`;
+}

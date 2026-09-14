@@ -47,14 +47,14 @@ import { createStoryStudioEventReference } from "../../../../../../src/storyCont
 import {
   selectTianyiGroundedEvidence
 } from "../../../../../../src/storyContinuity/tianyiGroundedEvidenceRetrieval.ts";
-import { createTianyiContinuationDraft, prepareTianyiContinuationRequest } from "../../../../../../src/storyContinuity/tianyiContinuationRequest.ts";
+import { prepareTianyiContinuationRequest, type TianyiContinuationSource, type TianyiContinuationTarget } from "../../../../../../src/storyContinuity/tianyiContinuationRequest.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
 import { StoryIntakeWorkSurface } from "./StoryIntakeWorkSurface";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
-import { tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { tianyiContinuationSourceStorageKey, tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
 import { readCreativeComposerDraft, writeCreativeComposerDraftBody } from "./creativeComposerDraft";
 import { readTianyiRelationHandoff } from "./tianyiRelationHandoff";
 import {
@@ -115,6 +115,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [removedWorkEventIds, setRemovedWorkEventIds] = useState<string[]>([]);
   const [lastGroundedAnswer, setLastGroundedAnswer] = useState<Awaited<ReturnType<typeof streamTianyiGroundedAnswer>> | null>(null);
   const [lastGroundedQuestion, setLastGroundedQuestion] = useState("");
+  const [continuationSource, setContinuationSource] = useState<TianyiContinuationSource | null>(null);
+  const [continuationChoice, setContinuationChoice] = useState<{ reason: string; candidates: TianyiContinuationTarget[] } | null>(null);
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const intakeAbort = useRef<AbortController | null>(null);
@@ -159,10 +161,25 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setRemovedWorkEventIds([]);
     setLastGroundedAnswer(null);
     setLastGroundedQuestion("");
+    let restoredContinuation: TianyiContinuationSource | null = null;
+    try {
+      restoredContinuation = project ? JSON.parse(window.localStorage.getItem(tianyiContinuationSourceStorageKey(project.id)) ?? "null") : null;
+    } catch { restoredContinuation = null; }
+    setContinuationSource(restoredContinuation);
+    setContinuationChoice(null);
     setBusy(false);
     setError("");
     setNotice("");
   }, [project?.id, workVersionId]);
+
+  const persistContinuationSource = useCallback((source: TianyiContinuationSource | null) => {
+    setContinuationSource(source);
+    setContinuationChoice(null);
+    if (!project) return;
+    const key = tianyiContinuationSourceStorageKey(project.id);
+    if (source) window.localStorage.setItem(key, JSON.stringify(source));
+    else window.localStorage.removeItem(key);
+  }, [project]);
 
   useEffect(() => {
     if (!project) return;
@@ -764,8 +781,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setBusy(true); setError(""); setNotice("");
     try {
       const prepared = conversationLane === "work"
-        ? prepareTianyiContinuationRequest({ draft: text, currentResponseMessageId: lastGroundedAnswer?.responseMessageId, currentResponseText: groundedResultText })
+        ? prepareTianyiContinuationRequest({ draft: text, continuationSource, currentResponseMessageId: continuationSource && lastGroundedAnswer ? lastGroundedAnswer.responseMessageId : undefined, currentResponseText: continuationSource && lastGroundedAnswer ? groundedResultText : undefined })
         : { requestText: text };
+      if ("kind" in prepared && prepared.kind === "needs-selection") {
+        setContinuationChoice({ reason: prepared.reason, candidates: prepared.candidates });
+        return;
+      }
       const requestText = prepared.requestText;
       if (dialogueRuntime === "unavailable") throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (conversationLane === "work" && workContextState === "failed") throw new Error("工作依据读取失败；草稿已保留。请重新读取正式事件后再发送，避免把失败误作无上下文。");
@@ -828,7 +849,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       } else throw new Error("当前没有可用的真实 Provider；草稿仍保留，未发送也未生成本地假回复。");
       if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
       if (conversationLane === "creative") runtime.setCreativeComposerDraft("");
-      else runtime.setWorkComposerDraft("");
+      else {
+        runtime.setWorkComposerDraft("");
+        persistContinuationSource(null);
+      }
       await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
     } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。"); }
     finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
@@ -1002,7 +1026,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const groundedResultText = lastGroundedAnswer?.answer?.summary.trim() ?? "";
   const continueGroundedAnswer = () => {
     if (!lastGroundedAnswer?.responseMessageId || !groundedResultText) return;
-    runtime.setWorkComposerDraft(createTianyiContinuationDraft(lastGroundedAnswer.responseMessageId, groundedResultText));
+    if (runtime.workComposerDraft.trim()) {
+      setError("当前工作输入中已有草稿；为避免覆盖，请先发送、清空或保存后，再选择继续修改这条回复。");
+      return;
+    }
+    persistContinuationSource({ responseMessageId: lastGroundedAnswer.responseMessageId, responseText: groundedResultText });
+    runtime.setWorkComposerDraft("");
+    setNotice("已绑定这条回复作为续改来源；请写明要修改的标题、序号或整条回复。");
     setError("");
     window.requestAnimationFrame(() => {
       const target = document.querySelector<HTMLTextAreaElement>(mapEntry ? "#tianyi-map-work-draft" : relationEntry ? "#tianyi-relation-work-draft" : ".tianyi-workspace-composer textarea");
@@ -1146,6 +1176,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             </>}
           </>}
         </section>}
+          {continuationSource ? <section className="tianyi-continuation-target" aria-label="续改目标">
+            <div><strong>正在继续修改一条已保存回复</strong><span>{continuationSource.selectedTargetIndex === undefined ? "请在要求中写明标题、序号或整条回复" : continuationSource.selectedTargetIndex === null ? "目标：整条回复" : `目标：第 ${continuationSource.selectedTargetIndex + 1} 项`}</span></div>
+            <button type="button" onClick={() => persistContinuationSource(null)}>取消续改</button>
+          </section> : null}
+          {continuationChoice ? <section className="tianyi-continuation-choice" aria-label="选择要修改的构想" role="alert">
+            <strong>发送前请选择目标</strong><p>{continuationChoice.reason}</p>
+            <div>{continuationChoice.candidates.map((candidate) => <button type="button" key={`${candidate.ideaIndex}:${candidate.title}`} onClick={() => continuationSource && persistContinuationSource({ ...continuationSource, selectedTargetIndex: candidate.ideaIndex })}>第 {candidate.ideaIndex + 1} 项 · {candidate.title}</button>)}</div>
+          </section> : null}
           {notice ? <p className="tianyi-workspace-message" role="status">{notice}</p> : null}
           {error ? <p className="tianyi-workspace-error" role="alert">{error}</p> : null}
         </div>
