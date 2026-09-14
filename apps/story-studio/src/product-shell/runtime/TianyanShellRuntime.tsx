@@ -114,14 +114,23 @@ export function TianyanShellRuntime() {
         setWorkVersionId(null);
         setWorkVersionState("error");
       });
-      void withConnection(async (token) => Promise.all([
-        getModelServiceStatus(token),
-        getAgentPermissionState(activeProject.id)
-      ])).then((runtime) => {
+      // Shell readiness belongs to the storage connection. Provider and
+      // permission projections are optional page capabilities: a slow or
+      // failed model-status read must not strand map/event navigation in a
+      // permanent loading state after storage has already connected.
+      void storageProvider.connect().then(() => {
         if (!active) return;
-        setModelStatus(runtime[0]);
-        setPermissionState(runtime[1]);
         setConnectionState("ready");
+        void withConnection((token) => getModelServiceStatus(token)).then((status) => {
+          if (active) setModelStatus(status);
+        }).catch(() => {
+          if (active) setModelStatus(null);
+        });
+        void getAgentPermissionState(activeProject.id).then((state) => {
+          if (active) setPermissionState(state);
+        }).catch(() => {
+          if (active) setPermissionState(null);
+        });
       }).catch(() => {
         if (active) setConnectionState("unavailable");
       });
