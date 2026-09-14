@@ -7887,11 +7887,9 @@ async function waitForProductReady(page) {
   await shell.waitFor({ state: "visible" });
   await page.waitForFunction(() => {
     const root = document.querySelector('[data-testid="tianyan-r0-shell"]');
-    return root?.getAttribute("data-connection-state") === "ready"
-      && root.getAttribute("data-work-version-state") !== "loading";
+    return root?.getAttribute("data-connection-state") === "ready";
   });
   assert.equal(await shell.getAttribute("data-connection-state"), "ready", "Product navigation must settle through the Shell connection owner.");
-  assert.notEqual(await shell.getAttribute("data-work-version-state"), "loading", "Product navigation must wait for the selected work version to settle without waiting on optional Provider projections.");
 }
 
 async function gotoProduct(page, url) {

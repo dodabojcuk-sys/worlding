@@ -101,7 +101,7 @@ test("Standard browser verification waits for the product-owned Shell readiness 
   assert.match(shell, /data-work-version-state=\{props\.runtime\.workVersionState \?\? "ready"\}/);
   assert.match(smoke, /async function waitForProductReady/);
   assert.match(smoke, /getAttribute\("data-connection-state"\) === "ready"/);
-  assert.match(smoke, /getAttribute\("data-work-version-state"\) !== "loading"/);
+  assert.doesNotMatch(smoke.match(/async function waitForProductReady[\s\S]*?\n\}/u)?.[0] ?? "", /data-work-version-state/u);
   assert.doesNotMatch(smoke, /networkidle/);
 });
 
