@@ -2517,10 +2517,11 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await relationsWorkspace.getByText("北闸的关系", { exact: true }).waitFor();
   const relationCanvas = page.getByTestId("focused-relations-canvas");
   await relationCanvas.waitFor();
-  assert.equal(await relationCanvas.locator("svg line").count(), 1, "The focused graph must render one formal relation edge, not only object cards and a text list.");
-  await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).waitFor();
-  await relationCanvas.getByRole("button", { name: "2 条关系", exact: true }).click();
-  await relationsWorkspace.getByLabel("所选关系详情").getByText("同一对象间的关系", { exact: true }).waitFor();
+  assert.equal(await relationCanvas.locator("svg.focused-relations-edges > path").count(), 1, "The focused graph must render one grouped formal relation edge, not only object cards and a text list.");
+  const groupedEdge = relationCanvas.locator(".focused-relations-edge-label").filter({ hasText: "通行协作" }).filter({ hasText: "铜钥匙交接支持" });
+  await groupedEdge.waitFor();
+  await groupedEdge.click();
+  await relationsWorkspace.getByLabel("所选关系详情").getByText("同一对对象的多条关系", { exact: true }).waitFor();
   await page.waitForFunction(() => {
     const canvas = document.querySelector('[data-testid="focused-relations-canvas"]')?.getBoundingClientRect();
     const nodes = [...document.querySelectorAll('.focused-relations-node')].map((node) => node.getBoundingClientRect());
@@ -2534,7 +2535,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   await page.waitForFunction(() => new URL(window.location.href).searchParams.has("relationZoom"));
   const selectedTransform = await relationCanvas.locator(".focused-relations-canvas-world").evaluate((world) => (world instanceof HTMLElement ? world.style.transform : ""));
   const selectedRelationRoute = new URL(page.url());
-  await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "依据", exact: true }).first().click();
+  await relationsWorkspace.getByLabel("所选关系详情").getByRole("button", { name: "打开依据", exact: true }).first().click();
   await page.getByTestId("event-line-workbench").waitFor();
   assert.match(page.url(), /eventRevision=/u, "A selected relation source must carry the exact evidence revision.");
   await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
@@ -2562,7 +2563,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "The compact focused relation toolbar must not introduce horizontal page overflow at 1152px.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-north-gate-closed-list-1152x720.png"), fullPage: false });
   const relationRouteBeforeSource = new URL(page.url());
-  await relationsWorkspace.getByRole("button", { name: "依据", exact: true }).first().click();
+  await relationsWorkspace.getByRole("button", { name: "打开依据", exact: true }).first().click();
   await page.getByTestId("event-line-workbench").waitFor();
   assert.match(page.url(), /eventRevision=/u, "A focused relation source navigation must carry the exact evidence revision.");
   await page.getByRole("button", { name: "返回关系查看", exact: true }).click();
