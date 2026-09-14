@@ -2482,9 +2482,20 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
   await openMapMenuAction(page, "编辑布局");
   await page.locator('.map-workbench-menu button[aria-pressed="true"]').waitFor({ state: "attached" });
-  const initialLayoutSave = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/visual-documents/update"), { timeout: 60_000 });
+  const initialLayoutSave = page.waitForResponse((response) => {
+    if (response.request().method() !== "POST" || !response.url().includes("/visual-documents/update")) return false;
+    try {
+      const requestBody = response.request().postDataJSON();
+      return requestBody?.document?.content?.markers?.some((marker) => marker.objectId === mapM2Fixture.northGate.id) === true;
+    } catch {
+      return false;
+    }
+  }, { timeout: 60_000 });
   await canvas.click({ position: { x: 220, y: 190 } });
-  assert.equal((await initialLayoutSave).status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
+  const initialLayoutResponse = await initialLayoutSave;
+  assert.equal(initialLayoutResponse.status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
+  const initialLayoutReceipt = await initialLayoutResponse.json();
+  assert.equal(initialLayoutReceipt.data.document.content.markers.some((marker) => marker.objectId === mapM2Fixture.northGate.id), true, "The write receipt must contain the exact North Gate marker before the UI assertion continues.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
   const northGateMarker = page.locator(`.map-workbench-marker[data-object-id="${mapM2Fixture.northGate.id}"]`);
   await northGateMarker.waitFor({ state: "attached" });
