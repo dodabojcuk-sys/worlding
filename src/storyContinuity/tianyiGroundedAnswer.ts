@@ -61,7 +61,7 @@ export function normalizeTianyiGroundedAnswer(
   ], "Tianyi grounded answer");
 
   const answer: TianyiGroundedAnswer = {
-    summary: text(input.summary, "Grounded answer summary", MAX_SUMMARY_CHARS),
+    summary: authorFacingText(input.summary, "Grounded answer summary", MAX_SUMMARY_CHARS),
     claims: array(input.claims, "Grounded answer claims", MAX_CLAIMS).map(normalizeClaim),
     status: oneOf(input.status, TIANYI_CLAIM_STATUSES, "Grounded answer status"),
     sourceRefs: uniqueSourceRefs(input.sourceRefs, "Grounded answer source references"),
@@ -88,6 +88,19 @@ export function normalizeTianyiGroundedAnswer(
   }
   if (included.length === 0 && answer.status !== "unknown") throw new Error("An answer without included evidence must be unknown.");
   return answer;
+}
+
+/**
+ * A small set of OpenAI-compatible JSON providers serialise paragraph breaks
+ * twice, leaving literal `\\n` tokens in an otherwise plain author-facing
+ * answer. Recover paragraph breaks only when the whole value contains no real
+ * newline and contains at least two escaped breaks; a lone `\\n` may be
+ * intentional prose or code and must remain untouched.
+ */
+function authorFacingText(value: unknown, label: string, maxLength: number): string {
+  const result = text(value, label, maxLength);
+  if (result.includes("\n") || (result.match(/\\n/gu)?.length ?? 0) < 2) return result;
+  return result.replace(/\\r\\n|\\n/gu, "\n");
 }
 
 export function parseAndNormalizeTianyiGroundedAnswer(

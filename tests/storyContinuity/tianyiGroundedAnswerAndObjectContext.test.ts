@@ -112,6 +112,22 @@ test("Grounded answer accepts a confirmed fake-betrayal fact with exact current 
   assert.equal(answer.status, "fact");
 });
 
+test("Grounded answer restores provider-double-escaped paragraph breaks without broadly unescaping prose", () => {
+  const sourceRef = "gray-tower:markdown-object:location.mist-harbor:location:location.mist-harbor";
+  const base = {
+    claims: [{ statement: "三个构想均为建议。", status: "candidate" as const, sourceRefs: [sourceRef], uncertaintyReason: "仍需作者选择。" }],
+    status: "candidate" as const,
+    sourceRefs: [sourceRef],
+    uncertaintyReason: "仍需作者选择。",
+    includedSources: [sourceRef],
+    excludedSources: []
+  };
+  const restored = normalizeTianyiGroundedAnswer({ ...base, summary: "1.《潮汐停灯》\\n正文一。\\n2.《山路来信》\\n正文二。" }, { includedSourceRefs: [sourceRef], excludedSources: [] });
+  assert.equal(restored.summary, "1.《潮汐停灯》\n正文一。\n2.《山路来信》\n正文二。");
+  const intentional = normalizeTianyiGroundedAnswer({ ...base, summary: "保留示例中的字面 \\n 标记。" }, { includedSourceRefs: [sourceRef], excludedSources: [] });
+  assert.equal(intentional.summary, "保留示例中的字面 \\n 标记。");
+});
+
 test("Grounded answer recovers a fenced provider JSON object before applying the same strict source checks", () => {
   const sourceRef = "gray-tower:markdown-object:character.lin-lan:character:character.lin-lan";
   const payload = {
