@@ -2,6 +2,12 @@ export type MapCoordinatePoint = { x: number; y: number };
 export type MapCoordinateBounds = { minX: number; minY: number; maxX: number; maxY: number };
 export type MapSimilarityTransform = { translateX: number; translateY: number; rotation: number; scale: number };
 export type MapCalibrationControlPoints = { sourcePoints: [MapCoordinatePoint, MapCoordinatePoint]; targetPoints: [MapCoordinatePoint, MapCoordinatePoint] };
+export type MapNorthOrientation = { degreesClockwiseFromMapUp: number; source: "author" };
+export type MapRelativeDirectionResult = {
+  status: "north" | "south" | "indeterminate";
+  northwardDistance: number;
+  minimumDistance: number;
+};
 
 const MIN_SEGMENT_LENGTH = 1e-6;
 
@@ -53,9 +59,44 @@ export function transformsApproximatelyEqual(left: MapSimilarityTransform, right
   return Math.abs(left.translateX - right.translateX) <= tolerance && Math.abs(left.translateY - right.translateY) <= tolerance && Math.abs(left.rotation - right.rotation) <= tolerance && Math.abs(left.scale - right.scale) <= tolerance;
 }
 
+/**
+ * Determine target position relative to reference in map coordinates. North is
+ * authored independently from background and viewport presentation transforms.
+ */
+export function inspectMapNorthRelation(input: {
+  targetCanvasPoints: readonly MapCoordinatePoint[];
+  referenceCanvasPoints: readonly MapCoordinatePoint[];
+  bounds: MapCoordinateBounds;
+  north: MapNorthOrientation;
+  minimumDistance?: number;
+}): MapRelativeDirectionResult {
+  if (!input.targetCanvasPoints.length || !input.referenceCanvasPoints.length) throw new Error("方位判断需要两个有效地图对象。");
+  const target = mapCanvasPointToCoordinate(centroid(input.targetCanvasPoints), input.bounds);
+  const reference = mapCanvasPointToCoordinate(centroid(input.referenceCanvasPoints), input.bounds);
+  const radians = normalizeDegrees(input.north.degreesClockwiseFromMapUp) * Math.PI / 180;
+  const northVector = { x: Math.sin(radians), y: -Math.cos(radians) };
+  const northwardDistance = (target.x - reference.x) * northVector.x + (target.y - reference.y) * northVector.y;
+  const diagonal = Math.hypot(input.bounds.maxX - input.bounds.minX, input.bounds.maxY - input.bounds.minY);
+  const minimumDistance = input.minimumDistance ?? diagonal * .01;
+  return {
+    status: northwardDistance > minimumDistance ? "north" : northwardDistance < -minimumDistance ? "south" : "indeterminate",
+    northwardDistance,
+    minimumDistance
+  };
+}
+
+export function mapNorthMinimumDistance(bounds: MapCoordinateBounds): number {
+  return Math.hypot(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * .01;
+}
+
 function rotateAndScale(point: MapCoordinatePoint, radians: number, scale: number): MapCoordinatePoint {
   const cosine = Math.cos(radians); const sine = Math.sin(radians);
   return { x: scale * (cosine * point.x - sine * point.y), y: scale * (sine * point.x + cosine * point.y) };
+}
+
+function centroid(points: readonly MapCoordinatePoint[]): MapCoordinatePoint {
+  const total = points.reduce((sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }), { x: 0, y: 0 });
+  return { x: total.x / points.length, y: total.y / points.length };
 }
 
 function normalizeDegrees(value: number): number {

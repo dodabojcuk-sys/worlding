@@ -6,7 +6,7 @@ import { createMapEditProposalProviderAdapter } from "../../apps/story-studio/se
 const road = { id: "drawing.road", kind: "line", subtype: "road", layerId: "layer.routes", points: [{ x: 10, y: 50 }, { x: 90, y: 50 }], strokeColor: "#765b3d", fillColor: "#765b3d", fillOpacity: .2, width: 2, size: 4, seed: 1, rotation: 0, label: "滨海道", objectId: null };
 const forest = { ...road, id: "drawing.forest", kind: "terrain", subtype: "forest", layerId: "layer.terrain", points: [{ x: 40, y: 45 }, { x: 60, y: 45 }], label: "雾松林" };
 const forestArea = { ...road, id: "drawing.forest-area", kind: "area", subtype: "geography", layerId: "layer.terrain", points: [{ x: 40, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 60 }, { x: 40, y: 60 }], fillOpacity: .3, label: "雾松林明确范围" };
-const map = { id: "map.north-bay", title: "北湾区域图", type: "map", revision: 3, contentHash: "sha256:map-base", relativePath: "documents/maps/north-bay.visual.json", content: { coordinateSystem: { axis: "x-right-y-down", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, unit: null, scaleKnown: false, precision: "illustrative" }, layers: [{ id: "layer.routes", title: "道路", visible: true, locked: false }, { id: "layer.terrain", title: "地形", visible: true, locked: false }], drawings: [road, forest, forestArea] } };
+const map = { id: "map.north-bay", title: "北湾区域图", type: "map", revision: 3, contentHash: "sha256:map-base", relativePath: "documents/maps/north-bay.visual.json", content: { coordinateSystem: { axis: "x-right-y-down", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, unit: null, scaleKnown: false, precision: "illustrative", north: { degreesClockwiseFromMapUp: 0, source: "author" } }, layers: [{ id: "layer.routes", title: "道路", visible: true, locked: false }, { id: "layer.terrain", title: "地形", visible: true, locked: false }], drawings: [road, forest, forestArea] } };
 
 function gateway(argumentsValue: Record<string, unknown>) {
   const calls: any[] = [];
@@ -22,7 +22,7 @@ test("real map Provider adapter keeps references read-only and preserves selecte
   assert.deepEqual(result.operations[0].patch.points.at(-1), road.points.at(-1));
   assert.equal(result.generation.providerDispatches, 1);
   assert.equal(result.generation.modelId, "model.actual");
-  assert.deepEqual(result.constraints, { preserveLineEndpointIds: [road.id], avoidAreaObjectIds: [forestArea.id] });
+  assert.deepEqual(result.constraints, { preserveLineEndpointIds: [road.id], avoidAreaObjectIds: [forestArea.id], relativePosition: null });
   const sent = JSON.parse(fake.calls[0].messages[1].content);
   assert.equal(sent.context.readOnlyReferenceObjects[0].kind, "area");
   assert.deepEqual(sent.context.spatialConstraints.avoidExplicitAreaObjectIds, [forestArea.id]);
@@ -54,8 +54,18 @@ test("real map Provider adapter assigns trusted identities and refuses implicit 
 test("ordinary line editing does not infer endpoint or avoidance constraints from read-only references", async () => {
   const fake = gateway({ summary: "调整河线", operations: [{ action: "update", targetId: road.id, points: [{ x: 20, y: 50 }, { x: 80, y: 50 }], reason: "作者没有指定固定两端" }] });
   const result = await createMapEditProposalProviderAdapter({gateway:fake}).generate({projectId:"project.isolated",workVersionId:"work-version.root.1",sessionId:"session.1",operationId:"operation.free-line",profileId:"profile.text",prompt:"调整整条线",map,scope:{kind:"selection",objectIds:[road.id]},referenceObjectIds:[forestArea.id]});
-  assert.deepEqual(result.constraints,{preserveLineEndpointIds:[],avoidAreaObjectIds:[]});
+  assert.deepEqual(result.constraints,{preserveLineEndpointIds:[],avoidAreaObjectIds:[],relativePosition:null});
   assert.equal(JSON.parse(fake.calls[0].messages[1].content).context.preserveLineEndpoints,false);
+});
+
+test("north-side moves require authored north and one explicit read-only reference", async () => {
+  const fake = gateway({ summary: "移到北侧", operations: [{ action: "update", targetId: road.id, points: [{ x: 10, y: 20 }, { x: 90, y: 20 }], reason: "沿作者设置的北向移动" }] });
+  const result = await createMapEditProposalProviderAdapter({ gateway: fake }).generate({ projectId: "project.isolated", workVersionId: "work-version.root.1", sessionId: "session.1", operationId: "operation.north", profileId: "profile.text", prompt: "把滨海道移动到雾松林明确范围北侧", map, scope: { kind: "selection", objectIds: [road.id] }, referenceObjectIds: [forestArea.id] });
+  assert.equal(result.constraints.relativePosition.targetObjectId, road.id);
+  assert.equal(result.constraints.relativePosition.referenceObjectId, forestArea.id);
+  assert.equal(JSON.parse(fake.calls[0].messages[1].content).context.spatialConstraints.relativePosition.relation, "north-of");
+
+  await assert.rejects(() => createMapEditProposalProviderAdapter({ gateway: gateway({ summary: "不会发送", operations: [] }) }).generate({ projectId: "project.isolated", workVersionId: "work-version.root.1", sessionId: "session.1", operationId: "operation.no-north", profileId: "profile.text", prompt: "把滨海道移动到雾松林北侧", map: { ...map, content: { ...map.content, coordinateSystem: { ...map.content.coordinateSystem, north: null } } }, scope: { kind: "selection", objectIds: [road.id] }, referenceObjectIds: [forestArea.id] }), /尚未设置北向/u);
 });
 
 test("real map Provider adapter forwards cancellation without creating a parsed result", async () => {

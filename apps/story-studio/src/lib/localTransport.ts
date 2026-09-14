@@ -858,7 +858,7 @@ export type MapContent = {
   /** Explicit Relation Owner type IDs. Labels and free text are never inferred. */
   structure: { geographyRelationTypeIds: string[]; administrationRelationTypeIds: string[] };
   lifecycle: { archived: boolean; copiedFromMapId: string | null };
-  coordinateSystem: { axis: "x-right-y-down"; bounds: { minX: number; minY: number; maxX: number; maxY: number }; unit: string | null; scaleKnown: boolean; precision: "illustrative" | "calibrated" };
+  coordinateSystem: { axis: "x-right-y-down"; bounds: { minX: number; minY: number; maxX: number; maxY: number }; unit: string | null; scaleKnown: boolean; precision: "illustrative" | "calibrated"; north: null | { degreesClockwiseFromMapUp: number; source: "author" } };
   placements: MapPlacement[];
   connections: MapConnection[];
   floor: null | { order: number; height: number | null; label: string | null };
@@ -992,8 +992,8 @@ export type MapEditProposal = {
   operations: MapEditOperation[];
   preview: { addedDrawingIds: string[]; modifiedDrawingIds: string[]; deletedDrawingIds: string[]; placementIds: string[]; connectionIds: string[]; changes?: Array<{ kind: "added" | "modified" | "deleted"; drawingId: string; before: MapDrawing | null; after: MapDrawing | null }> };
   referenceObjectIds?: string[];
-  constraints?: { preserveLineEndpointIds: string[]; avoidAreaObjectIds: string[] };
-  spatialChecks?: Array<{ kind: "line-endpoints-preserved" | "avoids-explicit-areas"; status: "passed"; objectIds: string[]; referenceObjectIds: string[] }>;
+  constraints?: { preserveLineEndpointIds: string[]; avoidAreaObjectIds: string[]; relativePosition?: null | { targetObjectId: string; referenceObjectId: string; relation: "north-of"; minimumDistance: number; northDegrees: number } };
+  spatialChecks?: Array<{ kind: "line-endpoints-preserved" | "avoids-explicit-areas" | "north-of-reference"; status: "passed"; objectIds: string[]; referenceObjectIds: string[] }>;
   generation?: { kind: "real-provider" | "local-fake"; providerId: string; modelId: string; providerDispatches: 0 | 1; sessionId: string; workVersionId: string; receiptEnvelopeId: string | null };
   operationExplanations?: Array<{ operationIndex: number; reason: string }>;
   createdAt: string;

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { mapNorthMinimumDistance } from "../../../../src/storyContracts/mapCalibration.ts";
+
 const MAX_CONTEXT_CHARACTERS = 24_000;
 const MAX_OPERATIONS = 8;
 const MAX_POINTS = 24;
@@ -19,6 +21,7 @@ export function createMapEditProposalProviderAdapter({ gateway }) {
         if (!referenceIds.has(id) || drawing.kind !== "area") throw invalid("只有明确选择的只读范围图形才能作为避让约束。", "avoidance-reference-invalid");
         return id;
       });
+      const relativePosition = northMoveConstraint({ prompt: input.prompt, map, scope, selected, references });
       const profile = selectConfiguredProfile(gateway.metadata(), input.profileId);
       const context = {
         contract: "tianyan-map-edit-provider-context/r1",
@@ -38,6 +41,7 @@ export function createMapEditProposalProviderAdapter({ gateway }) {
         readOnlyReferenceObjects: references.map(drawingProjection),
         spatialConstraints: {
           avoidExplicitAreaObjectIds: avoidAreaObjectIds,
+          relativePosition,
           note: avoidAreaObjectIds.length ? "Updated line geometry must not touch or enter these explicit area polygons." : "No deterministic avoidance area was selected."
         },
         allowedOperations: scope.kind === "selection" ? ["update", "delete"] : ["add"],
@@ -72,7 +76,8 @@ export function createMapEditProposalProviderAdapter({ gateway }) {
         referenceObjectIds: references.map((item) => item.id),
         constraints: {
           preserveLineEndpointIds: context.preserveLineEndpoints ? selected.filter((item) => item.kind === "line").map((item) => item.id) : [],
-          avoidAreaObjectIds
+          avoidAreaObjectIds,
+          relativePosition
         },
         generation: {
           kind: "real-provider",
@@ -96,8 +101,23 @@ function systemContract(scopeKind) {
     `This request is ${scopeKind === "selection" ? "limited to updating or deleting the explicitly editable objects" : "limited to adding drawings inside the explicit region and layer"}.`,
     "Read-only reference objects may guide geometry but must never be changed. Only polygons listed in spatialConstraints.avoidExplicitAreaObjectIds are deterministic no-touch avoidance boundaries.",
     "Call propose_map_edit exactly once. Do not answer in prose and do not emit code, URLs, paths, SVG, or JavaScript.",
-    "Use map coordinates exactly as supplied. Prefer the fewest operations needed and give one short author-facing reason per operation."
+    "Use drawing points as map-canvas percentages within the supplied coordinate bounds. When spatialConstraints.relativePosition is present, the resulting target must satisfy that authored map-north constraint. Prefer the fewest operations needed and give one short author-facing reason per operation."
   ].join("\n");
+}
+
+function northMoveConstraint({ prompt, map, scope, selected, references }) {
+  const text = requireText(prompt, "Author request", 2_000);
+  if (!/(?:移到|移动到|放到|置于|调整到)[\s\S]{0,30}(?:北侧|北边|北面|以北)/u.test(text)) return null;
+  if (scope.kind !== "selection" || selected.length !== 1 || references.length !== 1) throw invalid("方位移动需要恰好一个可编辑对象和一个只读参照对象；请明确选择后再发送。", "relative-position-scope");
+  const north = map.content.coordinateSystem?.north;
+  if (!north) throw invalid("这张地图尚未设置北向；请先在地图属性中设置，再判断或执行南北方位。", "map-north-missing");
+  return {
+    targetObjectId: selected[0].id,
+    referenceObjectId: references[0].id,
+    relation: "north-of",
+    minimumDistance: mapNorthMinimumDistance(map.content.coordinateSystem.bounds),
+    northDegrees: north.degreesClockwiseFromMapUp
+  };
 }
 
 function proposalTool(scopeKind) {

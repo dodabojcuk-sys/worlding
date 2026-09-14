@@ -62,6 +62,11 @@
 .tianyi-map-request .primary-action,
 .tianyi-map-review .primary-action { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); font-weight: 700; }
 .tianyi-map-request .is-stop { color: var(--color-danger); }
+.tianyi-map-direction-check { display: grid; gap: .2rem; margin: 0; padding: .55rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
+.tianyi-map-direction-check span { line-height: 1.45; }
+.tianyi-map-direction-check.is-aligned { color: var(--color-accent); background: var(--color-accent-soft); }
+.tianyi-map-direction-check.is-conflict { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface)); }
+.tianyi-map-direction-check.is-unknown { color: var(--color-text-secondary); background: var(--color-surface-muted); }
 .tianyi-map-progress,
 .tianyi-map-error { display: flex; align-items: center; gap: .4rem; margin: 0; padding: .6rem; border-radius: var(--radius-sm); font-size: var(--font-size-xs); }
 .tianyi-map-progress { color: var(--color-accent); background: var(--color-accent-soft); }

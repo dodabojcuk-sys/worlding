@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { inspectMapNorthRelation } from "../storyContracts/mapCalibration.ts";
 import { readVisualDocument, readVisualDocumentRevision, updateVisualDocument, validateVisualDocumentUpdate } from "./visualDocumentRepository.mjs";
 
 const VERSION = "story-map-edit-proposal/v1";
@@ -206,13 +207,29 @@ function normalizeReferenceObjectIds(value, map, scope) {
 }
 
 function normalizeConstraints(value, map, scope) {
-  if (value == null) return { preserveLineEndpointIds: [], avoidAreaObjectIds: [] };
+  if (value == null) return { preserveLineEndpointIds: [], avoidAreaObjectIds: [], relativePosition: null };
   const source = cloneObject(value);
-  const allowed = ["preserveLineEndpointIds", "avoidAreaObjectIds"];
+  const allowed = ["preserveLineEndpointIds", "avoidAreaObjectIds", "relativePosition"];
   if (Object.keys(source).some((key) => !allowed.includes(key))) throw new Error("Map proposal constraints contain unsupported fields.");
   const preserveLineEndpointIds = normalizeConstraintIds(source.preserveLineEndpointIds, map, scope, (drawing) => drawing.kind === "line", "Endpoint constraint");
   const avoidAreaObjectIds = normalizeConstraintIds(source.avoidAreaObjectIds, map, scope, (drawing) => drawing.kind === "area", "Avoidance constraint");
-  return { preserveLineEndpointIds, avoidAreaObjectIds };
+  const relativePosition = source.relativePosition == null ? null : normalizeRelativePosition(source.relativePosition, map, scope);
+  return { preserveLineEndpointIds, avoidAreaObjectIds, relativePosition };
+}
+
+function normalizeRelativePosition(value, map, scope) {
+  const source = cloneObject(value);
+  if (Object.keys(source).some((key) => !["targetObjectId", "referenceObjectId", "relation", "minimumDistance", "northDegrees"].includes(key))) throw new Error("Map relative-position constraint contains unsupported fields.");
+  const targetObjectId = requireText(source.targetObjectId, "Relative-position target", 120);
+  const referenceObjectId = requireText(source.referenceObjectId, "Relative-position reference", 120);
+  if (source.relation !== "north-of") throw new Error("Map relative-position relation is unsupported.");
+  if (!scope.objectIds.includes(targetObjectId)) throw new Error("Relative-position target is outside the author-selected scope.");
+  if (scope.objectIds.includes(referenceObjectId) || !map.content.drawings.some((item) => item.id === referenceObjectId)) throw new Error("Relative-position reference must be a separate read-only map object.");
+  const savedNorth = map.content.coordinateSystem.north;
+  if (!savedNorth) throw new Error("地图北向尚未设置；不能验证南北方位。");
+  if (!Number.isFinite(source.northDegrees) || Math.abs(source.northDegrees - savedNorth.degreesClockwiseFromMapUp) > 1e-9) throw new Error("地图北向在提案期间已变化；请重新生成提案。");
+  if (!Number.isFinite(source.minimumDistance) || source.minimumDistance <= 0) throw new Error("Map relative-position minimum distance is invalid.");
+  return { targetObjectId, referenceObjectId, relation: "north-of", minimumDistance: source.minimumDistance, northDegrees: source.northDegrees };
 }
 
 function normalizeConstraintIds(value, map, scope, predicate, label) {
@@ -241,6 +258,16 @@ function validateSpatialConstraints(before, after, constraints = {}) {
     if (polygons.some((polygon) => mapPolylineIntersectsPolygon(line.points, polygon.points))) throw new Error("建议道路进入了作者指定的避让范围；未创建或应用提案。");
   }
   if (avoidAreaObjectIds.length) checks.push({ kind: "avoids-explicit-areas", status: "passed", objectIds: changedLineIds, referenceObjectIds: [...avoidAreaObjectIds] });
+  const relativePosition = constraints?.relativePosition ?? null;
+  if (relativePosition) {
+    const target = after.content.drawings.find((item) => item.id === relativePosition.targetObjectId);
+    const reference = before.content.drawings.find((item) => item.id === relativePosition.referenceObjectId);
+    const north = before.content.coordinateSystem.north;
+    if (!target || !reference || !north) throw new Error("地图方位约束的对象或北向已失效。");
+    const result = inspectMapNorthRelation({ targetCanvasPoints: target.points, referenceCanvasPoints: reference.points, bounds: before.content.coordinateSystem.bounds, north, minimumDistance: relativePosition.minimumDistance });
+    if (result.status !== "north") throw new Error(result.status === "south" ? "建议位置仍在参照对象南侧；未创建或应用提案。" : "建议位置与参照对象过近，无法可靠判定为北侧；未创建或应用提案。");
+    checks.push({ kind: "north-of-reference", status: "passed", objectIds: [target.id], referenceObjectIds: [reference.id] });
+  }
   return checks;
 }
 

@@ -524,7 +524,11 @@ function normalizeMapCoordinateSystem(value) {
     bounds: { minX, minY, maxX, maxY },
     unit: input.unit == null || input.unit === "" ? null : requireText(input.unit, "Map coordinate unit", 40),
     scaleKnown: input.scaleKnown === true,
-    precision: input.precision === "calibrated" ? "calibrated" : "illustrative"
+    precision: input.precision === "calibrated" ? "calibrated" : "illustrative",
+    north: input.north == null ? null : {
+      degreesClockwiseFromMapUp: boundedNumber(input.north.degreesClockwiseFromMapUp, "Map north orientation", -180, 180),
+      source: "author"
+    }
   };
 }
 
@@ -891,7 +895,7 @@ function validateObjectRefs(root, refs) {
 }
 
 function defaultContent(type) {
-  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], drawings: [], entrances: [], template: "blank", scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] }, lifecycle: { archived: false, copiedFromMapId: null }, coordinateSystem: { axis: "x-right-y-down", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, unit: null, scaleKnown: false, precision: "illustrative" }, placements: [], connections: [], floor: null };
+  if (type === "map") return { baseImage: null, backgrounds: [], activeBackgroundId: null, layers: [{ id: "layer.main", title: "主要地点", visible: true, locked: false }], markers: [], regions: [], labels: [], drawings: [], entrances: [], template: "blank", scopeObjectId: null, structure: { geographyRelationTypeIds: [], administrationRelationTypeIds: [] }, lifecycle: { archived: false, copiedFromMapId: null }, coordinateSystem: { axis: "x-right-y-down", bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, unit: null, scaleKnown: false, precision: "illustrative", north: null }, placements: [], connections: [], floor: null };
   if (type === "graph") return { nodes: [], edges: [], proposals: [], filters: { objectTypes: [] } };
   if (type === "canvas") return { nodes: [], edges: [], groups: [] };
   if (type === "timeline") return {

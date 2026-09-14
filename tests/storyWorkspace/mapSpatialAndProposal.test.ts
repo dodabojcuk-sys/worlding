@@ -20,7 +20,7 @@ import {
   rejectMapEditProposal
 } from "../../src/storyWorkspace/mapEditProposalRepository.mjs";
 import { createPortableWorkspacePackage, validatePortableWorkspacePackage } from "../../src/storyWorkspace/portableWorkspacePackage.mjs";
-import { applyMapSimilarityTransform, calibratedPlacementBounds, solveMapSimilarityTransform, type MapCalibrationControlPoints } from "../../src/storyContracts/mapCalibration.ts";
+import { applyMapSimilarityTransform, calibratedPlacementBounds, inspectMapNorthRelation, solveMapSimilarityTransform, type MapCalibrationControlPoints } from "../../src/storyContracts/mapCalibration.ts";
 
 function fixture() {
   const rootPath = mkdtempSync(path.join(os.tmpdir(), "tianyan-map-spatial-"));
@@ -114,6 +114,19 @@ test("two corresponding points calibrate translation, uniform scale and rotation
   assert.throws(() => solveMapSimilarityTransform({ ...calibration, sourcePoints: [{ x: 10, y: 10 }, { x: 10, y: 10 }] }), /子图.*重合/u);
   assert.throws(() => solveMapSimilarityTransform({ ...calibration, targetPoints: [{ x: 60, y: 20 }, { x: 60, y: 20 }] }), /父图.*重合/u);
   assert.throws(() => solveMapSimilarityTransform({ sourcePoints: [{ x: 10, y: 10 }, { x: 10.0000011, y: 10 }], targetPoints: [{ x: 0, y: 0 }, { x: 100, y: 0 }] }), /缩放比例/u);
+});
+
+test("authored map north persists without changing old maps or viewport-dependent direction", () => {
+  const root = fixture();
+  try {
+    let map = createVisualDocument(root, { type: "map", title: "北湾方向图" });
+    assert.equal(map.content.coordinateSystem.north, null, "old and new maps do not silently assume north is up");
+    map = save(root, map, { ...map.content, coordinateSystem: { ...map.content.coordinateSystem, north: { degreesClockwiseFromMapUp: 90, source: "author" } } });
+    const reopened = readVisualDocument(root, map.relativePath);
+    assert.deepEqual(reopened.content.coordinateSystem.north, { degreesClockwiseFromMapUp: 90, source: "author" });
+    const result = inspectMapNorthRelation({ targetCanvasPoints: [{ x: 80, y: 50 }], referenceCanvasPoints: [{ x: 50, y: 50 }], bounds: reopened.content.coordinateSystem.bounds, north: reopened.content.coordinateSystem.north });
+    assert.equal(result.status, "north", "when north points right, a rightward map point is geographically north regardless of viewport presentation");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("calibration persists and reopens through the sole visual document owner without stale or invalid partial writes", () => {
@@ -214,7 +227,13 @@ test("text-model map proposals validate locked layers, apply atomically, reject 
     assert.deepEqual(clearProposal.spatialChecks.map((item: any) => item.kind), ["line-endpoints-preserved", "avoids-explicit-areas"]);
     assert.equal(clearProposal.referenceObjectIds[0], forestArea.id);
 
-    const protectedProposal = createMapEditProposal(root, { relativePath: constrainedMap.relativePath, operationId: "proposal-protected-compensation", baseContentHash: constrainedMap.contentHash, prompt: "先接受再保护作者修改", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 6 } }] });
+    const northMap = save(root, constrainedMap, { ...constrainedMap.content, coordinateSystem: { ...constrainedMap.content.coordinateSystem, north: { degreesClockwiseFromMapUp: 0, source: "author" } } });
+    const relativePosition = { targetObjectId: road.id, referenceObjectId: forestArea.id, relation: "north-of", minimumDistance: 1, northDegrees: 0 };
+    assert.throws(() => createMapEditProposal(root, { relativePath: northMap.relativePath, operationId: "proposal-wrong-side", baseContentHash: northMap.contentHash, prompt: "把道路移到森林北侧", scope: { kind: "selection", objectIds: [road.id] }, capability: { mode: "text" }, constraints: { relativePosition }, operations: [{ type: "update-drawing", targetId: road.id, patch: { points: [{ x: 10, y: 70 }, { x: 90, y: 70 }] } }] }), /南侧/u);
+    const northProposal = createMapEditProposal(root, { relativePath: northMap.relativePath, operationId: "proposal-north-side", baseContentHash: northMap.contentHash, prompt: "把道路移到森林北侧", scope: { kind: "selection", objectIds: [road.id] }, capability: { mode: "text" }, referenceObjectIds: [forestArea.id], constraints: { relativePosition }, operations: [{ type: "update-drawing", targetId: road.id, patch: { points: [{ x: 10, y: 20 }, { x: 90, y: 20 }] } }] });
+    assert.deepEqual(northProposal.spatialChecks.map((item: any) => item.kind), ["north-of-reference"]);
+
+    const protectedProposal = createMapEditProposal(root, { relativePath: northMap.relativePath, operationId: "proposal-protected-compensation", baseContentHash: northMap.contentHash, prompt: "先接受再保护作者修改", scope: { kind: "map" }, capability: { mode: "text" }, operations: [{ type: "update-drawing", targetId: "drawing.road", patch: { width: 6 } }] });
     acceptMapEditProposal(root, { operationId: protectedProposal.operationId });
     map = readVisualDocument(root, rejectableMap.relativePath);
     map = save(root, map, { ...map.content, labels: [...map.content.labels, { id: "label.after-ai", text: "接受后人工修改", layerId: "layer.main", x: 55, y: 55, fontSize: 16, fontWeight: 600, align: "center", rotation: 0, visible: true, treatment: "outline" }] });
