@@ -2339,6 +2339,15 @@ async function assertMapRealAiCollaboration(page, consoleProblems) {
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&mapId=${encodeURIComponent(mapAiFixture.map.id)}&locale=zh-CN`);
   const aiMapCanvas = page.getByLabel("地点示意图画布");
   await aiMapCanvas.waitFor();
+  await openMapProperties(page, "地图方向");
+  await page.getByText("北向未设置", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "上方设为北", exact: true }).click();
+  await page.getByRole("status").getByText(/已明确设置上方为北/u).waitFor();
+  await page.reload();
+  await aiMapCanvas.waitFor();
+  await openMapProperties(page, "地图方向");
+  await page.getByText("北向已设置 · 相对画布上方顺时针 0°", { exact: true }).waitFor();
+  await capture("11-作者北向保存并重开-1440x900.png");
   const aiRoad = aiMapCanvas.locator('[data-drawing-id="drawing.ai-road"]');
   await aiRoad.focus();
   await aiRoad.press("Enter");
