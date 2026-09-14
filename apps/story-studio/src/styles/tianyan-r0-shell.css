@@ -1445,6 +1445,7 @@ input:focus-visible {
 .focused-relations-edges { position: absolute; inset: 0; width: 960px; height: 560px; overflow: visible; }
 .focused-relations-edges > path { fill:none; stroke: color-mix(in srgb,var(--color-accent) 72%,var(--color-text-muted)); stroke-width: 2.1; stroke-linecap: round; opacity:.72; }
 .focused-relations-edges > path.is-selected { stroke:var(--color-accent); stroke-width:3.2; opacity:1; }
+.focused-relations-edges > path.is-context { opacity:.26; }
 .focused-relations-edges marker path { fill: var(--color-accent); }
 .focused-relations-node { position: absolute; display: grid; width: 10.5rem; gap: .22rem; padding: .55rem; background: var(--color-workspace-background); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); transform: translate(-50%, -50%); }
 .focused-relations-node.is-center { border-color: var(--color-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent), var(--shadow-panel); }
