@@ -3677,6 +3677,7 @@ async function assertMapAuthorWorkspaceR2(page, consoleProblems) {
   const watch = async () => { if (mapM4EvidenceDirectory) await page.waitForTimeout(700); };
   await gotoProduct(page, `${baseUrl}/library?libraryView=map&locale=zh-CN`);
   const manager=page.getByRole("region",{name:"地图管理"});
+  await manager.waitFor();
   const readMaps=async()=> (await getFixture(`${apiUrl}/__local/story-studio/visual-workbench?projectId=${encodeURIComponent(fixtureProjectId)}`)).data.documents.filter(d=>d.type==="map");
   const createMap=async(template,title)=>{
     if (!(await manager.isVisible())) await openMapMenuAction(page, "地图管理");
@@ -7880,8 +7881,13 @@ async function closeGlobalTianyiIfOpen(page) {
 async function waitForProductReady(page) {
   const shell = page.getByTestId("tianyan-r0-shell");
   await shell.waitFor({ state: "visible" });
-  await page.waitForFunction(() => document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state") === "ready");
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="tianyan-r0-shell"]');
+    return root?.getAttribute("data-connection-state") === "ready"
+      && root.getAttribute("data-work-version-state") !== "loading";
+  });
   assert.equal(await shell.getAttribute("data-connection-state"), "ready", "Product navigation must settle through the Shell connection owner.");
+  assert.notEqual(await shell.getAttribute("data-work-version-state"), "loading", "Product navigation must wait for the selected work version to settle without waiting on optional Provider projections.");
 }
 
 async function gotoProduct(page, url) {

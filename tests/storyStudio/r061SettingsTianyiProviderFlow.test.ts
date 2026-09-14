@@ -98,8 +98,10 @@ test("Standard browser verification waits for the product-owned Shell readiness 
   const smoke = source("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs");
 
   assert.match(shell, /data-connection-state=\{props\.runtime\.connectionState\}/);
+  assert.match(shell, /data-work-version-state=\{props\.runtime\.workVersionState \?\? "ready"\}/);
   assert.match(smoke, /async function waitForProductReady/);
   assert.match(smoke, /getAttribute\("data-connection-state"\) === "ready"/);
+  assert.match(smoke, /getAttribute\("data-work-version-state"\) !== "loading"/);
   assert.doesNotMatch(smoke, /networkidle/);
 });
 
