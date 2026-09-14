@@ -4276,6 +4276,7 @@ async function assertWorldMaterialsM1(page, consoleProblems) {
   assert.equal(await imageObservation.count(), 1, `Selected-image observation must complete in the application; card=${await imageObservationCard.innerText()}`);
   assert.match(await imageObservation.innerText(), /本地视觉夹具 · 不代表真实模型识别/u, "Image observation remains visibly identified as simulated evidence.");
   assert.match(await imageObservation.innerText(), /A 城 · 位于上方 · B 城/u, "The selected image bytes pass through the normal bounded observation route and return a readable relation.");
+  await imageObservation.scrollIntoViewIfNeeded();
   await capture("09a-m2-image-observation.png");
   await page.getByRole("button", { name: "返回资料", exact: true }).click();
   await page.getByRole("heading", { name: "雾港底图.png", exact: true }).waitFor();
