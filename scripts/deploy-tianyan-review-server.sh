@@ -25,10 +25,10 @@ command -v git >/dev/null || die "git is required"
 command -v curl >/dev/null || die "curl is required"
 command -v openssl >/dev/null || die "openssl is required"
 
-if ss -H -ltn "sport = :${PUBLIC_PORT}" | grep -q .; then
+if ss -H -ltn "sport = :${PUBLIC_PORT}" | grep -q . && [[ ! -f /etc/systemd/system/tianyan-review-proxy.socket ]]; then
   die "public port ${PUBLIC_PORT} is already in use"
 fi
-if ss -H -ltn "sport = :${APP_PORT}" | grep -q .; then
+if ss -H -ltn "sport = :${APP_PORT}" | grep -q . && [[ ! -f /etc/systemd/system/tianyan-review.service ]]; then
   die "application port ${APP_PORT} is already in use"
 fi
 
@@ -85,6 +85,7 @@ EOF
 chown root:"${SERVICE_USER}" "${CONFIG_ROOT}/runtime.env"
 chmod 0640 "${CONFIG_ROOT}/runtime.env"
 
+systemctl stop tianyan-review-proxy.socket tianyan-review-proxy.service tianyan-review.service 2>/dev/null || true
 if [[ -L "${INSTALL_ROOT}/current" ]]; then
   previous_release=$(readlink -f "${INSTALL_ROOT}/current")
   ln -sfn "${previous_release}" "${INSTALL_ROOT}/backups/previous"
@@ -146,16 +147,27 @@ EOF
 systemctl daemon-reload
 systemctl enable --now tianyan-review.service
 for _ in $(seq 1 30); do
-  if curl --fail --silent --output /dev/null "http://127.0.0.1:${APP_PORT}/login"; then
+  if curl --fail --silent --output /dev/null "http://127.0.0.1:${APP_PORT}/__review/login"; then
     break
   fi
   sleep 1
 done
-curl --fail --silent --output /dev/null "http://127.0.0.1:${APP_PORT}/login" || die "application did not become ready"
+curl --fail --silent --output /dev/null "http://127.0.0.1:${APP_PORT}/__review/login" || die "application did not become ready"
 systemctl enable --now tianyan-review-proxy.socket
 
 readonly UNAUTH_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${PUBLIC_PORT}/__local/story-studio/state")
 [[ ${UNAUTH_STATUS} == "401" ]] || die "unauthenticated API check returned ${UNAUTH_STATUS}"
+readonly COOKIE_JAR=$(mktemp)
+trap 'rm -f "${COOKIE_JAR}"' EXIT
+readonly LOGIN_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --cookie-jar "${COOKIE_JAR}" \
+  --data-urlencode "username=reviewer" \
+  --data-urlencode "password@${PASSWORD_FILE}" \
+  "http://127.0.0.1:${PUBLIC_PORT}/__review/login")
+[[ ${LOGIN_STATUS} == "303" ]] || die "review login check returned ${LOGIN_STATUS}"
+readonly SESSION_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --cookie "${COOKIE_JAR}" "http://127.0.0.1:${PUBLIC_PORT}/__review/session")
+[[ ${SESSION_STATUS} == "200" ]] || die "authenticated session check returned ${SESSION_STATUS}"
 
 printf 'deployment complete\n'
 printf 'release_sha=%s\n' "${RELEASE_SHA}"
