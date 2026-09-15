@@ -1621,16 +1621,16 @@ input:focus-visible {
 /* 空状态收敛：简短引导，不占满画布。 */
 .focused-relations-empty { min-height: 11rem; }
 .focused-relations-empty h1 { font-size: var(--font-size-lg); }
-.focused-relations-toolbar > .focused-relations-create-toggle { white-space: nowrap; }
+.focused-relations-toolbar .focused-relations-create-toggle { white-space: nowrap; }
 
 /* 关系页视觉整理：主行动用主题色、空态去线框化、控件补焦点与悬停。 */
 .focused-relations-empty { border: 0; background: transparent; gap: .8rem; padding: 2.2rem 1rem 1rem; }
 .focused-relations-empty h1 { margin: 0; color: var(--color-text); }
 .focused-relations-empty .primary-action { min-height: 2.4rem; padding-inline: 1.1rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 0; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; }
 .focused-relations-empty .primary-action:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
-.focused-relations-toolbar > .focused-relations-create-toggle { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
-.focused-relations-toolbar > .focused-relations-create-toggle:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
-.focused-relations-toolbar > .focused-relations-create-toggle[aria-pressed="true"] { background: var(--color-workspace-background); color: var(--color-text); border-color: var(--color-border); }
+.focused-relations-toolbar .focused-relations-create-toggle { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.focused-relations-toolbar .focused-relations-create-toggle:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
+.focused-relations-toolbar .focused-relations-create-toggle[aria-pressed="true"] { background: var(--color-workspace-background); color: var(--color-text); border-color: var(--color-border); }
 .focused-relations-create .create-field select:hover, .focused-relations-create .create-field input:hover, .focused-relations-create .create-field select:focus-visible, .focused-relations-create .create-field input:focus-visible { border-color: var(--color-accent); }
 .focused-relations-create .create-field select:focus-visible, .focused-relations-create .create-field input:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent); }
 .focused-relations-create .primary-action { min-height: 2.3rem; }
