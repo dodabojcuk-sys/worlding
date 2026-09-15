@@ -1,4 +1,4 @@
-import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, openSync, fsyncSync, closeSync } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync, openSync, fsyncSync, closeSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -170,6 +170,93 @@ export function createLocalFileDevelopmentCredentialBackend(options = {}) {
   });
 }
 
+export function createProductionFileCredentialBackend(options = {}) {
+  // Single-instance Linux production storage: one permission-isolated file at
+  // an operator-chosen absolute path outside the story library.  This backend
+  // does not claim encryption; its protection is strict file permissions plus
+  // living outside the review application data, mirroring how the deployment
+  // already stores the review password.  The credential is never written with
+  // group/world bits, and a stored file whose permissions were loosened is
+  // refused on read instead of being served.
+  const fsImpl = options.fsImpl || {
+    existsSync,
+    mkdirSync,
+    chmodSync,
+    statSync,
+    readFileSync,
+    writeFileSync,
+    renameSync,
+    unlinkSync,
+    openSync,
+    fsyncSync,
+    closeSync
+  };
+  const rawPath = typeof options.filePath === "string" ? options.filePath.trim() : "";
+  if (!rawPath) throw credentialBackendError("credential-file-path-required");
+  const filePath = path.resolve(rawPath);
+  if (!path.isAbsolute(filePath) || filePath === path.parse(filePath).root) throw credentialBackendError("credential-file-path-invalid");
+
+  function assertParentSafe() {
+    const parent = path.dirname(filePath);
+    let stats;
+    try { stats = fsImpl.statSync(parent); } catch {
+      try { fsImpl.mkdirSync(parent, { recursive: true, mode: 0o700 }); } catch { throw credentialBackendError("credential-write-permission"); }
+      try { fsImpl.chmodSync(parent, 0o700); } catch { /* best effort on test filesystems */ }
+      stats = fsImpl.statSync(parent);
+    }
+    if (!stats.isDirectory()) throw credentialBackendError("credential-file-path-invalid");
+    if (stats.mode & 0o022) throw credentialBackendError("credential-file-dir-permissions");
+  }
+
+  function assertStoredFileSafe() {
+    let stats;
+    try { stats = fsImpl.statSync(filePath); } catch (error) {
+      if (error?.code === "ENOENT") throw credentialBackendError("credential-read-failed");
+      throw credentialBackendError("credential-read-failed");
+    }
+    if (!stats.isFile()) throw credentialBackendError("credential-file-path-invalid");
+    if (stats.mode & 0o077) throw credentialBackendError("credential-file-permissions");
+  }
+
+  return Object.freeze({
+    kind: "production-file",
+    filePath,
+    configured() {
+      assertParentSafe();
+      return fsImpl.existsSync(filePath);
+    },
+    read() {
+      assertStoredFileSafe();
+      let source;
+      try { source = fsImpl.readFileSync(filePath, "utf8"); } catch { throw credentialBackendError("credential-read-failed"); }
+      return validateStoredCredential(source, { allowEmpty: true });
+    },
+    write(value) {
+      const credential = validateCredential(value);
+      assertParentSafe();
+      const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+      try {
+        fsImpl.writeFileSync(temporaryPath, `${credential}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        try { fsImpl.chmodSync(temporaryPath, 0o600); } catch { /* best effort on test filesystems */ }
+        const descriptor = fsImpl.openSync(temporaryPath, "r");
+        try { fsImpl.fsyncSync(descriptor); } finally { fsImpl.closeSync(descriptor); }
+        fsImpl.renameSync(temporaryPath, filePath);
+        try { fsImpl.chmodSync(filePath, 0o600); } catch { /* best effort on test filesystems */ }
+      } catch (error) {
+        try { fsImpl.unlinkSync(temporaryPath); } catch { /* leave no secret-bearing temp file when possible */ }
+        if (error?.code === "EACCES" || error?.code === "EPERM") throw credentialBackendError("credential-write-permission");
+        throw credentialBackendError("credential-write-failed");
+      }
+    },
+    clear() {
+      assertParentSafe();
+      try { fsImpl.unlinkSync(filePath); } catch (error) {
+        if (error?.code !== "ENOENT") throw credentialBackendError("credential-clear-failed");
+      }
+    }
+  });
+}
+
 export function createProviderCredentialBackend(options = {}) {
   const environment = options.environment || process.env;
   const nodeEnvironment = environment.NODE_ENV || "development";
@@ -182,6 +269,12 @@ export function createProviderCredentialBackend(options = {}) {
   });
 
   if (explicit === "DISABLED") return createDisabledCredentialBackend();
+  if (explicit === "PRODUCTION_FILE") {
+    return createProductionFileCredentialBackend({
+      fsImpl: options.fsImpl,
+      filePath: environment.TIANYAN_CREDENTIAL_FILE_PATH || options.filePath || ""
+    });
+  }
   if (explicit === "LOCAL_FILE_DEVELOPMENT_ONLY") {
     if (nodeEnvironment === "production") throw credentialBackendError("production-local-file-rejected");
     return fallback();
@@ -238,7 +331,7 @@ function credentialBackendError(code) {
   const error = new Error(credentialMessage(code));
   error.name = "ProviderCredentialBackendError";
   error.code = code;
-  error.statusCode = code === "production-keychain-required" || code === "production-local-file-rejected" ? 503 : 400;
+  error.statusCode = code === "production-keychain-required" || code === "production-local-file-rejected" || code === "credential-file-path-required" || code === "credential-file-path-invalid" || code === "credential-file-permissions" || code === "credential-file-dir-permissions" ? 503 : 400;
   return error;
 }
 
@@ -253,6 +346,10 @@ function credentialMessage(code) {
     "credential-clear-failed": "本机凭据清除失败。",
     "production-local-file-rejected": "生产模式拒绝使用开发级本地凭据文件。",
     "production-keychain-required": "生产模式需要系统钥匙串凭据后端。",
+    "credential-file-path-required": "生产凭据文件路径未配置（TIANYAN_CREDENTIAL_FILE_PATH），凭据后端未启用。",
+    "credential-file-path-invalid": "生产凭据文件路径无效，凭据后端未启用。",
+    "credential-file-permissions": "凭据文件权限过宽，已拒绝读取；请让运维把文件权限收紧为 0600。",
+    "credential-file-dir-permissions": "凭据目录权限过宽，已拒绝写入；请让运维把目录权限收紧为 0700。",
     "credential-backend-unsupported": "凭据后端配置不受支持。",
     "provider-disabled": "当前审阅环境未启用 Provider 凭据。",
     "credential-invalid": "Provider 凭据格式无效。"

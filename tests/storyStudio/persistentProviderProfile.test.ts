@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   createDisabledCredentialBackend,
   createLocalFileDevelopmentCredentialBackend,
   createMacKeychainCredentialBackend,
+  createProductionFileCredentialBackend,
   createProviderCredentialBackend
 } from "../../apps/story-studio/server/providerGateway/providerCredentialBackend.mjs";
 import {
@@ -91,6 +92,59 @@ test("an explicit disabled backend lets production review run without accepting 
   assert.throws(() => controller.replace("fixture-secret-value"), /未启用 Provider 凭据/u);
   assert.throws(() => controller.clear(), /未启用 Provider 凭据/u);
   assert.equal(createDisabledCredentialBackend().configured(), false);
+});
+
+test("production file backend stores, reads, replaces, and clears a 0600 credential across restarts", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "tianyan-provider-production-file-"));
+  const filePath = path.join(parent, "credentials", "provider-credential");
+  const createBackend = () => createProviderCredentialBackend({
+    environment: { NODE_ENV: "production", TIANYAN_CREDENTIAL_BACKEND: "PRODUCTION_FILE", TIANYAN_CREDENTIAL_FILE_PATH: filePath }
+  });
+  const backend = createBackend();
+  assert.equal(backend.kind, "production-file");
+  assert.equal(backend.configured(), false);
+  backend.write("first-production-secret");
+  assert.equal(backend.read(), "first-production-secret");
+  assert.equal(statSync(filePath).mode & 0o777, 0o600);
+  assert.equal(statSync(path.dirname(filePath)).mode & 0o777, 0o700);
+  // A restart re-creates the backend from the environment and reads the same
+  // stored credential; replacement must swap the value without leaving the
+  // first secret behind.
+  assert.equal(createBackend().read(), "first-production-secret");
+  createBackend().write("second-production-secret");
+  assert.equal(createBackend().read(), "second-production-secret");
+  createBackend().clear();
+  assert.equal(createBackend().configured(), false);
+  assert.throws(() => createBackend().read(), /无法读取本机凭据状态/u);
+  rmSync(parent, { recursive: true, force: true });
+});
+
+test("production file backend refuses missing path config, loose file permissions, and loose directory permissions", () => {
+  assert.throws(
+    () => createProviderCredentialBackend({ environment: { NODE_ENV: "production", TIANYAN_CREDENTIAL_BACKEND: "PRODUCTION_FILE" } }),
+    /凭据文件路径未配置/u
+  );
+  const parent = mkdtempSync(path.join(tmpdir(), "tianyan-provider-production-perm-"));
+  const filePath = path.join(parent, "provider-credential");
+  const environment = { NODE_ENV: "production", TIANYAN_CREDENTIAL_BACKEND: "PRODUCTION_FILE", TIANYAN_CREDENTIAL_FILE_PATH: filePath };
+  const backend = createProviderCredentialBackend({ environment });
+  backend.write("permission-fixture-secret");
+  chmodSync(filePath, 0o644);
+  assert.equal(statSync(filePath).mode & 0o777, 0o644);
+  assert.throws(() => backend.read(), /权限过宽，已拒绝读取/u);
+  // An explicit replacement rewrites the file with strict permissions and
+  // restores a readable state; the loosened file is never served.
+  backend.write("permission-fixture-secret-2");
+  assert.equal(statSync(filePath).mode & 0o777, 0o600);
+  assert.equal(backend.read(), "permission-fixture-secret-2");
+  chmodSync(parent, 0o770);
+  assert.throws(() => createProviderCredentialBackend({ environment }).write("another-secret"), /目录权限过宽/u);
+  assert.throws(
+    () => createProviderCredentialBackend({ environment: { ...environment, TIANYAN_CREDENTIAL_BACKEND: "UNKNOWN_BACKEND" } }),
+    /凭据后端配置不受支持/u
+  );
+  chmodSync(parent, 0o700);
+  rmSync(parent, { recursive: true, force: true });
 });
 
 test("Keychain adapter does not pass the credential in argv", () => {
