@@ -167,6 +167,7 @@ export function EventLineWorkbench(props: {
   const [loadedKnowledgeProjection, setLoadedKnowledgeProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const [loadedKnowledgeProjectionKey, setLoadedKnowledgeProjectionKey] = useState("");
   const [loadedKnowledgeProjectionState, setLoadedKnowledgeProjectionState] = useState<"loading" | "ready" | "failed">("loading");
+  const [loadedKnowledgeProjectionScope, setLoadedKnowledgeProjectionScope] = useState("");
   const [perspectiveOwnerProjection, setPerspectiveOwnerProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const eventRevisionKey = props.events.map((event) => `${event.id}:${event.revisionToken}`).join("\u0000");
@@ -174,12 +175,15 @@ export function EventLineWorkbench(props: {
   // not an instruction to silently open the event's newest revision by id.
   const requestedEventRevision = useMemo(() => eventRevisionFromRoute(), []);
   const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
-  // 键变化（如确认新事件）时保留上一份投影继续显示，重建完成前不把主视图闪成 0 个事件。
-  const knowledgeProjectionStale = loadedKnowledgeProjectionKey !== requestedKnowledgeProjectionKey;
-  const knowledgeProjection = loadedKnowledgeProjection;
-  const knowledgeProjectionState = knowledgeProjectionStale
-    ? (loadedKnowledgeProjection ? loadedKnowledgeProjectionState : "loading")
-    : loadedKnowledgeProjectionState;
+  // 同项目、同观察者的键变化（如确认新事件）时保留上一份投影继续显示，
+  // 重建完成前不把主视图闪成 0 个事件；跨项目或观察者切换仍置空，防止泄漏。
+  const requestedKnowledgeProjectionScope = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}`;
+  const knowledgeProjectionUpToDate = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey;
+  const knowledgeProjectionScopeMatches = loadedKnowledgeProjectionScope === requestedKnowledgeProjectionScope;
+  const knowledgeProjection = knowledgeProjectionUpToDate || knowledgeProjectionScopeMatches ? loadedKnowledgeProjection : null;
+  const knowledgeProjectionState = knowledgeProjectionUpToDate
+    ? loadedKnowledgeProjectionState
+    : (knowledgeProjectionScopeMatches && loadedKnowledgeProjection ? loadedKnowledgeProjectionState : "loading");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(() => props.selectedEventId ?? selectedEventIdFromRoute());
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailsById, setDetailsById] = useState<Record<string, EventLineEventDetail>>({});
@@ -291,12 +295,14 @@ export function EventLineWorkbench(props: {
         if (cancelled) return;
         setLoadedKnowledgeProjection(projection);
         setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+        setLoadedKnowledgeProjectionScope(requestedKnowledgeProjectionScope);
         setLoadedKnowledgeProjectionState("ready");
       })
       .catch(() => {
         if (!cancelled) {
           setLoadedKnowledgeProjection(null);
           setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+          setLoadedKnowledgeProjectionScope(requestedKnowledgeProjectionScope);
           setLoadedKnowledgeProjectionState("failed");
         }
       });

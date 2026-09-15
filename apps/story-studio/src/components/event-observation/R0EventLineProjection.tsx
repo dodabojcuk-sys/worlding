@@ -107,7 +107,8 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     if (!state.projectId) return { state: null, confirmedApplied: false };
     const { result, state: next } = await props.runtime.withConnection((token) => runNormalEventCreationAction({ projectId: state.projectId!, token, ...input }));
     await load();
-    // confirm 对已确认候选是幂等空操作（applied 为 null）；界面必须如实区分，不得谎报“已写入”。
+    // A repeated confirm on an already-confirmed candidate is an idempotent
+    // no-op (applied is null); the UI must say so instead of claiming a write.
     const confirmedApplied = input.action !== "confirm" || Boolean((result as { applied?: unknown } | null)?.applied);
     return { state: next, confirmedApplied };
   }, [props.runtime, state.projectId, load]);
