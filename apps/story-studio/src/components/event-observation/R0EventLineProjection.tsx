@@ -103,8 +103,14 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
       return completed;
     });
   }, [props.runtime.withConnection, state.projectId]);
+  const runNormalCreation = useCallback(async (input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<NormalEventCreationState | null> => {
+    if (!state.projectId) return null;
+    const { state: next } = await props.runtime.withConnection((token) => runNormalEventCreationAction({ projectId: state.projectId!, token, ...input }));
+    await load();
+    return next;
+  }, [props.runtime, state.projectId, load]);
   if (!state.projectId) {
-    if (loadState === "loading") return <div className="event-line-loading" aria-live="polite" data-load-phase="feedback" data-navigation-started-at={navigationStartedAt.current.toFixed(1)} data-first-feedback-at={firstFeedbackAt.current.toFixed(1)}>{t("eventLine.loading")}</div>;
+  if (loadState === "loading") return <div className="event-line-loading" aria-live="polite" data-load-phase="feedback" data-navigation-started-at={navigationStartedAt.current.toFixed(1)} data-first-feedback-at={firstFeedbackAt.current.toFixed(1)}>{t("eventLine.loading")}</div>;
     if (loadState === "error" || props.runtime.connectionState === "unavailable") return <section className="event-line-unavailable" role="alert"><strong>{t("eventLine.unavailable")}</strong><p>{t("eventLine.unavailableHint")}</p><button type="button" onClick={() => { props.runtime.retryConnection(); void load().catch(() => undefined); }}>{t("directory.retryConnection")}</button></section>;
     return <section className="event-line-unavailable" data-testid="event-line-no-project"><strong>{t("eventLine.noProject")}</strong><p>{t("eventLine.noProjectHint")}</p></section>;
   }
@@ -115,12 +121,6 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     return created;
   };
   const createUnit = async (title: string) => { await props.runtime.withConnection((token) => createStoryUnit({ projectId: state.projectId!, title, summary: "", token })); await load(); };
-  const runNormalCreation = useCallback(async (input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<NormalEventCreationState | null> => {
-    if (!state.projectId) return null;
-    const { state: next } = await props.runtime.withConnection((token) => runNormalEventCreationAction({ projectId: state.projectId!, token, ...input }));
-    await load();
-    return next;
-  }, [props.runtime, state.projectId, load]);
   const renameUnit = async (unitId: string, nextTitle: string) => { const unit = state.storyUnits.find((item) => item.id === unitId); if (!unit) throw new Error("Story Unit is not available for rename in the current project."); await props.runtime.withConnection((token) => updateStoryUnit({ projectId: state.projectId!, unitId: unit.id, expectedVersion: unit.version, title: nextTitle, token })); await load(); };
   const archiveUnitById = async (unitId: string) => { const unit = state.storyUnits.find((item) => item.id === unitId); if (!unit) throw new Error("Story Unit is not available for archive in the current project."); await props.runtime.withConnection((token) => archiveStoryUnit({ projectId: state.projectId!, unitId: unit.id, expectedVersion: unit.version, token })); await load(); };
   const createCollectionPoint = async (input: { title: string; eventIds: string[] }) => {
