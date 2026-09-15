@@ -468,6 +468,7 @@
 .agent-provider-secret-note,
 .agent-provider-credential-status { display: inline-flex; align-items: center; gap: var(--space-1); }
 .agent-provider-secret-note { color: var(--color-text-muted); line-height: 1.45; }
+.agent-provider-disabled-note { margin: 0; padding: var(--space-2) var(--space-3); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-danger); border-radius: var(--radius-sm); font-size: var(--font-size-sm); line-height: 1.5; }
 .agent-provider-credential-status { color: var(--color-text); }
 .agent-provider-enabled { display: flex !important; align-items: center; gap: var(--space-2); color: var(--color-text) !important; font-size: var(--font-size-sm) !important; }
 .agent-provider-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }

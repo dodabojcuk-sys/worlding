@@ -332,7 +332,7 @@ export type ProviderProfileProjection = {
   history: ProviderOperationHistoryEntry[];
   credential: {
     configured: boolean;
-    backend: "macos-keychain" | "local-file-development-only" | "process-memory" | "unknown" | string;
+    backend: "macos-keychain" | "production-file" | "local-file-development-only" | "process-memory" | "disabled" | "unknown" | string;
   };
   storage: {
     scope: "authoritative" | "development-isolated" | "test-isolated";
