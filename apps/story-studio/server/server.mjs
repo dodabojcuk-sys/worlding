@@ -126,6 +126,7 @@ import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
 import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
+import { createReviewAccess, originIsAllowed, resolvePublicOrigin } from "./publicAccess.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverStartedAt = new Date().toISOString();
@@ -158,6 +159,13 @@ const localSessionSecret = randomBytes(32).toString("base64url");
 const LOCAL_SESSION_COOKIE = "story_studio_local_session";
 const tianyiAgentId = process.env.WORLD_OS_TIANYI_AGENT_ID || "agent.tianyi";
 const port = Number(process.env.PORT || 4192);
+const publicOrigin = resolvePublicOrigin();
+const reviewAccess = createReviewAccess({
+  username: process.env.TIANYAN_REVIEW_USERNAME,
+  passwordFile: process.env.TIANYAN_REVIEW_PASSWORD_FILE,
+  publicOrigin,
+  sessionSecret: randomBytes(32).toString("base64url")
+});
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_PORTABLE_PACKAGE_BODY_BYTES = 700 * 1024 * 1024;
 const MAX_CONTINUITY_JSON_BODY_BYTES = 64 * 1024;
@@ -855,6 +863,10 @@ function sourceCandidateToCandidateReviewResult(document, candidate) {
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+    if (reviewAccess.enabled) {
+      if (await reviewAccess.handle(request, response, url)) return;
+      if (!reviewAccess.isAuthorized(request)) { reviewAccess.reject(request, response); return; }
+    }
     if (url.pathname.startsWith("/__local/story-studio/")) {
       await handleProductRequest(request, response, url);
       return;
@@ -905,7 +917,7 @@ async function handleProductRequest(request, response, url) {
         locationSelection: "managed"
       }
     }, {
-      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio`
+      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio${publicOrigin ? "; Secure" : ""}`
     });
     return;
   }
@@ -4861,9 +4873,7 @@ async function readJsonBody(request, maximumBytes = MAX_JSON_BODY_BYTES) {
 
 function requireSameOrigin(request) {
   const origin = String(request.headers.origin || "");
-  if (!origin) return;
-  const isLoopbackPreview = /^http:\/\/127\.0\.0\.1:\d{2,5}$/u.test(origin);
-  if (origin !== `http://127.0.0.1:${port}` && !isLoopbackPreview) throw productError("请求来源不受支持。", 403);
+  if (!originIsAllowed(origin, { port, publicOrigin })) throw productError("请求来源不受支持。", 403);
 }
 
 function readCookie(request, name) {
