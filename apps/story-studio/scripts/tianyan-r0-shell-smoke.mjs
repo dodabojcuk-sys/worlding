@@ -146,6 +146,7 @@ let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 let expectedMapCompensationConflict = false;
+let expectedRelationFailureConsoleBudget = 0;
 const r062Captures = [];
 
 async function runIsolatedE2eScope(scope) {
@@ -230,6 +231,10 @@ try {
     const problem = `${message.type()}: ${message.text()}`;
     if (expectedProviderFailureConsoleBudget > 0 && /Failed to load resource.*503/u.test(problem)) {
       expectedProviderFailureConsoleBudget -= 1;
+      return;
+    }
+    if (expectedRelationFailureConsoleBudget > 0 && /Failed to load resource.*ERR_CONNECTION_RESET/u.test(problem)) {
+      expectedRelationFailureConsoleBudget -= 1;
       return;
     }
     if (expectedMapCompensationConflict && /Failed to load resource.*400/u.test(problem)) return;
@@ -2491,7 +2496,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
   await openMapMenuAction(page, "编辑布局");
   await page.locator('.map-workbench-menu button[aria-pressed="true"]').waitFor({ state: "attached" });
-  const initialLayoutSave = page.waitForResponse((response) => {
+  const waitForLayoutSave = () => page.waitForResponse((response) => {
     if (response.request().method() !== "POST" || !response.url().includes("/visual-documents/update")) return false;
     try {
       const requestBody = response.request().postDataJSON();
@@ -2500,10 +2505,19 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
       return false;
     }
   }, { timeout: 60_000 });
+  let initialLayoutSave = waitForLayoutSave();
   await canvas.click({ position: { x: 220, y: 190 } });
-  const initialLayoutResponse = await initialLayoutSave;
+  let initialLayoutResponse = await initialLayoutSave;
   assert.equal(initialLayoutResponse.status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
-  const initialLayoutReceipt = await initialLayoutResponse.json();
+  let initialLayoutReceipt = await initialLayoutResponse.json();
+  if (initialLayoutReceipt.data.conflict) {
+    await page.getByRole("status").getByText(/布局未保存：地图已在其他页面更新/u).waitFor();
+    assert.equal(await page.getByRole("status").getByText(/布局已保存/u).count(), 0, "A stale placement response must not be presented as a successful save.");
+    initialLayoutSave = waitForLayoutSave();
+    await canvas.click({ position: { x: 220, y: 190 } });
+    initialLayoutResponse = await initialLayoutSave;
+    initialLayoutReceipt = await initialLayoutResponse.json();
+  }
   assert.equal(initialLayoutReceipt.data.conflict, false, "The target marker write must not be reported as saved when its base map revision is stale.");
   assert.equal(initialLayoutReceipt.data.document.content.markers.some((marker) => marker.objectId === mapM2Fixture.northGate.id), true, "The write receipt must contain the exact North Gate marker before the UI assertion continues.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
@@ -2731,6 +2745,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.equal(await relationCanvas.locator(".focused-relations-node").count(), 10, "Expanding one dense neighbour must add its formal second-degree endpoint.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-dense-expanded-1440x900.png"), fullPage: false });
   await page.setViewportSize({ width: 1152, height: 720 });
+  await relationsWorkspace.getByText("筛选", { exact: true }).click();
   await relationsWorkspace.getByLabel("筛选关系类型").selectOption({ label: "通行协作" });
   await relationCanvas.getByRole("button", { name: "通行协作", exact: true }).first().click();
   const denseDetail = relationsWorkspace.getByLabel("所选关系详情");
@@ -3038,20 +3053,26 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   const evidenceDirectory = relationNetworkEvidenceR2Directory;
   const capture = async (name) => { if (!evidenceDirectory) return; mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); };
   await page.setViewportSize({ width: 1440, height: 900 });
-  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.guLan.id)}&relationScope=all&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
+  await gotoProduct(page, `${baseUrl}/world?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const worldOverview = page.getByTestId("world-overview-workspace");
+  await worldOverview.waitFor();
+  await worldOverview.getByRole("heading", { name: "主要人物", exact: true }).waitFor();
+  await worldOverview.locator(".world-overview-collection").first().locator("li").first().waitFor();
+  await worldOverview.getByRole("button", { name: "查看地图", exact: true }).waitFor();
+  await capture("00-世界首页内容预览-1440x900.png");
+  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
   await gotoProduct(page, route);
   const workspace = page.getByTestId("focused-relations-workspace");
   const canvas = page.getByTestId("focused-relations-canvas");
   await workspace.waitFor(); await canvas.waitFor();
   assert.equal(await canvas.locator(".focused-relations-node").count(), 9, "The global observed network shows seven connected people and two places; the isolated person is not fabricated into an edge.");
-  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 3, "The global graph labels the three groups attached to the current center instead of piling every context label over the network.");
-  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 5, "Five non-focused endpoint groups remain visible as quiet context lines.");
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 6, "The global entry labels a bounded set of relationships without requiring a center selection.");
+  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 2, "Remaining global relationships stay visible as quiet context lines.");
   assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 9 \/ 9 条/u);
   const nodeRects = await canvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }; }));
   assert.equal(nodeRects.every((rect, index) => nodeRects.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top)), true, "Global relationship nodes must not overlap at the author viewport.");
   await capture("01-全局人物关系网络-1440x900.png");
 
-  await workspace.getByRole("button", { name: "直接关系", exact: true }).click();
   await workspace.getByLabel("搜索人物或地点").fill(graph.isolated.title);
   await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(graph.isolated.title, "u") }).click();
   assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 0, "An isolated person remains explicitly relation-free instead of gaining an inferred edge.");
@@ -3059,7 +3080,9 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
 
   await workspace.getByLabel("搜索人物或地点").fill(mapM2Fixture.guLan.title);
   await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(mapM2Fixture.guLan.title, "u") }).click();
+  await workspace.getByText("筛选", { exact: true }).click();
   await workspace.getByLabel("筛选关系类型").selectOption({ label: "港务协作" });
+  await workspace.getByText("筛选：港务协作", { exact: true }).click();
   assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 1 \/ 9 条.*港务协作/u);
   await workspace.getByRole("button", { name: "清除类型筛选", exact: true }).click();
   await workspace.locator(".focused-relations-filter-summary").getByText(/当前显示 4 \/ 9 条/u).waitFor();
@@ -3075,6 +3098,8 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.equal(await divergenceChoice.getAttribute("aria-pressed"), "true", "A same-pair relation is selected independently instead of relying on a merged edge label.");
   assert.ok(new URL(page.url()).searchParams.get("relationItem"), "The exact relation identity is retained in the return route.");
   await detail.getByRole("button", { name: "适配当前关系", exact: true }).click();
+  const relationFilters = workspace.locator(".focused-relations-filters");
+  if (await relationFilters.getAttribute("open") !== null) await relationFilters.locator("summary").click();
   await capture("02-人物聚焦与同对多关系-1440x900.png");
   const evidence = detail.locator(".focused-relations-evidence").first();
   await page.waitForFunction((element) => element?.getAttribute("aria-busy") === "false", await evidence.elementHandle());
@@ -3083,7 +3108,9 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.match(evidenceText, /顾澜主张先封闭旧港航道检修[\s\S]*程野则坚持保留山路货队的渡口时段/u, "The inline reader exposes the actual exact-revision event prose, not only a title or route.");
   await capture("03-关系依据正文-1440x900.png");
 
+  if (await relationFilters.getAttribute("open") === null) await relationFilters.locator("summary").click();
   await workspace.getByLabel("筛选关系类型").selectOption({ label: "航线分歧" });
+  if (await relationFilters.getAttribute("open") !== null) await relationFilters.locator("summary").click();
   await canvas.locator(".focused-relations-edge-label").filter({ hasText: "航线分歧" }).click();
   const singleDetail = workspace.getByLabel("所选关系详情");
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -3103,6 +3130,57 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.equal(await workspace.getByLabel("筛选关系类型").inputValue(), "航线分歧", "Returning from Tianyi restores the relationship filter.");
   assert.equal(await workspace.getByLabel("所选关系详情").isVisible(), true, "Returning from Tianyi restores the selected relationship.");
   await capture("05-返回关系现场-1152x720.png");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, route);
+  await workspace.waitFor();
+  await workspace.getByRole("button", { name: "建立关系", exact: true }).click();
+  const createPanel = page.getByLabel("人工建立关系");
+  await createPanel.waitFor();
+  await createPanel.getByLabel("关系来源人物").selectOption({ label: graph.isolated.title });
+  await createPanel.getByLabel("关系目标人物").selectOption({ label: mapM2Fixture.guLan.title });
+  await createPanel.getByLabel("关系类型").selectOption({ label: "港务协作" });
+  assert.equal(await createPanel.getByLabel("关系来源", { exact: true }).inputValue(), "author-declaration", "A formal Event is optional when the author explicitly declares the setting.");
+  const retryOperationIds = [];
+  const collectRelationCreate = (request) => {
+    if (request.method() !== "POST" || !request.url().endsWith("/relations/create")) return;
+    retryOperationIds.push(request.postDataJSON()?.operationId ?? null);
+  };
+  page.on("request", collectRelationCreate);
+  let dropCreatedResponse = true;
+  expectedRelationFailureConsoleBudget += 1;
+  await page.route("**/__local/story-studio/relations/create", async (route) => {
+    if (!dropCreatedResponse) { await route.continue(); return; }
+    dropCreatedResponse = false;
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
+  await createPanel.getByRole("button", { name: "建立关系候选", exact: true }).click();
+  await createPanel.getByRole("alert").waitFor();
+  await createPanel.getByRole("button", { name: "建立关系候选", exact: true }).click();
+  await createPanel.getByText("候选已建立（尚未成为正式关系）", { exact: true }).waitFor();
+  assert.deepEqual(retryOperationIds.length, 2);
+  assert.equal(retryOperationIds[0], retryOperationIds[1], "A lost response retry must reuse the candidate operation identity.");
+  await page.unroute("**/__local/story-studio/relations/create");
+  page.off("request", collectRelationCreate);
+
+  let failNextRelationRefresh = true;
+  expectedRelationFailureConsoleBudget += 1;
+  await page.route(/\/relations\?.*reviewState=confirmed/u, async (route) => {
+    if (!failNextRelationRefresh) { await route.continue(); return; }
+    failNextRelationRefresh = false;
+    await route.abort("connectionreset");
+  });
+  await createPanel.getByRole("button", { name: "确认建立正式关系", exact: true }).click();
+  const refreshWarning = workspace.getByRole("alert").filter({ hasText: "关系已保存，但列表更新失败" });
+  await refreshWarning.waitFor();
+  assert.equal(await canvas.isVisible(), true, "A failed in-place refresh keeps the prior readable graph visible.");
+  await refreshWarning.getByRole("button", { name: "重试更新", exact: true }).click();
+  await refreshWarning.waitFor({ state: "hidden" });
+  await workspace.getByRole("status").getByText("关系已保存，列表已更新。", { exact: true }).waitFor();
+  await page.unroute(/\/relations\?.*reviewState=confirmed/u);
+  await capture("06-关系写入重试与刷新恢复-1440x900.png");
+  assert.equal(expectedRelationFailureConsoleBudget, 0, "Both deliberately intercepted relation failures must be observed by the browser.");
   assert.deepEqual(consoleProblems, [], "The relation network, inline evidence, Tianyi handoff and return flow must not produce browser errors.");
   if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "人物关系网络与依据阅读R2身份.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, people: graph.people.map((item) => ({ id: item.id, title: item.title })), places: graph.places.map((item) => ({ id: item.id, title: item.title })), isolatedPersonId: graph.isolated.id, relationIds: graph.createdRelations.map((item) => item.relationId), evidence: { eventId: graph.sourceEvent.id, revision: graph.sourceEvent.revisionToken }, viewportChecks: ["1440x900", "1152x720"], providerDispatches: 0 }, null, 2)}\n`, "utf8");
 }
