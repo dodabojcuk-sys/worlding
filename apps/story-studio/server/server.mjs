@@ -779,11 +779,13 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
           tools: providerInput.tools,
           toolChoice: providerInput.toolChoice,
           maxOutputTokens: Math.min(storyIntakeContext ? 4_096 : 512, input.maxOutputTokens, profile.maxOutputTokens),
+          timeoutMs: storyIntakeContext ? profile.timeoutMs : undefined,
           signal: providerInput.signal,
           idempotencyKey: `tianyi-agent.${input.projectId}.${input.workVersionId}.${input.runId}.attempt-${stableHash(input.attemptId).slice(0, 16)}.${providerInput.providerCall}`,
           budgetScope: `tianyi-agent:${input.projectId}:${input.workVersionId}`,
           toolLoopTurn: providerInput.providerCall > 1,
-          retry: providerInput.retry
+          retry: providerInput.retry,
+          nonStreaming: storyIntakeContext ? true : undefined
         });
       },
       onEvent: input.onEvent

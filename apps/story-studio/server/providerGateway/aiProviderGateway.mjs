@@ -128,7 +128,8 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
-        ...(tools.length ? { tools, toolChoice } : {})
+        ...(tools.length ? { tools, toolChoice } : {}),
+        ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
       });
       const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
@@ -151,7 +152,8 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           signal: input?.signal,
           responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
           enableThinking: profile.enableThinking,
-          ...(tools.length ? { tools, toolChoice } : {})
+          ...(tools.length ? { tools, toolChoice } : {}),
+          ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
         });
         enteredTransport = true;
         await notifyProviderLifecycle(onProviderLifecycle, {
@@ -277,7 +279,12 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         purpose: "structured-story",
         providerId,
         modelId,
-        maxOutputTokens: 2_400,
+        // Reasoning-style models spend part of this budget on invisible
+        // reasoning tokens before the structured answer (measured: GLM-5.3
+        // spent 1900 reasoning tokens on one intake call); 2400 truncated
+        // real envelopes, so discovered session models get the same ceiling
+        // the product path already enforces.
+        maxOutputTokens: 4_096,
         temperature: 0.25,
         timeoutMs: 120_000,
         enableThinking: false

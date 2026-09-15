@@ -172,6 +172,44 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       });
     },
     async openChatStream(input) {
+      // Evidence-backed fallback (R2): one measured intake call showed the
+      // reasoning-style model spending ~1900 invisible reasoning tokens and
+      // streaming for over two minutes without finishing, while the same
+      // non-streaming request completed in 37s with a legal tool call.  A
+      // structured tool dispatch may therefore request the non-streaming
+      // transport; it is served here and synthesized into the same frame
+      // shapes the streaming parser produces, so callers see one contract.
+      if (input.nonStreaming === true) {
+        const startedNs = Date.now();
+        const completion = await this.openChatCompletion({
+          modelId: input.modelId,
+          messages: input.messages,
+          maxOutputTokens: input.maxOutputTokens,
+          temperature: input.temperature,
+          timeoutMs: input.timeoutMs,
+          signal: input.signal,
+          responseFormat: input.responseFormat,
+          enableThinking: input.enableThinking,
+          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {})
+        });
+        const frames = [];
+        for (const call of completion.toolCalls ?? []) {
+          frames.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index: 0 }));
+          frames.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index: 0, argumentsDelta: call.argumentsJson }));
+          frames.push(Object.freeze({ type: "tool-call-end", id: call.id, name: call.name, index: 0, argumentsJson: call.argumentsJson || "{}", arguments: call.arguments }));
+        }
+        if (completion.content || completion.finishReason !== "tool_calls") {
+          frames.push(Object.freeze({ type: "chunk", text: completion.content, finishReason: completion.finishReason === "tool_calls" ? null : completion.finishReason, usage: completion.usage }));
+        }
+        frames.push(Object.freeze({ type: "done" }));
+        console.log(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${completion.traceId || "-"} durationMs=${Date.now() - startedNs} outcome=completed finish=${completion.finishReason || "none"} usage=${completion.usage ? `${completion.usage.promptTokens}/${completion.usage.completionTokens}` : "-"}`);
+        return Object.freeze({
+          traceId: completion.traceId,
+          events: (async function* () {
+            for (const frame of frames) yield frame;
+          })()
+        });
+      }
       const apiKey = readCredential(apiKeyProvider);
       if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
       telemetry.callCount += 1;
