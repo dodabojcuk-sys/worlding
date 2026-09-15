@@ -126,7 +126,7 @@ import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
 import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
-import { createReviewAccess, originIsAllowed, resolvePublicOrigin } from "./publicAccess.mjs";
+import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "./publicAccess.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverStartedAt = new Date().toISOString();
@@ -160,6 +160,7 @@ const LOCAL_SESSION_COOKIE = "story_studio_local_session";
 const tianyiAgentId = process.env.WORLD_OS_TIANYI_AGENT_ID || "agent.tianyi";
 const port = Number(process.env.PORT || 4192);
 const publicOrigin = resolvePublicOrigin();
+const publicOriginSecure = publicOriginUsesSecureCookies(publicOrigin);
 const reviewAccess = createReviewAccess({
   username: process.env.TIANYAN_REVIEW_USERNAME,
   passwordFile: process.env.TIANYAN_REVIEW_PASSWORD_FILE,
@@ -917,7 +918,7 @@ async function handleProductRequest(request, response, url) {
         locationSelection: "managed"
       }
     }, {
-      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio${publicOrigin ? "; Secure" : ""}`
+      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio${publicOriginSecure ? "; Secure" : ""}`
     });
     return;
   }

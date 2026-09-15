@@ -5,7 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
-import { createReviewAccess, originIsAllowed, resolvePublicOrigin } from "../../apps/story-studio/server/publicAccess.mjs";
+import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "../../apps/story-studio/server/publicAccess.mjs";
 
 test("public origin is one exact HTTPS origin while local loopback remains compatible", () => {
   assert.equal(resolvePublicOrigin("https://tianyan.omnihex.xyz"), "https://tianyan.omnihex.xyz");
@@ -18,6 +18,9 @@ test("public origin is one exact HTTPS origin while local loopback remains compa
   assert.equal(originIsAllowed("https://tianyan.omnihex.xyz", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
   assert.equal(originIsAllowed("https://evil.example", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), false);
   assert.equal(originIsAllowed("http://127.0.0.1:4191", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
+  assert.equal(publicOriginUsesSecureCookies("https://tianyan.omnihex.xyz"), true);
+  assert.equal(publicOriginUsesSecureCookies("http://198.44.179.34:4193"), false);
+  assert.equal(publicOriginUsesSecureCookies(null), false);
 });
 
 test("temporary HTTP IP review access never emits a Secure cookie", async () => {

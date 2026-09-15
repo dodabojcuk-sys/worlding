@@ -49,7 +49,7 @@ if [[ ! -d "${RELEASE_DIR}/.git" ]]; then
 fi
 [[ $(git -C "${RELEASE_DIR}" rev-parse HEAD) == "${RELEASE_SHA}" ]] || die "checked-out SHA differs"
 
-if [[ ! -f "${RELEASE_DIR}/dist/index.html" ]]; then
+if [[ ! -f "${RELEASE_DIR}/apps/story-studio/dist/index.html" ]]; then
   npm --prefix "${RELEASE_DIR}" ci
   npm --prefix "${RELEASE_DIR}" run build
 fi

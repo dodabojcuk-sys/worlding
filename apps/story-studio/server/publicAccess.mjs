@@ -30,6 +30,10 @@ export function originIsAllowed(origin, { port, publicOrigin }) {
   return value === `http://127.0.0.1:${port}` || /^http:\/\/127\.0\.0\.1:\d{2,5}$/u.test(value);
 }
 
+export function publicOriginUsesSecureCookies(publicOrigin) {
+  return Boolean(publicOrigin && new URL(publicOrigin).protocol === "https:");
+}
+
 export function createReviewAccess({ username, passwordFile, publicOrigin, sessionSecret }) {
   const normalizedUsername = String(username || "").trim();
   const normalizedPasswordFile = String(passwordFile || "").trim();
@@ -37,7 +41,7 @@ export function createReviewAccess({ username, passwordFile, publicOrigin, sessi
   if (!normalizedUsername || !normalizedPasswordFile) throw new Error("Review access requires both TIANYAN_REVIEW_USERNAME and TIANYAN_REVIEW_PASSWORD_FILE.");
   const expectedPassword = readFileSync(normalizedPasswordFile, "utf8").replace(/[\r\n]+$/u, "");
   if (expectedPassword.length < 16) throw new Error("Review access password must contain at least 16 characters.");
-  const cookieSecure = Boolean(publicOrigin && new URL(publicOrigin).protocol === "https:");
+  const cookieSecure = publicOriginUsesSecureCookies(publicOrigin);
 
   return {
     enabled: true,
