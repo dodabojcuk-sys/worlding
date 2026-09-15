@@ -1636,3 +1636,4 @@ input:focus-visible {
 .focused-relations-create .primary-action { min-height: 2.3rem; }
 .focused-relations-create .primary-action:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
 .focused-relations-list li:hover { border-color: var(--color-border-strong); }
+.focused-relations-empty .primary-action { justify-self: center; }
