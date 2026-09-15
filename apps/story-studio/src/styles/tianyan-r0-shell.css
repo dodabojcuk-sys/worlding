@@ -1595,7 +1595,7 @@ input:focus-visible {
 
 /* 人工建立人物关系：右侧抽屉面板，与详情互斥；窄屏占满宽度。 */
 .focused-relations { position: relative; }
-.focused-relations-create { position: absolute; z-index: 6; inset: .2rem .2rem .2rem auto; display: grid; align-content: start; gap: .55rem; width: min(23rem, calc(100% - .4rem)); max-height: calc(100% - .4rem); overflow: auto; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.focused-relations-create { position: absolute; z-index: 6; inset: .2rem .2rem .2rem auto; display: grid; align-content: start; gap: .55rem; width: min(23rem, calc(100% - .4rem)); max-height: calc(100% - .4rem); overflow-y: auto; overflow-x: hidden; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
 .focused-relations-create-header { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
 .focused-relations-create-header div { display: grid; gap: .1rem; }
 .focused-relations-create-header small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
