@@ -1592,3 +1592,33 @@ input:focus-visible {
  .map-author-workspace .map-workbench-toolbar > label { max-width:16rem; }
  .map-author-workspace .map-navigation-crumbs .map-workbench-place-count { display:none; }
 }
+
+/* 人工建立人物关系：右侧抽屉面板，与详情互斥；窄屏占满宽度。 */
+.focused-relations { position: relative; }
+.focused-relations-create { position: absolute; z-index: 6; inset: .2rem .2rem .2rem auto; display: grid; align-content: start; gap: .55rem; width: min(23rem, calc(100% - .4rem)); max-height: calc(100% - .4rem); overflow: auto; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.focused-relations-create-header { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
+.focused-relations-create-header div { display: grid; gap: .1rem; }
+.focused-relations-create-header small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create-header h2 { margin: 0; font-size: var(--font-size-lg); }
+.focused-relations-create-header button { min-height: 1.9rem; padding: .25rem; color: var(--color-text-muted); background: transparent; border: 0; cursor: pointer; }
+.focused-relations-create-intro, .focused-relations-create p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.focused-relations-create .create-group { display: grid; gap: .45rem; padding-top: .35rem; border-top: 1px solid var(--color-border); }
+.focused-relations-create .create-group-title { margin: 0; color: var(--color-text); font-size: var(--font-size-sm); font-weight: 600; }
+.focused-relations-create .create-field { display: grid; gap: .2rem; }
+.focused-relations-create .create-field > span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .create-field select, .focused-relations-create .create-field input { min-height: 2.15rem; padding: .25rem .45rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; }
+.focused-relations-create .create-field-error, .focused-relations-create .focused-relations-create-error { margin: 0; color: var(--color-text); background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: .35rem .5rem; font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-create-missing { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-create-preview { display: grid; gap: .2rem; padding: .55rem .6rem; background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-create .focused-relations-create-preview-main { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 600; }
+.focused-relations-create .focused-relations-create-preview details { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-candidate { display: grid; gap: .35rem; padding: .6rem; background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-create .focused-relations-candidate-title { display: inline-flex; align-items: center; gap: .3rem; margin: 0; color: var(--color-text); font-size: var(--font-size-sm); }
+.focused-relations-create .focused-relations-candidate-line { margin: 0; color: var(--color-text); }
+.focused-relations-create .focused-relations-candidate-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (max-width: 48rem) { .focused-relations-create { inset: .4rem; width: calc(100% - .8rem); } }
+
+/* 空状态收敛：简短引导，不占满画布。 */
+.focused-relations-empty { min-height: 11rem; }
+.focused-relations-empty h1 { font-size: var(--font-size-lg); }
+.focused-relations-toolbar > .focused-relations-create-toggle { white-space: nowrap; }
