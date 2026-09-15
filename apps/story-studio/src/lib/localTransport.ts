@@ -1737,7 +1737,7 @@ export async function adoptLegacyRelationType(input: { projectId: string; relati
   return request(`${basePath}/relations/types/adopt-legacy`, { method: "POST", token, body });
 }
 
-export async function createRelationCandidate(input: { projectId: string; relationId?: string; sourceObjectId: string; targetObjectId: string; relationTypeId: string; relationLabelSnapshot?: string; direction?: RelationDirectionR0; evidenceRefs?: RelationEvidenceRefR0[]; sourceRevision?: string; sourceRef?: string; temporal?: RelationTemporalMetadata | null; operationId: string; now?: string; token: string }): Promise<RelationMutationResultR0> {
+export async function createRelationCandidate(input: { projectId: string; workVersionId?: string; relationId?: string; sourceObjectId: string; targetObjectId: string; relationTypeId: string; relationLabelSnapshot?: string; direction?: RelationDirectionR0; evidenceRefs?: RelationEvidenceRefR0[]; sourceRevision?: string; sourceRef?: string; temporal?: RelationTemporalMetadata | null; operationId: string; now?: string; token: string }): Promise<RelationMutationResultR0> {
   const { token, ...body } = input;
   return request(`${basePath}/relations/create`, { method: "POST", token, body });
 }
@@ -1747,7 +1747,7 @@ export async function updateRelationCandidate(input: { projectId: string; relati
   return request(`${basePath}/relations/update`, { method: "POST", token, body });
 }
 
-export async function confirmRelationCandidate(input: { projectId: string; relationId: string; expectedRelationRevision: number; operationId: string; now?: string; token: string }): Promise<RelationMutationResultR0> {
+export async function confirmRelationCandidate(input: { projectId: string; workVersionId?: string; relationId: string; expectedRelationRevision: number; operationId: string; now?: string; token: string }): Promise<RelationMutationResultR0> {
   const { token, ...body } = input;
   return request(`${basePath}/relations/confirm`, { method: "POST", token, body });
 }
