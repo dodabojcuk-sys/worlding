@@ -103,11 +103,13 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
       return completed;
     });
   }, [props.runtime.withConnection, state.projectId]);
-  const runNormalCreation = useCallback(async (input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<NormalEventCreationState | null> => {
-    if (!state.projectId) return null;
-    const { state: next } = await props.runtime.withConnection((token) => runNormalEventCreationAction({ projectId: state.projectId!, token, ...input }));
+  const runNormalCreation = useCallback(async (input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<{ state: NormalEventCreationState | null; confirmedApplied: boolean }> => {
+    if (!state.projectId) return { state: null, confirmedApplied: false };
+    const { result, state: next } = await props.runtime.withConnection((token) => runNormalEventCreationAction({ projectId: state.projectId!, token, ...input }));
     await load();
-    return next;
+    // confirm 对已确认候选是幂等空操作（applied 为 null）；界面必须如实区分，不得谎报“已写入”。
+    const confirmedApplied = input.action !== "confirm" || Boolean((result as { applied?: unknown } | null)?.applied);
+    return { state: next, confirmedApplied };
   }, [props.runtime, state.projectId, load]);
   if (!state.projectId) {
   if (loadState === "loading") return <div className="event-line-loading" aria-live="polite" data-load-phase="feedback" data-navigation-started-at={navigationStartedAt.current.toFixed(1)} data-first-feedback-at={firstFeedbackAt.current.toFixed(1)}>{t("eventLine.loading")}</div>;

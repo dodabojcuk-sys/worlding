@@ -134,7 +134,7 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
-  onNormalCreationAction?(input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<import("../lib/localTransport").NormalEventCreationState | null>;
+  onNormalCreationAction?(input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<{ state: import("../lib/localTransport").NormalEventCreationState | null; confirmedApplied: boolean }>;
   onTrashDraftEvent?(eventId: string): Promise<void>;
   onCreateUnit?(title: string): Promise<void>;
   onRenameUnit?(unitId: string, nextTitle: string): Promise<void>;
@@ -174,8 +174,12 @@ export function EventLineWorkbench(props: {
   // not an instruction to silently open the event's newest revision by id.
   const requestedEventRevision = useMemo(() => eventRevisionFromRoute(), []);
   const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
-  const knowledgeProjection = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjection : null;
-  const knowledgeProjectionState = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjectionState : "loading";
+  // 键变化（如确认新事件）时保留上一份投影继续显示，重建完成前不把主视图闪成 0 个事件。
+  const knowledgeProjectionStale = loadedKnowledgeProjectionKey !== requestedKnowledgeProjectionKey;
+  const knowledgeProjection = loadedKnowledgeProjection;
+  const knowledgeProjectionState = knowledgeProjectionStale
+    ? (loadedKnowledgeProjection ? loadedKnowledgeProjectionState : "loading")
+    : loadedKnowledgeProjectionState;
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(() => props.selectedEventId ?? selectedEventIdFromRoute());
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailsById, setDetailsById] = useState<Record<string, EventLineEventDetail>>({});
@@ -947,7 +951,7 @@ export function EventLineWorkbench(props: {
           if (!unplacedUnits.length) return null;
           return <section className="event-line-spine-unplaced" aria-label="未编排单元" data-testid="spine-unplaced-units">
             <header><div><p className="eyebrow">未编排单元</p><h2>已建立、还没有正式事件归属的单元</h2><p>这些单元暂不进入下方脊柱；通过“常规创作”把正式事件确认到单元后即可进入。</p></div><span>{unplacedUnits.length} 个</span></header>
-            <ul>{unplacedUnits.map((unit) => <li key={unit.id}><strong>{unit.title}</strong><span>{unit.lifecycle === "active" ? "可直接接收正式事件" : `生命周期：${unit.lifecycle}`}</span></li>)}</ul>
+            <ul>{unplacedUnits.map((unit) => <li key={unit.id}><strong>{unit.title}</strong><span>{unit.lifecycle === "active" ? "可直接接收正式事件" : `草稿单元：同样可在“常规创作”中选择使用（生命周期 ${unit.lifecycle}）`}</span></li>)}</ul>
           </section>;
         })() : null}
         {advancedView && projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine story-spine-map is-${spineZoom}`} data-testid="confirmed-story-spine" aria-label="故事脊柱主控结构" data-spine-zoom={spineZoom}>
@@ -1204,7 +1208,7 @@ function EventCreateInspector(props: { busy: boolean; error: string | null; defa
     <section><small>作者创建</small><h2>新建事件</h2><p>先保存为草稿。它不会修改正式故事、创建关系或调用天意。</p></section>
     <label><span>事件标题 <b aria-hidden="true">*</b></span><input autoFocus value={values.title} onChange={(event) => update("title", event.target.value)} maxLength={80} aria-invalid={Boolean(titleError)} aria-describedby={titleError ? "event-create-title-error" : undefined} disabled={props.busy} /></label>
     <label><span>发生了什么</span><textarea value={values.summary} onChange={(event) => update("summary", event.target.value)} rows={4} maxLength={1200} disabled={props.busy} /></label>
-    <div className="event-create-grid"><label><span>故事单元</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
+    <div className="event-create-grid"><label><span>故事单元（仅显示标签）</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /><small>这里只是显示标签，不代表事件已归属单元；正式归属请在“常规创作”中经作者确认完成。</small></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
     {props.characters.length ? <fieldset><legend>正式人物身份</legend>{props.characters.map((character) => <label key={character.id}><input type="checkbox" checked={values.participantSubjects.some((item) => item.id === character.id)} onChange={() => toggleParticipantSubject(character)} disabled={props.busy} /><span>{character.label}<small>{props.characters.filter((item) => item.label === character.label).length > 1 ? ` · ${character.id}` : ""}</small></span></label>)}</fieldset> : null}
     <label><span>涉及人物补充</span><input value={participantText} onChange={(event) => setParticipantText(event.target.value)} placeholder="仅补充尚未建立正式人物档案的显示名" disabled={props.busy} /></label>
     <label><span>标签</span><input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>

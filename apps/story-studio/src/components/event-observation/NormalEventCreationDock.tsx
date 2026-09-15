@@ -14,7 +14,7 @@ export function NormalEventCreationDock(props: {
   projectId: string | null;
   fallbackUnits: ReadonlyArray<{ id: string; title: string }>;
   onChanged(): void;
-  runAction(input: { action: NormalCreationAction; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<NormalEventCreationState | null>;
+  runAction(input: { action: NormalCreationAction; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<{ state: NormalEventCreationState | null; confirmedApplied: boolean }>;
 }) {
   const [state, setState] = useState<NormalEventCreationState | null>(null);
   const [unitId, setUnitId] = useState<string>("");
@@ -36,9 +36,11 @@ export function NormalEventCreationDock(props: {
     setBusy(true);
     setError("");
     try {
-      const next = await props.runAction({ ...input, storyUnitId: input.storyUnitId ?? (effectiveUnitId || undefined) });
+      const { state: next, confirmedApplied } = await props.runAction({ ...input, storyUnitId: input.storyUnitId ?? (effectiveUnitId || undefined) });
       setState(next);
-      setMessage(successMessage);
+      setMessage(input.action === "confirm" && !confirmedApplied
+        ? "该候选此前已确认过；本次未重复写入正式事件。"
+        : successMessage);
       props.onChanged();
     } catch (reason) {
       setError(reason instanceof Error && reason.message ? reason.message : "常规创作操作没有完成；现有内容未被改写。");

@@ -1433,7 +1433,10 @@ async function handleProductRequest(request, response, url) {
       throw productError("Normal Event Line action is unavailable.", 404);
     });
     recordAuthorInitiatedAction(body.projectId, action === "confirm" ? "confirmed-event" : "event-impact-review", `normal-event-line-${action}`, [String(body.projectId)]);
-    sendJson(response, 200, { data: { result, state: normalEventCreationPort.state(body.projectId, input) } });
+    // create-candidate 之后的投影必须锚定作者刚建立的候选；
+    // 不依赖列表顺序挑选 planning，避免同名/相近候选时锚定到旧候选。
+    const stateInput = action === "create-candidate" && result?.planning?.id ? { ...input, planningEventId: result.planning.id } : input;
+    sendJson(response, 200, { data: { result, state: normalEventCreationPort.state(body.projectId, stateInput) } });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/workspace/folders/create") {
