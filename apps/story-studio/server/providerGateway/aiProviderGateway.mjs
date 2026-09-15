@@ -277,7 +277,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         modelId,
         maxOutputTokens: 2_400,
         temperature: 0.25,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         enableThinking: false
       })];
       return publicProfile(activeProfiles[0]);
