@@ -47,6 +47,24 @@ test("review login emits a Secure cookie for the HTTPS review origin and logout 
   assert.match(String(logoutResponse.headers["set-cookie"]), /Max-Age=0; Secure/u);
 });
 
+test("review logout has an explicit confirmation page and stays inaccessible without a session", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-logout-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: null, sessionSecret: "fixed-session-secret" });
+  const authorized = request("", { cookie: "tianyan_review_access=fixed-session-secret" });
+  authorized.method = "GET";
+  const page = response();
+  assert.equal(await access.handle(authorized, page, new URL("http://127.0.0.1:4193/__review/logout")), true);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /确认退出/u);
+  const anonymous = request("", {});
+  anonymous.method = "GET";
+  const redirect = response();
+  assert.equal(await access.handle(anonymous, redirect, new URL("http://127.0.0.1:4193/__review/logout")), true);
+  assert.equal(redirect.status, 302);
+});
+
 function request(body: string, headers: Record<string, string>) {
   const stream = Readable.from([body]) as Readable & { method: string; headers: Record<string, string> };
   stream.method = body ? "POST" : "POST";
@@ -58,7 +76,8 @@ function response() {
   return {
     status: 0,
     headers: {} as Record<string, unknown>,
+    body: "",
     writeHead(status: number, headers: Record<string, unknown>) { this.status = status; this.headers = headers; },
-    end() {}
+    end(body = "") { this.body = String(body); }
   };
 }

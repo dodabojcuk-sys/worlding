@@ -55,6 +55,11 @@ export function createReviewAccess({ username, passwordFile, publicOrigin, sessi
         } else redirect(response, `${REVIEW_LOGIN_PATH}?failed=1`, 303);
         return true;
       }
+      if (request.method === "GET" && url.pathname === REVIEW_LOGOUT_PATH) {
+        if (!this.isAuthorized(request)) { redirect(response, REVIEW_LOGIN_PATH); return true; }
+        sendLogoutPage(response, normalizedUsername);
+        return true;
+      }
       if (request.method === "POST" && url.pathname === REVIEW_LOGOUT_PATH) {
         response.writeHead(303, {
           location: REVIEW_LOGIN_PATH,
@@ -117,4 +122,14 @@ function sendLoginPage(response, { failed }) {
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录天衍审阅环境</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f3f5fa;color:#17233f;font:16px/1.5 system-ui,sans-serif}.card{width:min(88vw,360px);padding:32px;background:#fff;border:1px solid #dfe5ef;border-radius:16px;box-shadow:0 16px 45px #23304a18}h1{font-size:24px;margin:0 0 8px}p{color:#5c667a}label{display:grid;gap:6px;margin:16px 0}input{font:inherit;padding:11px 12px;border:1px solid #aeb8ca;border-radius:8px}button{width:100%;padding:11px;border:0;border-radius:8px;background:#155eef;color:#fff;font:600 16px system-ui;cursor:pointer}[role=alert]{color:#a61b1b}</style></head><body><main class="card"><h1>天衍审阅环境</h1><p>请使用审阅账号登录。</p>${message}<form method="post" action="${REVIEW_LOGIN_PATH}"><label>用户名<input name="username" autocomplete="username" required autofocus></label><label>密码<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">登录</button></form></main></body></html>`;
   response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff", "x-frame-options": "DENY" });
   response.end(html);
+}
+
+function sendLogoutPage(response, username) {
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>退出天衍审阅环境</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f3f5fa;color:#17233f;font:16px/1.5 system-ui,sans-serif}.card{width:min(88vw,360px);padding:32px;background:#fff;border:1px solid #dfe5ef;border-radius:16px;box-shadow:0 16px 45px #23304a18}h1{font-size:24px;margin:0 0 8px}p{color:#5c667a}button,a{display:block;box-sizing:border-box;width:100%;margin-top:12px;padding:11px;border:0;border-radius:8px;text-align:center;font:600 16px system-ui;text-decoration:none}button{background:#155eef;color:#fff;cursor:pointer}a{background:#edf2fb;color:#17233f}</style></head><body><main class="card"><h1>退出审阅环境</h1><p>当前审阅账号：${escapeHtml(username)}。退出不会删除合成作品。</p><form method="post" action="${REVIEW_LOGOUT_PATH}"><button type="submit">确认退出</button></form><a href="/">返回天衍</a></main></body></html>`;
+  response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff", "x-frame-options": "DENY" });
+  response.end(html);
+}
+
+function escapeHtml(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
