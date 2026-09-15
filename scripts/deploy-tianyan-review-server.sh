@@ -8,8 +8,12 @@ readonly INSTALL_ROOT="/opt/tianyan-review"
 readonly DATA_ROOT="/srv/tianyan-review"
 readonly CONFIG_ROOT="/etc/tianyan-review"
 readonly APP_PORT="4194"
-readonly PUBLIC_PORT="4193"
-readonly PUBLIC_ORIGIN="http://198.44.179.34:${PUBLIC_PORT}"
+readonly PUBLIC_ORIGIN="https://tianyan.worlding.world"
+readonly PROVIDER_CREDENTIAL_DIR="${CONFIG_ROOT}/credentials"
+readonly PROVIDER_CREDENTIAL_FILE="${PROVIDER_CREDENTIAL_DIR}/provider-credential"
+readonly PROVIDER_AUTHORIZATION_RECEIPT_ID="review-deployment.product-path.r1"
+readonly PROVIDER_PRODUCT_GENERATION_BUDGET="40"
+readonly PROVIDER_PRODUCT_TOTAL_BUDGET="60"
 
 die() {
   printf 'deployment error: %s\n' "$*" >&2
@@ -25,9 +29,6 @@ command -v git >/dev/null || die "git is required"
 command -v curl >/dev/null || die "curl is required"
 command -v openssl >/dev/null || die "openssl is required"
 
-if ss -H -ltn "sport = :${PUBLIC_PORT}" | grep -q . && [[ ! -f /etc/systemd/system/tianyan-review-proxy.socket ]]; then
-  die "public port ${PUBLIC_PORT} is already in use"
-fi
 if ss -H -ltn "sport = :${APP_PORT}" | grep -q . && [[ ! -f /etc/systemd/system/tianyan-review.service ]]; then
   die "application port ${APP_PORT} is already in use"
 fi
@@ -39,6 +40,10 @@ fi
 install -d -m 0755 "${INSTALL_ROOT}/releases" "${INSTALL_ROOT}/backups"
 install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0750 "${DATA_ROOT}"
 install -d -o root -g "${SERVICE_USER}" -m 0750 "${CONFIG_ROOT}"
+# Provider credentials live in one permission-isolated file outside the story
+# library.  The service user owns the directory so the product can save,
+# replace, and clear the credential through its own settings flow.
+install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0700 "${PROVIDER_CREDENTIAL_DIR}"
 
 readonly RELEASE_DIR="${INSTALL_ROOT}/releases/${RELEASE_SHA}"
 if [[ ! -d "${RELEASE_DIR}/.git" ]]; then
@@ -75,12 +80,15 @@ PORT=${APP_PORT}
 WORLD_OS_STORY_STUDIO_ROOT=${LIBRARY_ROOT}
 WORLD_OS_STORY_STUDIO_STATE_FILE=${LIBRARY_ROOT}/.story-studio/state.json
 TIANYAN_PUBLIC_ORIGIN=${PUBLIC_ORIGIN}
-TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN=1
 TIANYAN_REVIEW_USERNAME=reviewer
 TIANYAN_REVIEW_PASSWORD_FILE=${PASSWORD_FILE}
-TIANYAN_CREDENTIAL_BACKEND=DISABLED
-PROVIDER_MODE=MOCK_OR_LOCAL_FAKE_ONLY
-REAL_PROVIDER_CREDENTIALS_USED=0
+TIANYAN_CREDENTIAL_BACKEND=PRODUCTION_FILE
+TIANYAN_CREDENTIAL_FILE_PATH=${PROVIDER_CREDENTIAL_FILE}
+TIANYAN_REAL_PROVIDER_PRODUCT_PATH=1
+TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID=${PROVIDER_AUTHORIZATION_RECEIPT_ID}
+TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET=${PROVIDER_PRODUCT_GENERATION_BUDGET}
+TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET=${PROVIDER_PRODUCT_TOTAL_BUDGET}
+TIANYAN_NUWA_N1_PI_ADAPTER=1
 EOF
 chown root:"${SERVICE_USER}" "${CONFIG_ROOT}/runtime.env"
 chmod 0640 "${CONFIG_ROOT}/runtime.env"
@@ -92,9 +100,9 @@ if [[ -L "${INSTALL_ROOT}/current" ]]; then
 fi
 ln -sfn "${RELEASE_DIR}" "${INSTALL_ROOT}/current"
 
-readonly SOCKET_PROXY=$(command -v systemd-socket-proxyd || find /usr/lib/systemd /lib/systemd -maxdepth 1 -type f -name systemd-socket-proxyd -print -quit 2>/dev/null || true)
-[[ -n "${SOCKET_PROXY}" ]] || die "systemd-socket-proxyd is unavailable"
-
+# Public traffic terminates on the local Nginx vhost (TLS for
+# tianyan.worlding.world) and is proxied to the loopback application port, so
+# the old systemd-socket-proxyd units are retired here.
 cat >/etc/systemd/system/tianyan-review.service <<EOF
 [Unit]
 Description=Tianyan synthetic review application
@@ -114,34 +122,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${DATA_ROOT}
+ReadWritePaths=${DATA_ROOT} ${PROVIDER_CREDENTIAL_DIR}
 
 [Install]
 WantedBy=multi-user.target
-EOF
-
-cat >/etc/systemd/system/tianyan-review-proxy.socket <<EOF
-[Unit]
-Description=Tianyan public review socket
-
-[Socket]
-ListenStream=0.0.0.0:${PUBLIC_PORT}
-NoDelay=true
-
-[Install]
-WantedBy=sockets.target
-EOF
-
-cat >/etc/systemd/system/tianyan-review-proxy.service <<EOF
-[Unit]
-Description=Tianyan public review loopback proxy
-Requires=tianyan-review.service
-After=tianyan-review.service
-
-[Service]
-ExecStart=${SOCKET_PROXY} 127.0.0.1:${APP_PORT}
-NoNewPrivileges=true
-PrivateTmp=true
 EOF
 
 systemctl daemon-reload
@@ -153,9 +137,11 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 curl --fail --silent --output /dev/null "http://127.0.0.1:${APP_PORT}/__review/login" || die "application did not become ready"
-systemctl enable --now tianyan-review-proxy.socket
+systemctl disable --now tianyan-review-proxy.socket tianyan-review-proxy.service 2>/dev/null || true
+rm -f /etc/systemd/system/tianyan-review-proxy.socket /etc/systemd/system/tianyan-review-proxy.service
+systemctl daemon-reload
 
-readonly UNAUTH_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${PUBLIC_PORT}/__local/story-studio/state")
+readonly UNAUTH_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${APP_PORT}/__local/story-studio/state")
 [[ ${UNAUTH_STATUS} == "401" ]] || die "unauthenticated API check returned ${UNAUTH_STATUS}"
 readonly LOGIN_HEADERS=$(mktemp)
 trap 'rm -f "${LOGIN_HEADERS}"' EXIT
@@ -163,18 +149,28 @@ readonly LOGIN_STATUS=$(curl --silent --output /dev/null --write-out '%{http_cod
   --dump-header "${LOGIN_HEADERS}" \
   --data-urlencode "username=reviewer" \
   --data-urlencode "password=$(cat "${PASSWORD_FILE}")" \
-  "http://127.0.0.1:${PUBLIC_PORT}/__review/login")
+  "http://127.0.0.1:${APP_PORT}/__review/login")
 [[ ${LOGIN_STATUS} == "303" ]] || die "review login check returned ${LOGIN_STATUS}"
 readonly REVIEW_COOKIE=$(awk 'tolower($1) == "set-cookie:" && $2 ~ /^tianyan_review_access=/ { sub(/;.*/, "", $2); print $2 }' "${LOGIN_HEADERS}")
 [[ -n ${REVIEW_COOKIE} ]] || die "review login did not return an access cookie"
 readonly SESSION_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  --header "Cookie: ${REVIEW_COOKIE}" "http://127.0.0.1:${PUBLIC_PORT}/__review/session")
+  --header "Cookie: ${REVIEW_COOKIE}" "http://127.0.0.1:${APP_PORT}/__review/session")
 [[ ${SESSION_STATUS} == "200" ]] || die "authenticated session check returned ${SESSION_STATUS}"
+
+if [[ ${PUBLIC_ORIGIN} == https://* ]]; then
+  readonly PUBLIC_HOST=$(printf '%s' "${PUBLIC_ORIGIN}" | sed -E 's#https://([^/:]+).*#\1#')
+  readonly PUBLIC_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --resolve "${PUBLIC_HOST}:443:127.0.0.1" "${PUBLIC_ORIGIN}/__local/story-studio/health")
+  [[ ${PUBLIC_STATUS} == "401" ]] || die "public HTTPS health check returned ${PUBLIC_STATUS} (expected 401 without login)"
+fi
 
 printf 'deployment complete\n'
 printf 'release_sha=%s\n' "${RELEASE_SHA}"
 printf 'public_origin=%s\n' "${PUBLIC_ORIGIN}"
 printf 'app_listener=127.0.0.1:%s\n' "${APP_PORT}"
+printf 'credential_backend=PRODUCTION_FILE\n'
+printf 'provider_credential_file=%s\n' "${PROVIDER_CREDENTIAL_FILE}"
+printf 'provider_authorization_receipt=%s\n' "${PROVIDER_AUTHORIZATION_RECEIPT_ID}"
 printf 'review_username=reviewer\n'
 printf 'review_password_file=%s\n' "${PASSWORD_FILE}"
 printf 'synthetic_library=%s\n' "${LIBRARY_ROOT}"
