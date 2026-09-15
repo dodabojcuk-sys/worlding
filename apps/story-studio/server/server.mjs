@@ -3624,6 +3624,10 @@ async function handleModelServiceRequest(request, response, url) {
       });
       sendSseEvent(response, "complete", result);
     } catch (error) {
+      // The client sees the sanitized message; the server keeps a sanitized
+      // operational trace so post-completion failures are diagnosable without
+      // exposing story content or credentials.
+      console.error(`[tianyi-grounded-answer] operation=${body?.operationId || "unknown"} failed: ${sanitizeModelStreamError(error)}`);
       sendSseEvent(response, "error", { error: sanitizeModelStreamError(error), code: typeof error?.code === "string" ? error.code : "invalid-response" });
     } finally {
       response.end();
