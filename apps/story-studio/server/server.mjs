@@ -421,8 +421,26 @@ if (productPathRealProviderAllowed && process.env.TIANYAN_PROVIDER_AUTHORIZATION
     console.warn(`[provider-budget] deployment authorization was not recorded: ${error?.message || error}`);
   }
 }
+// The real prediction gateway reads the currently configured Provider at
+// construction time.  A review deployment boots before any reviewer has saved
+// a credential, so construction is deferred to the first prediction request:
+// an unconfigured Provider surfaces as an honest 503 there instead of killing
+// the whole server at startup.
+let realProviderMultiNodePredictionGateway = null;
 const multiNodePredictionGateway = productPathRealProviderAllowed
-  ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
+  ? {
+      generate(input) {
+        if (!realProviderMultiNodePredictionGateway) {
+          try {
+            realProviderMultiNodePredictionGateway = createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 });
+          } catch (error) {
+            if (error?.name === "ProviderUnavailable") throw productError("真实推演 Provider 尚未配置：请先在设置中保存凭据、选择模型并测试连接。", 503);
+            throw error;
+          }
+        }
+        return realProviderMultiNodePredictionGateway.generate(input);
+      }
+    }
   : null;
 const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
   ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
