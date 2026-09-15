@@ -639,7 +639,14 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
       }
       setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item));
       setMessage("布局已保存；地点事实、关系与角色记忆未被改写。");
-    }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。")).finally(() => setBusy(false));
+    }).catch(async (error: unknown) => {
+      if (error instanceof Error && error.message.startsWith("地图已在其他页面更新")) {
+        try { await refresh(projectId!, workVersionId); } catch { /* Preserve the conflict result even if the follow-up read also fails. */ }
+        setMessage("布局未保存：地图已在其他页面更新，已重新读取，请再次选择位置。");
+        return;
+      }
+      setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。");
+    }).finally(() => setBusy(false));
   };
   const handleCanvasClick = (event: MouseEvent<HTMLElement>) => {
     if (suppressCanvasClick.current) { suppressCanvasClick.current = false; return; }
