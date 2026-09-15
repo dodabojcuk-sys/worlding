@@ -27,6 +27,17 @@ export function createSessionMemoryCredentialBackend() {
   });
 }
 
+export function createDisabledCredentialBackend() {
+  const unavailable = () => { throw credentialBackendError("provider-disabled"); };
+  return Object.freeze({
+    kind: "disabled",
+    configured() { return false; },
+    read() { return ""; },
+    write: unavailable,
+    clear: unavailable
+  });
+}
+
 export function createMacKeychainCredentialBackend(options = {}) {
   const commandPath = options.commandPath || "/usr/bin/security";
   const promptCommandPath = options.promptCommandPath || "/usr/bin/expect";
@@ -170,6 +181,7 @@ export function createProviderCredentialBackend(options = {}) {
     filePath: path.join(appDataRoot, "credentials", `${credentialRef}.credential`)
   });
 
+  if (explicit === "DISABLED") return createDisabledCredentialBackend();
   if (explicit === "LOCAL_FILE_DEVELOPMENT_ONLY") {
     if (nodeEnvironment === "production") throw credentialBackendError("production-local-file-rejected");
     return fallback();
@@ -242,6 +254,7 @@ function credentialMessage(code) {
     "production-local-file-rejected": "生产模式拒绝使用开发级本地凭据文件。",
     "production-keychain-required": "生产模式需要系统钥匙串凭据后端。",
     "credential-backend-unsupported": "凭据后端配置不受支持。",
+    "provider-disabled": "当前审阅环境未启用 Provider 凭据。",
     "credential-invalid": "Provider 凭据格式无效。"
   };
   return messages[code] || "本机凭据操作失败。";

@@ -5,8 +5,10 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  createDisabledCredentialBackend,
   createLocalFileDevelopmentCredentialBackend,
-  createMacKeychainCredentialBackend
+  createMacKeychainCredentialBackend,
+  createProviderCredentialBackend
 } from "../../apps/story-studio/server/providerGateway/providerCredentialBackend.mjs";
 import {
   createPersistentProviderProfileStore,
@@ -76,6 +78,19 @@ test("development credential fallback is separate, atomic, 0600, and never retur
   assert.equal(controller.backendKind(), "local-file-development-only");
   controller.clear();
   assert.equal(controller.configured(), false);
+});
+
+test("an explicit disabled backend lets production review run without accepting Provider credentials", () => {
+  const backend = createProviderCredentialBackend({
+    environment: { NODE_ENV: "production", TIANYAN_CREDENTIAL_BACKEND: "DISABLED" }
+  });
+  const controller = createSessionCredentialController({ backend });
+  assert.equal(controller.configured(), false);
+  assert.equal(controller.backendKind(), "disabled");
+  assert.equal(controller.readForProvider(), "");
+  assert.throws(() => controller.replace("fixture-secret-value"), /未启用 Provider 凭据/u);
+  assert.throws(() => controller.clear(), /未启用 Provider 凭据/u);
+  assert.equal(createDisabledCredentialBackend().configured(), false);
 });
 
 test("Keychain adapter does not pass the credential in argv", () => {
