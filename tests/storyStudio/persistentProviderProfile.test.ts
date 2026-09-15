@@ -115,7 +115,7 @@ test("production file backend stores, reads, replaces, and clears a 0600 credent
   assert.equal(createBackend().read(), "second-production-secret");
   createBackend().clear();
   assert.equal(createBackend().configured(), false);
-  assert.throws(() => createBackend().read(), /无法读取本机凭据状态/u);
+  assert.equal(createBackend().read(), "");
   rmSync(parent, { recursive: true, force: true });
 });
 

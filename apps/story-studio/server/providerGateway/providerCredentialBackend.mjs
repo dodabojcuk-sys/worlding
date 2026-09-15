@@ -208,16 +208,6 @@ export function createProductionFileCredentialBackend(options = {}) {
     if (stats.mode & 0o022) throw credentialBackendError("credential-file-dir-permissions");
   }
 
-  function assertStoredFileSafe() {
-    let stats;
-    try { stats = fsImpl.statSync(filePath); } catch (error) {
-      if (error?.code === "ENOENT") throw credentialBackendError("credential-read-failed");
-      throw credentialBackendError("credential-read-failed");
-    }
-    if (!stats.isFile()) throw credentialBackendError("credential-file-path-invalid");
-    if (stats.mode & 0o077) throw credentialBackendError("credential-file-permissions");
-  }
-
   return Object.freeze({
     kind: "production-file",
     filePath,
@@ -226,7 +216,15 @@ export function createProductionFileCredentialBackend(options = {}) {
       return fsImpl.existsSync(filePath);
     },
     read() {
-      assertStoredFileSafe();
+      let stats;
+      try { stats = fsImpl.statSync(filePath); } catch (error) {
+        // A missing stored file is the not-yet-configured state, matching the
+        // development backend contract; any other stat failure fails closed.
+        if (error?.code === "ENOENT") return "";
+        throw credentialBackendError("credential-read-failed");
+      }
+      if (!stats.isFile()) throw credentialBackendError("credential-file-path-invalid");
+      if (stats.mode & 0o077) throw credentialBackendError("credential-file-permissions");
       let source;
       try { source = fsImpl.readFileSync(filePath, "utf8"); } catch { throw credentialBackendError("credential-read-failed"); }
       return validateStoredCredential(source, { allowEmpty: true });
