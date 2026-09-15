@@ -394,6 +394,33 @@ const providerGateway = createAiProviderGateway({
 });
 if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
 else syncProviderGatewayProfile();
+// A deployment may provide one explicit product-path budget receipt.  The
+// receipt must exist in the durable ledger before any dispatch references it,
+// so record it idempotently at startup when the product path is enabled.
+// Re-authorizing the same receipt with the same limits is a no-op; without a
+// configured receipt the historical production baseline keeps blocking all
+// product dispatches (fail-closed).
+if (productPathRealProviderAllowed && process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID) {
+  const boundedBudget = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, 2_000) : fallback;
+  };
+  try {
+    providerBudgetLedger.authorize({
+      receiptId: process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID,
+      authorizedBy: "deployment-runtime-environment",
+      reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
+      scope: "deployment-product-path",
+      limits: {
+        generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
+        totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
+      },
+      issuedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.warn(`[provider-budget] deployment authorization was not recorded: ${error?.message || error}`);
+  }
+}
 const multiNodePredictionGateway = productPathRealProviderAllowed
   ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
   : null;
