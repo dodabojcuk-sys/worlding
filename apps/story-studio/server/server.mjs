@@ -126,6 +126,7 @@ import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
 import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
+import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "./publicAccess.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverStartedAt = new Date().toISOString();
@@ -158,6 +159,14 @@ const localSessionSecret = randomBytes(32).toString("base64url");
 const LOCAL_SESSION_COOKIE = "story_studio_local_session";
 const tianyiAgentId = process.env.WORLD_OS_TIANYI_AGENT_ID || "agent.tianyi";
 const port = Number(process.env.PORT || 4192);
+const publicOrigin = resolvePublicOrigin();
+const publicOriginSecure = publicOriginUsesSecureCookies(publicOrigin);
+const reviewAccess = createReviewAccess({
+  username: process.env.TIANYAN_REVIEW_USERNAME,
+  passwordFile: process.env.TIANYAN_REVIEW_PASSWORD_FILE,
+  publicOrigin,
+  sessionSecret: randomBytes(32).toString("base64url")
+});
 const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_PORTABLE_PACKAGE_BODY_BYTES = 700 * 1024 * 1024;
 const MAX_CONTINUITY_JSON_BODY_BYTES = 64 * 1024;
@@ -380,13 +389,64 @@ const providerGateway = createAiProviderGateway({
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
     defaultAuthorizationReceiptId: process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID || null,
-    maxOutputTokensCap: 2_048
+    maxOutputTokensCap: 4_096
   } : {})
 });
 if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
 else syncProviderGatewayProfile();
+// A deployment may provide one explicit product-path budget receipt.  The
+// receipt must exist in the durable ledger before any dispatch references it,
+// so record it idempotently at startup when the product path is enabled.
+// Re-authorizing the same receipt with the same limits is a no-op; without a
+// configured receipt the historical production baseline keeps blocking all
+// product dispatches (fail-closed).
+if (productPathRealProviderAllowed && process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID) {
+  const boundedBudget = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, 2_000) : fallback;
+  };
+  try {
+    const receiptId = process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID;
+    // authorize() is reuse-exact: a second call that carries a fresh issuedAt
+    // would conflict with the recorded receipt.  Skip re-recording when the
+    // deployment receipt already exists in the durable ledger.
+    if (!providerBudgetLedger.authorization(receiptId)) {
+      providerBudgetLedger.authorize({
+        receiptId,
+        authorizedBy: "deployment-runtime-environment",
+        reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
+        scope: "deployment-product-path",
+        limits: {
+          generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
+          totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
+        },
+        issuedAt: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.warn(`[provider-budget] deployment authorization was not recorded: ${error?.message || error}`);
+  }
+}
+// The real prediction gateway reads the currently configured Provider at
+// construction time.  A review deployment boots before any reviewer has saved
+// a credential, so construction is deferred to the first prediction request:
+// an unconfigured Provider surfaces as an honest 503 there instead of killing
+// the whole server at startup.
+let realProviderMultiNodePredictionGateway = null;
 const multiNodePredictionGateway = productPathRealProviderAllowed
-  ? createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 })
+  ? {
+      generate(input) {
+        if (!realProviderMultiNodePredictionGateway) {
+          try {
+            realProviderMultiNodePredictionGateway = createRealProviderMultiNodePredictionGateway({ gateway: providerGateway, maxProviderCalls: 4, maxOutputTokens: 256, maxPredictionRuns: 1 });
+          } catch (error) {
+            if (error?.name === "ProviderUnavailable") throw productError("真实推演 Provider 尚未配置：请先在设置中保存凭据、选择模型并测试连接。", 503);
+            throw error;
+          }
+        }
+        return realProviderMultiNodePredictionGateway.generate(input);
+      }
+    }
   : null;
 const storyModelingGateway = process.env.TIANYAN_STORY_MODELING_TEST_PROVIDER === "1"
   ? createStoryModelingTestGateway({ batchDelayMs: Math.min(1_500, Math.max(0, Number(process.env.TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS || 0) || 0)) })
@@ -651,7 +711,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       providerId: profile.providerId,
       profileId: profile.id,
       modelId: profile.modelId,
-      maxOutputTokens: Math.min(storyIntakeContext ? 1_024 : 512, input.maxOutputTokens),
+      maxOutputTokens: Math.min(storyIntakeContext ? 4_096 : 512, input.maxOutputTokens, profile.maxOutputTokens),
       retry: input.retry,
       signal: input.signal,
       tools: storyIntakeTools,
@@ -702,7 +762,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
           messages: providerInput.messages,
           tools: providerInput.tools,
           toolChoice: providerInput.toolChoice,
-          maxOutputTokens: Math.min(storyIntakeContext ? 1_024 : 512, input.maxOutputTokens),
+          maxOutputTokens: Math.min(storyIntakeContext ? 4_096 : 512, input.maxOutputTokens, profile.maxOutputTokens),
           signal: providerInput.signal,
           idempotencyKey: `tianyi-agent.${input.projectId}.${input.workVersionId}.${input.runId}.attempt-${stableHash(input.attemptId).slice(0, 16)}.${providerInput.providerCall}`,
           budgetScope: `tianyi-agent:${input.projectId}:${input.workVersionId}`,
@@ -855,6 +915,10 @@ function sourceCandidateToCandidateReviewResult(document, candidate) {
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
+    if (reviewAccess.enabled) {
+      if (await reviewAccess.handle(request, response, url)) return;
+      if (!reviewAccess.isAuthorized(request)) { reviewAccess.reject(request, response); return; }
+    }
     if (url.pathname.startsWith("/__local/story-studio/")) {
       await handleProductRequest(request, response, url);
       return;
@@ -905,7 +969,7 @@ async function handleProductRequest(request, response, url) {
         locationSelection: "managed"
       }
     }, {
-      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio`
+      "set-cookie": `${LOCAL_SESSION_COOKIE}=${localSessionSecret}; HttpOnly; SameSite=Strict; Path=/__local/story-studio${publicOriginSecure ? "; Secure" : ""}`
     });
     return;
   }
@@ -1433,7 +1497,10 @@ async function handleProductRequest(request, response, url) {
       throw productError("Normal Event Line action is unavailable.", 404);
     });
     recordAuthorInitiatedAction(body.projectId, action === "confirm" ? "confirmed-event" : "event-impact-review", `normal-event-line-${action}`, [String(body.projectId)]);
-    sendJson(response, 200, { data: { result, state: normalEventCreationPort.state(body.projectId, input) } });
+    // create-candidate 之后的投影必须锚定作者刚建立的候选；
+    // 不依赖列表顺序挑选 planning，避免同名/相近候选时锚定到旧候选。
+    const stateInput = action === "create-candidate" && result?.planning?.id ? { ...input, planningEventId: result.planning.id } : input;
+    sendJson(response, 200, { data: { result, state: normalEventCreationPort.state(body.projectId, stateInput) } });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/workspace/folders/create") {
@@ -3557,6 +3624,10 @@ async function handleModelServiceRequest(request, response, url) {
       });
       sendSseEvent(response, "complete", result);
     } catch (error) {
+      // The client sees the sanitized message; the server keeps a sanitized
+      // operational trace so post-completion failures are diagnosable without
+      // exposing story content or credentials.
+      console.error(`[tianyi-grounded-answer] operation=${body?.operationId || "unknown"} failed: ${sanitizeModelStreamError(error)}`);
       sendSseEvent(response, "error", { error: sanitizeModelStreamError(error), code: typeof error?.code === "string" ? error.code : "invalid-response" });
     } finally {
       response.end();
@@ -4858,9 +4929,7 @@ async function readJsonBody(request, maximumBytes = MAX_JSON_BODY_BYTES) {
 
 function requireSameOrigin(request) {
   const origin = String(request.headers.origin || "");
-  if (!origin) return;
-  const isLoopbackPreview = /^http:\/\/127\.0\.0\.1:\d{2,5}$/u.test(origin);
-  if (origin !== `http://127.0.0.1:${port}` && !isLoopbackPreview) throw productError("请求来源不受支持。", 403);
+  if (!originIsAllowed(origin, { port, publicOrigin })) throw productError("请求来源不受支持。", 403);
 }
 
 function readCookie(request, name) {

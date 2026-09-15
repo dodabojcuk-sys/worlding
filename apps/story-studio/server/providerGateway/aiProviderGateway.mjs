@@ -118,7 +118,12 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         });
         throw error;
       }
-      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
+      // A deployment cap may only lower a model profile's own ceiling; the two
+      // are composed by clamping so a bounded review deployment cannot crash a
+      // dispatch just because its cap exceeds the selected profile's limit.
+      // Per-run requests above the effective cap are still rejected, not
+      // silently rewritten.
+      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : Math.min(boundedInteger(maxOutputTokensCap, 1, 8_192), profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
@@ -274,7 +279,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         modelId,
         maxOutputTokens: 2_400,
         temperature: 0.25,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         enableThinking: false
       })];
       return publicProfile(activeProfiles[0]);

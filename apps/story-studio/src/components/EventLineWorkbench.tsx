@@ -47,6 +47,7 @@ import {
 import { PageContextDock, type PageContextDockLens, type PageContextDockState } from "./PageContextDock";
 import { buildEventLocalIndicators, type EventSemanticNode } from "../../../../src/storyContracts/eventSemanticHierarchy";
 import { EventGraphCanvas } from "./event-observation/EventGraphCanvas";
+import { NormalEventCreationDock } from "./event-observation/NormalEventCreationDock";
 import { TemporalCanvas } from "./event-observation/TemporalCanvas";
 import { EventObservationControls } from "./event-observation/EventObservationControls";
 import { ParticipationObservation } from "./event-observation/ParticipationObservation";
@@ -81,7 +82,7 @@ import {
 import { NarrativeArrangementInspector, StoryProgressionWorkspace, type NarrativeArrangementSelection } from "./event-observation/StoryProgressionWorkspace";
 import { buildEventCausalIndex, causalRelationLabel, type EventCausalIndexItem } from "../../../../src/storyContracts/eventCausalIndex.ts";
 
-export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create" | "arrange";
+export type EventLinePageDockLens = "detail" | "relations" | "branches" | "review" | "create" | "arrange" | "normal";
 export type EventDraftInput = {
   title: string;
   summary: string;
@@ -133,6 +134,7 @@ export function EventLineWorkbench(props: {
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void;
   onCreateFromEvent?(event: EventLineEventSummary): void;
   onSaveEvent?(input: EventDraftInput): Promise<EventLineEventSummary>;
+  onNormalCreationAction?(input: { action: "create-story-unit" | "create-candidate" | "begin-impact" | "reject" | "confirm"; storyUnitId?: string; planningEventId?: string; title?: string; body?: string }): Promise<{ state: import("../lib/localTransport").NormalEventCreationState | null; confirmedApplied: boolean }>;
   onTrashDraftEvent?(eventId: string): Promise<void>;
   onCreateUnit?(title: string): Promise<void>;
   onRenameUnit?(unitId: string, nextTitle: string): Promise<void>;
@@ -165,6 +167,7 @@ export function EventLineWorkbench(props: {
   const [loadedKnowledgeProjection, setLoadedKnowledgeProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const [loadedKnowledgeProjectionKey, setLoadedKnowledgeProjectionKey] = useState("");
   const [loadedKnowledgeProjectionState, setLoadedKnowledgeProjectionState] = useState<"loading" | "ready" | "failed">("loading");
+  const [loadedKnowledgeProjectionScope, setLoadedKnowledgeProjectionScope] = useState("");
   const [perspectiveOwnerProjection, setPerspectiveOwnerProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const eventIds = props.events.map((event) => event.id).join("\u0000");
   const eventRevisionKey = props.events.map((event) => `${event.id}:${event.revisionToken}`).join("\u0000");
@@ -172,8 +175,15 @@ export function EventLineWorkbench(props: {
   // not an instruction to silently open the event's newest revision by id.
   const requestedEventRevision = useMemo(() => eventRevisionFromRoute(), []);
   const requestedKnowledgeProjectionKey = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}\u0000${eventRevisionKey}`;
-  const knowledgeProjection = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjection : null;
-  const knowledgeProjectionState = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey ? loadedKnowledgeProjectionState : "loading";
+  // 同项目、同观察者的键变化（如确认新事件）时保留上一份投影继续显示，
+  // 重建完成前不把主视图闪成 0 个事件；跨项目或观察者切换仍置空，防止泄漏。
+  const requestedKnowledgeProjectionScope = `${props.projectId}\u0000${knowledgeObserverId}\u0000${knowledgeObserverIds.join("\u0000")}`;
+  const knowledgeProjectionUpToDate = loadedKnowledgeProjectionKey === requestedKnowledgeProjectionKey;
+  const knowledgeProjectionScopeMatches = loadedKnowledgeProjectionScope === requestedKnowledgeProjectionScope;
+  const knowledgeProjection = knowledgeProjectionUpToDate || knowledgeProjectionScopeMatches ? loadedKnowledgeProjection : null;
+  const knowledgeProjectionState = knowledgeProjectionUpToDate
+    ? loadedKnowledgeProjectionState
+    : (knowledgeProjectionScopeMatches && loadedKnowledgeProjection ? loadedKnowledgeProjectionState : "loading");
   const [localSelectedEventId, setLocalSelectedEventId] = useState<string | null>(() => props.selectedEventId ?? selectedEventIdFromRoute());
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [detailsById, setDetailsById] = useState<Record<string, EventLineEventDetail>>({});
@@ -285,12 +295,14 @@ export function EventLineWorkbench(props: {
         if (cancelled) return;
         setLoadedKnowledgeProjection(projection);
         setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+        setLoadedKnowledgeProjectionScope(requestedKnowledgeProjectionScope);
         setLoadedKnowledgeProjectionState("ready");
       })
       .catch(() => {
         if (!cancelled) {
           setLoadedKnowledgeProjection(null);
           setLoadedKnowledgeProjectionKey(requestedKnowledgeProjectionKey);
+          setLoadedKnowledgeProjectionScope(requestedKnowledgeProjectionScope);
           setLoadedKnowledgeProjectionState("failed");
         }
       });
@@ -871,6 +883,7 @@ export function EventLineWorkbench(props: {
 
   const dockLenses: PageContextDockLens<EventLinePageDockLens>[] = [
     ...(props.onSaveEvent ? [{ id: "create" as const, label: "新建事件", icon: <FileText />, content: <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} characters={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").map((object) => ({ id: object.id, label: object.label }))} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> }] : []),
+    ...(props.onNormalCreationAction ? [{ id: "normal" as const, label: "常规创作", icon: <ShieldCheck />, content: <NormalEventCreationDock projectId={props.projectId} fallbackUnits={(props.storyUnits ?? []).filter((unit) => unit.lifecycle !== "archived").map((unit) => ({ id: unit.id, title: unit.title }))} onChanged={props.onRetry} runAction={(input) => props.onNormalCreationAction!(input)} /> }] : []),
     { id: "detail", label: "详情", icon: <FileText />, content: <EventDetailDock event={selectedEvent} detail={selectedDetail} loading={detailLoading} error={detailError} metadata={selectedEvent ? metadataById[selectedEvent.id] : null} onOpenTianyi={() => props.onOpenTianyi(selectedEventRef ?? undefined, undefined, undefined, undefined, knowledgeViewContext)} onCreateFromEvent={props.onCreateFromEvent} /> },
     { id: "relations", label: "因果", icon: <Link2 />, content: <EventCausalIndexDock event={selectedEvent} events={knowledgeEvents} relations={formalRelations.filter((relation) => knowledgeEvents.some((event) => event.id === relation.sourceObjectId) && knowledgeEvents.some((event) => event.id === relation.targetObjectId))} originEventId={causalOriginId} history={causalHistory} onSelectEvent={openCausalEvent} onBack={returnToPreviousCausalEvent} onReturnToOrigin={returnToCausalOrigin} /> },
     { id: "branches", label: "候选", icon: <GitBranch />, badge: pendingCandidateCount, content: <EventBranchesDock candidates={candidates} rejectedIds={props.rejectedCandidateIds} acceptedIds={props.acceptedCandidateIds} selectedId={selectedCandidateId} onSelect={openCandidate} /> },
@@ -938,6 +951,15 @@ export function EventLineWorkbench(props: {
         {advancedView && projectionMode === "spine" && storylineEvents.length === 0 ? <section className="event-line-empty" data-testid="event-line-empty"><BookOpen /><strong>当前范围没有可见事件</strong><p>切换故事线或观察者；未知事实不会进入当前视图。</p></section> : null}
         {advancedView && projectionMode === "spine" && unitCreateOpen ? <UnitCreateBar busy={false} onCancel={() => setUnitCreateOpen(false)} onCreate={async (title) => { if (!props.onCreateUnit) return; try { await props.onCreateUnit(title); setUnitActionMessage(`已创建单元“${title}”。`); setUnitCreateOpen(false); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "新建单元失败。"); } }} /> : null}
         {advancedView && projectionMode === "spine" && unitActionMessage ? <p className="unit-action-message" role="status">{unitActionMessage}<button type="button" aria-label="关闭单元操作提示" onClick={() => setUnitActionMessage(null)}><X /></button></p> : null}
+        {advancedView && projectionMode === "spine" ? (() => {
+          const representedLabels = new Set(groupedEvents.map((group) => group.label));
+          const unplacedUnits = (props.storyUnits ?? []).filter((unit) => unit.lifecycle !== "archived" && !representedLabels.has(unit.title));
+          if (!unplacedUnits.length) return null;
+          return <section className="event-line-spine-unplaced" aria-label="未编排单元" data-testid="spine-unplaced-units">
+            <header><div><p className="eyebrow">未编排单元</p><h2>已建立、还没有正式事件归属的单元</h2><p>这些单元暂不进入下方脊柱；通过“常规创作”把正式事件确认到单元后即可进入。</p></div><span>{unplacedUnits.length} 个</span></header>
+            <ul>{unplacedUnits.map((unit) => <li key={unit.id}><strong>{unit.title}</strong><span>{unit.lifecycle === "active" ? "可直接接收正式事件" : `草稿单元：同样可在“常规创作”中选择使用（生命周期 ${unit.lifecycle}）`}</span></li>)}</ul>
+          </section>;
+        })() : null}
         {advancedView && projectionMode === "spine" && visibleEvents.length > 0 ? <div className={`event-line-spine story-spine-map is-${spineZoom}`} data-testid="confirmed-story-spine" aria-label="故事脊柱主控结构" data-spine-zoom={spineZoom}>
           {groupedEvents.map((group, unitIndex) => { const unit = storyUnitByTitle.get(group.label) ?? null; return <StorySpineUnit key={group.label} group={group} unit={unit} unitIndex={unitIndex} branchParentTitle={unit?.parentUnitId ? storyUnitTitleById.get(unit.parentUnitId) ?? "来源单元待恢复" : null} mergeTargetTitle={unit?.mergeTargetUnitId ? storyUnitTitleById.get(unit.mergeTargetUnitId) ?? "合流目标待恢复" : null} current={group.label === props.currentUnitLabel} zoom={spineZoom} events={storylineEvents} detailsById={detailsById} metadataById={metadataById} selectedEventId={selectedEventId} goldenLoop={props.goldenLoop} rejectedCandidateIds={props.rejectedCandidateIds} acceptedCandidateIds={props.acceptedCandidateIds} onOpenEvent={openEvent} onOpenGraph={(eventId) => openEventInView(eventId, "graph")} onOpenTimeline={(eventId) => openEventInView(eventId, "timeline")} onOpenUnitGraph={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "graph"); }} onOpenUnitTimeline={() => { const eventId = group.direct[0]?.id ?? group.setPoints[0]?.events[0]?.id; if (eventId) openEventInView(eventId, "timeline"); }} onRename={async (nextTitle) => { if (!props.onRenameUnit || !unit) return; try { await props.onRenameUnit(unit.id, nextTitle); setUnitActionMessage(`单元已重命名为“${nextTitle}”。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "重命名单元失败。"); } }} onArchive={async () => { if (!props.onArchiveUnit || !unit) return; try { await props.onArchiveUnit(unit.id); setUnitActionMessage(`单元“${group.label}”已归档；事件仍由原 owner 保留。`); } catch (error) { setUnitActionMessage(error instanceof Error ? error.message : "归档单元失败。"); } }} />; })}
         </div> : null}
@@ -1192,7 +1214,7 @@ function EventCreateInspector(props: { busy: boolean; error: string | null; defa
     <section><small>作者创建</small><h2>新建事件</h2><p>先保存为草稿。它不会修改正式故事、创建关系或调用天意。</p></section>
     <label><span>事件标题 <b aria-hidden="true">*</b></span><input autoFocus value={values.title} onChange={(event) => update("title", event.target.value)} maxLength={80} aria-invalid={Boolean(titleError)} aria-describedby={titleError ? "event-create-title-error" : undefined} disabled={props.busy} /></label>
     <label><span>发生了什么</span><textarea value={values.summary} onChange={(event) => update("summary", event.target.value)} rows={4} maxLength={1200} disabled={props.busy} /></label>
-    <div className="event-create-grid"><label><span>故事单元</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
+    <div className="event-create-grid"><label><span>故事单元（仅显示标签）</span><input value={values.storyUnit} onChange={(event) => update("storyUnit", event.target.value)} disabled={props.busy} /><small>这里只是显示标签，不代表事件已归属单元；正式归属请在“常规创作”中经作者确认完成。</small></label><label><span>焦点</span><input value={values.focus} onChange={(event) => update("focus", event.target.value)} disabled={props.busy} /></label><label><span>故事时间</span><input value={values.storyTime} onChange={(event) => update("storyTime", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label><label><span>地点</span><input value={values.location} onChange={(event) => update("location", event.target.value)} placeholder="未知也可以留空" disabled={props.busy} /></label></div>
     {props.characters.length ? <fieldset><legend>正式人物身份</legend>{props.characters.map((character) => <label key={character.id}><input type="checkbox" checked={values.participantSubjects.some((item) => item.id === character.id)} onChange={() => toggleParticipantSubject(character)} disabled={props.busy} /><span>{character.label}<small>{props.characters.filter((item) => item.label === character.label).length > 1 ? ` · ${character.id}` : ""}</small></span></label>)}</fieldset> : null}
     <label><span>涉及人物补充</span><input value={participantText} onChange={(event) => setParticipantText(event.target.value)} placeholder="仅补充尚未建立正式人物档案的显示名" disabled={props.busy} /></label>
     <label><span>标签</span><input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="用逗号分隔，可留空" disabled={props.busy} /></label>

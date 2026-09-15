@@ -16,6 +16,7 @@ import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
+import { WorldOverviewWorkspace } from "../../components/world/WorldOverviewWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -79,12 +80,13 @@ export function ShellWorkspaceOutlet(props: {
     return <CharacterWorkspace runtime={props.runtime} objectId={props.characterObjectId} onEdit={props.onEditCharacter} onAddToNuwa={() => props.onAddCharacterToNuwa(props.characterObjectId!)} onClose={props.onCloseCharacterWorkspace} />;
   }
 
+  if (!props.shellLab && props.destination.id === "world") return <WorldOverviewWorkspace runtime={props.runtime} />;
+
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">
     <section className="shell-workspace-stage" data-shell-lab={props.shellLab || undefined}>
       <p className="shell-workspace-eyebrow">{t("workspace.eyebrow")}</p>
       <h1 id="shell-workspace-title">{label}</h1>
       <p className="shell-workspace-summary">{summary}</p>
-      {!props.shellLab && props.destination.id === "world" ? <button type="button" onClick={() => window.location.assign("/library?libraryView=map")}>{t("world.openLocationMap")}</button> : null}
       {props.directoryObjectId && <p className="shell-workspace-status" data-directory-focus={props.directoryObjectId}>{t("directory.focused")}: {props.directoryObjectId}</p>}
       {props.shellLab && <><div className="shell-workspace-rule" aria-hidden="true" />
         <p className="shell-workspace-status"><span aria-hidden="true" />{t("workspace.ready")}</p>
