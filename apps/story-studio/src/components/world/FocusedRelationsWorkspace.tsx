@@ -42,13 +42,18 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const openCreateForm = () => { setSelection(null); setSelectedRelationId(""); setCreateFormOpen(true); };
   const observedAt = params.get("mapObservedAt");
 
+  const lastRelationLoadKey = useRef("");
   useEffect(() => {
     let active = true;
-    setData(null); setError(null); setSourceError(null);
+    const loadKey = `${projectId}:${workVersionId}:${observedAt}`;
+    // 建立关系后的原地刷新保留现有列表与表单反馈；仅作品/版本切换才清空。
+    const isSameScopeRefresh = reloadNonce > 0 && lastRelationLoadKey.current === loadKey;
+    lastRelationLoadKey.current = loadKey;
+    if (!isSameScopeRefresh) { setData(null); setError(null); setSourceError(null); }
     if (!projectId || !workVersionId) return;
     void Promise.all([getWorldLibrary(projectId), listRelations({ projectId, workVersionId, reviewState: "confirmed", includeArchived: true })]).then(([library, read]) => {
       if (active) setData({ objects: library.objects, relations: read.relations });
-    }).catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "正式关系暂时无法读取；没有将失败显示为零条关系。"); });
+    }).catch((cause: unknown) => { if (active && !isSameScopeRefresh) setError(cause instanceof Error ? cause.message : "正式关系暂时无法读取；没有将失败显示为零条关系。"); });
     return () => { active = false; };
   }, [projectId, workVersionId, observedAt, reloadNonce]);
 
