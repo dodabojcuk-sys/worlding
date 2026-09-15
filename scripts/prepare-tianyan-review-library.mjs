@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { createCreationSourceSelectionPort } from "../apps/story-studio/server/creationSourceSelectionPort.mjs";
+import { createNormalEventCreationPort } from "../apps/story-studio/server/normalEventCreationPort.mjs";
 import { createStoryStudioAuthorControl } from "../src/storyControlSurface/storyStudioAuthorControl.ts";
+import { createStoryStudioCanonReadProjection } from "../src/storyControlSurface/storyStudioCanonReadProjection.ts";
 import { createStoryStudioRelationOperations } from "../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
-import { createNormalEventCreationPort } from "../apps/story-studio/server/normalEventCreationPort.mjs";
-import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthority } from "../src/storyWorkspace/workVersionAuthority.ts";
-import { resolveWorkVersionOwnerSnapshotRefs } from "../src/storyWorkspace/workVersionSnapshotResolver.ts";
 
 const targetRoot = path.resolve(process.argv[2] || "");
 if (!process.argv[2]) throw new Error("Usage: node --experimental-strip-types scripts/prepare-tianyan-review-library.mjs <empty-target-root>");
@@ -59,22 +59,16 @@ if (!authorControl.verifyCanonEventRead({ projectId, eventId: confirmedEvent.id 
   throw new Error(`正式事件未通过确认链读取验证：${confirmedEvent.id}`);
 }
 
-const bundle = Object.fromEntries(WORK_VERSION_REQUIRED_OWNER_KINDS.map((ownerKind, index) => [ownerKind, {
-  ownerIdentity: `${ownerKind}.${projectId}`,
-  projectionSchemaVersion: `${ownerKind}/synthetic-review-v1`,
-  revisionToken: `synthetic-review.${index + 1}`,
-  stableReferenceIds: [`${ownerKind}.ref.${projectId}`],
-  provenanceReceiptIds: [`receipt.${ownerKind}.${projectId}`],
-  canonicalProjection: { ownerKind, fixture: "synthetic-review" }
-}]));
-const version = createStoryStudioWorkVersionAuthority({ projectRoot: path.join(targetRoot, projectId) }).createRootCheckpoint({
-  displayName: "北湾主作品", authorActionId: "author.synthetic-review.root", idempotencyKey: "synthetic-review.root.v1",
-  expectedRevision: 0, createdAt: "2026-09-15T00:00:00.000Z", ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle), optionalNuwaProvenanceRefs: []
-});
+// The root WorkVersion must come from the product's own Creation source port
+// so its owner snapshot carries the real story-unit/event stable references
+// that the fixed-draft artifact chain validates later.
+const canonReadProjection = createStoryStudioCanonReadProjection({ workspace: operations, authorControl });
 const relations = createStoryStudioRelationOperations({
   workspaceOperations: operations,
   verifyCanonEventRead: ({ projectId: evidenceProjectId, eventId }) => authorControl.verifyCanonEventRead({ projectId: evidenceProjectId, eventId })
 });
+const creationSource = createCreationSourceSelectionPort({ operations, relationOperations: relations, canonReadProjection });
+const version = creationSource.createRoot(projectId);
 const types = Object.fromEntries(["港务协作", "航线分歧", "委托调查", "情报互换", "护送约定", "地点关联"].map((label) => [label, relations.createRelationType({ projectId, operationId: `synthetic.type.${label}`, label }).type.relationTypeId]));
 const evidenceRefs = [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId, eventId: confirmedEvent.id, revisionToken: confirmedEvent.revision, state: "committed", requestedUse: "constraint" } }];
 const confirm = (label, source, target, direction) => {
