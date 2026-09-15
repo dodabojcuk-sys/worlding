@@ -11,10 +11,24 @@ test("public origin is one exact HTTPS origin while local loopback remains compa
   assert.equal(resolvePublicOrigin("https://tianyan.omnihex.xyz"), "https://tianyan.omnihex.xyz");
   assert.throws(() => resolvePublicOrigin("https://*.omnihex.xyz"), /exact HTTPS origin/u);
   assert.throws(() => resolvePublicOrigin("http://tianyan.omnihex.xyz"), /exact HTTPS origin/u);
+  assert.throws(() => resolvePublicOrigin("http://198.44.179.34:4193"), /TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN/u);
+  assert.throws(() => resolvePublicOrigin("http://tianyan.omnihex.xyz:4193", true), /exact HTTPS origin/u);
+  assert.equal(resolvePublicOrigin("http://198.44.179.34:4193", true), "http://198.44.179.34:4193");
   assert.throws(() => resolvePublicOrigin("https://tianyan.omnihex.xyz/path"), /exact HTTPS origin/u);
   assert.equal(originIsAllowed("https://tianyan.omnihex.xyz", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
   assert.equal(originIsAllowed("https://evil.example", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), false);
   assert.equal(originIsAllowed("http://127.0.0.1:4191", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
+});
+
+test("temporary HTTP IP review access never emits a Secure cookie", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-http-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: "http://198.44.179.34:4193", sessionSecret: "fixed-session-secret" });
+  const loginResponse = response();
+  await access.handle(request("username=reviewer&password=correct-horse-battery-staple", { "content-type": "application/x-www-form-urlencoded" }), loginResponse, new URL("http://198.44.179.34:4193/__review/login"));
+  assert.equal(loginResponse.status, 303);
+  assert.doesNotMatch(String(loginResponse.headers["set-cookie"]), /; Secure/u);
 });
 
 test("review access is disabled by default and rejects partial configuration", () => {

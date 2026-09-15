@@ -53,6 +53,15 @@ WORLD_OS_STORY_STUDIO_STATE_FILE=/srv/tianyan-review/library/.story-studio/state
 TIANYAN_CREATION_PLUGIN_ROOT=/srv/tianyan-review/creation-plugins
 ```
 
+仅限短期、非敏感的 IP 直连评审，可显式改为：
+
+```dotenv
+TIANYAN_PUBLIC_ORIGIN=http://198.44.179.34:4193
+TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN=1
+```
+
+该开关只允许“HTTP + 明确 IP + 明确端口”，不接受 HTTP 域名或通配符。此模式的登录密码和会话经明文网络传输，不得用于公开、长期或含敏感作品的环境；切回 HTTPS 时必须删除该开关。
+
 systemd 使用 `WorkingDirectory=/opt/tianyan-review/current`、`ExecStart=/usr/bin/node --experimental-strip-types apps/story-studio/server/server.mjs`，只允许写 `/srv/tianyan-review`。先在服务器回环地址验证登录、401、写会话和退出，再接 Nginx。
 
 ## Nginx 代理

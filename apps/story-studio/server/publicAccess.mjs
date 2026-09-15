@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 
 export const REVIEW_LOGIN_PATH = "/__review/login";
 export const REVIEW_LOGOUT_PATH = "/__review/logout";
@@ -7,13 +8,17 @@ export const REVIEW_SESSION_PATH = "/__review/session";
 const REVIEW_COOKIE = "tianyan_review_access";
 const MAX_LOGIN_BODY_BYTES = 8 * 1024;
 
-export function resolvePublicOrigin(source = process.env.TIANYAN_PUBLIC_ORIGIN || "") {
+export function resolvePublicOrigin(
+  source = process.env.TIANYAN_PUBLIC_ORIGIN || "",
+  allowInsecureIp = process.env.TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN === "1"
+) {
   const value = String(source).trim();
   if (!value) return null;
   let parsed;
-  try { parsed = new URL(value); } catch { throw new Error("TIANYAN_PUBLIC_ORIGIN must be one exact HTTPS origin."); }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hostname.includes("*") || parsed.pathname !== "/" || parsed.search || parsed.hash) {
-    throw new Error("TIANYAN_PUBLIC_ORIGIN must be one exact HTTPS origin without path, query, credentials, or wildcard.");
+  try { parsed = new URL(value); } catch { throw new Error("TIANYAN_PUBLIC_ORIGIN must be one exact public origin."); }
+  const insecureIpOrigin = allowInsecureIp && parsed.protocol === "http:" && isIP(parsed.hostname) !== 0 && Boolean(parsed.port);
+  if ((!insecureIpOrigin && parsed.protocol !== "https:") || parsed.username || parsed.password || parsed.hostname.includes("*") || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+    throw new Error("TIANYAN_PUBLIC_ORIGIN must be one exact HTTPS origin; temporary HTTP access additionally requires an IP, explicit port, and TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN=1.");
   }
   return parsed.origin;
 }
@@ -32,7 +37,7 @@ export function createReviewAccess({ username, passwordFile, publicOrigin, sessi
   if (!normalizedUsername || !normalizedPasswordFile) throw new Error("Review access requires both TIANYAN_REVIEW_USERNAME and TIANYAN_REVIEW_PASSWORD_FILE.");
   const expectedPassword = readFileSync(normalizedPasswordFile, "utf8").replace(/[\r\n]+$/u, "");
   if (expectedPassword.length < 16) throw new Error("Review access password must contain at least 16 characters.");
-  const cookieSecure = Boolean(publicOrigin);
+  const cookieSecure = Boolean(publicOrigin && new URL(publicOrigin).protocol === "https:");
 
   return {
     enabled: true,
