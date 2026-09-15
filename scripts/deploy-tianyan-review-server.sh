@@ -162,7 +162,7 @@ trap 'rm -f "${COOKIE_JAR}"' EXIT
 readonly LOGIN_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
   --cookie-jar "${COOKIE_JAR}" \
   --data-urlencode "username=reviewer" \
-  --data-urlencode "password@${PASSWORD_FILE}" \
+  --data-urlencode "password=$(cat "${PASSWORD_FILE}")" \
   "http://127.0.0.1:${PUBLIC_PORT}/__review/login")
 [[ ${LOGIN_STATUS} == "303" ]] || die "review login check returned ${LOGIN_STATUS}"
 readonly SESSION_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
