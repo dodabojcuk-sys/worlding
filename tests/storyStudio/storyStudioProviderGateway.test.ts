@@ -627,3 +627,26 @@ async function collect(source: AsyncIterable<unknown>) {
   for await (const value of source) values.push(value);
   return values;
 }
+
+test("open tool frames distinguish provider truncation from a stream without any completion", async () => {
+  const toolDelta = (fragment: string, withId: boolean) => JSON.stringify({ choices: [{ delta: { tool_calls: [{ ...(withId ? { id: "call_1" } : {}), index: 0, function: { name: "propose_story_intake", arguments: fragment } }] } }] });
+  const truncatedChunks = [
+    `data: ${toolDelta('{"items":', true)}\n\n`,
+    `data: ${toolDelta('"e"}', false)}\n\n`,
+    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+    "data: [DONE]\n\n"
+  ];
+  const truncatedGateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => sseResponse(truncatedChunks) });
+  const truncated = await collect((await truncatedGateway.openChatStream(requestInput())).events);
+  const truncatedFrame = truncated.find((event) => (event as { type?: string }).type === "tool-call-malformed") as { reason?: string } | undefined;
+  assert.equal(truncatedFrame?.reason, "truncated-finish-length");
+
+  const silentChunks = [
+    `data: ${toolDelta("{}", true)}\n\n`,
+    "data: [DONE]\n\n"
+  ];
+  const silentGateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => sseResponse(silentChunks) });
+  const silent = await collect((await silentGateway.openChatStream(requestInput())).events);
+  const silentFrame = silent.find((event) => (event as { type?: string }).type === "tool-call-malformed") as { reason?: string } | undefined;
+  assert.equal(silentFrame?.reason, "missing-completion");
+});

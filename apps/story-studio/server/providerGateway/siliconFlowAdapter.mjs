@@ -232,9 +232,32 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       const traceId = boundedTraceId(response.headers?.get?.(traceHeader));
       telemetry.lastTraceId = traceId;
 
+      // Content-free operational trace for one dispatch: the actually sent
+      // budget and switches, the provider's finish reason, and the transport
+      // outcome. Story content and credentials never enter this line.
+      const dispatchLabel = `model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0}`;
+      const firstChunkAt = { value: 0 };
+      const outcome = { finishReasons: [], done: false };
+      const observedEvents = async function* (events) {
+        try {
+          for await (const event of events) {
+            if (event?.type === "chunk") {
+              if (!firstChunkAt.value) firstChunkAt.value = Date.now();
+              if (event.finishReason) outcome.finishReasons.push(event.finishReason);
+            }
+            if (event?.type === "done") outcome.done = true;
+            yield event;
+          }
+        } catch (error) {
+          console.error(`[provider-dispatch] ${dispatchLabel} trace=${traceId || "-"} ttfbMs=${firstChunkAt.value ? firstChunkAt.value - startedAt : "-"} durationMs=${Date.now() - startedAt} outcome=failed error=${error?.code || error?.name || "error"}`);
+          throw error;
+        }
+        console.log(`[provider-dispatch] ${dispatchLabel} trace=${traceId || "-"} ttfbMs=${firstChunkAt.value ? firstChunkAt.value - startedAt : "-"} durationMs=${Date.now() - startedAt} outcome=${outcome.done ? "completed" : "ended-without-done"} finish=${outcome.finishReasons.join("|") || "none"} usage=${telemetry.lastUsage ? `${telemetry.lastUsage.promptTokens}/${telemetry.lastUsage.completionTokens}` : "-"}`);
+      };
+
       return Object.freeze({
         traceId,
-        events: consumeProviderStream({
+        events: observedEvents(consumeProviderStream({
           responseBody: response.body,
           signal: controller.signal,
           callerSignal,
@@ -245,7 +268,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             callerSignal?.removeEventListener("abort", onCallerAbort);
             telemetry.lastLatencyMs = Date.now() - startedAt;
           }
-        })
+        }))
       });
     }
   });
@@ -294,6 +317,7 @@ async function* parseSse(body, signal, onUsage) {
   const toolCalls = new Map();
   let toolFinishSeen = false;
   let responseModelSeen = false;
+  let lastFinishReason = null;
   try {
     while (!completed) {
       const result = await readWithAbort(reader, signal);
@@ -307,10 +331,16 @@ async function* parseSse(body, signal, onUsage) {
         buffer = buffer.slice(boundary + 2);
         if (Buffer.byteLength(source) > MAX_SSE_EVENT_BYTES) throw providerGatewayError("invalid-response");
         const event = parseSseEvent(source);
+        if (event?.finishReason) lastFinishReason = event.finishReason;
         if (event?.type === "done") {
           for (const call of [...toolCalls.values()].filter((item) => !item.ended).sort((left, right) => left.order - right.order)) {
             call.ended = true;
-            yield Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason: "missing-completion" });
+            // A tool call that was still open at [DONE] must distinguish a
+            // provider-side truncation (an observed non-tool_calls finish
+            // reason, e.g. "length") from a stream that never expressed any
+            // completion at all; they have different fixes.
+            const reason = lastFinishReason && lastFinishReason !== "tool_calls" ? `truncated-finish-${lastFinishReason}` : "missing-completion";
+            yield Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason });
           }
           completed = true;
           yield event;
@@ -366,7 +396,7 @@ function parseSseEvent(source) {
   const text = typeof choice?.delta?.content === "string" ? choice.delta.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
   const usage = normalizeUsage(payload?.usage);
-  return Object.freeze({ type: "provider-payload", payload });
+  return Object.freeze({ type: "provider-payload", payload, finishReason });
 }
 
 function normalizeProviderPayload(payload, toolCalls, toolFinishSeen) {

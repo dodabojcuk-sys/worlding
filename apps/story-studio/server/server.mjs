@@ -374,6 +374,55 @@ const localFakeGroundedProfile = Object.freeze({
   timeoutMs: 5_000,
   enableThinking: false
 });
+// Product-path dispatches reference one recorded budget receipt.  A deployment
+// receipt is the standing ceiling; a task receipt (when provided) is the
+// stricter, round-scoped allowance and takes precedence so a bounded working
+// session cannot spend the deployment ceiling.  Receipts are recorded
+// idempotently before the gateway exists, because every reservation needs its
+// receipt to be present in the durable ledger at dispatch time.
+const deploymentReceiptId = productPathRealProviderAllowed ? process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID || null : null;
+const taskReceiptId = productPathRealProviderAllowed ? process.env.TIANYAN_TASK_BUDGET_RECEIPT_ID || null : null;
+{
+  const boundedBudget = (value, fallback) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, 2_000) : fallback;
+  };
+  try {
+    if (deploymentReceiptId && !providerBudgetLedger.authorization(deploymentReceiptId)) {
+      providerBudgetLedger.authorize({
+        receiptId: deploymentReceiptId,
+        authorizedBy: "deployment-runtime-environment",
+        reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
+        scope: "deployment-product-path",
+        limits: {
+          generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
+          totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
+        },
+        issuedAt: new Date().toISOString()
+      });
+    }
+    if (taskReceiptId && !providerBudgetLedger.authorization(taskReceiptId)) {
+      // Task allowances are deltas over the ledger's cumulative counts, so a
+      // bounded working session gets exactly its stated number of fresh
+      // dispatches regardless of what earlier rounds already spent.
+      const snapshot = providerBudgetLedger.snapshot();
+      providerBudgetLedger.authorize({
+        receiptId: taskReceiptId,
+        authorizedBy: "task-runtime-environment",
+        reason: "Round-scoped product provider budget; allowances are deltas over the cumulative ledger counts at first recording.",
+        scope: "task-product-path",
+        limits: {
+          generationCalls: snapshot.counts.generationCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_GENERATION, 12),
+          totalCalls: snapshot.counts.totalCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_TOTAL, 12)
+        },
+        issuedAt: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.warn(`[provider-budget] authorization was not recorded: ${error?.message || error}`);
+  }
+}
+const productAuthorizationReceiptId = taskReceiptId || deploymentReceiptId;
 const providerGateway = createAiProviderGateway({
   adapters: [
     ...providerProfileState.profiles.map((instance) => createProviderProtocolAdapter({
@@ -388,45 +437,12 @@ const providerGateway = createAiProviderGateway({
   budgetLedger: providerBudgetLedger,
   receiptEnvelopeStore: replaySafeProviderReceiptEnvelopeStore,
   ...(productPathRealProviderAllowed ? {
-    defaultAuthorizationReceiptId: process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID || null,
+    defaultAuthorizationReceiptId: productAuthorizationReceiptId,
     maxOutputTokensCap: 4_096
   } : {})
 });
 if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
 else syncProviderGatewayProfile();
-// A deployment may provide one explicit product-path budget receipt.  The
-// receipt must exist in the durable ledger before any dispatch references it,
-// so record it idempotently at startup when the product path is enabled.
-// Re-authorizing the same receipt with the same limits is a no-op; without a
-// configured receipt the historical production baseline keeps blocking all
-// product dispatches (fail-closed).
-if (productPathRealProviderAllowed && process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID) {
-  const boundedBudget = (value, fallback) => {
-    const parsed = Number(value);
-    return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, 2_000) : fallback;
-  };
-  try {
-    const receiptId = process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID;
-    // authorize() is reuse-exact: a second call that carries a fresh issuedAt
-    // would conflict with the recorded receipt.  Skip re-recording when the
-    // deployment receipt already exists in the durable ledger.
-    if (!providerBudgetLedger.authorization(receiptId)) {
-      providerBudgetLedger.authorize({
-        receiptId,
-        authorizedBy: "deployment-runtime-environment",
-        reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
-        scope: "deployment-product-path",
-        limits: {
-          generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
-          totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
-        },
-        issuedAt: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    console.warn(`[provider-budget] deployment authorization was not recorded: ${error?.message || error}`);
-  }
-}
 // The real prediction gateway reads the currently configured Provider at
 // construction time.  A review deployment boots before any reviewer has saved
 // a credential, so construction is deferred to the first prediction request:
