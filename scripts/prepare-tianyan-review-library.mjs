@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { createStoryStudioAuthorControl } from "../src/storyControlSurface/storyStudioAuthorControl.ts";
 import { createStoryStudioRelationOperations } from "../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { createStoryStudioWorkspaceOperations } from "../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createNormalEventCreationPort } from "../apps/story-studio/server/normalEventCreationPort.mjs";
 import { WORK_VERSION_REQUIRED_OWNER_KINDS, createStoryStudioWorkVersionAuthority } from "../src/storyWorkspace/workVersionAuthority.ts";
 import { resolveWorkVersionOwnerSnapshotRefs } from "../src/storyWorkspace/workVersionSnapshotResolver.ts";
 
@@ -12,6 +14,7 @@ if (existsSync(targetRoot) && readdirSync(targetRoot).length) throw new Error(`R
 mkdirSync(targetRoot, { recursive: true });
 const stateFilePath = path.join(targetRoot, ".story-studio", "state.json");
 const operations = createStoryStudioWorkspaceOperations({ rootPath: targetRoot, stateFilePath });
+const authorControl = createStoryStudioAuthorControl({ rootPath: targetRoot, stateFilePath });
 
 const projectId = "north-bay-synthetic-review";
 operations.createProject({ title: "北湾创作审阅样例（合成）", folderSlug: projectId, genre: "fantasy", ambience: "coastal" });
@@ -32,7 +35,29 @@ const people = [
   ["闻舟", "远行抄写员，尚未记录与其他人的正式关系。"]
 ].map(([title, body]) => createObject("character", title, body, ["人物"]));
 const byName = Object.fromEntries(people.map((person) => [person.title, person]));
-const sourceEvent = createObject("event", "雾港潮闸争议", "潮闸受损后，顾澜主张先封闭旧港航道检修；程野则要求保留药材运送时段。两人约定日落前与沈砚共同勘查。这只确认公开立场与共同勘查，不确认彼此信任或敌对。", ["已确认事件"]);
+
+// The sample's confirmed event must come from the same author confirmation
+// chain the product UI uses (story unit → candidate → impact review → author
+// confirmation).  A raw "committed" world object would fail the confirmed-
+// event evidence contract at read time and break every relation that cites it.
+const normalCreation = createNormalEventCreationPort({ operations, authorControl });
+const storyUnit = normalCreation.createStoryUnit(projectId, {
+  title: "潮闸争议",
+  summary: "围绕雾港潮闸检修与药材运送时段的第一个故事单元。"
+});
+const candidate = normalCreation.createCandidate(projectId, {
+  storyUnitId: storyUnit.id,
+  title: "雾港潮闸争议",
+  body: "潮闸受损后，顾澜主张先封闭旧港航道检修；程野则要求保留药材运送时段。两人约定日落前与沈砚共同勘查。这只确认公开立场与共同勘查，不确认彼此信任或敌对。"
+});
+normalCreation.beginImpact(projectId, { storyUnitId: storyUnit.id, planningEventId: candidate.planning.id });
+normalCreation.confirm(projectId, { storyUnitId: storyUnit.id, planningEventId: candidate.planning.id });
+const creationState = normalCreation.state(projectId, { storyUnitId: storyUnit.id, planningEventId: candidate.planning.id });
+const confirmedEvent = creationState.confirmedEvents.at(-1);
+if (!confirmedEvent) throw new Error("作者确认链没有产生正式事件；样例构建中断。");
+if (!authorControl.verifyCanonEventRead({ projectId, eventId: confirmedEvent.id })) {
+  throw new Error(`正式事件未通过确认链读取验证：${confirmedEvent.id}`);
+}
 
 const bundle = Object.fromEntries(WORK_VERSION_REQUIRED_OWNER_KINDS.map((ownerKind, index) => [ownerKind, {
   ownerIdentity: `${ownerKind}.${projectId}`,
@@ -46,9 +71,12 @@ const version = createStoryStudioWorkVersionAuthority({ projectRoot: path.join(t
   displayName: "北湾主作品", authorActionId: "author.synthetic-review.root", idempotencyKey: "synthetic-review.root.v1",
   expectedRevision: 0, createdAt: "2026-09-15T00:00:00.000Z", ownerSnapshotRefs: resolveWorkVersionOwnerSnapshotRefs(bundle), optionalNuwaProvenanceRefs: []
 });
-const relations = createStoryStudioRelationOperations({ workspaceOperations: operations, verifyCanonEventRead: () => true });
+const relations = createStoryStudioRelationOperations({
+  workspaceOperations: operations,
+  verifyCanonEventRead: ({ projectId: evidenceProjectId, eventId }) => authorControl.verifyCanonEventRead({ projectId: evidenceProjectId, eventId })
+});
 const types = Object.fromEntries(["港务协作", "航线分歧", "委托调查", "情报互换", "护送约定", "地点关联"].map((label) => [label, relations.createRelationType({ projectId, operationId: `synthetic.type.${label}`, label }).type.relationTypeId]));
-const evidenceRefs = [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId, eventId: sourceEvent.id, revisionToken: sourceEvent.revisionToken, state: "committed", requestedUse: "constraint" } }];
+const evidenceRefs = [{ kind: "confirmed-event", reference: { version: "story-studio-event-reference/v1", projectId, eventId: confirmedEvent.id, revisionToken: confirmedEvent.revision, state: "committed", requestedUse: "constraint" } }];
 const confirm = (label, source, target, direction) => {
   const operationId = `synthetic.relation.${label}.${source.id}.${target.id}`;
   const result = relations.createRelationCandidate({ projectId, workVersionId: version.identity.workVersionId, operationId, sourceObjectId: source.id, targetObjectId: target.id, relationTypeId: types[label], direction, evidenceRefs });
@@ -73,5 +101,8 @@ map = operations.updateVisualDocument({ projectId, relativePath: map.relativePat
   drawing({ id: "symbol.harbour", kind: "symbol", subtype: "settlement", layerId: "layer.places", points: [{ x: 61, y: 62 }], fillColor: "#d39b53", size: 7, objectId: fogHarbour.id, label: "雾港" })
 ], markers: [{ id: `marker.${fogHarbour.id}`, objectId: fogHarbour.id, layerId: "layer.places", x: 61, y: 62, color: "#147d78", labelMode: "always" }], labels: [{ id: "label.north-bay", text: "北湾", layerId: "layer.places", x: 43, y: 18, fontSize: 24, fontWeight: 700, align: "center", rotation: 0, visible: true, treatment: "outline" }] } } }).document;
 
-writeFileSync(path.join(targetRoot, "REVIEW_FIXTURE.json"), `${JSON.stringify({ version: "tianyan-review-fixture/v1", synthetic: true, projects: [{ id: projectId, title: "北湾创作审阅样例（合成）", workVersionId: version.identity.workVersionId, mapId: map.id, pendingRelationId: pending.relation.relationId }, { id: "blank-author-onboarding", title: "空白新手练习（合成）" }] }, null, 2)}\n`, { mode: 0o600 });
-console.log(JSON.stringify({ targetRoot, projectId, workVersionId: version.identity.workVersionId, mapId: map.id, providerCalls: 0, synthetic: true }));
+const relationList = relations.listRelations({ projectId });
+const confirmedRelationCount = relationList.relations.filter((relation) => relation.reviewState === "confirmed" && relation.evidenceRefs.some((item) => item.kind === "confirmed-event")).length;
+if (confirmedRelationCount !== 6) throw new Error(`带确认事件依据的正式关系数量不符合预期：${confirmedRelationCount}/6`);
+writeFileSync(path.join(targetRoot, "REVIEW_FIXTURE.json"), `${JSON.stringify({ version: "tianyan-review-fixture/v2", synthetic: true, projects: [{ id: projectId, title: "北湾创作审阅样例（合成）", workVersionId: version.identity.workVersionId, mapId: map.id, pendingRelationId: pending.relation.relationId, storyUnitId: storyUnit.id, confirmedEventId: confirmedEvent.id, confirmedEventRevision: confirmedEvent.revision, authorConfirmationChain: "normal-event-creation-port", verifiedCanonEventRead: true, confirmedRelationsWithEventEvidence: confirmedRelationCount }, { id: "blank-author-onboarding", title: "空白新手练习（合成）" }] }, null, 2)}\n`, { mode: 0o600 });
+console.log(JSON.stringify({ targetRoot, projectId, workVersionId: version.identity.workVersionId, mapId: map.id, storyUnitId: storyUnit.id, confirmedEventId: confirmedEvent.id, confirmedRelationsWithEventEvidence: confirmedRelationCount, providerCalls: 0, synthetic: true }));
