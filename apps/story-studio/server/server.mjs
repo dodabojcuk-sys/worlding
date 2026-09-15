@@ -406,17 +406,23 @@ if (productPathRealProviderAllowed && process.env.TIANYAN_PROVIDER_AUTHORIZATION
     return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, 2_000) : fallback;
   };
   try {
-    providerBudgetLedger.authorize({
-      receiptId: process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID,
-      authorizedBy: "deployment-runtime-environment",
-      reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
-      scope: "deployment-product-path",
-      limits: {
-        generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
-        totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
-      },
-      issuedAt: new Date().toISOString()
-    });
+    const receiptId = process.env.TIANYAN_PROVIDER_AUTHORIZATION_RECEIPT_ID;
+    // authorize() is reuse-exact: a second call that carries a fresh issuedAt
+    // would conflict with the recorded receipt.  Skip re-recording when the
+    // deployment receipt already exists in the durable ledger.
+    if (!providerBudgetLedger.authorization(receiptId)) {
+      providerBudgetLedger.authorize({
+        receiptId,
+        authorizedBy: "deployment-runtime-environment",
+        reason: "Deployment-provided product provider budget for this isolated review deployment; limits come from the runtime environment file.",
+        scope: "deployment-product-path",
+        limits: {
+          generationCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_GENERATION_BUDGET, 40),
+          totalCalls: boundedBudget(process.env.TIANYAN_PROVIDER_PRODUCT_TOTAL_BUDGET, 60)
+        },
+        issuedAt: new Date().toISOString()
+      });
+    }
   } catch (error) {
     console.warn(`[provider-budget] deployment authorization was not recorded: ${error?.message || error}`);
   }
