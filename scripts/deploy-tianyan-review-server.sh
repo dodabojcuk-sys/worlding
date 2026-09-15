@@ -157,16 +157,18 @@ systemctl enable --now tianyan-review-proxy.socket
 
 readonly UNAUTH_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${PUBLIC_PORT}/__local/story-studio/state")
 [[ ${UNAUTH_STATUS} == "401" ]] || die "unauthenticated API check returned ${UNAUTH_STATUS}"
-readonly COOKIE_JAR=$(mktemp)
-trap 'rm -f "${COOKIE_JAR}"' EXIT
+readonly LOGIN_HEADERS=$(mktemp)
+trap 'rm -f "${LOGIN_HEADERS}"' EXIT
 readonly LOGIN_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  --cookie-jar "${COOKIE_JAR}" \
+  --dump-header "${LOGIN_HEADERS}" \
   --data-urlencode "username=reviewer" \
   --data-urlencode "password=$(cat "${PASSWORD_FILE}")" \
   "http://127.0.0.1:${PUBLIC_PORT}/__review/login")
 [[ ${LOGIN_STATUS} == "303" ]] || die "review login check returned ${LOGIN_STATUS}"
+readonly REVIEW_COOKIE=$(awk 'tolower($1) == "set-cookie:" && $2 ~ /^tianyan_review_access=/ { sub(/;.*/, "", $2); print $2 }' "${LOGIN_HEADERS}")
+[[ -n ${REVIEW_COOKIE} ]] || die "review login did not return an access cookie"
 readonly SESSION_STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-  --cookie "${COOKIE_JAR}" "http://127.0.0.1:${PUBLIC_PORT}/__review/session")
+  --header "Cookie: ${REVIEW_COOKIE}" "http://127.0.0.1:${PUBLIC_PORT}/__review/session")
 [[ ${SESSION_STATUS} == "200" ]] || die "authenticated session check returned ${SESSION_STATUS}"
 
 printf 'deployment complete\n'
