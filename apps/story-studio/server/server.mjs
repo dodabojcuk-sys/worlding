@@ -404,17 +404,27 @@ const taskReceiptId = productPathRealProviderAllowed ? process.env.TIANYAN_TASK_
     if (taskReceiptId && !providerBudgetLedger.authorization(taskReceiptId)) {
       // Task allowances are deltas over the ledger's cumulative counts, so a
       // bounded working session gets exactly its stated number of fresh
-      // dispatches regardless of what earlier rounds already spent.
+      // dispatches regardless of what earlier rounds already spent.  The
+      // deployment ceiling still applies: the recorded absolute limits are the
+      // stricter of the two, so a round can never outspend its deployment.
       const snapshot = providerBudgetLedger.snapshot();
+      const deploymentAuthorization = deploymentReceiptId ? providerBudgetLedger.authorization(deploymentReceiptId) : null;
+      const requested = {
+        generationCalls: snapshot.counts.generationCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_GENERATION, 12),
+        totalCalls: snapshot.counts.totalCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_TOTAL, 12)
+      };
+      const limits = deploymentAuthorization
+        ? {
+            generationCalls: Math.min(requested.generationCalls, deploymentAuthorization.limits.generationCalls),
+            totalCalls: Math.min(requested.totalCalls, deploymentAuthorization.limits.totalCalls)
+          }
+        : requested;
       providerBudgetLedger.authorize({
         receiptId: taskReceiptId,
         authorizedBy: "task-runtime-environment",
-        reason: "Round-scoped product provider budget; allowances are deltas over the cumulative ledger counts at first recording.",
+        reason: "Round-scoped product provider budget; allowances are deltas over the cumulative ledger counts at first recording, clamped by the deployment ceiling.",
         scope: "task-product-path",
-        limits: {
-          generationCalls: snapshot.counts.generationCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_GENERATION, 12),
-          totalCalls: snapshot.counts.totalCalls + boundedBudget(process.env.TIANYAN_TASK_BUDGET_TOTAL, 12)
-        },
+        limits,
         issuedAt: new Date().toISOString()
       });
     }
@@ -776,8 +786,14 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         return providerGateway.openChatStream({
           profileId: profile.id,
           messages: providerInput.messages,
-          tools: providerInput.tools,
-          toolChoice: providerInput.toolChoice,
+          // After the intake tool has executed once, later turns exist only to
+          // write the author-facing summary.  Keeping the forced tool choice
+          // would make the model re-submit a second envelope and fail the
+          // one-envelope guard, so follow-up turns run without tools; this
+          // mirrors the fake-provider fixture contract (turn 1 tool, turn 2
+          // summary text).
+          tools: storyIntakeContext && capturedStoryIntakeEnvelope ? [] : providerInput.tools,
+          toolChoice: storyIntakeContext && capturedStoryIntakeEnvelope ? "none" : providerInput.toolChoice,
           maxOutputTokens: Math.min(storyIntakeContext ? 4_096 : 512, input.maxOutputTokens, profile.maxOutputTokens),
           timeoutMs: storyIntakeContext ? profile.timeoutMs : undefined,
           signal: providerInput.signal,

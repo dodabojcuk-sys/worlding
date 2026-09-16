@@ -129,30 +129,57 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       if (callerSignal?.aborted) throw providerGatewayError("cancelled");
       telemetry.callCount += 1;
       const startedAt = Date.now();
-      const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, "chat/completions"), {
-        method: "POST",
-        redirect: "error",
-        headers: providerHeaders(apiKey, {
-          accept: "application/json",
-          "content-type": "application/json"
-        }),
-        body: JSON.stringify({
-          model: input.modelId,
-          messages: input.messages,
-          stream: false,
-          max_tokens: input.maxOutputTokens,
-          temperature: input.temperature,
-          ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
-          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
-          ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
-        })
-      }, input);
-      if (!response?.ok) {
-        await discardResponseBody(response);
-        throw mapHttpStatus(response?.status);
+      // The deadline must cover the full body read, not only the response
+      // headers: non-streaming structured calls spend most of their time in
+      // the body (R2A §3.2).
+      const controller = new AbortController();
+      let timeoutTriggered = false;
+      const onCallerAbort = () => controller.abort();
+      callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+      const timeoutId = setTimeout(() => { timeoutTriggered = true; controller.abort(); }, normalizeTimeout(input.timeoutMs));
+      let response;
+      try {
+        response = await fetchImpl(providerEndpoint(baseUrlProvider, "chat/completions"), {
+          method: "POST",
+          redirect: "error",
+          headers: providerHeaders(apiKey, {
+            accept: "application/json",
+            "content-type": "application/json"
+          }),
+          body: JSON.stringify({
+            model: input.modelId,
+            messages: input.messages,
+            stream: false,
+            max_tokens: input.maxOutputTokens,
+            temperature: input.temperature,
+            ...reasoningRequestFields(input, enableThinking),
+            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
+            ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
+          }),
+          signal: controller.signal
+        });
+      } catch (error) {
+        clearTimeout(timeoutId);
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+        throw normalizeTransportError(error, { callerSignal, timeoutTriggered });
       }
       let payload;
-      try { payload = await response.json(); } catch { throw providerGatewayError("invalid-response"); }
+      try {
+        if (!response?.ok) {
+          await discardResponseBody(response);
+          throw mapHttpStatus(response?.status);
+        }
+        payload = await response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+        if (timeoutTriggered) throw providerGatewayError("timeout");
+        if (error?.name === "ProviderGatewayError" || error?.name === "ProviderCredentialBackendError") throw error;
+        if (typeof error?.statusCode === "number") throw error;
+        throw providerGatewayError("invalid-response");
+      }
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
       const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
       const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
       const toolCalls = normalizeNonStreamToolCalls(choice?.message);
@@ -192,23 +219,35 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             signal: input.signal,
             responseFormat: input.responseFormat,
             enableThinking: input.enableThinking,
-            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {})
+            ...(input.tools?.length ? { tools: input.tools, toolChoice: input.toolChoice || "auto" } : {})
           });
         } catch (error) {
           console.error(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${telemetry.lastTraceId || "-"} durationMs=${Date.now() - startedNs} outcome=failed error=${error?.code || error?.name || "error"}`);
           throw error;
         }
+        // Strict completion classification: only an explicit "tool_calls"
+        // finish with legal tool calls becomes success frames.  Truncated or
+        // unfinished tool output surfaces as malformed frames so downstream
+        // validation sees the real failure mode (R2A §3.2).
+        const toolCalls = completion.toolCalls ?? [];
+        const finish = completion.finishReason;
         const frames = [];
-        for (const call of completion.toolCalls ?? []) {
-          frames.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index: 0 }));
-          frames.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index: 0, argumentsDelta: call.argumentsJson }));
-          frames.push(Object.freeze({ type: "tool-call-end", id: call.id, name: call.name, index: 0, argumentsJson: call.argumentsJson || "{}", arguments: call.arguments }));
+        frames.push(Object.freeze({ type: "response-metadata", responseModelId: completion.modelId }));
+        if (finish === "tool_calls" && toolCalls.length) {
+          for (const call of toolCalls) {
+            frames.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index: 0 }));
+            frames.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index: 0, argumentsDelta: call.argumentsJson }));
+            frames.push(Object.freeze({ type: "tool-call-end", id: call.id, name: call.name, index: 0, argumentsJson: call.argumentsJson || "{}", arguments: call.arguments }));
+          }
+        } else if (toolCalls.length) {
+          const reason = finish ? `truncated-finish-${finish}` : "missing-completion";
+          for (const call of toolCalls) {
+            frames.push(Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: 0, argumentsJson: call.argumentsJson || "", reason }));
+          }
         }
-        if (completion.content || completion.finishReason !== "tool_calls") {
-          frames.push(Object.freeze({ type: "chunk", text: completion.content, finishReason: completion.finishReason === "tool_calls" ? null : completion.finishReason, usage: completion.usage }));
-        }
+        frames.push(Object.freeze({ type: "chunk", text: toolCalls.length && finish === "tool_calls" ? "" : completion.content, finishReason: toolCalls.length && finish === "tool_calls" ? null : finish, usage: completion.usage }));
         frames.push(Object.freeze({ type: "done" }));
-        console.log(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${completion.traceId || "-"} durationMs=${Date.now() - startedNs} outcome=completed finish=${completion.finishReason || "none"} usage=${completion.usage ? `${completion.usage.promptTokens}/${completion.usage.completionTokens}` : "-"}`);
+        console.log(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${completion.traceId || "-"} durationMs=${Date.now() - startedNs} outcome=completed finish=${finish || "none"} usage=${completion.usage ? `${completion.usage.promptTokens}/${completion.usage.completionTokens}` : "-"}`);
         return Object.freeze({
           traceId: completion.traceId,
           events: (async function* () {
@@ -248,7 +287,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             stream: true,
             max_tokens: input.maxOutputTokens,
             temperature: input.temperature,
-            ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
+            ...reasoningRequestFields(input, enableThinking),
             ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
             ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
           }),
@@ -316,6 +355,18 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       });
     }
   });
+}
+
+// Model capability mapping (R2A §2.1): GLM-5.x on this endpoint does not
+// support non-thinking mode and takes reasoning_effort (low/high/max); other
+// models keep the enable_thinking switch.  enableThinking=false maps to the
+// cheapest documented tier so structured intake does not pay for reasoning it
+// did not ask for.
+function reasoningRequestFields(input, supportsThinkingSwitch) {
+  if (/GLM-5/iu.test(String(input.modelId || ""))) {
+    return { reasoning_effort: input.enableThinking === true ? "high" : "low" };
+  }
+  return supportsThinkingSwitch ? { enable_thinking: input.enableThinking === true } : {};
 }
 
 function providerEndpoint(baseUrlProvider, pathname, search = undefined) {
