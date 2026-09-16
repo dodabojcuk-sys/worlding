@@ -34,6 +34,17 @@ export type WorkVersionKind = "root" | "derived";
 export type WorkVersionStatus = "active" | "archived";
 export type OwnerSnapshotCompleteness = "complete" | "missing" | "unsupported" | "stale";
 
+/**
+ * Why a derived WorkVersion exists.  v1 keeps this strictly optional: old
+ * identities without the key stay byte-identical and digest-verify unchanged,
+ * and only a derived version may ever carry one.
+ */
+export type WorkVersionDerivation = {
+  purpose: "nuwa-branch";
+  originRunId: string;
+  originHandoffId: string | null;
+};
+
 export type OwnerSnapshotRef = {
   ownerKind: WorkVersionOwnerKind;
   ownerIdentity: string;
@@ -94,6 +105,10 @@ export type WorkVersionIdentity = {
   parentManifestDigest: string | null;
   lineageDepth: 0 | 1;
   status: WorkVersionStatus;
+  /** Optional since v1 evolution: absent on every identity created before the
+   * nuwa-branch purpose existed and on all root versions.  Never injected on
+   * read so legacy digests keep verifying over their original field set. */
+  derivation?: WorkVersionDerivation;
   createdByAuthorActionId: string;
   createdAt: string;
   currentRevision: number;
@@ -143,6 +158,7 @@ export type CreateDerivedVersionInput = SnapshotMutationInput & {
   parentVersionId: string;
   parentBaseRevision: number;
   parentManifestId: string;
+  derivation?: WorkVersionDerivation;
 };
 
 export type AppendRevisionInput = Omit<SnapshotMutationInput, "optionalNuwaProvenanceRefs"> & {
@@ -229,6 +245,7 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
       workVersionId,
       kind: "derived",
       displayName: normalized.displayName,
+      derivation: normalized.derivation,
       parent: {
         workVersionId: parent.identity.workVersionId,
         revision: parent.identity.currentRevision,
@@ -293,6 +310,7 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
     workVersionId: string;
     kind: WorkVersionKind;
     displayName: string;
+    derivation?: WorkVersionDerivation;
     parent: { workVersionId: string; revision: number; manifestId: string; manifestDigest: string } | null;
     previous: WorkVersionMutationResult | null;
     status: WorkVersionStatus;
@@ -325,6 +343,9 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
       kind: input.kind,
       displayName: input.displayName,
       parent: input.parent,
+      // Derivation is minted once at derived creation and carried unchanged by
+      // every later revision; an append can never supply a different one.
+      derivation: input.previous?.identity.derivation ?? input.derivation,
       createdByAuthorActionId: input.previous?.identity.createdByAuthorActionId ?? input.input.authorActionId,
       createdAt: input.previous?.identity.createdAt ?? input.input.createdAt,
       status: input.status,
@@ -568,12 +589,17 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
     kind: WorkVersionKind;
     displayName: string;
     parent: { workVersionId: string; revision: number; manifestId: string; manifestDigest: string } | null;
+    derivation?: WorkVersionDerivation;
     createdByAuthorActionId: string;
     createdAt: string;
     status: WorkVersionStatus;
     currentRevision: number;
     headManifestId: string;
   }): WorkVersionIdentity {
+    if (input.derivation && input.kind !== "derived") throw new Error("Only a derived WorkVersion can carry a derivation purpose.");
+    // The key is omitted entirely when absent so legacy-shaped identities are
+    // byte-identical under the canonical digest.
+    const derivationBody = input.derivation ? { derivation: validateDerivation(input.derivation) } : {};
     const body = {
       schemaVersion: WORK_VERSION_IDENTITY_SCHEMA,
       workVersionId: requireWorkVersionId(input.workVersionId),
@@ -586,6 +612,7 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
       parentManifestDigest: input.parent?.manifestDigest ?? null,
       lineageDepth: (input.parent ? 1 : 0) as 0 | 1,
       status: input.status,
+      ...derivationBody,
       createdByAuthorActionId: requireText(input.createdByAuthorActionId, "Creation author action", 180),
       createdAt: requireTimestamp(input.createdAt),
       currentRevision: requirePositiveInteger(input.currentRevision, "Current revision"),
@@ -692,8 +719,18 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
     if (hash(canonical(body)) !== value.revisionDigest) throw new Error("WorkVersion revision integrity digest mismatch.");
   }
 
+  function validateDerivation(value: WorkVersionDerivation): WorkVersionDerivation {
+    assertExactKeys(value, ["purpose", "originRunId", "originHandoffId"], "WorkVersion derivation");
+    if (value.purpose !== "nuwa-branch") throw new Error("WorkVersion derivation purpose is invalid.");
+    return {
+      purpose: "nuwa-branch",
+      originRunId: requireText(value.originRunId, "Derivation origin Run", 180),
+      originHandoffId: value.originHandoffId == null ? null : requireText(value.originHandoffId, "Derivation origin handoff", 180)
+    };
+  }
+
   function validateIdentity(value: WorkVersionIdentity) {
-    assertExactKeys(value, ["schemaVersion", "workVersionId", "projectId", "kind", "displayName", "parentVersionId", "parentBaseRevision", "parentManifestId", "parentManifestDigest", "lineageDepth", "status", "createdByAuthorActionId", "createdAt", "currentRevision", "headManifestId", "integrityDigest"], "Identity");
+    assertExactKeys(value, ["schemaVersion", "workVersionId", "projectId", "kind", "displayName", "parentVersionId", "parentBaseRevision", "parentManifestId", "parentManifestDigest", "lineageDepth", "status", "derivation", "createdByAuthorActionId", "createdAt", "currentRevision", "headManifestId", "integrityDigest"], "Identity", ["derivation"]);
     if (value.schemaVersion !== WORK_VERSION_IDENTITY_SCHEMA) throw new Error("Unknown WorkVersion identity schema.");
     requireWorkVersionId(value.workVersionId);
     if (value.projectId !== projectId) throw new Error("WorkVersion identity Project mismatch.");
@@ -709,6 +746,12 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
       if (value.lineageDepth !== 1) throw new Error("Derived WorkVersion lineage depth is invalid.");
     }
     if (value.status !== "active" && value.status !== "archived") throw new Error("WorkVersion status is invalid.");
+    // The key stays absent on legacy identities; validation never injects a
+    // projection so stored digests keep verifying over their original set.
+    if (value.derivation != null) {
+      if (value.kind !== "derived") throw new Error("Only a derived WorkVersion can carry a derivation purpose.");
+      validateDerivation(value.derivation);
+    }
     requireText(value.createdByAuthorActionId, "Creation author action", 180);
     requireTimestamp(value.createdAt);
     requirePositiveInteger(value.currentRevision, "Current revision");
@@ -729,12 +772,13 @@ export function createStoryStudioWorkVersionAuthority(input: { projectRoot: stri
   }
 
   function normalizeCreateDerived(raw: CreateDerivedVersionInput) {
-    assertExactKeys(raw, ["displayName", "parentVersionId", "parentBaseRevision", "parentManifestId", "authorActionId", "idempotencyKey", "expectedRevision", "createdAt", "ownerSnapshotRefs", "optionalNuwaProvenanceRefs"], "Derived creation input");
+    assertExactKeys(raw, ["displayName", "parentVersionId", "parentBaseRevision", "parentManifestId", "derivation", "authorActionId", "idempotencyKey", "expectedRevision", "createdAt", "ownerSnapshotRefs", "optionalNuwaProvenanceRefs"], "Derived creation input", ["derivation"]);
     return {
       displayName: requireText(raw.displayName, "Version display name", 120),
       parentVersionId: requireWorkVersionId(raw.parentVersionId),
       parentBaseRevision: requirePositiveInteger(raw.parentBaseRevision, "Parent base revision"),
       parentManifestId: requireManifestId(raw.parentManifestId),
+      ...(raw.derivation == null ? {} : { derivation: validateDerivation(raw.derivation) }),
       ...normalizeBaseMutation(raw),
       ownerSnapshotRefs: normalizeOwnerSnapshotRefs(raw.ownerSnapshotRefs),
       optionalNuwaProvenanceRefs: normalizeNuwaRefs(raw.optionalNuwaProvenanceRefs)
@@ -859,6 +903,9 @@ function assertExpectedRevision(identity: WorkVersionIdentity, expectedRevision:
 function assertStableIdentity(previous: WorkVersionIdentity, current: WorkVersionIdentity) {
   const stableKeys: (keyof WorkVersionIdentity)[] = ["workVersionId", "projectId", "kind", "displayName", "parentVersionId", "parentBaseRevision", "parentManifestId", "parentManifestDigest", "lineageDepth", "createdByAuthorActionId", "createdAt"];
   for (const key of stableKeys) if (previous[key] !== current[key]) throw new Error(`WorkVersion stable identity changed at ${key}.`);
+  // Derivation is minted once at creation; canonical compare tolerates the
+  // key being absent (legacy) versus merely null.
+  if (canonical((previous as WorkVersionIdentity).derivation) !== canonical((current as WorkVersionIdentity).derivation)) throw new Error("WorkVersion derivation changed across revisions.");
   if (previous.status === "archived" && current.status !== "archived") throw new Error("Archived WorkVersion cannot become active implicitly.");
 }
 
