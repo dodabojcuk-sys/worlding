@@ -1690,3 +1690,11 @@ input:focus-visible {
   .world-overview-grid { grid-template-columns: 1fr; }
   .world-overview-collection:last-child { grid-column: auto; }
 }
+
+/* 阵营范围：只读投影。淡底色区分阵营身份；状态语义仍由标签与线型表达。 */
+.focused-relations-faction-scopes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.focused-relations-faction-scopes .faction-scope rect { fill: hsl(var(--faction-hue) 42% 88% / .55); stroke: hsl(var(--faction-hue) 38% 62%); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.focused-relations-faction-scopes .faction-scope.is-active rect { fill: hsl(var(--faction-hue) 46% 82% / .72); stroke-width: 2.5; }
+.focused-relations-faction-scopes .faction-scope text { fill: hsl(var(--faction-hue) 45% 30%); font-size: 13px; font-weight: 600; }
+.focused-relations-faction-legend { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; margin-top: var(--space-2, 8px); }
+.focused-relations-faction-legend .faction-legend-chip { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--faction-hue) 45% 28%); background: hsl(var(--faction-hue) 42% 88% / .6); border: 1px solid hsl(var(--faction-hue) 38% 62%); }
