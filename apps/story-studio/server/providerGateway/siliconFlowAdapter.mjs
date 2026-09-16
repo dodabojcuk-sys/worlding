@@ -181,17 +181,23 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       // shapes the streaming parser produces, so callers see one contract.
       if (input.nonStreaming === true) {
         const startedNs = Date.now();
-        const completion = await this.openChatCompletion({
-          modelId: input.modelId,
-          messages: input.messages,
-          maxOutputTokens: input.maxOutputTokens,
-          temperature: input.temperature,
-          timeoutMs: input.timeoutMs,
-          signal: input.signal,
-          responseFormat: input.responseFormat,
-          enableThinking: input.enableThinking,
-          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {})
-        });
+        let completion;
+        try {
+          completion = await this.openChatCompletion({
+            modelId: input.modelId,
+            messages: input.messages,
+            maxOutputTokens: input.maxOutputTokens,
+            temperature: input.temperature,
+            timeoutMs: input.timeoutMs,
+            signal: input.signal,
+            responseFormat: input.responseFormat,
+            enableThinking: input.enableThinking,
+            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {})
+          });
+        } catch (error) {
+          console.error(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${telemetry.lastTraceId || "-"} durationMs=${Date.now() - startedNs} outcome=failed error=${error?.code || error?.name || "error"}`);
+          throw error;
+        }
         const frames = [];
         for (const call of completion.toolCalls ?? []) {
           frames.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index: 0 }));
