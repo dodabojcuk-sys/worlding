@@ -273,7 +273,7 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const modelId = selectStructuredChatModel(modelIds);
       const providerId = typeof options.providerId === "string" && adapterMap.has(options.providerId) ? options.providerId : "siliconflow";
       const matchingProfile = frozenProfiles.find((profile) => profile.providerId === providerId && profile.modelId === modelId);
-      activeProfiles = [matchingProfile || validateProfile({
+      const chosen = matchingProfile || validateProfile({
         id: `${providerId}-session-structured`,
         label: `${modelId} · 当前账户`,
         purpose: "structured-story",
@@ -288,7 +288,12 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         temperature: 0.25,
         timeoutMs: 120_000,
         enableThinking: false
-      })];
+      });
+      // Keep a local fake adapter's profile resolvable when the host enabled
+      // it, so fake-transport dispatches survive a later discovered-model
+      // selection instead of failing profile lookup.
+      const preservedFake = frozenProfiles.filter((profile) => profile.providerId === "local-fake");
+      activeProfiles = [chosen, ...preservedFake];
       return publicProfile(activeProfiles[0]);
     },
     clearDiscoveredModel() {
