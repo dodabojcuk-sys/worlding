@@ -65,7 +65,6 @@ import {
   type NuwaBranchNodeProvenance,
   type NuwaBranchScene
 } from "../storyContracts/nuwaBranchNode.ts";
-import { serializeStoryMarkdown } from "../storyWorkspace/storyWorkspaceRepository.mjs";
 
 import {
   createWorkspaceNote,
@@ -3143,13 +3142,19 @@ export function createStoryStudioWorkspaceOperations(input: {
       const nodeId = requireText(nodeInput.nodeId, "女娲分支节点", 180);
       const current = readNuwaBranchNodeNote(projectPath, branchWorkVersionId, nodeId);
       if (!current) return clone({ conflict: true, replayed: false, reason: "分支节点不存在。", node: null });
+      const replayAuthorActionId = `${requireText(nodeInput.operationId, "节点内容操作", 180)}.author`;
+      // Durable replay: the same operation id maps to the author-edit
+      // provenance it already produced and returns the current content.
+      if (current.provenance.some((entry) => entry.kind === "author-edit" && entry.authorActionId === replayAuthorActionId)) {
+        return clone({ conflict: false, replayed: true, reason: null, node: current });
+      }
       const expectedContentRevision = requireNonNegativeInteger(nodeInput.expectedContentRevision, "节点内容修订");
       if (current.contentRevision !== expectedContentRevision) return clone({ conflict: true, replayed: false, reason: "节点内容已变化；请基于最新草稿重试。", node: current });
       const editedAt = requireText(nodeInput.editedAt, "编辑时间", 48);
       const node = normalizeNuwaBranchNode({
         ...current,
         blocks: nodeInput.blocks,
-        provenance: [...current.provenance, { kind: "author-edit", authorActionId: requireText(nodeInput.authorActionId, "编辑作者动作", 180), at: editedAt }],
+        provenance: [...current.provenance, { kind: "author-edit", authorActionId: replayAuthorActionId, at: editedAt }],
         contentRevision: current.contentRevision + 1,
         updatedAt: editedAt
       });

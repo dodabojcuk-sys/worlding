@@ -1160,18 +1160,23 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     const root = creationSourcePort()?.resolveRootWorkVersion(project.id);
     if (!root || root.identity.status !== "active") throw failure("请先建立当前作品主版本，再保存女娲分支。", 409);
     const current = creationSourcePort().resolveWorkVersion(project.id, root.identity.workVersionId);
-    const operationId = operation(input.operationId);
+    operation(input.operationId);
     const originRunId = input.runId ? requiredText(input.runId, "来源 Run", 180) : `manual.${digest({ projectId: project.id, displayName: String(input.displayName || "") }).slice(0, 12)}`;
     const created = creationSourcePort().createNuwaBranchWorkVersion(project.id, {
       parentVersionId: root.identity.workVersionId,
       expectedParentRevision: current.identity.currentRevision,
-      expectedParentManifestId: current.manifest.canonicalDigest,
+      expectedParentManifestId: current.identity.headManifestId,
       displayName: requiredText(input.displayName, "分支名称", 120),
       originRunId,
       originHandoffId: input.handoffId == null ? null : requiredText(input.handoffId, "来源交接", 180),
-      authorActionId: `${operationId}.author`,
+      // Replay-deterministic: the payload must not depend on the caller's
+      // operation id, or a same-branch re-save would be rejected as a
+      // different-payload idempotency conflict instead of replaying.
+      authorActionId: `nuwa-branch.author.${originRunId}`,
       idempotencyKey: `nuwa-branch:${project.id}:${originRunId}`,
-      createdAt: now()
+      // Pinned to the root revision time so a same-branch re-save replays the
+      // identical payload instead of tripping the idempotency conflict.
+      createdAt: root.revision.createdAt
     });
     return presentBranch(created);
   }
@@ -1254,10 +1259,11 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     }));
     const result = creationSourcePort().appendNuwaBranchCheckpoint(project.id, {
       branchWorkVersionId,
-      expectedRevision: read.branch.currentRevision,
+      expectedRevision: Number.isSafeInteger(input.expectedRevision) ? input.expectedRevision : read.branch.currentRevision,
       idempotencyKey: `nuwa-branch-checkpoint:${branchWorkVersionId}:${idempotencyKey}`,
-      authorActionId: `${operationId}.author`,
-      createdAt: now(),
+      // Deterministic per (branch, key): a replay must reproduce the exact
+      // same payload or the authority rejects it as a different-payload reuse.
+      authorActionId: `nuwa-branch.checkpoint.${createHash("sha256").update(`${branchWorkVersionId}\u0000${idempotencyKey}`, "utf8").digest("hex").slice(0, 24)}`,
       provenanceRefs,
       semanticDeltaRefs: read.nodes.map((node) => `nuwa-node:${node.nodeId}:r${node.contentRevision}`)
     });
