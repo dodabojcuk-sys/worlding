@@ -76,6 +76,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const branchCreateAttemptsRef = useRef(new Map<string, string>());
   const checkpointAttemptsRef = useRef(new Map<string, string>());
   const branchSavingRef = useRef(false);
+  const [activeSceneKey, setActiveSceneKey] = useState("");
+  const [inspectorCharacterId, setInspectorCharacterId] = useState<string | null>(null);
   const [branchList, setBranchList] = useState<NuwaBranchSummary[]>([]);
   const [activeBranchId, setActiveBranchId] = useState("");
   const [branchRead, setBranchRead] = useState<NuwaBranchReadModel | null>(null);
@@ -142,13 +144,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       setBranchRead(next);
       const wantedNode = new URLSearchParams(window.location.search).get("nodeId")?.trim() || "";
       const target = (wantedNode && next.nodes.some((node) => node.nodeId === wantedNode) ? wantedNode : "") || next.nodes.at(-1)?.nodeId || null;
-      setBranchNodeId(target);
+      setBranchNodeId(target ?? null);
       const node = next.nodes.find((item) => item.nodeId === target) ?? null;
       setBranchDraftBlocks(node ? node.blocks.map((block) => ({ ...block })) : null);
     }).catch((reason: unknown) => { if (branchActive) setBranchStatus({ kind: "idle", text: messageFor(reason, "分支内容暂不可读。") }); });
     return () => { branchActive = false; };
   }, [projectId, activeBranchId]);
 
+  const visibleBranchNodes = (branchRead?.nodes ?? []).filter((node) => !activeSceneKey || node.sceneKey === activeSceneKey);
   const branchNode = branchRead?.nodes.find((node) => node.nodeId === branchNodeId) ?? null;
   const branchBlocksChanged = branchNode && branchDraftBlocks ? JSON.stringify(branchNode.blocks) !== JSON.stringify(branchDraftBlocks) : false;
   const selectBranchNode = (node: NuwaBranchNode) => {
@@ -450,6 +453,15 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : executable ? "已配置执行器；开始排演才会发送明确授权的请求。" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
       </header>
 
+      <nav className="nuwa-context-strip" aria-label="当前工作上下文">
+        <span className="nuwa-context-item"><small>单元</small><strong>{branchRead?.scenes[0]?.title ?? "—"}</strong></span>
+        <label className="nuwa-context-item"><small>分支</small><select aria-label="选择女娲分支" value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}><option value="">选择分支</option>{branchList.map((branch) => <option key={branch.workVersionId} value={branch.workVersionId}>{branch.displayName}</option>)}</select></label>
+        <label className="nuwa-context-item"><small>场景</small><select aria-label="选择场景" value={activeSceneKey} onChange={(event) => { setActiveSceneKey(event.target.value); const target = branchRead?.nodes.find((node) => node.sceneKey === event.target.value); if (target) selectBranchNode(target); }}><option value="">全部场景</option>{(branchRead?.scenes ?? []).map((scene) => <option key={scene.sceneKey} value={scene.sceneKey}>{scene.title}</option>)}</select></label>
+        <span className="nuwa-context-item"><small>世界时间</small><strong>{branchNode ? (branchNode.worldTime.kind === "unknown" ? "未知" : branchNode.worldTime.label ?? branchNode.worldTime.kind) : "—"}</strong></span>
+        <span className="nuwa-context-item"><small>叙述视角</small><strong>作者全知</strong></span>
+        {branchStatus.text ? <span className={`nuwa-context-item is-save-${branchStatus.kind}`} role="status">{branchStatus.text}</span> : null}
+        <a className="nuwa-context-item" href={`/event-line?projectId=${encodeURIComponent(projectId ?? "")}&branchId=${encodeURIComponent(activeBranchId)}${branchNodeId ? `&nodeId=${encodeURIComponent(branchNodeId)}` : ""}`}>返回事件线</a>
+      </nav>
       {error ? <p className="nuwa-n1-message is-error" role="alert"><AlertTriangle />{error}</p> : null}
       {notice ? <p className="nuwa-n1-message is-notice" role="status"><CheckCircle2 />{notice}</p> : null}
       {run?.authorization ? <p className="nuwa-n1-message is-notice" data-testid="nuwa-n1-authorization"><ShieldCheck />{run.authorization.status === "active" ? `高权限自动执行已授权：当前 Run、${run.authorization.storyUnitId} 与 ${run.authorization.actorIds.length} 位角色；最多 ${run.authorization.maxSteps} 步 / ${run.authorization.maxProviderDispatches} 次模型发送，可随时停止或回溯。` : "此 Run 的高权限授权已失效；不会继续自动写入。"}</p> : null}
@@ -460,6 +472,9 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       </section>
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
+        <details className="nuwa-run-settings" open={!run}>
+          <summary>范围与运行设置</summary>
+          <div className="nuwa-run-settings-grid">
         <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !selectableWorkVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{selectableWorkVersions.length ? selectableWorkVersions.map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>) : <option value="">尚未建立正式版本 · 仅候选排演</option>}</select></label>
         <label><span>事件线</span><select aria-label="事件线" value={storylineKey} disabled={Boolean(run) || busy} onChange={(event) => { const next = bootstrap?.storylines.find((line) => line.key === event.target.value); setStorylineKey(event.target.value); setStoryUnitId(next?.units[0]?.id ?? ""); setEndStoryUnitId(next?.units[0]?.id ?? ""); setSetup(null); }}>{bootstrap?.storylines.map((line) => <option key={line.key} value={line.key}>{line.title}</option>)}</select></label>
         <label><span>从单元开始</span><select aria-label="从单元开始" value={storyUnitId} disabled={Boolean(run) || busy || !scopeUnits.length} onChange={(event) => { const next = event.target.value; setStoryUnitId(next); if (scopeMode === "bounded" && (!endStoryUnitId || scopeUnits.findIndex((unit) => unit.id === endStoryUnitId) < scopeUnits.findIndex((unit) => unit.id === next))) setEndStoryUnitId(next); setSetup(null); }}>{scopeUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
@@ -467,6 +482,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         {scopeMode === "bounded" ? <label><span>到单元结束</span><select aria-label="到单元结束" value={endStoryUnitId} disabled={Boolean(run) || busy || !scopeUnits.length} onChange={(event) => { setEndStoryUnitId(event.target.value); setSetup(null); }}>{scopeUnits.slice(Math.max(0, scopeUnits.findIndex((unit) => unit.id === storyUnitId))).map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : <span className="nuwa-n1-scope-hint">持续模式会从开始单元依序推进；N1 本轮最多覆盖 3 个单元 / 6 步，可暂停并恢复。</span>}
         <label><span>自动关系类型</span><select value={relationTypeId ?? ""} disabled={Boolean(run) || busy || !bootstrap?.relationTypes.length} onChange={(event) => setRelationTypeId(event.target.value || null)}><option value="">不写关系</option>{bootstrap?.relationTypes.map((type) => <option key={type.id} value={type.id}>{type.title}</option>)}</select></label>
         <label className="nuwa-n1-goal"><span>局部目标</span><input value={goal} disabled={Boolean(run) || busy} onChange={(event) => { setGoal(event.target.value); setSetup(null); }} maxLength={240} placeholder="例如：决定是否沿旧桥继续追查" /></label>
+          </div>
+        </details>
         <div className="nuwa-n1-status"><span>状态</span><strong>{statusLabel(status)}</strong>{run?.run ? <small>{run.run.scope.currentSceneIndex + 1} / {run.run.scope.scenes.length} 单元 · {run.run.steps.length} / {runStepBudget(run.run)} 步 · 本地/网络模型发送 {run.run.providerDispatches} / 12 · 内部工具回合 {internalToolTurns(run.run)}</small> : <small>范围内自动分步，最多 3 个单元 / 6 步</small>}</div>
         {!run ? <button type="button" className="primary-action" disabled={!canPrepare || busy || !executable} onClick={create}><Play />开始排演</button> : null}
         {run?.run?.status === "ready" ? <><button type="button" className="primary-action" disabled={busy} onClick={runContinuously}><Play />连续运行</button><button type="button" disabled={busy} onClick={() => runAction("step")}><Play />开始第一步</button><button type="button" className="danger-action" disabled={interrupting} onClick={() => runAction("stop")}><OctagonX />停止</button></> : null}
@@ -475,6 +492,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <><button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button><button type="button" className="primary-action" disabled={busy} onClick={beginAnotherRun}><MessageSquarePlus />新建排演</button></> : null}
       </section>
 
+      <div className="nuwa-n1-body">
+        <div className="nuwa-n1-primary">
       <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
         <div><small>女娲分支 · 长期保存</small><strong>{branchRead ? branchRead.branch.displayName : "尚未选择分支"}</strong><span>{branchRead ? (branchRead.branch.staleness.state === "stale" ? `落后于主线 r${branchRead.branch.staleness.currentParentRevision ?? "?"}` : "与主线来源一致") : "作者显式保存后，分支才获得版本身份；普通排演结果不会自动成为分支。"}</span></div>
         <div>
@@ -487,16 +506,33 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         </div>
         {branchStatus.text ? <p role="status" data-status={branchStatus.kind}>{branchStatus.text}</p> : null}
         {branchRead ? <>
+          <div className="nuwa-scene-nav" aria-label="场景导航">
+            <small>场景</small>
+            {(branchRead.scenes ?? []).map((scene) => <button key={scene.sceneKey} type="button" className={scene.sceneKey === activeSceneKey ? "is-active" : ""} onClick={() => { setActiveSceneKey(scene.sceneKey); const target = branchRead.nodes.find((node) => node.sceneKey === scene.sceneKey); if (target) selectBranchNode(target); }}>{scene.title}</button>)}
+          </div>
           <div aria-label="分支节点列表">
-            {branchRead.nodes.map((node) => <button key={node.nodeId} type="button" style={{ marginRight: 8, fontWeight: node.nodeId === branchNodeId ? 700 : 400 }} onClick={() => selectBranchNode(node)}>{node.title} · {node.reviewState === "branch-adopted" ? "分支已采纳" : "草稿"} · 内容 r{node.contentRevision}</button>)}
-            {branchRead.nodes.length === 0 ? <span>分支暂无节点；用下方表单创建第一个完整叙事节点。</span> : null}
+            {visibleBranchNodes.map((node) => <button key={node.nodeId} type="button" style={{ marginRight: 8, fontWeight: node.nodeId === branchNodeId ? 700 : 400 }} onClick={() => selectBranchNode(node)}>{node.title} · {node.reviewState === "branch-adopted" ? "分支已采纳" : "草稿"} · 内容 r{node.contentRevision}</button>)}
+            {visibleBranchNodes.length === 0 ? <span>当前场景暂无节点。</span> : null}
           </div>
           {branchNode && branchDraftBlocks ? <div aria-label="分支节点编辑">
             <h3>{branchNode.title} <small>场景 {branchNode.sceneKey.slice(0, 16)}… · 世界时间：{branchNode.worldTime.kind === "unknown" ? "未知" : branchNode.worldTime.label ?? branchNode.worldTime.kind}</small></h3>
             {branchDraftBlocks.map((block, index) => {
               const owner = block.kind === "dialogue" ? block.speakerId : block.kind === "action" || block.kind === "psychology" ? block.characterId : null;
-              return <label key={index} style={{ display: "block", margin: "6px 0" }}><span>{blockLabel(block.kind)}{owner ? ` · ${owner}` : ""}{block.kind === "dialogue" && block.heardBy?.length ? `（闻者：${block.heardBy.join("、")}）` : ""}</span>
-                <input style={{ width: "100%" }} value={block.text} aria-label={`${blockLabel(block.kind)} ${index + 1}`} onChange={(event) => editBranchBlockText(index, event.target.value)} onBlur={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }} /></label>;
+              const ownerTitle = owner ? bootstrap?.participants.find((participant) => participant.id === owner)?.title ?? owner : null;
+              if (block.kind === "dialogue") {
+                return <div key={index} className="nuwa-dialogue-row">
+                  <button type="button" className="nuwa-avatar" aria-label={`查看 ${ownerTitle ?? "角色"} 的知情`} onClick={() => { setInspectorCharacterId(block.speakerId ?? null); setInspectorOpen(true); setInspectorTab("context"); }}><span>{(ownerTitle ?? "?").slice(0, 1)}</span></button>
+                  <div className="nuwa-dialogue-main">
+                    <button type="button" className="nuwa-speaker" onClick={() => { setInspectorCharacterId(block.speakerId ?? null); setInspectorOpen(true); setInspectorTab("context"); }}>{ownerTitle ?? "未知说话人"}</button>
+                    <input className="nuwa-block-input is-dialogue" value={block.text} aria-label={`${blockLabel(block.kind)} ${index + 1}`} onChange={(event) => editBranchBlockText(index, event.target.value)} onBlur={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }} />
+                    {block.heardBy?.length ? <small className="nuwa-heard">（闻者：{block.heardBy.map((id) => bootstrap?.participants.find((participant) => participant.id === id)?.title ?? id).join("、")}）</small> : null}
+                  </div>
+                </div>;
+              }
+              return <div key={index} className={`nuwa-block-row is-${block.kind}`}>
+                {ownerTitle ? <small className="nuwa-block-owner">{ownerTitle}</small> : null}
+                <input className={`nuwa-block-input is-${block.kind}`} value={block.text} aria-label={`${blockLabel(block.kind)} ${index + 1}`} onChange={(event) => editBranchBlockText(index, event.target.value)} onBlur={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }} />
+              </div>;
             })}
             <div style={{ margin: "8px 0" }}>
               <button type="button" onClick={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }}>保存草稿</button>
@@ -519,8 +555,6 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         </> : null}
       </section>
 
-      <div className="nuwa-n1-body">
-        <div className="nuwa-n1-primary">
       {!run ? <section className="nuwa-n1-setup" aria-label="女娲排演准备">
         <div className="nuwa-n1-setup-copy"><small>正式角色 · 稳定身份</small><h2>选择参与者</h2><p>角色只会获得自己的可知范围；角色档案、作者目标与其他角色秘密不会自动进入其上下文。</p></div>
         <fieldset><legend>选择 2–3 位正式角色</legend><div className="nuwa-n1-participant-options">{bootstrap?.participants.map((participant) => {
@@ -537,7 +571,23 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       <aside className={`nuwa-n1-inspector ${inspectorOpen ? "is-open" : ""}`} aria-label="女娲上下文检查器">
         <header><div><PanelRight /><span><small>按需展开</small><strong>上下文检查器</strong></span></div><button type="button" aria-label={inspectorOpen ? "收起上下文检查器" : "展开上下文检查器"} aria-pressed={inspectorOpen} onClick={() => setInspectorOpen((open) => !open)}><PanelRight /></button></header>
         {inspectorOpen ? <><nav aria-label="检查器内容"><button type="button" aria-pressed={inspectorTab === "context"} onClick={() => setInspectorTab("context")}>角色知情</button><button type="button" aria-pressed={inspectorTab === "step"} onClick={() => setInspectorTab("step")}>步骤结果</button><button type="button" aria-pressed={inspectorTab === "log"} onClick={() => setInspectorTab("log")}>运行记录</button></nav>
-          {inspectorTab === "context" ? <ContextInspector actors={actorContext} mode={run?.run ? "committed" : "preview"} participantLabels={new Map(bootstrap?.participants.map((participant) => [participant.id, participant.title]) ?? [])} sceneLabels={new Map(bootstrap?.storyUnits.map((unit) => [unit.id, unit.title]) ?? [])} /> : null}
+          {inspectorTab === "context" ? (actorContext.length ? <ContextInspector actors={actorContext} mode={run?.run ? "committed" : "preview"} participantLabels={new Map(bootstrap?.participants.map((participant) => [participant.id, participant.title]) ?? [])} sceneLabels={new Map(bootstrap?.storyUnits.map((unit) => [unit.id, unit.title]) ?? [])} /> : <section className="nuwa-branch-character" aria-label="角色知情摘要">
+              {(() => {
+                const candidates = (inspectorCharacterId ? [inspectorCharacterId] : Array.from(new Set((branchNode?.blocks ?? []).map((block) => block.kind === "dialogue" ? String(block.speakerId) : "").filter(Boolean)))).slice(0, 3);
+                if (!candidates.length) return <p>正文里还没有可查看的角色；点击对白的头像或姓名即可查看该角色在当前事件帧的知情摘要。</p>;
+                return candidates.map((characterId) => {
+                  const title = bootstrap?.participants.find((participant) => participant.id === characterId)?.title ?? characterId;
+                  const lines = (branchNode?.blocks ?? []).filter((block) => block.kind === "dialogue" && String(block.speakerId) === characterId);
+                  const heardLines = (branchNode?.blocks ?? []).filter((block) => block.kind === "dialogue" && (block.heardBy ?? []).includes(characterId));
+                  return <article key={characterId}><header><strong>{title}</strong><small>当前事件帧 · {branchNode?.title ?? ""}</small></header>
+                    <p>{lines.length ? `本节点台词 ${lines.length} 句` : "本节点没有该角色台词"}</p>
+                    {lines.length ? <ul>{lines.map((line, lineIndex) => <li key={lineIndex}>“{line.text}”</li>)}</ul> : null}
+                    {heardLines.length ? <p><small>听闻：{heardLines.map((line) => `“${line.text}”`).join("；")}</small></p> : null}
+                    <p><small>更完整的角色知情与关系将在排演运行后由上下文检查器提供。</small></p>
+                  </article>;
+                });
+              })()}
+            </section>) : null}
           {inspectorTab === "step" ? <StepInspector step={selectedStep} /> : null}
           {inspectorTab === "log" ? <LogInspector run={run} /> : null}
         </> : null}

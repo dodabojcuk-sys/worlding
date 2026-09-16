@@ -194,3 +194,29 @@
   .nuwa-n1-composer > div > span { text-align: start; }
   .nuwa-n1-application-summary dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ── R1 视觉重构：场景正文为主，配置收起 ── */
+.nuwa-context-strip { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border, rgba(127,127,127,.25)); }
+.nuwa-context-item { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.nuwa-context-item small { color: var(--text-muted, rgba(127,127,127,.9)); }
+.nuwa-context-item select { max-width: 180px; }
+.nuwa-context-item.is-save-draft { color: var(--status-candidate, #2a6); }
+.nuwa-context-item.is-save-checkpoint { color: var(--status-confirmed, #17a); font-weight: 600; }
+.nuwa-run-settings summary { cursor: pointer; font-size: 13px; padding: 4px 0; }
+.nuwa-run-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px; padding: 8px 0; }
+.nuwa-scene-nav { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.nuwa-scene-nav small { color: var(--text-muted, rgba(127,127,127,.9)); }
+.nuwa-scene-nav button { border: 1px solid var(--border, rgba(127,127,127,.35)); background: transparent; border-radius: 999px; padding: 2px 10px; cursor: pointer; }
+.nuwa-scene-nav button.is-active { font-weight: 700; border-color: currentColor; }
+.nuwa-dialogue-row { display: grid; grid-template-columns: 36px 1fr; gap: 8px; margin: 10px 0 10px 24px; }
+.nuwa-avatar { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--border, rgba(127,127,127,.4)); background: transparent; font-weight: 700; cursor: pointer; }
+.nuwa-dialogue-main { display: flex; flex-direction: column; }
+.nuwa-speaker { background: transparent; border: 0; padding: 0; font-weight: 600; font-size: 13px; text-align: left; cursor: pointer; color: inherit; }
+.nuwa-block-input { width: 100%; border: 0; border-bottom: 1px dashed transparent; background: transparent; font: inherit; color: inherit; padding: 2px 0; }
+.nuwa-block-input:focus { outline: none; border-bottom-color: var(--border, rgba(127,127,127,.5)); }
+.nuwa-block-row.is-description .nuwa-block-input, .nuwa-block-row.is-narration .nuwa-block-input { color: var(--text-body, inherit); }
+.nuwa-block-row.is-psychology .nuwa-block-input { font-style: italic; opacity: .92; }
+.nuwa-block-row.is-action .nuwa-block-input { padding-left: 12px; }
+.nuwa-block-owner { color: var(--text-muted, rgba(127,127,127,.9)); margin-right: 6px; }
+.nuwa-heard { color: var(--text-muted, rgba(127,127,127,.9)); }
+.nuwa-branch-character article { border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
