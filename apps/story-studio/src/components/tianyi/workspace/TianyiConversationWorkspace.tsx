@@ -155,6 +155,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     events: handoffRequest.eventRefs.map((ref) => `${ref.eventId}@${ref.revision}`).sort()
   }), [handoffRequest]);
   const handoffConsumedRef = useRef(new Set<string>());
+  const authorDismissedMaterialIds = useRef(new Set<string>());
+  const dismissMaterial = useCallback((materialId: string) => { authorDismissedMaterialIds.current.add(materialId); }, []);
   const relationHandoff = handoffRequest;
 
   useEffect(() => {
