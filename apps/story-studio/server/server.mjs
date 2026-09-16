@@ -4239,7 +4239,7 @@ function receiptMachineSelectionId(value) {
 async function handleNuwaBranchRequest(request, response, url) {
   const prefix = "/__local/story-studio/nuwa-branch";
   requireSameOrigin(request);
-  const route = url.pathname.slice(prefix.length).replace(/^\/u, "");
+  const route = url.pathname.slice(prefix.length).replace(/^\//u, "");
   if (request.method === "GET") {
     if (route === "list") {
       sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.listBranches({ projectId: requireQueryValue(url, "projectId") })) });
