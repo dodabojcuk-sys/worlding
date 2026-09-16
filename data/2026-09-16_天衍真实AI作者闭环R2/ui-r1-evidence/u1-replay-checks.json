@@ -19,10 +19,10 @@
   },
   "afterModeSwitch": {
     "summary": [
-      2,
+      1,
       1
     ],
-    "gu": true,
+    "gu": false,
     "cheng": true,
     "event": true
   },
