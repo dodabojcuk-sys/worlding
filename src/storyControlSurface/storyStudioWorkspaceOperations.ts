@@ -4535,7 +4535,7 @@ function findHostedNarrativeArrangement(projectPath: string, projectId: string, 
     const note = readWorkspaceNote(projectPath, entry.relativePath);
     const store = parseNarrativeArrangementStore(note.frontmatter[NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY], note.id);
     for (const arrangement of store.arrangements) {
-      if (arrangement.arrangementId === arrangementId) matches.push({ note, store, arrangement });
+      if (arrangement.arrangementId === arrangementId) matches.push({ host: { relativePath: note.relativePath, contentHash: note.contentHash }, store, arrangement });
     }
   }
   if (matches.length > 1) throw new Error("Narrative arrangement has more than one Story Unit host.");
