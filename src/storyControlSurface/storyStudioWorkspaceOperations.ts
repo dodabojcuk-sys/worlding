@@ -3234,6 +3234,19 @@ export function createStoryStudioWorkspaceOperations(input: {
       });
     },
 
+    snapshotNuwaBranchCheckpoint(snapshotInput: { projectId: string; branchWorkVersionId: string; revision: number; createdAt: string; nodes: NuwaBranchNode[] }): { snapshotFile: string } {
+      const projectPath = resolveProjectPath(rootPath, snapshotInput.projectId);
+      requireNuwaBranchIdentity(projectPath, requireText(snapshotInput.branchWorkVersionId, "女娲分支作品版本", 100));
+      const snapshotFile = snapshotNuwaBranchCheckpointRecord(projectPath, snapshotInput.branchWorkVersionId, snapshotInput.revision, requireText(snapshotInput.createdAt, "检查点时间", 48), snapshotInput.nodes.map((node) => normalizeNuwaBranchNode(node)));
+      return clone({ snapshotFile });
+    },
+
+    listNuwaBranchCheckpoints(listInput: { projectId: string; branchWorkVersionId: string }): Array<{ revision: number; createdAt: string; nodes: NuwaBranchNode[] }> {
+      const projectPath = resolveProjectPath(rootPath, listInput.projectId);
+      requireNuwaBranchIdentity(projectPath, requireText(listInput.branchWorkVersionId, "女娲分支作品版本", 100));
+      return clone(listNuwaBranchCheckpointSnapshots(projectPath, listInput.branchWorkVersionId).map((snapshot) => ({ revision: snapshot.revision, createdAt: snapshot.createdAt, nodes: snapshot.nodes })));
+    },
+
     listNuwaBranches(branchInput: { projectId: string }): Array<{ workVersionId: string; displayName: string; currentRevision: number; derivation: Record<string, unknown> | null; staleness: { state: string; pinnedRevision: number | null; currentParentRevision: number | null } }> {
       const projectPath = resolveProjectPath(rootPath, branchInput.projectId);
       const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
@@ -4459,6 +4472,48 @@ function readNuwaBranchScenes(projectPath: string, branchWorkVersionId: string):
 
 function writeNuwaBranchScenes(projectPath: string, branchWorkVersionId: string, scenes: NuwaBranchScene[]): void {
   nuwaBranchAtomicWrite(path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "scenes.json"), `${stableJson({ schemaVersion: NUWA_BRANCH_STORE_SCHEMA, branchWorkVersionId, scenes })}\n`);
+}
+
+type NuwaBranchCheckpointSnapshot = {
+  schemaVersion: string;
+  branchWorkVersionId: string;
+  revision: number;
+  createdAt: string;
+  nodes: NuwaBranchNode[];
+};
+
+function checkpointSnapshotFile(projectPath: string, branchWorkVersionId: string, revision: number): string {
+  return path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "checkpoints", `${String(revision).padStart(12, "0")}.json`);
+}
+
+// Checkpoint content snapshots are immutable: an identical rewrite is a safe
+// replay, any different content for the same revision is refused.  This is
+// what lets each checkpoint restore exactly the node content it certified.
+function snapshotNuwaBranchCheckpointRecord(projectPath: string, branchWorkVersionId: string, revision: number, createdAt: string, nodes: NuwaBranchNode[]): string {
+  const positive = Number.isSafeInteger(revision) && revision > 0 ? revision : (() => { throw new Error("女娲分支检查点修订必须为正整数。"); })();
+  const snapshot: NuwaBranchCheckpointSnapshot = { schemaVersion: NUWA_BRANCH_STORE_SCHEMA, branchWorkVersionId, revision: positive, createdAt, nodes };
+  const target = checkpointSnapshotFile(projectPath, branchWorkVersionId, positive);
+  const content = `${stableJson(snapshot)}\n`;
+  if (existsSync(target)) {
+    if (lstatSync(target).isSymbolicLink()) throw new Error("女娲分支检查点存储不能是符号链接。");
+    if (readFileSync(target, "utf8") !== content) throw new Error(`女娲分支检查点 r${positive} 已存在且内容不同；拒绝覆盖。`);
+    return target;
+  }
+  nuwaBranchAtomicWrite(target, content);
+  return target;
+}
+
+function listNuwaBranchCheckpointSnapshots(projectPath: string, branchWorkVersionId: string): NuwaBranchCheckpointSnapshot[] {
+  const directory = path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "checkpoints");
+  if (!existsSync(directory)) return [];
+  const snapshots: NuwaBranchCheckpointSnapshot[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".json")) continue;
+    const parsed = JSON.parse(readFileSync(path.join(directory, entry.name), "utf8")) as NuwaBranchCheckpointSnapshot;
+    if (parsed.schemaVersion !== NUWA_BRANCH_STORE_SCHEMA || parsed.branchWorkVersionId !== branchWorkVersionId) throw new Error("女娲分支检查点与其绑定身份不一致。");
+    snapshots.push(parsed);
+  }
+  return snapshots;
 }
 
 function assertBranchEventExists(projectPath: string, branchWorkVersionId: string, eventId: string): void {

@@ -51,11 +51,11 @@ test("女娲分支纵向切片：分支→场景→两节点→改对白→autos
   const mainlineEventsBefore = operations.listWorldObjects({ projectId }).filter((item) => item.type === "event").map((item) => item.id).sort();
 
   // ── 建立女娲分支（作者显式保存；幂等键固定）──────────────────────
-  const branchCreated = nuwaN1Port.createBranch({ projectId, displayName: "码头夜谈分支", operationId: "nuwa-branch.create.slice" });
+  const branchCreated = nuwaN1Port.createBranch({ projectId, displayName: "码头夜谈分支", createdAt: "2026-09-16T16:00:00.000Z", operationId: "nuwa-branch.create.slice" });
   const branchId = branchCreated.branch.workVersionId;
   assert.equal(branchCreated.branch.derivation?.purpose, "nuwa-branch");
   assert.equal(branchCreated.branch.currentRevision, 1, "创建即首个修订");
-  const branchReplayed = nuwaN1Port.createBranch({ projectId, displayName: "码头夜谈分支", operationId: "nuwa-branch.create.slice.again" });
+  const branchReplayed = nuwaN1Port.createBranch({ projectId, displayName: "码头夜谈分支", createdAt: "2026-09-16T16:00:00.000Z", operationId: "nuwa-branch.create.slice.again" });
   assert.equal(branchReplayed.branch.workVersionId, branchId, "同来源重复保存必须命中同一分支身份");
 
   // ── 场景铸造一次，两个完整混合节点 ───────────────────────────────
@@ -120,7 +120,7 @@ test("女娲分支纵向切片：分支→场景→两节点→改对白→autos
   }), /冲突|变化/);
 
   // ── 一次显式 checkpoint：恰好 +1 revision，带节点溯源 ────────────
-  const checkpoint = nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", operationId: "nuwa-branch.checkpoint.1" });
+  const checkpoint = nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", createdAt: "2026-09-16T16:10:00.000Z", operationId: "nuwa-branch.checkpoint.1" });
   assert.equal(checkpoint.checkpoint.revision, branchBeforeEdits.identity.currentRevision + 1);
   assert.equal(checkpoint.checkpoint.provenanceCount, 2);
   const afterCheckpoint = authority.getVersion(branchId);
@@ -129,10 +129,10 @@ test("女娲分支纵向切片：分支→场景→两节点→改对白→autos
   assert.ok(afterCheckpoint.manifest.optionalNuwaProvenanceRefs.every((ref) => ref.canonicalDigest === digestHex(ref.canonicalDigest) || /^[a-f0-9]{64}$/.test(ref.canonicalDigest)));
   // 重复 checkpoint 同一幂等键不重复建版
   // 网络重试场景：客户端以同一请求体重发（同键、同 expectedRevision）。
-  const checkpointReplay = nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", expectedRevision: branchBeforeEdits.identity.currentRevision, operationId: "nuwa-branch.checkpoint.1.replay" });
+  const checkpointReplay = nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", createdAt: "2026-09-16T16:10:00.000Z", expectedRevision: branchBeforeEdits.identity.currentRevision, operationId: "nuwa-branch.checkpoint.1.replay" });
   assert.equal(checkpointReplay.checkpoint.revision, afterCheckpoint.identity.currentRevision, "同幂等键重试不得重复建版");
   // 键复用但状态已前进（不同负载）必须被拒，而不是静默再建一版。
-  assert.throws(() => nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", operationId: "nuwa-branch.checkpoint.1.reuse" }), /不同负载|different payload|already used/i);
+  assert.throws(() => nuwaN1Port.checkpointBranch({ projectId, branchWorkVersionId: branchId, idempotencyKey: "阶段一", createdAt: "2026-09-16T16:10:00.000Z", operationId: "nuwa-branch.checkpoint.1.reuse" }), /不同负载|different payload|already used/i);
 
   // ── 编排：分支 Placement 就绪；重复创建节点不重复 ─────────────────
   const arrangement = operations.readNarrativeArrangement({ projectId, workVersionId: branchId, narrativePathId: unit.id });

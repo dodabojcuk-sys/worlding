@@ -73,6 +73,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [queuedParticipantId, setQueuedParticipantId] = useState<string | null>(null);
+  const branchCreateAttemptsRef = useRef(new Map<string, string>());
+  const checkpointAttemptsRef = useRef(new Map<string, string>());
   const [branchList, setBranchList] = useState<NuwaBranchSummary[]>([]);
   const [activeBranchId, setActiveBranchId] = useState("");
   const [branchRead, setBranchRead] = useState<NuwaBranchReadModel | null>(null);
@@ -168,9 +170,15 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const createBranch = () => {
     if (!projectId) return;
     const displayName = branchName.trim() || `女娲分支 ${new Date().toLocaleDateString("zh-CN")}`;
+    // One author action owns a stable time: retries of the same attempt reuse
+    // it until the attempt succeeds.
+    const attemptKey = `${projectId}:${displayName}`;
+    let branchCreatedAt = branchCreateAttemptsRef.current.get(attemptKey);
+    if (!branchCreatedAt) { branchCreatedAt = new Date().toISOString(); branchCreateAttemptsRef.current.set(attemptKey, branchCreatedAt); }
     const scope = beginOperation();
-    void props.runtime.withConnection((token) => createNuwaBranch({ projectId, displayName, operationId: newOperationId(), token })).then((result) => {
+    void props.runtime.withConnection((token) => createNuwaBranch({ projectId, displayName, createdAt: branchCreatedAt!, operationId: newOperationId(), token })).then((result) => {
       if (!isCurrentOperation(scope)) return;
+      branchCreateAttemptsRef.current.delete(attemptKey);
       setBranchList((currentList) => currentList.some((branch) => branch.workVersionId === result.branch.workVersionId) ? currentList : [...currentList, result.branch]);
       setActiveBranchId(result.branch.workVersionId);
       setBranchName("");
@@ -179,11 +187,16 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const checkpointBranch = () => {
     if (!projectId || !activeBranchId) return;
+    const key = checkpointKey.trim() || "阶段";
+    const attemptKey = `${activeBranchId}:${key}`;
+    let checkpointCreatedAt = checkpointAttemptsRef.current.get(attemptKey);
+    if (!checkpointCreatedAt) { checkpointCreatedAt = new Date().toISOString(); checkpointAttemptsRef.current.set(attemptKey, checkpointCreatedAt); }
     const scope = beginOperation();
-    void props.runtime.withConnection((token) => checkpointNuwaBranch({ projectId, branchWorkVersionId: activeBranchId, idempotencyKey: checkpointKey.trim() || "阶段", operationId: newOperationId(), token })).then((result) => {
+    void props.runtime.withConnection((token) => checkpointNuwaBranch({ projectId, branchWorkVersionId: activeBranchId, idempotencyKey: key, createdAt: checkpointCreatedAt!, operationId: newOperationId(), token })).then((result) => {
       if (!isCurrentOperation(scope)) return;
+      checkpointAttemptsRef.current.delete(attemptKey);
       setBranchList((currentList) => currentList.map((branch) => branch.workVersionId === result.branch.workVersionId ? result.branch : branch));
-      setBranchStatus({ kind: "checkpoint", text: `已保存阶段版本 r${result.checkpoint.revision}（${result.checkpoint.provenanceCount} 个节点溯源）；同标识重复保存不会重复建版。` });
+      setBranchStatus({ kind: "checkpoint", text: `已保存阶段版本 r${result.checkpoint.revision}（${result.checkpoint.provenanceCount} 个节点溯源，动作时间 ${result.checkpoint.createdAt}）；同标识重复保存不会重复建版。` });
     }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "阶段版本保存未完成。") }); });
   };
   const adoptBranchNodeNow = () => {

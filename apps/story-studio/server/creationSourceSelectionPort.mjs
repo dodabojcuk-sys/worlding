@@ -857,9 +857,6 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       expectedRevision: input.expectedRevision,
       authorActionId: input.authorActionId,
       idempotencyKey: input.idempotencyKey,
-      // Pinned to the branch head revision time: a replay of the same
-      // checkpoint key reproduces an identical payload even when the caller
-      // re-issues it with a fresh wall clock.
       createdAt: input.createdAt ?? branch.revision.createdAt,
       ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: input.expectedRevision + 1 }),
       optionalNuwaProvenanceRefs: input.provenanceRefs,
