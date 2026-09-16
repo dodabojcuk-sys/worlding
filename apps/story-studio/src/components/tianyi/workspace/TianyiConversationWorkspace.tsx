@@ -103,8 +103,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>(() => {
     const ids = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
     let stored: string[] = [];
-    try { stored = project ? JSON.parse(window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) ?? "[]") : []; } catch { stored = []; }
-    return [...new Set([...ids, ...stored])].slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+    let hasStoredSelection = false;
+    try {
+      const raw = project ? window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) : null;
+      hasStoredSelection = raw !== null;
+      stored = raw ? JSON.parse(raw) : [];
+    } catch { stored = []; }
+    // URL handoff references seed the selection only before the author has
+    // made any choice; afterwards the stored selection (including removals)
+    // is the authority — replays must not resurrect removed references.
+    return hasStoredSelection ? stored.slice(0, MAX_EXPLICIT_MATERIAL_REFS) : [...new Set([...ids, ...stored])].slice(0, MAX_EXPLICIT_MATERIAL_REFS);
   });
   const [selectedMapEvidence, setSelectedMapEvidence] = useState<{ map: MapDocument; elementId: string | null } | null>(null);
   const [selectedMaterialFile, setSelectedMaterialFile] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
@@ -134,6 +142,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
   const materialReturn = safeWorkspaceReturn(new URLSearchParams(window.location.search).get("materialReturn"));
+  const handoffSeedKeyRef = useRef("");
   const relationHandoff = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
 
   useEffect(() => {
@@ -309,21 +318,34 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setWorkContextEvents(events);
       setWorkContextUnits(units);
       setWorkMaterials(materials);
-      const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
-      const requestedMaterials = requested.materialIds;
+      // Author removals are authoritative: material reloads only drop
+      // references that no longer resolve, and never replay URL handoffs.
       setSelectedMaterialIds((current) => {
-        const next = [...new Set([
-        ...requestedMaterials.filter((id) => materials.some((item) => item.id === id)),
-        ...current.filter((id) => materials.some((item) => item.id === id))
-        ])];
+        const next = current.filter((id) => materials.some((item) => item.id === id));
         if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
-        return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+        return next;
       });
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
-      const exactRequestedEvents = requested.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
-      if (requested.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
-      if (requested.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
-      setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      // Handoff seeding happens once per project/version load; afterwards the
+      // author's additions and removals are authoritative and reloads only
+      // prune references that no longer resolve.
+      const seedKey = `${project?.id ?? ""}:${workVersionId ?? ""}`;
+      const firstLoad = handoffSeedKeyRef.current !== seedKey;
+      if (firstLoad) handoffSeedKeyRef.current = seedKey;
+      const exactRequestedEvents = relationHandoff.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
+      if (relationHandoff.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
+      if (firstLoad) {
+        if (relationHandoff.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
+        setSelectedMaterialIds((current) => {
+          const valid = relationHandoff.materialIds.filter((id) => materials.some((item) => item.id === id));
+          const next = [...new Set([...valid, ...current.filter((id) => materials.some((item) => item.id === id))])];
+          if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
+          return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+        });
+        setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      } else {
+        setSelectedMaterialIds((current) => current.filter((id) => materials.some((item) => item.id === id)));
+      }
       setPinnedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setRemovedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setWorkContextState("ready");
