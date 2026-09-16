@@ -8,6 +8,11 @@ import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSu
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
 import { factionScopes } from "./factionScopes";
+// Verified member-type mapping is pending the owner extension (per-project
+// faction member relation types); until it exists the scope projection stays
+// paused and renders nothing — a non-member relation must never become a
+// scope member just because it touches a faction.
+const FACTION_MEMBER_RELATION_TYPE_IDS: readonly string[] = [];
 
 type ViewMode = "graph" | "list";
 type RelationData = { objects: readonly WorldObjectSummary[]; relations: readonly RelationReadProjectionR0[] };
@@ -244,7 +249,7 @@ function RelationGraph(props: { projectId: string; workVersionId: string; center
     const points = graphSelectionPoints(props.selection, groups, nodes, positions);
     props.onViewport(fitViewport(new Map(points.map((point, index) => [String(index), point])), canvas.clientWidth, canvas.clientHeight));
   };
-  const factionRegions = factionScopes(props.relations, [...props.labels.values()].map((object) => ({ id: object.id, type: object.type, title: object.title, archived: object.status === "archived" })));
+  const factionRegions = factionScopes(props.relations, [...props.labels.values()].map((object) => ({ id: object.id, type: object.type, title: object.title, archived: object.status === "archived" })), { memberRelationTypeIds: FACTION_MEMBER_RELATION_TYPE_IDS });
   const factionHighlight = props.selection?.kind === "node" ? props.selection.id : null;
   return <section className={`focused-relations-graph ${props.selection ? "has-selection" : ""}`} aria-label="对象关系图">
     <div ref={canvasRef} className="focused-relations-canvas" data-testid="focused-relations-canvas" tabIndex={0} aria-label="关系连线画布" onWheel={(event) => { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale + (event.deltaY < 0 ? .1 : -.1) }); }} onPointerDown={(event) => { if (!(event.target instanceof Element) || event.target.closest("button")) return; event.currentTarget.setPointerCapture(event.pointerId); setDragStart({ x: event.clientX, y: event.clientY }); }} onPointerMove={(event) => { if (!dragStart) return; move({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y }); setDragStart({ x: event.clientX, y: event.clientY }); }} onPointerUp={() => setDragStart(null)} onKeyDown={(event) => { const step = 24; if (event.key === "ArrowLeft") { event.preventDefault(); move({ x: -step, y: 0 }); } if (event.key === "ArrowRight") { event.preventDefault(); move({ x: step, y: 0 }); } if (event.key === "ArrowUp") { event.preventDefault(); move({ x: 0, y: -step }); } if (event.key === "ArrowDown") { event.preventDefault(); move({ x: 0, y: step }); } if (event.key === "+" || event.key === "=") { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale + .1 }); } if (event.key === "-") { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale - .1 }); } if (event.key === "0") { event.preventDefault(); props.onRequestFit(); } }}>
