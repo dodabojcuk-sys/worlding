@@ -1139,7 +1139,132 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     };
   }
 
-  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply, freezeAutoApplicationDraft, rollbackAutoApplication };
+  // ── 女娲分支（作者显式长期保存的派生版本）───────────────────────────
+  // The branch is a real derived WorkVersion; its nodes are branch-scoped
+  // Events hosted by the Event Owner and placed by NarrativeArrangement.
+  function presentBranch(versionResult) {
+    const identity = versionResult.identity;
+    return {
+      version: "tianyan-nuwa-branch-read/v1",
+      branch: {
+        workVersionId: identity.workVersionId,
+        displayName: identity.displayName,
+        currentRevision: identity.currentRevision,
+        derivation: identity.derivation ?? null
+      }
+    };
+  }
+
+  function createBranch(input) {
+    const project = requireProject(input.projectId);
+    const root = creationSourcePort()?.resolveRootWorkVersion(project.id);
+    if (!root || root.identity.status !== "active") throw failure("请先建立当前作品主版本，再保存女娲分支。", 409);
+    const current = creationSourcePort().resolveWorkVersion(project.id, root.identity.workVersionId);
+    const operationId = operation(input.operationId);
+    const originRunId = input.runId ? requiredText(input.runId, "来源 Run", 180) : `manual.${digest({ projectId: project.id, displayName: String(input.displayName || "") }).slice(0, 12)}`;
+    const created = creationSourcePort().createNuwaBranchWorkVersion(project.id, {
+      parentVersionId: root.identity.workVersionId,
+      expectedParentRevision: current.identity.currentRevision,
+      expectedParentManifestId: current.manifest.canonicalDigest,
+      displayName: requiredText(input.displayName, "分支名称", 120),
+      originRunId,
+      originHandoffId: input.handoffId == null ? null : requiredText(input.handoffId, "来源交接", 180),
+      authorActionId: `${operationId}.author`,
+      idempotencyKey: `nuwa-branch:${project.id}:${originRunId}`,
+      createdAt: now()
+    });
+    return presentBranch(created);
+  }
+
+  function listBranches(input) {
+    const projectId = requiredText(input.projectId, "项目", 180);
+    return { version: "tianyan-nuwa-branch-read/v1", branches: operations.listNuwaBranches({ projectId }) };
+  }
+
+  function readBranch(input) {
+    const projectId = requiredText(input.projectId, "项目", 180);
+    const branchWorkVersionId = requiredText(input.branchWorkVersionId, "女娲分支作品版本", 100);
+    return { version: "tianyan-nuwa-branch-read/v1", ...operations.listNuwaBranchNodes({ projectId, branchWorkVersionId }) };
+  }
+
+  function createBranchNode(input) {
+    const projectId = requiredText(input.projectId, "项目", 180);
+    const creationOperationId = operation(input.operationId);
+    const result = operations.createNuwaBranchNode({
+      projectId,
+      branchWorkVersionId: requiredText(input.branchWorkVersionId, "女娲分支作品版本", 100),
+      unitId: requiredText(input.unitId, "故事单元", 180),
+      title: requiredText(input.title, "节点标题", 160),
+      blocks: input.blocks,
+      worldTime: input.worldTime ?? { kind: "unknown" },
+      characterRefs: Array.isArray(input.characterRefs) ? input.characterRefs : [],
+      runProvenance: input.runProvenance ?? null,
+      existingSceneKey: input.existingSceneKey ?? null,
+      creationOperationId,
+      authorActionId: `${creationOperationId}.author`,
+      createdAt: now()
+    });
+    if (result.conflict) throw failure(result.reason || "分支节点写入冲突。", 409);
+    return { version: "tianyan-nuwa-branch-read/v1", replayed: result.replayed, node: result.node, sceneKey: result.sceneKey, placementReceiptId: result.placementReceiptId };
+  }
+
+  function updateBranchNodeContent(input) {
+    const result = operations.updateNuwaBranchNodeContent({
+      projectId: requiredText(input.projectId, "项目", 180),
+      branchWorkVersionId: requiredText(input.branchWorkVersionId, "女娲分支作品版本", 100),
+      nodeId: requiredText(input.nodeId, "分支节点", 180),
+      expectedContentRevision: Number(input.expectedContentRevision),
+      blocks: input.blocks,
+      operationId: operation(input.operationId),
+      authorActionId: `${operation(input.operationId)}.author`,
+      editedAt: now()
+    });
+    if (result.conflict) throw failure(result.reason || "草稿保存冲突。", 409);
+    return { version: "tianyan-nuwa-branch-read/v1", replayed: result.replayed, node: result.node };
+  }
+
+  function adoptBranchNode(input) {
+    const result = operations.adoptNuwaBranchNode({
+      projectId: requiredText(input.projectId, "项目", 180),
+      branchWorkVersionId: requiredText(input.branchWorkVersionId, "女娲分支作品版本", 100),
+      nodeId: requiredText(input.nodeId, "分支节点", 180),
+      expectedContentRevision: Number(input.expectedContentRevision),
+      operationId: operation(input.operationId),
+      authorActionId: `${operation(input.operationId)}.author`,
+      adoptedAt: now()
+    });
+    if (result.conflict) throw failure(result.reason || "分支采纳冲突。", 409);
+    return { version: "tianyan-nuwa-branch-read/v1", replayed: result.replayed, node: result.node };
+  }
+
+  function checkpointBranch(input) {
+    const project = requireProject(input.projectId);
+    const branchWorkVersionId = requiredText(input.branchWorkVersionId, "女娲分支作品版本", 100);
+    const idempotencyKey = requiredText(input.idempotencyKey, "阶段版本幂等键", 180);
+    const operationId = operation(input.operationId);
+    const read = operations.listNuwaBranchNodes({ projectId: project.id, branchWorkVersionId });
+    if (!read.nodes.length) throw failure("分支还没有可保存的节点。", 409);
+    const originRunId = read.branch.derivation?.originRunId ?? branchWorkVersionId;
+    const provenanceRefs = read.nodes.map((node) => ({
+      runId: originRunId,
+      branchId: branchWorkVersionId,
+      stepId: node.nodeId,
+      receiptId: `node-content-r${node.contentRevision}`,
+      canonicalDigest: createHash("sha256").update(JSON.stringify({ nodeId: node.nodeId, contentRevision: node.contentRevision, blocks: node.blocks, reviewState: node.reviewState }), "utf8").digest("hex")
+    }));
+    const result = creationSourcePort().appendNuwaBranchCheckpoint(project.id, {
+      branchWorkVersionId,
+      expectedRevision: read.branch.currentRevision,
+      idempotencyKey: `nuwa-branch-checkpoint:${branchWorkVersionId}:${idempotencyKey}`,
+      authorActionId: `${operationId}.author`,
+      createdAt: now(),
+      provenanceRefs,
+      semanticDeltaRefs: read.nodes.map((node) => `nuwa-node:${node.nodeId}:r${node.contentRevision}`)
+    });
+    return { ...presentBranch(result), checkpoint: { workVersionReceiptId: result.receipt.receiptId, revision: result.identity.currentRevision, provenanceCount: provenanceRefs.length } };
+  }
+
+  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply, freezeAutoApplicationDraft, rollbackAutoApplication, createBranch, listBranches, readBranch, createBranchNode, updateBranchNodeContent, adoptBranchNode, checkpointBranch };
 }
 
 function candidateReviewResult(project, run, handoff) {

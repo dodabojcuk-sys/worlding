@@ -22,7 +22,18 @@ import {
   type NuwaN1Setup,
   type NuwaN1ScopeSelection,
   type NuwaN1Step,
-  type MultiverseWorkVersion
+  type MultiverseWorkVersion,
+  adoptNuwaBranchNode,
+  checkpointNuwaBranch,
+  createNuwaBranch,
+  createNuwaBranchNode,
+  listNuwaBranches,
+  readNuwaBranch,
+  updateNuwaBranchNodeContent,
+  type NuwaBranchNode,
+  type NuwaBranchNodeBlock,
+  type NuwaBranchReadModel,
+  type NuwaBranchSummary
 } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
@@ -62,6 +73,18 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [queuedParticipantId, setQueuedParticipantId] = useState<string | null>(null);
+  const [branchList, setBranchList] = useState<NuwaBranchSummary[]>([]);
+  const [activeBranchId, setActiveBranchId] = useState("");
+  const [branchRead, setBranchRead] = useState<NuwaBranchReadModel | null>(null);
+  const [branchName, setBranchName] = useState("");
+  const [branchNodeId, setBranchNodeId] = useState<string | null>(null);
+  const [branchDraftBlocks, setBranchDraftBlocks] = useState<NuwaBranchNodeBlock[] | null>(null);
+  const [branchStatus, setBranchStatus] = useState<{ kind: "idle" | "draft" | "checkpoint" | "adopted"; text: string }>({ kind: "idle", text: "" });
+  const [checkpointKey, setCheckpointKey] = useState(() => `阶段-${new Date().toISOString().slice(0, 10)}`);
+  const [newNodeTitle, setNewNodeTitle] = useState("");
+  const [newNodeNarration, setNewNodeNarration] = useState("");
+  const [newNodeSpeaker, setNewNodeSpeaker] = useState("");
+  const [newNodeSpeech, setNewNodeSpeech] = useState("");
 
   useEffect(() => {
     operationGeneration.current += 1;
@@ -98,8 +121,98 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     }).catch((reason: unknown) => {
       if (active) setError(messageFor(reason, "女娲工作面未能读取本地作品；现有作品没有被修改。"));
     });
+    void listNuwaBranches(projectId).then((result) => {
+      if (!active) return;
+      setBranchList(result.branches);
+      const wantedBranch = new URLSearchParams(window.location.search).get("branchId")?.trim() || "";
+      const initialBranch = (wantedBranch && result.branches.some((branch) => branch.workVersionId === wantedBranch) ? wantedBranch : "") || result.branches[0]?.workVersionId || "";
+      setActiveBranchId(initialBranch);
+    }).catch(() => { if (active) setBranchStatus({ kind: "idle", text: "分支列表暂不可读；不影响普通排演。" }); });
     return () => { active = false; };
   }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || !activeBranchId) { setBranchRead(null); setBranchNodeId(null); setBranchDraftBlocks(null); return; }
+    let branchActive = true;
+    void readNuwaBranch(projectId, activeBranchId).then((next) => {
+      if (!branchActive) return;
+      setBranchRead(next);
+      const wantedNode = new URLSearchParams(window.location.search).get("nodeId")?.trim() || "";
+      const target = (wantedNode && next.nodes.some((node) => node.nodeId === wantedNode) ? wantedNode : "") || next.nodes.at(-1)?.nodeId || null;
+      setBranchNodeId(target);
+      const node = next.nodes.find((item) => item.nodeId === target) ?? null;
+      setBranchDraftBlocks(node ? node.blocks.map((block) => ({ ...block })) : null);
+    }).catch((reason: unknown) => { if (branchActive) setBranchStatus({ kind: "idle", text: messageFor(reason, "分支内容暂不可读。") }); });
+    return () => { branchActive = false; };
+  }, [projectId, activeBranchId]);
+
+  const branchNode = branchRead?.nodes.find((node) => node.nodeId === branchNodeId) ?? null;
+  const branchBlocksChanged = branchNode && branchDraftBlocks ? JSON.stringify(branchNode.blocks) !== JSON.stringify(branchDraftBlocks) : false;
+  const selectBranchNode = (node: NuwaBranchNode) => {
+    setBranchNodeId(node.nodeId);
+    setBranchDraftBlocks(node.blocks.map((block) => ({ ...block })));
+  };
+  const editBranchBlockText = (index: number, text: string) => {
+    setBranchDraftBlocks((current) => current ? current.map((block, blockIndex) => blockIndex === index ? { ...block, text } : block) : current);
+  };
+  const saveBranchDraft = () => {
+    if (!projectId || !activeBranchId || !branchNode || !branchDraftBlocks) return;
+    const scope = beginOperation();
+    void props.runtime.withConnection((token) => updateNuwaBranchNodeContent({ projectId, branchWorkVersionId: activeBranchId, nodeId: branchNode.nodeId, expectedContentRevision: branchNode.contentRevision, blocks: branchDraftBlocks, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
+      setBranchRead((current) => current ? { ...current, nodes: current.nodes.map((node) => node.nodeId === result.node.nodeId ? result.node : node) } : current);
+      setBranchDraftBlocks(result.node.blocks.map((block) => ({ ...block })));
+      setBranchStatus({ kind: "draft", text: `草稿已自动保存 · 内容 r${result.node.contentRevision}；阶段版本修订未变化。` });
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "草稿保存未完成；请重试。") }); });
+  };
+  const createBranch = () => {
+    if (!projectId) return;
+    const displayName = branchName.trim() || `女娲分支 ${new Date().toLocaleDateString("zh-CN")}`;
+    const scope = beginOperation();
+    void props.runtime.withConnection((token) => createNuwaBranch({ projectId, displayName, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
+      setBranchList((currentList) => currentList.some((branch) => branch.workVersionId === result.branch.workVersionId) ? currentList : [...currentList, result.branch]);
+      setActiveBranchId(result.branch.workVersionId);
+      setBranchName("");
+      setBranchStatus({ kind: "idle", text: `已创建女娲分支「${result.branch.displayName}」；来源主线未被修改。` });
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "分支创建未完成；主线没有变化。") }); });
+  };
+  const checkpointBranch = () => {
+    if (!projectId || !activeBranchId) return;
+    const scope = beginOperation();
+    void props.runtime.withConnection((token) => checkpointNuwaBranch({ projectId, branchWorkVersionId: activeBranchId, idempotencyKey: checkpointKey.trim() || "阶段", operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
+      setBranchList((currentList) => currentList.map((branch) => branch.workVersionId === result.branch.workVersionId ? result.branch : branch));
+      setBranchStatus({ kind: "checkpoint", text: `已保存阶段版本 r${result.checkpoint.revision}（${result.checkpoint.provenanceCount} 个节点溯源）；同标识重复保存不会重复建版。` });
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "阶段版本保存未完成。") }); });
+  };
+  const adoptBranchNodeNow = () => {
+    if (!projectId || !activeBranchId || !branchNode) return;
+    const scope = beginOperation();
+    void props.runtime.withConnection((token) => adoptNuwaBranchNode({ projectId, branchWorkVersionId: activeBranchId, nodeId: branchNode.nodeId, expectedContentRevision: branchNode.contentRevision, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
+      setBranchRead((current) => current ? { ...current, nodes: current.nodes.map((node) => node.nodeId === result.node.nodeId ? result.node : node) } : current);
+      setBranchStatus({ kind: "adopted", text: result.replayed ? "该节点已在分支内采纳。" : "节点已在分支内采纳；主线仍未变化。" });
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "分支采纳未完成。") }); });
+  };
+  const createBranchNodeManually = () => {
+    if (!projectId || !activeBranchId || !newNodeTitle.trim() || !newNodeNarration.trim() || !newNodeSpeech.trim() || !newNodeSpeaker) return;
+    const unitId = branchRead?.scenes[0]?.unitId ?? branchRead?.nodes[0]?.unitId;
+    if (!unitId) { setBranchStatus({ kind: "idle", text: "分支缺少可用场景；请稍后重试。" }); return; }
+    const speaker = newNodeSpeaker;
+    const hearer = (bootstrap?.participants ?? []).find((participant) => participant.id !== speaker)?.id ?? null;
+    const blocks: NuwaBranchNodeBlock[] = [
+      { kind: "narration", text: newNodeNarration.trim() },
+      { kind: "dialogue", speakerId: speaker, text: newNodeSpeech.trim(), heardBy: hearer ? [hearer] : [], delivery: "spoken" }
+    ];
+    const scope = beginOperation();
+    void props.runtime.withConnection((token) => createNuwaBranchNode({ projectId, branchWorkVersionId: activeBranchId, unitId, title: newNodeTitle.trim(), blocks, worldTime: { kind: "unknown" }, characterRefs: [speaker, ...(hearer ? [hearer] : [])], runProvenance: null, existingSceneKey: null, operationId: newOperationId(), token })).then((result) => {
+      if (!isCurrentOperation(scope)) return;
+      setNewNodeTitle(""); setNewNodeNarration(""); setNewNodeSpeech("");
+      setBranchStatus({ kind: "idle", text: result.replayed ? "同操作已存在；节点未重复创建。" : `已创建节点「${result.node.title}」并写入分支编排。` });
+      void readNuwaBranch(projectId, activeBranchId).then((next) => { setBranchRead(next); setBranchNodeId(result.node.nodeId); setBranchDraftBlocks(result.node.blocks.map((block) => ({ ...block }))); }).catch(() => undefined);
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "节点创建未完成。") }); });
+  };
 
   const selectedStoryline = useMemo(() => bootstrap?.storylines.find((line) => line.key === storylineKey) ?? null, [bootstrap?.storylines, storylineKey]);
   const scopeUnits = selectedStoryline?.units ?? [];
@@ -344,6 +457,50 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         {run?.run && ["completed", "cancelled", "blocked"].includes(run.run.status) ? <><button type="button" disabled={busy} onClick={() => runAction("replay")}><History />回放</button><button type="button" className="primary-action" disabled={busy} onClick={beginAnotherRun}><MessageSquarePlus />新建排演</button></> : null}
       </section>
 
+      <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
+        <div><small>女娲分支 · 长期保存</small><strong>{branchRead ? branchRead.branch.displayName : "尚未选择分支"}</strong><span>{branchRead ? (branchRead.branch.staleness.state === "stale" ? `落后于主线 r${branchRead.branch.staleness.currentParentRevision ?? "?"}` : "与主线来源一致") : "作者显式保存后，分支才获得版本身份；普通排演结果不会自动成为分支。"}</span></div>
+        <div>
+          <select aria-label="选择女娲分支" value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>
+            <option value="">选择分支</option>
+            {branchList.map((branch) => <option key={branch.workVersionId} value={branch.workVersionId}>{branch.displayName} · r{branch.currentRevision}</option>)}
+          </select>
+          <input aria-label="新分支名称" placeholder="新分支名称" value={branchName} maxLength={60} onChange={(event) => setBranchName(event.target.value)} />
+          <button type="button" disabled={busy || !projectId} onClick={createBranch}>新建分支</button>
+        </div>
+        {branchStatus.text ? <p role="status" data-status={branchStatus.kind}>{branchStatus.text}</p> : null}
+        {branchRead ? <>
+          <div aria-label="分支节点列表">
+            {branchRead.nodes.map((node) => <button key={node.nodeId} type="button" style={{ marginRight: 8, fontWeight: node.nodeId === branchNodeId ? 700 : 400 }} onClick={() => selectBranchNode(node)}>{node.title} · {node.reviewState === "branch-adopted" ? "分支已采纳" : "草稿"} · 内容 r{node.contentRevision}</button>)}
+            {branchRead.nodes.length === 0 ? <span>分支暂无节点；用下方表单创建第一个完整叙事节点。</span> : null}
+          </div>
+          {branchNode && branchDraftBlocks ? <div aria-label="分支节点编辑">
+            <h3>{branchNode.title} <small>场景 {branchNode.sceneKey.slice(0, 16)}… · 世界时间：{branchNode.worldTime.kind === "unknown" ? "未知" : branchNode.worldTime.label ?? branchNode.worldTime.kind}</small></h3>
+            {branchDraftBlocks.map((block, index) => {
+              const owner = block.kind === "dialogue" ? block.speakerId : block.kind === "action" || block.kind === "psychology" ? block.characterId : null;
+              return <label key={index} style={{ display: "block", margin: "6px 0" }}><span>{blockLabel(block.kind)}{owner ? ` · ${owner}` : ""}{block.kind === "dialogue" && block.heardBy?.length ? `（闻者：${block.heardBy.join("、")}）` : ""}</span>
+                <input style={{ width: "100%" }} value={block.text} aria-label={`${blockLabel(block.kind)} ${index + 1}`} onChange={(event) => editBranchBlockText(index, event.target.value)} onBlur={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }} /></label>;
+            })}
+            <div style={{ margin: "8px 0" }}>
+              <button type="button" onClick={() => { if (JSON.stringify(branchDraftBlocks) !== JSON.stringify(branchNode.blocks)) void saveBranchDraft(); }}>保存草稿</button>
+              <button type="button" style={{ marginLeft: 8 }} onClick={() => void adoptBranchNodeNow()}>分支内采纳</button>
+              <a style={{ marginLeft: 8 }} href={`/event-line?projectId=${encodeURIComponent(projectId ?? "")}&branchId=${encodeURIComponent(activeBranchId)}&nodeId=${encodeURIComponent(branchNode.nodeId)}`}>在事件线定位</a>
+            </div>
+          </div> : null}
+          <div style={{ margin: "8px 0" }}>
+            <input aria-label="阶段版本标识" value={checkpointKey} onChange={(event) => setCheckpointKey(event.target.value)} />
+            <button type="button" style={{ marginLeft: 8 }} disabled={busy || !branchRead.nodes.length} onClick={() => void checkpointBranch()}>保存阶段版本</button>
+            <span style={{ marginLeft: 8 }}><small>只有阶段版本产生版本修订；草稿保存不产生。</small></span>
+          </div>
+          <div style={{ margin: "8px 0" }}>
+            <input aria-label="新节点标题" placeholder="新节点标题" value={newNodeTitle} onChange={(event) => setNewNodeTitle(event.target.value)} />
+            <input aria-label="新节点描写" placeholder="一段描写" value={newNodeNarration} onChange={(event) => setNewNodeNarration(event.target.value)} />
+            <select aria-label="说话人" value={newNodeSpeaker} onChange={(event) => setNewNodeSpeaker(event.target.value)}><option value="">说话人</option>{bootstrap?.participants.map((participant) => <option key={participant.id} value={participant.id}>{participant.title}</option>)}</select>
+            <input aria-label="新节点对白" placeholder="一句对白" value={newNodeSpeech} onChange={(event) => setNewNodeSpeech(event.target.value)} />
+            <button type="button" style={{ marginLeft: 8 }} disabled={busy || !newNodeTitle.trim() || !newNodeNarration.trim() || !newNodeSpeech.trim() || !newNodeSpeaker} onClick={createBranchNodeManually}>创建节点</button>
+          </div>
+        </> : null}
+      </section>
+
       <div className="nuwa-n1-body">
         <div className="nuwa-n1-primary">
       {!run ? <section className="nuwa-n1-setup" aria-label="女娲排演准备">
@@ -438,3 +595,6 @@ function runStepBudget(run: NuwaN1Run) { return run.scope.scenes.length === 1 ? 
 function internalToolTurns(run: NuwaN1Run) { return run.attempts.reduce((count, attempt) => count + attempt.dispatches.filter((dispatch) => dispatch.phase !== "provider").length, 0); }
 function formatTime(value: string) { return new Date(value).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", month: "numeric", day: "numeric" }); }
 function attentionReasonLabel(reason: string) { return ({ "current-scene-required": "当前场景必需", "goal-keyword-match": "匹配角色目标", "scene-keyword-match": "匹配当前场景", "stable-authorized-fallback": "预算内稳定补充" } as Record<string, string>)[reason] ?? reason; }
+function blockLabel(kind: NuwaBranchNodeBlock["kind"]): string {
+  return ({ narration: "叙述", description: "描写", action: "行动", dialogue: "对白", psychology: "心理" } as const)[kind];
+}
