@@ -40,6 +40,7 @@ import type { DraftCreationReceipt } from "../storyContracts/multiNodePrediction
 import {
   applyNarrativeArrangementMutation as applyNarrativeArrangementMutationValue,
   createNarrativeArrangement as createNarrativeArrangementValue,
+  emptyNarrativeArrangementStore,
   narrativeArrangementId,
   parseNarrativeArrangementStore,
   projectNarrativeArrangement,
@@ -53,6 +54,18 @@ import {
   type NarrativePlacementRole,
   type NarrativePositionIntent
 } from "../storyContracts/narrativeArrangement.ts";
+import {
+  mintNuwaNodeId,
+  mintNuwaSceneKey,
+  normalizeBlocks,
+  normalizeNuwaBranchNode,
+  nuwaBranchEventId,
+  renderNuwaBranchNodeBody,
+  type NuwaBranchNode,
+  type NuwaBranchNodeProvenance,
+  type NuwaBranchScene
+} from "../storyContracts/nuwaBranchNode.ts";
+import { serializeStoryMarkdown } from "../storyWorkspace/storyWorkspaceRepository.mjs";
 
 import {
   createWorkspaceNote,
@@ -3030,6 +3043,209 @@ export function createStoryStudioWorkspaceOperations(input: {
       });
     },
 
+    createNuwaBranchNode(nodeInput: {
+      projectId: string;
+      branchWorkVersionId: string;
+      unitId: string;
+      title: string;
+      blocks: unknown;
+      worldTime: unknown;
+      characterRefs?: unknown;
+      runProvenance?: { runId: string; stepIds: string[]; handoffId: string | null } | null;
+      existingSceneKey?: string | null;
+      creationOperationId: string;
+      authorActionId: string;
+      createdAt: string;
+    }): { conflict: boolean; replayed: boolean; reason: string | null; node: NuwaBranchNode; sceneKey: string; placementReceiptId: string | null } {
+      const projectPath = resolveProjectPath(rootPath, nodeInput.projectId);
+      const branchWorkVersionId = requireText(nodeInput.branchWorkVersionId, "女娲分支作品版本", 100);
+      const branchVersion = requireNuwaBranchIdentity(projectPath, branchWorkVersionId);
+      const creationOperationId = requireText(nodeInput.creationOperationId, "女娲分支节点操作", 180);
+      const replayedNode = listNuwaBranchNodeNotes(projectPath, branchWorkVersionId).find((node) => node.creationOperationId === creationOperationId);
+      if (replayedNode) return clone({ conflict: false, replayed: true, reason: null, node: replayedNode, sceneKey: replayedNode.sceneKey, placementReceiptId: null });
+      const unitId = requireText(nodeInput.unitId, "女娲分支节点单元", 180);
+      const unit = listStoryUnits(projectPath, true).find((item) => item.id === unitId);
+      if (!unit || unit.lifecycle === "archived") throw new Error("女娲分支节点必须挂在现存故事单元上。");
+      const createdAt = requireText(nodeInput.createdAt, "节点创建时间", 48);
+      const scenes = readNuwaBranchScenes(projectPath, branchWorkVersionId);
+      let sceneKey: string;
+      if (nodeInput.existingSceneKey != null) {
+        sceneKey = requireText(nodeInput.existingSceneKey, "女娲分支场景", 120);
+        if (!scenes.some((scene) => scene.sceneKey === sceneKey)) throw new Error("指定场景不存在于该女娲分支。");
+      } else {
+        sceneKey = mintNuwaSceneKey(branchWorkVersionId, creationOperationId);
+        scenes.push({ sceneKey, unitId, title: unit.title, creationOperationId, createdAt });
+        writeNuwaBranchScenes(projectPath, branchWorkVersionId, scenes);
+      }
+      const nodeId = mintNuwaNodeId(branchWorkVersionId, creationOperationId);
+      const eventId = nuwaBranchEventId(nodeId);
+      const provenance: NuwaBranchNodeProvenance[] = nodeInput.runProvenance
+        ? [{ kind: "nuwa-run", runId: requireText(nodeInput.runProvenance.runId, "来源 Run", 180), stepIds: requireStringList(nodeInput.runProvenance.stepIds, "来源步骤"), handoffId: nodeInput.runProvenance.handoffId == null ? null : requireText(nodeInput.runProvenance.handoffId, "来源交接", 180) }]
+        : [];
+      const node = normalizeNuwaBranchNode({
+        schemaVersion: "tianyan-nuwa-branch-node/v1",
+        nodeId,
+        eventId,
+        branchWorkVersionId,
+        unitId,
+        narrativePathId: unitId,
+        sceneKey,
+        title: requireText(nodeInput.title, "节点标题", 160),
+        blocks: nodeInput.blocks,
+        worldTime: nodeInput.worldTime,
+        characterRefs: nodeInput.characterRefs ?? [],
+        provenance,
+        reviewState: "draft",
+        contentRevision: 1,
+        creationOperationId,
+        createdAt,
+        updatedAt: createdAt
+      });
+      const targetFile = branchEventFile(projectPath, branchWorkVersionId, nodeId);
+      if (existsSync(targetFile)) return clone({ conflict: true, replayed: false, reason: "同身份分支节点已存在且内容不同。", node, sceneKey, placementReceiptId: null });
+      const noteContent = serializeStoryMarkdown({
+        frontmatter: {
+          id: node.eventId,
+          type: "event",
+          title: node.title,
+          status: node.reviewState,
+          story_work_version_id: branchWorkVersionId,
+          [NUWA_BRANCH_NODE_FRONTMATTER_KEY]: stableJson(node)
+        },
+        body: renderNuwaBranchNodeBody(node)
+      });
+      nuwaBranchAtomicWrite(targetFile, noteContent);
+      const sourceGeneration = `nuwa-branch:${branchVersion.identity.workVersionId}@r${branchVersion.identity.currentRevision}:${creationOperationId}`;
+      let current = this.readNarrativeArrangement({ projectId: nodeInput.projectId, workVersionId: branchWorkVersionId, narrativePathId: unitId });
+      if (!current.arrangement) {
+        const created = this.createNarrativeArrangement({ projectId: nodeInput.projectId, workVersionId: branchWorkVersionId, narrativePathId: unitId, ownerStoryUnitId: unitId, expectedOwnerVersion: sourceGeneration, expectedRevision: 0, operationId: `${creationOperationId}.arrangement.create`, authorActionId: nodeInput.authorActionId, createdAt });
+        if (created.conflict && !created.replayed) return clone({ conflict: true, replayed: false, reason: `分支编排创建冲突：${created.code}`, node, sceneKey, placementReceiptId: null });
+        current = this.readNarrativeArrangement({ projectId: nodeInput.projectId, workVersionId: branchWorkVersionId, narrativePathId: unitId });
+      }
+      const inserted = this.insertNarrativePlacement({ projectId: nodeInput.projectId, workVersionId: branchWorkVersionId, narrativePathId: unitId, expectedOwnerVersion: current.ownerVersion as string, expectedRevision: current.arrangement!.currentRevision, operationId: `${creationOperationId}.placement.insert`, authorActionId: nodeInput.authorActionId, sourceKind: "author-action", sourceRef: sourceGeneration, createdAt, eventId: node.eventId, storyUnitId: unitId, role: "primary", position: { kind: "end" } });
+      if (inserted.conflict || !inserted.receipt) return clone({ conflict: true, replayed: false, reason: `分支 Placement 写入冲突：${inserted.code}`, node, sceneKey, placementReceiptId: null });
+      return clone({ conflict: false, replayed: false, reason: null, node, sceneKey, placementReceiptId: inserted.receipt.receiptId });
+    },
+
+    updateNuwaBranchNodeContent(nodeInput: {
+      projectId: string;
+      branchWorkVersionId: string;
+      nodeId: string;
+      expectedContentRevision: number;
+      blocks: unknown;
+      operationId: string;
+      authorActionId: string;
+      editedAt: string;
+    }): { conflict: boolean; replayed: boolean; reason: string | null; node: NuwaBranchNode | null } {
+      const projectPath = resolveProjectPath(rootPath, nodeInput.projectId);
+      const branchWorkVersionId = requireText(nodeInput.branchWorkVersionId, "女娲分支作品版本", 100);
+      requireNuwaBranchIdentity(projectPath, branchWorkVersionId);
+      const nodeId = requireText(nodeInput.nodeId, "女娲分支节点", 180);
+      const current = readNuwaBranchNodeNote(projectPath, branchWorkVersionId, nodeId);
+      if (!current) return clone({ conflict: true, replayed: false, reason: "分支节点不存在。", node: null });
+      const expectedContentRevision = requireNonNegativeInteger(nodeInput.expectedContentRevision, "节点内容修订");
+      if (current.contentRevision !== expectedContentRevision) return clone({ conflict: true, replayed: false, reason: "节点内容已变化；请基于最新草稿重试。", node: current });
+      const editedAt = requireText(nodeInput.editedAt, "编辑时间", 48);
+      const node = normalizeNuwaBranchNode({
+        ...current,
+        blocks: nodeInput.blocks,
+        provenance: [...current.provenance, { kind: "author-edit", authorActionId: requireText(nodeInput.authorActionId, "编辑作者动作", 180), at: editedAt }],
+        contentRevision: current.contentRevision + 1,
+        updatedAt: editedAt
+      });
+      const noteContent = serializeStoryMarkdown({
+        frontmatter: {
+          id: node.eventId,
+          type: "event",
+          title: node.title,
+          status: node.reviewState,
+          story_work_version_id: branchWorkVersionId,
+          [NUWA_BRANCH_NODE_FRONTMATTER_KEY]: stableJson(node)
+        },
+        body: renderNuwaBranchNodeBody(node)
+      });
+      nuwaBranchAtomicWrite(branchEventFile(projectPath, branchWorkVersionId, nodeId), noteContent);
+      return clone({ conflict: false, replayed: false, reason: null, node });
+    },
+
+    adoptNuwaBranchNode(nodeInput: {
+      projectId: string;
+      branchWorkVersionId: string;
+      nodeId: string;
+      expectedContentRevision: number;
+      operationId: string;
+      authorActionId: string;
+      adoptedAt: string;
+    }): { conflict: boolean; replayed: boolean; reason: string | null; node: NuwaBranchNode | null } {
+      const projectPath = resolveProjectPath(rootPath, nodeInput.projectId);
+      const branchWorkVersionId = requireText(nodeInput.branchWorkVersionId, "女娲分支作品版本", 100);
+      requireNuwaBranchIdentity(projectPath, branchWorkVersionId);
+      const nodeId = requireText(nodeInput.nodeId, "女娲分支节点", 180);
+      const current = readNuwaBranchNodeNote(projectPath, branchWorkVersionId, nodeId);
+      if (!current) return clone({ conflict: true, replayed: false, reason: "分支节点不存在。", node: null });
+      if (current.reviewState === "branch-adopted") return clone({ conflict: false, replayed: true, reason: null, node: current });
+      if (current.contentRevision !== requireNonNegativeInteger(nodeInput.expectedContentRevision, "节点内容修订")) return clone({ conflict: true, replayed: false, reason: "节点内容已变化；请基于最新草稿重试。", node: current });
+      const adoptedAt = requireText(nodeInput.adoptedAt, "采纳时间", 48);
+      const node = normalizeNuwaBranchNode({
+        ...current,
+        reviewState: "branch-adopted",
+        provenance: [...current.provenance, { kind: "author-edit", authorActionId: requireText(nodeInput.authorActionId, "采纳作者动作", 180), at: adoptedAt }]
+      });
+      const noteContent = serializeStoryMarkdown({
+        frontmatter: {
+          id: node.eventId,
+          type: "event",
+          title: node.title,
+          status: node.reviewState,
+          story_work_version_id: branchWorkVersionId,
+          [NUWA_BRANCH_NODE_FRONTMATTER_KEY]: stableJson(node)
+        },
+        body: renderNuwaBranchNodeBody(node)
+      });
+      nuwaBranchAtomicWrite(branchEventFile(projectPath, branchWorkVersionId, nodeId), noteContent);
+      return clone({ conflict: false, replayed: false, reason: null, node });
+    },
+
+    listNuwaBranchNodes(nodeInput: { projectId: string; branchWorkVersionId: string }): {
+      branch: { workVersionId: string; displayName: string; currentRevision: number; derivation: Record<string, unknown> | null; staleness: ReturnType<typeof JSON.parse> extends never ? never : { state: string; parentVersionId: string | null; pinnedRevision: number | null; currentParentRevision: number | null } };
+      scenes: NuwaBranchScene[];
+      nodes: NuwaBranchNode[];
+    } {
+      const projectPath = resolveProjectPath(rootPath, nodeInput.projectId);
+      const branchWorkVersionId = requireText(nodeInput.branchWorkVersionId, "女娲分支作品版本", 100);
+      const version = requireNuwaBranchIdentity(projectPath, branchWorkVersionId);
+      const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+      const staleness = authority.projectVersionStaleness(branchWorkVersionId);
+      return clone({
+        branch: {
+          workVersionId: version.identity.workVersionId,
+          displayName: version.identity.displayName,
+          currentRevision: version.identity.currentRevision,
+          derivation: version.identity.derivation ?? null,
+          staleness: { state: staleness.state, parentVersionId: staleness.parentVersionId, pinnedRevision: staleness.pinnedRevision, currentParentRevision: staleness.currentParentRevision }
+        },
+        scenes: readNuwaBranchScenes(projectPath, branchWorkVersionId),
+        nodes: listNuwaBranchNodeNotes(projectPath, branchWorkVersionId)
+      });
+    },
+
+    listNuwaBranches(branchInput: { projectId: string }): Array<{ workVersionId: string; displayName: string; currentRevision: number; derivation: Record<string, unknown> | null; staleness: { state: string; pinnedRevision: number | null; currentParentRevision: number | null } }> {
+      const projectPath = resolveProjectPath(rootPath, branchInput.projectId);
+      const authority = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+      return authority.listVersions()
+        .filter((version) => isNuwaBranchIdentity(version.identity))
+        .map((version) => {
+          const staleness = authority.projectVersionStaleness(version.identity.workVersionId);
+          return {
+            workVersionId: version.identity.workVersionId,
+            displayName: version.identity.displayName,
+            currentRevision: version.identity.currentRevision,
+            derivation: version.identity.derivation ?? null,
+            staleness: { state: staleness.state, pinnedRevision: staleness.pinnedRevision, currentParentRevision: staleness.currentParentRevision }
+          };
+        });
+    },
+
     createPlanningEvent(planningInput: {
       projectId: string;
       title: string;
@@ -3951,7 +4167,7 @@ type NarrativeArrangementWriterScope = {
 };
 
 type HostedNarrativeArrangement = {
-  note: ReturnType<typeof readWorkspaceNote>;
+  host: { relativePath: string; contentHash: string };
   store: NarrativeArrangementStore;
   arrangement: NarrativeArrangement;
 };
@@ -3965,15 +4181,24 @@ function readNarrativeArrangementProjection(projectPath: string, input: { projec
   const hosted = findHostedNarrativeArrangement(projectPath, projectId, workVersionId, narrativePathId);
   const workVersion = readNarrativeWorkVersionIfPresent(projectPath, workVersionId);
   if (hosted && !workVersion) throw new Error("Formal NarrativeArrangement references a missing WorkVersion authority identity.");
+  const projectedEventIds = (() => {
+    const mainline = getWorkspaceTree(projectPath).groups.events.map((event) => event.id);
+    if (workVersion && isNuwaBranchIdentity(workVersion.identity)) {
+      // Branch nodes join the projection; mainline events stay visible only as
+      // read-only unplaced fallback and are never written by this scope.
+      return [...new Set([...mainline, ...listNuwaBranchNodeNotes(projectPath, workVersion.identity.workVersionId).map((node) => node.eventId)])];
+    }
+    return mainline;
+  })();
   const projection = projectNarrativeArrangement({
     projectId,
     workVersionId,
     narrativePathId,
-    eventIds: getWorkspaceTree(projectPath).groups.events.map((event) => event.id),
+    eventIds: projectedEventIds,
     storyUnits: storyUnits.map((unit) => ({ storyUnitId: unit.id, order: unit.order })),
     arrangement: hosted?.arrangement ?? null
   });
-  return clone({ ownerVersion: hosted?.note.contentHash ?? null, arrangement: hosted?.arrangement ?? null, projection });
+  return clone({ ownerVersion: hosted?.host.contentHash ?? null, arrangement: hosted?.arrangement ?? null, projection });
 }
 
 function createNarrativeArrangementRecord(projectPath: string, input: {
@@ -4011,9 +4236,17 @@ function createNarrativeArrangementRecord(projectPath: string, input: {
   if (existing) {
     const prior = existing.arrangement.receipts[0];
     if (prior?.operationId === proposed.receipt.operationId && prior.payloadDigest === proposed.receipt.payloadDigest) {
-      return clone({ conflict: false, replayed: true, code: null, ownerVersion: existing.note.contentHash, arrangement: existing.arrangement, receipt: prior });
+      return clone({ conflict: false, replayed: true, code: null, ownerVersion: existing.host.contentHash, arrangement: existing.arrangement, receipt: prior });
     }
-    return clone({ conflict: true, replayed: false, code: "arrangement-already-exists", ownerVersion: existing.note.contentHash, arrangement: existing.arrangement, receipt: null });
+    return clone({ conflict: true, replayed: false, code: "arrangement-already-exists", ownerVersion: existing.host.contentHash, arrangement: existing.arrangement, receipt: null });
+  }
+  if (isNuwaBranchIdentity(workVersion.identity)) {
+    // The branch arrangement host is the branch store file; file absence is
+    // the creation guard and the store digest becomes the owner version.
+    const store = emptyNarrativeArrangementStore(ownerStoryUnitId);
+    const nextStore = { ...store, arrangements: [proposed.arrangement] };
+    const ownerVersion = writeBranchArrangementStore(projectPath, workVersion.identity.workVersionId, narrativePathId, nextStore);
+    return clone({ conflict: false, replayed: false, code: null, ownerVersion, arrangement: proposed.arrangement, receipt: proposed.receipt });
   }
   const note = findStoryUnitNote(projectPath, ownerStoryUnitId);
   if (note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
@@ -4051,11 +4284,11 @@ function discardNarrativeArrangementRecord(projectPath: string, input: {
   const createOperationId = requireText(input.expectedCreateOperationId, "Narrative arrangement create operation", 180);
   const allowedOperationIds = new Set(input.allowedOperationIds.map((operationId) => requireText(operationId, "Narrative arrangement discard operation", 180)));
   const head = hosted.arrangement.revisions.at(-1)!;
-  if (hosted.arrangement.currentRevision !== expectedRevision || head.placements.length !== 0) return clone({ conflict: true, replayed: false, code: "arrangement-not-empty-or-revision-changed", ownerVersion: hosted.note.contentHash });
-  if (hosted.arrangement.receipts[0]?.operationId !== createOperationId || hosted.arrangement.receipts.some((receipt) => !allowedOperationIds.has(receipt.operationId))) return clone({ conflict: true, replayed: false, code: "arrangement-operation-mismatch", ownerVersion: hosted.note.contentHash });
-  if (hosted.note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.note.contentHash });
+  if (hosted.arrangement.currentRevision !== expectedRevision || head.placements.length !== 0) return clone({ conflict: true, replayed: false, code: "arrangement-not-empty-or-revision-changed", ownerVersion: hosted.host.contentHash });
+  if (hosted.arrangement.receipts[0]?.operationId !== createOperationId || hosted.arrangement.receipts.some((receipt) => !allowedOperationIds.has(receipt.operationId))) return clone({ conflict: true, replayed: false, code: "arrangement-operation-mismatch", ownerVersion: hosted.host.contentHash });
+  if (hosted.host.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.host.contentHash });
   const nextStore = { ...hosted.store, arrangements: hosted.store.arrangements.filter((arrangement) => arrangement.arrangementId !== hosted.arrangement.arrangementId) };
-  const update = updateWorkspaceNote(projectPath, { relativePath: hosted.note.relativePath, expectedContentHash: hosted.note.contentHash, frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) } });
+  const update = updateWorkspaceNote(projectPath, { relativePath: hosted.host.relativePath, expectedContentHash: hosted.host.contentHash, frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) } });
   if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash });
   return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash });
 }
@@ -4088,29 +4321,151 @@ function mutateNarrativeArrangementRecord(
   } as NarrativeArrangementMutation;
   const result = applyNarrativeArrangementMutationValue(hosted.arrangement, mutation, allowedStoryUnitIds);
   if (!result.conflict && result.replayed) {
-    return clone({ conflict: false, replayed: true, code: null, ownerVersion: hosted.note.contentHash, arrangement: result.arrangement, receipt: result.receipt });
+    return clone({ conflict: false, replayed: true, code: null, ownerVersion: hosted.host.contentHash, arrangement: result.arrangement, receipt: result.receipt });
   }
-  if (payload.action === "insert") assertWorkspaceEventExists(projectPath, payload.eventId);
-  if (hosted.note.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
-    return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.note.contentHash, arrangement: hosted.arrangement, receipt: null });
+  if (payload.action === "insert") {
+    if (isNuwaBranchIdentity(workVersion.identity)) assertBranchEventExists(projectPath, workVersion.identity.workVersionId, payload.eventId);
+    else assertWorkspaceEventExists(projectPath, payload.eventId);
+  }
+  if (hosted.host.contentHash !== requireText(input.expectedOwnerVersion, "Narrative arrangement owner version", 128)) {
+    return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: hosted.host.contentHash, arrangement: hosted.arrangement, receipt: null });
   }
   if (result.conflict) {
-    return clone({ conflict: true, replayed: false, code: result.code, ownerVersion: hosted.note.contentHash, arrangement: result.arrangement, receipt: null });
+    return clone({ conflict: true, replayed: false, code: result.code, ownerVersion: hosted.host.contentHash, arrangement: result.arrangement, receipt: null });
   }
   const nextStore = {
     ...hosted.store,
     arrangements: hosted.store.arrangements.map((arrangement) => arrangement.arrangementId === result.arrangement.arrangementId ? result.arrangement : arrangement)
   };
+  if (isNuwaBranchIdentity(workVersion.identity)) {
+    const ownerVersion = writeBranchArrangementStore(projectPath, workVersion.identity.workVersionId, narrativePathId, nextStore);
+    return clone({ conflict: false, replayed: false, code: null, ownerVersion, arrangement: result.arrangement, receipt: result.receipt });
+  }
   const update = updateWorkspaceNote(projectPath, {
-    relativePath: hosted.note.relativePath,
-    expectedContentHash: hosted.note.contentHash,
+    relativePath: hosted.host.relativePath,
+    expectedContentHash: hosted.host.contentHash,
     frontmatter: { [NARRATIVE_ARRANGEMENT_FRONTMATTER_KEY]: serializeNarrativeArrangementStore(nextStore) }
   });
   if (update.conflict) return clone({ conflict: true, replayed: false, code: "stale-owner-version", ownerVersion: update.note.contentHash, arrangement: hosted.arrangement, receipt: null });
   return clone({ conflict: false, replayed: false, code: null, ownerVersion: update.note.contentHash, arrangement: result.arrangement, receipt: result.receipt });
 }
 
+const NUWA_BRANCH_STORE_SCHEMA = "tianyan-story-nuwa-branch-store/v1";
+const NUWA_BRANCH_NODE_FRONTMATTER_KEY = "nuwa_branch_node_v1";
+
+function nuwaBranchDirectory(projectPath: string, branchWorkVersionId: string): string {
+  const dirHash = createHash("sha256").update(branchWorkVersionId, "utf8").digest("hex").slice(0, 32);
+  return path.join(realpathSync(projectPath), ".world-os", "workspace", "nuwa-branches", dirHash);
+}
+
+function requireNuwaBranchIdentity(projectPath: string, branchWorkVersionId: string) {
+  const version = readNarrativeWorkVersion(projectPath, branchWorkVersionId);
+  if (version.identity.kind !== "derived" || version.identity.derivation?.purpose !== "nuwa-branch") {
+    throw new Error("女娲分支操作只接受 purpose=nuwa-branch 的派生作品版本。");
+  }
+  return version;
+}
+
+function isNuwaBranchIdentity(identity: { kind: string; derivation?: { purpose: string } | null } | { kind: string; derivation?: { purpose: string } | undefined }): boolean {
+  const derivation = (identity as { derivation?: { purpose?: string } | undefined }).derivation;
+  return identity.kind === "derived" && derivation?.purpose === "nuwa-branch";
+}
+
+function nuwaBranchAtomicWrite(target: string, content: string): void {
+  if (existsSync(target) && lstatSync(target).isSymbolicLink()) throw new Error("女娲分支存储目标不能是符号链接。");
+  mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.tmp`;
+  writeFileSync(temporary, content, "utf8");
+  renameSync(temporary, target);
+}
+
+function nuwaBranchStoreDigest(store: NarrativeArrangementStore): string {
+  return createHash("sha256").update(stableJson(store), "utf8").digest("hex");
+}
+
+function branchArrangementFile(projectPath: string, branchWorkVersionId: string, narrativePathId: string): string {
+  const pathHash = createHash("sha256").update(narrativePathId, "utf8").digest("hex").slice(0, 32);
+  return path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "arrangements", `${pathHash}.json`);
+}
+
+function readBranchArrangementHost(projectPath: string, projectId: string, branchWorkVersionId: string, narrativePathId: string): HostedNarrativeArrangement | null {
+  const file = branchArrangementFile(projectPath, branchWorkVersionId, narrativePathId);
+  if (!existsSync(file)) return null;
+  if (lstatSync(file).isSymbolicLink()) throw new Error("女娲分支编排存储不能是符号链接。");
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  if (parsed.schemaVersion !== NUWA_BRANCH_STORE_SCHEMA || parsed.branchWorkVersionId !== branchWorkVersionId || parsed.narrativePathId !== narrativePathId) {
+    throw new Error("女娲分支编排存储与其绑定身份不一致。");
+  }
+  const store = parseNarrativeArrangementStore(parsed.store as string, narrativePathId);
+  const arrangementId = narrativeArrangementId({ projectId, workVersionId: branchWorkVersionId, narrativePathId, ownerStoryUnitId: narrativePathId });
+  const arrangement = store.arrangements.find((candidate) => candidate.arrangementId === arrangementId);
+  if (!arrangement) return null;
+  return { host: { relativePath: file, contentHash: nuwaBranchStoreDigest(store) }, store, arrangement };
+}
+
+function writeBranchArrangementStore(projectPath: string, branchWorkVersionId: string, narrativePathId: string, store: NarrativeArrangementStore): string {
+  const file = branchArrangementFile(projectPath, branchWorkVersionId, narrativePathId);
+  const payload = { schemaVersion: NUWA_BRANCH_STORE_SCHEMA, branchWorkVersionId, narrativePathId, store: serializeNarrativeArrangementStore(store) };
+  nuwaBranchAtomicWrite(file, `${stableJson(payload)}\n`);
+  return nuwaBranchStoreDigest(store);
+}
+
+function branchEventFile(projectPath: string, branchWorkVersionId: string, nodeId: string): string {
+  const fileHash = createHash("sha256").update(nodeId, "utf8").digest("hex").slice(0, 32);
+  return path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "events", `${fileHash}.md`);
+}
+
+function branchEventRelativePath(projectPath: string, branchWorkVersionId: string, nodeId: string): string {
+  return path.relative(realpathSync(projectPath), branchEventFile(projectPath, branchWorkVersionId, nodeId));
+}
+
+function readNuwaBranchNodeNote(projectPath: string, branchWorkVersionId: string, nodeId: string): NuwaBranchNode | null {
+  const file = branchEventFile(projectPath, branchWorkVersionId, nodeId);
+  if (!existsSync(file)) return null;
+  if (lstatSync(file).isSymbolicLink()) throw new Error("女娲分支节点存储不能是符号链接。");
+  const note = readWorkspaceNote(projectPath, path.relative(realpathSync(projectPath), file));
+  if (note.type !== "event" || note.frontmatter.story_work_version_id !== branchWorkVersionId) throw new Error("女娲分支节点与其绑定身份不一致。");
+  return normalizeNuwaBranchNode(JSON.parse(note.frontmatter[NUWA_BRANCH_NODE_FRONTMATTER_KEY] as string));
+}
+
+function listNuwaBranchNodeNotes(projectPath: string, branchWorkVersionId: string): NuwaBranchNode[] {
+  const eventsDirectory = path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "events");
+  if (!existsSync(eventsDirectory)) return [];
+  const nodes: NuwaBranchNode[] = [];
+  for (const entry of readdirSync(eventsDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || entry.isSymbolicLink() || !entry.name.endsWith(".md")) continue;
+    const note = readWorkspaceNote(projectPath, path.relative(realpathSync(projectPath), path.join(eventsDirectory, entry.name)));
+    if (note.frontmatter.story_work_version_id !== branchWorkVersionId) continue;
+    nodes.push(normalizeNuwaBranchNode(JSON.parse(note.frontmatter[NUWA_BRANCH_NODE_FRONTMATTER_KEY] as string)));
+  }
+  return nodes.sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.nodeId.localeCompare(right.nodeId));
+}
+
+function readNuwaBranchScenes(projectPath: string, branchWorkVersionId: string): NuwaBranchScene[] {
+  const file = path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "scenes.json");
+  if (!existsSync(file)) return [];
+  if (lstatSync(file).isSymbolicLink()) throw new Error("女娲分支场景存储不能是符号链接。");
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as { schemaVersion?: unknown; branchWorkVersionId?: unknown; scenes?: unknown };
+  if (parsed.schemaVersion !== NUWA_BRANCH_STORE_SCHEMA || parsed.branchWorkVersionId !== branchWorkVersionId || !Array.isArray(parsed.scenes)) {
+    throw new Error("女娲分支场景存储与其绑定身份不一致。");
+  }
+  return parsed.scenes as NuwaBranchScene[];
+}
+
+function writeNuwaBranchScenes(projectPath: string, branchWorkVersionId: string, scenes: NuwaBranchScene[]): void {
+  nuwaBranchAtomicWrite(path.join(nuwaBranchDirectory(projectPath, branchWorkVersionId), "scenes.json"), `${stableJson({ schemaVersion: NUWA_BRANCH_STORE_SCHEMA, branchWorkVersionId, scenes })}\n`);
+}
+
+function assertBranchEventExists(projectPath: string, branchWorkVersionId: string, eventId: string): void {
+  const nodes = listNuwaBranchNodeNotes(projectPath, branchWorkVersionId);
+  if (!nodes.some((node) => node.eventId === eventId)) throw new Error("Narrative placement Event does not exist.");
+}
+
 function findHostedNarrativeArrangement(projectPath: string, projectId: string, workVersionId: string, narrativePathId: string): HostedNarrativeArrangement | null {
+  const hostingVersion = readNarrativeWorkVersionIfPresent(projectPath, workVersionId);
+  if (hostingVersion && isNuwaBranchIdentity(hostingVersion.identity)) {
+    return readBranchArrangementHost(projectPath, projectId, hostingVersion.identity.workVersionId, narrativePathId);
+  }
   const arrangementId = narrativeArrangementId({ projectId, workVersionId, narrativePathId, ownerStoryUnitId: narrativePathId });
   const matches: HostedNarrativeArrangement[] = [];
   for (const entry of getWorkspaceTree(projectPath).groups.storyUnits) {

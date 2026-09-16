@@ -812,6 +812,58 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     }
   }
 
+  // An author-saved Nüwa branch is a derived WorkVersion whose identity names
+  // its origin Run.  It mirrors the production IF creation path (real owner
+  // snapshot refs from live project state) but forks no N4/Relation slices:
+  // branch nodes are branch-scoped Events and the slice writes nothing else.
+  function createNuwaBranchWorkVersion(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const parent = versionAuthority.getVersion(input.parentVersionId);
+    if (parent.identity.kind !== "root" || parent.identity.status !== "active") throw new Error("女娲分支必须从当前可用的主故事版本创建。");
+    if (parent.identity.currentRevision !== input.expectedParentRevision || parent.identity.headManifestId !== input.expectedParentManifestId) {
+      throw new Error("主故事版本在创建女娲分支前已变化；请刷新后重新保存。");
+    }
+    return versionAuthority.createDerivedVersion({
+      displayName: input.displayName,
+      parentVersionId: parent.identity.workVersionId,
+      parentBaseRevision: parent.identity.currentRevision,
+      parentManifestId: parent.identity.headManifestId,
+      derivation: {
+        purpose: "nuwa-branch",
+        originRunId: input.originRunId,
+        originHandoffId: input.originHandoffId ?? null
+      },
+      expectedRevision: 0,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: parent.identity.currentRevision }),
+      optionalNuwaProvenanceRefs: []
+    });
+  }
+
+  // One explicit semantic checkpoint appends exactly one branch revision and
+  // records the node provenance handed in by the caller.  Replays with the
+  // same idempotency key are absorbed by the authority receipt.
+  function appendNuwaBranchCheckpoint(projectId, input) {
+    const versionAuthority = authority(projectId);
+    const branch = versionAuthority.getVersion(input.branchWorkVersionId);
+    if (branch.identity.kind !== "derived" || branch.identity.derivation?.purpose !== "nuwa-branch") {
+      throw new Error("阶段版本检查点只接受 purpose=nuwa-branch 的派生作品版本。");
+    }
+    if (branch.identity.status !== "active") throw new Error("已归档的女娲分支不能追加阶段版本。");
+    return versionAuthority.appendRevision({
+      workVersionId: branch.identity.workVersionId,
+      expectedRevision: input.expectedRevision,
+      authorActionId: input.authorActionId,
+      idempotencyKey: input.idempotencyKey,
+      createdAt: input.createdAt,
+      ownerSnapshotRefs: ownerSnapshotRefs(projectId, { sourceGeneration: input.expectedRevision + 1 }),
+      optionalNuwaProvenanceRefs: input.provenanceRefs,
+      semanticDeltaRefs: input.semanticDeltaRefs ?? []
+    });
+  }
+
   function listWorkVersions(projectId) {
     const versionAuthority = authority(projectId);
     return versionAuthority.listVersions().map((version) => ({
@@ -869,6 +921,8 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     resolveWorkVersion: (projectId, workVersionId) => authority(projectId).getVersion(workVersionId),
     listWorkVersions,
     createDerivedWorkVersion,
+    createNuwaBranchWorkVersion,
+    appendNuwaBranchCheckpoint,
     appendStructuredStoryRevision,
     appendTargetWorkVersionRevision,
     validateWorkVersionSource: read,
