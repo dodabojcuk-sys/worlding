@@ -1265,7 +1265,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       receiptId: `checkpoint-r${nextRevision}:${node.contentRevision}`,
       canonicalDigest: createHash("sha256").update(stableJson({ nodeId: node.nodeId, contentRevision: node.contentRevision, blocks: node.blocks, reviewState: node.reviewState }), "utf8").digest("hex")
     }));
-    operations.snapshotNuwaBranchCheckpoint({ projectId: project.id, branchWorkVersionId, revision: nextRevision, createdAt, nodes: read.nodes });
+    operations.snapshotNuwaBranchCheckpoint({ projectId: project.id, branchWorkVersionId, revision: nextRevision, branchCurrentRevision: read.branch.currentRevision, createdAt, nodes: read.nodes });
     const result = creationSourcePort().appendNuwaBranchCheckpoint(project.id, {
       branchWorkVersionId,
       expectedRevision: Number.isSafeInteger(input.expectedRevision) ? input.expectedRevision : read.branch.currentRevision,

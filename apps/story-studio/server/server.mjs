@@ -4255,7 +4255,7 @@ async function handleNuwaBranchRequest(request, response, url) {
   requireToken(request);
   const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
   if (route === "create") {
-    requireAllowedKeys(body, ["projectId", "displayName", "runId", "handoffId", "operationId"]);
+    requireAllowedKeys(body, ["projectId", "displayName", "runId", "handoffId", "createdAt", "operationId"]);
     sendJson(response, 201, { data: runProductOperation(() => nuwaN1Port.createBranch(body)) });
     return;
   }
@@ -4275,7 +4275,7 @@ async function handleNuwaBranchRequest(request, response, url) {
     return;
   }
   if (route === "checkpoint") {
-    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "idempotencyKey", "operationId"]);
+    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "idempotencyKey", "createdAt", "expectedRevision", "operationId"]);
     sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.checkpointBranch(body)) });
     return;
   }

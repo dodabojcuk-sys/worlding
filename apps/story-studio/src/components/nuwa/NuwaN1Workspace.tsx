@@ -75,6 +75,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const [queuedParticipantId, setQueuedParticipantId] = useState<string | null>(null);
   const branchCreateAttemptsRef = useRef(new Map<string, string>());
   const checkpointAttemptsRef = useRef(new Map<string, string>());
+  const branchSavingRef = useRef(false);
   const [branchList, setBranchList] = useState<NuwaBranchSummary[]>([]);
   const [activeBranchId, setActiveBranchId] = useState("");
   const [branchRead, setBranchRead] = useState<NuwaBranchReadModel | null>(null);
@@ -159,13 +160,17 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   };
   const saveBranchDraft = () => {
     if (!projectId || !activeBranchId || !branchNode || !branchDraftBlocks) return;
+    // 失焦自动保存与"保存草稿"按钮可能先后触发；保存中时后来的必须是空操作，
+    // 否则旧闭包会带着过期 contentRevision 重发并被服务端 409 误报为失败。
+    if (branchSavingRef.current) return;
+    branchSavingRef.current = true;
     const scope = beginOperation();
     void props.runtime.withConnection((token) => updateNuwaBranchNodeContent({ projectId, branchWorkVersionId: activeBranchId, nodeId: branchNode.nodeId, expectedContentRevision: branchNode.contentRevision, blocks: branchDraftBlocks, operationId: newOperationId(), token })).then((result) => {
       if (!isCurrentOperation(scope)) return;
       setBranchRead((current) => current ? { ...current, nodes: current.nodes.map((node) => node.nodeId === result.node.nodeId ? result.node : node) } : current);
       setBranchDraftBlocks(result.node.blocks.map((block) => ({ ...block })));
       setBranchStatus({ kind: "draft", text: `草稿已自动保存 · 内容 r${result.node.contentRevision}；阶段版本修订未变化。` });
-    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "草稿保存未完成；请重试。") }); });
+    }).catch((reason: unknown) => { if (isCurrentOperation(scope)) setBranchStatus({ kind: "idle", text: messageFor(reason, "草稿保存未完成；请重试。") }); }).finally(() => { branchSavingRef.current = false; });
   };
   const createBranch = () => {
     if (!projectId) return;

@@ -3234,10 +3234,10 @@ export function createStoryStudioWorkspaceOperations(input: {
       });
     },
 
-    snapshotNuwaBranchCheckpoint(snapshotInput: { projectId: string; branchWorkVersionId: string; revision: number; createdAt: string; nodes: NuwaBranchNode[] }): { snapshotFile: string } {
+    snapshotNuwaBranchCheckpoint(snapshotInput: { projectId: string; branchWorkVersionId: string; revision: number; branchCurrentRevision: number; createdAt: string; nodes: NuwaBranchNode[] }): { snapshotFile: string } {
       const projectPath = resolveProjectPath(rootPath, snapshotInput.projectId);
       requireNuwaBranchIdentity(projectPath, requireText(snapshotInput.branchWorkVersionId, "女娲分支作品版本", 100));
-      const snapshotFile = snapshotNuwaBranchCheckpointRecord(projectPath, snapshotInput.branchWorkVersionId, snapshotInput.revision, requireText(snapshotInput.createdAt, "检查点时间", 48), snapshotInput.nodes.map((node) => normalizeNuwaBranchNode(node)));
+      const snapshotFile = snapshotNuwaBranchCheckpointRecord(projectPath, snapshotInput.branchWorkVersionId, snapshotInput.revision, requireNonNegativeInteger(snapshotInput.branchCurrentRevision, "分支当前修订"), requireText(snapshotInput.createdAt, "检查点时间", 48), snapshotInput.nodes.map((node) => normalizeNuwaBranchNode(node)));
       return clone({ snapshotFile });
     },
 
@@ -4489,15 +4489,18 @@ function checkpointSnapshotFile(projectPath: string, branchWorkVersionId: string
 // Checkpoint content snapshots are immutable: an identical rewrite is a safe
 // replay, any different content for the same revision is refused.  This is
 // what lets each checkpoint restore exactly the node content it certified.
-function snapshotNuwaBranchCheckpointRecord(projectPath: string, branchWorkVersionId: string, revision: number, createdAt: string, nodes: NuwaBranchNode[]): string {
+function snapshotNuwaBranchCheckpointRecord(projectPath: string, branchWorkVersionId: string, revision: number, branchCurrentRevision: number, createdAt: string, nodes: NuwaBranchNode[]): string {
   const positive = Number.isSafeInteger(revision) && revision > 0 ? revision : (() => { throw new Error("女娲分支检查点修订必须为正整数。"); })();
   const snapshot: NuwaBranchCheckpointSnapshot = { schemaVersion: NUWA_BRANCH_STORE_SCHEMA, branchWorkVersionId, revision: positive, createdAt, nodes };
   const target = checkpointSnapshotFile(projectPath, branchWorkVersionId, positive);
   const content = `${stableJson(snapshot)}\n`;
   if (existsSync(target)) {
     if (lstatSync(target).isSymbolicLink()) throw new Error("女娲分支检查点存储不能是符号链接。");
-    if (readFileSync(target, "utf8") !== content) throw new Error(`女娲分支检查点 r${positive} 已存在且内容不同；拒绝覆盖。`);
-    return target;
+    if (readFileSync(target, "utf8") === content) return target;
+    // 已获 WorkVersion 修订认证的快照是不可变历史；只有从未被认证的孤儿
+    // 快照（一次失败 append 的残留，分支头部尚未到达该修订号）才允许被
+    // 新内容替换，否则一次失败尝试会永久堵死该修订号。
+    if (branchCurrentRevision >= positive) throw new Error(`女娲分支检查点 r${positive} 属于已认证历史且内容不同；拒绝覆盖。`);
   }
   nuwaBranchAtomicWrite(target, content);
   return target;
