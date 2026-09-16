@@ -471,7 +471,7 @@ export function createTianyiAgentRuntimePort(dependencies: TianyiAgentRuntimeDep
       version: "tianyi-agent-run-projection/v1", runId, projectId: input.projectId, workVersionId, sessionId: input.sessionId, task,
       currentPage, contextRequest: input.contextRequest ?? null, status: "planning", contextManifest: null, resultSummary: null,
       model: { providerId: null, profileId: null, modelId: null, runtime: dependencies.runProvider ? "pi" : "fixture" },
-      budget: { maxProviderCalls: storyIntake ? 3 : 1, maxOutputTokens: storyIntake ? 1_024 : 512, providerCalls: 0, estimatedTokens: 0 },
+      budget: { maxProviderCalls: storyIntake ? 3 : 1, maxOutputTokens: storyIntake ? 4_096 : 512, providerCalls: 0, estimatedTokens: 0 },
       observability: { traceId: null, latencyMs: null, promptTokens: null, completionTokens: null, totalTokens: null, streamEventCount: 0 },
       executionIdentity: { requestedProviderId: null, requestedModelId: null, responseModelId: null, runId, stepId: null },
       permissionProfile, plan: planFor(runId, storyIntake), toolCalls: [], approvals: [], steering: [], candidates: [], storyIntakeEnvelope: null, receipts: [], stopReason: null, error: null, revision: 0, createdAt: timestamp, updatedAt: timestamp

@@ -103,8 +103,16 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>(() => {
     const ids = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
     let stored: string[] = [];
-    try { stored = project ? JSON.parse(window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) ?? "[]") : []; } catch { stored = []; }
-    return [...new Set([...ids, ...stored])].slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+    let hasStoredSelection = false;
+    try {
+      const raw = project ? window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) : null;
+      hasStoredSelection = raw !== null;
+      stored = raw ? JSON.parse(raw) : [];
+    } catch { stored = []; }
+    // URL handoff references seed the selection only before the author has
+    // made any choice; afterwards the stored selection (including removals)
+    // is the authority — replays must not resurrect removed references.
+    return hasStoredSelection ? stored.slice(0, MAX_EXPLICIT_MATERIAL_REFS) : [...new Set([...ids, ...stored])].slice(0, MAX_EXPLICIT_MATERIAL_REFS);
   });
   const [selectedMapEvidence, setSelectedMapEvidence] = useState<{ map: MapDocument; elementId: string | null } | null>(null);
   const [selectedMaterialFile, setSelectedMaterialFile] = useState<(MaterialFileRecord & { revision: MaterialFileRecord["revisions"][number]; contentHash: string }) | null>(null);
@@ -134,7 +142,22 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
   const materialReturn = safeWorkspaceReturn(new URLSearchParams(window.location.search).get("materialReturn"));
-  const relationHandoff = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
+  const handoffSeedKeyRef = useRef("");
+  // Mount-once snapshot of the relation handoff: every consumer (initial
+  // selection, seed, replay guard) reads this stable request instead of
+  // re-parsing a URL that other effects may clear.
+  const handoffRequest = useMemo(() => readTianyiRelationHandoff(new URLSearchParams(window.location.search)), []);
+  const handoffSignature = useMemo(() => JSON.stringify({
+    relationId: handoffRequest.relationId ?? null,
+    source: handoffRequest.sourceObjectId ?? null,
+    target: handoffRequest.targetObjectId ?? null,
+    materials: [...handoffRequest.materialIds].sort(),
+    events: handoffRequest.eventRefs.map((ref) => `${ref.eventId}@${ref.revision}`).sort()
+  }), [handoffRequest]);
+  const handoffConsumedRef = useRef(new Set<string>());
+  const authorDismissedMaterialIds = useRef(new Set<string>());
+  const dismissMaterial = useCallback((materialId: string) => { authorDismissedMaterialIds.current.add(materialId); }, []);
+  const relationHandoff = handoffRequest;
 
   useEffect(() => {
     if (!relationHandoff.active || lane !== "work") return;
@@ -309,21 +332,41 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setWorkContextEvents(events);
       setWorkContextUnits(units);
       setWorkMaterials(materials);
-      const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
-      const requestedMaterials = requested.materialIds;
+      // Author removals are authoritative: material reloads only drop
+      // references that no longer resolve, and never replay URL handoffs.
       setSelectedMaterialIds((current) => {
-        const next = [...new Set([
-        ...requestedMaterials.filter((id) => materials.some((item) => item.id === id)),
-        ...current.filter((id) => materials.some((item) => item.id === id))
-        ])];
+        const next = current.filter((id) => materials.some((item) => item.id === id));
         if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
-        return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+        return next;
       });
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
-      const exactRequestedEvents = requested.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
-      if (requested.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
-      if (requested.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
-      setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      // Handoff seeding happens once per project/version load; afterwards the
+      // author's additions and removals are authoritative and reloads only
+      // prune references that no longer resolve.  A handoff the author has
+      // already consumed (worked with, then edited down) is never replayed:
+      // their removals keep this entry empty until a NEW handoff arrives.
+      const seedKey = `${project?.id ?? ""}:${workVersionId ?? ""}`;
+      const firstLoad = handoffSeedKeyRef.current !== seedKey;
+      if (firstLoad) handoffSeedKeyRef.current = seedKey;
+      const exactRequestedEvents = relationHandoff.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
+      if (relationHandoff.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
+      const handoffAlreadyConsumed = handoffConsumedRef.current.has(handoffSignature);
+      if (firstLoad) {
+        if (relationHandoff.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
+        setSelectedMaterialIds((current) => {
+          let dismissedIds: string[] = [];
+          try { dismissedIds = JSON.parse(window.sessionStorage.getItem(`tianyi-handoff-dismissed:${project.id}`) ?? "[]"); } catch { dismissedIds = []; }
+          const valid = relationHandoff.materialIds.filter((id) => materials.some((item) => item.id === id) && !dismissedIds.includes(id));
+          const next = [...new Set([...valid, ...current.filter((id) => materials.some((item) => item.id === id))])];
+          if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
+          return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
+        });
+        setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      } else if (handoffAlreadyConsumed) {
+        setSelectedMaterialIds((current) => current.filter((id) => materials.some((item) => item.id === id)));
+      } else {
+        setSelectedMaterialIds((current) => current.filter((id) => materials.some((item) => item.id === id)));
+      }
       setPinnedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setRemovedWorkEventIds((current) => current.filter((id) => events.some((event) => event.id === id)));
       setWorkContextState("ready");
@@ -338,16 +381,25 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [project?.id, refreshWorkContext]);
 
   useEffect(() => {
-    const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
+    const params = new URLSearchParams(window.location.search);
+    const requested = readTianyiRelationHandoff(params).materialIds;
     if (!requested.length) return;
     setSelectedMaterialIds((current) => {
-      const additions = requested.filter((id) => !current.includes(id));
+      const additions = requested.filter((id) => !current.includes(id) && !authorDismissedMaterialIds.current.has(id));
       if (current.length + additions.length + (selectedMapEvidence ? 1 : 0) > MAX_EXPLICIT_MATERIAL_REFS) {
         setError(`地图与资料引用已达 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；原选择保持不变，请先移除一项。`);
         return current;
       }
       return [...current, ...additions];
     });
+    // The handoff references are now consumed: clear materialRef from the URL
+    // so later lane switches cannot replay references the author already
+    // removed.  A fresh handoff from the relations page starts a new merge.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("materialRef")) {
+      url.searchParams.delete("materialRef");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
   }, [lane, project?.id, selectedMapEvidence]);
 
   useEffect(() => {
@@ -487,7 +539,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialFileRefs, ...materialRefs], [mapEvidenceRefs, materialFileRefs, materialRefs]);
 
   function toggleMaterial(materialId: string) {
-    if (selectedMaterialIds.includes(materialId)) { setSelectedMaterialIds((current) => current.filter((id) => id !== materialId)); return; }
+    if (selectedMaterialIds.includes(materialId)) {
+      setSelectedMaterialIds((current) => current.filter((id) => id !== materialId));
+      dismissMaterial(materialId);
+      if (handoffRequest.materialIds.includes(materialId) && project) {
+        try {
+          const key = `tianyi-handoff-dismissed:${project.id}`;
+          const dismissed: string[] = JSON.parse(window.sessionStorage.getItem(key) ?? "[]");
+          if (!dismissed.includes(materialId)) { dismissed.push(materialId); window.sessionStorage.setItem(key, JSON.stringify(dismissed)); }
+        } catch { /* session storage full/blocked: re-entry may re-seed, acceptable */ }
+      }
+      return;
+    }
     if (explicitContextRefs.length >= MAX_EXPLICIT_MATERIAL_REFS) { setError(`本次地图与资料合计最多明确引用 ${MAX_EXPLICIT_MATERIAL_REFS} 项；原选择保持不变，请先取消一项。`); return; }
     setSelectedMaterialIds((current) => [...current, materialId]);
   }
@@ -1140,7 +1203,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           {legacyFixture ? <p className="tianyi-fixture-notice" role="status">测试夹具模式 · 固定三候选不是 AI 识别结果</p> : null}
           {!legacyFixture && intakeRun ? <section className="tianyi-intake-run" data-story-intake-status={intakeRun.status} aria-label="Story Intake 运行">
             <header><div><strong>Story Intake</strong><p>{storyIntakeStatusLabel(intakeRun)}</p></div><span>{storyIntakeRuntimeLabel(intakeRun)}</span></header>
-            {intakeRun.status === "running" ? <div className="tianyi-intake-progress"><LoaderCircle className="is-spinning" /><span>正在识别人物、物品、地点、事件与故事路径……</span><button type="button" onClick={stopStoryIntake}><CircleStop />停止</button></div> : null}
+            {intakeRun.status === "running" ? <div className="tianyi-intake-progress"><LoaderCircle className="is-spinning" /><span>模型运行中；完成后候选会进入待审列表。</span><button type="button" onClick={stopStoryIntake}><CircleStop />停止</button></div> : null}
             {intakeStreamText ? <p className="tianyi-intake-explanation">{intakeStreamText}</p> : null}
             {intakeRun.error ? <div className="tianyi-intake-failure" role="alert"><p>{intakeRun.error.message}</p>{intakeRun.error.retryable ? <button type="button" onClick={retryStoryIntake}><RotateCcw />重试</button> : null}</div> : null}
             {intakeRun.storyIntakeEnvelope ? <>
@@ -1177,21 +1240,21 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             onIncludeCandidate={(candidateId) => toggleIntakeCandidate(candidateId)}
             onLocateCandidate={(candidateId) => { focusIntakeCandidate(candidateId); changeLane("review"); }}
           /> : activeIntakeResolution ? <div className="story-intake-recovery" role="alert"><strong>无法恢复原候选</strong><p>{storyIntakeRecoveryMessage(activeIntakeResolution.status)}</p><button type="button" onClick={() => changeLane("review")}>返回当前批次审阅</button></div> : <>
-            <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div>
+            {!relationEntry ? <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div> : null}
             {mapEntry ? <section className="tianyi-map-creation-start" aria-label="从地图开始创作">
               <header><div><small>来自地图 · 已保留工作模式草稿</small><h2>{selectedMapEvidence?.map.title ?? "地图上下文"}{mapEntryPromptSubject !== selectedMapEvidence?.map.title ? ` · ${mapEntryPromptSubject}` : ""}</h2></div>{selectedMapEvidence ? <button type="button" onClick={() => openGroundedMap("authoring")}><ArrowLeft aria-hidden="true" />返回地图继续创作</button> : null}</header>
               <section className="tianyi-map-reference-strip" aria-label="本次带入的引用"><div><strong>本次带入</strong><small>{explicitContextRefs.length}/{MAX_EXPLICIT_MATERIAL_REFS} 项 · 发送前会再核验</small></div><ul>
                 {selectedMapEvidence ? <li><div><strong>{mapEntryDrawing?.label ?? selectedMapEvidence.map.title}</strong><small>{mapEntryDrawing ? `${selectedMapEvidence.map.title} · 选中图示` : "地图"}</small></div><details><summary>查看来源</summary><p>{mapEntryDrawing ? "仅带入这个图示的结构化几何；周围空间不自动成为剧情事实。" : "带入当前地图的结构化范围。"}</p><button type="button" onClick={() => openGroundedMap("evidence")}>查看准确来源</button></details><button type="button" onClick={() => { setSelectedMapEvidence(null); setMapEvidenceState("idle"); }}>移除</button></li> : mapEvidenceState === "failed" ? <li className="is-invalid"><div><strong>地图引用已失效</strong><small>请返回原地图重新选择</small></div></li> : null}
-                {selectedMaterials.map((material) => <li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0, 180) || "暂无正文"}</p><button type="button" onClick={() => openGroundedMaterial(material.id, material.revisionToken)}>打开资料</button></details><button type="button" onClick={() => setSelectedMaterialIds((current) => current.filter((id) => id !== material.id))}>移除</button></li>)}
+                {selectedMaterials.map((material) => <li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0, 180) || "暂无正文"}</p><button type="button" onClick={() => openGroundedMaterial(material.id, material.revisionToken)}>打开资料</button></details><button type="button" onClick={() => { setSelectedMaterialIds((current) => current.filter((id) => id !== material.id)); dismissMaterial(material.id); }}>移除</button></li>)}
               </ul><p>只有作者明确保留的结构化内容会参与本次请求；打开本页不会自动发送。</p></section>
               <section className="tianyi-map-composer"><label htmlFor="tianyi-map-work-draft">你想围绕{mapEntryPromptSubject}做什么？</label><textarea id="tianyi-map-work-draft" aria-label="当前工作范围对话" value={runtime.workComposerDraft} onChange={(event) => runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder={`你想围绕${mapEntryPromptSubject}做什么？`} /><div className="tianyi-map-starters" aria-label="创作起步建议"><button type="button" onClick={() => fillMapStarter(`根据已有资料，提出三个发生在${mapEntryPromptSubject}的场景构想。`)}>三个场景构想</button><button type="button" onClick={() => fillMapStarter(`整理${mapEntryPromptSubject}目前已知的信息和待补充问题。`)}>整理已知与待补充</button><button type="button" onClick={() => fillMapStarter(`结合我之后明确选择的人物，构思他们在${mapEntryPromptSubject}的一次相遇。`)}>构思人物相遇</button></div><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim() || busy || workContextState === "loading" || workContextState === "failed" || explicitContextRefs.length > MAX_EXPLICIT_MATERIAL_REFS} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{busy ? "请求中…" : "发送到当前工作"}</button></div></section>
               {lastGroundedAnswer ? <section className="tianyi-map-entry-result tianyi-creation-result" aria-label="地图创作请求结果"><header><div><small>已保存到当前会话</small><strong>天意的创作回复</strong></div><span>{lastGroundedAnswer.answer?.status === "unknown" ? "依据不足" : "可继续加工"}</span></header><CreativeResultBody text={groundedResultText} /><div className="tianyi-creation-result-actions"><button type="button" onClick={continueGroundedAnswer}>继续修改这条回复</button><button type="button" onClick={() => void copyGroundedAnswer()}>复制内容</button><button type="button" onClick={saveGroundedAnswerAsCreativeDraft}>保存为创意草稿</button>{runtime.creativeComposerDraft.trim() ? <button type="button" onClick={() => changeLane("creative")}>打开创意草稿</button> : null}</div><details><summary>请求与保存详情</summary><p>{lastGroundedAnswer.providerDispatchCount} 次模型边界发送；回复已写入当前天意会话。保存为创意草稿不会确认任何故事事实。</p></details></section> : null}
             </section> : null}
             {relationEntry ? <section className="tianyi-map-creation-start tianyi-relation-creation-start" aria-label="从关系开始创作">
-              <section className="tianyi-map-reference-strip" aria-label="关系图带入的引用"><div><strong>本次明确带入</strong><small>{selectedMaterials.length} 项人物／地点 · {relationHandoffEvents.length} 项正式事件依据</small></div><ul>
-                {selectedMaterials.map((material)=><li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0,180)||"暂无正文"}</p><button type="button" onClick={()=>openGroundedMaterial(material.id,material.revisionToken)}>打开资料</button></details><button type="button" onClick={()=>setSelectedMaterialIds((current)=>current.filter((id)=>id!==material.id))}>移除</button></li>)}
+              <section className="tianyi-map-reference-strip" aria-label="关系图带入的引用"><div><strong>本次明确带入</strong><small>{selectedMaterials.length} 项人物／地点 · {relationHandoffEvents.length} 项正式事件依据</small></div><details><summary>展开核对与移除引用</summary><ul>
+                {selectedMaterials.map((material)=><li key={material.id}><div><strong>{material.title}</strong><small>{materialTypeLabel(material.type)} · {project.title}</small></div><details><summary>查看来源</summary><p>{material.body.slice(0,180)||"暂无正文"}</p><button type="button" onClick={()=>openGroundedMaterial(material.id,material.revisionToken)}>打开资料</button></details><button type="button" onClick={()=>{ setSelectedMaterialIds((current)=>current.filter((id)=>id!==material.id)); dismissMaterial(material.id); }}>移除</button></li>)}
                 {relationHandoffEvents.map((event)=><li key={event.id}><div><strong>{event.title}</strong><small>来源事件 · 已核对版本</small></div><details><summary>查看来源内容</summary><p>{event.body.slice(0,240)||"暂无正文"}</p><button type="button" onClick={()=>project&&openGroundedEvidenceEvent({projectId:project.id,sourceId:event.id,contentHash:event.revisionToken})}>打开完整事件</button></details><button type="button" onClick={()=>setSelectedWorkEventIds((current)=>current.filter((id)=>id!==event.id))}>移除</button></li>)}
-              </ul><p>这里使用现有的正式关系记录和作者选择的来源事件。打开本页不会发送，也不会修改正式事实。</p></section>
+              </ul></details><p>已加入的引用是本次请求的候选来源；发送时服务端会按既有授权再次核验，实际采用的依据以回答回执为准。打开本页不会发送，也不会修改正式事实。</p></section>
               <section className="tianyi-map-composer"><label htmlFor="tianyi-relation-work-draft">接下来想围绕这些人物、地点和依据做什么？</label><textarea id="tianyi-relation-work-draft" aria-label="关系工作范围对话" value={runtime.workComposerDraft} onChange={(event)=>runtime.setWorkComposerDraft(event.target.value)} rows={4} placeholder="写下创作意图；发送前可继续移除引用。"/><div className="tianyi-map-composer-actions"><small>{dialogueRuntime === "local-fake" ? "本地夹具 · 非真实模型" : dialogueRuntime === "provider" ? "仅点击发送时调用已配置 Provider" : "当前无可用 Provider；草稿会保留"}</small><button type="button" className="tianyi-send" disabled={!runtime.workComposerDraft.trim()||busy||workContextState==="loading"||workContextState==="failed"||explicitContextRefs.length>MAX_EXPLICIT_MATERIAL_REFS} onClick={()=>void submitConversation("work")}>{busy?<LoaderCircle className="is-spinning"/>:<Send/>}{busy?"请求中…":"发送到当前工作"}</button></div></section>
             </section> : null}
             {selectedMaterialFile?.type === "image" ? <section className="tianyi-image-observation" aria-label="图片与文字检查">
@@ -1201,7 +1264,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
               {imageObservationError ? <p role="alert" className="is-error">{imageObservationError}</p> : null}
               {imageObservation ? <section className={`tianyi-image-observation-result is-${imageObservation.observation.consistency}`}><strong>{imageObservation.observation.consistency === "consistent" ? "图片与文字一致" : imageObservation.observation.consistency === "conflict" ? "发现图片与文字矛盾" : "目前无法判断"}</strong>{imageObservation.generation.kind === "local-fixture" ? <small>本地视觉夹具 · 不代表真实模型识别</small> : null}<p>{imageObservation.observation.explanation}</p>{imageObservation.observation.objects.length ? <p>识别对象：{imageObservation.observation.objects.join("、")}</p> : null}{imageObservation.observation.relativePositions.length ? <ul>{imageObservation.observation.relativePositions.map((item, index) => <li key={`${index}:${item.subject}:${item.object}`}>{item.subject} · {imageRelationLabel(item.relation)} · {item.object}</li>)}</ul> : null}<small>不确定性：{imageObservation.observation.uncertainty}</small><details><summary>请求详情</summary><p>{imageObservation.generation.modelId} · 1 次模型边界发送 · {imageObservation.generation.finishReason ?? "结束原因未知"}</p></details></section> : null}
             </section> : null}
-            <div className="tianyi-work-contract"><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
+            <div className="tianyi-work-contract"><details className="tianyi-work-contract-details"><summary>工作目标 · 版本与范围详情</summary><dl><div><dt>{t("tianyi.workspace.workTarget")}</dt><dd>{activeLegacyCandidate?.summary ?? "围绕作者原话与当前故事持续讨论；不会因没有候选而中断。"}</dd></div><div><dt>{t("tianyi.workspace.targetStory")}</dt><dd>{project.title}</dd></div><div><dt>{t("tianyi.workspace.baseVersion")}</dt><dd>{runtime.workVersionLabel ?? t("tianyi.workspace.currentMainline")}</dd></div><div><dt>ContextPack</dt><dd>{activeLegacyCandidate ? (runtime.sharedTianyiReferences.length ? t("tianyi.workspace.referenceCount").replace("{count}", String(runtime.sharedTianyiReferences.length)) : t("tianyi.workspace.authorScope")) : globalWorkContextLabel}</dd></div></dl></details><label>{t("tianyi.workspace.workScope")}<select value={runtime.workScope} onChange={(event) => runtime.setWorkScope(event.target.value as TianyanShellRuntimeState["workScope"])}><option value="current-story">{t("tianyi.workspace.scope.story")}</option><option value="current-unit">{t("tianyi.workspace.scope.unit")}</option><option value="selected-events">{t("tianyi.workspace.scope.events")}</option></select></label></div>
             {!activeLegacyCandidate ? <details className="tianyi-work-context-picker" open={!mapEntry && !relationEntry}>
               <summary>工作依据 · {globalWorkContextLabel}</summary>
               {runtime.workScope === "current-unit" ? <label>故事单元<select value={selectedWorkUnitId ?? ""} onChange={(event) => setSelectedWorkUnitId(event.target.value || null)}><option value="">尚未选择</option>{workContextUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label> : null}

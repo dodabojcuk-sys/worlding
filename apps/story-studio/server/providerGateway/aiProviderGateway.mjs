@@ -118,12 +118,18 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         });
         throw error;
       }
-      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
+      // A deployment cap may only lower a model profile's own ceiling; the two
+      // are composed by clamping so a bounded review deployment cannot crash a
+      // dispatch just because its cap exceeds the selected profile's limit.
+      // Per-run requests above the effective cap are still rejected, not
+      // silently rewritten.
+      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : Math.min(boundedInteger(maxOutputTokensCap, 1, 8_192), profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
         timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
-        ...(tools.length ? { tools, toolChoice } : {})
+        ...(tools.length ? { tools, toolChoice } : {}),
+        ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
       });
       const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
@@ -146,7 +152,8 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           signal: input?.signal,
           responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
           enableThinking: profile.enableThinking,
-          ...(tools.length ? { tools, toolChoice } : {})
+          ...(tools.length ? { tools, toolChoice } : {}),
+          ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
         });
         enteredTransport = true;
         await notifyProviderLifecycle(onProviderLifecycle, {
@@ -266,17 +273,27 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const modelId = selectStructuredChatModel(modelIds);
       const providerId = typeof options.providerId === "string" && adapterMap.has(options.providerId) ? options.providerId : "siliconflow";
       const matchingProfile = frozenProfiles.find((profile) => profile.providerId === providerId && profile.modelId === modelId);
-      activeProfiles = [matchingProfile || validateProfile({
+      const chosen = matchingProfile || validateProfile({
         id: `${providerId}-session-structured`,
         label: `${modelId} · 当前账户`,
         purpose: "structured-story",
         providerId,
         modelId,
-        maxOutputTokens: 2_400,
+        // Reasoning-style models spend part of this budget on invisible
+        // reasoning tokens before the structured answer (measured: GLM-5.3
+        // spent 1900 reasoning tokens on one intake call); 2400 truncated
+        // real envelopes, so discovered session models get the same ceiling
+        // the product path already enforces.
+        maxOutputTokens: 4_096,
         temperature: 0.25,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         enableThinking: false
-      })];
+      });
+      // Keep a local fake adapter's profile resolvable when the host enabled
+      // it, so fake-transport dispatches survive a later discovered-model
+      // selection instead of failing profile lookup.
+      const preservedFake = frozenProfiles.filter((profile) => profile.providerId === "local-fake");
+      activeProfiles = [chosen, ...preservedFake];
       return publicProfile(activeProfiles[0]);
     },
     clearDiscoveredModel() {

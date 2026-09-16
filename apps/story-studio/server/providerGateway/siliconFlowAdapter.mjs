@@ -129,30 +129,57 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       if (callerSignal?.aborted) throw providerGatewayError("cancelled");
       telemetry.callCount += 1;
       const startedAt = Date.now();
-      const response = await fetchWithTimeout(fetchImpl, providerEndpoint(baseUrlProvider, "chat/completions"), {
-        method: "POST",
-        redirect: "error",
-        headers: providerHeaders(apiKey, {
-          accept: "application/json",
-          "content-type": "application/json"
-        }),
-        body: JSON.stringify({
-          model: input.modelId,
-          messages: input.messages,
-          stream: false,
-          max_tokens: input.maxOutputTokens,
-          temperature: input.temperature,
-          ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
-          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
-          ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
-        })
-      }, input);
-      if (!response?.ok) {
-        await discardResponseBody(response);
-        throw mapHttpStatus(response?.status);
+      // The deadline must cover the full body read, not only the response
+      // headers: non-streaming structured calls spend most of their time in
+      // the body (R2A §3.2).
+      const controller = new AbortController();
+      let timeoutTriggered = false;
+      const onCallerAbort = () => controller.abort();
+      callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+      const timeoutId = setTimeout(() => { timeoutTriggered = true; controller.abort(); }, normalizeTimeout(input.timeoutMs));
+      let response;
+      try {
+        response = await fetchImpl(providerEndpoint(baseUrlProvider, "chat/completions"), {
+          method: "POST",
+          redirect: "error",
+          headers: providerHeaders(apiKey, {
+            accept: "application/json",
+            "content-type": "application/json"
+          }),
+          body: JSON.stringify({
+            model: input.modelId,
+            messages: input.messages,
+            stream: false,
+            max_tokens: input.maxOutputTokens,
+            temperature: input.temperature,
+            ...reasoningRequestFields(input, enableThinking),
+            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
+            ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
+          }),
+          signal: controller.signal
+        });
+      } catch (error) {
+        clearTimeout(timeoutId);
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+        throw normalizeTransportError(error, { callerSignal, timeoutTriggered });
       }
       let payload;
-      try { payload = await response.json(); } catch { throw providerGatewayError("invalid-response"); }
+      try {
+        if (!response?.ok) {
+          await discardResponseBody(response);
+          throw mapHttpStatus(response?.status);
+        }
+        payload = await response.json();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+        if (timeoutTriggered) throw providerGatewayError("timeout");
+        if (error?.name === "ProviderGatewayError" || error?.name === "ProviderCredentialBackendError") throw error;
+        if (typeof error?.statusCode === "number") throw error;
+        throw providerGatewayError("invalid-response");
+      }
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
       const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
       const content = typeof choice?.message?.content === "string" ? choice.message.content : "";
       const toolCalls = normalizeNonStreamToolCalls(choice?.message);
@@ -172,6 +199,62 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       });
     },
     async openChatStream(input) {
+      // Evidence-backed fallback (R2): one measured intake call showed the
+      // reasoning-style model spending ~1900 invisible reasoning tokens and
+      // streaming for over two minutes without finishing, while the same
+      // non-streaming request completed in 37s with a legal tool call.  A
+      // structured tool dispatch may therefore request the non-streaming
+      // transport; it is served here and synthesized into the same frame
+      // shapes the streaming parser produces, so callers see one contract.
+      if (input.nonStreaming === true) {
+        const startedNs = Date.now();
+        let completion;
+        try {
+          completion = await this.openChatCompletion({
+            modelId: input.modelId,
+            messages: input.messages,
+            maxOutputTokens: input.maxOutputTokens,
+            temperature: input.temperature,
+            timeoutMs: input.timeoutMs,
+            signal: input.signal,
+            responseFormat: input.responseFormat,
+            enableThinking: input.enableThinking,
+            ...(input.tools?.length ? { tools: input.tools, toolChoice: input.toolChoice || "auto" } : {})
+          });
+        } catch (error) {
+          console.error(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${telemetry.lastTraceId || "-"} durationMs=${Date.now() - startedNs} outcome=failed error=${error?.code || error?.name || "error"}`);
+          throw error;
+        }
+        // Strict completion classification: only an explicit "tool_calls"
+        // finish with legal tool calls becomes success frames.  Truncated or
+        // unfinished tool output surfaces as malformed frames so downstream
+        // validation sees the real failure mode (R2A §3.2).
+        const toolCalls = completion.toolCalls ?? [];
+        const finish = completion.finishReason;
+        const frames = [];
+        frames.push(Object.freeze({ type: "response-metadata", responseModelId: completion.modelId }));
+        if (finish === "tool_calls" && toolCalls.length) {
+          for (const call of toolCalls) {
+            frames.push(Object.freeze({ type: "tool-call-start", id: call.id, name: call.name, index: 0 }));
+            frames.push(Object.freeze({ type: "tool-call-delta", id: call.id, name: call.name, index: 0, argumentsDelta: call.argumentsJson }));
+            frames.push(Object.freeze({ type: "tool-call-end", id: call.id, name: call.name, index: 0, argumentsJson: call.argumentsJson || "{}", arguments: call.arguments }));
+          }
+        } else if (toolCalls.length) {
+          const reason = finish ? `truncated-finish-${finish}` : "missing-completion";
+          for (const call of toolCalls) {
+            frames.push(Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: 0, argumentsJson: call.argumentsJson || "", reason }));
+          }
+        }
+        frames.push(Object.freeze({ type: "chunk", text: toolCalls.length && finish === "tool_calls" ? "" : completion.content, finishReason: toolCalls.length && finish === "tool_calls" ? null : finish, usage: completion.usage }));
+        frames.push(Object.freeze({ type: "done" }));
+        console.log(`[provider-dispatch] model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0} transport=non-streaming trace=${completion.traceId || "-"} durationMs=${Date.now() - startedNs} outcome=completed finish=${finish || "none"} usage=${completion.usage ? `${completion.usage.promptTokens}/${completion.usage.completionTokens}` : "-"}`);
+        return Object.freeze({
+          traceId: completion.traceId,
+          events: (async function* () {
+            for (const frame of frames) yield frame;
+          })()
+        });
+      }
       const apiKey = readCredential(apiKeyProvider);
       if (credentialRequired && !apiKey) throw providerGatewayError("unconfigured");
       telemetry.callCount += 1;
@@ -204,7 +287,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             stream: true,
             max_tokens: input.maxOutputTokens,
             temperature: input.temperature,
-            ...(enableThinking ? { enable_thinking: input.enableThinking === true } : {}),
+            ...reasoningRequestFields(input, enableThinking),
             ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
             ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
           }),
@@ -232,9 +315,32 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       const traceId = boundedTraceId(response.headers?.get?.(traceHeader));
       telemetry.lastTraceId = traceId;
 
+      // Content-free operational trace for one dispatch: the actually sent
+      // budget and switches, the provider's finish reason, and the transport
+      // outcome. Story content and credentials never enter this line.
+      const dispatchLabel = `model=${input.modelId} maxTokens=${input.maxOutputTokens} timeoutMs=${input.timeoutMs ?? "default"} thinking=${input?.enableThinking === true} responseFormat=${input?.responseFormat === "json-object" ? "json-object" : "text"} tools=${input?.tools?.length ?? 0}`;
+      const firstChunkAt = { value: 0 };
+      const outcome = { finishReasons: [], done: false };
+      const observedEvents = async function* (events) {
+        try {
+          for await (const event of events) {
+            if (event?.type === "chunk") {
+              if (!firstChunkAt.value) firstChunkAt.value = Date.now();
+              if (event.finishReason) outcome.finishReasons.push(event.finishReason);
+            }
+            if (event?.type === "done") outcome.done = true;
+            yield event;
+          }
+        } catch (error) {
+          console.error(`[provider-dispatch] ${dispatchLabel} trace=${traceId || "-"} ttfbMs=${firstChunkAt.value ? firstChunkAt.value - startedAt : "-"} durationMs=${Date.now() - startedAt} outcome=failed error=${error?.code || error?.name || "error"}`);
+          throw error;
+        }
+        console.log(`[provider-dispatch] ${dispatchLabel} trace=${traceId || "-"} ttfbMs=${firstChunkAt.value ? firstChunkAt.value - startedAt : "-"} durationMs=${Date.now() - startedAt} outcome=${outcome.done ? "completed" : "ended-without-done"} finish=${outcome.finishReasons.join("|") || "none"} usage=${telemetry.lastUsage ? `${telemetry.lastUsage.promptTokens}/${telemetry.lastUsage.completionTokens}` : "-"}`);
+      };
+
       return Object.freeze({
         traceId,
-        events: consumeProviderStream({
+        events: observedEvents(consumeProviderStream({
           responseBody: response.body,
           signal: controller.signal,
           callerSignal,
@@ -245,10 +351,22 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             callerSignal?.removeEventListener("abort", onCallerAbort);
             telemetry.lastLatencyMs = Date.now() - startedAt;
           }
-        })
+        }))
       });
     }
   });
+}
+
+// Model capability mapping (R2A §2.1): GLM-5.x on this endpoint does not
+// support non-thinking mode and takes reasoning_effort (low/high/max); other
+// models keep the enable_thinking switch.  enableThinking=false maps to the
+// cheapest documented tier so structured intake does not pay for reasoning it
+// did not ask for.
+function reasoningRequestFields(input, supportsThinkingSwitch) {
+  if (/GLM-5/iu.test(String(input.modelId || ""))) {
+    return { reasoning_effort: input.enableThinking === true ? "high" : "low" };
+  }
+  return supportsThinkingSwitch ? { enable_thinking: input.enableThinking === true } : {};
 }
 
 function providerEndpoint(baseUrlProvider, pathname, search = undefined) {
@@ -294,6 +412,7 @@ async function* parseSse(body, signal, onUsage) {
   const toolCalls = new Map();
   let toolFinishSeen = false;
   let responseModelSeen = false;
+  let lastFinishReason = null;
   try {
     while (!completed) {
       const result = await readWithAbort(reader, signal);
@@ -307,10 +426,16 @@ async function* parseSse(body, signal, onUsage) {
         buffer = buffer.slice(boundary + 2);
         if (Buffer.byteLength(source) > MAX_SSE_EVENT_BYTES) throw providerGatewayError("invalid-response");
         const event = parseSseEvent(source);
+        if (event?.finishReason) lastFinishReason = event.finishReason;
         if (event?.type === "done") {
           for (const call of [...toolCalls.values()].filter((item) => !item.ended).sort((left, right) => left.order - right.order)) {
             call.ended = true;
-            yield Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason: "missing-completion" });
+            // A tool call that was still open at [DONE] must distinguish a
+            // provider-side truncation (an observed non-tool_calls finish
+            // reason, e.g. "length") from a stream that never expressed any
+            // completion at all; they have different fixes.
+            const reason = lastFinishReason && lastFinishReason !== "tool_calls" ? `truncated-finish-${lastFinishReason}` : "missing-completion";
+            yield Object.freeze({ type: "tool-call-malformed", id: call.id || null, name: call.name || null, index: call.index, argumentsJson: call.argumentsJson, reason });
           }
           completed = true;
           yield event;
@@ -366,7 +491,7 @@ function parseSseEvent(source) {
   const text = typeof choice?.delta?.content === "string" ? choice.delta.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
   const usage = normalizeUsage(payload?.usage);
-  return Object.freeze({ type: "provider-payload", payload });
+  return Object.freeze({ type: "provider-payload", payload, finishReason });
 }
 
 function normalizeProviderPayload(payload, toolCalls, toolFinishSeen) {

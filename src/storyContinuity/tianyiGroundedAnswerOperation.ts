@@ -707,6 +707,7 @@ function buildGroundedMessages(question: string, compiled: TianyiCompiledGrounde
         "Answer in Chinese. Treat only the included source packet as evidence.",
         "Never invent missing evidence. A fact must cite at least one included source.",
         "Candidate and inference claims must state uncertainty. If necessary evidence is absent, answer unknown.",
+        "The author's current input may itself be a creative premise (author intent), not a fact query. When the author proposes settings, plot directions, or revisions: discuss and develop them under that stated premise, mark everything derived from it as candidate or inference with an uncertainty reason, and keep the premise separate from confirmed facts. The premise itself needs no source reference; such answers use status candidate or inference and never fact.",
         "Preserve explicit constraints and negations. Do not turn a conditional conclusion into an unconditional claim.",
         `Context manifest digest: ${compiled.manifest.digest}`,
         `Return exactly one JSON object with this schema: ${schema}`,

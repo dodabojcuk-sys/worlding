@@ -2,10 +2,17 @@ import { ChevronLeft, Expand, GitBranch, List, MapPin, Minus, Move, Plus, Search
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { getVerifiedCanonEvent, getWorldLibrary, listRelations, type WorldObjectSummary } from "../../lib/localTransport";
+import { RelationCreateForm } from "./RelationCreateForm";
 import { relationActiveAtWorldTime, relationWorldTimeUnknownReason } from "../../../../../src/storyContracts/relationTemporalComparison.ts";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { MaterialsSectionNavigation } from "./MaterialsSectionNavigation";
+import { factionScopes } from "./factionScopes";
+// Verified member-type mapping is pending the owner extension (per-project
+// faction member relation types); until it exists the scope projection stays
+// paused and renders nothing — a non-member relation must never become a
+// scope member just because it touches a faction.
+const FACTION_MEMBER_RELATION_TYPE_IDS: readonly string[] = [];
 
 type ViewMode = "graph" | "list";
 type RelationData = { objects: readonly WorldObjectSummary[]; relations: readonly RelationReadProjectionR0[] };
@@ -26,7 +33,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const [mode, setMode] = useState<ViewMode>(() => params.get("relationView") === "list" ? "list" : "graph");
   const [typeFilter, setTypeFilter] = useState(() => params.get("relationType") || "");
   const [objectSearch, setObjectSearch] = useState(() => params.get("relationQuery") || "");
-  const [showAll, setShowAll] = useState(() => params.get("relationScope") === "all");
+  const [showAll, setShowAll] = useState(() => params.has("relationScope") ? params.get("relationScope") === "all" : !params.get("relationCenter"));
   const [viewport, setViewport] = useState<GraphViewport>(() => normalizeViewport({ x: Number(params.get("relationPanX") || 0), y: Number(params.get("relationPanY") || 0), scale: Number(params.get("relationZoom") || 1) }));
   const hasPersistedViewport = ["relationPanX", "relationPanY", "relationZoom"].some((key) => params.has(key));
   const [selection, setSelection] = useState<GraphSelection>(() => selectionFromRoute(params));
@@ -34,18 +41,34 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   const [fitNonce, setFitNonce] = useState(0);
   const [data, setData] = useState<RelationData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const [writeStatus, setWriteStatus] = useState<string | null>(null);
+  const [createFormOpen, setCreateFormOpen] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  // 建立关系面板与详情/编排互斥：打开面板时收起详情，选对象或关系时收起面板。
+  const openCreateForm = () => { setCreateFormOpen(true); };
   const observedAt = params.get("mapObservedAt");
 
+  const lastRelationLoadKey = useRef("");
   useEffect(() => {
     let active = true;
-    setData(null); setError(null); setSourceError(null);
+    const loadKey = `${projectId}:${workVersionId}:${observedAt}`;
+    // 建立关系后的原地刷新保留现有列表与表单反馈；仅作品/版本切换才清空。
+    const isSameScopeRefresh = reloadNonce > 0 && lastRelationLoadKey.current === loadKey;
+    lastRelationLoadKey.current = loadKey;
+    if (!isSameScopeRefresh) { setData(null); setError(null); setRefreshError(null); setSourceError(null); }
     if (!projectId || !workVersionId) return;
     void Promise.all([getWorldLibrary(projectId), listRelations({ projectId, workVersionId, reviewState: "confirmed", includeArchived: true })]).then(([library, read]) => {
-      if (active) setData({ objects: library.objects, relations: read.relations });
-    }).catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : "正式关系暂时无法读取；没有将失败显示为零条关系。"); });
+      if (active) { setData({ objects: library.objects, relations: read.relations }); setRefreshError(null); if (isSameScopeRefresh) setWriteStatus("关系已保存，列表已更新。"); }
+    }).catch((cause: unknown) => {
+      if (!active) return;
+      const message = cause instanceof Error ? cause.message : "正式关系暂时无法读取。";
+      if (isSameScopeRefresh) setRefreshError(`关系已保存，但列表更新失败：${message}`);
+      else setError(`${message}没有将读取失败显示为零条关系。`);
+    });
     return () => { active = false; };
-  }, [projectId, workVersionId, observedAt]);
+  }, [projectId, workVersionId, observedAt, reloadNonce]);
 
   const writeRoute = (next: Partial<{ center: string; mode: ViewMode; type: string; query: string; all: boolean; expanded: ReadonlySet<string>; viewport: GraphViewport; selection: GraphSelection; selectedRelationId: string }>) => {
     const target = new URL(window.location.href);
@@ -75,7 +98,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
     return `${target.pathname}?${target.searchParams.toString()}`;
   };
   const updateRoute = (next: Parameters<typeof writeRoute>[0]) => window.history.replaceState({}, "", writeRoute(next));
-  const selectCenter = (id: string) => { const next = new Set<string>(); setCenterId(id); setExpanded(next); setSelection({ kind: "node", id }); setSelectedRelationId(""); setFitNonce((value) => value + 1); updateRoute({ center: id, expanded: next, selection: { kind: "node", id }, selectedRelationId: "" }); };
+  const selectCenter = (id: string) => { const next = new Set<string>(); setCenterId(id); setShowAll(false); setExpanded(next); setSelection({ kind: "node", id }); setSelectedRelationId(""); setCreateFormOpen(false); setFitNonce((value) => value + 1); updateRoute({ center: id, all: false, expanded: next, selection: { kind: "node", id }, selectedRelationId: "" }); };
   const selectMode = (next: ViewMode) => { setMode(next); updateRoute({ mode: next }); };
   const selectType = (next: string) => { setTypeFilter(next); setSelection(null); setSelectedRelationId(""); setFitNonce((value) => value + 1); updateRoute({ type: next, selection: null, selectedRelationId: "" }); };
   const updateObjectSearch = (next: string) => { setObjectSearch(next); updateRoute({ query: next }); };
@@ -87,9 +110,10 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
     setViewport(normalized);
     updateRoute({ viewport: normalized });
   };
-  const selectGraph = (next: GraphSelection) => { setSelection(next); if (next?.kind !== "edge") setSelectedRelationId(""); updateRoute({ selection: next, ...(next?.kind !== "edge" ? { selectedRelationId: "" } : {}) }); };
-  const selectRelation = (relationId: string) => { setSelectedRelationId(relationId); updateRoute({ selectedRelationId: relationId }); };
+  const selectGraph = (next: GraphSelection) => { setCreateFormOpen(false); setSelection(next); if (next?.kind !== "edge") setSelectedRelationId(""); updateRoute({ selection: next, ...(next?.kind !== "edge" ? { selectedRelationId: "" } : {}) }); };
+  const selectRelation = (relationId: string) => { setCreateFormOpen(false); setSelectedRelationId(relationId); updateRoute({ selectedRelationId: relationId }); };
   const selectRelationGroup = (groupKey: string, relationId: string) => {
+    setCreateFormOpen(false);
     const nextSelection: GraphSelection = { kind: "edge", id: groupKey };
     setSelection(nextSelection);
     setSelectedRelationId(relationId);
@@ -101,7 +125,7 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
   if (!projectId) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
   if (!workVersionId && workVersionState === "loading") return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" aria-busy="true"><p>正在恢复当前作品与关系现场……</p></section></main>;
   if (!workVersionId && workVersionState === "error") return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" role="alert"><h1>作品版本暂时无法读取</h1><p>没有把读取失败显示成无版本作品，也没有读取其他版本的关系。</p><button type="button" onClick={props.runtime.retryConnection}>重新读取</button></section></main>;
-  if (!workVersionId) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="shell-workspace-stage"><h1>当前作品尚未建立作品版本</h1><p>关系按作品版本读取；没有为旧作品猜造版本，也没有读取其他版本关系。</p><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button></section></main>;
+  if (!workVersionId) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="shell-workspace-stage"><h1>当前作品尚未建立作品版本</h1><p>关系按作品版本读取；没有为旧作品猜造版本，也没有读取其他版本关系。</p><p>建立首个版本的路径：在资料库准备人物与地点，到事件线用“常规创作”确认正式事件，再到创作空间建立主故事版本。</p><div className="focused-relations-empty-actions"><button type="button" className="primary-action" onClick={() => { window.location.assign("/creation"); }}>前往创作空间建立首个版本</button><button type="button" onClick={() => { window.location.assign("/event-line"); }}>前往事件线</button><button type="button" onClick={() => { window.location.assign("/library"); }}>前往资料库</button></div><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button></section></main>;
   if (error) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" role="alert"><h1>关系暂时无法读取</h1><p>{error}</p><button type="button" onClick={back}>返回</button></section></main>;
   if (!data) return <main className="shell-workspace focused-relations-shell"><MaterialsSectionNavigation current="relations" /><section className="focused-relations" aria-busy="true"><p>正在读取当前作品版本的正式关系……</p></section></main>;
 
@@ -145,14 +169,17 @@ export function FocusedRelationsWorkspace(props: { runtime: TianyanShellRuntimeS
     }
     window.location.assign(`/tianyi?${query.toString()}`);
   };
-  return <main className="shell-workspace focused-relations-shell" aria-label="聚焦关系查看">
+  return <main className={`shell-workspace focused-relations-shell ${createFormOpen ? "has-create-form" : ""}`} aria-label="聚焦关系查看">
     <MaterialsSectionNavigation current="relations" />
     <section className="focused-relations" data-testid="focused-relations-workspace">
-      <header className="focused-relations-toolbar"><div className="focused-relations-toolbar-top"><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button><div className="focused-relations-heading"><strong>{center ? `${objectLabel(center)}的关系` : "关系查看"}</strong><span>{observationLabel(params)}{props.runtime.workVersionLabel ? ` · ${props.runtime.workVersionLabel}` : ""}</span></div><div className="focused-relations-view-switch" role="group" aria-label="关系显示方式"><button type="button" aria-pressed={mode === "graph"} onClick={() => selectMode("graph")}><GitBranch aria-hidden="true" />关系图</button><button type="button" aria-pressed={mode === "list"} onClick={() => selectMode("list")}><List aria-hidden="true" />列表</button></div></div><div className="focused-relations-toolbar-controls"><div className="focused-relations-object-search"><label><Search aria-hidden="true" />搜索人物或地点<input aria-label="搜索人物或地点" value={objectSearch} onChange={(event)=>updateObjectSearch(event.target.value)} placeholder="姓名、地点或标签" /></label>{objectSearch.trim() ? <div className="focused-relations-search-results">{matchingObjects.length ? matchingObjects.map((item)=><button type="button" key={item.id} onClick={()=>{updateObjectSearch("");selectCenter(item.id);}}>{item.title}<small>{item.type === "character" ? "人物" : "地点"}</small></button>) : <span>没有匹配的正式对象</span>}</div> : null}</div><label>中心对象<select aria-label="选择关系中心" value={centerId} onChange={(event) => selectCenter(event.target.value)}><option value="">请选择人物或地点</option>{searchableObjects.map((item) => <option key={item.id} value={item.id}>{objectLabel(item)} · {item.type === "character" ? "人物" : "地点"}</option>)}</select></label><label>类型<select aria-label="筛选关系类型" value={typeFilter} onChange={(event) => selectType(event.target.value)}><option value="">全部类型</option>{availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label><div className="focused-relations-scope" role="group" aria-label="关系范围"><button type="button" aria-pressed={!showAll} onClick={() => selectScope(false)}>直接关系</button><button type="button" aria-pressed={showAll} onClick={() => selectScope(true)}>全局关系</button></div></div></header>
+      <header className="focused-relations-toolbar"><div className="focused-relations-toolbar-top"><button type="button" onClick={back}><ChevronLeft aria-hidden="true" />{returnLabel(returnTarget)}</button><div className="focused-relations-heading"><strong>{center && !showAll ? `${objectLabel(center)}的关系` : "人物关系"}</strong><span>{observationLabel(params)}{props.runtime.workVersionLabel ? ` · ${props.runtime.workVersionLabel}` : ""}</span></div><div className="focused-relations-view-switch" role="group" aria-label="关系显示方式"><button type="button" aria-pressed={mode === "graph"} onClick={() => selectMode("graph")}><GitBranch aria-hidden="true" />关系图</button><button type="button" aria-pressed={mode === "list"} onClick={() => selectMode("list")}><List aria-hidden="true" />列表</button></div></div><div className="focused-relations-toolbar-controls"><div className="focused-relations-object-search"><label><Search aria-hidden="true" /><input aria-label="搜索人物或地点" value={objectSearch} onChange={(event)=>updateObjectSearch(event.target.value)} placeholder="搜索人物或地点并聚焦" /></label>{objectSearch.trim() ? <div className="focused-relations-search-results">{matchingObjects.length ? matchingObjects.map((item)=><button type="button" key={item.id} onClick={()=>{updateObjectSearch("");selectCenter(item.id);}}>{item.title}<small>{item.type === "character" ? "人物" : "地点"}</small></button>) : <span>没有匹配的对象</span>}</div> : null}</div><details className="focused-relations-filters"><summary>{typeFilter ? `筛选：${typeFilter}` : "筛选"}</summary><label>关系类型<select aria-label="筛选关系类型" value={typeFilter} onChange={(event) => selectType(event.target.value)}><option value="">全部类型</option>{availableTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label></details>{center ? <div className="focused-relations-scope" role="group" aria-label="关系范围"><button type="button" aria-pressed={!showAll} onClick={() => selectScope(false)}>聚焦{objectLabel(center)}</button><button type="button" aria-pressed={showAll} onClick={() => selectScope(true)}>完整网络</button></div> : null}<button type="button" className="focused-relations-create-toggle" aria-pressed={createFormOpen} onClick={openCreateForm}><Plus aria-hidden="true" />建立关系</button></div></header>
+      {createFormOpen && projectId && workVersionId ? <RelationCreateForm projectId={projectId} workVersionId={workVersionId} objects={data.objects} withConnection={(fn) => props.runtime.withConnection(fn)} onClose={() => setCreateFormOpen(false)} onChanged={() => { setWriteStatus("关系已保存，正在更新列表……"); setReloadNonce((value) => value + 1); }} /> : null}
       {observedAt && unknownInScope.length ? <p className="focused-relations-notice">当前范围有 {unknownInScope.length} 条关系缺少、无效或不确定的故事生效时间，未伪装为该节点的历史关系。</p> : null}
+      {refreshError ? <p className="focused-relations-notice" role="alert">{refreshError}<button type="button" onClick={() => setReloadNonce((value) => value + 1)}>重试更新</button></p> : null}
+      {!refreshError && writeStatus ? <p className="focused-relations-save-status" role="status">{writeStatus}</p> : null}
       {sourceError ? <p className="focused-relations-notice" role="alert">{sourceError}</p> : null}
       {(center || showAll) ? <div className="focused-relations-filter-summary" aria-live="polite"><span>当前显示 {visibleRelations.length} / {displayable.length} 条已确认关系{typeFilter ? ` · 类型：${typeFilter}` : ""}</span>{typeFilter ? <button type="button" onClick={() => selectType("")}>清除类型筛选</button> : null}</div> : null}
-      {!center && !showAll ? <section className="focused-relations-empty"><h1>围绕一个对象查看关系</h1><p>搜索或选择人物、地点后，只显示它的直接正式关系；候选建议与未记录信息不会混入关系图。</p></section> : mode === "list" ? <RelationList relations={visibleRelations} labels={labels} onCenter={selectCenter} onEvidence={openEvent} onOpenCharacter={openCharacter} onHandoff={(relation)=>openTianyi([relation.sourceObjectId, relation.targetObjectId], relation)} /> : <RelationGraph projectId={projectId} workVersionId={workVersionId} centerId={centerId} nodeIds={visibleIds} relations={visibleRelations} labels={labels} expanded={expanded} viewport={viewport} hasPersistedViewport={hasPersistedViewport} fitNonce={fitNonce} selection={selection} selectedRelationId={selectedRelationId} onSelection={selectGraph} onSelectRelation={selectRelation} onSelectRelationGroup={selectRelationGroup} onViewport={updateViewport} onFit={updateViewport} onRequestFit={() => setFitNonce((value) => value + 1)} onExpand={(id) => updateExpanded(new Set([...expanded, id]))} onCollapse={(id) => { const next = new Set(expanded); next.delete(id); updateExpanded(next); }} onCenter={selectCenter} onEvidence={openEvent} onOpenCharacter={openCharacter} onHandoffNode={(id)=>openTianyi([id], null)} onHandoffRelation={(relation)=>openTianyi([relation.sourceObjectId, relation.targetObjectId], relation)} />}
+      {!displayable.length ? <section className="focused-relations-empty"><h1>还没有已确认的关系</h1><p>可以直接声明人物设定，也可用已确认事件作为关系依据。</p>{createFormOpen ? null : <button type="button" className="primary-action" onClick={openCreateForm}>建立第一条关系</button>}</section> : mode === "list" ? <RelationList relations={visibleRelations} labels={labels} onCenter={selectCenter} onEvidence={openEvent} onOpenCharacter={openCharacter} onHandoff={(relation)=>openTianyi([relation.sourceObjectId, relation.targetObjectId], relation)} /> : <RelationGraph projectId={projectId} workVersionId={workVersionId} centerId={centerId} nodeIds={visibleIds} relations={visibleRelations} labels={labels} expanded={expanded} viewport={viewport} hasPersistedViewport={hasPersistedViewport} fitNonce={fitNonce} selection={selection} selectedRelationId={selectedRelationId} onSelection={selectGraph} onSelectRelation={selectRelation} onSelectRelationGroup={selectRelationGroup} onViewport={updateViewport} onFit={updateViewport} onRequestFit={() => setFitNonce((value) => value + 1)} onExpand={(id) => updateExpanded(new Set([...expanded, id]))} onCollapse={(id) => { const next = new Set(expanded); next.delete(id); updateExpanded(next); }} onCenter={selectCenter} onEvidence={openEvent} onOpenCharacter={openCharacter} onHandoffNode={(id)=>openTianyi([id], null)} onHandoffRelation={(relation)=>openTianyi([relation.sourceObjectId, relation.targetObjectId], relation)} />}
       <footer>范围：{showAll ? `全局已确认关系 ${filtered.length} 条` : `${center ? objectLabel(center) : "未选择中心"}的直接正式关系 ${direct.length} 条`}。</footer>
     </section>
   </main>;
@@ -172,7 +199,9 @@ function RelationGraph(props: { projectId: string; workVersionId: string; center
   const nodes = [...props.nodeIds].sort((left, right) => left.localeCompare(right)).map((id) => ({ id, object: props.labels.get(id) ?? null }));
   const positions = graphPositions(nodes.map((node) => node.id), props.centerId);
   const groups = relationGroups(props.relations);
-  const labeledGroups = groups.filter((group) => group.sourceId === props.centerId || group.targetId === props.centerId || props.expanded.has(group.sourceId) || props.expanded.has(group.targetId));
+  const labeledGroups = props.centerId
+    ? groups.filter((group) => group.sourceId === props.centerId || group.targetId === props.centerId || props.expanded.has(group.sourceId) || props.expanded.has(group.targetId))
+    : groups.slice(0, 6);
   viewportRef.current = props.viewport;
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -220,11 +249,14 @@ function RelationGraph(props: { projectId: string; workVersionId: string; center
     const points = graphSelectionPoints(props.selection, groups, nodes, positions);
     props.onViewport(fitViewport(new Map(points.map((point, index) => [String(index), point])), canvas.clientWidth, canvas.clientHeight));
   };
+  const factionRegions = factionScopes(props.relations, [...props.labels.values()].map((object) => ({ id: object.id, type: object.type, title: object.title, archived: object.status === "archived" })), { memberRelationTypeIds: FACTION_MEMBER_RELATION_TYPE_IDS });
+  const factionHighlight = props.selection?.kind === "node" ? props.selection.id : null;
   return <section className={`focused-relations-graph ${props.selection ? "has-selection" : ""}`} aria-label="对象关系图">
     <div ref={canvasRef} className="focused-relations-canvas" data-testid="focused-relations-canvas" tabIndex={0} aria-label="关系连线画布" onWheel={(event) => { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale + (event.deltaY < 0 ? .1 : -.1) }); }} onPointerDown={(event) => { if (!(event.target instanceof Element) || event.target.closest("button")) return; event.currentTarget.setPointerCapture(event.pointerId); setDragStart({ x: event.clientX, y: event.clientY }); }} onPointerMove={(event) => { if (!dragStart) return; move({ x: event.clientX - dragStart.x, y: event.clientY - dragStart.y }); setDragStart({ x: event.clientX, y: event.clientY }); }} onPointerUp={() => setDragStart(null)} onKeyDown={(event) => { const step = 24; if (event.key === "ArrowLeft") { event.preventDefault(); move({ x: -step, y: 0 }); } if (event.key === "ArrowRight") { event.preventDefault(); move({ x: step, y: 0 }); } if (event.key === "ArrowUp") { event.preventDefault(); move({ x: 0, y: -step }); } if (event.key === "ArrowDown") { event.preventDefault(); move({ x: 0, y: step }); } if (event.key === "+" || event.key === "=") { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale + .1 }); } if (event.key === "-") { event.preventDefault(); props.onViewport({ ...props.viewport, scale: props.viewport.scale - .1 }); } if (event.key === "0") { event.preventDefault(); props.onRequestFit(); } }}>
       <div className="focused-relations-canvas-tools"><span><Move aria-hidden="true" />拖动平移，滚轮缩放</span><div><button type="button" aria-label="缩小关系图" onClick={() => props.onViewport({ ...props.viewport, scale: props.viewport.scale - .15 })}><Minus aria-hidden="true" /></button><button type="button" aria-label="放大关系图" onClick={() => props.onViewport({ ...props.viewport, scale: props.viewport.scale + .15 })}><Plus aria-hidden="true" /></button><button type="button" onClick={props.onRequestFit}>适配</button></div></div>
+      {factionRegions.length ? <div className="focused-relations-faction-legend" aria-label="阵营图例">{factionRegions.map((region) => <span key={region.orgId} className="faction-legend-chip" style={{ "--faction-hue": String(region.hue) } as React.CSSProperties}>{region.label} · {region.memberIds.length} 人</span>)}</div> : null}
       <div className="focused-relations-canvas-world" style={{ transform: `translate(${props.viewport.x}px, ${props.viewport.y}px) scale(${props.viewport.scale})` }}>
-        <svg className="focused-relations-edges" viewBox="0 0 960 560" aria-hidden="true"><defs><marker id="relation-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>{groups.map((group) => { const source = positions.get(group.sourceId); const target = positions.get(group.targetId); if (!source || !target) return null; const directions = new Set(group.relations.map((relation) => relation.direction)); const edge = edgeEndpoints(source, target); const curve = curvedEdge(edge, group.key); const isSelected = props.selection?.kind === "edge" && props.selection.id === group.key; const isContext = !labeledGroups.includes(group); return <path key={group.key} className={isSelected ? "is-selected" : isContext ? "is-context" : undefined} d={curve.path} markerStart={directions.has("reverse") || directions.has("both") ? "url(#relation-arrow)" : undefined} markerEnd={directions.has("forward") || directions.has("both") ? "url(#relation-arrow)" : undefined} />; })}</svg>
+        <svg className="focused-relations-faction-scopes" viewBox="0 0 960 560" aria-hidden="true">{factionRegions.map((region) => { const points = region.memberIds.map((id) => positions.get(id)).filter((point): point is Point => Boolean(point)); if (points.length < 1) return null; const minX = Math.min(...points.map((point) => point.x)) - 58; const maxX = Math.max(...points.map((point) => point.x)) + 58; const minY = Math.min(...points.map((point) => point.y)) - 46; const maxY = Math.max(...points.map((point) => point.y)) + 46; const active = factionHighlight ? region.memberIds.includes(factionHighlight) : false; return <g key={region.orgId} className={`faction-scope ${active ? "is-active" : ""}`} style={{ "--faction-hue": String(region.hue) } as React.CSSProperties}><rect x={minX} y={minY} width={Math.max(maxX - minX, 120)} height={Math.max(maxY - minY, 88)} rx={26} /><text x={minX + 14} y={minY + 22}>{region.label}</text></g>; })}</svg><svg className="focused-relations-edges" viewBox="0 0 960 560" aria-hidden="true"><defs><marker id="relation-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>{groups.map((group) => { const source = positions.get(group.sourceId); const target = positions.get(group.targetId); if (!source || !target) return null; const directions = new Set(group.relations.map((relation) => relation.direction)); const edge = edgeEndpoints(source, target); const curve = curvedEdge(edge, group.key); const isSelected = props.selection?.kind === "edge" && props.selection.id === group.key; const isContext = !labeledGroups.includes(group); return <path key={group.key} className={isSelected ? "is-selected" : isContext ? "is-context" : undefined} d={curve.path} markerStart={directions.has("reverse") || directions.has("both") ? "url(#relation-arrow)" : undefined} markerEnd={directions.has("forward") || directions.has("both") ? "url(#relation-arrow)" : undefined} />; })}</svg>
         {labeledGroups.map((group) => { const source = positions.get(group.sourceId); const target = positions.get(group.targetId); if (!source || !target) return null; const edge = edgeEndpoints(source, target); const curve = curvedEdge(edge, group.key); const nearSource = stableParity(group.key) === 0; const label = curvePoint(curve, group.sourceId === props.centerId ? .7 : group.targetId === props.centerId ? .3 : nearSource ? .24 : .76); return <button key={group.key} type="button" className="focused-relations-edge-label" aria-pressed={props.selection?.kind === "edge" && props.selection.id === group.key} style={{ left: `${label.x}px`, top: `${label.y}px` }} onClick={() => props.onSelectRelationGroup(group.key, group.relations[0]?.relationId ?? "")}>{relationGroupLabel(group.relations)}</button>; })}
         {nodes.map((node) => { const point = positions.get(node.id)!; return <button key={node.id} type="button" className={`focused-relations-node ${node.id === props.centerId ? "is-center" : ""}`} aria-pressed={props.selection?.kind === "node" && props.selection.id === node.id} style={{ left: `${point.x}px`, top: `${point.y}px` }} onClick={() => props.onSelection({ kind: "node", id: node.id })}>{node.object?.type === "location" ? <MapPin aria-hidden="true" /> : <UserRound aria-hidden="true" />}<span><strong>{node.object ? objectLabel(node.object) : "未解析的正式端点"}</strong><small>{node.object?.type === "location" ? "地点" : node.object?.type === "character" ? "人物" : "对象"}</small></span></button>; })}
       </div>

@@ -627,3 +627,85 @@ async function collect(source: AsyncIterable<unknown>) {
   for await (const value of source) values.push(value);
   return values;
 }
+
+test("open tool frames distinguish provider truncation from a stream without any completion", async () => {
+  const toolDelta = (fragment: string, withId: boolean) => JSON.stringify({ choices: [{ delta: { tool_calls: [{ ...(withId ? { id: "call_1" } : {}), index: 0, function: { name: "propose_story_intake", arguments: fragment } }] } }] });
+  const truncatedChunks = [
+    `data: ${toolDelta('{"items":', true)}\n\n`,
+    `data: ${toolDelta('"e"}', false)}\n\n`,
+    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+    "data: [DONE]\n\n"
+  ];
+  const truncatedGateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => sseResponse(truncatedChunks) });
+  const truncated = await collect((await truncatedGateway.openChatStream(requestInput())).events);
+  const truncatedFrame = truncated.find((event) => (event as { type?: string }).type === "tool-call-malformed") as { reason?: string } | undefined;
+  assert.equal(truncatedFrame?.reason, "truncated-finish-length");
+
+  const silentChunks = [
+    `data: ${toolDelta("{}", true)}\n\n`,
+    "data: [DONE]\n\n"
+  ];
+  const silentGateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => sseResponse(silentChunks) });
+  const silent = await collect((await silentGateway.openChatStream(requestInput())).events);
+  const silentFrame = silent.find((event) => (event as { type?: string }).type === "tool-call-malformed") as { reason?: string } | undefined;
+  assert.equal(silentFrame?.reason, "missing-completion");
+});
+
+test("non-streaming tool dispatch preserves toolChoice, usage, and response model in the HTTP contract", async () => {
+  const bodies: Array<Record<string, any>> = [];
+  const fetchImpl = async (_url: URL | RequestInfo, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({
+      model: "Qwen/Qwen3.5-35B-A3B",
+      choices: [{ message: { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "propose_story_intake", arguments: "{\"items\":[]}" } }] }, finish_reason: "tool_calls" }],
+      usage: { prompt_tokens: 3553, completion_tokens: 262, total_tokens: 3815 }
+    }), { status: 200, headers: { "content-type": "application/json", "x-siliconcloud-trace-id": "trace-ns-1" } });
+  };
+  const gateway = createAiProviderGateway({
+    adapters: [createSiliconFlowAdapter({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: fetchImpl as typeof fetch })],
+    profiles: [{ id: PROFILE_ID, label: "t", purpose: "structured-story", providerId: "siliconflow", modelId: DEFAULT_MODEL_PROFILES[0].modelId, maxOutputTokens: 4096, temperature: 0.25, timeoutMs: 120000, enableThinking: false }],
+    maxOutputTokensCap: 4096
+  });
+  const stream = await gateway.openChatStream({
+    profileId: PROFILE_ID,
+    messages: [{ role: "user", content: "intake" }],
+    maxOutputTokens: 4096,
+    timeoutMs: 120000,
+    tools: [{ name: "propose_story_intake", description: "d", parameters: { type: "object", properties: {} } }],
+    toolChoice: { type: "function", function: { name: "propose_story_intake" } },
+    nonStreaming: true
+  });
+  const events = await collect(stream.events);
+  assert.equal(bodies[0].tool_choice?.function?.name, "propose_story_intake", "named tool choice must reach the wire verbatim");
+  assert.equal(bodies[0].stream, false);
+  const types = events.map((event) => (event as { type?: string }).type);
+  assert.equal(types.filter((type) => type === "tool-call-end").length, 1);
+  assert.equal(types.includes("tool-call-malformed"), false);
+  const usageChunk = events.find((event) => (event as { usage?: unknown }).usage) as { usage?: { promptTokens?: number }; finishReason?: string | null };
+  assert.equal(usageChunk?.usage?.promptTokens, 3553, "tool-only responses must still carry usage");
+  const done = events[events.length - 1] as { type?: string };
+  assert.equal(done.type, "done");
+});
+
+test("non-streaming truncated tool output is malformed, not success", async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({
+    model: "Qwen/Qwen3.5-35B-A3B",
+    choices: [{ message: { role: "assistant", content: "", tool_calls: [{ id: "call_x", type: "function", function: { name: "propose_story_intake", arguments: "{\"items\":[]}" } }] }, finish_reason: "length" }]
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  const gateway = createAiProviderGateway({
+    adapters: [createSiliconFlowAdapter({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: fetchImpl as typeof fetch })]
+  });
+  const streamFromCompletion = await gateway.openChatStream({
+    profileId: PROFILE_ID,
+    messages: [{ role: "user", content: "intake" }],
+    maxOutputTokens: 64,
+    tools: [{ name: "propose_story_intake", description: "d", parameters: { type: "object", properties: {} } }],
+    toolChoice: { type: "function", function: { name: "propose_story_intake" } },
+    nonStreaming: true
+  });
+  const events = await collect(streamFromCompletion.events);
+  const malformed = events.find((event) => (event as { type?: string; reason?: string }).type === "tool-call-malformed") as { reason?: string } | undefined;
+  assert.equal(malformed?.reason, "truncated-finish-length", "parsable arguments under a length finish must still be rejected as truncated");
+  const ends = events.filter((event) => (event as { type?: string }).type === "tool-call-end");
+  assert.equal(ends.length, 0, "truncated tool output must not become a success frame");
+});

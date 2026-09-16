@@ -1,0 +1,98 @@
+- navigation "全局空间":
+  - button "前往世界":
+    - strong: 天衍
+    - text: Worlding
+  - button "收起空间轨"
+  - button "世界"
+  - button "天意"
+  - button "事件线"
+  - button "多元"
+  - button "女娲"
+  - button "资料"
+  - button "创作"
+  - button "数据"
+  - separator
+  - button "合册"
+  - button "设置"
+  - button "个人中心"
+- banner "运行状态":
+  - button "选择当前作品与版本":
+    - strong: 雾河灯塔
+  - button "全局搜索": 全局搜索 ⌘K
+  - button "切换语言": 中 / EN
+  - button "切换主题": 云砚
+  - text: 本地 未连接
+  - button "关闭工程目录" [pressed]: 目录
+  - button "待确认"
+- complementary "工程目录":
+  - heading "目录" [level=2]
+  - tablist "工程目录":
+    - tab "已分类 2" [selected]:
+      - text: 已分类
+      - strong: "2"
+    - tab "待确认 0":
+      - text: 待确认
+      - strong: "0"
+  - navigation "已分类目录树":
+    - button "目录"
+    - list:
+      - listitem "故事结构，0":
+        - text: 故事结构
+        - strong: "0"
+      - listitem "信息资料，2":
+        - text: 信息资料
+        - strong: "2"
+      - listitem "设定，0":
+        - text: 设定
+        - strong: "0"
+      - listitem "来源，0":
+        - text: 来源
+        - strong: "0"
+      - listitem "创意，0":
+        - text: 创意
+        - strong: "0"
+- main "天意统一会话":
+  - text: 作者工作台
+  - heading "天意" [level=1]
+  - tablist "天意模式":
+    - tab "创意模式 展开想法" [selected]
+    - tab "工作模式 推进落地"
+  - button "待确认 查看全部"
+  - button "当前长对话 草稿与来源保持"
+  - region "当前任务":
+    - text: 连续创作
+    - heading "保留原话，和天意一起展开故事" [level=2]
+    - paragraph: 当前对话已保存 · 可随时整理候选
+    - text: 雾河灯塔 当前主线
+  - region "同一会话的可见历史":
+    - article:
+      - text: 你
+      - paragraph: 守灯人沈流苏发现灯油消耗与潮汐记录对不上，行商白栎的船总在异常日期靠岸。请把这个矛盾整理成故事候选。
+  - region "创意模式":
+    - text: CREATIVE LANE
+    - heading "让想法先展开，不默认改动正式故事" [level=2]
+    - text: 快速对话 · 大上下文提炼 · 候选
+    - region "Story Intake 运行":
+      - strong: Story Intake
+      - paragraph: Provider 运行中
+      - text: Pi Runtime 正在识别人物、物品、地点、事件与故事路径……
+      - button "停止"
+      - paragraph
+  - status: 已配置 Provider；仅在明确发送时调用。
+  - textbox "创意模式草稿":
+    - /placeholder: 提出一个故事变化，或粘贴一段灵感……
+  - button "发送消息" [disabled]
+  - button "整理为故事候选" [disabled]
+  - complementary "当前视图":
+    - strong: 当前视图
+    - text: 只读
+    - strong: 上下文
+    - paragraph: 雾河灯塔
+    - text: 当前故事
+    - strong: 共享引用
+    - paragraph: 尚未添加附件或来源
+    - strong: 共享候选注册表
+    - paragraph: 0 个候选
+    - text: Creative 与 Work 共同可见
+- complementary "页面工具":
+  - button "页面工具"

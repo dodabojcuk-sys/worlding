@@ -1413,7 +1413,8 @@ input:focus-visible {
 .focused-relations-toolbar select { min-width: 10rem; max-width: 15rem; color: var(--color-text); background: transparent; border: 0; font: inherit; }
 .focused-relations-actions { display: flex; gap: .3rem; margin-inline-start: auto; }
 .focused-relations-actions button[aria-pressed="true"] { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
-.focused-relations-notice { margin: 0; padding: .55rem .7rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+.focused-relations-notice { position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: .65rem; min-height: 2.4rem; margin: 0; padding: .45rem .7rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
+.focused-relations-notice button { flex: 0 0 auto; min-height: 1.8rem; padding: .25rem .5rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
 .focused-relations-empty { display: grid; min-height: 20rem; place-content: center; gap: .6rem; padding: 1rem; text-align: center; background: var(--color-surface); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); }
 .focused-relations-empty h1, .focused-relations-empty p { max-width: 38rem; margin: 0; }
 .focused-relations-graph { display: grid; grid-template-columns: minmax(15rem, .8fr) minmax(0, 1.2fr); gap: .75rem; min-height: 24rem; }
@@ -1458,7 +1459,7 @@ input:focus-visible {
 @media (max-width: 48rem) { .focused-relations-toolbar { align-items: stretch; } .focused-relations-toolbar label { flex: 1 1 10rem; } .focused-relations-graph-toolbar { align-items: start; flex-direction: column; } }
 
 /* Relations visual R1: two deliberate toolbar rows; the graph owns the working area until a selection asks for detail. */
-.focused-relations { max-width: none; grid-template-rows: auto auto minmax(0, 1fr) auto; padding: .6rem .75rem; }
+.focused-relations { display: flex; flex-direction: column; max-width: none; padding: .6rem .75rem; }
 .focused-relations-toolbar { display: grid; gap: .45rem; align-items: stretch; padding: .55rem .7rem; }
 .focused-relations-toolbar > .focused-relations-toolbar-top { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .65rem; align-items: center; min-width: 0; }
 .focused-relations-toolbar > .focused-relations-toolbar-top > button, .focused-relations-toolbar button, .focused-relations-view-switch button, .focused-relations-scope button { min-height: 2rem; padding-inline: .55rem; }
@@ -1482,12 +1483,16 @@ input:focus-visible {
 .focused-relations-search-results { position:absolute; z-index:8; inset:calc(100% + .25rem) 0 auto 0; display:grid; max-height:16rem; padding:.35rem; overflow:auto; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); box-shadow:var(--shadow-panel); }
 .focused-relations-search-results button { display:flex; align-items:center; justify-content:space-between; gap:.5rem; text-align:start; background:transparent; border:0; }
 .focused-relations-search-results small,.focused-relations-search-results span,.focused-relations-no-evidence { color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.focused-relations-filters { position: relative; }
+.focused-relations-filters > summary { min-height: 2rem; padding: .4rem .55rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; list-style-position: inside; white-space: nowrap; }
+.focused-relations-filters[open] > label { position: absolute; z-index: 8; inset: calc(100% + .25rem) 0 auto auto; display: grid; min-width: 13rem; gap: .3rem; padding: .55rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-panel); }
 .focused-relations-filter-summary { display:flex; align-items:center; justify-content:space-between; gap:.5rem; min-height:1.8rem; color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.focused-relations-save-status { margin: 0; padding: .45rem .65rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 7%, transparent); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
 .focused-relations-filter-summary button { padding:.2rem .45rem; color:var(--color-accent); background:transparent; border:1px solid var(--color-border); border-radius:var(--radius-sm); font:inherit; cursor:pointer; }
 .focused-relations-handoff { display:inline-flex; align-items:center; gap:.25rem; }
 .focused-relations-handoff svg,.focused-relations-detail .primary-action svg { width:1rem; height:1rem; }
 .focused-relations-scope { margin-inline-start: auto; }
-.focused-relations-graph { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: min(62vh, 42rem); }
+.focused-relations-graph { position: relative; display: grid; flex: 1 1 24rem; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: min(62vh, 42rem); }
 .focused-relations-graph.has-selection { grid-template-columns: minmax(0, 1fr) minmax(17.5rem, 20rem); gap: .7rem; }
 .focused-relations-canvas { min-height: 0; height: min(62vh, 42rem); background: radial-gradient(circle at center, color-mix(in srgb, var(--color-accent) 7%, var(--color-surface)), var(--color-surface) 65%); }
 .focused-relations-canvas-world { inset: auto; transform-origin: 0 0; }
@@ -1592,3 +1597,104 @@ input:focus-visible {
  .map-author-workspace .map-workbench-toolbar > label { max-width:16rem; }
  .map-author-workspace .map-navigation-crumbs .map-workbench-place-count { display:none; }
 }
+
+/* 人工建立人物关系：右侧抽屉面板，与详情互斥；窄屏占满宽度。 */
+.focused-relations { position: relative; }
+.focused-relations-create { position: absolute; z-index: 6; inset: .2rem .2rem .2rem auto; display: grid; align-content: start; gap: .55rem; width: min(23rem, calc(100% - .4rem)); max-height: calc(100% - .4rem); overflow: auto; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); outline: 0; }
+.focused-relations-create-header { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
+.focused-relations-create-header div { display: grid; gap: .1rem; }
+.focused-relations-create-header small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create-header h2 { margin: 0; font-size: var(--font-size-lg); }
+.focused-relations-create-header button { min-height: 1.9rem; padding: .25rem; color: var(--color-text-muted); background: transparent; border: 0; cursor: pointer; }
+.focused-relations-create-intro, .focused-relations-create p { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.focused-relations-create .create-group { display: grid; gap: .45rem; padding-top: .35rem; border-top: 1px solid var(--color-border); }
+.focused-relations-create .create-group-title { margin: 0; color: var(--color-text); font-size: var(--font-size-sm); font-weight: 600; }
+.focused-relations-create .create-field { display: grid; gap: .2rem; }
+.focused-relations-create .create-field > span { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .create-field select, .focused-relations-create .create-field input { min-height: 2.15rem; padding: .25rem .45rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; }
+.focused-relations-create .create-field-error, .focused-relations-create .focused-relations-create-error { margin: 0; color: var(--color-text); background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: .35rem .5rem; font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-create-missing { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-create-preview { display: grid; gap: .2rem; padding: .55rem .6rem; background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-create .focused-relations-create-preview-main { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 600; }
+.focused-relations-create .focused-relations-create-preview details { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.focused-relations-create .focused-relations-candidate { display: grid; gap: .35rem; padding: .6rem; background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.focused-relations-create .focused-relations-candidate-title { display: inline-flex; align-items: center; gap: .3rem; margin: 0; color: var(--color-text); font-size: var(--font-size-sm); }
+.focused-relations-create .focused-relations-candidate-line { margin: 0; color: var(--color-text); }
+.focused-relations-create .focused-relations-candidate-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (max-width: 48rem) { .focused-relations-create { inset: .4rem; width: calc(100% - .8rem); } }
+
+/* 空状态收敛：简短引导，不占满画布。 */
+.focused-relations-empty { min-height: 11rem; }
+.focused-relations-empty h1 { font-size: var(--font-size-lg); }
+.focused-relations-toolbar .focused-relations-create-toggle { white-space: nowrap; }
+
+/* 关系页视觉整理：主行动用主题色、空态去线框化、控件补焦点与悬停。 */
+.focused-relations-empty { border: 0; background: transparent; gap: .8rem; padding: 2.2rem 1rem 1rem; }
+.focused-relations-empty h1 { margin: 0; color: var(--color-text); }
+.focused-relations-empty .primary-action { min-height: 2.4rem; padding-inline: 1.1rem; color: var(--color-text-on-structure); background: var(--color-accent); border: 0; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; }
+.focused-relations-empty .primary-action:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
+.focused-relations-toolbar .focused-relations-create-toggle { color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.focused-relations-toolbar .focused-relations-create-toggle:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
+.focused-relations-toolbar .focused-relations-create-toggle[aria-pressed="true"] { background: var(--color-workspace-background); color: var(--color-text); border-color: var(--color-border); }
+.focused-relations-create .create-field select:hover, .focused-relations-create .create-field input:hover, .focused-relations-create .create-field select:focus-visible, .focused-relations-create .create-field input:focus-visible { border-color: var(--color-accent); }
+.focused-relations-create .create-field select:focus-visible, .focused-relations-create .create-field input:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--color-accent); }
+.focused-relations-create .primary-action { min-height: 2.3rem; }
+.focused-relations-create .primary-action:hover { background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text)); }
+.focused-relations-list li:hover { border-color: var(--color-border-strong); }
+.focused-relations-empty .primary-action { justify-self: center; }
+
+@media (min-width: 72.01rem) {
+  .focused-relations-shell.has-create-form .focused-relations-graph,
+  .focused-relations-shell.has-create-form .focused-relations-list { padding-inline-end: 23.7rem; }
+}
+
+.world-overview { display: grid; align-content: start; gap: 1rem; min-height: 0; padding: clamp(.8rem, 2vw, 1.5rem); overflow: auto; }
+.world-overview-heading, .world-overview-writing, .world-overview-progress { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.world-overview-heading { padding-block-end: .35rem; border-block-end: 1px solid var(--color-border); }
+.world-overview-heading > div, .world-overview-writing > div { display: grid; min-width: 0; gap: .22rem; }
+.world-overview-heading small, .world-overview-writing small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.world-overview-heading h1, .world-overview-heading p, .world-overview-writing h2, .world-overview-writing p, .world-overview-progress h2, .world-overview-progress p { margin: 0; }
+.world-overview-heading h1 { font-size: clamp(1.4rem, 2.5vw, 2rem); }
+.world-overview-heading p, .world-overview-writing p, .world-overview-progress p { color: var(--color-text-muted); line-height: 1.55; }
+.world-overview-heading nav { display: flex; flex: 0 0 auto; gap: .45rem; }
+.world-overview button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 2.2rem; padding: .4rem .65rem; color: var(--color-text); background: var(--color-workspace-background); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.world-overview button:hover, .world-overview button:focus-visible { border-color: var(--color-accent); }
+.world-overview button svg { width: 1rem; height: 1rem; }
+.world-overview-writing { padding: 1rem 1.1rem; background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface)); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.world-overview-writing > button { flex: 0 0 auto; color: var(--color-text-on-structure); background: var(--color-accent); border-color: var(--color-accent); }
+.world-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.world-overview-collection { display: grid; align-content: start; gap: .55rem; min-width: 0; padding: .8rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.world-overview-collection > header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.world-overview-collection > header span { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; }
+.world-overview-collection h2 { margin: 0; font-size: var(--font-size-md); }
+.world-overview-collection > header button { min-height: 1.8rem; padding: .2rem .4rem; color: var(--color-accent); background: transparent; border: 0; font-size: var(--font-size-xs); }
+.world-overview-collection ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.world-overview-collection li + li { border-block-start: 1px solid var(--color-border); }
+.world-overview-collection li > button { display: grid; justify-items: start; width: 100%; gap: .15rem; padding: .55rem 0; text-align: start; background: transparent; border: 0; }
+.world-overview-collection li span, .world-overview-collection > p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.world-overview-progress { align-items: stretch; }
+.world-overview-progress > div { display: grid; flex: 1 1 0; align-content: start; gap: .45rem; padding: .85rem; border-block-start: 1px solid var(--color-border); }
+.world-overview-progress h2 { font-size: var(--font-size-md); }
+.world-overview-progress button { justify-self: start; margin-block-start: auto; }
+.world-overview-read-warning { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.world-overview-empty { display: grid; min-height: 60vh; place-content: center; gap: .6rem; padding: 1rem; text-align: center; }
+.world-overview-empty h1, .world-overview-empty p { max-width: 36rem; margin: 0; }
+
+@media (max-width: 72rem) {
+  .world-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .world-overview-collection:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 48rem) {
+  .world-overview-heading, .world-overview-writing, .world-overview-progress { align-items: stretch; flex-direction: column; }
+  .world-overview-heading nav { flex-wrap: wrap; }
+  .world-overview-grid { grid-template-columns: 1fr; }
+  .world-overview-collection:last-child { grid-column: auto; }
+}
+
+/* 阵营范围：只读投影。淡底色区分阵营身份；状态语义仍由标签与线型表达。 */
+.focused-relations-faction-scopes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.focused-relations-faction-scopes .faction-scope rect { fill: hsl(var(--faction-hue) 42% 88% / .55); stroke: hsl(var(--faction-hue) 38% 62%); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.focused-relations-faction-scopes .faction-scope.is-active rect { fill: hsl(var(--faction-hue) 46% 82% / .72); stroke-width: 2.5; }
+.focused-relations-faction-scopes .faction-scope text { fill: hsl(var(--faction-hue) 45% 30%); font-size: 13px; font-weight: 600; }
+.focused-relations-faction-legend { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; margin-top: var(--space-2, 8px); }
+.focused-relations-faction-legend .faction-legend-chip { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--faction-hue) 45% 28%); background: hsl(var(--faction-hue) 42% 88% / .6); border: 1px solid hsl(var(--faction-hue) 38% 62%); }
