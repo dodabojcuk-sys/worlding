@@ -143,7 +143,19 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
   const materialReturn = safeWorkspaceReturn(new URLSearchParams(window.location.search).get("materialReturn"));
   const handoffSeedKeyRef = useRef("");
-  const relationHandoff = readTianyiRelationHandoff(new URLSearchParams(window.location.search));
+  // Mount-once snapshot of the relation handoff: every consumer (initial
+  // selection, seed, replay guard) reads this stable request instead of
+  // re-parsing a URL that other effects may clear.
+  const handoffRequest = useMemo(() => readTianyiRelationHandoff(new URLSearchParams(window.location.search)), []);
+  const handoffSignature = useMemo(() => JSON.stringify({
+    relationId: handoffRequest.relationId ?? null,
+    source: handoffRequest.sourceObjectId ?? null,
+    target: handoffRequest.targetObjectId ?? null,
+    materials: [...handoffRequest.materialIds].sort(),
+    events: handoffRequest.eventRefs.map((ref) => `${ref.eventId}@${ref.revision}`).sort()
+  }), [handoffRequest]);
+  const handoffConsumedRef = useRef(new Set<string>());
+  const relationHandoff = handoffRequest;
 
   useEffect(() => {
     if (!relationHandoff.active || lane !== "work") return;
@@ -328,21 +340,28 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       setSelectedWorkUnitId((current) => current && units.some((unit) => unit.id === current) ? current : units[0]?.id ?? null);
       // Handoff seeding happens once per project/version load; afterwards the
       // author's additions and removals are authoritative and reloads only
-      // prune references that no longer resolve.
+      // prune references that no longer resolve.  A handoff the author has
+      // already consumed (worked with, then edited down) is never replayed:
+      // their removals keep this entry empty until a NEW handoff arrives.
       const seedKey = `${project?.id ?? ""}:${workVersionId ?? ""}`;
       const firstLoad = handoffSeedKeyRef.current !== seedKey;
       if (firstLoad) handoffSeedKeyRef.current = seedKey;
       const exactRequestedEvents = relationHandoff.eventRefs.filter((reference) => events.some((event) => event.id === reference.eventId && event.revisionToken === reference.revision));
       if (relationHandoff.eventRefs.length !== exactRequestedEvents.length) setError("关系依据中的事件或精确修订已失效；未用当前版本或同名事件替代。");
+      const handoffAlreadyConsumed = handoffConsumedRef.current.has(handoffSignature);
       if (firstLoad) {
         if (relationHandoff.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
         setSelectedMaterialIds((current) => {
-          const valid = relationHandoff.materialIds.filter((id) => materials.some((item) => item.id === id));
+          let dismissedIds: string[] = [];
+          try { dismissedIds = JSON.parse(window.sessionStorage.getItem(`tianyi-handoff-dismissed:${project.id}`) ?? "[]"); } catch { dismissedIds = []; }
+          const valid = relationHandoff.materialIds.filter((id) => materials.some((item) => item.id === id) && !dismissedIds.includes(id));
           const next = [...new Set([...valid, ...current.filter((id) => materials.some((item) => item.id === id))])];
           if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
           return next.slice(0, MAX_EXPLICIT_MATERIAL_REFS);
         });
         setSelectedWorkEventIds((current) => [...new Set([...exactRequestedEvents.map((item) => item.eventId), ...current.filter((id) => events.some((event) => event.id === id))])].slice(0, MAX_GLOBAL_WORK_EVENT_REFS));
+      } else if (handoffAlreadyConsumed) {
+        setSelectedMaterialIds((current) => current.filter((id) => materials.some((item) => item.id === id)));
       } else {
         setSelectedMaterialIds((current) => current.filter((id) => materials.some((item) => item.id === id)));
       }
@@ -518,7 +537,17 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const explicitContextRefs = useMemo(() => [...mapEvidenceRefs, ...materialFileRefs, ...materialRefs], [mapEvidenceRefs, materialFileRefs, materialRefs]);
 
   function toggleMaterial(materialId: string) {
-    if (selectedMaterialIds.includes(materialId)) { setSelectedMaterialIds((current) => current.filter((id) => id !== materialId)); return; }
+    if (selectedMaterialIds.includes(materialId)) {
+      setSelectedMaterialIds((current) => current.filter((id) => id !== materialId));
+      if (handoffRequest.materialIds.includes(materialId) && project) {
+        try {
+          const key = `tianyi-handoff-dismissed:${project.id}`;
+          const dismissed: string[] = JSON.parse(window.sessionStorage.getItem(key) ?? "[]");
+          if (!dismissed.includes(materialId)) { dismissed.push(materialId); window.sessionStorage.setItem(key, JSON.stringify(dismissed)); }
+        } catch { /* session storage full/blocked: re-entry may re-seed, acceptable */ }
+      }
+      return;
+    }
     if (explicitContextRefs.length >= MAX_EXPLICIT_MATERIAL_REFS) { setError(`本次地图与资料合计最多明确引用 ${MAX_EXPLICIT_MATERIAL_REFS} 项；原选择保持不变，请先取消一项。`); return; }
     setSelectedMaterialIds((current) => [...current, materialId]);
   }
