@@ -360,7 +360,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [project?.id, refreshWorkContext]);
 
   useEffect(() => {
-    const requested = readTianyiRelationHandoff(new URLSearchParams(window.location.search)).materialIds;
+    const params = new URLSearchParams(window.location.search);
+    const requested = readTianyiRelationHandoff(params).materialIds;
     if (!requested.length) return;
     setSelectedMaterialIds((current) => {
       const additions = requested.filter((id) => !current.includes(id));
@@ -370,6 +371,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       }
       return [...current, ...additions];
     });
+    // The handoff references are now consumed: clear materialRef from the URL
+    // so later lane switches cannot replay references the author already
+    // removed.  A fresh handoff from the relations page starts a new merge.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("materialRef")) {
+      url.searchParams.delete("materialRef");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
   }, [lane, project?.id, selectedMapEvidence]);
 
   useEffect(() => {
