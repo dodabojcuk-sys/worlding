@@ -152,17 +152,37 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
               </div>
             </div>
           </details>
-          <label className="world-reference-semantic-toggle" data-testid="world-reference-semantic-toggle">
-            <input type="checkbox" checked={semanticEnabled} disabled onChange={() => undefined} />
-            <span>语义检索</span>
-            <small>未配置 Embedding 模型 · 当前使用精确/关键词检索（诚实不可用）</small>
+          <label className="world-reference-mode" data-testid="world-reference-mode">
+            <span>检索模式</span>
+            <select value={semanticEnabled ? "hybrid" : "keyword"} disabled aria-label="检索模式">
+              <option value="keyword">关键词</option>
+              <option value="hybrid" disabled>混合（未配置）</option>
+            </select>
+            <small>语义索引未配置 · </small><a href="/settings">前往设置</a>
           </label>
           {excludedSummary ? <span className="world-reference-excluded" data-testid="world-reference-excluded">权限与边界排除：{excludedSummary}</span> : null}
         </div>
         {!searchActive && visible.length === 0 ? <p className="world-reference-empty">当前筛选下没有世界条目。这个世界的事实会随着资料录入与事件线整理逐步出现在这里。</p> :
-          <ul className="world-reference-list">
-            {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} hit={hitByEntryId.get(entry.id)} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={() => openEntityDock({ kind: "world-reference", objectId: entry.id, openedFrom: "world-reference" })} />)}
-          </ul>}
+          searchActive ? <div className="world-reference-groups" data-testid="world-reference-groups">
+            {[[["直接依据", (entry: WorldReferenceEntry) => !entry.category || true]], ].flatMap(() => []).length ? null : null}
+            {(["直接依据", "相关资料", "不确定线索"] as const).map((groupName) => {
+              const bucket = visible.filter((entry) => {
+                const reasons = hitByEntryId.get(entry.id)?.reasons ?? [];
+                if (groupName === "直接依据") return reasons.some((reason) => reason.includes("精确") || reason.includes("关键词"));
+                if (groupName === "相关资料") return entry.category !== "clue";
+                return entry.nature === "pending-clue";
+              });
+              return bucket.length ? <section key={groupName} className="world-reference-group" data-group={groupName}>
+                <h3>{groupName}（{bucket.length}）</h3>
+                <ul className="world-reference-list">
+                  {bucket.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} hit={hitByEntryId.get(entry.id)} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={() => openEntityDock({ kind: "world-reference", objectId: entry.id, openedFrom: "world-reference" })} />)}
+                </ul>
+              </section> : null;
+            })}
+          </div> : null}
+        {!searchActive && visible.length > 0 ? <ul className="world-reference-list">
+          {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={() => openEntityDock({ kind: "world-reference", objectId: entry.id, openedFrom: "world-reference" })} />)}
+        </ul> : null}
         {searchActive && visible.length === 0 && retrieval ? <p className="world-reference-empty">没有命中的世界条目；{excludedSummary ?? "部分条目可能因权限被排除"}。</p> : null}
       </> : null}
     </section>
