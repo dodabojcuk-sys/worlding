@@ -11,6 +11,8 @@ export interface NuwaUnifiedSceneWorkspaceProps {
   onOpenCharacter(characterId: string | null, title: string): void;
 }
 
+const BLOCK_GLYPHS: Record<string, string> = { narration: "叙", description: "景", action: "动", psychology: "心" };
+
 function NarrativeBlock(props: { nodeId: string; block: SceneBlockView; blockIndex: number; selected: boolean; onEditBlock?: (nodeId: string, blockIndex: number, text: string) => void; onOpenCharacter(characterId: string | null, title: string): void }) {
   const { block } = props;
   if (block.kind === "dialogue") {
@@ -26,6 +28,7 @@ function NarrativeBlock(props: { nodeId: string; block: SceneBlockView; blockInd
     </div>;
   }
   return <div className={`nuwa-block-row is-${block.kind}`}>
+    <span className="nuwa-block-glyph" aria-hidden="true">{BLOCK_GLYPHS[block.kind] ?? "叙"}</span>
     <input className={`nuwa-block-input is-${block.kind}`} value={block.text} aria-label={`${block.kind} ${props.nodeId.slice(-4)}-${props.blockIndex + 1}`} onChange={(event) => props.onEditBlock?.(props.nodeId, props.blockIndex, event.target.value)} />
   </div>;
 }

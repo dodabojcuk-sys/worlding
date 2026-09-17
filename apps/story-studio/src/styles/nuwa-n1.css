@@ -217,7 +217,6 @@
 .nuwa-block-input:focus { outline: none; border-bottom-color: var(--border, rgba(127,127,127,.5)); }
 .nuwa-block-row.is-description .nuwa-block-input, .nuwa-block-row.is-narration .nuwa-block-input { color: var(--text-body, inherit); }
 .nuwa-block-row.is-psychology .nuwa-block-input { font-style: italic; opacity: .92; }
-.nuwa-block-row.is-action .nuwa-block-input { padding-left: 12px; }
 .nuwa-block-owner { color: var(--text-muted, rgba(127,127,127,.9)); margin-right: 6px; }
 .nuwa-heard { color: var(--text-muted, rgba(127,127,127,.9)); }
 .nuwa-branch-character article { border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
@@ -304,8 +303,6 @@
 .nuwa-scene-node-content { display: grid; gap: .45rem; }
 .nuwa-scene-node-divider { margin-block: .65rem; border-block-end: 1px dashed color-mix(in srgb, var(--color-border) 80%, transparent); }
 .nuwa-block-row .nuwa-block-input { color: var(--color-text); font-size: .88rem; line-height: 1.8; }
-.nuwa-block-row.is-action { padding-inline-start: 1.4rem; }
-.nuwa-block-row.is-psychology { margin-inline: .25rem; padding-inline-start: .7rem; border-inline-start: 2px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); }
 .nuwa-block-row.is-psychology .nuwa-block-input { color: color-mix(in srgb, var(--color-text) 88%, var(--color-accent)); font-style: italic; }
 .nuwa-dialogue-row { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); gap: .55rem; margin-block: .1rem; }
 .nuwa-dialogue-row.is-candidate { margin-inline-start: 1.1rem; }
@@ -389,3 +386,13 @@
   .nuwa-n1-composer { grid-template-columns: 1fr; }
 }
 .nuwa-run-bar-candidate { padding: .12rem .5rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 48%, var(--color-surface)); border: 1px dashed color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); border-radius: 999px; font-size: .66rem; font-weight: 650; white-space: nowrap; }
+
+/* ── R6.2 微打磨：内容块标识列 + 技术详情不再被 composer 覆盖 ── */
+.nuwa-block-row { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); align-items: center; gap: .45rem; }
+.nuwa-block-glyph { display: grid; place-items: center; inline-size: 1.35rem; block-size: 1.35rem; color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .32rem; font-size: .64rem; line-height: 1; user-select: none; }
+.nuwa-block-row.is-description { background: color-mix(in srgb, var(--color-accent-soft) 16%, transparent); border-radius: 6px; padding: .14rem .3rem .14rem .14rem; }
+.nuwa-block-row.is-description .nuwa-block-glyph { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); }
+.nuwa-block-row.is-action .nuwa-block-glyph { background: color-mix(in srgb, var(--color-text) 5%, var(--color-surface)); }
+.nuwa-block-row.is-psychology { border-inline-start: 0; margin-inline: 0; padding-inline-start: 0; }
+.nuwa-block-row.is-psychology .nuwa-block-glyph { color: color-mix(in srgb, var(--color-accent) 80%, var(--color-text)); border-style: dashed; }
+.nuwa-block-row.is-psychology .nuwa-block-input { border-inline-start: 0; padding-inline-start: 0; }
