@@ -1175,12 +1175,26 @@
         "apps/story-studio/src/components/world/MaterialsSectionNavigation.tsx",
         "src/storyContracts/worldReferenceProjection.ts"
       ],
+      "sourceFiles": [
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "apps/story-studio/src/components/world/MaterialsSectionNavigation.tsx",
+        "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx",
+        "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx",
+        "apps/story-studio/src/styles/tianyan-r0-shell.css",
+        "src/storyContracts/worldReferenceProjection.ts"
+      ],
       "owners": [
         "src/storyContracts/worldReferenceProjection.ts"
       ],
+      "domainOwners": ["src/storyContracts/worldReferenceProjection.ts"],
+      "stateOwners": ["apps/story-studio/server/server.mjs"],
+      "persistenceOwner": "None. The view reads the existing world-library owner projection; classification is pure and stateless, so the WorldObject / Event / Relation owners remain the only fact stores.",
+      "providerDependency": "none; the reference view and its projection issue zero Provider requests.",
       "tests": [
         "tests/storyContracts/worldReferenceProjection.test.ts"
       ],
+      "legacyProvenance": ["Materials section navigation", "Nuwa R6/R6.1 author workspace story sidebar"],
+      "remainingGap": "Local review only: founder visual review, entry-to-event-line deep links and the future character-agent context assembly remain open.",
       "notes": "Read-only projection over the existing world-library owner; classifies entries into character/location/faction/item/rule/clue and confirmed-fact/pending-clue/rumor/author-note from existing tags and status. characterAllowedReferences() is the prepared boundary for future character agents: author notes and rumors never enter character context."
     }
   ]
