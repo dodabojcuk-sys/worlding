@@ -1698,3 +1698,44 @@ input:focus-visible {
 .focused-relations-faction-scopes .faction-scope text { fill: hsl(var(--faction-hue) 45% 30%); font-size: 13px; font-weight: 600; }
 .focused-relations-faction-legend { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; margin-top: var(--space-2, 8px); }
 .focused-relations-faction-legend .faction-legend-chip { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--faction-hue) 45% 28%); background: hsl(var(--faction-hue) 42% 88% / .6); border: 1px solid hsl(var(--faction-hue) 38% 62%); }
+
+/* ── 世界参考工作面（资料 R1）── */
+.world-reference-workspace { --wr-accent: var(--color-accent); }
+.world-reference-message { display: flex; align-items: center; gap: .45rem; margin: .6rem 0 0; padding: .55rem .65rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; font-size: .76rem; }
+.world-reference-message.is-error { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 38%, var(--color-border)); }
+.world-reference-related { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-block-start: .6rem; padding: .5rem .65rem; background: color-mix(in srgb, var(--color-accent-soft) 42%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 26%, var(--color-border)); border-radius: 8px; font-size: .78rem; }
+.world-reference-related button { display: inline-flex; align-items: center; gap: .3rem; padding: .22rem .55rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .7rem; cursor: pointer; }
+.world-reference-filters { display: grid; gap: .45rem; margin-block-start: .6rem; }
+.world-reference-chiprow { display: flex; flex-wrap: wrap; gap: .3rem; }
+.world-reference-chiprow button { padding: .14rem .6rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; font-size: .72rem; cursor: pointer; }
+.world-reference-chiprow button.is-active { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); font-weight: 650; }
+.world-reference-search { display: inline-flex; align-items: center; gap: .4rem; max-inline-size: 22rem; padding: .25rem .55rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; }
+.world-reference-search svg { color: var(--color-text-muted); }
+.world-reference-search input { min-inline-size: 0; border: 0; background: transparent; color: var(--color-text); font-size: .76rem; }
+.world-reference-search input:focus { outline: none; }
+.world-reference-empty { margin-block-start: .7rem; padding: 1rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: 10px; font-size: .78rem; line-height: 1.6; }
+.world-reference-list { display: grid; gap: .55rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+.world-reference-card { display: grid; gap: .45rem; padding: .65rem .75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-inline-start: 3px solid var(--color-border); border-radius: 10px; }
+.world-reference-card[data-nature="confirmed-fact"] { border-inline-start-color: var(--color-accent); }
+.world-reference-card[data-nature="pending-clue"] { border-inline-start-style: dashed; border-inline-start-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border)); }
+.world-reference-card[data-nature="rumor"] { border-inline-start-style: dashed; border-inline-start-color: var(--color-text-muted); }
+.world-reference-card[data-nature="author-note"] { border-inline-start-color: color-mix(in srgb, var(--color-warning) 70%, var(--color-border)); }
+.world-reference-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .55rem; }
+.world-reference-card-head strong { font-size: .86rem; }
+.world-reference-category { color: var(--color-text-muted); font-size: .7rem; }
+.world-reference-nature { padding: .1rem .5rem; border-radius: 999px; font-size: .66rem; font-weight: 650; color: var(--color-surface); background: var(--color-accent); }
+.world-reference-nature.is-pending-clue { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 50%, var(--color-surface)); border: 1px dashed color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); }
+.world-reference-nature.is-rumor { color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px dashed var(--color-border); }
+.world-reference-nature.is-author-note { color: var(--color-text); background: color-mix(in srgb, var(--color-warning) 22%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-border)); }
+.world-reference-knowledge { display: flex; flex-wrap: wrap; gap: .3rem .6rem; margin: 0; padding: 0; list-style: none; }
+.world-reference-knowledge li { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .5rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 999px; font-size: .68rem; }
+.world-reference-knowledge li small { color: var(--color-text-muted); }
+.world-reference-knowledge li[data-state="unknown"] small { color: var(--color-danger); }
+.world-reference-tags { display: flex; flex-wrap: wrap; gap: .28rem; margin: 0; }
+.world-reference-tags span { padding: .08rem .42rem; color: var(--color-text-muted); background: var(--color-surface-muted); border-radius: 999px; font-size: .64rem; }
+.world-reference-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem; color: var(--color-text-muted); font-size: .68rem; }
+.world-reference-card-foot details summary { cursor: pointer; color: var(--color-text-muted); }
+.world-reference-card-foot code { overflow-wrap: anywhere; font-size: .64rem; }
+.world-reference-card-foot button { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .55rem; color: var(--color-accent); background: transparent; border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); border-radius: .3rem; font-size: .7rem; cursor: pointer; }
+.nuwa-story-card-links { display: flex; flex-wrap: wrap; gap: .35rem .8rem; }
+.nuwa-story-card-links a { color: var(--color-accent); font-size: .7rem; }

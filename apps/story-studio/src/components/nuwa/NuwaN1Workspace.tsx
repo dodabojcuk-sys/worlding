@@ -717,7 +717,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           <section className="nuwa-story-card" data-testid="nuwa-story-unit-card">
             <header><small>当前单元</small><strong>{sceneEntries[0]?.title ?? activeSceneTitle}</strong></header>
             <p>{run?.run ? `${run.run.scope.currentSceneIndex + 1} / ${run.run.scope.scenes.length} 单元 · ${run.run.steps.length} / ${runStepBudget(run.run)} 步 · 排演${statusLabel(run.run.status)}` : "尚未建立排演；正文与草稿仍可阅读、编辑和保存。"}</p>
-            <a href={`/event-line?projectId=${encodeURIComponent(projectId ?? "")}`}>查看全貌</a>
+            <nav className="nuwa-story-card-links"><a href={`/event-line?projectId=${encodeURIComponent(projectId ?? "")}`}>查看全貌</a><a href={`/library?libraryView=reference&related=${encodeURIComponent(sceneEntries[0]?.title ?? activeSceneTitle)}`}>相关资料</a></nav>
           </section>
           <section className="nuwa-story-card" data-testid="nuwa-story-scenes-card">
             <header><small>相关场景</small></header>

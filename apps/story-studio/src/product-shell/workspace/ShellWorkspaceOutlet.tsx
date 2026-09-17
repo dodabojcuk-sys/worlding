@@ -16,6 +16,7 @@ import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
+import { WorldReferenceWorkspace } from "../../components/world/WorldReferenceWorkspace";
 import { WorldOverviewWorkspace } from "../../components/world/WorldOverviewWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
@@ -72,6 +73,10 @@ export function ShellWorkspaceOutlet(props: {
 
   if (!props.shellLab && props.destination.id === "library" && libraryView === "relations") {
     return <FocusedRelationsWorkspace runtime={props.runtime} />;
+  }
+
+  if (!props.shellLab && props.destination.id === "library" && libraryView === "reference") {
+    return <WorldReferenceWorkspace runtime={props.runtime} />;
   }
 
   if (!props.shellLab && props.destination.id === "library") return <MaterialsWorkspace runtime={props.runtime} />;
