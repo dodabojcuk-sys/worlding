@@ -57,7 +57,7 @@ export function NuwaUnifiedSceneWorkspace(props: NuwaUnifiedSceneWorkspaceProps)
               <div className="nuwa-dialogue-bubble"><p className="nuwa-run-step-speech">{step.speech}</p></div>
             </div>
           </div> : null}
-          {step.actionText ? <p className="nuwa-block-row is-action nuwa-run-step-action">{step.actionText}</p> : null}
+          {step.actionText && step.actionText !== step.intent ? <p className="nuwa-block-row is-action nuwa-run-step-action">{step.actionText}</p> : null}
           <details className="nuwa-run-step-detail"><summary>推演过程</summary><p><small>意图：{step.intent}</small></p><p><small>结果：{step.observableResult}</small></p></details>
         </div>)}
       </section> : null}
