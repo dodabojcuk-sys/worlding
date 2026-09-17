@@ -39,6 +39,7 @@ import { resolveNuwaWorkspaceView, type NuwaUserIntent } from "./nuwaWorkspaceVi
 import { NuwaUnifiedSceneWorkspace } from "./NuwaUnifiedSceneWorkspace";
 import { NuwaSceneOverview } from "./NuwaSceneOverview";
 import { NuwaDirectionCandidates } from "./NuwaDirectionCandidates";
+import { openEntityDock } from "../entity-dock/entityInspectorDockStore";
 import { composeNuwaSceneWorkspace, projectBranchNodesToScene, projectRunStepsToLiveBlocks } from "./nuwaSceneWorkspaceModel";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
@@ -528,7 +529,11 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           const next = sceneEntries[(current + direction + sceneEntries.length) % sceneEntries.length];
           if (next) { setActiveSceneKey(next.sceneKey); const target = branchRead?.nodes.find((node) => node.sceneKey === next.sceneKey); if (target) selectBranchNode(target); }
         }}
-        onOpenCharacter={(characterId) => { setInspectorCharacterId(characterId); setInspectorOpen(true); setInspectorTab("context"); }}
+        onOpenCharacter={(characterId) => {
+          if (characterId) { openEntityDock({ kind: "character", objectId: characterId, openedFrom: "nuwa", sceneTitle: activeSceneTitle }); return; }
+          setInspectorCharacterId(characterId);
+          setInspectorOpen(true); setInspectorTab("context");
+        }}
         onOpenBranchDrawer={() => setBranchDrawerOpen((open) => !open)}
         onToggleSidebar={() => setInspectorOpen((open) => !open)}
       />
@@ -602,6 +607,10 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         });
         const openCharacter = (characterId: string | null, title: string) => {
           const resolved = characterId ?? (title ? bootstrap?.participants.find((participant) => participant.title === title)?.id ?? null : null);
+          if (resolved) {
+            openEntityDock({ kind: "character", objectId: resolved, openedFrom: "nuwa", sceneTitle: sceneTitle || null });
+            return;
+          }
           setInspectorCharacterId(resolved);
           setInspectorOpen(true); setInspectorTab("context");
         };

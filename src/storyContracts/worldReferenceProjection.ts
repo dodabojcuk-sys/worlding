@@ -152,12 +152,15 @@ export function worldReferencesRelatedTo(entries: readonly WorldReferenceEntry[]
   return entries.filter((entry) => entry.relatedKeys.some((candidate) => candidate === key));
 }
 
-/** 角色 Agent 预备接口：作者备注与传闻不得进入角色上下文；只保留该角色允许知道的条目。 */
+/** 角色 Agent 预备接口：作者备注与传闻不得进入角色上下文。
+ * 无知情标签的对象视为公共事实（人物/地点/组织/物件/规则可进入）；
+ * 线索（event/thread）必须带 `知情：<角色>=已得知` 才对该角色可见；
+ * 显式 `未知/怀疑/被误导` 的对象对该角色排除。 */
 export function characterAllowedReferences(entries: readonly WorldReferenceEntry[], character: string): WorldReferenceEntry[] {
   return entries.filter((entry) => {
     if (entry.nature === "author-note" || entry.nature === "rumor") return false;
     const knowledge = entry.knowledge.find((item) => item.character === character);
-    if (!knowledge) return entry.category === "rule" || entry.category === "location" || entry.category === "faction";
+    if (!knowledge) return entry.category !== "clue";
     return knowledge.state === "known";
   });
 }

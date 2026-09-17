@@ -14,6 +14,7 @@ import {
   type WorldReferenceKnowledgeState,
   type WorldReferenceNature,
 } from "../../../../../src/storyContracts/worldReferenceProjection";
+import { openEntityDock } from "../entity-dock/entityInspectorDockStore";
 
 const CATEGORY_ORDER: WorldReferenceCategory[] = ["character", "location", "faction", "item", "rule", "clue"];
 const NATURE_ORDER: WorldReferenceNature[] = ["confirmed-fact", "pending-clue", "rumor", "author-note"];
@@ -95,14 +96,14 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
         </div>
         {visible.length === 0 ? <p className="world-reference-empty">当前筛选下没有世界条目。这个世界的事实会随着资料录入与事件线整理逐步出现在这里。</p> :
           <ul className="world-reference-list">
-            {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} onRelated={(value) => setRelatedAndUrl(value)} />)}
+            {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={entry.category === "character" ? () => openEntityDock({ kind: "character", objectId: entry.id, openedFrom: "world-reference" }) : undefined} />)}
           </ul>}
       </> : null}
     </section>
   </main>;
 }
 
-function WorldReferenceCard(props: { entry: WorldReferenceEntry; onRelated(title: string): void }) {
+function WorldReferenceCard(props: { entry: WorldReferenceEntry; onRelated(title: string): void; onOpenDetail?(): void }) {
   const entry = props.entry;
   return <li className="world-reference-card" data-nature={entry.nature}>
     <header className="world-reference-card-head">
@@ -116,7 +117,10 @@ function WorldReferenceCard(props: { entry: WorldReferenceEntry; onRelated(title
     {entry.tags.length ? <p className="world-reference-tags">{entry.tags.map((tag) => <span key={tag}>{tag}</span>)}</p> : null}
     <footer className="world-reference-card-foot">
       <span>来源：本机工程（markdown）<details><summary>来源标识</summary><code>{entry.id}</code>{entry.updatedAt ? <small> · 更新 {entry.updatedAt}</small> : null}</details></span>
-      <button type="button" onClick={() => props.onRelated(entry.title)}><Globe size={13} />查看相关</button>
+      <span className="world-reference-card-actions">
+        {props.onOpenDetail ? <button type="button" onClick={props.onOpenDetail}>详情工作台</button> : null}
+        <button type="button" onClick={() => props.onRelated(entry.title)}><Globe size={13} />查看相关</button>
+      </span>
     </footer>
   </li>;
 }

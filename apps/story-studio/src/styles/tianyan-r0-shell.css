@@ -1739,3 +1739,41 @@ input:focus-visible {
 .world-reference-card-foot button { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .55rem; color: var(--color-accent); background: transparent; border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); border-radius: .3rem; font-size: .7rem; cursor: pointer; }
 .nuwa-story-card-links { display: flex; flex-wrap: wrap; gap: .35rem .8rem; }
 .nuwa-story-card-links a { color: var(--color-accent); font-size: .7rem; }
+
+/* ── 角色磁吸详情工作台（EntityInspectorDock R0）── */
+.entity-dock { position: fixed; z-index: 46; inset-block: 3.6rem 1rem; inset-inline: auto 1rem; inline-size: 23rem; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: -0.6rem 0.4rem 1.6rem color-mix(in srgb, var(--color-text) 14%, transparent); overflow: hidden; }
+.entity-dock.is-expanded { inline-size: min(40rem, 60vw); }
+.entity-dock-head { display: flex; align-items: center; gap: .55rem; padding: .6rem .65rem; border-block-end: 1px solid var(--color-border); }
+.entity-dock-avatar { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-surface); background: linear-gradient(160deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 62%, var(--color-text))); border-radius: 50%; font-weight: 700; }
+.entity-dock-identity { display: grid; gap: .06rem; min-inline-size: 0; }
+.entity-dock-identity strong { font-size: .84rem; }
+.entity-dock-identity span { color: var(--color-text-muted); font-size: .66rem; }
+.entity-dock-head-actions { margin-inline-start: auto; display: inline-flex; gap: .25rem; }
+.entity-dock-head-actions button { display: grid; place-items: center; inline-size: 1.7rem; block-size: 1.7rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: .3rem; cursor: pointer; }
+.entity-dock-head-actions button:hover, .entity-dock-head-actions button[aria-pressed="true"] { color: var(--color-accent); border-color: var(--nuwa-rule, var(--color-border)); }
+.entity-dock-peek { display: grid; gap: .5rem; padding: .65rem; overflow: auto; }
+.entity-dock-line { display: grid; gap: .12rem; margin: 0; font-size: .76rem; }
+.entity-dock-line small { color: var(--color-text-muted); font-size: .62rem; }
+.entity-dock-expand { margin-block-start: .3rem; padding: .4rem .6rem; color: var(--color-surface); background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: .35rem; font-size: .74rem; cursor: pointer; }
+.entity-dock-tabs { display: flex; flex-wrap: wrap; gap: .18rem; padding: .35rem .45rem; border-block-end: 1px solid var(--color-border); }
+.entity-dock-tabs button { padding: .16rem .42rem; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: .28rem; font-size: .66rem; cursor: pointer; }
+.entity-dock-tabs button[aria-selected="true"] { color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 45%, var(--color-surface)); border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border)); }
+.entity-dock-body { min-block-size: 0; overflow: auto; padding: .6rem; }
+.entity-dock-section { display: grid; gap: .45rem; font-size: .74rem; line-height: 1.6; }
+.entity-dock-section p { display: grid; gap: .1rem; margin: 0; }
+.entity-dock-section p small, .entity-dock-section small { color: var(--color-text-muted); font-size: .64rem; }
+.entity-dock-section h4 { margin: .2rem 0 0; font-size: .76rem; }
+.entity-dock-section dl { display: grid; gap: .3rem; margin: 0; }
+.entity-dock-section dl div { display: grid; grid-template-columns: 4.4rem minmax(0, 1fr); gap: .35rem; }
+.entity-dock-section dt { color: var(--color-text-muted); font-size: .66rem; }
+.entity-dock-section dd { margin: 0; }
+.entity-dock-section a { color: var(--color-accent); font-size: .7rem; }
+.entity-dock-empty { display: flex; align-items: center; gap: .4rem; margin: 0; padding: .7rem; color: var(--color-text-muted); font-size: .74rem; }
+.entity-dock-chain { display: grid; gap: .2rem; margin: .3rem 0; padding: 0; list-style: decimal; padding-inline-start: 1.2rem; font-size: .72rem; color: var(--color-text-muted); }
+.entity-dock-contextpack { display: grid; gap: .35rem; padding: .5rem; background: var(--color-surface-muted); border: 1px dashed color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); border-radius: 8px; }
+.entity-dock-contextpack p { display: grid; gap: .08rem; margin: 0; font-size: .7rem; }
+.entity-dock .character-memory-query, .entity-dock .character-inspector-formal-relations { font-size: .7rem; }
+.world-reference-card-actions { display: inline-flex; gap: .35rem; }
+@media (max-width: 75rem) {
+  .entity-dock { inset-block: 0 0; inset-inline: auto 0; inline-size: min(23rem, 94vw); border-radius: 0; }
+}

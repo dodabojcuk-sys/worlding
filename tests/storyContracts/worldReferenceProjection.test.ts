@@ -57,12 +57,14 @@ test("world reference related lookup resolves titles, aliases and tag references
 test("character agent preparation excludes author notes, rumors and unknown knowledge", () => {
   const entries = projectWorldReferences([
     { id: "rule.潮汐", title: "潮汐信令", type: "rule", status: "active", tags: [] },
+    { id: "character.林月如", title: "林月如", type: "character", status: "active", tags: [] },
+    { id: "item.钥匙", title: "黄铜钥匙", type: "item", status: "active", tags: [] },
     { id: "event.公开", title: "公开接头", type: "event", status: "active", tags: ["知情：林月如=已得知", "知情：沈砚=未知"] },
     { id: "event.秘密", title: "灯下密约", type: "event", status: "draft", tags: ["作者秘密"] },
     { id: "event.传闻", title: "码头传闻", type: "event", status: "draft", tags: ["推测：摆渡人"] },
   ]);
   const allowed = characterAllowedReferences(entries, "林月如");
-  assert.deepEqual(allowed.map((entry) => entry.id), ["rule.潮汐", "event.公开"]);
+  assert.deepEqual(allowed.map((entry) => entry.id), ["rule.潮汐", "character.林月如", "item.钥匙", "event.公开"]);
   const shenAllowed = characterAllowedReferences(entries, "沈砚");
-  assert.deepEqual(shenAllowed.map((entry) => entry.id), ["rule.潮汐"], "a character must not read events marked unknown to them");
+  assert.deepEqual(shenAllowed.map((entry) => entry.id), ["rule.潮汐", "character.林月如", "item.钥匙"], "a character must not read events marked unknown to them");
 });

@@ -1186,16 +1186,62 @@
       "owners": [
         "src/storyContracts/worldReferenceProjection.ts"
       ],
-      "domainOwners": ["src/storyContracts/worldReferenceProjection.ts"],
-      "stateOwners": ["apps/story-studio/server/server.mjs"],
+      "domainOwners": [
+        "src/storyContracts/worldReferenceProjection.ts"
+      ],
+      "stateOwners": [
+        "apps/story-studio/server/server.mjs"
+      ],
       "persistenceOwner": "None. The view reads the existing world-library owner projection; classification is pure and stateless, so the WorldObject / Event / Relation owners remain the only fact stores.",
       "providerDependency": "none; the reference view and its projection issue zero Provider requests.",
       "tests": [
         "tests/storyContracts/worldReferenceProjection.test.ts"
       ],
-      "legacyProvenance": ["Materials section navigation", "Nuwa R6/R6.1 author workspace story sidebar"],
+      "legacyProvenance": [
+        "Materials section navigation",
+        "Nuwa R6/R6.1 author workspace story sidebar"
+      ],
       "remainingGap": "Local review only: founder visual review, entry-to-event-line deep links and the future character-agent context assembly remain open.",
       "notes": "Read-only projection over the existing world-library owner; classifies entries into character/location/faction/item/rule/clue and confirmed-fact/pending-clue/rumor/author-note from existing tags and status. characterAllowedReferences() is the prepared boundary for future character agents: author notes and rumors never enter character context."
+    },
+    {
+      "id": "character-agent-magnetic-workbench-r0",
+      "status": "LOCAL_REVIEW",
+      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-deterministic-contextpack-preview-and-knowledge-boundary",
+      "entrypoints": [
+        "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
+        "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
+        "src/storyContracts/characterContextPack.ts"
+      ],
+      "sourceFiles": [
+        "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
+        "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
+        "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx",
+        "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx",
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "src/storyContracts/characterContextPack.ts",
+        "src/storyContracts/worldReferenceProjection.ts"
+      ],
+      "owners": [
+        "src/storyContracts/characterContextPack.ts"
+      ],
+      "domainOwners": [
+        "src/storyContracts/characterContextPack.ts"
+      ],
+      "stateOwners": [
+        "apps/story-studio/server/server.mjs"
+      ],
+      "persistenceOwner": "None. The dock reads the existing WorldObject / Relation / CharacterMemory / knowledge-projection owners; the context pack is a pure deterministic preview with no writes and no second fact store.",
+      "providerDependency": "none; the workbench and its context pack preview issue zero Provider requests and never display credentials.",
+      "tests": [
+        "tests/storyContracts/characterContextPack.test.ts",
+        "tests/storyContracts/worldReferenceProjection.test.ts"
+      ],
+      "legacyProvenance": [
+        "CharacterInspectorCard memory/relation/knowledge components",
+        "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
+      ],
+      "remainingGap": "R0 local slice: character-level provider configuration owner, state/fate production feeds and the character-directory entry migration remain open; no real Provider calls."
     }
   ]
 }

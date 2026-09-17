@@ -17,6 +17,7 @@ import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelatio
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
 import { WorldReferenceWorkspace } from "../../components/world/WorldReferenceWorkspace";
+import { EntityInspectorDock } from "../../components/entity-dock/EntityInspectorDock";
 import { WorldOverviewWorkspace } from "../../components/world/WorldOverviewWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
@@ -39,6 +40,7 @@ export function ShellWorkspaceOutlet(props: {
   const summary = props.shellLab ? t("shellLab.description") : t(props.destination.summaryKey as TranslationKey);
   const note = props.shellLab ? t("workspace.boundary") : null;
 
+  const outlet = (() => {
   if (props.settingsOpen) return <SettingsStorageRoute presentation="workspace" />;
   if (props.accountOpen) return <AccountCenterWorkspace />;
 
@@ -98,4 +100,7 @@ export function ShellWorkspaceOutlet(props: {
         <p className="shell-workspace-note">{note}</p></>}
     </section>
   </main>;
+  })();
+
+  return <>{outlet}<EntityInspectorDock runtime={props.runtime} /></>;
 }
