@@ -549,7 +549,25 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           cue={cue}
           onCueChange={setCue}
           onSendCue={() => sendCue({ preventDefault: () => undefined } as unknown as FormEvent)}
+          checkpointKey={checkpointKey}
+          onCheckpointKeyChange={setCheckpointKey}
+          onCheckpoint={() => checkpointBranch()}
+          saveStatusText={branchStatus.text || null}
           selectedNodeId={branchNodeId}
+          onEditBlock={(nodeId, blockIndex, text) => {
+            setBranchDraftBlocks((current) => {
+              if (!current) return current;
+              const target = branchRead?.nodes.find((node) => node.nodeId === nodeId);
+              if (!target) return current;
+              const updated = target.blocks.map((block, index) => index === blockIndex ? { ...block, text } : block);
+              const changed = JSON.stringify(updated) !== JSON.stringify(target.blocks);
+              if (changed) { void props.runtime.withConnection((token) => updateNuwaBranchNodeContent({ projectId: projectIdRef.current ?? "", branchWorkVersionId: activeBranchId!, nodeId, expectedContentRevision: target.contentRevision, blocks: updated, operationId: newOperationId(), token }).then((result) => {
+                setBranchRead((prev) => prev ? { ...prev, nodes: prev.nodes.map((node) => node.nodeId === result.node.nodeId ? result.node : node) } : prev);
+                setBranchStatus({ kind: "draft", text: `草稿已自动保存 · 内容 r${result.node.contentRevision}；阶段版本修订未变化。` });
+              }).catch(() => setBranchStatus({ kind: "idle", text: "草稿保存未完成；请重试。" }))); }
+              return updated;
+            });
+          }}
           onOpenInspector={(title) => { setInspectorOpen(true); setInspectorTab("context"); }}
         />;
       })() : workspaceView.view === "branch" ? <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">

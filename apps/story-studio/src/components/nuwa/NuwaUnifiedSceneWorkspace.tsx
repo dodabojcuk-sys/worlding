@@ -17,6 +17,11 @@ export interface NuwaUnifiedSceneWorkspaceProps {
   cue: string;
   onCueChange(value: string): void;
   onSendCue(): void;
+  /** 阶段版本 */
+  checkpointKey: string;
+  onCheckpointKeyChange?(value: string): void;
+  onCheckpoint(): void;
+  saveStatusText: string | null;
   /** 已保存正文编辑 */
   selectedNodeId: string | null;
   onEditBlock?(nodeId: string, blockIndex: number, text: string): void;
@@ -73,6 +78,11 @@ export function NuwaUnifiedSceneWorkspace(props: NuwaUnifiedSceneWorkspaceProps)
     </div>
 
     <footer className="nuwa-unified-scene-composer">
+      <div className="nuwa-unified-scene-actions">
+        <input aria-label="阶段版本标识" value={props.checkpointKey} onChange={(event) => props.onCheckpointKeyChange?.(event.target.value)} placeholder="阶段版本标识" />
+        <button type="button" disabled={props.busy} onClick={props.onCheckpoint}><Play size={14} />保存阶段版本</button>
+        {props.saveStatusText ? <span role="status">{props.saveStatusText}</span> : null}
+      </div>
       <form onSubmit={(event) => { event.preventDefault(); props.onSendCue(); }}>
         <label><span>给当前排演的提示</span><textarea value={props.cue} onChange={(event) => props.onCueChange(event.target.value)} rows={2} maxLength={800} placeholder="例如：让下一步先确认声音来源。" /></label>
         <button type="submit" className="primary-action" disabled={props.busy || !props.cue.trim()}><Play size={14} />加入后续步骤</button>
