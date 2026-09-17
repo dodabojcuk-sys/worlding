@@ -56,6 +56,7 @@ import type { TemporalProjectionRun } from "../../../../src/storyContracts/tempo
 import { buildTemporalCompositionCache } from "../../../../src/storyContracts/temporalCompositionCache.ts";
 import type { NarrativeArrangementRead, NarrativeArrangementWriteResult, NarrativePlacementRole, NarrativePositionIntent, StoryCollectionPoint, StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
 import { getEventStoryCrossingKnowledgeProjection, readNuwaBranch, type NuwaBranchReadModel } from "../lib/localTransport";
+import { stableJson } from "../../../../src/storyContinuity/continuityValidation.ts";
 import type { EventStoryCrossingKnowledgeProjection, KnowledgeObserver } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import type { TianyiKnowledgeViewContext } from "./tianyi/sidebar/TianyiSidebar";
@@ -1619,7 +1620,8 @@ function NuwaBranchEventLinePanel(props: { projectId: string; branchId: string; 
             {block.kind === "dialogue" && block.heardBy?.length ? <small>（闻者：{block.heardBy.join("、")}）</small> : null}
           </p>)}
         </div>
-        <p><small>来源：{node.provenance.map((item) => item.kind === "nuwa-run" ? `女娲 Run ${item.runId}` : `作者编辑 ${item.authorActionId}`).join("；") || "无"}</small></p>
+        <p><small>来源：{(() => { const runs = node.provenance.filter((item) => item.kind === "nuwa-run").length; const edits = node.provenance.filter((item) => item.kind === "author-edit").length; return [runs ? "女娲 Run" : null, edits ? `${edits} 次作者修订` : null].filter(Boolean).join(" · ") || "无记录"; })()}</small></p>
+        <details><summary>技术详情</summary><p><small>nodeId：{node.nodeId}</small></p><p><small>{node.provenance.map((item) => stableJson(item)).join("；")}</small></p></details>
         <button type="button" onClick={() => window.location.assign(`/nuwa?projectId=${encodeURIComponent(props.projectId)}&branchId=${encodeURIComponent(props.branchId)}&nodeId=${encodeURIComponent(node.nodeId)}`)}>在女娲继续此节点</button>
       </li>)}
       {read.nodes.length === 0 ? <li>分支暂无节点。</li> : null}

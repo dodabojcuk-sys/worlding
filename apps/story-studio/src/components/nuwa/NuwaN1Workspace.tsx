@@ -471,7 +471,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
     <section className="nuwa-n1-workspace" data-testid="nuwa-n1-workspace" data-run-id={run?.run?.runId ?? ""} data-run-status={status} data-provider-calls={availability?.providerCalls ?? 0}>
       <header className="nuwa-n1-header">
         <div><small>独立工作区 · 当前作品</small><h1>女娲</h1><p>{run?.run ? run.authorization?.status === "active" ? `正在“${run.run.scope.storylineLabel}”的已授权单元范围内排演；正式写入仍保留回溯。` : `正在“${run.run.scope.storylineLabel}”的 ${run.run.scope.mode === "continuous" ? "持续" : "指定"}范围内排演；结果需走待确认。` : "先选事件线和单元范围，再选择 2–3 位正式角色；系统在范围内自行分步骤。"}</p></div>
-        <div className={`nuwa-n1-runtime-state is-${availability?.kind ?? "unavailable"}`}><Bot /><div><strong>{availability?.label ?? "本地作品服务未连接"}</strong><span>{localFake ? "本地工程演练 · 0 Provider" : executable ? "已配置执行器；开始排演才会发送明确授权的请求。" : "无可执行 Provider；不会自动回退为假对话。"}</span></div></div>
+        <div className="nuwa-n1-provider-line" data-testid="nuwa-provider-line">{localFake ? "本地工程演练 · 0 Provider" : executable ? "AI 服务已连接；开始排演才会发送请求。" : "AI服务未连接；现有内容仍可阅读、编辑和保存。"} <a href="/settings">前往设置</a></div>
       </header>
 
       <nav className="nuwa-context-strip" aria-label="当前工作上下文">
@@ -487,15 +487,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       {notice ? <p className="nuwa-n1-message is-notice" role="status"><CheckCircle2 />{notice}</p> : null}
       {run?.authorization ? <p className="nuwa-n1-message is-notice" data-testid="nuwa-n1-authorization"><ShieldCheck />{run.authorization.status === "active" ? `高权限自动执行已授权：当前 Run、${run.authorization.storyUnitId} 与 ${run.authorization.actorIds.length} 位角色；最多 ${run.authorization.maxSteps} 步 / ${run.authorization.maxProviderDispatches} 次模型发送，可随时停止或回溯。` : "此 Run 的高权限授权已失效；不会继续自动写入。"}</p> : null}
 
-      <section className="nuwa-n1-author-scope" aria-label="本次排演方式">
-        <div><small>运行方式</small><strong>{run?.authorization?.status === "active" ? "已授权自动应用" : "普通候选"}</strong><span>{run?.authorization?.status === "active" ? "只限当前 Run、故事单元、所选人物和已绑定关系类型；停止后不继续写入。" : "结果只进入待确认；没有获得正式故事写入权限。"}</span></div>
-        <div><small>执行服务</small><strong>{localFake ? "本地工程演练" : availability?.label ?? "未连接"}</strong><span>{localFake ? "假服务用于验证数据流；真实 Provider 0 次。" : executable ? "只有开始排演后才按已配置边界发送。" : "当前不会产生角色步骤。"}</span></div>
-      </section>
+
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
         <details className="nuwa-run-settings" open={runSettingsOpen || workspaceView.view === "setup"} onToggle={(event) => setRunSettingsOpen((event.target as HTMLDetailsElement).open)}>
           <summary>范围与运行设置</summary>
           <div className="nuwa-run-settings-grid">
+            <label><span>本次排演方式</span><span>{run?.authorization?.status === "active" ? "已授权自动应用" : "普通候选"}</span></label>
+            <label><span>执行服务</span><span>{localFake ? "假服务用于验证数据流；真实 Provider 0 次" : availability?.label ?? "未连接"}</span></label>
         <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !selectableWorkVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{selectableWorkVersions.length ? selectableWorkVersions.map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>) : <option value="">尚未建立正式版本 · 仅候选排演</option>}</select></label>
         <label><span>事件线</span><select aria-label="事件线" value={storylineKey} disabled={Boolean(run) || busy} onChange={(event) => { const next = bootstrap?.storylines.find((line) => line.key === event.target.value); setStorylineKey(event.target.value); setStoryUnitId(next?.units[0]?.id ?? ""); setEndStoryUnitId(next?.units[0]?.id ?? ""); setSetup(null); }}>{bootstrap?.storylines.map((line) => <option key={line.key} value={line.key}>{line.title}</option>)}</select></label>
         <label><span>从单元开始</span><select aria-label="从单元开始" value={storyUnitId} disabled={Boolean(run) || busy || !scopeUnits.length} onChange={(event) => { const next = event.target.value; setStoryUnitId(next); if (scopeMode === "bounded" && (!endStoryUnitId || scopeUnits.findIndex((unit) => unit.id === endStoryUnitId) < scopeUnits.findIndex((unit) => unit.id === next))) setEndStoryUnitId(next); setSetup(null); }}>{scopeUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}</select></label>
