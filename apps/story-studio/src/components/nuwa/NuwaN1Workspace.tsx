@@ -36,6 +36,8 @@ import {
   type NuwaBranchSummary
 } from "../../lib/localTransport";
 import { resolveNuwaWorkspaceView, type NuwaUserIntent } from "./nuwaWorkspaceView";
+import { NuwaUnifiedSceneWorkspace } from "./NuwaUnifiedSceneWorkspace";
+import { composeNuwaSceneWorkspace, projectBranchNodesToScene, projectRunStepsToLiveBlocks } from "./nuwaSceneWorkspaceModel";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
 const MAX_PARTICIPANTS = 3;
@@ -518,7 +520,39 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
           <button type="button" onClick={() => setUserIntent("run")}>排演现场</button>
         </nav> : null}
         <div className="nuwa-n1-primary">
-      {workspaceView.view === "branch" ? <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
+      {branchRead && branchRead.nodes.length > 0 && run?.run && ["running", "paused", "ready"].includes(run.run.status) ? (() => {
+        const characterTitles = new Map((bootstrap?.participants ?? []).map((participant) => [participant.id, participant.title]));
+        const sceneKey = branchRead.scenes[0]?.sceneKey ?? branchRead.nodes[0]?.sceneKey ?? "";
+        const sceneTitle = branchRead.scenes[0]?.title ?? bootstrap?.storyUnits.find((unit) => unit.id === branchRead.nodes[0]?.unitId)?.title ?? "当前场景";
+        const vm = composeNuwaSceneWorkspace({
+          sceneKey, sceneTitle,
+          branchNodes: projectBranchNodesToScene(
+            branchRead.nodes.filter((node) => !activeSceneKey || node.sceneKey === activeSceneKey).map((node) => ({
+              nodeId: node.nodeId, title: node.title, reviewState: node.reviewState, sceneKey: node.sceneKey, contentRevision: node.contentRevision,
+              blocks: node.blocks.map((block) => ({ kind: block.kind, characterId: block.kind === "action" || block.kind === "psychology" ? block.characterId : undefined, speakerId: block.kind === "dialogue" ? block.speakerId : undefined, text: block.text, heardBy: block.kind === "dialogue" ? block.heardBy : undefined, delivery: block.kind === "dialogue" ? block.delivery : undefined }))
+            })),
+            characterTitles
+          ),
+          runSteps: projectRunStepsToLiveBlocks(run.run.steps.map((step) => ({ sequence: step.sequence, actorId: step.actorId, intent: step.intent, speech: step.speech, action: step.action, observableResult: step.observableResult })), characterTitles),
+          runState: run.run.status
+        });
+        return <NuwaUnifiedSceneWorkspace
+          viewModel={vm}
+          branchDisplayName={branchRead.branch.displayName}
+          worldTimeLabel={branchRead.nodes[0]?.worldTime?.kind === "unknown" ? "未知" : branchRead.nodes[0]?.worldTime?.label ?? "未知"}
+          busy={busy}
+          onStep={() => runAction("step")}
+          onContinuous={() => runContinuously()}
+          onPause={() => runAction("pause")}
+          onResume={() => runAction("resume")}
+          onStop={() => runAction("stop")}
+          cue={cue}
+          onCueChange={setCue}
+          onSendCue={() => sendCue({ preventDefault: () => undefined } as unknown as FormEvent)}
+          selectedNodeId={branchNodeId}
+          onOpenInspector={(title) => { setInspectorOpen(true); setInspectorTab("context"); }}
+        />;
+      })() : workspaceView.view === "branch" ? <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
         <div><small>女娲分支 · 长期保存</small><strong>{branchRead ? branchRead.branch.displayName : "尚未选择分支"}</strong><span>{branchRead ? (branchRead.branch.staleness.state === "stale" ? `落后于主线 r${branchRead.branch.staleness.currentParentRevision ?? "?"}` : "与主线来源一致") : "作者显式保存后，分支才获得版本身份；普通排演结果不会自动成为分支。"}</span></div>
         <div>
           <select aria-label="选择女娲分支" value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>
@@ -587,7 +621,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         })}</div></fieldset>
         {participantIds.length ? <fieldset className="nuwa-n1-participant-goals"><legend>逐角色本场目标</legend>{participantIds.map((participantId) => { const participant = bootstrap?.participants.find((item) => item.id === participantId); return <label key={participantId}><span>{participant?.title ?? "角色"}</span><input value={participantGoals[participantId] ?? ""} disabled={busy} maxLength={800} required onChange={(event) => { setParticipantGoals((current) => ({ ...current, [participantId]: event.target.value })); setSetup(null); }} placeholder="本场只属于这个角色的目标" /></label>; })}</fieldset> : null}
         <footer><span>{participantIds.length < MIN_PARTICIPANTS ? `还需要选择 ${MIN_PARTICIPANTS - participantIds.length} 位角色。` : participantIds.some((id) => !participantGoals[id]?.trim()) ? "请为每位角色填写本场目标。" : "范围准备就绪；可先检查上下文。"}</span><button type="button" disabled={!canPrepare || busy} onClick={prepare}><ShieldCheck />查看上下文</button></footer>
-      </section> : null) : run?.run ? <NuwaRunReader run={run} selectedStepId={selectedStepId} selectedStepIds={selectedStepIds} onSelectStep={(step) => { setSelectedStepId(step.stepId); setInspectorOpen(true); setInspectorTab("step"); }} onToggleCandidate={(stepId) => setSelectedStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId])} /> : null}
+      </section> : null) : run?.run && branchRead && branchRead.nodes.length > 0 ? null : run?.run ? <NuwaRunReader run={run} selectedStepId={selectedStepId} selectedStepIds={selectedStepIds} onSelectStep={(step) => { setSelectedStepId(step.stepId); setInspectorOpen(true); setInspectorTab("step"); }} onToggleCandidate={(stepId) => setSelectedStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId])} /> : null}
 
       {!run && setup ? <section className="nuwa-n1-context-preview"><ShieldCheck /><div><strong>本轮上下文预览</strong><p>{setup.setup.contextPreview.map((actor) => `${bootstrap?.participants.find((item) => item.id === actor.actorId)?.title ?? "角色"}：${actor.profileBasis.core ?? "未设置核心"}；底线 ${actor.profileBasis.boundaries ?? "未设置"}；目标 ${actor.localGoal}`).join("；")}</p><small>这里只是发送前预览；尚未提交步骤，也没有网络发送回执。</small></div></section> : null}
         </div>

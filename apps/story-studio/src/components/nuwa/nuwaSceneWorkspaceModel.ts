@@ -34,7 +34,7 @@ export interface LiveRunStepView {
   observableResult: string;
 }
 
-export type NuwaRunState = "none" | "ready" | "running" | "paused" | "completed" | "blocked";
+export type NuwaRunState = "none" | "ready" | "running" | "paused" | "completed" | "blocked" | "cancelled";
 
 export interface SceneWorkspaceViewModel {
   sceneTitle: string;
