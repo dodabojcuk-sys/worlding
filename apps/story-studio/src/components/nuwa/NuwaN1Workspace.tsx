@@ -35,6 +35,7 @@ import {
   type NuwaBranchReadModel,
   type NuwaBranchSummary
 } from "../../lib/localTransport";
+import { resolveNuwaWorkspaceView, type NuwaUserIntent } from "./nuwaWorkspaceView";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 
 const MAX_PARTICIPANTS = 3;
@@ -76,6 +77,14 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   const branchCreateAttemptsRef = useRef(new Map<string, string>());
   const checkpointAttemptsRef = useRef(new Map<string, string>());
   const branchSavingRef = useRef(false);
+  const [userIntent, setUserIntent] = useState<NuwaUserIntent>("auto");
+  const [routeTarget] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return { branchId: params.get("branchId")?.trim() || null, nodeId: params.get("nodeId")?.trim() || null };
+  });
+  const [bootstrapLoaded, setBootstrapLoaded] = useState(false);
+  const [runSettingsOpen, setRunSettingsOpen] = useState(false);
+  const [runLoaded, setRunLoaded] = useState(false);
   const [activeSceneKey, setActiveSceneKey] = useState("");
   const [inspectorCharacterId, setInspectorCharacterId] = useState<string | null>(null);
   const [branchList, setBranchList] = useState<NuwaBranchSummary[]>([]);
@@ -94,10 +103,11 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     operationGeneration.current += 1;
     let active = true;
-    setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setStorylineKey(""); setScopeMode("bounded"); setEndStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
+    setBootstrap(null); setRun(null); setSetup(null); setUserIntent("auto"); setBootstrapLoaded(false); setRunLoaded(false); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setStorylineKey(""); setScopeMode("bounded"); setEndStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null);
     if (!projectId) return () => { active = false; };
     const requestedRunId = new URLSearchParams(window.location.search).get("runId")?.trim() || null;
     void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId), getMultiverseWorkVersions(projectId)]).then(([nextBootstrap, latest, versions]) => {
+    setBootstrapLoaded(true);
       if (!active) return;
       setBootstrap(nextBootstrap);
       setWorkVersions(versions);
@@ -124,6 +134,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
         ? `已从角色档案保留 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；新建排演时会自动加入。`
         : `已从角色档案加入 ${nextBootstrap.participants.find((participant) => participant.id === requestedParticipant)?.title ?? "该角色"}；再选择 1–2 位正式角色即可开始。`);
     }).catch((reason: unknown) => {
+      setRunLoaded(true);
       if (active) setError(messageFor(reason, "女娲工作面未能读取本地作品；现有作品没有被修改。"));
     });
     void listNuwaBranches(projectId).then((result) => {
@@ -152,6 +163,15 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
   }, [projectId, activeBranchId]);
 
   const visibleBranchNodes = (branchRead?.nodes ?? []).filter((node) => !activeSceneKey || node.sceneKey === activeSceneKey);
+  const workspaceView = useMemo(() => resolveNuwaWorkspaceView({
+    routeTarget,
+    userIntent,
+    projectLoadState: projectId ? (bootstrapLoaded ? "done" : "loading") : "loading",
+    branchLoadState: bootstrapLoaded ? "done" : "loading",
+    runLoadState: runLoaded ? "done" : "loading",
+    branches: branchList,
+    latestRun: run?.run ? { runId: run.run.runId, status: run.run.status } : null
+  }), [routeTarget, userIntent, projectId, bootstrapLoaded, runLoaded, branchList, run?.run?.runId, run?.run?.status]);
   const branchNode = branchRead?.nodes.find((node) => node.nodeId === branchNodeId) ?? null;
   const branchBlocksChanged = branchNode && branchDraftBlocks ? JSON.stringify(branchNode.blocks) !== JSON.stringify(branchDraftBlocks) : false;
   const selectBranchNode = (node: NuwaBranchNode) => {
@@ -472,7 +492,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       </section>
 
       <section className="nuwa-n1-controlbar" aria-label="排演范围与操作">
-        <details className="nuwa-run-settings" open={!run}>
+        <details className="nuwa-run-settings" open={runSettingsOpen || workspaceView.view === "setup"} onToggle={(event) => setRunSettingsOpen((event.target as HTMLDetailsElement).open)}>
           <summary>范围与运行设置</summary>
           <div className="nuwa-run-settings-grid">
         <label><span>作品版本</span><select aria-label="作品版本" value={workVersionId} disabled={Boolean(run) || busy || !selectableWorkVersions.length} onChange={(event) => { setWorkVersionId(event.target.value); setSetup(null); }}>{selectableWorkVersions.length ? selectableWorkVersions.map((version) => <option key={version.identity.workVersionId} value={version.identity.workVersionId}>{version.identity.kind === "root" ? "主版本" : "IF"} · {version.identity.displayName} · r{version.identity.currentRevision}</option>) : <option value="">尚未建立正式版本 · 仅候选排演</option>}</select></label>
@@ -493,8 +513,12 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
       </section>
 
       <div className="nuwa-n1-body">
+        {workspaceView.view === "branch" && run?.run ? <nav className="nuwa-focus-tabs" aria-label="工作面切换">
+          <button type="button" aria-pressed onClick={() => setUserIntent("branch")}>分支场景正文</button>
+          <button type="button" onClick={() => setUserIntent("run")}>排演现场</button>
+        </nav> : null}
         <div className="nuwa-n1-primary">
-      <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
+      {workspaceView.view === "branch" ? <section className="nuwa-n1-author-scope" aria-label="女娲分支" data-testid="nuwa-branch-panel">
         <div><small>女娲分支 · 长期保存</small><strong>{branchRead ? branchRead.branch.displayName : "尚未选择分支"}</strong><span>{branchRead ? (branchRead.branch.staleness.state === "stale" ? `落后于主线 r${branchRead.branch.staleness.currentParentRevision ?? "?"}` : "与主线来源一致") : "作者显式保存后，分支才获得版本身份；普通排演结果不会自动成为分支。"}</span></div>
         <div>
           <select aria-label="选择女娲分支" value={activeBranchId} onChange={(event) => setActiveBranchId(event.target.value)}>
@@ -553,9 +577,9 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState }) {
             <button type="button" style={{ marginLeft: 8 }} disabled={busy || !newNodeTitle.trim() || !newNodeNarration.trim() || !newNodeSpeech.trim() || !newNodeSpeaker} onClick={createBranchNodeManually}>创建节点</button>
           </div>
         </> : null}
-      </section>
+      </section> : null}
 
-      {!run ? <section className="nuwa-n1-setup" aria-label="女娲排演准备">
+      {workspaceView.view === "loading" ? <section className="nuwa-n1-empty-entry" aria-label="加载中"><h2>正在恢复工作面状态……</h2></section> : workspaceView.view === "missing-target" ? <section className="nuwa-n1-empty-entry" aria-label="引用不存在"><h2>引用的女娲分支不存在或已归档。</h2><p><a href={`/nuwa?projectId=${encodeURIComponent(projectId ?? "")}`}>返回女娲工作面</a></p></section> : workspaceView.view === "error" ? <section className="nuwa-n1-empty-entry" role="alert"><h2>工作面数据读取失败；现有内容没有被修改。</h2></section> : workspaceView.view === "setup" ? <section className="nuwa-n1-empty-entry" aria-label="开始使用女娲"><h2>从哪里开始？</h2><ul><li><a href={`/event-line?projectId=${encodeURIComponent(projectId ?? "")}`}>从事件线选择单元或范围</a></li><li><button type="button" onClick={() => { setRunSettingsOpen(true); }}>打开范围与运行设置</button></li></ul><p><small>已有内容不会丢失；选择范围后即可开始排演。</small></p></section> : workspaceView.view === "resume-run" ? <section className="nuwa-n1-empty-entry" aria-label="继续排演"><h2>有一份可继续的排演</h2><button type="button" onClick={() => setUserIntent("run")}>继续已有排演</button></section> : !run ? null : run?.run ? <section className="nuwa-n1-setup" aria-label="女娲排演准备">
         <div className="nuwa-n1-setup-copy"><small>正式角色 · 稳定身份</small><h2>选择参与者</h2><p>角色只会获得自己的可知范围；角色档案、作者目标与其他角色秘密不会自动进入其上下文。</p></div>
         <fieldset><legend>选择 2–3 位正式角色</legend><div className="nuwa-n1-participant-options">{bootstrap?.participants.map((participant) => {
           const checked = participantIds.includes(participant.id);
