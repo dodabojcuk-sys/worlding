@@ -3154,7 +3154,8 @@ export function createStoryStudioWorkspaceOperations(input: {
       const node = normalizeNuwaBranchNode({
         ...current,
         blocks: nodeInput.blocks,
-        provenance: [...current.provenance, { kind: "author-edit", authorActionId: replayAuthorActionId, at: editedAt }],
+        // Provenance is capped at 64; trim oldest author-edits, keep nuwa-run origins.
+        provenance: [...trimProvenanceForAppend(current.provenance), { kind: "author-edit", authorActionId: replayAuthorActionId, at: editedAt }],
         contentRevision: current.contentRevision + 1,
         updatedAt: editedAt
       });
@@ -5724,4 +5725,12 @@ function writeAppState(
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
+}
+
+function trimProvenanceForAppend(provenance: NuwaBranchNode["provenance"]): NuwaBranchNode["provenance"] {
+  if (provenance.length < 64) return provenance;
+  const runOrigins = provenance.filter((entry) => entry.kind !== "author-edit");
+  const edits = provenance.filter((entry) => entry.kind === "author-edit");
+  const keepCount = Math.max(0, 63 - runOrigins.length);
+  return [...runOrigins, ...edits.slice(-keepCount)];
 }
