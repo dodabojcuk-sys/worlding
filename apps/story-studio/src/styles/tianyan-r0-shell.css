@@ -1777,3 +1777,18 @@ input:focus-visible {
 @media (max-width: 75rem) {
   .entity-dock { inset-block: 0 0; inset-inline: auto 0; inline-size: min(23rem, 94vw); border-radius: 0; }
 }
+
+/* ── 世界参考 R3：两行工具栏 + 筛选弹层 + 为什么命中 ── */
+.world-reference-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .6rem; margin-block-start: .5rem; }
+.world-reference-filter-popover { position: relative; }
+.world-reference-filter-popover summary { padding: .3rem .6rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; font-size: .72rem; cursor: pointer; list-style: none; }
+.world-reference-filter-popover summary::-webkit-details-marker { display: none; }
+.world-reference-filter-popover[open] summary { color: var(--color-accent); }
+.world-reference-filter-popover .world-reference-filter-panel { position: absolute; z-index: 30; inset-inline: 0 auto; inset-block-start: calc(100% + 6px); inline-size: max(100%, 30rem); display: grid; gap: .5rem; padding: .6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-panel); }
+.world-reference-semantic-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--color-text-muted); cursor: not-allowed; }
+.world-reference-semantic-toggle input { accent-color: var(--color-accent); }
+.world-reference-excluded { color: var(--color-text-muted); font-size: .66rem; }
+.world-reference-card.is-clickable { cursor: pointer; }
+.world-reference-card.is-clickable:hover { border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
+.world-reference-why { margin: 0; padding: .2rem .45rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 40%, var(--color-surface)); border-radius: .3rem; font-size: .66rem; }
+.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .7rem; line-height: 1.5; }
