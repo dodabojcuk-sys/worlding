@@ -220,3 +220,161 @@
 .nuwa-block-owner { color: var(--text-muted, rgba(127,127,127,.9)); margin-right: 6px; }
 .nuwa-heard { color: var(--text-muted, rgba(127,127,127,.9)); }
 .nuwa-branch-character article { border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+
+/* ── R6 视觉重构：作者工作面（场景总览 + 连续正文 + 故事辅助栏） ── */
+.shell-workspace-nuwa { background: var(--color-surface-muted); }
+.nuwa-n1-workspace { padding-block-end: calc(var(--nuwa-composer-height, 0px) + 1.1rem); }
+.nuwa-n1-workspace::before { content: ""; position: absolute; inset: 0 0 auto 0; block-size: 9.5rem; pointer-events: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-accent-soft) 55%, transparent), transparent); }
+.nuwa-n1-header, .nuwa-scene-overview, .nuwa-author-tools, .nuwa-n1-body, .nuwa-focus-tabs { position: relative; }
+
+/* 顶部场景总览 */
+.nuwa-scene-overview { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: .8rem 1.4rem; margin-block: .5rem .7rem; padding: .7rem .95rem .75rem;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-panel); }
+.nuwa-scene-overview-label, .nuwa-scene-overview-cast header span, .nuwa-story-card header small { color: var(--color-accent); font-size: .66rem; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.nuwa-scene-overview-top { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .8rem; }
+.nuwa-scene-pager { display: inline-flex; align-items: center; gap: .3rem; color: var(--color-text-muted); font-size: .72rem; }
+.nuwa-scene-pager button { display: grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; padding: 0; color: var(--color-text); background: transparent; border: 1px solid var(--color-border); border-radius: 50%; }
+.nuwa-scene-pager button:disabled { opacity: .4; cursor: not-allowed; }
+.nuwa-scene-chips { display: inline-flex; flex-wrap: wrap; gap: .28rem; }
+.nuwa-scene-chips button { padding: .16rem .68rem; color: var(--color-text-muted); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 999px; font-size: .72rem; }
+.nuwa-scene-chips button.is-active { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); font-weight: 650; }
+.nuwa-scene-save-status { color: var(--color-text-muted); font-size: .68rem; }
+.nuwa-scene-save-status.is-save-draft { color: var(--color-accent); }
+.nuwa-scene-save-status.is-save-checkpoint { font-weight: 650; }
+.nuwa-scene-overview-title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; margin-block-start: .5rem; }
+.nuwa-scene-overview-title-row h2 { margin: 0; font: 640 clamp(1.3rem, 2vw, 1.7rem)/1.2 var(--font-display); letter-spacing: -.01em; }
+.nuwa-scene-tags { display: inline-flex; flex-wrap: wrap; gap: .34rem; }
+.nuwa-scene-tag { padding: .14rem .55rem; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-accent-soft) 42%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border)); border-radius: 999px; font-size: .7rem; }
+.nuwa-scene-tag.is-branch { color: var(--color-accent); cursor: pointer; font-weight: 650; }
+.nuwa-scene-summary { max-inline-size: 46rem; margin: .45rem 0 0; color: var(--color-text-muted); font-size: .8rem; line-height: 1.65; }
+.nuwa-scene-overview-cast { display: grid; align-content: start; gap: .5rem; padding-inline-start: 1rem; border-inline-start: 1px solid var(--color-border); }
+.nuwa-scene-overview-cast > header { display: flex; align-items: center; gap: .35rem; }
+.nuwa-scene-overview-cast > header svg { inline-size: .85rem; color: var(--color-accent); }
+.nuwa-scene-overview-cast > header button { margin-inline-start: auto; display: grid; place-items: center; inline-size: 1.7rem; block-size: 1.7rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 1px solid transparent; border-radius: .3rem; }
+.nuwa-scene-overview-cast > header button[aria-pressed="true"] { color: var(--color-accent); border-color: var(--nuwa-rule); }
+.nuwa-cast-row { display: flex; flex-wrap: wrap; gap: .55rem; }
+.nuwa-cast-chip { display: grid; justify-items: center; gap: .22rem; padding: .3rem .2rem; background: transparent; border: 0; cursor: pointer; }
+.nuwa-cast-avatar { display: grid; place-items: center; inline-size: 2.5rem; block-size: 2.5rem; color: var(--color-surface); background: linear-gradient(160deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 62%, var(--color-text))); border-radius: 50%; font-size: .95rem; font-weight: 700; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--color-surface) 55%, transparent); }
+.nuwa-cast-name { max-inline-size: 4.5rem; overflow: hidden; color: var(--color-text); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.nuwa-cast-empty { color: var(--color-text-muted); font-size: .7rem; }
+
+/* 两栏布局：主内容 + 故事辅助栏 */
+.nuwa-n1-body.nuwa-author-layout { grid-template-columns: minmax(0, 1fr) 19.5rem; gap: 1rem; }
+.nuwa-n1-body.nuwa-author-layout[data-sidebar-open="false"] { grid-template-columns: minmax(0, 1fr); }
+.nuwa-n1-body.nuwa-author-layout[data-sidebar-open="false"] .nuwa-n1-inspector { display: none; }
+.nuwa-author-main { display: grid; align-content: start; gap: .7rem; min-inline-size: 0; }
+
+/* 紧凑 Run 工具层与抽屉 */
+.nuwa-author-tools { display: grid; gap: .4rem; }
+.nuwa-run-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .5rem; padding: .42rem .55rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; }
+.nuwa-run-bar-status { display: inline-flex; align-items: baseline; gap: .5rem; margin-inline-end: .3rem; }
+.nuwa-run-bar-status strong { font-size: .76rem; }
+.nuwa-run-bar-status small { color: var(--color-text-muted); font-size: .64rem; white-space: nowrap; }
+.nuwa-run-bar button, .nuwa-run-bar .primary-action, .nuwa-run-bar .danger-action { min-block-size: 1.85rem; display: inline-flex; align-items: center; gap: .3rem; padding-inline: .58rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .72rem; white-space: nowrap; }
+.nuwa-run-bar button svg { inline-size: .8rem; }
+.nuwa-run-bar .primary-action { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); }
+.nuwa-run-bar .danger-action { color: var(--color-danger); }
+.nuwa-run-bar-link { margin-inline-start: auto; color: var(--color-accent); font-size: .7rem; }
+.nuwa-author-drawers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.nuwa-author-drawers details { min-inline-size: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; }
+.nuwa-author-drawers summary { padding: .42rem .6rem; color: var(--color-text-muted); cursor: pointer; font-size: .72rem; }
+.nuwa-author-drawers details[open] summary { color: var(--color-accent); border-block-end: 1px solid var(--color-border); }
+.nuwa-branch-drawer-grid { display: grid; gap: .5rem; padding: .55rem .6rem; }
+.nuwa-branch-drawer-grid label { display: grid; gap: .22rem; }
+.nuwa-branch-drawer-grid label > span { color: var(--color-text-muted); font-size: .64rem; }
+.nuwa-branch-drawer-grid select, .nuwa-branch-drawer-grid input { min-inline-size: 0; min-block-size: 1.95rem; padding-inline: .45rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .28rem; font-size: .74rem; }
+.nuwa-branch-new { display: flex; gap: .35rem; }
+.nuwa-branch-new button { flex: 0 0 auto; min-block-size: 1.95rem; padding-inline: .6rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .72rem; }
+.nuwa-branch-state, .nuwa-branch-node-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin: 0; color: var(--color-text-muted); font-size: .7rem; }
+.nuwa-branch-node-tools button { min-block-size: 1.8rem; padding-inline: .55rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .7rem; }
+.nuwa-branch-node-tools a { color: var(--color-accent); font-size: .7rem; }
+.nuwa-branch-drawer-grid > small { color: var(--color-text-muted); font-size: .64rem; }
+
+/* 连续故事正文 */
+.nuwa-unified-scene { min-inline-size: 0; padding: .75rem 1.05rem .85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-panel); }
+.nuwa-unified-scene-body { max-inline-size: 46rem; }
+.nuwa-scene-node { min-inline-size: 0; }
+.nuwa-scene-node-boundary { display: inline-flex; align-items: baseline; gap: .5rem; margin-block: .2rem .5rem; padding: 0; background: transparent; border: 0; cursor: pointer; }
+.nuwa-scene-node-title { color: var(--color-text-muted); font-size: .8rem; font-weight: 650; letter-spacing: .02em; }
+.nuwa-scene-node-boundary small { color: var(--color-text-muted); font-size: .64rem; opacity: .75; }
+.nuwa-scene-node[data-selected] .nuwa-scene-node-title { color: var(--color-accent); }
+.nuwa-scene-node-content { display: grid; gap: .45rem; }
+.nuwa-scene-node-divider { margin-block: .65rem; border-block-end: 1px dashed color-mix(in srgb, var(--color-border) 80%, transparent); }
+.nuwa-block-row .nuwa-block-input { color: var(--color-text); font-size: .88rem; line-height: 1.8; }
+.nuwa-block-row.is-action { padding-inline-start: 1.4rem; }
+.nuwa-block-row.is-psychology { margin-inline: .25rem; padding-inline-start: .7rem; border-inline-start: 2px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border)); }
+.nuwa-block-row.is-psychology .nuwa-block-input { color: color-mix(in srgb, var(--color-text) 88%, var(--color-accent)); font-style: italic; }
+.nuwa-dialogue-row { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); gap: .55rem; margin-block: .1rem; }
+.nuwa-dialogue-row.is-candidate { margin-inline-start: 1.1rem; }
+.nuwa-avatar { display: grid; place-items: center; inline-size: 2.1rem; block-size: 2.1rem; padding: 0; color: var(--color-surface); background: linear-gradient(160deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 60%, var(--color-text))); border: 0; border-radius: 50%; font-weight: 700; cursor: pointer; }
+.nuwa-dialogue-main { display: grid; gap: .18rem; }
+.nuwa-dialogue-bubble { display: grid; gap: .1rem; padding: .35rem .7rem; background: color-mix(in srgb, var(--color-accent-soft) 30%, var(--color-surface-muted)); border-radius: 10px; }
+.nuwa-dialogue-bubble .nuwa-block-input, .nuwa-run-step-speech { margin: 0; color: var(--color-text); font-size: .9rem; line-height: 1.8; }
+.nuwa-heard { color: var(--color-text-muted); font-size: .66rem; }
+
+/* Run 候选（轻量，不比正文突出） */
+.nuwa-scene-candidate { margin-block-start: .7rem; padding: .6rem .8rem .7rem; background: color-mix(in srgb, var(--color-surface-muted) 72%, transparent); border: 1px dashed color-mix(in srgb, var(--color-accent) 38%, var(--color-border)); border-radius: 8px; }
+.nuwa-scene-candidate-badge { margin: 0 0 .35rem; }
+.nuwa-scene-candidate-badge small { color: var(--color-accent); font-size: .66rem; font-weight: 720; letter-spacing: .06em; }
+.nuwa-run-step { display: grid; gap: .3rem; }
+.nuwa-run-step-detail { margin-block-start: .15rem; color: var(--color-text-muted); font-size: .68rem; }
+.nuwa-run-step-detail summary { cursor: pointer; color: var(--color-text-muted); }
+.nuwa-run-step-detail p { margin: .25rem 0 0; }
+
+.nuwa-n1-technical { margin: .5rem 0 0; }
+.nuwa-n1-application-summary { margin-inline-end: 0; }
+
+/* 场景走向候选 */
+.nuwa-direction { min-inline-size: 0; padding: .75rem .95rem .85rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; }
+.nuwa-direction-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .8rem; margin-block-end: .55rem; }
+.nuwa-direction-header h3 { margin: 0; font: 640 .95rem/1.3 var(--font-display); }
+.nuwa-direction-header span { color: var(--color-text-muted); font-size: .68rem; }
+.nuwa-direction-empty { margin: 0; color: var(--color-text-muted); font-size: .74rem; line-height: 1.6; }
+.nuwa-direction-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .55rem; }
+.nuwa-direction-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem; padding: .6rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 8px; }
+.nuwa-direction-badge { display: grid; place-items: center; inline-size: 1.6rem; block-size: 1.6rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 55%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 30%, var(--color-border)); border-radius: 50%; font-size: .74rem; font-weight: 720; }
+.nuwa-direction-body { display: grid; gap: .25rem; min-inline-size: 0; }
+.nuwa-direction-body h4 { margin: 0; color: var(--color-text); font-size: .78rem; line-height: 1.5; }
+.nuwa-direction-body p { margin: 0; color: var(--color-text-muted); font-size: .7rem; line-height: 1.55; }
+.nuwa-direction-detail summary { cursor: pointer; color: var(--color-accent); font-size: .66rem; }
+.nuwa-direction-detail p { margin: .2rem 0 0; }
+
+/* 底部创作区（sticky + 动态安全区由容器变量兜底） */
+.nuwa-n1-composer { display: grid; grid-template-columns: minmax(0, 1fr) 17rem; gap: .6rem; margin: .2rem 0 0; padding: .6rem .65rem; background: color-mix(in srgb, var(--color-surface) 94%, transparent); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: 0 -.25rem .8rem color-mix(in srgb, var(--color-text) 6%, transparent); backdrop-filter: blur(9px); }
+.nuwa-n1-composer form { min-inline-size: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: .45rem; }
+.nuwa-n1-composer textarea { min-inline-size: 0; resize: vertical; padding: .45rem .55rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 8px; font-size: .78rem; line-height: 1.5; }
+.nuwa-composer-side { display: grid; align-content: start; gap: .35rem; min-inline-size: 0; }
+.nuwa-composer-side > span { color: var(--color-text-muted); font-size: .64rem; }
+.nuwa-composer-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.nuwa-composer-actions button { min-block-size: 1.9rem; display: inline-flex; align-items: center; gap: .3rem; padding-inline: .55rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .72rem; }
+.nuwa-composer-save { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.nuwa-composer-save input { min-inline-size: 0; flex: 1 1 7rem; min-block-size: 1.9rem; padding-inline: .45rem; color: var(--color-text); background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .72rem; }
+.nuwa-composer-save button { min-block-size: 1.9rem; padding-inline: .55rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .3rem; font-size: .72rem; }
+.nuwa-composer-save .is-save-draft { color: var(--color-accent); font-size: .64rem; }
+.nuwa-composer-save .is-save-checkpoint { color: var(--color-accent); font-size: .64rem; font-weight: 650; }
+
+/* 右侧故事辅助栏卡片 */
+.nuwa-n1-inspector { inline-size: auto; border-radius: 10px; }
+.nuwa-story-cards { display: grid; gap: .5rem; padding: .55rem; border-block-end: 1px solid var(--color-border); }
+.nuwa-story-card { display: grid; gap: .3rem; padding: .55rem .6rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 8px; }
+.nuwa-story-card header { display: grid; gap: .1rem; }
+.nuwa-story-card header strong { font-size: .8rem; }
+.nuwa-story-card p { margin: 0; color: var(--color-text-muted); font-size: .7rem; line-height: 1.55; }
+.nuwa-story-card small { color: var(--color-text-muted); font-size: .64rem; }
+.nuwa-story-card > a { color: var(--color-accent); font-size: .7rem; }
+.nuwa-story-scenes { display: flex; flex-wrap: wrap; gap: .3rem; }
+.nuwa-story-scenes button { padding: .14rem .6rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; font-size: .7rem; }
+.nuwa-story-scenes button.is-active { color: var(--color-surface); background: var(--color-accent); border-color: var(--color-accent); font-weight: 650; }
+
+/* 窄屏：辅助栏转抽屉 */
+@media (max-width: 84rem) {
+  .nuwa-n1-body.nuwa-author-layout, .nuwa-n1-body.nuwa-author-layout[data-sidebar-open="false"] { grid-template-columns: minmax(0, 1fr); }
+  .nuwa-n1-body.nuwa-author-layout .nuwa-n1-inspector { position: fixed; z-index: 40; inset-block: 0 0; inset-inline: auto 0; inline-size: min(21rem, 92vw); max-block-size: none; overflow: auto; border-radius: 0; border-inline-start: 1px solid var(--color-border); box-shadow: -1rem 0 2rem color-mix(in srgb, var(--color-text) 18%, transparent); }
+  .nuwa-n1-body.nuwa-author-layout[data-sidebar-open="false"] .nuwa-n1-inspector { display: none; }
+  .nuwa-author-drawers { grid-template-columns: 1fr; }
+  .nuwa-scene-overview { grid-template-columns: minmax(0, 1fr); }
+  .nuwa-scene-overview-cast { border-inline-start: 0; padding-inline-start: 0; border-block-start: 1px solid var(--color-border); padding-block-start: .6rem; }
+  .nuwa-n1-composer { grid-template-columns: 1fr; }
+}
+.nuwa-run-bar-candidate { padding: .12rem .5rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 48%, var(--color-surface)); border: 1px dashed color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); border-radius: 999px; font-size: .66rem; font-weight: 650; white-space: nowrap; }
