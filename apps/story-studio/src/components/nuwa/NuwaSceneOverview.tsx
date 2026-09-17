@@ -25,9 +25,8 @@ export function NuwaSceneOverview(props: NuwaSceneOverviewProps) {
   const hasPrev = props.sceneIndex > 1;
   const hasNext = props.sceneIndex > 0 && props.sceneIndex < props.scenes.length;
   return <section className="nuwa-scene-overview" data-testid="nuwa-scene-overview">
-    <div className="nuwa-scene-overview-main">
+      <div className="nuwa-scene-overview-main">
       <div className="nuwa-scene-overview-top">
-        <span className="nuwa-scene-overview-label">当前场景</span>
         {props.scenes.length > 1 ? <span className="nuwa-scene-pager">
           <button type="button" aria-label="上一个场景" disabled={!hasPrev} onClick={() => props.onStepScene(-1)}><ChevronLeft size={14} /></button>
           <span>{props.sceneIndex || "—"} / {props.scenes.length}</span>
@@ -39,6 +38,7 @@ export function NuwaSceneOverview(props: NuwaSceneOverviewProps) {
         {props.saveStatusText ? <span className="nuwa-scene-save-status" role="status">{props.saveStatusText}</span> : null}
       </div>
       <div className="nuwa-scene-overview-title-row">
+        <span className="nuwa-scene-overview-label">当前场景</span>
         <h2>{props.activeSceneTitle}</h2>
         <div className="nuwa-scene-tags">
           <span className="nuwa-scene-tag">{props.worldTimeLabel}</span>

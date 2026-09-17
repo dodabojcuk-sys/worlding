@@ -30,7 +30,7 @@ export function NuwaDirectionCandidates(props: NuwaDirectionCandidatesProps) {
           <span className="nuwa-direction-badge" aria-hidden="true">{DIRECTION_LABELS[index] ?? "·"}</span>
           <div className="nuwa-direction-body">
             <h4>{step.actorTitle} · {excerpt(step.speech ?? step.actionText ?? step.intent)}</h4>
-            <p>{excerpt(step.observableResult, 64)}</p>
+            <p className="nuwa-direction-impact"><span className="nuwa-direction-status">候选 · 尚未保存</span><span>结果摘要：{excerpt(step.observableResult, 64)}</span></p>
             <details className="nuwa-direction-detail">
               <summary>推演过程</summary>
               <p><small>意图：{step.intent}</small></p>
