@@ -56,7 +56,6 @@ import type { TemporalProjectionRun } from "../../../../src/storyContracts/tempo
 import { buildTemporalCompositionCache } from "../../../../src/storyContracts/temporalCompositionCache.ts";
 import type { NarrativeArrangementRead, NarrativeArrangementWriteResult, NarrativePlacementRole, NarrativePositionIntent, StoryCollectionPoint, StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
 import { getEventStoryCrossingKnowledgeProjection, readNuwaBranch, type NuwaBranchReadModel } from "../lib/localTransport";
-import { stableJson } from "../../../../src/storyContinuity/continuityValidation.ts";
 import type { EventStoryCrossingKnowledgeProjection, KnowledgeObserver } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import type { TianyiKnowledgeViewContext } from "./tianyi/sidebar/TianyiSidebar";
@@ -1593,6 +1592,16 @@ function unique(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right, "zh-CN"));
 
 
+}
+function stableJson(value: unknown): string {
+  const sortJson = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(sortJson);
+    if (input && typeof input === "object") {
+      return Object.fromEntries(Object.entries(input as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, sortJson(child)]));
+    }
+    return input;
+  };
+  return `${JSON.stringify(sortJson(value), null, 2)}\n`;
 }
 function NuwaBranchEventLinePanel(props: { projectId: string; branchId: string; nodeId: string }) {
   const [read, setRead] = useState<NuwaBranchReadModel | null>(null);
