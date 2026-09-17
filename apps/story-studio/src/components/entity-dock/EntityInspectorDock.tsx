@@ -243,7 +243,9 @@ function WorldEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: s
   const [object, setObject] = useState<{ id: string; title: string; type: string; status: string; tags: string[]; body: string | null; relativeId: string | null } | null>(null);
   const [relatedClues, setRelatedClues] = useState<Array<{ id: string; title: string; status: string; tags: string[] }>>([]);
   const [failed, setFailed] = useState(false);
-  const [tab, setTab] = useState<"因果演化" | "时间与事件">("因果演化");
+  const WORLD_TABS = ["概览", "因果链", "演化时间", "关系与影响", "当前故事", "来源与证据"] as const;
+  type WorldTab = (typeof WORLD_TABS)[number];
+  const [tab, setTab] = useState<WorldTab>("概览");
 
   useEffect(() => {
     let active = true;
@@ -300,22 +302,42 @@ function WorldEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: s
         <button type="button" className="entity-dock-expand" onClick={() => setEntityDockStatus("expanded")}>展开因果—演化工作台</button>
       </div> : card ? <div className="entity-dock-body" data-testid="world-causal-card">
         <nav className="entity-dock-tabs" role="tablist" aria-label="世界条目页签">
-          <button type="button" role="tab" aria-selected={tab === "因果演化"} onClick={() => setTab("因果演化")}>因果—演化</button>
-          <button type="button" role="tab" aria-selected={tab === "时间与事件"} onClick={() => setTab("时间与事件")}>时间与事件</button>
+          {WORLD_TABS.map((name) => <button key={name} type="button" role="tab" aria-selected={tab === name} onClick={() => setTab(name)}>{name}</button>)}
         </nav>
-        {tab === "因果演化" ? <>
-          <div className="entity-dock-section">
-            {([["定义与范围", card.definition], ["适用范围", card.scope], ["起源与原因", card.origin], ["运作机制", card.mechanism], ["利益与代价", card.interests], ["演化", card.evolutionNotes], ["变体与例外", card.variants]] as const).map(([label, field]) => <p key={label}><small>{label}{field.source === "object-body" ? "" : " · 尚未记录"}</small>{field.text ?? "该字段还没有来源记录；不会以补全内容冒充事实。"}</p>)}
-          </div>
-          <div className="entity-dock-section" data-testid="world-causal-dimensions">
-            <p><small>变化维度</small>范围 {card.dimensions.scopeLevel} · 表达 {card.dimensions.expression} · 变化 {card.dimensions.changeKind}</p>
-            <p><small>边界</small>{card.dimensions.bounds?.join("；") ?? "尚未记录"}</p>
-            <p><small>权威</small>{card.dimensions.authority === "author" ? "作者确认" : "候选"}　<small>世界时间</small>{card.dimensions.worldTime ?? "尚未记录"}　<small>分支</small>{card.dimensions.branchLabel}</p>
-          </div>
-        </> : <div className="entity-dock-section" data-testid="world-time-frames">
+        {tab === "概览" ? <div className="entity-dock-section" data-testid="world-causal-card">
+          <p><small>定义</small>{card.definition.text ?? "尚未记录"}</p>
+          <p><small>当前状态</small>{object.status === "active" ? "已确认（现行）" : "草稿候选"}{card.dimensions.worldTime ? ` · ${card.dimensions.worldTime}` : ""}</p>
+          <p><small>变化维度</small>范围 {card.dimensions.scopeLevel} · 表达 {card.dimensions.expression} · 变化 {card.dimensions.changeKind} · 权威 {card.dimensions.authority === "author" ? "作者确认" : "候选"}</p>
+          <p><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "尚未记录"}</p>
+        </div> : null}
+        {tab === "因果链" ? <div className="entity-dock-section" data-testid="world-causal-chain">
+          <p><small>起源</small>{card.origin.text ?? "尚未记录"}</p>
+          <p><small>机制</small>{card.mechanism.text ?? "尚未记录"}</p>
+          <p><small>利益与代价</small>{card.interests.text ?? "尚未记录"}</p>
+          <p><small>当前压力</small>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</p>
+          <p><small>可能变化</small>{card.evolutionNotes.text ?? "尚未记录"}</p>
+        </div> : null}
+        {tab === "演化时间" ? <div className="entity-dock-section" data-testid="world-time-frames">
           {card.timeFrames.length ? card.timeFrames.map((frame) => <p key={frame.label + frame.title}><small>{frame.label}</small>{frame.title}{frame.detail ? ` · ${frame.detail}` : ""}{frame.eventId ? <a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}&eventId=${encodeURIComponent(frame.eventId)}`}>回事件线</a> : null}</p>) : <p>尚无已确认的时间节点。</p>}
           <p><small>规划/候选</small>暂无 planned/candidate 数据（诚实空态）。</p>
-        </div>}
+        </div> : null}
+        {tab === "关系与影响" ? <div className="entity-dock-section" data-testid="world-relations-impact">
+          <p><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "尚未记录"}</p>
+          <p><small>利益与代价</small>{card.interests.text ?? "尚未记录"}</p>
+          {relatedClues.length ? <p><small>关联线索</small>{relatedClues.map((clue) => clue.title).join("、")}</p> : <p>尚无关联线索事件。</p>}
+        </div> : null}
+        {tab === "当前故事" ? <div className="entity-dock-section" data-testid="world-story-links">
+          <p><small>故事关联</small>{object.tags.filter((tag) => tag.startsWith("单元") || tag.startsWith("故事线")).join("；") || "尚未记录"}</p>
+          <p><small>当前压力</small>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</p>
+          {relatedClues.length ? <p><small>相关线索</small>{relatedClues.map((clue) => clue.title).join("、")}</p> : null}
+          <a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}`}>打开事件线</a>
+        </div> : null}
+        {tab === "来源与证据" ? <div className="entity-dock-section" data-testid="world-source-evidence">
+          <p>来源：本机工程（markdown）</p>
+          <details><summary>来源标识</summary><code>{card.sourceRef}</code></details>
+          <details><summary>原始正文</summary><pre>{object.body ?? "（无正文）"}</pre></details>
+          <p><small>本页全部内容均来自上述来源；无 AI 补全。</small></p>
+        </div> : null}
       </div> : null}
   </aside>;
 }

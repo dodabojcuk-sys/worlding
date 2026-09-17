@@ -1242,6 +1242,46 @@
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
       "remainingGap": "R0 local slice: character-level provider configuration owner, state/fate production feeds and the character-directory entry migration remain open; no real Provider calls."
+    },
+    {
+      "id": "hybrid-semantic-retrieval-r3",
+      "status": "LOCAL_REVIEW",
+      "maturity": "contract-first-hybrid-exact-keyword-dense-rrf-retrieval-with-structural-chunking-derived-index-cache-golden-eval-and-world-reference-ui-rework-no-second-fact-store",
+      "entrypoints": [
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "src/storyContracts/hybridRetrieval.ts",
+        "src/storyContracts/semanticChunking.ts",
+        "src/storyContracts/semanticIndexCache.ts",
+        "src/storyContracts/embeddingProfile.ts",
+        "src/storyContracts/hybridRetrievalGoldenSet.ts"
+      ],
+      "sourceFiles": [
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "src/storyContracts/hybridRetrieval.ts",
+        "src/storyContracts/semanticChunking.ts",
+        "src/storyContracts/semanticIndexCache.ts",
+        "src/storyContracts/embeddingProfile.ts",
+        "src/storyContracts/hybridRetrievalGoldenSet.ts",
+        "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx"
+      ],
+      "owners": [
+        "src/storyContracts/hybridRetrieval.ts"
+      ],
+      "domainOwners": [
+        "src/storyContracts/hybridRetrieval.ts"
+      ],
+      "stateOwners": [],
+      "persistenceOwner": "The semantic index is a rebuildable derived cache and never a fact owner; this slice keeps it as a pure serializable contract with atomic tmp+rename file storage deferred, and it is excluded from work-version digests and exports.",
+      "providerDependency": "Embedding/Reranker profiles only reference providerProfileId; no credentials stored or displayed; semantic channel is honestly unavailable until a profile is configured; chat models are never used for retrieval.",
+      "tests": [
+        "tests/storyContracts/hybridRetrievalEval.test.ts"
+      ],
+      "legacyProvenance": [
+        "World reference R1",
+        "Causal-evolution workbench R2",
+        "embeddingIndexBinding generation semantics"
+      ],
+      "remainingGap": "Real embedding/reranker evaluation pending a configured provider profile (ACTUAL_EMBEDDING_EVAL=NOT_RUN with fake vectors in eval); file-backed index store; world reference density polish after founder review."
     }
   ]
 }
