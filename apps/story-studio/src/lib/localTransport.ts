@@ -2667,6 +2667,52 @@ export type NuwaN1AutomaticApplicationResult = NuwaN1CandidateResult & {
   automaticApplication: NuwaN1AutomaticApplication;
 };
 
+export type NuwaBranchDerivation = { purpose: "nuwa-branch"; originRunId: string; originHandoffId: string | null };
+export type NuwaBranchNodeBlock = { kind: "narration" | "description" | "action" | "dialogue" | "psychology"; characterId?: string | null; speakerId?: string; text: string; heardBy?: string[]; delivery?: "spoken" | "aside" };
+export type NuwaBranchNode = {
+  nodeId: string; eventId: string; branchWorkVersionId: string; unitId: string; narrativePathId: string; sceneKey: string;
+  title: string; blocks: NuwaBranchNodeBlock[]; worldTime: { kind: string; label?: string }; characterRefs: string[];
+  provenance: Array<Record<string, unknown>>; reviewState: "draft" | "branch-adopted"; contentRevision: number;
+  creationOperationId: string; createdAt: string; updatedAt: string;
+};
+export type NuwaBranchScene = { sceneKey: string; unitId: string; title: string; creationOperationId: string; createdAt: string };
+export type NuwaBranchSummary = { workVersionId: string; displayName: string; currentRevision: number; derivation: NuwaBranchDerivation | null; staleness: { state: string; pinnedRevision: number | null; currentParentRevision: number | null } };
+export type NuwaBranchCheckpointSummary = { revision: number; createdAt: string; nodes: NuwaBranchNode[] };
+export type NuwaBranchReadModel = { version: string; branch: NuwaBranchSummary; scenes: NuwaBranchScene[]; nodes: NuwaBranchNode[]; checkpoints?: NuwaBranchCheckpointSummary[] };
+
+export async function listNuwaBranches(projectId: string): Promise<{ version: string; branches: NuwaBranchSummary[] }> {
+  return request<{ version: string; branches: NuwaBranchSummary[] }>(`${basePath}/nuwa-branch/list?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export async function readNuwaBranch(projectId: string, branchWorkVersionId: string): Promise<NuwaBranchReadModel> {
+  return request<NuwaBranchReadModel>(`${basePath}/nuwa-branch/read?projectId=${encodeURIComponent(projectId)}&branchWorkVersionId=${encodeURIComponent(branchWorkVersionId)}`);
+}
+
+export async function createNuwaBranch(input: { projectId: string; displayName: string; runId?: string; handoffId?: string | null; createdAt: string; operationId: string; token: string }): Promise<{ version: string; branch: NuwaBranchSummary }> {
+  const { token, ...body } = input;
+  return request<{ version: string; branch: NuwaBranchSummary }>(`${basePath}/nuwa-branch/create`, { method: "POST", token, body });
+}
+
+export async function createNuwaBranchNode(input: { projectId: string; branchWorkVersionId: string; unitId: string; title: string; blocks: NuwaBranchNodeBlock[]; worldTime?: { kind: string; label?: string }; characterRefs?: string[]; runProvenance?: { runId: string; stepIds: string[]; handoffId: string | null } | null; existingSceneKey?: string | null; operationId: string; token: string }): Promise<{ version: string; replayed: boolean; node: NuwaBranchNode; sceneKey: string; placementReceiptId: string | null }> {
+  const { token, ...body } = input;
+  return request<{ version: string; replayed: boolean; node: NuwaBranchNode; sceneKey: string; placementReceiptId: string | null }>(`${basePath}/nuwa-branch/node-create`, { method: "POST", token, body });
+}
+
+export async function updateNuwaBranchNodeContent(input: { projectId: string; branchWorkVersionId: string; nodeId: string; expectedContentRevision: number; blocks: NuwaBranchNodeBlock[]; operationId: string; token: string }): Promise<{ version: string; replayed: boolean; node: NuwaBranchNode }> {
+  const { token, ...body } = input;
+  return request<{ version: string; replayed: boolean; node: NuwaBranchNode }>(`${basePath}/nuwa-branch/node-content`, { method: "POST", token, body });
+}
+
+export async function adoptNuwaBranchNode(input: { projectId: string; branchWorkVersionId: string; nodeId: string; expectedContentRevision: number; operationId: string; token: string }): Promise<{ version: string; replayed: boolean; node: NuwaBranchNode }> {
+  const { token, ...body } = input;
+  return request<{ version: string; replayed: boolean; node: NuwaBranchNode }>(`${basePath}/nuwa-branch/node-adopt`, { method: "POST", token, body });
+}
+
+export async function checkpointNuwaBranch(input: { projectId: string; branchWorkVersionId: string; idempotencyKey: string; createdAt: string; expectedRevision?: number; operationId: string; token: string }): Promise<{ version: string; branch: NuwaBranchSummary; checkpoint: { workVersionReceiptId: string; revision: number; provenanceCount: number; createdAt: string; snapshotDigest: string } }> {
+  const { token, ...body } = input;
+  return request<{ version: string; branch: NuwaBranchSummary; checkpoint: { workVersionReceiptId: string; revision: number; provenanceCount: number; createdAt: string; snapshotDigest: string } }>(`${basePath}/nuwa-branch/checkpoint`, { method: "POST", token, body });
+}
+
 export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Bootstrap> {
   return request<NuwaN1Bootstrap>(`${basePath}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(projectId)}`);
 }

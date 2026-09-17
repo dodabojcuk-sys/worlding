@@ -55,7 +55,7 @@ import type { RelationReadProjectionR0, RelationTypeDefinitionR0 } from "../../.
 import type { TemporalProjectionRun } from "../../../../src/storyContracts/temporalProjection.ts";
 import { buildTemporalCompositionCache } from "../../../../src/storyContracts/temporalCompositionCache.ts";
 import type { NarrativeArrangementRead, NarrativeArrangementWriteResult, NarrativePlacementRole, NarrativePositionIntent, StoryCollectionPoint, StoryLogicReviewProjection, StoryModelingPlanProjection, StoryModelingRunProjection, StoryUnit } from "../lib/localTransport";
-import { getEventStoryCrossingKnowledgeProjection } from "../lib/localTransport";
+import { getEventStoryCrossingKnowledgeProjection, readNuwaBranch, type NuwaBranchReadModel } from "../lib/localTransport";
 import type { EventStoryCrossingKnowledgeProjection, KnowledgeObserver } from "../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { PerspectiveMatch, StoryLogicFinding, StoryModelingPerspectiveRef, StoryModelingRequest, StoryModelingScope, StoryModelingTool } from "../../../../src/storyContracts/storyModeling.ts";
 import type { TianyiKnowledgeViewContext } from "./tianyi/sidebar/TianyiSidebar";
@@ -894,6 +894,15 @@ export function EventLineWorkbench(props: {
   const relationReturn = relationReturnTarget(window.location.search);
   const tianyiReturn = tianyiReturnTarget(window.location.search);
 
+  const branchViewParams = (() => {
+    const params = new URLSearchParams(window.location.search);
+    const branchId = params.get("branchId")?.trim() || "";
+    if (!branchId || !props.projectId) return null;
+    return { branchId, nodeId: params.get("nodeId")?.trim() || "", projectId: props.projectId };
+  })();
+  if (branchViewParams) {
+    return <NuwaBranchEventLinePanel projectId={branchViewParams.projectId} branchId={branchViewParams.branchId} nodeId={branchViewParams.nodeId} />;
+  }
   return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer={advancedView ? projectionMode : eventTask === "time" ? "TemporalCanvas" : eventTask === "audit" ? "EvidenceAuditMatrix" : "EventGraphCanvas"} data-projection-mode={projectionMode} data-knowledge-projection-state={knowledgeProjectionState}>
     {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
     {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
@@ -1581,4 +1590,50 @@ function authorSourceVersion(value: string | null | undefined): string {
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right, "zh-CN"));
+
+
+}
+function stableJson(value: unknown): string {
+  const sortJson = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(sortJson);
+    if (input && typeof input === "object") {
+      return Object.fromEntries(Object.entries(input as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, sortJson(child)]));
+    }
+    return input;
+  };
+  return `${JSON.stringify(sortJson(value), null, 2)}\n`;
+}
+function NuwaBranchEventLinePanel(props: { projectId: string; branchId: string; nodeId: string }) {
+  const [read, setRead] = useState<NuwaBranchReadModel | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    readNuwaBranch(props.projectId, props.branchId).then((value) => { if (active) setRead(value); }).catch((reason: unknown) => {
+      if (active) setError(reason instanceof Error && reason.message ? reason.message : "分支内容读取失败。");
+    });
+    return () => { active = false; };
+  }, [props.projectId, props.branchId]);
+  if (error) return <section className="workbench event-line-workbench"><p role="alert">{error}</p></section>;
+  if (!read) return <section className="workbench event-line-workbench"><p>正在读取女娲分支内容……</p></section>;
+  const stalenessLabel = read.branch.staleness.state === "stale" ? ` · 落后于主线 r${read.branch.staleness.currentParentRevision ?? "?"}` : read.branch.staleness.state === "current" ? " · 与主线来源一致" : "";
+  return <section className="workbench event-line-workbench" data-testid="nuwa-branch-event-line">
+    <header><h1>女娲分支 · {read.branch.displayName}</h1><p><span className="is-confirmed">女娲分支来源</span> · r{read.branch.currentRevision}{stalenessLabel}；主线事件线不显示这些节点。</p>
+    <p><button type="button" onClick={() => window.location.assign(`/nuwa?projectId=${encodeURIComponent(props.projectId)}&branchId=${encodeURIComponent(props.branchId)}${props.nodeId ? `&nodeId=${encodeURIComponent(props.nodeId)}` : ""}`)}>打开女娲分支工作面</button></p></header>
+    <ol>
+      {read.nodes.map((node) => <li key={node.nodeId} style={{ listStyle: "none", border: node.nodeId === props.nodeId ? "2px solid currentColor" : "1px solid rgba(127,127,127,.4)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <p><strong>{node.title}</strong> · <span>{node.reviewState === "branch-adopted" ? "分支已采纳" : "草稿"}</span> · 内容 r{node.contentRevision} · 世界时间：{node.worldTime.kind === "unknown" ? "未知" : node.worldTime.label ?? node.worldTime.kind}</p>
+        <div>
+          {node.blocks.map((block, index) => <p key={index}>
+            {block.kind === "dialogue" ? <strong>{block.speakerId}{block.delivery === "aside" ? "（旁白式）" : ""}：</strong> : block.kind === "action" ? <strong>行动：</strong> : block.kind === "psychology" ? <strong>心理：</strong> : block.kind === "description" ? <strong>描写：</strong> : null}
+            {block.text}
+            {block.kind === "dialogue" && block.heardBy?.length ? <small>（闻者：{block.heardBy.join("、")}）</small> : null}
+          </p>)}
+        </div>
+        <p><small>来源：{(() => { const runs = node.provenance.filter((item) => item.kind === "nuwa-run").length; const edits = node.provenance.filter((item) => item.kind === "author-edit").length; return [runs ? "女娲 Run" : null, edits ? `${edits} 次作者修订` : null].filter(Boolean).join(" · ") || "无记录"; })()}</small></p>
+        <details><summary>技术详情</summary><p><small>nodeId：{node.nodeId}</small></p><p><small>{node.provenance.map((item) => stableJson(item)).join("；")}</small></p></details>
+        <button type="button" onClick={() => window.location.assign(`/nuwa?projectId=${encodeURIComponent(props.projectId)}&branchId=${encodeURIComponent(props.branchId)}&nodeId=${encodeURIComponent(node.nodeId)}`)}>在女娲继续此节点</button>
+      </li>)}
+      {read.nodes.length === 0 ? <li>分支暂无节点。</li> : null}
+    </ol>
+  </section>;
 }

@@ -2528,6 +2528,10 @@ async function handleProductRequest(request, response, url) {
     await handleNuwaN1Request(request, response, url);
     return;
   }
+  if (pathname.startsWith("/__local/story-studio/nuwa-branch")) {
+    await handleNuwaBranchRequest(request, response, url);
+    return;
+  }
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/intelligence-overlay") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: runProductOperation(() => authorControl.readIntelligenceOverlay({ projectId })) });
@@ -4230,6 +4234,52 @@ function receiptMachineSelectionId(value) {
   return normalized.length <= CONTINUITY_MAX_ID_LENGTH && CONTINUITY_ID_PATTERN.test(normalized)
     ? normalized
     : null;
+}
+
+async function handleNuwaBranchRequest(request, response, url) {
+  const prefix = "/__local/story-studio/nuwa-branch";
+  requireSameOrigin(request);
+  const route = url.pathname.slice(prefix.length).replace(/^\//u, "");
+  if (request.method === "GET") {
+    if (route === "list") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.listBranches({ projectId: requireQueryValue(url, "projectId") })) });
+      return;
+    }
+    if (route === "read") {
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.readBranch({ projectId: requireQueryValue(url, "projectId"), branchWorkVersionId: requireQueryValue(url, "branchWorkVersionId") })) });
+      return;
+    }
+    throw productError("女娲分支读取操作不存在。", 404);
+  }
+  if (request.method !== "POST") throw productError("女娲分支只接受本地 GET/POST 请求。", 405);
+  requireToken(request);
+  const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+  if (route === "create") {
+    requireAllowedKeys(body, ["projectId", "displayName", "runId", "handoffId", "createdAt", "operationId"]);
+    sendJson(response, 201, { data: runProductOperation(() => nuwaN1Port.createBranch(body)) });
+    return;
+  }
+  if (route === "node-create") {
+    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "unitId", "title", "blocks", "worldTime", "characterRefs", "runProvenance", "existingSceneKey", "operationId"]);
+    sendJson(response, 201, { data: runProductOperation(() => nuwaN1Port.createBranchNode(body)) });
+    return;
+  }
+  if (route === "node-content") {
+    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "nodeId", "expectedContentRevision", "blocks", "operationId"]);
+    sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.updateBranchNodeContent(body)) });
+    return;
+  }
+  if (route === "node-adopt") {
+    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "nodeId", "expectedContentRevision", "operationId"]);
+    sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.adoptBranchNode(body)) });
+    return;
+  }
+  if (route === "checkpoint") {
+    requireAllowedKeys(body, ["projectId", "branchWorkVersionId", "idempotencyKey", "createdAt", "expectedRevision", "operationId"]);
+    sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.checkpointBranch(body)) });
+    return;
+  }
+  throw productError("女娲分支操作不存在。", 404);
 }
 
 async function handleNuwaN1Request(request, response, url) {

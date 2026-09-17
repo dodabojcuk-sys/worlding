@@ -1344,7 +1344,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   const workspace = page.getByTestId("nuwa-n1-workspace");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-provider-calls"), "0", "The N1 fixture is visibly zero-Provider.");
-  await workspace.getByText("本地工程演练 · 0 Provider", { exact: true }).first().waitFor();
+  await workspace.locator(".nuwa-n1-provider-line").filter({ hasText: "本地工程演练 · 0 Provider" }).first().waitFor();
 
   const selectedPeople = workspace.locator('.nuwa-n1-participant-options input[type="checkbox"]:checked');
   assert.equal(await selectedPeople.count(), 0, "N1 does not silently choose formal characters for the author.");

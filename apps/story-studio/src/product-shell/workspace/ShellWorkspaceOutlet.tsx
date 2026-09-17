@@ -16,6 +16,8 @@ import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
+import { WorldReferenceWorkspace } from "../../components/world/WorldReferenceWorkspace";
+import { EntityInspectorDock } from "../../components/entity-dock/EntityInspectorDock";
 import { WorldOverviewWorkspace } from "../../components/world/WorldOverviewWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
@@ -38,6 +40,7 @@ export function ShellWorkspaceOutlet(props: {
   const summary = props.shellLab ? t("shellLab.description") : t(props.destination.summaryKey as TranslationKey);
   const note = props.shellLab ? t("workspace.boundary") : null;
 
+  const outlet = (() => {
   if (props.settingsOpen) return <SettingsStorageRoute presentation="workspace" />;
   if (props.accountOpen) return <AccountCenterWorkspace />;
 
@@ -74,6 +77,10 @@ export function ShellWorkspaceOutlet(props: {
     return <FocusedRelationsWorkspace runtime={props.runtime} />;
   }
 
+  if (!props.shellLab && props.destination.id === "library" && libraryView === "reference") {
+    return <WorldReferenceWorkspace runtime={props.runtime} />;
+  }
+
   if (!props.shellLab && props.destination.id === "library") return <MaterialsWorkspace runtime={props.runtime} />;
 
   if (!props.shellLab && props.destination.id === "world" && new URL(window.location.href).searchParams.get("worldView") === "character" && props.characterObjectId) {
@@ -93,4 +100,7 @@ export function ShellWorkspaceOutlet(props: {
         <p className="shell-workspace-note">{note}</p></>}
     </section>
   </main>;
+  })();
+
+  return <>{outlet}<EntityInspectorDock runtime={props.runtime} /></>;
 }

@@ -1,7 +1,7 @@
-import { BookOpen, GitBranch, Map } from "lucide-react";
+import { BookOpen, GitBranch, Globe, Map } from "lucide-react";
 import type { MouseEvent } from "react";
 
-export type MaterialsSection = "materials" | "map" | "relations";
+export type MaterialsSection = "materials" | "reference" | "map" | "relations";
 
 export function MaterialsSectionNavigation(props: {
   current: MaterialsSection;
@@ -15,6 +15,7 @@ export function MaterialsSectionNavigation(props: {
   return <nav className="materials-section-navigation" aria-label="资料工作区导航">
     <span>资料</span>
     <a href="/library" aria-current={props.current === "materials" ? "page" : undefined} onClick={navigate}><BookOpen aria-hidden="true" />资料库</a>
+    <a href="/library?libraryView=reference" aria-current={props.current === "reference" ? "page" : undefined} onClick={navigate}><Globe aria-hidden="true" />世界参考</a>
     <a href="/library?libraryView=map" aria-current={props.current === "map" ? "page" : undefined} onClick={navigate}><Map aria-hidden="true" />地图</a>
     <a href="/library?libraryView=relations" aria-current={props.current === "relations" ? "page" : undefined} onClick={navigate}><GitBranch aria-hidden="true" />关系</a>
   </nav>;
