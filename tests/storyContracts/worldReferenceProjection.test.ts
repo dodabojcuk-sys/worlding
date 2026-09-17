@@ -6,7 +6,7 @@ import {
   classifyWorldReference,
   projectWorldReferences,
   worldReferencesRelatedTo,
-} from "../../src/storyWorkspace/worldReferenceProjection.ts";
+} from "../../src/storyContracts/worldReferenceProjection.ts";
 
 test("world reference classification maps categories and derives natures from existing tags", () => {
   const confirmed = classifyWorldReference({ id: "character.林月如", title: "林月如", type: "character", status: "active", tags: [] });

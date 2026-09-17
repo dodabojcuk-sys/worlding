@@ -3,7 +3,7 @@
  * 投影为作者可读的世界参考条目。只读、纯函数、无副作用——不建立第二事实库；
  * 所有输入都来自既有 world-library 事实链。
  *
- * 该模块同时是后续角色 Agent 升级的数据接口草案：
+ * 该模块同时是后续角色 Agent 升级的数据接口草案（前后端共享，属 storyContracts）：
  * - 角色 Agent 只允许消费 knowledge（角色已知/未知）与 confirmed-fact/rule 投影；
  * - author-note（作者备注/作者秘密）与 rumor 必须排除在角色上下文之外；
  * - 详见 docs/product/WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0.md。

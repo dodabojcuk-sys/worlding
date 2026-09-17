@@ -9,7 +9,7 @@
 
 ## 2. 信息性质的来源（只推导，不新增）
 
-分类由 `src/storyWorkspace/worldReferenceProjection.ts` 从既有字段推导：
+分类由 `src/storyContracts/worldReferenceProjection.ts` 从既有字段推导：
 
 | 性质 | 推导依据（既有字段） |
 | --- | --- |

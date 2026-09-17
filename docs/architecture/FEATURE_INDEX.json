@@ -1173,13 +1173,13 @@
       "entrypoints": [
         "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
         "apps/story-studio/src/components/world/MaterialsSectionNavigation.tsx",
-        "src/storyWorkspace/worldReferenceProjection.ts"
+        "src/storyContracts/worldReferenceProjection.ts"
       ],
       "owners": [
-        "src/storyWorkspace/worldReferenceProjection.ts"
+        "src/storyContracts/worldReferenceProjection.ts"
       ],
       "tests": [
-        "tests/storyWorkspace/worldReferenceProjection.test.ts"
+        "tests/storyContracts/worldReferenceProjection.test.ts"
       ],
       "notes": "Read-only projection over the existing world-library owner; classifies entries into character/location/faction/item/rule/clue and confirmed-fact/pending-clue/rumor/author-note from existing tags and status. characterAllowedReferences() is the prepared boundary for future character agents: author notes and rumors never enter character context."
     }

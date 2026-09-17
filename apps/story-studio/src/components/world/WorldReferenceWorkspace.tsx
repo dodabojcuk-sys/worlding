@@ -13,7 +13,7 @@ import {
   type WorldReferenceEntry,
   type WorldReferenceKnowledgeState,
   type WorldReferenceNature,
-} from "../../../../../src/storyWorkspace/worldReferenceProjection";
+} from "../../../../../src/storyContracts/worldReferenceProjection";
 
 const CATEGORY_ORDER: WorldReferenceCategory[] = ["character", "location", "faction", "item", "rule", "clue"];
 const NATURE_ORDER: WorldReferenceNature[] = ["confirmed-fact", "pending-clue", "rumor", "author-note"];
