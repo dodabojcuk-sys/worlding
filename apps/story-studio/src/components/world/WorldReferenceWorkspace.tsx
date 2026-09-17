@@ -20,6 +20,17 @@ const CATEGORY_ORDER: WorldReferenceCategory[] = ["character", "location", "fact
 const NATURE_ORDER: WorldReferenceNature[] = ["confirmed-fact", "pending-clue", "rumor", "author-note"];
 const KNOWLEDGE_LABELS: Record<WorldReferenceKnowledgeState, string> = { known: "已知", unknown: "未知", uncertain: "传闻 · 存疑" };
 
+/** 世界构建视角（R2）：资料二级导航内的投影行——只改筛选，不复制对象。 */
+const WORLD_BUILDING_FACETS: ReadonlyArray<{ label: string; category: WorldReferenceCategory | "all" }> = [
+  { label: "世界总览", category: "all" },
+  { label: "系统与规则", category: "rule" },
+  { label: "空间与生态", category: "location" },
+  { label: "历史与演化", category: "clue" },
+  { label: "社会与组织", category: "faction" },
+  { label: "日常生活", category: "item" },
+  { label: "当前故事关联", category: "clue" },
+];
+
 function readRelated(): string {
   return new URLSearchParams(window.location.search).get("related")?.trim() ?? "";
 }
@@ -34,6 +45,7 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const [natures, setNatures] = useState<WorldReferenceNature[]>([]);
   const [search, setSearch] = useState("");
   const [related, setRelated] = useState(readRelated);
+  const [buildingFacet, setBuildingFacet] = useState("世界总览");
 
   useEffect(() => {
     let active = true;
@@ -80,6 +92,9 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
       {error ? <p className="world-reference-message is-error" role="alert"><TriangleAlert size={14} />{error}</p> : null}
       {!objects && !error ? <p className="world-reference-message" role="status"><RefreshCw size={14} />正在读取世界资料……</p> : null}
       {objects ? <>
+        <div className="world-reference-chiprow" aria-label="世界构建视角" data-testid="world-building-facets">
+          {WORLD_BUILDING_FACETS.map((facet) => <button key={facet.label} type="button" className={facet.label === buildingFacet ? "is-active" : ""} onClick={() => { setBuildingFacet(facet.label); setCategory(facet.category); }}>{facet.label}</button>)}
+        </div>
         {related ? <div className="world-reference-related" data-testid="world-reference-related">
           <span>反查上下文：<strong>{related}</strong> 相关的条目（{relatedEntries.length} 条）</span>
           <button type="button" onClick={() => { setRelatedAndUrl(""); }}><ArrowLeft size={13} />查看全部</button>
@@ -96,7 +111,7 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
         </div>
         {visible.length === 0 ? <p className="world-reference-empty">当前筛选下没有世界条目。这个世界的事实会随着资料录入与事件线整理逐步出现在这里。</p> :
           <ul className="world-reference-list">
-            {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={entry.category === "character" ? () => openEntityDock({ kind: "character", objectId: entry.id, openedFrom: "world-reference" }) : undefined} />)}
+            {visible.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={() => openEntityDock({ kind: "world-reference", objectId: entry.id, openedFrom: "world-reference" })} />)}
           </ul>}
       </> : null}
     </section>

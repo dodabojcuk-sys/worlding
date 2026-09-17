@@ -4,7 +4,7 @@
  * 关闭后回到来源上下文。URL 只携带稳定 objectId，不携带正文。
  */
 
-export type EntityDockKind = "character";
+export type EntityDockKind = "character" | "world-reference";
 
 export type EntityDockStatus = "closed" | "peek" | "expanded";
 

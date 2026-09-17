@@ -26,7 +26,8 @@ const tidalBody = [
   "战时改用鼓声；私渡不遵守。",
 ].join("\n");
 
-const tidal = { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则", "单元：北滨码头", "时间：第三年秋"], body: tidalBody, relativeId: "world/rules/潮汐信令.md" };
+const tidal = { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则", "单元：北滨码头", "周期：潮汐", "时间：第三年秋"], body: tidalBody, relativeId: "world/rules/潮汐信令.md" };
+const noSections = { id: "item.黄铜钥匙", title: "黄铜钥匙", type: "item", status: "active", tags: [], body: "一把黄铜钥匙。" };
 
 test("causal evolution card parses body sections with sources and honest gaps", () => {
   const card = projectCausalEvolution(tidal);
@@ -37,9 +38,11 @@ test("causal evolution card parses body sections with sources and honest gaps", 
   assert.equal(card.mechanism.text?.includes("守钟人"), true);
   assert.equal(card.interests.text?.includes("船主受益"), true);
   assert.equal(card.variants.text?.includes("战时改用鼓声"), true);
-  // 无对应章节的字段必须诚实为空
-  assert.equal(card.scope.text, null);
-  assert.equal(card.scope.source, null);
+  // 无对应章节的字段必须诚实为空（黄铜钥匙正文没有结构化章节）
+  const bare = projectCausalEvolution(noSections);
+  assert.equal(bare.definition.text, null);
+  assert.equal(bare.definition.source, null);
+  assert.equal(bare.origin.text, null);
   assert.equal(card.sourceRef, "world/rules/潮汐信令.md");
 });
 

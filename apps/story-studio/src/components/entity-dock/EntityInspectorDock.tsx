@@ -13,6 +13,7 @@ import type { EventStoryCrossingKnowledgeProjection } from "../../../../../src/s
 import type { CharacterMemoryQueryProjection } from "../../../../../src/storyContinuity/characterMemoryQuery.ts";
 import { projectWorldReferences, WORLD_REFERENCE_CATEGORY_LABELS } from "../../../../../src/storyContracts/worldReferenceProjection.ts";
 import { buildCharacterContextPack, type CharacterContextPack } from "../../../../../src/storyContracts/characterContextPack.ts";
+import { attachTimeFrames, projectCausalEvolution, type CausalEvolutionCard } from "../../../../../src/storyContracts/worldCausalEvolution.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { CharacterMemoryQuery, FormalRelations, CharacterKnowledgePreview } from "../../product-shell/project-directory/character/CharacterInspectorCard";
 import {
@@ -48,8 +49,9 @@ export function EntityInspectorDock(props: { runtime: TianyanShellRuntimeState }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state.status, state.pinned]);
   if (state.status === "closed" || !props.runtime.project || !state.objectId) return null;
-  if (state.kind !== "character") return null;
-  return <CharacterEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} sceneTitle={state.sceneTitle} />;
+  if (state.kind === "character") return <CharacterEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} sceneTitle={state.sceneTitle} />;
+  if (state.kind === "world-reference") return <WorldEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} />;
+  return null;
 }
 
 function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: string; status: "peek" | "expanded"; pinned: boolean; sceneTitle: string | null }) {
@@ -232,4 +234,88 @@ function sanitizeInternalIds(text: string, labels: Map<string, string>): string 
 function profileValue(object: { profile?: { authorConfirmed?: boolean; fields?: Record<string, { source?: string; value?: unknown }> | null } | null }, key: string): string | null {
   const field = object.profile?.authorConfirmed === true ? object.profile.fields?.[key] : null;
   return field?.source === "author" && typeof field.value === "string" ? field.value : null;
+}
+
+/** 世界条目磁吸详情：peek=摘要/类别/性质/相关对象/当前压力；expanded=因果—演化工作台（A–G + 变化维度 + 时间关键帧）。
+ * 只读组合既有 WorldObject 与其 world-library 投影，按 projectId + objectId 隔离加载。 */
+function WorldEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: string; status: "peek" | "expanded"; pinned: boolean }) {
+  const projectId = props.runtime.project?.id ?? null;
+  const [object, setObject] = useState<{ id: string; title: string; type: string; status: string; tags: string[]; body: string | null; relativeId: string | null } | null>(null);
+  const [relatedClues, setRelatedClues] = useState<Array<{ id: string; title: string; status: string; tags: string[] }>>([]);
+  const [failed, setFailed] = useState(false);
+  const [tab, setTab] = useState<"因果演化" | "时间与事件">("因果演化");
+
+  useEffect(() => {
+    let active = true;
+    setObject(null); setFailed(false); setRelatedClues([]);
+    if (!projectId) return () => { active = false; };
+    void Promise.all([readWorldObject(projectId, props.objectId), getWorldLibrary(projectId)]).then(([object, library]) => {
+      if (!active) return;
+      setObject({ id: object.id, title: object.title, type: object.type, status: object.status, tags: object.tags, body: object.body ?? null, relativeId: object.relativeId ?? null });
+      setRelatedClues(library.objects.filter((item) => item.type === "event" && (item.tags.some((tag) => tag.includes(object.title)) || item.title.includes(object.title))).map((item) => ({ id: item.id, title: item.title, status: item.status, tags: item.tags })));
+    }).catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [projectId, props.objectId]);
+
+  const card = useMemo(() => (object ? attachTimeFrames(projectCausalEvolution(object), relatedClues) : null), [object, relatedClues]);
+  const nature = useMemo(() => (object ? projectWorldReferences([object])[0]?.nature ?? null : null), [object]);
+  const relatedObjectCount = useMemo(() => {
+    if (!object) return 0;
+    const names = new Set<string>();
+    for (const clue of relatedClues) {
+      for (const tag of clue.tags) {
+        if (!tag.includes(object.title)) continue;
+        for (const part of tag.split(/[:：]/u).slice(1)) {
+          for (const piece of part.split(/[、，,;；]/u)) {
+            const name = piece.split(/[=＝]/u)[0].trim();
+            if (name) names.add(name);
+          }
+        }
+      }
+    }
+    return names.size;
+  }, [object, relatedClues]);
+  const pressureCount = (object?.tags ?? []).filter((tag) => tag.startsWith("压力") || tag.startsWith("冲突")).length;
+  const natureLabel = nature === "confirmed-fact" ? "已确认事实" : nature === "pending-clue" ? "待确认线索" : nature === "rumor" ? "传闻 · 不确定" : nature === "author-note" ? "作者备注" : null;
+
+  return <aside className={`entity-dock is-${props.status}`} data-status={props.status} data-pinned={props.pinned} data-testid="entity-inspector-dock" role="complementary" aria-label="世界条目详情工作台">
+    <header className="entity-dock-head">
+      <div className="entity-dock-identity">
+        <strong>{object?.title ?? "世界条目"}</strong>
+        <span>{card ? card.categoryLabel : "读取中"}{natureLabel ? ` · ${natureLabel}` : ""}{props.pinned ? " · 已固定" : ""}</span>
+      </div>
+      <div className="entity-dock-head-actions">
+        {props.status === "peek" ? <button type="button" aria-label="展开为因果—演化工作台" onClick={() => setEntityDockStatus("expanded")}><ChevronsLeft size={15} /></button> : <button type="button" aria-label="收起为简卡" onClick={() => setEntityDockStatus("peek")}><ChevronsRight size={15} /></button>}
+        <button type="button" aria-label="关闭详情工作台" onClick={closeEntityDock}><X size={15} /></button>
+      </div>
+    </header>
+    {!object ? failed
+      ? <p className="entity-dock-empty" role="alert"><AlertTriangle size={14} />该世界条目不存在或已归档。</p>
+      : <p className="entity-dock-empty" aria-busy="true"><RefreshCw size={14} />正在读取世界条目……</p>
+      : props.status === "peek" ? <div className="entity-dock-peek" data-testid="entity-dock-peek">
+        <p className="entity-dock-line"><small>摘要</small>{(object.body ?? "").split(/\r?\n/u).find((line) => line.trim() && !line.startsWith("#")) ?? "尚未记录"}</p>
+        <p className="entity-dock-line"><small>当前性质</small>{natureLabel ?? "尚未记录"}</p>
+        <p className="entity-dock-line"><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "暂无标签引用"}</p>
+        <p className="entity-dock-line"><small>当前压力</small>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</p>
+        <button type="button" className="entity-dock-expand" onClick={() => setEntityDockStatus("expanded")}>展开因果—演化工作台</button>
+      </div> : card ? <div className="entity-dock-body" data-testid="world-causal-card">
+        <nav className="entity-dock-tabs" role="tablist" aria-label="世界条目页签">
+          <button type="button" role="tab" aria-selected={tab === "因果演化"} onClick={() => setTab("因果演化")}>因果—演化</button>
+          <button type="button" role="tab" aria-selected={tab === "时间与事件"} onClick={() => setTab("时间与事件")}>时间与事件</button>
+        </nav>
+        {tab === "因果演化" ? <>
+          <div className="entity-dock-section">
+            {([["定义与范围", card.definition], ["适用范围", card.scope], ["起源与原因", card.origin], ["运作机制", card.mechanism], ["利益与代价", card.interests], ["演化", card.evolutionNotes], ["变体与例外", card.variants]] as const).map(([label, field]) => <p key={label}><small>{label}{field.source === "object-body" ? "" : " · 尚未记录"}</small>{field.text ?? "该字段还没有来源记录；不会以补全内容冒充事实。"}</p>)}
+          </div>
+          <div className="entity-dock-section" data-testid="world-causal-dimensions">
+            <p><small>变化维度</small>范围 {card.dimensions.scopeLevel} · 表达 {card.dimensions.expression} · 变化 {card.dimensions.changeKind}</p>
+            <p><small>边界</small>{card.dimensions.bounds?.join("；") ?? "尚未记录"}</p>
+            <p><small>权威</small>{card.dimensions.authority === "author" ? "作者确认" : "候选"}　<small>世界时间</small>{card.dimensions.worldTime ?? "尚未记录"}　<small>分支</small>{card.dimensions.branchLabel}</p>
+          </div>
+        </> : <div className="entity-dock-section" data-testid="world-time-frames">
+          {card.timeFrames.length ? card.timeFrames.map((frame) => <p key={frame.label + frame.title}><small>{frame.label}</small>{frame.title}{frame.detail ? ` · ${frame.detail}` : ""}{frame.eventId ? <a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}&eventId=${encodeURIComponent(frame.eventId)}`}>回事件线</a> : null}</p>) : <p>尚无已确认的时间节点。</p>}
+          <p><small>规划/候选</small>暂无 planned/candidate 数据（诚实空态）。</p>
+        </div>}
+      </div> : null}
+  </aside>;
 }
