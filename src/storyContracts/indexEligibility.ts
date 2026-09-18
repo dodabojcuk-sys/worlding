@@ -27,6 +27,8 @@ export interface IndexEligibilityInput {
   objectType: string;
   tags: readonly string[];
   status?: string;
+  /** 显式禁止索引（来源：作者对对象的显式标记或管理动作）。 */
+  explicitForbidden?: boolean;
   /** 项目隐私策略；缺省按 private（保守）处理。 */
   projectPrivacyPolicy?: ProjectPrivacyPolicy;
 }
@@ -55,7 +57,12 @@ export function resolveIndexEligibility(input: IndexEligibilityInput): IndexElig
   if (input.informationNature === null || input.informationNature === undefined || input.informationNature === "unknown") {
     return { eligibility: "LEXICAL_ONLY", reason: "信息性质未知；保守地只做词法检索，不静默升级为可远程。" };
   }
-  const policy = input.projectPrivacyPolicy ?? "private";
+  // fail-closed：项目隐私策略未知/未配置时，项目内容保守地只做词法检索，
+  // 不得自动升级为 PROJECT_REMOTE_ALLOWED（真实 Embedding 接入前的前置边界）。
+  const policy = input.projectPrivacyPolicy ?? "unknown";
+  if (policy === "unknown" || policy === "local") {
+    return { eligibility: "LEXICAL_ONLY", reason: policy === "local" ? "项目隐私策略为本地。" : "项目隐私策略未知；fail-closed 只做词法检索。" };
+  }
   if (policy === "local") {
     return { eligibility: "LEXICAL_ONLY", reason: "项目隐私策略为本地。" };
   }

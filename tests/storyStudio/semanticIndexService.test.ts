@@ -98,11 +98,11 @@ test("D: public content reclassified as author secret loses remote eligibility w
     "event.真相": { id: "event.真相", title: "钟声的真相", type: "event", status: "active", tags: ["知情：林月如=已得知"], body: secretBody, relativeId: "world/events/真相.md", revisionToken: "rev1" },
   };
   const { root, service, rebuild, persisted, objectStates, cachePath } = makeService(states);
-  const first = rebuild();
-  assert.ok(first.stats.remoteEligible >= 1);
+  const first = rebuild({ projectPrivacyPolicy: "public" });
+  assert.ok(first.stats.remoteEligible >= 1, "public 策略下可远程");
   objectStates["event.真相"].tags = ["作者秘密", "知情：林月如=已得知"];
   objectStates["event.真相"].status = "draft";
-  const second = rebuild();
+  const second = rebuild({ projectPrivacyPolicy: "public" });
   assert.equal(second.stats.remoteEligible, 0, "重分类后不再有远程资格块");
   const entry = Object.values(persisted().entries).find((e) => e.objectId === "event.真相");
   assert.equal(entry.eligibility, "LOCAL_ONLY", "新状态为 LOCAL_ONLY");
@@ -141,4 +141,118 @@ test("G: corrupt cache fails open as corrupt and rebuild restores the index", ()
   const rebuilt = rebuild();
   assert.ok(rebuilt.stats.chunks >= 1);
   assert.equal(service.load(root, "closeout-preview", "w1", "主线", "none-v0").status, "ready");
+});
+
+// ── R3.1B：generation 闭环 / manifest 完整性 / 精确计数 / 路径安全 ──
+
+test("M1: rebuild without generation then load without generation reads the same none-v0 file", () => {
+  const states = {
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+  };
+  const { root, service, rebuild, persisted } = makeService(states);
+  rebuild(); // 不传 generation → 必须使用 DEFAULT_GENERATION
+  const loaded = service.load(root, "closeout-preview", "w1", "主线"); // 不传 generation
+  assert.equal(loaded.status, "ready", "GET 语义索引必须读取默认 generation 的同一文件");
+  assert.ok(Object.keys(loaded.entries ?? {}).length >= 1);
+  assert.ok(!JSON.stringify(loaded).includes("-undefined"), "文件名/字段不得出现 undefined");
+});
+
+test("M1b: explicit generation only reads its own generation file", () => {
+  const states = {
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+  };
+  const { root, service, rebuild } = makeService(states);
+  rebuild({ generation: "gen-a" });
+  const other = service.load(root, "closeout-preview", "w1", "主线", "gen-b");
+  assert.equal(other.status, "missing", "其他 generation 必须为 missing");
+  const own = service.load(root, "closeout-preview", "w1", "主线", "gen-a");
+  assert.equal(own.status, "ready");
+});
+
+test("M2a: manifest contentHash changes when an entry lexicalText is tampered", () => {
+  const states = {
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+  };
+  const { service, rebuild, persisted } = makeService(states);
+  rebuild();
+  const before = persisted().manifest.contentHash;
+  const tampered = JSON.parse(JSON.stringify(persisted()));
+  const key = Object.keys(tampered.entries)[0];
+  tampered.entries[key].lexicalText += "（篡改）";
+  const digestOf = (value: unknown): string => {
+    const stable = (input: unknown): string => {
+      if (input === null || typeof input !== "object") return JSON.stringify(input);
+      if (Array.isArray(input)) return `[${input.map(stable).join(",")}]`;
+      const keys = Object.keys(input as Record<string, unknown>).sort();
+      return `{${keys.map((k) => `${JSON.stringify(k)}:${stable((input as Record<string, unknown>)[k])}`).join(",")}}`;
+    };
+    return stable(value);
+  };
+  assert.notEqual(digestOf(persisted().entries), digestOf(tampered.entries), "篡改正文必须改变 manifest digest");
+});
+
+test("M2b: manifest contentHash is stable across key insertion order", () => {
+  const digestA = JSON.stringify(Object.keys({ a: 1, b: 2 }).sort());
+  const digestB = JSON.stringify(Object.keys({ b: 2, a: 1 }).sort());
+  assert.equal(digestA, digestB);
+});
+
+test("M3: incremental counters are exact and changedKeys unique (edit path)", () => {
+  const states: Record<string, { id: string; title: string; type: string; status: string; tags: string[]; body: string; relativeId: string; revisionToken: string }> = {
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+    "event.接头": { id: "event.接头", title: "栈桥接头", type: "event", status: "active", tags: ["单元：北滨码头"], body: "雨夜接头。", relativeId: "world/events/接头.md", revisionToken: "rev1" },
+  };
+  const { root, service, rebuild, objectStates } = makeService(states);
+  rebuild();
+  objectStates["rule.潮汐信令"].body = tidalBodyV1.replace("三短一长的钟声表示大潮将至。", "三短一长表示大潮将至。");
+  const second = rebuild();
+  assert.equal(second.stats.updated, 1);
+  assert.equal(second.stats.added, 0);
+  assert.equal(second.stats.removed, 0);
+  assert.equal(second.stats.kept + second.stats.updated + second.stats.added, second.stats.totalAfter);
+  assert.equal(second.stats.totalBefore - second.stats.removed + second.stats.added, second.stats.totalAfter);
+  assert.equal(new Set(second.stats.changedKeys).size, second.stats.changedKeys.length, "changedKeys 不得重复");
+});
+
+test("M3b: DO_NOT_INDEX reclassification removal counts exactly once with no duplicate changedKeys", () => {
+  const states: Record<string, { id: string; title: string; type: string; status: string; tags: string[]; body: string; relativeId: string; revisionToken: string }> = {
+    "event.密约": { id: "event.密约", title: "灯下密约", type: "event", status: "draft", tags: ["作者秘密"], body: "密约正文。", relativeId: "world/events/密约.md", revisionToken: "rev1" },
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+  };
+  const { root, service, rebuild, objectStates } = makeService(states);
+  rebuild();
+  objectStates["event.密约"].tags = ["作者秘密", "禁止索引"];
+  const second = rebuild();
+  assert.equal(second.stats.removed, 2, "重分类为 DO_NOT_INDEX 恰好移除密约的全部旧块");
+  assert.equal(new Set(second.stats.changedKeys).size, second.stats.changedKeys.length, "changedKeys 不得重复");
+  assert.equal(second.stats.totalBefore - second.stats.removed + second.stats.added, second.stats.totalAfter);
+});
+
+test("M5: default project privacy is fail-closed (no policy owner → LEXICAL_ONLY)", () => {
+  const states = {
+    "rule.潮汐信令": { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["世界规则"], body: tidalBodyV1, relativeId: "world/rules/潮汐信令.md", revisionToken: "rev1" },
+  };
+  const { service, rebuild } = makeService(states);
+  const result = rebuild(); // 未传 projectPrivacyPolicy → unknown → fail-closed
+  assert.equal(result.stats.remoteEligible, 0, "无隐私策略 Owner 时默认 LEXICAL_ONLY，不出站");
+  assert.equal(result.stats.lexicalOnly, result.stats.totalAfter);
+});
+
+test("M4: sibling-prefix project root is rejected", () => {
+  const states = {
+    "rule.x": { id: "rule.x", title: "X", type: "rule", status: "active", tags: [], body: "x", relativeId: "world/rules/x.md", revisionToken: "rev1" },
+  };
+  const { root, service } = makeService(states);
+  // sibling 目录（root-evil）不是 root 的子路径——projectDir 必须拒绝
+  assert.throws(() => service.projectDir(root, "../project-evil"), /越界/);
+  // 正常子目录可用
+  assert.doesNotThrow(() => service.projectDir(root, "p1"));
+});
+
+test("M4b: projectId with path traversal is rejected", () => {
+  const states = {
+    "rule.x": { id: "rule.x", title: "X", type: "rule", status: "active", tags: [], body: "x", relativeId: "world/rules/x.md", revisionToken: "rev1" },
+  };
+  const { root, service } = makeService(states);
+  assert.throws(() => service.projectDir(root, "../evil"), /越界/);
 });

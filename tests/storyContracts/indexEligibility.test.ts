@@ -29,13 +29,17 @@ function chunksWithEligibility() {
   }).flat();
 }
 
-test("index eligibility partitions author secrets to LOCAL_ONLY and keeps public rules remote-allowed", () => {
+test("index eligibility partitions author secrets to LOCAL_ONLY; policy explicit or fail-closed", () => {
   const decisionSecret = resolveIndexEligibility({ informationNature: "author-note", objectType: "event", tags: ["作者秘密"] });
   assert.equal(decisionSecret.eligibility, "LOCAL_ONLY");
   assert.equal(mayLeaveDevice(decisionSecret), false);
-  const decisionRule = resolveIndexEligibility({ informationNature: "confirmed-fact", objectType: "rule", tags: ["世界规则"] });
+  // 显式 private 策略 → 项目内容可远程
+  const decisionRule = resolveIndexEligibility({ informationNature: "confirmed-fact", objectType: "rule", tags: ["世界规则"], projectPrivacyPolicy: "private" });
   assert.equal(decisionRule.eligibility, "PROJECT_REMOTE_ALLOWED");
   assert.equal(mayLeaveDevice(decisionRule), true);
+  // 无策略/未知策略 → fail-closed LEXICAL_ONLY
+  const failClosed = resolveIndexEligibility({ informationNature: "confirmed-fact", objectType: "rule", tags: ["世界规则"] });
+  assert.equal(failClosed.eligibility, "LEXICAL_ONLY");
   const unknownNature = resolveIndexEligibility({ informationNature: null, objectType: "item", tags: [] });
   assert.equal(unknownNature.eligibility, "LEXICAL_ONLY", "未知性质不得静默升级为可远程");
   const forbidden = resolveIndexEligibility({ informationNature: "confirmed-fact", objectType: "rule", tags: ["禁止索引"] });

@@ -72,6 +72,47 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
 
   const query = search.trim();
   const searchActive = query.length > 0;
+  // 持久派生索引接线（R3.1）：优先消费服务端持久索引；缺失/损坏时诚实回退页面级检索。
+  const [persistedStatus, setPersistedStatus] = useState<"loading" | "ready" | "fallback">("loading");
+  const [persistedChunks, setPersistedChunks] = useState<SemanticChunk[]>([]);
+  useEffect(() => {
+    if (!projectId) return;
+    let active = true;
+    setPersistedStatus("loading");
+    void (async () => {
+      try {
+        let res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId ?? "")}&branchId=${encodeURIComponent("当前主线")}`);
+        let json = await res.json().catch(() => null);
+        if (json?.data?.status === "missing") {
+          await fetch(`/__local/story-studio/semantic-index/rebuild`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, workVersionId: props.runtime.workVersionId ?? null, branchId: "当前主线", generation: "none-v0" }) });
+          res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId ?? "")}&branchId=${encodeURIComponent("当前主线")}`);
+          json = await res.json().catch(() => null);
+        }
+        if (!active) return;
+        if (json?.data?.status === "ready" && json.data.entries) {
+          const chunks: SemanticChunk[] = Object.values(json.data.entries).map((entry: any) => ({
+            objectId: entry.objectId,
+            sectionId: entry.sectionId,
+            title: entry.title,
+            objectType: entry.objectType,
+            authority: entry.authority,
+            informationNature: entry.informationNature,
+            knownTo: entry.visibility?.knownTo ?? [],
+            unknownTo: entry.visibility?.unknownTo ?? [],
+            lexicalText: entry.lexicalText,
+            sourceRefs: [entry.sectionId],
+          }));
+          setPersistedChunks(chunks);
+          setPersistedStatus("ready");
+        } else {
+          setPersistedStatus("fallback");
+        }
+      } catch {
+        if (active) setPersistedStatus("fallback");
+      }
+    })();
+    return () => { active = false; };
+  }, [projectId]);
   const searchChunks = useMemo(() => baseVisible.map((entry) => ({
     objectId: entry.id,
     sectionId: `${entry.id}#card`,
@@ -84,22 +125,37 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
     lexicalText: [entry.title, ...entry.tags, ...entry.knowledge.map((item) => `${item.character}${KNOWLEDGE_LABELS[item.state]}`)].join(" "),
     sourceRefs: [entry.id],
   } satisfies SemanticChunk)), [baseVisible]);
+  // 持久索引就绪时优先消费结构化区块（definition/origin/mechanism 等）；
+  // 未就绪时回退页面级卡片块（诚实显示回退状态）。
+  const retrievalChunks = useMemo(() => (persistedStatus === "ready" && persistedChunks.length ? persistedChunks : searchChunks), [persistedStatus, persistedChunks, searchChunks]);
   const [retrieval, setRetrieval] = useState<HybridRetrievalResult | null>(null);
   useEffect(() => {
     if (!searchActive) { setRetrieval(null); return; }
     let active = true;
-    void retrieveHybrid({ query, chunks: searchChunks, topK: 12, tokenBudget: 2000, semanticEnabled }).then((result) => {
+    void retrieveHybrid({ query, chunks: retrievalChunks, topK: 12, tokenBudget: 2000, semanticEnabled }).then((result) => {
       if (active) setRetrieval(result);
     });
     return () => { active = false; };
-  }, [query, searchChunks, semanticEnabled, searchActive]);
+  }, [query, retrievalChunks, semanticEnabled, searchActive]);
 
   const visible = useMemo(() => {
     if (!searchActive) return baseVisible;
     if (!retrieval) return [];
+    if (persistedStatus === "ready") {
+      // 持久索引模式：同一 object 的多 section 聚合为一张结果卡
+      const order: string[] = [];
+      const byObject = new Map<string, { reasons: string[]; sections: string[] }>();
+      for (const hit of retrieval.hits) {
+        const objectId = hit.chunk.objectId;
+        if (!byObject.has(objectId)) { byObject.set(objectId, { reasons: hit.reasons.slice(0, 3), sections: [] }); order.push(objectId); }
+        byObject.get(objectId)!.sections.push(hit.chunk.sectionId);
+      }
+      const entryById = new Map(baseVisible.map((entry) => [entry.id, entry]));
+      return order.map((objectId) => entryById.get(objectId)).filter((entry): entry is WorldReferenceEntry => Boolean(entry));
+    }
     const entryById = new Map(baseVisible.map((entry) => [entry.id, entry]));
     return retrieval.hits.map((hit) => entryById.get(hit.chunk.objectId)).filter((entry): entry is WorldReferenceEntry => Boolean(entry));
-  }, [baseVisible, retrieval, searchActive]);
+  }, [baseVisible, retrieval, searchActive, persistedStatus]);
   const hitByEntryId = useMemo(() => new Map((retrieval?.hits ?? []).map((hit) => [hit.chunk.objectId, hit])), [retrieval]);
   const excludedSummary = useMemo(() => {
     if (!searchActive || !retrieval) return null;
@@ -160,6 +216,7 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
             </select>
             <small>语义索引未配置 · </small><a href="/settings">前往设置</a>
           </label>
+          <span className="world-reference-index-status" data-testid="world-reference-index-status">持久索引：{{ loading: "读取中", ready: "就绪", fallback: "未就绪（已回退页面级检索）" }[persistedStatus] ?? persistedStatus}</span>
           {excludedSummary ? <span className="world-reference-excluded" data-testid="world-reference-excluded">权限与边界排除：{excludedSummary}</span> : null}
         </div>
         {!searchActive && visible.length === 0 ? <p className="world-reference-empty">当前筛选下没有世界条目。这个世界的事实会随着资料录入与事件线整理逐步出现在这里。</p> :
