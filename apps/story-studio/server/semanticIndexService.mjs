@@ -60,7 +60,11 @@ export function createSemanticIndexService({ operations }) {
     return chunker(chunkInput).map((chunk) => ({ ...chunk, eligibility: eligibility.eligibility, eligibilityReason: eligibility.reason }));
   }
 
-  /** 重建/增量构建：contentHash 未变的区块原样保留；变化/新增的区块写入新 hash。 */
+  /** 重建/增量构建。计数口径（自洽且可回归验证）：
+   * totalBefore = 上次缓存的区块数；totalAfter = 本次缓存的区块数；
+   * kept + updated + added = totalAfter；removed 单列（totalBefore 中被移除的区块）；
+   * changedKeys = updated + added + removed 的 sectionId 列表。
+   * 另：DO_NOT_INDEX 区块从不落盘；对象被删除时其全部区块计为 removed。 */
   function rebuild({ rootPath, projectId, workVersionId, branchId = "当前主线", generation = "none-v0", force = false }) {
     const summaries = operations.listWorldObjects({ projectId, includeArchived: false });
     // 分块需要对象正文（结构化章节来源）；逐对象读取完整 WorldObject。
@@ -75,28 +79,40 @@ export function createSemanticIndexService({ operations }) {
     const dir = projectDir(rootPath, projectId);
     const file = path.join(dir, fileName(workVersionId, branchId, generation));
     const previous = readCache(rootPath, projectId, workVersionId, branchId, generation);
+    const previousEntries = previous?.entries ?? {};
+    const totalBefore = Object.keys(previousEntries).length;
     const now = new Date().toISOString();
     const entries = {};
-    const stats = { chunks: 0, kept: 0, updated: 0, remoteEligible: 0, localOnly: 0, lexicalOnly: 0, doNotIndex: 0, objects: objects.length };
+    const changedKeys = [];
+    const stats = { totalBefore, totalAfter: 0, chunks: 0, kept: 0, updated: 0, added: 0, removed: 0, changedKeys, remoteEligible: 0, localOnly: 0, lexicalOnly: 0, doNotIndex: 0, objects: objects.length };
     for (const object of objects) {
       const objectChunks = buildEntryChunks(object);
       for (const chunk of objectChunks) {
-        const contentHash = contentHashOf(`${chunk.title}\n${chunk.lexicalText}`);
-        const previousEntry = previous?.entries?.[chunk.sectionId];
-        if (!force && previousEntry && previousEntry.contentHash === contentHash && previousEntry.sourceRevision === object.revisionToken) {
-          entries[chunk.sectionId] = previousEntry;
-          stats.kept += 1;
-        } else {
-          entries[chunk.sectionId] = {
-            projectId, workVersionId, branchId, sourceOwner: object.type === "event" ? "event" : "world-object",
-            objectId: object.id, sectionId: chunk.sectionId, sourceRevision: object.revisionToken ?? 0,
-            contentHash, objectType: object.type, authority: chunk.authority, informationNature: chunk.informationNature,
-            worldTime: null, sceneKeys: object.tags.filter((tag) => tag.startsWith("单元：")).map((tag) => tag.slice(3)),
-            visibility: { knownTo: chunk.knownTo, unknownTo: chunk.unknownTo },
-            title: object.title, lexicalText: chunk.lexicalText,
-            embeddingProfileId: generation === "none-v0" ? "none" : generation, dimensions: 0, vector: null,
-          };
-          stats.updated += 1;
+        // 内容指纹包含信息性质与索引资格：tags 重分类必须反映到缓存，否则权限过滤会读到过时资格。
+        const contentHash = contentHashOf(`${chunk.title}\n${chunk.lexicalText}\n${chunk.informationNature ?? ""}\n${chunk.eligibility}`);
+        const previousEntry = previousEntries[chunk.sectionId];
+        // DO_NOT_INDEX 的区块从不落盘；若上次缓存存在同名区块，计为 removed。
+        if (chunk.eligibility === "DO_NOT_INDEX") {
+          stats.doNotIndex += 1;
+          if (previousEntries[chunk.sectionId]) { stats.removed += 1; changedKeys.push(chunk.sectionId); }
+          continue;
+        }
+        // 内容指纹未变即保留（sourceRevision 仅刷新元数据）；指纹变化才重嵌入。
+        const unchanged = !force && previousEntry && previousEntry.contentHash === contentHash;
+        entries[chunk.sectionId] = unchanged ? { ...previousEntry, eligibility: chunk.eligibility, eligibilityReason: chunk.eligibilityReason, sourceRevision: object.revisionToken ?? previousEntry.sourceRevision } : {
+          projectId, workVersionId, branchId, sourceOwner: object.type === "event" ? "event" : "world-object",
+          objectId: object.id, sectionId: chunk.sectionId, sourceRevision: object.revisionToken ?? 0,
+          contentHash, objectType: object.type, authority: chunk.authority, informationNature: chunk.informationNature,
+          eligibility: chunk.eligibility, eligibilityReason: chunk.eligibilityReason,
+          worldTime: null, sceneKeys: object.tags.filter((tag) => tag.startsWith("单元：")).map((tag) => tag.slice(3)),
+          visibility: { knownTo: chunk.knownTo, unknownTo: chunk.unknownTo },
+          title: object.title, lexicalText: chunk.lexicalText,
+          embeddingProfileId: generation === "none-v0" ? "none" : generation, dimensions: 0, vector: null,
+        };
+        if (unchanged) stats.kept += 1;
+        else {
+          stats[previousEntry ? "updated" : "added"] += 1;
+          changedKeys.push(chunk.sectionId);
         }
         stats.chunks += 1;
         if (chunk.eligibility === "DO_NOT_INDEX") stats.doNotIndex += 1;
@@ -105,6 +121,12 @@ export function createSemanticIndexService({ operations }) {
         else stats.remoteEligible += 1;
       }
     }
+    // 对象/区块消失：上次存在但本次不再产出的区块计为 removed（含对象被删除）。
+    for (const key of Object.keys(previousEntries)) {
+      if (!entries[key]) { stats.removed += 1; changedKeys.push(key); }
+    }
+    stats.totalAfter = Object.keys(entries).length;
+    changedKeys.sort();
     const manifest = {
       format: SEMANTIC_INDEX_FORMAT, projectId, workVersionId, branchId,
       embeddingProfileId: generation === "none-v0" ? "none" : generation, generation, dimensions: 0,
@@ -119,13 +141,13 @@ export function createSemanticIndexService({ operations }) {
     return JSON.stringify(value, Object.keys(value ?? {}).sort());
   }
 
-  /** fail-open 读取：缺失/损坏返回 { status: "missing" | "corrupt" }，调用方回退关键词检索。 */
+  /** fail-open 读取：按 workVersion/branch/generation 精确定位缓存文件；
+   * 缺失/损坏返回对应状态，调用方回退关键词检索，不损坏作品。 */
   function load(rootPath, projectId, workVersionId, branchId, generation) {
     try {
       const dir = projectDir(rootPath, projectId);
-      const files = existsSync(dir) ? readdirSync(dir).filter((name) => name.startsWith("index-") && name.endsWith(".json")) : [];
-      const file = files.length ? path.join(dir, files.at(-1)) : null;
-      if (!file) return { status: "missing" };
+      const file = path.join(dir, fileName(workVersionId, branchId, generation));
+      if (!existsSync(file)) return { status: "missing" };
       const parsed = JSON.parse(readFileSync(file, "utf8"));
       if (parsed.format !== SEMANTIC_INDEX_FORMAT) return { status: "corrupt" };
       return { status: "ready", manifest: parsed.manifest, entries: parsed.entries };
@@ -139,5 +161,25 @@ export function createSemanticIndexService({ operations }) {
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
   }
 
-  return { rebuild, load, clear, projectDir };
+  /** 持久化缓存文件路径（边界校验后返回），供诊断与验收断言使用。 */
+  function persistedCachePath(rootPath, projectId, workVersionId, branchId, generation) {
+    const dir = projectDir(rootPath, projectId);
+    return path.join(dir, fileName(workVersionId, branchId, generation));
+  }
+
+  /** 只读访问持久化缓存（路径边界在 projectDir 内校验），供验收与诊断使用。 */
+  function readPersistedCache(rootPath, projectId, workVersionId, branchId, generation) {
+    const file = path.join(projectDir(rootPath, projectId), fileName(workVersionId, branchId, generation));
+    if (!existsSync(file)) return null;
+    return JSON.parse(readFileSync(file, "utf8"));
+  }
+
+  /** 仅供测试：把缓存文件写成损坏内容以验证 fail-open。 */
+  function corruptPersistedCacheForTest(rootPath, projectId, workVersionId, branchId, generation) {
+    const dir = projectDir(rootPath, projectId);
+    const file = path.join(dir, fileName(workVersionId, branchId, generation));
+    if (existsSync(file)) writeFileSync(file, "{broken-json", "utf8");
+  }
+
+  return { rebuild, load, clear, projectDir, readPersistedCache, persistedCachePath, corruptPersistedCacheForTest };
 }
