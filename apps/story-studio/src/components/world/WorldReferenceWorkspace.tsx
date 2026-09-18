@@ -252,7 +252,7 @@ function WorldReferenceCard(props: { entry: WorldReferenceEntry; hit?: { reasons
   const relatedCount = Math.max(0, entry.relatedKeys.length - 1);
   const open = () => props.onOpenDetail();
   return <li className="world-reference-card is-clickable" data-nature={entry.nature} data-testid="world-reference-card">
-    <header className="world-reference-card-head" onClick={open} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") open(); }}>
+    <header className="world-reference-card-head" onClick={open} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } }}>
       <span className={`world-reference-nature is-${entry.nature}`}>{WORLD_REFERENCE_NATURE_LABELS[entry.nature]}</span>
       <strong>{entry.title}</strong>
       <span className="world-reference-category">{WORLD_REFERENCE_CATEGORY_LABELS[entry.category]}</span>
