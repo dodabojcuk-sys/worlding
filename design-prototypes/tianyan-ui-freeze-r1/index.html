@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>天衍 UI 设计冻结 R1 原型总览</title>
+<link rel="stylesheet" href="./proto.css" />
+<style>
+.index-page { max-inline-size: 980px; margin: 0 auto; padding: var(--sp-6); }
+.index-page h1 { font-family: var(--font-read); font-size: var(--fs-page-title); color: var(--ink-strong); margin-bottom: var(--sp-2); }
+.index-page .lead { color: var(--ink-soft); margin-bottom: var(--sp-5); }
+.proto-card { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-4); align-items: center; background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); padding: var(--sp-4); margin-bottom: var(--sp-4); }
+.proto-card h2 { margin: 0 0 6px; font-size: var(--fs-region); color: var(--ink-strong); }
+.proto-card p { margin: 0; color: var(--ink-soft); font-size: var(--fs-aux); }
+.proto-card a { text-decoration: none; }
+.token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--sp-3); margin-top: var(--sp-4); }
+.token-swatch { padding: var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--line-hair); text-align: center; font-size: var(--fs-status); }
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <strong>天衍 UI 设计冻结 R1 原型总览</strong>
+  <span class="proto-note">DESIGN ONLY · 不接入生产 · 创始人通过前禁止修改生产代码</span>
+</div>
+<main class="index-page">
+  <h1>设计冻结 R1：创始人反馈修正版</h1>
+  <p class="lead">本轮基于创始人对 R0 的否决意见重做。只做隔离高保真原型与设计文档，不进入生产实现。</p>
+
+  <section class="proto-card">
+    <div>
+      <h2>女娲作者工作面</h2>
+      <p>正文舞台为最大视觉区域；候选方向改为紧凑决策栏；右侧检查器按作者问题组织；1152 为覆盖抽屉。</p>
+    </div>
+    <a class="btn is-primary" href="./nuwa.html#s-default">打开女娲原型 →</a>
+  </section>
+
+  <section class="proto-card">
+    <div>
+      <h2>世界观工作台</h2>
+      <p>默认首屏 = 当前故事镜头 + 世界任务区 + 右栏上下文；因果网络与演化轨迹按需展开；搜索为第二状态。</p>
+    </div>
+    <a class="btn is-primary" href="./world.html#s-overview">打开世界观原型 →</a>
+  </section>
+
+  <h2 class="region-title">核心 Token</h2>
+  <div class="token-grid">
+    <div class="token-swatch" style="background:var(--paper)">--paper</div>
+    <div class="token-swatch" style="background:var(--paper-raised)">--paper-raised</div>
+    <div class="token-swatch" style="background:var(--jade);color:#fff">--jade</div>
+    <div class="token-swatch" style="background:var(--copper);color:#fff">--copper</div>
+    <div class="token-swatch" style="background:var(--ink-strong);color:#e8e4d8">--ink-strong</div>
+    <div class="token-swatch" style="background:var(--sem-rule);color:#fff">--sem-rule</div>
+  </div>
+</main>
+</body>
+</html>
