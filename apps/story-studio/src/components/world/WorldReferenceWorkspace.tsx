@@ -48,6 +48,15 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
   const [search, setSearch] = useState("");
   const [related, setRelated] = useState(readRelated);
   const [buildingFacet, setBuildingFacet] = useState("世界总览");
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        document.querySelectorAll(".world-reference-filter-popover[open], .world-reference-filter-popover[open]").forEach((el) => { (el as HTMLDetailsElement).open = false; });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const [semanticEnabled, setSemanticEnabled] = useState(false);
 
   useEffect(() => {
