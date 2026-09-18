@@ -179,9 +179,9 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
       <MaterialsSectionNavigation current="reference" />
       <header className="materials-workspace-header">
         <div className="materials-workspace-identity">
-          <small>世界参考 · 当前作品</small>
-          <h1>世界参考工作面</h1>
-          <p>按类别与信息性质浏览这个世界的关键事实；所有条目都来自既有资料与事件线索，来源可追溯。</p>
+          <small>世界观 · 当前作品</small>
+          <h1>世界观工作台</h1>
+          <p>浏览、追溯和完善这个世界的关键设定与事实。</p>
         </div>
       </header>
       {error ? <p className="world-reference-message is-error" role="alert"><TriangleAlert size={14} />{error}</p> : null}
@@ -229,7 +229,7 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
                 if (groupName === "相关资料") return entry.category !== "clue";
                 return entry.nature === "pending-clue";
               });
-              return bucket.length ? <section key={groupName} className="world-reference-group" data-group={groupName}>
+              return bucket.length ? <section key={groupName} className="world-reference-group" data-result-group={groupName}>
                 <h3>{groupName}（{bucket.length}）</h3>
                 <ul className="world-reference-list">
                   {bucket.map((entry) => <WorldReferenceCard key={entry.id} entry={entry} hit={hitByEntryId.get(entry.id)} onRelated={(value) => setRelatedAndUrl(value)} onOpenDetail={() => openEntityDock({ kind: "world-reference", objectId: entry.id, openedFrom: "world-reference" })} />)}
@@ -251,7 +251,7 @@ function WorldReferenceCard(props: { entry: WorldReferenceEntry; hit?: { reasons
   const pressureCount = entry.tags.filter((tag) => tag.startsWith("压力") || tag.startsWith("冲突")).length;
   const relatedCount = Math.max(0, entry.relatedKeys.length - 1);
   const open = () => props.onOpenDetail();
-  return <li className="world-reference-card is-clickable" data-nature={entry.nature} data-testid="world-reference-card">
+  return <li className="world-reference-card is-clickable" data-nature={entry.nature} data-object-id={entry.id} data-testid="world-reference-card">
     <header className="world-reference-card-head" onClick={open} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } }}>
       <span className={`world-reference-nature is-${entry.nature}`}>{WORLD_REFERENCE_NATURE_LABELS[entry.nature]}</span>
       <strong>{entry.title}</strong>
@@ -266,7 +266,6 @@ function WorldReferenceCard(props: { entry: WorldReferenceEntry; hit?: { reasons
     <footer className="world-reference-card-foot">
       <span>来源：本机工程（markdown）<details><summary>来源标识</summary><code>{entry.id}</code>{entry.updatedAt ? <small> · 更新 {entry.updatedAt}</small> : null}</details></span>
       <span className="world-reference-card-actions">
-        {props.onOpenDetail ? <button type="button" onClick={props.onOpenDetail}>详情工作台</button> : null}
         <button type="button" onClick={() => props.onRelated(entry.title)}><Globe size={13} />查看相关</button>
       </span>
     </footer>

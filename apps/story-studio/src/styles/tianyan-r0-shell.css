@@ -1814,3 +1814,12 @@ input:focus-visible {
   .entity-dock { box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--color-text) 18%, transparent); }
   .entity-dock-tabs { overflow-x: auto; flex-wrap: nowrap; }
 }
+
+/* ── R3.1C：卡片压缩与密度收口 ── */
+.world-reference-card { padding: .5rem .6rem; }
+.world-reference-card-head { gap: .35rem .45rem; }
+.world-reference-card-head strong { font-size: .8rem; }
+.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.45; }
+.world-reference-tags { gap: .22rem; }
+.world-reference-tags span { padding: .06rem .38rem; font-size: .62rem; }
+.world-reference-card-actions button { min-block-size: 1.7rem; padding-inline: .45rem; font-size: .68rem; }
