@@ -1742,7 +1742,7 @@ input:focus-visible {
 
 /* ── 角色磁吸详情工作台（EntityInspectorDock R0）── */
 .entity-dock { position: fixed; z-index: 46; inset-block: 3.6rem 1rem; inset-inline: auto 1rem; inline-size: 23rem; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: -0.6rem 0.4rem 1.6rem color-mix(in srgb, var(--color-text) 14%, transparent); overflow: hidden; }
-.entity-dock.is-expanded { inline-size: min(40rem, 60vw); }
+.entity-dock.is-expanded { inline-size: min(32.5rem, 55vw); }
 .entity-dock-head { display: flex; align-items: center; gap: .55rem; padding: .6rem .65rem; border-block-end: 1px solid var(--color-border); }
 .entity-dock-avatar { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-surface); background: linear-gradient(160deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 62%, var(--color-text))); border-radius: 50%; font-weight: 700; }
 .entity-dock-identity { display: grid; gap: .06rem; min-inline-size: 0; }
@@ -1791,7 +1791,7 @@ input:focus-visible {
 .world-reference-card.is-clickable { cursor: pointer; }
 .world-reference-card.is-clickable:hover { border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
 .world-reference-why { margin: 0; padding: .2rem .45rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 40%, var(--color-surface)); border-radius: .3rem; font-size: .66rem; }
-.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .7rem; line-height: 1.5; }
+.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.4; }
 
 /* ── R3.1：检索模式/结果分组/因果链/演化时间 ── */
 .world-reference-mode { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--color-text-muted); }
@@ -1816,10 +1816,17 @@ input:focus-visible {
 }
 
 /* ── R3.1C：卡片压缩与密度收口 ── */
-.world-reference-card { padding: .5rem .6rem; }
+.world-reference-card { padding: .38rem .5rem; }
 .world-reference-card-head { gap: .35rem .45rem; }
 .world-reference-card-head strong { font-size: .8rem; }
 .world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.45; }
 .world-reference-tags { gap: .22rem; }
 .world-reference-tags span { padding: .06rem .38rem; font-size: .62rem; }
 .world-reference-card-actions button { min-block-size: 1.7rem; padding-inline: .45rem; font-size: .68rem; }
+
+/* ── R3.1C 终验：Dock expanded 收窄 + 持久索引状态降权 ── */
+.entity-dock.is-expanded { inline-size: min(32.5rem, 55vw) !important; }
+.entity-dock-head .entity-dock-identity span { font-size: .62rem; }
+/* 持久索引状态：弱化为单行圆点 */
+.world-reference-index-status { display: inline-flex; align-items: center; gap: .28rem; font-size: .64rem; color: var(--color-text-muted); }
+.world-reference-index-status::before { content: "●"; font-size: .5rem; }
