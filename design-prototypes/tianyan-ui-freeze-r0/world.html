@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>世界观工作台 · 设计冻结 R0 原型</title>
+<link rel="stylesheet" href="./proto.css" />
+<style>
+/* ============ 世界观工作台原型样式（仅原型） ============ */
+.world-page { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--sp-5); padding: var(--sp-5) var(--sp-6); align-items: start; }
+.world-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* 页头 */
+.world-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--sp-3); padding-block-end: var(--sp-3); border-bottom: 2px solid var(--line-ink); }
+.world-head h1 { margin: 0; font-family: var(--font-read); font-size: var(--fs-page-title); color: var(--ink-strong); letter-spacing: 0.04em; }
+.world-head .head-meta { display: flex; gap: var(--sp-3); margin-top: 4px; font-size: var(--fs-aux); color: var(--ink-soft); }
+.world-head .head-meta strong { color: var(--ink); }
+.head-actions { display: flex; gap: var(--sp-2); align-items: center; }
+.head-search { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-ink-soft); border-radius: 999px; padding: 5px 14px; background: var(--paper-raised); color: var(--ink-faint); font-size: var(--fs-aux); }
+
+/* A. 世界脉搏：紧凑横带 ≤150px，有主次与状态 */
+.pulse { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1.1fr; background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); overflow: hidden; }
+.pulse-block { padding: 10px 14px 12px; border-left: 1px solid var(--line-hair); min-width: 0; }
+.pulse-block:first-child { border-left: none; }
+.pulse-block h3 { margin: 0 0 6px; display: flex; align-items: center; gap: 6px; font-size: var(--fs-aux); color: var(--ink-strong); }
+.pulse-block h3 .count { margin-left: auto; font-size: var(--fs-status); color: var(--ink-faint); font-weight: 400; }
+.pulse-block h3 .p-dot { inline-size: 8px; block-size: 8px; border-radius: 2px; }
+.pulse-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.pulse-block li { display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-aux); min-width: 0; }
+.pulse-block li button { border: none; background: none; padding: 0; color: var(--ink); cursor: pointer; font-size: var(--fs-aux); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulse-block li button:hover { color: var(--jade-deep); text-decoration: underline; }
+.pulse-block li small { color: var(--ink-faint); font-size: var(--fs-status); flex: none; }
+.pulse-block .pulse-more { display: inline-block; margin-top: 6px; font-size: var(--fs-status); color: var(--jade-deep); text-decoration: none; }
+.pulse-block.is-rule h3 .p-dot { background: var(--sem-rule); }
+.pulse-block.is-pressure h3 .p-dot { background: var(--copper); }
+.pulse-block.is-open h3 .p-dot { background: transparent; border: 1.5px dashed var(--sem-clue); }
+.pulse-block.is-story h3 .p-dot { background: var(--jade); }
+.pulse-block.is-story { background: color-mix(in srgb, var(--jade-soft) 40%, var(--paper-raised)); }
+
+/* B. 因果网络 */
+.network-plate { background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); padding: var(--sp-4); }
+.net-legend { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: 8px; font-size: var(--fs-status); color: var(--ink-soft); }
+.net-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.net-legend .lg i { inline-size: 18px; block-size: 0; border-top: 2px solid var(--line-ink-soft); }
+.net-legend .lg.is-conflict i { border-top-style: dashed; border-top-color: var(--sem-danger); }
+.net-legend .lg.is-origin i { border-top-style: dotted; border-top-color: var(--copper); }
+.net-note { margin: 8px 0 0; font-size: var(--fs-status); color: var(--ink-faint); }
+
+/* C. 历史与演化：多态轨迹 */
+.evo-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--sp-4); }
+.evo-track { position: relative; margin: 0; padding: 0 0 0 26px; list-style: none; border-left: 2px solid var(--jade-line); display: grid; gap: 12px; }
+.evo-track li { position: relative; display: grid; gap: 1px; }
+.evo-track .evo-marker { position: absolute; left: -33px; top: 4px; inline-size: 10px; block-size: 10px; border-radius: 50%; background: var(--jade); border: 2px solid var(--paper-raised); }
+.evo-track li.is-uncertain .evo-marker { background: var(--paper-raised); border: 2px dashed var(--sem-clue); }
+.evo-track li.is-secret .evo-marker { background: var(--paper-raised); border: 2px solid var(--sem-secret); }
+.evo-track li.is-now .evo-marker { inline-size: 12px; block-size: 12px; left: -35px; background: var(--copper); box-shadow: 0 0 0 3px var(--copper-soft); }
+.evo-track .evo-title { font-size: var(--fs-aux); color: var(--ink); background: none; border: none; padding: 0; text-align: left; cursor: pointer; }
+.evo-track .evo-title:hover { color: var(--jade-deep); text-decoration: underline; }
+.evo-track small { font-size: var(--fs-status); color: var(--ink-faint); }
+.evo-track .tray { margin-top: 2px; padding: 8px 12px; background: var(--paper-sunken); border-radius: var(--r-md); }
+.evo-empty { font-size: var(--fs-status); color: var(--ink-faint); border: 1px dashed var(--line-hair); border-radius: var(--r-md); padding: 8px 12px; margin: 0; }
+
+/* D. 当前故事上下文 */
+.story-rail { position: sticky; top: 42px; display: flex; flex-direction: column; gap: var(--sp-3); background: color-mix(in srgb, var(--jade-soft) 34%, var(--paper-raised)); border: 1px solid var(--jade-line); border-radius: var(--r-lg); padding: var(--sp-4); }
+.story-rail h3 { margin: 0 0 2px; font-size: var(--fs-region); color: var(--ink-strong); }
+.story-rail .now-node { display: flex; align-items: center; gap: 8px; font-size: var(--fs-body); color: var(--ink-strong); font-weight: 600; }
+.story-rail .now-node .dot { background: var(--copper); }
+.story-rail dl { margin: 0; display: grid; gap: 7px; }
+.story-rail dt { font-size: var(--fs-status); color: var(--ink-faint); }
+.story-rail dd { margin: 0; font-size: var(--fs-aux); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.story-rail dd a { color: var(--jade-deep); }
+.story-rail .rail-links { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid var(--jade-line); }
+.story-rail .rail-links a { font-size: var(--fs-status); color: var(--jade-deep); border: 1px solid var(--jade-line); background: var(--paper-raised); border-radius: var(--r-sm); padding: 2px 9px; text-decoration: none; }
+
+/* E. 类型化对象浏览 */
+.type-tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.type-tab { padding: 4px 14px; border-radius: 999px; border: 1px solid var(--line-ink-soft); background: var(--paper-raised); font-size: var(--fs-aux); color: var(--ink-soft); cursor: pointer; }
+.type-tab.is-on { border-color: var(--jade); background: var(--jade); color: #fff; font-weight: 600; }
+.typed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--sp-3); }
+.typed-card { background: var(--paper-raised); border: 1px solid var(--line-hair); border-top-width: 2px; border-radius: var(--r-md); padding: 12px 14px; display: grid; gap: 6px; }
+.typed-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.typed-card header strong { font-size: var(--fs-body); color: var(--ink-strong); }
+.typed-card header .sem { flex: none; }
+.typed-card.is-location { border-top-color: var(--sem-location); }
+.typed-card.is-rule { border-top-color: var(--sem-rule); }
+.typed-card.is-faction { border-top-color: var(--sem-faction); }
+.typed-card.is-item { border-top-color: var(--sem-item); }
+.typed-card.is-clue { border-top-color: var(--sem-clue); }
+.typed-card .fld { display: grid; gap: 0; padding-block: 3px; border-top: 1px solid var(--line-hair); font-size: var(--fs-aux); }
+.typed-card .fld:first-of-type { border-top: none; }
+.typed-card .fld small { color: var(--ink-faint); font-size: var(--fs-status); letter-spacing: 0.04em; }
+.typed-card .fld span, .typed-card .fld a { color: var(--ink); line-height: 1.55; }
+.typed-card .fld a { color: var(--jade-deep); }
+.typed-card .state-on { color: var(--jade-deep); font-weight: 600; }
+.typed-card .state-off { color: var(--ink-faint); }
+
+/* F. 搜索状态 */
+.search-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); font-size: var(--fs-aux); color: var(--ink-soft); }
+.search-group h3 { margin: var(--sp-4) 0 var(--sp-2); font-size: var(--fs-aux); color: var(--ink-strong); }
+.result-card { background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-md); padding: 12px 14px; display: grid; gap: 5px; }
+.result-card .why { font-size: var(--fs-status); color: var(--copper-deep); background: var(--copper-soft); border-radius: var(--r-sm); padding: 2px 10px; width: fit-content; }
+.result-card .summary { margin: 0; font-size: var(--fs-aux); color: var(--ink); line-height: 1.65; max-inline-size: 72ch; }
+.result-card .res-foot { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-status); color: var(--ink-faint); }
+.adv-details summary { font-size: var(--fs-status); color: var(--ink-faint); cursor: pointer; }
+
+/* Peek / Expanded Dock */
+.world-dock { display: none; position: fixed; z-index: 70; inset-block: 30px 0; inset-inline: auto 0; inline-size: min(400px, 92vw); background: var(--paper-raised); border-left: 1px solid var(--line-hair); box-shadow: var(--shadow-drawer); padding: var(--sp-4); overflow: auto; }
+.world-dock.is-open { display: block; }
+.dock-scrim { display: none; position: fixed; inset: 30px 0 0 0; z-index: 65; background: rgba(36,49,58,0.22); border: none; width: 100%; }
+.dock-scrim.is-open { display: block; }
+.dock-head { display: flex; align-items: baseline; gap: 8px; border-bottom: 2px solid var(--line-ink); padding-bottom: 8px; margin-bottom: 10px; }
+.dock-head strong { font-family: var(--font-read); font-size: 1.1rem; color: var(--ink-strong); }
+.dock-tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+.dock-tabs .dtab { padding: 3px 11px; border-radius: var(--r-sm); border: none; background: transparent; font-size: var(--fs-aux); color: var(--ink-soft); cursor: pointer; }
+.dock-tabs .dtab.is-on { background: var(--jade-soft); color: var(--jade-deep); font-weight: 600; }
+/* 因果链（Dock 内）：节点 + 方向 */
+.causal-chain { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; }
+.causal-node { border: 1px solid var(--line-hair); border-left: 3px solid var(--jade); background: var(--paper-sunken); border-radius: var(--r-sm); padding: 7px 11px; font-size: var(--fs-aux); }
+.causal-node small { display: block; color: var(--ink-faint); font-size: var(--fs-status); letter-spacing: 0.06em; }
+.causal-node.is-empty { border-left-style: dashed; border-left-color: var(--ink-faint); }
+.causal-arrow { color: var(--jade); padding-left: 16px; font-size: 0.85rem; line-height: 1; }
+/* 演化轨迹（Dock 内）复用 .evo-track */
+.dock-track-label { font-size: var(--fs-status); color: var(--ink-faint); letter-spacing: 0.06em; margin: 10px 0 4px; }
+
+/* 1152 */
+.drawer-opener { display: none; }
+@media (max-width: 1280px) {
+  .world-page { grid-template-columns: minmax(0, 1fr) !important; padding: var(--sp-4); }
+  .pulse { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pulse-block:nth-child(3) { border-left: none; }
+  .pulse-block { border-top: 1px solid var(--line-hair); }
+  .pulse-block:nth-child(-n+2) { border-top: none; }
+  .evo-grid { grid-template-columns: minmax(0, 1fr); }
+  .story-rail { position: fixed; z-index: 70; inset-block: 30px 0; inset-inline: auto 0; inline-size: min(330px, 88vw); border-radius: 0; border: none; box-shadow: var(--shadow-drawer); transform: translateX(105%); transition: transform 0.18s ease; }
+  .story-rail.is-open { transform: none; }
+  .drawer-opener { display: inline-flex; position: fixed; right: 14px; bottom: 14px; z-index: 65; box-shadow: var(--shadow-drawer); }
+  .rail-scrim { display: none; position: fixed; inset: 30px 0 0 0; z-index: 66; background: rgba(36,49,58,0.24); border: none; width: 100%; }
+  .rail-scrim.is-open { display: block; }
+}
+@media (min-width: 1281px) { .rail-scrim { display: none !important; } }
+
+body[data-view="search"] .browse-only { display: none; }
+body[data-view="search"] .search-only { display: block; }
+.search-only { display: none; }
+</style>
+</head>
+<body data-view="overview">
+<div class="proto-bar">
+  <strong>原型 · 世界观</strong>
+  <a href="#s-overview" data-state-link>① 总览</a>
+  <a href="#s-search" data-state-link>② 搜索结果</a>
+  <a href="#s-peek" data-state-link>③ 条目 Peek</a>
+  <a href="#s-expanded" data-state-link>④ 条目 Expanded</a>
+  <span class="proto-note">DESIGN ONLY · 不接入生产 · 北溟夜航夹具数据</span>
+</div>
+<div class="proto-shell">
+  <nav class="proto-rail" aria-label="Shell 空间示意（原型）">
+    <div class="rail-brand">天衍<span> Worlding</span></div>
+    <a href="#"><b>世</b><span>世界</span></a>
+    <a href="#"><b>意</b><span>天意</span></a>
+    <a href="#"><b>线</b><span>事件线</span></a>
+    <a href="#"><b>元</b><span>多元</span></a>
+    <a href="#"><b>娲</b><span>女娲</span></a>
+    <a href="#" class="on"><b>料</b><span>资料</span></a>
+    <a href="#"><b>创</b><span>创作</span></a>
+    <a href="#"><b>据</b><span>数据</span></a>
+    <div class="rail-gap"></div>
+    <a href="#"><b>设</b><span>设置</span></a>
+  </nav>
+  <div class="proto-work">
+    <main class="world-page" id="world-page">
+      <div class="world-main">
+        <!-- 页头 -->
+        <header class="world-head">
+          <div>
+            <h1>世界观工作台</h1>
+            <div class="head-meta">
+              <span>作品 · <strong>北溟夜航</strong></span>
+              <span>故事锚点 · <strong>当前主线</strong></span>
+              <span>世界时间 · <strong>第三年前</strong></span>
+            </div>
+          </div>
+          <div class="head-actions">
+            <span class="head-search">搜索这个世界……</span>
+            <a class="btn" href="#s-search">搜索</a>
+            <a class="btn" href="#">资料编辑</a>
+            <a class="btn" href="#">地图</a>
+            <a class="btn" href="#">关系</a>
+          </div>
+        </header>
+
+        <div class="browse-only">
+        <!-- A. 世界脉搏 -->
+        <section class="pulse" aria-label="世界脉搏">
+          <div class="pulse-block is-rule">
+            <h3><span class="p-dot"></span>核心规则<span class="count">1</span></h3>
+            <ul>
+              <li><button>潮汐信令</button><small>生效中 · 北滨码头</small></li>
+              <li><button>查看规则如何支配这个世界</button><small>全部 →</small></li>
+            </ul>
+          </div>
+          <div class="pulse-block is-pressure">
+            <h3><span class="p-dot"></span>当前压力<span class="count">2</span></h3>
+            <ul>
+              <li><button>北溟漕帮</button><small>压力 · 维护费削减</small></li>
+              <li><button>钟塔维护争执</button><small>冲突 · 漕帮与守钟人</small></li>
+            </ul>
+          </div>
+          <div class="pulse-block is-open">
+            <h3><span class="p-dot"></span>未决问题<span class="count">2</span></h3>
+            <ul>
+              <li><button>渡口的传闻</button><small>传闻 · 不确定</small></li>
+              <li><button>钟声节律改制</button><small>待确认线索</small></li>
+            </ul>
+          </div>
+          <div class="pulse-block is-story">
+            <h3><span class="p-dot"></span>当前故事关联<span class="count">4</span></h3>
+            <ul>
+              <li><button>栈桥接头</button><small>单元 · 北滨码头</small></li>
+              <li><button>钟声线</button><small>北滨码头 · 暗线</small></li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- B. 世界系统与因果网络 -->
+        <section class="network-plate">
+          <h2 class="region-title">世界系统与因果网络 <small>由标签与既有事实投影 · 不足时仅显示局部网络</small>
+            <span class="region-aside"><a class="btn is-quiet" href="#">展开全图 →</a></span></h2>
+          <svg viewBox="0 0 980 320" width="100%" height="300" role="img" aria-label="世界对象关系网络">
+            <defs>
+              <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5c6d66"/></marker>
+              <marker id="arr-hot" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#a5433d"/></marker>
+              <marker id="arr-cop" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#a0742c"/></marker>
+            </defs>
+            <!-- 连线 -->
+            <line x1="248" y1="150" x2="152" y2="102" stroke="#5c6d66" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="176" y="114" font-size="12" fill="#4f6169">作用于</text>
+            <line x1="152" y1="212" x2="248" y2="170" stroke="#5c6d66" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="152" y="200" font-size="12" fill="#4f6169">维护</text>
+            <line x1="560" y1="72" x2="368" y2="132" stroke="#a5433d" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arr-hot)"/>
+            <text x="432" y="88" font-size="12" fill="#a5433d">冲突</text>
+            <line x1="560" y1="150" x2="368" y2="150" stroke="#a0742c" stroke-width="2" stroke-dasharray="2 4" marker-end="url(#arr-cop)"/>
+            <text x="426" y="142" font-size="12" fill="#a0742c">来源事件</text>
+            <line x1="356" y1="170" x2="528" y2="248" stroke="#5c6d66" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="420" y="228" font-size="12" fill="#4f6169">影响</text>
+            <line x1="608" y1="256" x2="792" y2="270" stroke="#5c6d66" stroke-width="2" marker-end="url(#arr)"/>
+            <text x="668" y="252" font-size="12" fill="#4f6169">持有</text>
+            <line x1="886" y1="248" x2="886" y2="96" stroke="#5c6d66" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <text x="894" y="176" font-size="12" fill="#4f6169">知情 · 已得知</text>
+            <!-- 节点 -->
+            <g font-size="13" text-anchor="middle" font-family="Noto Sans SC, sans-serif">
+              <g><rect x="290" y="128" rx="8" width="76" height="44" fill="#f6ead2" stroke="#a97b24" stroke-width="2"/><text x="328" y="155" fill="#24313a" font-weight="600">潮汐信令</text></g>
+              <g><rect x="70" y="72" rx="8" width="82" height="40" fill="#e5edf3" stroke="#5f83a1" stroke-width="2"/><text x="111" y="97" fill="#24313a">北滨码头</text></g>
+              <g><rect x="70" y="206" rx="8" width="82" height="40" fill="#e9e5f1" stroke="#857aa3" stroke-width="2"/><text x="111" y="231" fill="#24313a">北溟漕帮</text></g>
+              <g><rect x="560" y="44" rx="8" width="110" height="40" fill="#eceee9" stroke="#6f7a72" stroke-width="2" stroke-dasharray="5 3"/><text x="615" y="69" fill="#24313a">钟塔维护争执</text></g>
+              <g><rect x="560" y="132" rx="8" width="110" height="40" fill="#eceee9" stroke="#6f7a72" stroke-width="2"/><text x="615" y="157" fill="#24313a">潮汐信令确立</text></g>
+              <g><rect x="528" y="238" rx="8" width="80" height="40" fill="#f1e6da" stroke="#a06b3c" stroke-width="2"/><text x="568" y="263" fill="#24313a">黄铜钥匙</text></g>
+              <g><rect x="792" y="252" rx="8" width="76" height="40" fill="#e2ebe2" stroke="#2e6d5e" stroke-width="2"/><text x="830" y="277" fill="#24313a">林月如</text></g>
+              <g><rect x="836" y="56" rx="8" width="72" height="40" fill="#f3ecd6" stroke="#8a6d1f" stroke-width="2" stroke-dasharray="3 3"/><text x="872" y="81" fill="#8a6d1f">钟声真相</text></g>
+            </g>
+          </svg>
+          <div class="net-legend">
+            <span class="lg"><i></i>作用于 / 维护 / 影响 / 持有</span>
+            <span class="lg is-conflict"><i></i>冲突</span>
+            <span class="lg is-origin"><i></i>来源事件</span>
+            <span class="lg"><i style="border-top-style:dashed;border-color:#8a6d1f"></i>作者秘密（暗金，不进入角色上下文）</span>
+          </div>
+          <p class="net-note">连线来自对象标签与既有事实引用（如「知情：」「人物：」「单元：」）；没有证据的关系不画线。</p>
+        </section>
+
+        <!-- C + D. 历史与演化 / 右列在 world-page grid 中 -->
+        <section>
+          <h2 class="region-title">历史与演化 <small>世界时间 · 已确认 / 不确定 / 作者秘密 / 当前故事位置</small></h2>
+          <div class="evo-grid">
+            <ol class="evo-track">
+              <li class="is-uncertain"><span class="evo-marker"></span><button class="evo-title">钟声节律改制</button><small>七年前 · 不确定（草稿线索）</small></li>
+              <li><span class="evo-marker"></span><button class="evo-title">潮汐信令确立</button><small>第三年前 · 已确认事件</small></li>
+              <li class="is-now"><span class="evo-marker"></span><button class="evo-title">栈桥接头 — 当前故事所在位置</button><small>第三年秋 · 夜 · 单元「北滨码头」</small></li>
+              <li><span class="evo-marker"></span>
+                <div class="tray">
+                  <small style="color:var(--ink-soft)">时间未定位托盘</small>
+                  <div style="display:flex;gap:14px;margin-top:4px;flex-wrap:wrap">
+                    <button class="evo-title" style="font-size:var(--fs-aux)">渡口的传闻 · 传闻 · 时间未知</button>
+                    <button class="evo-title" style="font-size:var(--fs-aux);color:var(--sem-secret)">🔒 钟声的真相 · 作者秘密</button>
+                  </div>
+                </div>
+              </li>
+              <li><span class="evo-marker" style="background:var(--paper-raised);border:2px dashed var(--line-ink-soft)"></span><p class="evo-empty">规划轨迹：暂无作者规划数据（诚实空态）· 候选轨迹：暂无候选数据</p></li>
+            </ol>
+            <div class="tech-box tech">本轨只读组合既有事件与时间标签；未知时间进入未定位托盘，不伪造先后顺序。</div>
+          </div>
+        </section>
+
+        <!-- E. 类型化对象浏览 -->
+        <section class="browse-only">
+          <h2 class="region-title">对象浏览 <small>五类结构各不相同</small></h2>
+          <div class="type-tabs">
+            <button class="type-tab is-on">地点 · 1</button>
+            <button class="type-tab">规则 · 1</button>
+            <button class="type-tab">组织 · 1</button>
+            <button class="type-tab">物件 · 1</button>
+            <button class="type-tab">线索 · 6</button>
+          </div>
+          <div class="typed-grid">
+            <article class="typed-card is-location">
+              <header><strong>北滨码头</strong><span class="sem is-location">地点</span></header>
+              <div class="fld"><small>区域 / 空间</small><span>港区 · 雾夜</span></div>
+              <div class="fld"><small>当前状态</small><span class="state-on">已确认（现行）</span></div>
+              <div class="fld"><small>相关事件</small><span>栈桥接头 · 潮汐信令确立</span></div>
+              <div class="fld"><small>地图</small><a href="#">在地图中查看 →</a></div>
+            </article>
+            <article class="typed-card is-rule">
+              <header><strong>潮汐信令</strong><span class="sem is-rule">规则</span></header>
+              <div class="fld"><small>适用范围</small><span>北滨码头</span></div>
+              <div class="fld"><small>机制</small><span>守钟人观测潮位并敲钟；三短一长为大潮</span></div>
+              <div class="fld"><small>代价</small><span>船主受益，守钟人承担夜班</span></div>
+              <div class="fld"><small>例外</small><span>战时改用鼓声</span></div>
+              <div class="fld"><small>是否生效</small><span class="state-on">生效中</span></div>
+            </article>
+            <article class="typed-card is-faction">
+              <header><strong>北溟漕帮</strong><span class="sem is-faction">组织</span></header>
+              <div class="fld"><small>目标</small><span>把持漕运的旧帮派</span></div>
+              <div class="fld"><small>影响范围</small><span>港区航运 · 维护费</span></div>
+              <div class="fld"><small>关键关系</small><span>潮汐信令（维护）· 守钟人（争执）</span></div>
+              <div class="fld"><small>当前压力</small><span>维护费削减</span></div>
+            </article>
+            <article class="typed-card is-item">
+              <header><strong>黄铜钥匙</strong><span class="sem is-item">物件</span></header>
+              <div class="fld"><small>持有人</small><span>林月如</span></div>
+              <div class="fld"><small>所在地</small><span>北滨码头</span></div>
+              <div class="fld"><small>状态</small><span class="state-on">已确认（现行）</span></div>
+              <div class="fld"><small>转移事件</small><span>暂无转移记录</span></div>
+            </article>
+            <article class="typed-card is-clue">
+              <header><strong>渡口的传闻</strong><span class="sem is-clue">线索</span></header>
+              <div class="fld"><small>可信度</small><span>传闻 · 不确定</span></div>
+              <div class="fld"><small>知情角色</small><span>沈砚（怀疑）</span></div>
+              <div class="fld"><small>时间</small><span>未知</span></div>
+              <div class="fld"><small>关联事件</small><span>栈桥接头</span></div>
+            </article>
+          </div>
+        </section>
+        </div>
+
+        <!-- F. 搜索状态 -->
+        <div class="search-only">
+          <div class="search-head">
+            <span>搜索「<strong>潮汐信令如何运作</strong>」· 3 个结果</span>
+            <details class="adv-details"><summary>检索高级（模式 · 索引健康 · 权限排除）</summary>
+              <div class="tech-box tech" style="margin-top:6px">
+                <p style="margin:0 0 3px">检索模式：关键词（混合 · Embedding 未配置）</p>
+                <p style="margin:0 0 3px">持久索引：就绪 · 同一对象多区块已合并（去重 8 条）</p>
+                <p style="margin:0">权限与边界排除：传闻 · 不确定 7 条 · 作者备注 3 条</p>
+              </div>
+            </details>
+          </div>
+          <div class="search-group"><h3>直接依据（2）</h3>
+            <div class="result-card" style="margin-bottom:8px">
+              <header style="display:flex;gap:8px;align-items:baseline"><strong>潮汐信令</strong><span class="sem is-rule">规则</span><span class="chip is-jade">已确认事实</span></header>
+              <span class="why">为什么命中：关键词命中（运作 · 机制）</span>
+              <p class="summary">潮汐信令以钟声报潮。守钟人观测潮位并敲钟，三短一长表示大潮将至；船主受益，守钟人承担夜班，战时改用鼓声。</p>
+              <div class="res-foot"><span>来源：本机工程（markdown）</span><button class="btn is-quiet">打开详情</button></div>
+            </div>
+            <div class="result-card">
+              <header style="display:flex;gap:8px;align-items:baseline"><strong>潮汐信令确立</strong><span class="sem is-clue">线索</span><span class="chip is-jade">已确认事实</span></header>
+              <span class="why">为什么命中：关键词命中</span>
+              <p class="summary">沉船夜后设立信令。第三年前由守钟人一系确立，此后成为北滨码头通行规则。</p>
+              <div class="res-foot"><span>来源：本机工程（markdown）</span><button class="btn is-quiet">打开详情</button></div>
+            </div>
+          </div>
+          <div class="search-group"><h3>相关资料（1）</h3>
+            <div class="result-card">
+              <header style="display:flex;gap:8px;align-items:baseline"><strong>黄铜钥匙</strong><span class="sem is-item">物件</span><span class="chip is-jade">已确认事实</span></header>
+              <span class="why">为什么命中：标签命中（潮汐）</span>
+              <p class="summary">柄上刻着潮汐记号的黄铜钥匙，现由林月如持有，是解读钟声节律改制的实物线索。</p>
+              <div class="res-foot"><span>来源：本机工程（markdown）</span><button class="btn is-quiet">打开详情</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- D. 当前故事上下文（右列 / 1152 抽屉） -->
+      <aside class="story-rail" id="story-rail" aria-label="当前故事上下文">
+        <h3>当前故事上下文</h3>
+        <div class="now-node"><span class="dot"></span>栈桥接头 · 第三年秋 · 夜</div>
+        <dl>
+          <div><dt>相关地点</dt><dd><span class="sem is-location">北滨码头</span></dd></div>
+          <div><dt>相关规则</dt><dd><span class="sem is-rule">潮汐信令 · 生效中</span></dd></div>
+          <div><dt>相关组织</dt><dd><span class="sem is-faction">北溟漕帮 · 维护费削减</span></dd></div>
+          <div><dt>当前未决</dt><dd><span class="sem is-clue">渡口的传闻</span></dd></div>
+        </dl>
+        <div class="rail-links"><a href="#">打开地图</a><a href="#">打开关系</a><a href="#">打开事件线</a><a href="#">完整故事关联 →</a></div>
+        <p class="tech" style="margin:0">与上方「世界脉搏」互为摘要与全景：脉搏看世界当前状态，此处只看当前单元用到的部分。</p>
+      </aside>
+      <button class="rail-scrim" id="rail-scrim" aria-label="关闭故事上下文"></button>
+
+      <!-- 条目 Peek / Expanded（原型覆盖层） -->
+      <button class="dock-scrim" id="dock-scrim" aria-label="关闭条目详情"></button>
+      <aside class="world-dock" id="dock-peek" aria-label="条目简看">
+        <div class="dock-head"><strong>潮汐信令</strong><span class="sem is-rule">规则</span><span class="chip is-jade">已确认事实</span></div>
+        <div class="typed-card is-rule" style="border:none;padding:0">
+          <div class="fld"><small>摘要</small><span>潮汐信令以钟声报潮，三短一长为大潮将至。</span></div>
+          <div class="fld"><small>当前状态</small><span class="state-on">已确认（现行）· 第三年前确立</span></div>
+          <div class="fld"><small>当前故事关联</small><span>单元「北滨码头」· 栈桥接头期间持续生效</span></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px"><a class="btn is-primary" href="#s-expanded">展开工作台</a><button class="btn" onclick="closeDock()">关闭</button></div>
+      </aside>
+      <aside class="world-dock" id="dock-expanded" aria-label="条目工作台">
+        <div class="dock-head"><strong>潮汐信令</strong><span class="sem is-rule">规则</span><span class="chip is-jade">已确认事实</span></div>
+        <div class="dock-tabs">
+          <button class="dtab is-on">概览</button><button class="dtab">因果链</button><button class="dtab">演化时间</button><button class="dtab">关系与影响</button><button class="dtab">当前故事</button><button class="dtab">来源与证据</button>
+        </div>
+        <div class="typed-card is-rule" style="border:none;padding:0">
+          <div class="fld"><small>定义</small><span>潮汐信令以钟声报潮；三短一长表示大潮将至。</span></div>
+          <div class="fld"><small>适用范围</small><span>北滨码头</span></div>
+          <div class="fld"><small>机制</small><span>守钟人观测潮位并敲钟。</span></div>
+          <div class="fld"><small>代价</small><span>船主受益，守钟人承担夜班。</span></div>
+          <div class="fld"><small>例外</small><span>战时改用鼓声。</span></div>
+          <div class="fld"><small>是否生效</small><span class="state-on">生效中</span></div>
+        </div>
+        <p class="dock-track-label">因果链</p>
+        <ol class="causal-chain">
+          <li class="causal-node is-empty"><small>起源</small>沉船夜（详见「潮汐信令确立」）</li>
+          <li class="causal-arrow" aria-hidden="true">↓</li>
+          <li class="causal-node"><small>机制</small>守钟人观测潮位并敲钟，漕帮出资维护钟塔。</li>
+          <li class="causal-arrow" aria-hidden="true">↓</li>
+          <li class="causal-node"><small>当前</small>已确认（现行）· 维护费削减引发争执</li>
+          <li class="causal-arrow" aria-hidden="true">↓</li>
+          <li class="causal-node is-empty"><small>可能变化</small>尚未记录（诚实空态）</li>
+        </ol>
+        <p class="dock-track-label">演化时间</p>
+        <ol class="evo-track" style="border-left-color:var(--jade-line)">
+          <li><span class="evo-marker"></span><button class="evo-title">起源 · 潮汐信令确立</button><small>第三年前 · 已确认事件</small></li>
+          <li class="is-now"><span class="evo-marker"></span><button class="evo-title">当前状态 · 生效中</button><small>第三年秋 · 栈桥接头期间</small></li>
+          <li><span class="evo-marker" style="background:var(--paper-raised);border:2px dashed var(--line-ink-soft)"></span><p class="evo-empty">规划 / 候选：暂无数据（诚实空态）</p></li>
+        </ol>
+        <details style="margin-top:10px"><summary>来源与证据</summary><div class="tech-box tech"><p style="margin:0">来源：本机工程（markdown）· rule.潮汐信令 · 无 AI 补全</p></div></details>
+        <div style="margin-top:12px;display:flex;gap:8px"><button class="btn" onclick="closeDock()">收起为简卡</button><button class="btn" onclick="closeDock()">关闭</button></div>
+      </aside>
+    </main>
+    <button class="btn drawer-opener" id="rail-open">当前故事</button>
+  </div>
+</div>
+<script>
+  const body = document.body;
+  const wide = () => window.matchMedia("(min-width: 1281px)").matches;
+  const apply = () => {
+    const s = location.hash.replace("#s-", "") || "overview";
+    body.dataset.view = s === "search" ? "search" : "overview";
+    closeDock();
+    if (s === "peek") { document.getElementById("dock-peek").classList.add("is-open"); document.getElementById("dock-scrim").classList.add("is-open"); }
+    if (s === "expanded") { document.getElementById("dock-expanded").classList.add("is-open"); document.getElementById("dock-scrim").classList.add("is-open"); }
+    document.querySelectorAll("[data-state-link]").forEach(a => a.classList.toggle("is-active", a.getAttribute("href") === location.hash || (s === "overview" && a.getAttribute("href") === "#s-overview")));
+    if (wide()) document.getElementById("world-page").style.gridTemplateColumns = "";
+    if (s === "drawer") { document.getElementById("story-rail").classList.add("is-open"); document.getElementById("rail-scrim").classList.add("is-open"); }
+  };
+  const closeDock = () => { document.getElementById("dock-peek").classList.remove("is-open"); document.getElementById("dock-expanded").classList.remove("is-open"); document.getElementById("dock-scrim").classList.remove("is-open"); };
+  window.addEventListener("hashchange", apply);
+  document.getElementById("dock-scrim").addEventListener("click", closeDock);
+  document.getElementById("rail-open").addEventListener("click", () => { document.getElementById("story-rail").classList.add("is-open"); document.getElementById("rail-scrim").classList.add("is-open"); });
+  document.getElementById("rail-scrim").addEventListener("click", () => { document.getElementById("story-rail").classList.remove("is-open"); document.getElementById("rail-scrim").classList.remove("is-open"); });
+  apply();
+</script>
+</body>
+</html>

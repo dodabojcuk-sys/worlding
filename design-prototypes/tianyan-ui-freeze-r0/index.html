@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>天衍 UI 设计冻结 R0 · 原型总览</title>
+<link rel="stylesheet" href="./proto.css" />
+<style>
+.overview { max-inline-size: 1080px; margin: 0 auto; padding: var(--sp-6); display: grid; gap: var(--sp-5); }
+.overview h1 { font-family: var(--font-read); font-size: 1.6rem; margin: 0; color: var(--ink-strong); }
+.overview .lede { color: var(--ink-soft); font-size: var(--fs-body); margin: 0; }
+.frame-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-3); }
+.frame-card { display: block; background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-md); padding: 12px 14px; text-decoration: none; color: var(--ink); }
+.frame-card:hover { border-color: var(--jade); }
+.frame-card strong { display: block; font-size: var(--fs-body); margin-bottom: 2px; }
+.frame-card small { color: var(--ink-faint); font-size: var(--fs-status); }
+.tok-group { background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-md); padding: var(--sp-4); }
+.tok-group h3 { margin: 0 0 10px; font-size: var(--fs-aux); color: var(--ink-strong); }
+.tok-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.tok { display: grid; place-items: end start; gap: 4px; }
+.tok .sw { inline-size: 64px; block-size: 40px; border-radius: var(--r-sm); border: 1px solid var(--line-hair); }
+.tok small { font-size: var(--fs-tech); color: var(--ink-soft); }
+.type-scale div { padding: 2px 0; border-bottom: 1px dashed var(--line-hair); }
+.comp-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--line-hair); }
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <strong>设计冻结 R0 · 总览</strong>
+  <a href="nuwa.html">女娲原型</a>
+  <a href="world.html">世界观原型</a>
+  <span class="proto-note">静态隔离原型 · 不 import 生产代码 · 不调用产品 API</span>
+</div>
+<main class="overview">
+  <div>
+    <h1>天衍 UI 设计冻结 R0</h1>
+    <p class="lede">温润纸张 · 玉石青绿 · 墨线结构 · 少量铜金。本页汇总两个工作面的全部原型状态、组件清单与设计 token；创始人是目测通过前不进入生产实现。</p>
+  </div>
+
+  <section id="frames">
+    <h2 class="region-title">原型状态入口</h2>
+    <div class="frame-grid">
+      <a class="frame-card" href="nuwa.html#s-default"><strong>女娲 ① 1440 默认态</strong><small>正文舞台主视觉 · 一个主行动</small></a>
+      <a class="frame-card" href="nuwa.html#s-inspector"><strong>女娲 ② 检查器打开</strong><small>按作者问题组织 · 1152 为抽屉</small></a>
+      <a class="frame-card" href="nuwa.html#s-composer"><strong>女娲 ③ composer 展开</strong><small>四种作者意图 · 预留不可点</small></a>
+      <a class="frame-card" href="nuwa.html#s-candidates"><strong>女娲 ④ 候选可见</strong><small>未编入正文的支线</small></a>
+      <a class="frame-card" href="world.html#s-overview"><strong>世界观 ① 1440 总览</strong><small>脉搏 ≤150px + 因果网络 + 演化轨迹</small></a>
+      <a class="frame-card" href="world.html#s-search"><strong>世界观 ② 搜索结果</strong><small>第二状态 · 分组与为什么命中</small></a>
+      <a class="frame-card" href="world.html#s-peek"><strong>世界观 ③ 条目 Peek</strong><small>简看与展开工作台</small></a>
+      <a class="frame-card" href="world.html#s-expanded"><strong>世界观 ④ 条目 Expanded</strong><small>因果链节点 + 演化轨迹</small></a>
+    </div>
+    <p class="lede" style="margin-top:8px">1152 行为：女娲检查器与世界故事上下文均收为覆盖抽屉（缩小浏览器窗口或在 1152 截图中查看）。1440/1152 为同一响应式布局，非等比缩放。</p>
+  </section>
+
+  <section id="tokens">
+    <h2 class="region-title">设计 Token 总览</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--sp-3)">
+      <div class="tok-group"><h3>纸张底</h3><div class="tok-row">
+        <div class="tok"><div class="sw" style="background:#f2eee3"></div><small>--paper</small></div>
+        <div class="tok"><div class="sw" style="background:#faf7ee"></div><small>--paper-raised</small></div>
+        <div class="tok"><div class="sw" style="background:#eae4d4"></div><small>--paper-sunken</small></div>
+      </div></div>
+      <div class="tok-group"><h3>墨与主色</h3><div class="tok-row">
+        <div class="tok"><div class="sw" style="background:#24313a"></div><small>--ink</small></div>
+        <div class="tok"><div class="sw" style="background:#2e6d5e"></div><small>--jade</small></div>
+        <div class="tok"><div class="sw" style="background:#a0742c"></div><small>--copper 强调</small></div>
+      </div></div>
+      <div class="tok-group"><h3>语义色（低饱和）</h3><div class="tok-row">
+        <div class="tok"><div class="sw" style="background:#5f83a1"></div><small>地点 · 雾蓝</small></div>
+        <div class="tok"><div class="sw" style="background:#a97b24"></div><small>规则 · 琥珀</small></div>
+        <div class="tok"><div class="sw" style="background:#857aa3"></div><small>组织 · 灰紫</small></div>
+        <div class="tok"><div class="sw" style="background:#a06b3c"></div><small>物件 · 铜棕</small></div>
+        <div class="tok"><div class="sw" style="background:#6f7a72"></div><small>线索 · 中性灰</small></div>
+        <div class="tok"><div class="sw" style="background:#8a6d1f"></div><small>秘密 · 暗金</small></div>
+        <div class="tok"><div class="sw" style="background:#a5433d"></div><small>危险 · 克制红</small></div>
+      </div></div>
+      <div class="tok-group"><h3>字体层级</h3><div class="type-scale">
+        <div style="font-family:var(--font-read);font-size:1.4rem;font-weight:650">页面标题 · 1.4rem 宋</div>
+        <div style="font-size:.95rem;font-weight:650">区域标题 · .95rem</div>
+        <div style="font-family:var(--font-read);font-size:1rem;line-height:1.8">正文舞台 · 1rem 宋 · 行高 1.9</div>
+        <div style="font-size:.85rem">正文 · .85rem</div>
+        <div style="font-size:.73rem;color:var(--ink-soft)">辅助信息 · .73rem</div>
+        <div style="font-size:.68rem;color:var(--ink-faint)">状态 · .68rem</div>
+        <div class="tech">技术诊断 · .63rem · 淡色 + 虚线框，不与作者内容同权重</div>
+      </div></div>
+    </div>
+  </section>
+
+  <section id="components">
+    <h2 class="region-title">组件清单（与生产映射）</h2>
+    <div class="tok-group">
+      <div class="comp-row"><span class="chip is-jade">区域标题</span><span style="font-size:var(--fs-aux)">墨线下划式 region-title（生产：section 标题行，替代白卡套白卡）</span></div>
+      <div class="comp-row"><span class="chip is-jade">纸面板块 plate</span><span style="font-size:var(--fs-aux)">最多两层：板块 + 发丝线内行（对应生产 .plate / .wb-section）</span></div>
+      <div class="comp-row"><span class="btn is-primary">主行动</span><span class="btn">次级行动</span><span class="btn is-quiet">文字级</span><span class="btn is-danger">危险</span><span class="btn is-reserved">预留</span><span style="font-size:var(--fs-aux)">按钮五级（预留态显式标注，不可点）</span></div>
+      <div class="comp-row"><span class="chip">chip 状态</span><span class="chip is-copper">铜金提示</span><span class="chip is-secret">作者秘密</span><span class="chip is-ghost">空态</span><span style="font-size:var(--fs-aux)">状态同时用文字+形状，不只靠颜色</span></div>
+      <div class="comp-row"><span class="sem is-location">地点</span><span class="sem is-rule">规则</span><span class="sem is-faction">组织</span><span class="sem is-item">物件</span><span class="sem is-clue">线索</span><span class="sem is-secret">秘密</span><span style="font-size:var(--fs-aux)">语义对象徽标</span></div>
+      <div class="comp-row"><span class="run-state-dot"><span class="dot is-ok"></span>状态点</span><span style="font-size:var(--fs-aux)">Provider/运行状态缩为状态点（女娲）</span></div>
+      <div class="comp-row"><span class="causal-node" style="display:block;max-width:260px"><small>因果节点</small>守钟人观测潮位并敲钟。</span><span style="font-size:var(--fs-aux)">节点+箭头链（Dock 因果链）</span></div>
+      <div class="comp-row"><span class="evo-track" style="border-left:2px solid var(--jade-line);padding-left:18px;font-size:var(--fs-aux)">● 已确认 ─ ◌ 不确定 ─ ◉ 当前位置</span><span style="font-size:var(--fs-aux)">演化轨迹（多态标记）</span></div>
+      <div class="comp-row" style="border-bottom:none"><span class="tech-box tech">技术诊断框：淡色 + 虚线 + .63rem，折叠保留</span></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
