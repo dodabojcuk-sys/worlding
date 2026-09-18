@@ -81,11 +81,11 @@ export function WorldReferenceWorkspace(props: { runtime: TianyanShellRuntimeSta
     setPersistedStatus("loading");
     void (async () => {
       try {
-        let res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId ?? "")}&branchId=${encodeURIComponent("当前主线")}`);
+        let res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId || "当前主线")}&branchId=${encodeURIComponent("当前主线")}`);
         let json = await res.json().catch(() => null);
         if (json?.data?.status === "missing") {
-          await fetch(`/__local/story-studio/semantic-index/rebuild`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, workVersionId: props.runtime.workVersionId ?? null, branchId: "当前主线", generation: "none-v0" }) });
-          res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId ?? "")}&branchId=${encodeURIComponent("当前主线")}`);
+          await fetch(`/__local/story-studio/semantic-index/rebuild`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ projectId, workVersionId: props.runtime.workVersionId || "当前主线", branchId: "当前主线", generation: "none-v0" }) });
+          res = await fetch(`/__local/story-studio/semantic-index?projectId=${encodeURIComponent(projectId)}&workVersionId=${encodeURIComponent(props.runtime.workVersionId || "当前主线")}&branchId=${encodeURIComponent("当前主线")}`);
           json = await res.json().catch(() => null);
         }
         if (!active) return;
