@@ -101,7 +101,6 @@ export function createSemanticIndexService({ operations, projectPrivacyPolicy })
     const chunkInput = { ...object, informationNature: nature?.nature ?? null, knownTo, unknownTo };
     const chunker = object.type === "event" ? chunkEvent : chunkWorldObject;
     const policy = projectPrivacyPolicy ?? policyOf(projectId);
-    if (process.env.SEMANTIC_DEBUG === "1") console.log("[dbg] buildEntryChunks policy=", policy, "nature=", nature?.nature, "tags=", JSON.stringify(object.tags));
     const eligibility = resolveIndexEligibility({ informationNature: nature?.nature ?? null, objectType: object.type, tags: object.tags, projectPrivacyPolicy: policy });
     return chunker(chunkInput).map((chunk) => ({ ...chunk, eligibility: eligibility.eligibility, eligibilityReason: eligibility.reason }));
   }
@@ -135,7 +134,6 @@ export function createSemanticIndexService({ operations, projectPrivacyPolicy })
         const contentHash = contentHashOf(`${chunk.title}\n${chunk.lexicalText}\n${chunk.informationNature ?? ""}\n${chunk.eligibility}`);
         const previousEntry = previousEntries[chunk.sectionId];
         // DO_NOT_INDEX 的区块从不落盘；若上次缓存存在同名区块，计为 removed。
-        if (process.env.SEMANTIC_DEBUG === "1") console.log("[dbg] chunk eligibility=", JSON.stringify(chunk.eligibility));
         if (chunk.eligibility === "DO_NOT_INDEX") {
           stats.doNotIndex += 1;
           continue;
