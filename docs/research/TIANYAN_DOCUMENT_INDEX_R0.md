@@ -4,6 +4,8 @@
 >
 > 状态词表只用六个：`CURRENT` / `REFERENCE` / `HISTORICAL` / `EXPERIMENT` / `OBSOLETE` / `UNKNOWN`。判据写在 §0.3。
 >
+> 修订（2026-09-19，G-3.11 就地改）：§2.2 追加 `docs/research/TIANYAN_CODE_NAVIGATION_R0.md` 一行与其后的"追加行规则"。本文其余快照值（§0.1 份数/体积、§1 总账、§2.2 标题"15 份"）**按该规则保持 2026-09-18 原值不回填**。
+>
 > 所有事实带 `path:line`。工作树 = `codex/world-materials` @ `f77b800`；实现基线 = `origin/codex/semantic-world-r3` @ `93f41aa`（工作树落后 44 个提交）。除注明"仅基线"外，本文按工作树（开发者实际看到的目录）判定。
 
 ---
@@ -116,9 +118,12 @@
 | `docs/research/WEBNOVEL_WRITER_REFERENCE_MAP_R0_6.md` | 外部参考 | REFERENCE | 条件性——`:86-100` 指标未采集前不得选向量库；`:126-132` GPL 红线适用于任何借鉴；`:135` 自述"不是法律意见" |
 | `docs/research/TIANYAN_MAINLINE_LINEAGE_AND_CAPABILITY_REALITY_MAP_R0.json` | 对账快照 | OBSOLETE | 否——`recordedAt 2026-08-25`，`:71` 的 `fixture=character-fate` 全仓 0 命中，`:91` 「`/nuwa` FIXTURE_ONLY_UI」已被 NUWA-N1 推翻，`:10-16` 分支/领先数全部失效。**`项目目录导航.md:125` 称其为"来源漂移对账测试输入"是错的：无任何测试或脚本读取它** |
 | `docs/research/TIANYAN_SYSTEM_MAP_R0.md` | 系统地图（本轮前置产出） | REFERENCE | 是（作为定位图）——未提交、未经创始人确认，不覆盖 ROADMAP 与产品核心 |
+| `docs/research/TIANYAN_CODE_NAVIGATION_R0.md` | 代码入口地图（2026-09-19 追加） | REFERENCE | 是（作为读码定位图）——生产代码地图、A–D 文件分级、AI 阅读路径与高/低风险区分档；测量 ref 与口径差异写在它自己的状态块与 §7。只读产出，不覆盖 ROADMAP、产品核心与 `项目目录导航.md` |
 | `docs/product/TIANYAN_AGENT_EVOLUTION_ROADMAP_R0.md` | 能力演进研究 | REFERENCE | 条件性——同一：研究文档，非开工承诺，未提交 |
 | `docs/design/references/tianyan-r0-5-founder-character-directory.png` | 权威视觉参考 | REFERENCE | 是——`design-qa.md(app):44` 以 SHA-256 `0acbc7f2…` 钉住；但它现在是**第二个视觉目标竞争者之一**（§6.2） |
 | `docs/product/WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0.md` | 架构合同 | CURRENT | 是——**仅基线存在，本工作树没有**。`:34` 已写 R1 建立；`WorldReferenceWorkspace` / `worldReferenceProjection` / `characterAllowedReferences` 在工作树 0 命中 → 合并基线前不要按它施工 |
+
+> 追加行规则（2026-09-19 起）：本节及其后各表是 2026-09-18 快照。此后新增文档只**追加行**，不回填 §0.1/§1 的份数与体积计数——回填会让快照值与现测值互相冒充。现测反查：`git -c core.quotepath=false ls-files docs | grep '\.md$'`。
 
 ### 2.3 被 lint 硬钉住的 8 份 md（不能"顺手归档"）
 

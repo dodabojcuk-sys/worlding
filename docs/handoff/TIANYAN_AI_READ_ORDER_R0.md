@@ -5,6 +5,7 @@
 > 基线：不依赖代码改动。
 > 取代关系：—（本文是路由表，不是权威链成员；权威链见 §0.1）
 > 依据：2026-09-19 用户指令。输入＝快照/总入口/系统地图/施工路线/治理规则/项目目录导航 六份全文。
+> 修订（2026-09-19 第二次指令，G-3.11 就地改）：登记 `docs/research/TIANYAN_CODE_NAVIGATION_R0.md`——§2.1 插入第 4 步（原 4/5 顺延为 5/6）、§4 加第 14 行（entity-dock 未登记事实）、§5 由十文件改为十一文件（新 #8，原 8/9/10 顺延）。本文其余判断未改。
 > 落点：`docs/handoff/`（G-3.2 交接行）。本文自身是新增未跟踪件，入库走执行计划 §2.3 同款流程。
 
 **本文是什么**：把 52 万字现状文档压成一张"5 分钟读什么"的路由表。按需读 3 份 ≈ 3–7 万字符即可安全开工。
@@ -67,8 +68,9 @@ flowchart TD
 | 1 | `AGENTS.md` ＋ `项目目录导航.md` §5 | 唯一 Owner 表——你要动的字段有没有合法落点 |
 | 2 | `docs/handoff/TIANYAN_IMPLEMENTATION_ROADMAP_R0.md` §一、§二、§六 | **唯一能直接领任务的文件**：33 张卡（P0×7 / P1×9 / P2×6 / P3×11）、依赖图、每卡八行字段 |
 | 3 | `docs/research/TIANYAN_SYSTEM_MAP_R0.md` §4、§5 | Owner 图＋"已有但未接通"清单（防把合同当在线能力） |
-| 4 | `docs/architecture/FEATURE_INDEX.json` | 读 `remainingGap`，**不要读 `status`** |
-| 5 | 任务卡指向的 `BASE:src/...` 行号（用 `git show BASE:<path>` 读） | 真实代码 |
+| 4 | `docs/research/TIANYAN_CODE_NAVIGATION_R0.md` §1、§3、§4–§5 | **打开哪个文件**：生产代码地图（含 `path:line` 入口）、A–D 文件分级、高/低风险区分档；§4 判本次改动该用哪一档模型 |
+| 5 | `docs/architecture/FEATURE_INDEX.json` | 读 `remainingGap`，**不要读 `status`** |
+| 6 | 任务卡指向的 `BASE:src/...` 行号（用 `git show BASE:<path>` 读） | 真实代码 |
 
 红线：Node 22＋npm 10 才能跑十脚本；测试只用 Mock；契约测试红了**不许改断言**；不新增 Owner/依赖/第二写入者。
 
@@ -149,12 +151,13 @@ flowchart TD
 | 11 | 盘上没有 = 能力不存在 | 盘落后 BASE 44 提交，缺 `entity-dock/`、`characterContextPack.ts` 等全部新能力载体——读码用 `git show BASE:<path>` | 快照 §0.2、系统地图 §0.2 |
 | 12 | 4192 服务跑的 = 当前代码 | 它跑第三种构建；真实运行版本只看 `/__local/story-studio/health` 的 `codeRevision` | G-3.16、系统地图 §6 债务 3 |
 | 13 | 非 Node 22 也能宣称验收 | `canonical-runtime.mjs` 硬门禁；绕过结果只能用于定位，不得冒充验收 | 快照 §2.3 |
+| 14 | **entity-dock 是"第九空间"，或它是已登记能力** | 它只是挂载在所有 outlet 之上的叠加工作面（`ShellWorkspaceOutlet.tsx:105`），`FEATURE_INDEX.json` 与 `项目目录导航.md` 对它**零登记**。登记涉及功能索引、导航与 Shell Owner 三处，属治理改动：完成单独裁定前**不要自行补登记，也不要把它当第八/第九空间** | 代码导航 §1.5、§7.5、§7.7 |
 
 ---
 
 # 5. 最小上下文启动包
 
-第一次进入**只需要读这 10 个文件**（标注"节"的按节读，其余全文；合计约 5 分钟–半小时）：
+第一次进入**只需要读这 11 个文件**（标注"节"的按节读，其余全文；合计约 5 分钟–半小时）：
 
 | # | 文件 | 读哪节 | 得到什么 |
 | --- | --- | --- | --- |
@@ -165,11 +168,12 @@ flowchart TD
 | 5 | `docs/handoff/TIANYAN_CURRENT_STATE_SNAPSHOT_R0.md` | §1、§2、§5-C1/C2、§6 | 基线陷阱＋阻塞项＋可开工分档 |
 | 6 | `docs/handoff/TIANYAN_NEXT_CODEX_ENTRY_R0.md` | §1、§5、§6 | 禁令全集＋任务池 |
 | 7 | `docs/research/TIANYAN_SYSTEM_MAP_R0.md` | §2、§3、§4 | 八空间＋核心数据流＋Owner 图（两张 mermaid） |
-| 8 | `docs/research/TIANYAN_REPOSITORY_INDEX_R0.md` | 全文（短） | 空间地图＋"当前不要碰区域" |
-| 9 | `docs/architecture/FEATURE_INDEX.json` | `boundaries` ＋各条 `remainingGap` | 功能/Owner 登记现状 |
-| 10 | `docs/operations/TIANYAN_PROJECT_GOVERNANCE_R0.md` | §6（读取协议）、§7（收口清单）、§8（例外） | 游戏规则：怎么读、怎么收口、什么永远例外 |
+| 8 | `docs/research/TIANYAN_CODE_NAVIGATION_R0.md` | §0、§1、§3、§4–§6 | **打开哪个文件**：生产可达性实测、A–D 分级、高/低风险区与每领域第一读；#3 回答"谁负责"，本行回答"从哪个文件看起、该用哪档模型"。具体计数只在那份文档里，此处不复制（G-3.10） |
+| 9 | `docs/research/TIANYAN_REPOSITORY_INDEX_R0.md` | 全文（短） | 空间地图＋"当前不要碰区域" |
+| 10 | `docs/architecture/FEATURE_INDEX.json` | `boundaries` ＋各条 `remainingGap` | 功能/Owner 登记现状 |
+| 11 | `docs/operations/TIANYAN_PROJECT_GOVERNANCE_R0.md` | §6（读取协议）、§7（收口清单）、§8（例外） | 游戏规则：怎么读、怎么收口、什么永远例外 |
 
-> 跟踪状态提醒（2026-09-19 快照）：#1–#4、#9 本就在库；#5、#6、#7 已经 `8093bc9` 入库；#8、#10 尚未入库，克隆环境里暂缺时按 §2.5 任务路径补读替代源。
+> 跟踪状态提醒（2026-09-19 现测，`git log -1 --format=%h -- <path>`）：#1–#4、#9、#10 本就在库（#9 经 `9ba6ae3`）；#5、#6、#7 已经 `8093bc9` 入库；**#8、#11 尚未入库**，克隆环境里暂缺时按 §2.5 任务路径补读替代源。
 
 **动手前最后一步**（G-6.3，全部实测，任一项与任务卡不符即停）：
 
@@ -183,4 +187,4 @@ git -c core.quotepath=false ls-files --others --exclude-standard | wc -l
 
 ---
 
-**本文边界**：只做路由与防误判，不含新设计、不裁决 C1/C2/Q/D/A/K 任何一条；失效条件——C1/C2 任一被裁定、BASE 前移、或 §5 十文件中任一被取代时，就地重写本文（G-3.11，不另起"R1"）。
+**本文边界**：只做路由与防误判，不含新设计、不裁决 C1/C2/Q/D/A/K 任何一条（§4-14 的 entity-dock 行是**事实登记**，不构成裁定）；失效条件——C1/C2 任一被裁定、BASE 前移、或 §5 十一文件中任一被取代时，就地重写本文（G-3.11，不另起"R1"）。
