@@ -14,18 +14,22 @@ import type { CharacterMemoryQueryProjection } from "../../../../../src/storyCon
 import { projectWorldReferences, WORLD_REFERENCE_CATEGORY_LABELS } from "../../../../../src/storyContracts/worldReferenceProjection.ts";
 import { buildCharacterContextPack, type CharacterContextPack } from "../../../../../src/storyContracts/characterContextPack.ts";
 import { attachTimeFrames, projectCausalEvolution, type CausalEvolutionCard } from "../../../../../src/storyContracts/worldCausalEvolution.ts";
+import { buildCharacterStateInspectorView, type CharacterStateInspectorView } from "./characterStateInspectorPresentation.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { CharacterMemoryQuery, FormalRelations, CharacterKnowledgePreview } from "../../product-shell/project-directory/character/CharacterInspectorCard";
 import {
   closeEntityDock,
+  ENTITY_DOCK_CHARACTER_TABS,
   getEntityDockState,
   setEntityDockPinned,
   setEntityDockStatus,
+  setEntityDockTab,
   subscribeEntityDock,
+  type EntityDockCharacterTab,
 } from "./entityInspectorDockStore";
 
-const DOCK_TABS = ["总览", "档案", "心理与状态", "记忆", "关系与知情", "人生与事件", "演化与命运", "Agent 运行", "来源与权限"] as const;
-type DockTab = (typeof DOCK_TABS)[number];
+const DOCK_TABS = ENTITY_DOCK_CHARACTER_TABS;
+type DockTab = EntityDockCharacterTab;
 
 interface CharacterDockRead {
   title: string;
@@ -49,12 +53,13 @@ export function EntityInspectorDock(props: { runtime: TianyanShellRuntimeState }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [state.status, state.pinned]);
   if (state.status === "closed" || !props.runtime.project || !state.objectId) return null;
-  if (state.kind === "character") return <CharacterEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} sceneTitle={state.sceneTitle} />;
+  if (state.kind === "character") return <CharacterEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} sceneTitle={state.sceneTitle} tab={state.tab} />;
   if (state.kind === "world-reference") return <WorldEntityDock runtime={props.runtime} objectId={state.objectId} status={state.status} pinned={state.pinned} />;
   return null;
 }
 
-function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: string; status: "peek" | "expanded"; pinned: boolean; sceneTitle: string | null }) {
+function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: string; status: "peek" | "expanded"; pinned: boolean; sceneTitle: string | null; tab: DockTab }) {
+  const tab = props.tab;
   const projectId = props.runtime.project?.id ?? null;
   const workVersionId = props.runtime.workVersionId ?? null;
   const [read, setRead] = useState<CharacterDockRead | null>(null);
@@ -64,7 +69,6 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
   const [memoryQuery, setMemoryQuery] = useState<CharacterMemoryQueryProjection | null>(null);
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [worldObjects, setWorldObjects] = useState<unknown>(null);
-  const [tab, setTab] = useState<DockTab>("总览");
 
   useEffect(() => {
     let active = true;
@@ -113,6 +117,14 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       visibleEventTitles: (knowledge?.visibleEvents ?? []).map((event) => event.title),
     });
   }, [read, references, relations, memoryQuery, knowledge, props.objectId, props.sceneTitle]);
+  const stateView = useMemo<CharacterStateInspectorView>(() => buildCharacterStateInspectorView({
+    // 取不到知情投影时按最保守的读者范围处理，不把读取失败当成无知。
+    observerKind: knowledge?.observer.kind ?? "character",
+    visibleEvents: (knowledge?.visibleEvents ?? []).map((event) => ({ eventId: event.eventId, title: event.title, knowledgeState: event.knowledgeState, body: event.body })),
+    hiddenCount: knowledge?.hiddenCount ?? 0,
+    projectionRevision: knowledge?.characterStateProjectionRevision ?? null,
+    exclusions: contextPack?.excluded ?? []
+  }), [knowledge, contextPack]);
 
   if (failed) return <aside className="entity-dock is-peek" data-testid="entity-inspector-dock" role="complementary" aria-label="详情工作台">
     <DockHeader title="详情工作台" status="peek" pinned={false} onPin={() => undefined} onExpand={() => undefined} onClose={closeEntityDock} />
@@ -152,12 +164,12 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       <button type="button" className="entity-dock-expand" onClick={() => setEntityDockStatus("expanded")}>展开角色工作台</button>
     </div> : <>
       <nav className="entity-dock-tabs" role="tablist" aria-label="角色工作台页签">
-        {DOCK_TABS.map((name) => <button key={name} type="button" role="tab" aria-selected={tab === name} onClick={() => setTab(name)}>{name}</button>)}
+        {DOCK_TABS.map((name) => <button key={name} type="button" role="tab" aria-selected={tab === name} onClick={() => setEntityDockTab(name)}>{name}</button>)}
       </nav>
       <div className="entity-dock-body" role="tabpanel" data-testid="entity-dock-body">
         {tab === "总览" ? <OverviewTab objectId={props.objectId} read={read} relations={relations} objectLabels={objectLabels} pack={contextPack} /> : null}
         {tab === "档案" ? <div className="entity-dock-section"><p>档案字段以角色目录编辑器为唯一编辑入口；此处只读展示。</p><dl><div><dt>角色核心</dt><dd>{read.profileCore ?? "未设置"}</dd></div><div><dt>底线</dt><dd>{read.boundaries ?? "未设置"}</dd></div></dl><a href={`/world?worldView=character&objectId=${encodeURIComponent(props.objectId)}`}>在角色目录中编辑档案</a></div> : null}
-        {tab === "心理与状态" ? <div className="entity-dock-section"><p>状态投影合同（tianyan-character-state-projection/v1）已定义，但当前没有生产喂入；本面板不做无来源推断。<small>非心理测评。</small></p></div> : null}
+        {tab === "心理与状态" ? <CharacterStateTab view={stateView} sourced={Boolean(knowledge)} /> : null}
         {tab === "记忆" ? <CharacterMemoryQuery query={memoryQuery} error={memoryError} /> : null}
         {tab === "关系与知情" ? <div className="entity-dock-section"><FormalRelations objectId={props.objectId} relations={relations} graphRelationCount={0} objectLabels={objectLabels} /><CharacterKnowledgePreview projection={knowledge} /></div> : null}
         {tab === "人生与事件" ? <div className="entity-dock-section"><p>{lastParticipation}。</p><a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}`}>在事件线查看</a></div> : null}
@@ -170,6 +182,30 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       </div>
     </>}
   </aside>;
+}
+
+/** 只读展示知情投影已经跨界的内容；缺维度、缺时点都如实留白，不做推断。 */
+function CharacterStateTab(props: { view: CharacterStateInspectorView; sourced: boolean }) {
+  const rows = (lines: CharacterStateInspectorView["knowledge"]) => lines.length
+    ? <dl>{lines.map((line) => <div key={line.eventId}><dt>{line.label}</dt><dd>{line.statement}</dd></div>)}</dl>
+    : <p><small>本范围内暂无有据条目。</small></p>;
+  const exclusions = props.view.exclusions.filter((entry) => entry.count > 0);
+  const anchors = [...props.view.knowledge, ...props.view.belief, ...props.view.contradictions];
+  return <div className="entity-dock-section" data-testid="character-state-inspector">
+    {!props.sourced ? <p role="status">未取到该角色的知情范围投影；这里不把读取失败当成无知。<small>非心理测评。</small></p> : <>
+      <p><small>来源</small>逐行来自该角色的知情投影；本面板不做无来源推断。<small>非心理测评。</small></p>
+      <h4>他知道（{props.view.knowledge.length}）</h4>
+      {rows(props.view.knowledge)}
+      <h4>他相信或怀疑（{props.view.belief.length}）</h4>
+      {rows(props.view.belief)}
+      {props.view.contradictions.length ? <><h4>互相矛盾（{props.view.contradictions.length}）</h4>{rows(props.view.contradictions)}</> : null}
+      <p><small>他不知道</small>{props.view.unknown.text}</p>
+      <p><small>未进入其上下文</small>{exclusions.length ? exclusions.map((entry) => `${entry.label} ${entry.count} 项`).join(" · ") : "无"}</p>
+      <p><small>截至</small>{props.view.asOfText}</p>
+      <p><small>状态版本</small>{props.view.projectionRevision ?? "尚无派生状态"}</p>
+      {anchors.length ? <details><summary>来源标识</summary>{anchors.map((line) => <p key={line.eventId}><code>{line.sourceAnchor}</code></p>)}</details> : null}
+    </>}
+  </div>;
 }
 
 function OverviewTab(props: { objectId: string; read: { title: string; subtype: string | null; profileCore: string | null; participations: Array<{ eventId: string }> }; relations: RelationReadProjectionR0[]; objectLabels: Map<string, string>; pack: CharacterContextPack | null }) {

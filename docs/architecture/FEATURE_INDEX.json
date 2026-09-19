@@ -1219,6 +1219,7 @@
         "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx",
         "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx",
         "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx",
         "src/storyContracts/characterContextPack.ts",
         "src/storyContracts/worldReferenceProjection.ts"
       ],
@@ -1235,13 +1236,14 @@
       "providerDependency": "none; the workbench and its context pack preview issue zero Provider requests and never display credentials.",
       "tests": [
         "tests/storyContracts/characterContextPack.test.ts",
-        "tests/storyContracts/worldReferenceProjection.test.ts"
+        "tests/storyContracts/worldReferenceProjection.test.ts",
+        "tests/storyStudio/characterStateInspectorEntryR0.test.ts"
       ],
       "legacyProvenance": [
         "CharacterInspectorCard memory/relation/knowledge components",
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
-      "remainingGap": "R0 local slice: character-level provider configuration owner, state/fate production feeds and the character-directory entry migration remain open; no real Provider calls."
+      "remainingGap": "R0 local slice: the character state tab consumes the real knowledge/belief read-only projection already exposed by the knowledge-view owner, and the central character workspace now opens this same dock expanded on that tab through the store-held tab contract (no new crossing field, no second view, no write, no Provider call); character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry in favour of this entry remain open; no real Provider calls."
     },
     {
       "id": "hybrid-semantic-retrieval-r3",
