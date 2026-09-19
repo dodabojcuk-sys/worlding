@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>女娲作者工作面 · 设计冻结 R1 原型</title>
+<link rel="stylesheet" href="./proto.css" />
+<style>
+/* ============ 女娲 R1 原型样式 ============ */
+.nuwa-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--sp-5); padding: var(--sp-4) var(--sp-6); align-items: stretch; min-height: calc(100vh - 30px); }
+.nuwa-page.no-inspector { grid-template-columns: minmax(0, 1fr); }
+.nuwa-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-3); height: calc(100vh - 30px - 32px); }
+
+/* A. 场景头：<=96px，标题主视觉 */
+.scene-head { display: flex; align-items: center; gap: var(--sp-4); padding-block: var(--sp-1); min-block-size: 88px; }
+.scene-head-info { min-width: 0; }
+.scene-kicker { display: flex; align-items: center; gap: var(--sp-3); font-size: var(--fs-status); color: var(--ink-faint); flex-wrap: wrap; }
+.scene-switch { display: inline-flex; align-items: center; gap: 4px; }
+.scene-switch button { border: 1px solid var(--line-hair); background: var(--paper-raised); border-radius: var(--r-sm); inline-size: 20px; block-size: 20px; line-height: 1; cursor: pointer; color: var(--ink-soft); }
+.scene-title { margin: 2px 0 0; font-family: var(--font-read); font-size: 1.45rem; font-weight: 650; color: var(--ink-strong); letter-spacing: 0.02em; }
+.scene-meta { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-top: 5px; font-size: var(--fs-aux); color: var(--ink-soft); }
+.scene-meta .meta-item strong { color: var(--ink); font-weight: 600; }
+.scene-thread { display: flex; align-items: center; margin-top: 7px; }
+.scene-thread .thread-node { inline-size: 9px; block-size: 9px; border-radius: 50%; background: var(--paper-raised); border: 2px solid var(--jade); }
+.scene-thread .thread-node.is-past { background: var(--jade); }
+.scene-thread .thread-node.is-here { inline-size: 11px; block-size: 11px; border-color: var(--copper); box-shadow: 0 0 0 3px var(--copper-soft); }
+.scene-thread .thread-line { flex: 0 0 42px; block-size: 1px; background: var(--jade-line); }
+.scene-thread .thread-label { font-size: var(--fs-status); color: var(--ink-faint); margin-left: 6px; }
+.scene-cast { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
+.cast-member { text-align: center; }
+.cast-avatar { inline-size: 40px; block-size: 40px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-read); font-weight: 650; color: #fff; background: var(--jade); }
+.cast-member.is-secondary .cast-avatar { background: var(--sem-faction); }
+.cast-member small { display: block; margin-top: 2px; font-size: var(--fs-status); color: var(--ink-soft); }
+.cast-add { inline-size: 34px; block-size: 34px; border-radius: 50%; border: 1px dashed var(--line-ink-soft); background: transparent; color: var(--ink-faint); font-size: 1rem; cursor: pointer; }
+.run-state-dot { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-status); color: var(--ink-soft); padding: 2px 10px; border-radius: 999px; background: var(--paper-sunken); }
+
+/* Run 控制条 */
+.run-strip { display: flex; align-items: center; gap: var(--sp-3); padding: 4px var(--sp-4); background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); flex: none; }
+.run-strip .run-actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.run-strip .run-budget { font-size: var(--fs-status); color: var(--ink-faint); }
+.run-strip .run-more { display: none; }
+
+/* B. 正文舞台 */
+.stage-plate { background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.stage-tabs { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-5); border-bottom: 1px solid var(--line-hair); font-size: var(--fs-aux); flex: none; }
+.stage-tabs .tab { padding: 3px 12px; border-radius: var(--r-sm); color: var(--ink-soft); cursor: pointer; border: none; background: transparent; font-size: var(--fs-aux); }
+.stage-tabs .tab.is-on { background: var(--jade-soft); color: var(--jade-deep); font-weight: 600; }
+.stage-tabs .stage-status { margin-left: auto; display: inline-flex; gap: var(--sp-3); align-items: center; color: var(--ink-faint); font-size: var(--fs-status); }
+.stage { flex: 1 1 auto; min-height: 0; overflow: auto; max-inline-size: 720px; margin: 0 auto; padding: var(--sp-4) var(--sp-5); width: 100%; }
+.block { position: relative; margin: 0 0 var(--sp-4); padding-inline-start: 48px; }
+.block .block-kind { position: absolute; inset-inline-start: 0; inline-size: 40px; text-align: left; font-size: var(--fs-status); color: var(--ink-faint); padding-top: 4px; }
+.block p { margin: 0; font-family: var(--font-read); font-size: var(--fs-read); line-height: 1.9; color: var(--ink); }
+.block.is-environment p, .block.is-psychology p { color: var(--ink-soft); font-size: 0.94rem; }
+.block.is-dialogue { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: var(--sp-3); }
+.block.is-dialogue .dlg-avatar { inline-size: 34px; block-size: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 0.8rem; font-weight: 650; margin-top: 4px; }
+.block.is-dialogue .dlg-name { font-size: var(--fs-aux); font-weight: 650; color: var(--ink-strong); }
+.block.is-dialogue p { margin-top: 1px; }
+.block.is-candidate { border-inline-start: 2px dashed var(--copper); padding-inline-start: var(--sp-3); }
+.block.is-candidate .candidate-tag { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-status); color: var(--copper-deep); background: var(--copper-soft); border-radius: 999px; padding: 1px 10px; margin-bottom: 4px; }
+.candidate-weave { display: flex; align-items: center; gap: var(--sp-2); color: var(--copper); margin: calc(-1 * var(--sp-2)) 0 var(--sp-2) 8px; }
+.candidate-weave .weave-line { block-size: 1px; background: repeating-linear-gradient(90deg, var(--copper) 0 5px, transparent 5px 9px); inline-size: 46px; }
+.candidate-weave small { font-size: var(--fs-status); color: var(--copper-deep); }
+
+/* C. 紧凑走向栏（R1） */
+.direction-bar { display: flex; align-items: center; gap: var(--sp-4); min-block-size: 84px; max-block-size: 96px; padding: 8px var(--sp-4); background: var(--paper-deep); border: 1px solid var(--line-hair); border-radius: var(--r-lg); flex: none; }
+.direction-bar .dir-current { flex: 1; min-width: 0; }
+.direction-bar .dir-current h4 { margin: 0 0 4px; font-size: var(--fs-body); color: var(--ink-strong); display: flex; align-items: center; gap: 8px; }
+.direction-bar .dir-current p { margin: 0; font-size: var(--fs-aux); color: var(--ink-soft); line-height: 1.6; }
+.direction-bar .dir-others { display: flex; gap: var(--sp-3); align-items: center; flex: none; }
+.direction-bar .dir-short { display: flex; flex-direction: column; gap: 1px; font-size: var(--fs-status); color: var(--ink-faint); }
+.direction-bar .dir-short strong { color: var(--ink-soft); font-weight: 500; }
+.direction-bar .dir-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+
+/* D. 展开方向比较（R1） */
+.direction-compare { display: none; gap: var(--sp-3); padding: var(--sp-3) 0; }
+.direction-compare.is-open { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.compare-card { position: relative; text-align: left; background: var(--paper-raised); border: 1px solid var(--line-hair); border-top: 2px solid var(--copper); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); cursor: pointer; }
+.compare-card.is-chosen { border-color: var(--jade); border-top-color: var(--jade); box-shadow: 0 0 0 1px var(--jade); }
+.compare-card h4 { margin: 0 0 4px; font-size: var(--fs-body); color: var(--ink-strong); display: flex; align-items: center; gap: 8px; }
+.compare-card h4 .abcd { inline-size: 20px; block-size: 20px; border-radius: 50%; background: var(--paper-sunken); color: var(--ink-soft); display: grid; place-items: center; font-size: var(--fs-status); font-weight: 650; }
+.compare-card.is-chosen h4 .abcd { background: var(--jade); color: #fff; }
+.compare-card .cmp-body { margin: 0 0 8px; font-size: var(--fs-aux); color: var(--ink); line-height: 1.65; }
+.compare-card .cmp-meta { display: grid; gap: 4px; font-size: var(--fs-status); color: var(--ink-soft); }
+
+/* E. Composer */
+.composer { position: sticky; bottom: 0; background: var(--paper); padding: var(--sp-2) 0 var(--sp-1); border-top: 1px solid var(--line-hair); flex: none; }
+.composer-intents { display: flex; gap: var(--sp-2); margin-bottom: 4px; flex-wrap: wrap; }
+.intent-chip { padding: 3px 13px; border-radius: 999px; border: 1px solid var(--line-ink-soft); background: var(--paper-raised); color: var(--ink-soft); font-size: var(--fs-aux); cursor: pointer; }
+.intent-chip.is-on { background: var(--jade); border-color: var(--jade); color: #fff; font-weight: 600; }
+.intent-chip.is-reserved { border-style: dashed; color: var(--ink-faint); cursor: default; }
+.intent-chip.is-reserved::after { content: "预留"; font-size: var(--fs-status); margin-left: 4px; color: var(--ink-faint); }
+.composer-row { display: flex; align-items: flex-end; gap: var(--sp-2); }
+.composer-box { flex: 1; min-width: 0; border: 1px solid var(--line-ink-soft); border-radius: var(--r-md); background: var(--paper-raised); }
+.composer-box:focus-within { border-color: var(--jade); }
+.composer-box textarea { width: 100%; border: none; background: transparent; resize: none; font-family: var(--font-ui); font-size: var(--fs-body); color: var(--ink); padding: 7px 12px 2px; outline: none; }
+.composer-tools { display: flex; align-items: center; gap: var(--sp-3); padding: 0 12px 5px; color: var(--ink-faint); font-size: var(--fs-status); flex-wrap: wrap; }
+.composer-tools button { border: none; background: transparent; color: var(--ink-soft); font-size: var(--fs-status); cursor: pointer; padding: 0; }
+.composer-tools button:hover { color: var(--jade-deep); }
+.composer-expanded { display: none; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); margin-top: var(--sp-3); }
+.composer.is-expanded .composer-expanded { display: grid; }
+.cx-block h5 { margin: 0 0 6px; font-size: var(--fs-aux); color: var(--ink-strong); }
+.cx-block ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--fs-aux); color: var(--ink-soft); }
+.cx-block li { display: flex; align-items: center; gap: 6px; }
+
+/* F. 右侧检查器 */
+.inspector { background: var(--paper-raised); border: 1px solid var(--line-hair); border-radius: var(--r-lg); padding: var(--sp-4); position: sticky; top: 42px; max-block-size: calc(100vh - 72px); overflow: auto; }
+.inspector h3 { margin: 0 0 2px; font-size: var(--fs-region); color: var(--ink-strong); }
+.inspector .insp-sub { font-size: var(--fs-status); color: var(--ink-faint); margin: 0 0 var(--sp-3); }
+.insp-q { padding-block: var(--sp-2); border-top: 1px solid var(--line-hair); }
+.insp-q:first-of-type { border-top: 2px solid var(--line-ink); }
+.insp-q h4 { margin: 0 0 5px; font-size: var(--fs-aux); color: var(--jade-deep); }
+.insp-q p, .insp-q ul { margin: 0; font-size: var(--fs-aux); color: var(--ink); line-height: 1.65; }
+.insp-q ul { padding-left: 1.1em; }
+.insp-q .heard-line { color: var(--ink-soft); }
+.insp-q .heard-line strong { color: var(--ink); font-weight: 600; }
+.insp-conflict { background: var(--copper-soft); border-radius: var(--r-sm); padding: 6px 10px; color: var(--copper-deep); }
+.inspector details { margin-top: var(--sp-3); }
+.inspector summary { font-size: var(--fs-status); color: var(--ink-faint); cursor: pointer; }
+.inspector-opener { display: none; }
+
+@media (max-width: 1280px) {
+  .nuwa-page { grid-template-columns: minmax(0, 1fr) !important; padding: var(--sp-4); }
+  .inspector { position: fixed; z-index: 70; inset-block: 30px 0; inset-inline: auto 0; inline-size: min(340px, 88vw); border-radius: 0; border: none; box-shadow: var(--shadow-drawer); transform: translateX(105%); transition: transform 0.18s ease; }
+  .inspector.is-open { transform: none; }
+  .inspector-opener { display: inline-flex; }
+  .stage { max-inline-size: 680px; }
+  .insp-scrim { display: none; position: fixed; inset: 30px 0 0 0; z-index: 60; background: rgba(36, 49, 58, 0.24); border: none; inline-size: 100%; }
+  .insp-scrim.is-open { display: block; }
+  .run-strip .run-actions { display: none; }
+  .run-strip .run-more { display: inline-flex; }
+}
+@media (min-width: 1281px) { .insp-scrim { display: none !important; } }
+
+/* 状态切换 */
+body[data-inspector="closed"] .inspector { display: none; }
+body[data-composer="compact"] .composer-expanded { display: none !important; }
+body[data-candidates="compact"] .direction-compare { display: none !important; }
+</style>
+</head>
+<body data-inspector="closed" data-composer="compact" data-candidates="compact">
+<div class="proto-bar">
+  <strong>原型 · 女娲 R1</strong>
+  <a href="#s-default" data-state-link>① 默认态</a>
+  <a href="#s-inspector" data-state-link>② 检查器</a>
+  <a href="#s-composer" data-state-link>③ composer 展开</a>
+  <a href="#s-candidates" data-state-link>④ 展开方向比较</a>
+  <span class="proto-note">DESIGN ONLY · 不接入生产 · 北溟夜航夹具</span>
+</div>
+<div class="proto-shell">
+  <nav class="proto-rail" aria-label="Shell 空间示意">
+    <div class="rail-brand">天衍<span> Worlding</span></div>
+    <a href="#"><b>世</b><span>世界</span></a>
+    <a href="#"><b>意</b><span>天意</span></a>
+    <a href="#"><b>线</b><span>事件线</span></a>
+    <a href="#"><b>元</b><span>多元</span></a>
+    <a href="#" class="on"><b>娲</b><span>女娲</span></a>
+    <a href="#"><b>料</b><span>资料</span></a>
+    <a href="#"><b>创</b><span>创作</span></a>
+    <a href="#"><b>据</b><span>数据</span></a>
+    <div class="rail-gap"></div>
+    <a href="#"><b>设</b><span>设置</span></a>
+  </nav>
+  <div class="proto-work">
+    <main class="nuwa-page no-inspector" id="nuwa-page">
+      <div class="nuwa-main">
+        <!-- A. 场景头 -->
+        <header class="scene-head">
+          <div class="scene-head-info">
+            <div class="scene-kicker">
+              <span class="scene-switch"><button aria-label="上一场景">‹</button><span>2 / 3</span><button aria-label="下一场景">›</button></span>
+              <span>当前场景 · 排演中</span>
+              <span class="run-state-dot"><span class="dot is-ok"></span>本地工程演练 · 0 Provider</span>
+            </div>
+            <h1 class="scene-title">雨夜的栈桥接头</h1>
+            <div class="scene-meta">
+              <span class="meta-item"><strong>北滨码头</strong></span>
+              <span class="meta-item">第三年秋 · 夜</span>
+              <span class="meta-item">分支 · 当前主线</span>
+              <span class="meta-item">视角 · 作者全知</span>
+              <span class="chip is-jade">关键剧情</span>
+            </div>
+            <div class="scene-thread" aria-hidden="true">
+              <span class="thread-node is-past"></span><span class="thread-line"></span>
+              <span class="thread-node is-here"></span><span class="thread-line"></span>
+              <span class="thread-node"></span>
+              <small class="thread-label">潮汐信令确立 → 雨夜的栈桥接头 → 渡口的传闻（未决）</small>
+            </div>
+          </div>
+          <div class="scene-cast">
+            <div class="cast-member"><div class="cast-avatar">林</div><small>林月如</small></div>
+            <div class="cast-member is-secondary"><div class="cast-avatar">沈</div><small>沈砚</small></div>
+            <button class="cast-add" aria-label="更换出场角色">＋</button>
+          </div>
+        </header>
+
+        <!-- B. Run 控制条 -->
+        <div class="run-strip" role="toolbar" aria-label="推演控制">
+          <button class="btn is-primary" id="run-primary">继续推演</button>
+          <span class="run-budget">第 2 步 / 最多 6 步 · 模型发送 1 / 12 · 暂停后可恢复</span>
+          <div class="run-actions">
+            <button class="btn is-quiet" title="单步">单步</button>
+            <button class="btn is-quiet" title="暂停">暂停</button>
+            <button class="btn is-quiet" title="查看推演过程">查看推演过程</button>
+            <button class="btn is-danger" title="停止">停止</button>
+            <button class="btn is-quiet" title="回放">回放</button>
+          </div>
+          <button class="btn is-quiet run-more" title="更多运行操作">⋯</button>
+        </div>
+
+        <!-- C. 正文舞台 -->
+        <section class="stage-plate">
+          <div class="stage-tabs">
+            <button class="tab is-on">场景正文</button>
+            <button class="tab">推演过程</button>
+            <span class="stage-status"><span class="dot is-ok"></span>自动保存于 14:24 · 已有 checkpoint r12</span>
+          </div>
+          <div class="stage">
+            <div class="block is-environment"><span class="block-kind">环境</span><p>海面上起了薄雾，远处的渔火在雨中显得格外朦胧。北滨码头的木栈桥被潮水拍得吱呀作响，钟塔方向传来三短一长的钟声——大潮将至。</p></div>
+            <div class="block is-narrative"><span class="block-kind">叙述</span><p>林月如站在栈桥尽头，手里攥着那封未送出的信。她望向泊在岸边的黑帆船，心中涌起复杂的情绪——这不仅是一个答案，更可能是一个无法回头的抉择。</p></div>
+            <div class="block is-dialogue">
+              <div class="dlg-avatar" style="background: var(--jade)">林</div>
+              <div><span class="dlg-name">林月如</span><p>"……你果然来了。"</p></div>
+            </div>
+            <div class="block is-action"><span class="block-kind">动作</span><p>沈砚从暗处走出，黑色的风衣被雨水打湿，眼神依旧平静，只是语气中多了几分复杂。</p></div>
+            <div class="block is-dialogue">
+              <div class="dlg-avatar" style="background: var(--sem-faction)">沈</div>
+              <div><span class="dlg-name">沈砚</span><p>"我说过，会给你答案。你找我，是为了这个？"</p></div>
+            </div>
+            <div class="block is-psychology"><span class="block-kind">心理</span><p>林月如握紧了袖中的黄铜钥匙。柄上的潮汐记号硌着掌心——她知道沈砚没有说出的话，比信里的内容更重。</p></div>
+            <div class="candidate-weave"><span class="weave-line"></span><small>以下方向尚未编入正文</small></div>
+            <div class="block is-dialogue is-candidate">
+              <div class="dlg-avatar" style="background: var(--sem-faction); opacity: 0.72">沈</div>
+              <div>
+                <span class="candidate-tag">候选 · 第 3 步 · 可采纳或放弃</span>
+                <span class="dlg-name">沈砚</span><p>"钟声不是塔里传出来的。你听过沉船夜的人都说，水底下有人应和。"</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- D. 紧凑走向栏（R1） -->
+        <section class="direction-bar" id="direction-bar" aria-label="接下来的走向">
+          <div class="dir-current">
+            <h4><span class="chip is-copper">A · 当前推荐</span> 追钟声下水</h4>
+            <p>让林月如顺钟声摸向沉船残骸，揭开渡口传闻的一角；真相线提速，风险升高。</p>
+          </div>
+          <div class="dir-others">
+            <div class="dir-short"><strong>B 留在码头试探</strong><span>稳住关系线</span></div>
+            <div class="dir-short"><strong>C 向沈砚摊牌</strong><span>可能开启新支线</span></div>
+          </div>
+          <div class="dir-actions">
+            <span class="chip is-copper">真相 +1</span>
+            <span class="chip">风险 +1</span>
+            <button class="btn is-quiet" id="expand-directions" style="margin-top: 4px;">展开比较 ▾</button>
+          </div>
+        </section>
+
+        <!-- E. 展开方向比较（R1） -->
+        <section class="direction-compare" id="direction-compare" aria-label="方向比较">
+          <button class="compare-card is-chosen">
+            <h4><span class="abcd">A</span>追钟声下水</h4>
+            <p class="cmp-body">林月如离开栈桥，循着钟声摸向沉船残骸。水底的回应让她意识到，渡口的传闻并非空穴来风。真相线显著提速，但会暴露她对钟声真相的察觉。</p>
+            <div class="cmp-meta"><span>依据：潮汐信令确立 · 渡口传闻</span><span>影响：真相 +2 · 风险 +1 · 关系 −1</span><span>来源：第 3 步候选</span></div>
+          </button>
+          <button class="compare-card">
+            <h4><span class="abcd">B</span>留在码头试探</h4>
+            <p class="cmp-body">暂不跟随任何人，继续调查漕帮削减维护费的争执。稳住了与漕帮和守钟人的关系，但可能错失揭开钟声秘密的时机。</p>
+            <div class="cmp-meta"><span>依据：钟塔维护争执</span><span>影响：信息 +1 · 关系 +1</span><span>来源：第 3 步候选</span></div>
+          </button>
+          <button class="compare-card">
+            <h4><span class="abcd">C</span>向沈砚摊牌</h4>
+            <p class="cmp-body">直接质问旧信来历与黄铜钥匙关联。沈砚的真实目的可能浮出水面，也可能导致双方关系破裂，开启一条新支线。</p>
+            <div class="cmp-meta"><span>依据：黄铜钥匙 · 旧信</span><span>影响：新线索 +1 · 关系 ±2</span><span>来源：第 3 步候选</span></div>
+          </button>
+        </section>
+
+        <!-- F. Composer -->
+        <section class="composer is-expanded" id="composer" aria-label="作者输入">
+          <div class="composer-intents">
+            <button class="intent-chip is-on">与女娲共创</button>
+            <button class="intent-chip is-reserved" disabled>角色访谈</button>
+            <button class="intent-chip is-reserved" disabled>角色接管</button>
+            <button class="intent-chip is-reserved" disabled>作者干预</button>
+          </div>
+          <div class="composer-row">
+            <div class="composer-box">
+              <textarea rows="1" placeholder="给当前排演的提示：例如——让下一步先确认钟楼内的声音来源。">让沈砚在下一步先解释渡口传闻的来历，再决定是否上船。</textarea>
+              <div class="composer-tools">
+                <button type="button">📎 添加引用</button>
+                <span>引用：林月如 · 潮汐信令 · 栈桥接头</span>
+                <button type="button" id="composer-toggle" style="margin-left: auto">收起 ▾</button>
+              </div>
+            </div>
+            <button class="btn is-primary">加入后续步骤</button>
+          </div>
+          <div class="composer-expanded">
+            <div class="cx-block"><h5>后续步骤队列</h5><ul>
+              <li><span class="chip is-jade">2</span>沈砚 · 解释传闻来历</li>
+              <li><span class="chip">3</span>林月如 · 决定是否上船（候选）</li>
+            </ul></div>
+            <div class="cx-block"><h5>待确认</h5><ul>
+              <li><span class="dot is-warn"></span>1 项候选待送入待确认</li>
+              <li class="tech">选择步骤后送入既有候选审查，不直接写正式故事</li>
+            </ul></div>
+            <div class="cx-block"><h5>阶段版本</h5><ul>
+              <li>checkpoint <strong>r12</strong> · 14:24 自动保存</li>
+              <li class="tech">Run · nuwa-n1 本地工程演练 · 修订 r2</li>
+            </ul></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- G. 右侧检查器 -->
+      <aside class="inspector" id="inspector" aria-label="角色知情检查器">
+        <h3>林月如 · 此刻</h3>
+        <p class="insp-sub">第 2 步后 · 只显示她可安全获知的内容</p>
+        <div class="insp-q"><h4>她此刻知道什么</h4><ul>
+          <li>自己是北溟的外来者</li>
+          <li>潮汐信令三短一长表示大潮将至</li>
+          <li>手中黄铜钥匙刻着潮汐记号</li>
+        </ul></div>
+        <div class="insp-q"><h4>她误解什么</h4><p>她以为沈砚带来的旧信是漕帮的回执；实际来历尚未揭示。</p></div>
+        <div class="insp-q"><h4>她现在想要什么</h4><p>在船离岸前确认信的来历，又不暴露自己对钟声真相的察觉。</p></div>
+        <div class="insp-q"><h4>这句话谁听见了</h4><p class="heard-line"><strong>"……你果然来了。"</strong> — 栈桥上仅沈砚听见；舱内无人。</p></div>
+        <div class="insp-q"><h4>当前剧情冲突</h4><div class="insp-conflict">钟塔维护争执：漕帮削减维护费 vs 守钟人坚持潮汐信令。</div></div>
+        <details>
+          <summary>来源与技术详情（最后展开）</summary>
+          <div class="tech-box tech">
+            <p style="margin:0 0 4px">知情来源：林月如=已得知（栈桥接头）</p>
+            <p style="margin:0 0 4px">排除：钟声的真相（作者秘密）· 渡口的传闻（沈砚=怀疑）</p>
+            <p style="margin:0">上下文预算：UTF-8 保守估算 · 0 Provider · 本地工程演练</p>
+          </div>
+        </details>
+      </aside>
+      <button class="insp-scrim" id="insp-scrim" aria-label="关闭检查器"></button>
+    </main>
+    <button class="btn inspector-opener" id="insp-open" style="position: fixed; right: 14px; bottom: 64px; z-index: 65; box-shadow: var(--shadow-drawer);">角色知情</button>
+  </div>
+</div>
+<script>
+  const body = document.body;
+  const apply = () => {
+    const s = location.hash.replace("#s-", "") || "default";
+    if (s === "inspector") { body.dataset.inspector = "open"; openDrawer(wide()); }
+    else if (s === "composer") { body.dataset.inspector = "closed"; body.dataset.composer = "expanded"; }
+    else if (s === "candidates") { body.dataset.inspector = "closed"; body.dataset.composer = "expanded"; body.dataset.candidates = "expanded"; }
+    else { body.dataset.inspector = "closed"; body.dataset.composer = "compact"; body.dataset.candidates = "compact"; closeDrawer(); }
+    document.querySelectorAll("[data-state-link]").forEach(a => a.classList.toggle("is-active", a.getAttribute("href") === location.hash || (s === "default" && a.getAttribute("href") === "#s-default")));
+  };
+  const wide = () => window.matchMedia("(min-width: 1281px)").matches;
+  const openDrawer = (isWide) => {
+    if (isWide) { document.getElementById("nuwa-page").classList.remove("no-inspector"); }
+    else { document.getElementById("inspector").classList.add("is-open"); document.getElementById("insp-scrim").classList.add("is-open"); }
+  };
+  const closeDrawer = () => {
+    document.getElementById("nuwa-page").classList.add("no-inspector");
+    document.getElementById("inspector").classList.remove("is-open");
+    document.getElementById("insp-scrim").classList.remove("is-open");
+  };
+  window.addEventListener("hashchange", apply);
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  document.getElementById("insp-open").addEventListener("click", () => openDrawer(wide()));
+  document.getElementById("insp-scrim").addEventListener("click", closeDrawer);
+  document.getElementById("composer-toggle").addEventListener("click", (e) => {
+    const expanded = body.dataset.composer === "expanded";
+    body.dataset.composer = expanded ? "compact" : "expanded";
+    e.target.textContent = expanded ? "展开 ▴" : "收起 ▾";
+  });
+  document.getElementById("expand-directions").addEventListener("click", (e) => {
+    const open = body.dataset.candidates === "expanded";
+    body.dataset.candidates = open ? "compact" : "expanded";
+    e.target.textContent = open ? "展开比较 ▾" : "收起比较 ▴";
+  });
+  apply();
+</script>
+</body>
+</html>
