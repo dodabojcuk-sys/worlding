@@ -57,6 +57,8 @@ export type NuwaN1Scope = {
 };
 export type NuwaN1Context = {
   version: "tianyan-nuwa-n1-role-context/v1";
+  /** Present only on a non-dispatchable author preview. Real Run contexts omit it. */
+  previewMode?: true;
   runId: string;
   attemptId: string;
   step: number;

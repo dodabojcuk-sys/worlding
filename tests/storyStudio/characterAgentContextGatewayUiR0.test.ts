@@ -20,7 +20,7 @@ test("Agent 运行 honestly renders permission, zero-call boundaries, summary, s
     "权限裁定",
     "角色稳定 ID",
     "projectionRevision",
-    "模型将收到什么",
+    "可供模型的安全上下文预览（尚不可派发）",
     "缺失条件",
     "技术详情"
   ]) assert.match(agentTab, new RegExp(text));
@@ -34,4 +34,6 @@ test("the gateway input binds the role by objectId and revision, never by charac
   assert.match(preparation, /revision: read\.revisionToken/);
   assert.match(preparation, /providerConfigured: isActiveProviderConfigured\(props\.runtime\.modelStatus\)/);
   assert.doesNotMatch(preparation, /characterTitle/);
+  assert.match(preparation, /projectCharacterContextExclusionCounts\(knowledge\)/);
+  assert.doesNotMatch(preparation, /for \(const reference of references\)/);
 });

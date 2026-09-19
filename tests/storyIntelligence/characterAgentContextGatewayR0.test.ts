@@ -5,9 +5,11 @@ import test from "node:test";
 import { buildEventStoryCrossingKnowledgeProjection } from "../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import {
   prepareCharacterContextGateway,
+  projectCharacterContextExclusionCounts,
   projectNuwaN1ProviderSafeContext,
   serializeNuwaN1ProviderSafeContext
 } from "../../src/storyContracts/characterAgentContextGateway.ts";
+import { projectWorldReferences } from "../../src/storyContracts/worldReferenceProjection.ts";
 
 const guardRevision = "a".repeat(64);
 const twinRevision = "b".repeat(64);
@@ -101,6 +103,15 @@ test("missing scene and goal remain UI conditions instead of fabricated Provider
   assert.equal(result.context.scene.label, "未选择场景");
   assert.equal("scene" in (result.providerSafeContext ?? {}), false);
   assert.equal("localGoal" in (result.providerSafeContext ?? {}), false);
+  assert.equal("runId" in (result.providerSafeContext ?? {}), false);
+  assert.equal("step" in (result.providerSafeContext ?? {}), false);
+  assert.equal("remaining" in (result.providerSafeContext ?? {}), false);
+  assert.equal(result.providerSafeContext?.previewMode, true);
+  assert.equal(result.context.runId, "");
+  assert.equal(result.context.attemptId, "");
+  assert.equal(result.context.step, 0);
+  assert.equal(result.context.remaining.committedSteps, 0);
+  assert.equal(result.context.remaining.dispatches, 0);
   assert.deepEqual(result.missingConditions.slice(0, 3), ["scene", "goal", "world-time"]);
 });
 
@@ -121,12 +132,57 @@ test("unknown, author-note and rumor content never appears in serialized model c
 test("author preview and Provider adapter use the same safe projection and stable serialization", () => {
   const result = prepare();
   assert.ok(result.context);
-  assert.deepEqual(result.providerSafeContext, projectNuwaN1ProviderSafeContext(result.context));
-  assert.equal(result.authorPreviewCanonicalJson, serializeNuwaN1ProviderSafeContext(result.context));
+  assert.deepEqual(result.providerSafeContext, projectNuwaN1ProviderSafeContext(result.context, { mode: "preview" }));
+  assert.equal(result.authorPreviewCanonicalJson, serializeNuwaN1ProviderSafeContext(result.context, { mode: "preview" }));
+  assert.throws(() => projectNuwaN1ProviderSafeContext(result.context), /cannot be projected as a Nuwa Run payload/u);
 
   const adapter = readFileSync("apps/story-studio/server/nuwaN1PiAdapter.mjs", "utf8");
   assert.match(adapter, /projectNuwaN1ProviderSafeContext/);
   assert.doesNotMatch(adapter, /function safeContextForProvider/);
+});
+
+test("unrelated project author notes and rumors do not change the operation-scoped exclusion count or leak sentinels", () => {
+  const unrelatedAuthorId = "world.unrelated-author-note-stable-id";
+  const unrelatedRumorId = "world.unrelated-rumor-stable-id";
+  const unrelatedAuthorTitle = "UNRELATED_AUTHOR_NOTE_TITLE_SENTINEL";
+  const unrelatedRumorTitle = "UNRELATED_RUMOR_TITLE_SENTINEL";
+  const unrelatedAuthorBody = "UNRELATED_AUTHOR_NOTE_BODY_SENTINEL";
+  const unrelatedRumorBody = "UNRELATED_RUMOR_BODY_SENTINEL";
+  const unrelated = projectWorldReferences([
+    { id: unrelatedAuthorId, title: unrelatedAuthorTitle, type: "rule", status: "active", tags: ["作者备注", unrelatedAuthorBody] },
+    { id: unrelatedRumorId, title: unrelatedRumorTitle, type: "event", status: "active", tags: ["推测：与当前任务无关", unrelatedRumorBody] }
+  ]);
+  assert.deepEqual(unrelated.map((entry) => entry.nature).sort(), ["author-note", "rumor"]);
+
+  const before = prepare({ excludedReasonCounts: projectCharacterContextExclusionCounts(projection()) });
+  // The production exclusion projector deliberately accepts only the current
+  // role's Event projection, so adding unrelated project references is inert.
+  const after = prepare({ excludedReasonCounts: projectCharacterContextExclusionCounts(projection()) });
+  assert.equal(before.providerSafeContext?.excluded.count, 2);
+  assert.deepEqual(after.providerSafeContext?.excluded, before.providerSafeContext?.excluded);
+  assert.equal(after.providerSafeContextCanonicalJson, before.providerSafeContextCanonicalJson);
+  const serialized = after.providerSafeContextCanonicalJson ?? "";
+  for (const sentinel of ["event.secret", unrelatedAuthorId, unrelatedRumorId, unrelatedAuthorTitle, unrelatedRumorTitle, unrelatedAuthorBody, unrelatedRumorBody]) {
+    assert.equal(serialized.includes(sentinel), false);
+  }
+});
+
+test("safe preview is a detached stable snapshot and display-name changes preserve its digest", () => {
+  const result = prepare();
+  const canonical = result.providerSafeContextCanonicalJson;
+  const digest = result.previewDigest;
+  assert.ok(result.context);
+  result.context.knownFacts[0]!.summary = "MUTATED_AFTER_PROJECTION";
+  result.context.profileBasis.core = "MUTATED_PROFILE";
+  assert.equal(result.providerSafeContextCanonicalJson, canonical);
+  assert.equal(JSON.stringify(result.providerSafeContext).includes("MUTATED_AFTER_PROJECTION"), false);
+  assert.equal(JSON.stringify(result.providerSafeContext).includes("MUTATED_PROFILE"), false);
+
+  const renamed = prepare({
+    characters: characters.map((character) => ({ id: character.id, label: character.id === "character.guard" ? "稳定 ID 未变的新显示名" : character.label, type: "character" as const, formal: true, version: character.revisionToken }))
+  });
+  assert.equal(renamed.previewDigest, digest);
+  assert.deepEqual(renamed.providerSafeContext?.excluded.reasonCodes, ["author-note", "character-unknown", "rumor"]);
 });
 
 test("gateway remains a pure read projection and does not define another CharacterAgentContext", () => {

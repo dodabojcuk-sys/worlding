@@ -14,7 +14,7 @@ import type { EventStoryCrossingKnowledgeProjection } from "../../../../../src/s
 import type { CharacterMemoryQueryProjection } from "../../../../../src/storyContinuity/characterMemoryQuery.ts";
 import { projectWorldReferences, WORLD_REFERENCE_CATEGORY_LABELS } from "../../../../../src/storyContracts/worldReferenceProjection.ts";
 import { buildCharacterContextPack, type CharacterContextPack } from "../../../../../src/storyContracts/characterContextPack.ts";
-import { prepareCharacterContextGateway, type CharacterGatewayPreparation } from "../../../../../src/storyContracts/characterAgentContextGateway.ts";
+import { prepareCharacterContextGateway, projectCharacterContextExclusionCounts, type CharacterGatewayPreparation } from "../../../../../src/storyContracts/characterAgentContextGateway.ts";
 import { attachTimeFrames, projectCausalEvolution, type CausalEvolutionCard } from "../../../../../src/storyContracts/worldCausalEvolution.ts";
 import { buildCharacterStateInspectorView, type CharacterStateInspectorView } from "./characterStateInspectorPresentation.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -129,17 +129,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
     if (!characters.some((character) => character.id === props.objectId)) {
       characters.push({ id: props.objectId, label: read.title, type: "character", formal: read.status === "active", version: read.revisionToken });
     }
-    // One hidden event contributes to one reason only. Titles and bodies are
-    // deliberately never copied into this count-only exclusion projection.
-    const excludedReasons = new Map<string, "author-note" | "rumor" | "character-unknown">();
-    for (const reference of references) {
-      if (reference.nature === "author-note" || reference.nature === "rumor") excludedReasons.set(reference.id, reference.nature);
-    }
-    for (const eventId of knowledge?.hiddenEventIds ?? []) {
-      if (!excludedReasons.has(eventId)) excludedReasons.set(eventId, "character-unknown");
-    }
-    const excludedReasonCounts = { "author-note": 0, rumor: 0, "character-unknown": 0 };
-    for (const reason of excludedReasons.values()) excludedReasonCounts[reason] += 1;
+    const excludedReasonCounts = projectCharacterContextExclusionCounts(knowledge);
     return prepareCharacterContextGateway({
       projectId,
       projection: knowledge,
@@ -157,7 +147,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       excludedReasonCounts,
       providerConfigured: isActiveProviderConfigured(props.runtime.modelStatus)
     });
-  }, [read, projectId, worldObjects, props.objectId, references, knowledge, props.runtime.modelStatus]);
+  }, [read, projectId, worldObjects, props.objectId, knowledge, props.runtime.modelStatus]);
   const stateView = useMemo<CharacterStateInspectorView>(() => buildCharacterStateInspectorView({
     // 取不到知情投影时按最保守的读者范围处理，不把读取失败当成无知。
     observerKind: knowledge?.observer.kind ?? "character",
@@ -293,7 +283,7 @@ function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null })
       <p><small>projectionRevision</small><code>{preparation.projectionRevision ?? "尚无派生状态"}</code></p>
       <p><small>截至</small>{preparation.asOfText}</p>
     </div>
-    <h4>模型将收到什么</h4>
+    <h4>可供模型的安全上下文预览（尚不可派发）</h4>
     {safe ? <div className="entity-dock-contextpack">
       <p><small>角色依据</small>{safe.profileBasis.core ?? "未设置角色核心"}；底线 {safe.profileBasis.boundaries ?? "未设置"}</p>
       <p><small>已知事实</small>{safe.knownFacts.map((fact) => fact.summary).join("；") || "无"}</p>
@@ -309,7 +299,7 @@ function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null })
       <summary>技术详情</summary>
       <p><small>闸门合同</small><code>{preparation.version}</code></p>
       <p><small>规范化摘要</small><code>{preparation.previewDigest ?? "无"}</code></p>
-      <p><small>一致性</small>作者预览与 Provider 载荷引用同一份规范化 JSON。</p>
+      <p><small>一致性</small>作者预览与共享 Provider 安全字段投影引用同一份规范化 JSON；真实 Run 身份与预算仅在实际 Run 创建后加入。</p>
       <p><small>规范化字节数</small>{preparation.authorPreviewCanonicalJson ? new TextEncoder().encode(preparation.authorPreviewCanonicalJson).length : 0}</p>
     </details>
   </div>;

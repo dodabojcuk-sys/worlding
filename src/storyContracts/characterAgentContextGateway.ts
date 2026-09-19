@@ -12,6 +12,8 @@ export const CHARACTER_CONTEXT_GATEWAY_VERSION = "tianyan-character-context-gate
 
 export type CharacterContextExclusionReason = "author-note" | "rumor" | "character-unknown";
 
+export type NuwaN1ProviderProjectionMode = "run" | "preview";
+
 export type CharacterGatewayPreparation = {
   version: typeof CHARACTER_CONTEXT_GATEWAY_VERSION;
   handoff: CharacterKnowledgeHandoff;
@@ -112,17 +114,20 @@ export function prepareCharacterContextGateway(input: {
     sourceRevision: input.actor.revision,
     sources: profileSources
   };
+  // Attention needs a bounded sizing envelope, but a preview has no Run and
+  // therefore no committed-step or Provider-dispatch allowance of its own.
   const remaining: NuwaN1Context["remaining"] = {
-    committedSteps: 6,
-    dispatches: 12,
+    committedSteps: 0,
+    dispatches: 0,
     inputTokenBudget: 4096,
     outputTokenBudget: 1024
   };
   const fixedContext = {
     version: "tianyan-nuwa-n1-role-context/v1" as const,
-    runId: `character-context-preview.${input.actor.id}`,
-    attemptId: "read-only-preview",
-    step: 1,
+    previewMode: true as const,
+    runId: "",
+    attemptId: "",
+    step: 0,
     actor: { id: input.actor.id, revision: input.actor.revision },
     scene,
     localGoal,
@@ -171,7 +176,7 @@ export function prepareCharacterContextGateway(input: {
     })),
     attention
   };
-  const providerSafeContext = projectNuwaN1ProviderSafeContext(context);
+  const providerSafeContext = projectNuwaN1ProviderSafeContext(context, { mode: "preview" });
   const canonical = canonicalJson(providerSafeContext);
   return {
     version: CHARACTER_CONTEXT_GATEWAY_VERSION,
@@ -191,15 +196,25 @@ export function prepareCharacterContextGateway(input: {
   };
 }
 
-/** Single source for both the author preview and the Provider-bound tool result. */
-export function projectNuwaN1ProviderSafeContext(context: NuwaN1Context) {
+/**
+ * Single safe-field projector for author preview and Provider-bound tool
+ * results. Preview mode deliberately omits execution identity and Run budget;
+ * those fields exist only after the runtime has created a real Nuwa Run.
+ */
+export function projectNuwaN1ProviderSafeContext(
+  context: NuwaN1Context,
+  options: { mode?: NuwaN1ProviderProjectionMode } = {}
+) {
+  const mode = options.mode ?? "run";
+  if (mode === "run" && context.previewMode === true) {
+    throw new Error("A Character context preview cannot be projected as a Nuwa Run payload.");
+  }
   const reasonCodes = context.excludedKnowledgeReasonCodes?.length
     ? [...new Set(context.excludedKnowledgeReasonCodes)].sort()
     : context.excludedKnowledgeCount ? ["not-known-by-actor"] : [];
-  return {
+  const safeContext = {
     version: context.version,
-    runId: context.runId,
-    step: context.step,
+    ...(mode === "run" ? { runId: context.runId, step: context.step } : { previewMode: true as const }),
     actor: context.actor,
     ...(context.scene.sceneRef.id === MISSING_SCENE.sceneRef.id ? {} : { scene: context.scene }),
     ...(context.localGoal ? { localGoal: context.localGoal } : {}),
@@ -211,14 +226,34 @@ export function projectNuwaN1ProviderSafeContext(context: NuwaN1Context) {
     excluded: { count: context.excludedKnowledgeCount, reasonCodes },
     recentDialogue: context.recentDialogue,
     allowedActions: context.allowedActions,
-    remaining: context.remaining,
+    ...(mode === "run" ? { remaining: context.remaining } : {}),
     authorCue: context.authorCue,
     ...(context.stateProjection ? { stateProjection: context.stateProjection } : {})
   };
+  return structuredClone(safeContext);
 }
 
-export function serializeNuwaN1ProviderSafeContext(context: NuwaN1Context): string {
-  return canonicalJson(projectNuwaN1ProviderSafeContext(context));
+export function serializeNuwaN1ProviderSafeContext(
+  context: NuwaN1Context,
+  options: { mode?: NuwaN1ProviderProjectionMode } = {}
+): string {
+  return canonicalJson(projectNuwaN1ProviderSafeContext(context, options));
+}
+
+/**
+ * The current Dock candidate set is exactly the role-filtered Event knowledge
+ * projection. Project-global World references are not candidates and cannot
+ * affect this count. Future source selectors must add their own scoped counts
+ * only after they become part of the concrete operation candidate set.
+ */
+export function projectCharacterContextExclusionCounts(
+  projection: EventStoryCrossingKnowledgeProjection | null
+): Record<CharacterContextExclusionReason, number> {
+  return {
+    "author-note": 0,
+    rumor: 0,
+    "character-unknown": safeCount(projection?.hiddenEventIds.length ?? 0)
+  };
 }
 
 function blockedPreparation(
