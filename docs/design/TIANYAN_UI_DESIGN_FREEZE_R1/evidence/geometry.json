@@ -1,0 +1,126 @@
+{
+  "nuwa": {
+    "1152": {
+      "sceneHead": {
+        "top": 51,
+        "left": 72,
+        "width": 1064,
+        "height": 92
+      },
+      "runStrip": {
+        "top": 156,
+        "left": 72,
+        "width": 1064,
+        "height": 48
+      },
+      "stagePlate": {
+        "top": 216,
+        "left": 72,
+        "width": 1064,
+        "height": 453
+      },
+      "directionBar": {
+        "top": 680,
+        "left": 72,
+        "width": 1064,
+        "height": 96
+      },
+      "composer": {
+        "top": 788,
+        "left": 72,
+        "width": 1064,
+        "height": 101
+      },
+      "horizontalOverflow": 0
+    },
+    "1440": {
+      "sceneHead": {
+        "top": 51,
+        "left": 208,
+        "width": 1200,
+        "height": 96
+      },
+      "runStrip": {
+        "top": 159,
+        "left": 208,
+        "width": 1200,
+        "height": 48
+      },
+      "stagePlate": {
+        "top": 219,
+        "left": 208,
+        "width": 1200,
+        "height": 449
+      },
+      "directionBar": {
+        "top": 680,
+        "left": 208,
+        "width": 1200,
+        "height": 96
+      },
+      "composer": {
+        "top": 788,
+        "left": 208,
+        "width": 1200,
+        "height": 101
+      },
+      "horizontalOverflow": 0
+    }
+  },
+  "world": {
+    "1152": {
+      "worldHead": {
+        "top": 51,
+        "left": 72,
+        "width": 1064,
+        "height": 73
+      },
+      "storyLens": {
+        "top": 148,
+        "left": 72,
+        "width": 1064,
+        "height": 139
+      },
+      "taskArea": {
+        "top": 287,
+        "left": 72,
+        "width": 1064,
+        "height": 274
+      },
+      "contextRail": {
+        "top": 30,
+        "left": 1169,
+        "width": 330,
+        "height": 870
+      },
+      "horizontalOverflow": 0
+    },
+    "1440": {
+      "worldHead": {
+        "top": 59,
+        "left": 208,
+        "width": 876,
+        "height": 73
+      },
+      "storyLens": {
+        "top": 156,
+        "left": 208,
+        "width": 876,
+        "height": 219
+      },
+      "taskArea": {
+        "top": 375,
+        "left": 208,
+        "width": 876,
+        "height": 413
+      },
+      "contextRail": {
+        "top": 59,
+        "left": 1108,
+        "width": 300,
+        "height": 384
+      },
+      "horizontalOverflow": 0
+    }
+  }
+}
