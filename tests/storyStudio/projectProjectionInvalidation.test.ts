@@ -7,6 +7,9 @@ test("only actual projection owners fence World Library and Story Unit reads", (
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/world-objects/update", "POST"), "boundary");
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/story-units/update", "POST"), "boundary");
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/nuwa-n1/auto-apply", "POST"), "boundary");
+  assert.equal(projectProjectionInvalidationMode("/__local/story-studio/event-line/normal-creation/confirm", "POST"), "boundary");
+  assert.equal(projectProjectionInvalidationMode("/__local/story-studio/tianyi/creative/candidate/event-review/confirm", "POST"), "boundary");
+  assert.equal(projectProjectionInvalidationMode("/__local/story-studio/tianyi/creative/candidate/event-review/undo", "POST"), "boundary");
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/nuwa-n1/continuous", "POST"), "completion", "a slow Provider-backed operation invalidates only after its optional owner write completes");
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/model-service/minimal-inference", "POST"), "none");
   assert.equal(projectProjectionInvalidationMode("/__local/story-studio/tianyi/prediction/abandon", "POST"), "none");
