@@ -124,6 +124,7 @@ import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
+import { createSemanticIndexService } from "./semanticIndexService.mjs";
 import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
 import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "./publicAccess.mjs";
@@ -171,6 +172,7 @@ const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_PORTABLE_PACKAGE_BODY_BYTES = 700 * 1024 * 1024;
 const MAX_CONTINUITY_JSON_BODY_BYTES = 64 * 1024;
 const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+const semanticIndexService = createSemanticIndexService({ operations });
 const workspacePackagePort = createWorkspacePackagePort({
   libraryRoot: rootPath,
   resolveProjectPath: ({ projectId }) => operations.resolveProjectWorkspacePath({ projectId }),
@@ -1137,6 +1139,22 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/world-library") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: runProductOperation(() => operations.getStoryStudioWorldLibraryBootstrap({ projectId })) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/semantic-index") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    const workVersionId = url.searchParams.get("workVersionId") ?? "当前主线";
+    const branchId = url.searchParams.get("branchId") ?? "当前主线";
+    sendJson(response, 200, { data: runProductOperation(() => semanticIndexService.load(rootPath, projectId, workVersionId, branchId)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/semantic-index/rebuild") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "branchId", "generation", "force"]);
+    requireProject(body.projectId);
+    sendJson(response, 200, { data: runProductOperation(() => semanticIndexService.rebuild({ rootPath, projectId: body.projectId, workVersionId: body.workVersionId ?? "当前主线", branchId: body.branchId ?? "当前主线", generation: body.generation ?? "none-v0", force: body.force === true })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations") {

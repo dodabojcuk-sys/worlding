@@ -175,3 +175,113 @@ test("可移植往返：.tianyan 导出→新根导入→分支身份/节点/Pla
   assert.ok(exportedRaw.files.some((file: { path: string }) => file.path.includes("nuwa-branches")), "分支存储进入包");
   void speaker; void existsSync;
 });
+
+test("分支节点内容更新幂等：同一 operationId 重试重放已有结果，不产生第二次副作用", async () => {
+  const rootPath = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-replay-"));
+  const operations0 = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath: path.join(rootPath, ".studio-state.json") });
+  const project = operations0.createProject({ title: "重放隔离作品", folderSlug: "replay" });
+  const projectId = project.id;
+  const { operations, nuwaN1Port, creationSourceSelectionPort } = buildEnv(rootPath);
+  const unit = operations.createStoryUnit({ projectId, title: "单元丙", kind: "main", order: 0 });
+  const speaker = operations.createWorldObject({ projectId, type: "character", title: "阿芦", status: "confirmed" });
+  creationSourceSelectionPort.createRoot(projectId);
+
+  const branch = nuwaN1Port.createBranch({ projectId, displayName: "重放分支", createdAt: "2026-09-17T03:00:00.000Z", operationId: "op.rp.b" });
+  const branchId = branch.branch.workVersionId;
+  const node = nuwaN1Port.createBranchNode({
+    projectId, branchWorkVersionId: branchId, unitId: unit.id, title: "重放节点",
+    blocks: [{ kind: "narration", text: "初稿。" }],
+    worldTime: { kind: "unknown" }, characterRefs: [speaker.id], runProvenance: null,
+    operationId: "op.rp.node"
+  });
+  const blocksV1 = [{ kind: "narration", text: "重放目标版本。" }];
+  const first = nuwaN1Port.updateBranchNodeContent({ projectId, branchWorkVersionId: branchId, nodeId: node.node.nodeId, expectedContentRevision: node.node.contentRevision, blocks: blocksV1, operationId: "op.rp.content.1" });
+  assert.equal(first.replayed, false);
+  assert.equal(first.node.contentRevision, node.node.contentRevision + 1);
+
+  // 同一 operationId 的重试（第一次响应丢失后的典型重发，expectedContentRevision 仍是旧值）：
+  // 必须命中重放返回第一次结果，而不是落到内容修订检查抛 409。
+  const retry = nuwaN1Port.updateBranchNodeContent({ projectId, branchWorkVersionId: branchId, nodeId: node.node.nodeId, expectedContentRevision: node.node.contentRevision, blocks: blocksV1, operationId: "op.rp.content.1" });
+  assert.equal(retry.replayed, true, "同 operationId 重试必须重放而不是判冲突");
+  assert.deepEqual(retry.node.blocks, blocksV1, "重放返回第一次写入的内容");
+  assert.equal(retry.node.contentRevision, first.node.contentRevision, "重放不得再次递增内容修订");
+
+  // 重放标记必须持久化在节点 provenance 里（从盘上读回仍能命中重放）
+  const reread = operations.listNuwaBranchNodes({ projectId, branchWorkVersionId: branchId }).nodes.find((item) => item.nodeId === node.node.nodeId)!;
+  assert.equal(reread.provenance.filter((item) => item.kind === "author-edit" && item.authorActionId === "op.rp.content.1.author").length, 1, "成功写入必须持久化 author-edit provenance 恰好一次");
+});
+
+test("分支节点 provenance 64 条上限：成功写入裁剪最旧 author-edit、保留 nuwa-run 溯源", async () => {
+  const rootPath = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-cap-"));
+  const operations0 = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath: path.join(rootPath, ".studio-state.json") });
+  const project = operations0.createProject({ title: "上限隔离作品", folderSlug: "cap" });
+  const projectId = project.id;
+  const { operations, nuwaN1Port, creationSourceSelectionPort } = buildEnv(rootPath);
+  const unit = operations.createStoryUnit({ projectId, title: "单元丁", kind: "main", order: 0 });
+  const speaker = operations.createWorldObject({ projectId, type: "character", title: "阿苍", status: "confirmed" });
+  creationSourceSelectionPort.createRoot(projectId);
+  const branch = nuwaN1Port.createBranch({ projectId, displayName: "上限分支", createdAt: "2026-09-17T04:00:00.000Z", operationId: "op.cap.b" });
+  const branchId = branch.branch.workVersionId;
+  const node = nuwaN1Port.createBranchNode({
+    projectId, branchWorkVersionId: branchId, unitId: unit.id, title: "上限节点",
+    blocks: [{ kind: "narration", text: "初稿。" }],
+    worldTime: { kind: "unknown" }, characterRefs: [speaker.id],
+    runProvenance: { runId: "nuwa-run-cap", stepIds: ["step.cap1"], handoffId: null },
+    operationId: "op.cap.node"
+  });
+  let revision = node.node.contentRevision;
+  for (let index = 0; index < 65; index += 1) {
+    const updated = nuwaN1Port.updateBranchNodeContent({
+      projectId, branchWorkVersionId: branchId, nodeId: node.node.nodeId,
+      expectedContentRevision: revision,
+      blocks: [{ kind: "narration", text: `第 ${index} 次修改。` }],
+      operationId: `op.cap.content.${index}`
+    });
+    revision = updated.node.contentRevision;
+  }
+  const capped = operations.listNuwaBranchNodes({ projectId, branchWorkVersionId: branchId }).nodes.find((item) => item.nodeId === node.node.nodeId)!;
+  assert.ok(capped.provenance.length <= 64, "provenance 不得超过 64 条（normalize 否则抛错）");
+  assert.equal(capped.provenance.find((item) => item.kind === "nuwa-run")?.runId, "nuwa-run-cap", "裁剪不得丢弃 nuwa-run 溯源");
+  assert.equal(capped.provenance.some((item) => item.kind === "author-edit" && item.authorActionId === "op.cap.content.0.author"), false, "最旧的 author-edit 被裁剪");
+  assert.equal(capped.provenance.some((item) => item.kind === "author-edit" && item.authorActionId === "op.cap.content.64.author"), true, "最新的 author-edit 保留");
+});
+
+test("满 64 条 provenance 的节点仍可采纳：adopt 裁剪最旧 author-edit、保留 nuwa-run", async () => {
+  const rootPath = mkdtempSync(path.join(tmpdir(), "tianyan-nuwa-adopt-cap-"));
+  const operations0 = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath: path.join(rootPath, ".studio-state.json") });
+  const project = operations0.createProject({ title: "采纳上限隔离作品", folderSlug: "adopt-cap" });
+  const projectId = project.id;
+  const { operations, nuwaN1Port, creationSourceSelectionPort } = buildEnv(rootPath);
+  const unit = operations.createStoryUnit({ projectId, title: "单元戊", kind: "main", order: 0 });
+  const speaker = operations.createWorldObject({ projectId, type: "character", title: "阿岐", status: "confirmed" });
+  creationSourceSelectionPort.createRoot(projectId);
+  const branch = nuwaN1Port.createBranch({ projectId, displayName: "采纳上限分支", createdAt: "2026-09-17T05:00:00.000Z", operationId: "op.adp.b" });
+  const branchId = branch.branch.workVersionId;
+  const node = nuwaN1Port.createBranchNode({
+    projectId, branchWorkVersionId: branchId, unitId: unit.id, title: "采纳上限节点",
+    blocks: [{ kind: "narration", text: "初稿。" }],
+    worldTime: { kind: "unknown" }, characterRefs: [speaker.id],
+    runProvenance: { runId: "nuwa-run-adopt", stepIds: ["step.adopt1"], handoffId: null },
+    operationId: "op.adp.node"
+  });
+  let revision = node.node.contentRevision;
+  for (let index = 0; index < 64; index += 1) {
+    const updated = nuwaN1Port.updateBranchNodeContent({
+      projectId, branchWorkVersionId: branchId, nodeId: node.node.nodeId,
+      expectedContentRevision: revision,
+      blocks: [{ kind: "narration", text: `第 ${index} 次修改。` }],
+      operationId: `op.adp.content.${index}`
+    });
+    revision = updated.node.contentRevision;
+  }
+  const before = operations.listNuwaBranchNodes({ projectId, branchWorkVersionId: branchId }).nodes.find((item) => item.nodeId === node.node.nodeId)!;
+  assert.ok(before.provenance.length <= 64, "64 次修改后 provenance 不超限");
+
+  // 修复前：adopt 在满 64 条节点上追加到 65 条 → normalizeProvenance 抛 TypeError → 节点永久无法采纳。
+  const adopted = nuwaN1Port.adoptBranchNode({ projectId, branchWorkVersionId: branchId, nodeId: node.node.nodeId, expectedContentRevision: revision, operationId: "op.adp.adopt" });
+  assert.equal(adopted.replayed, false);
+  assert.equal(adopted.node.reviewState, "branch-adopted", "adopt 必须成功");
+  assert.ok(adopted.node.provenance.length <= 64, "adopt 后 provenance 不得超限");
+  assert.equal(adopted.node.provenance.find((item) => item.kind === "nuwa-run")?.runId, "nuwa-run-adopt", "adopt 裁剪不得丢弃 nuwa-run 溯源");
+  assert.equal(adopted.node.provenance.some((item) => item.kind === "author-edit" && item.authorActionId === "op.adp.adopt.author"), true, "采纳标记（最新 author-edit）必须保留");
+});

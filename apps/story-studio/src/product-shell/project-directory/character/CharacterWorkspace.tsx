@@ -1,7 +1,8 @@
-import { BookOpen, ChevronLeft, Link2, Pencil, UserRound } from "lucide-react";
+import { BookOpen, Brain, ChevronLeft, Link2, Pencil, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getCharacterMemoryQuery, getEventStoryCrossingKnowledgeProjection, getObjectCatalog, getWorldLibrary, listRelations, readWorldObject } from "../../../lib/localTransport";
+import { openEntityDock } from "../../../components/entity-dock/entityInspectorDockStore";
 import type { EventStoryCrossingKnowledgeProjection } from "../../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import type { CharacterMemoryQueryProjection } from "../../../../../../src/storyContinuity/characterMemoryQuery.ts";
 import type { RelationReadProjectionR0 } from "../../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
@@ -60,6 +61,9 @@ export function CharacterWorkspace(props: { runtime: TianyanShellRuntimeState; o
     target.searchParams.set("relationReturn", `${window.location.pathname}${window.location.search}`);
     window.location.assign(`${target.pathname}${target.search}`);
   };
+  const openStateInspector = () => {
+    openEntityDock({ kind: "character", objectId: props.objectId, openedFrom: "character-workspace", status: "expanded", tab: "心理与状态" });
+  };
   const changeSearch = (value: string) => { setSearch(value); updateUrl(value, kind); };
   const changeKind = (value: QueryKind) => { setKind(value); updateUrl(search, value); };
   if (!props.runtime.project) return <main className="shell-workspace"><section className="shell-workspace-stage"><h1>先打开一个作品</h1></section></main>;
@@ -71,7 +75,7 @@ export function CharacterWorkspace(props: { runtime: TianyanShellRuntimeState; o
   const relationEvidenceCount = data.relations.reduce((total, relation) => total + relation.evidenceRefs.length, 0);
   return <main className="shell-workspace" aria-label={`${object.title} 的角色工作面`} data-testid="character-workspace">
     <section className="character-workspace">
-      <header className="character-workspace-header"><button type="button" className="character-workspace-back" onClick={props.onClose}><ChevronLeft aria-hidden="true" />返回世界总览</button><div className="character-workspace-identity"><div className="character-workspace-avatar">{object.card.portrait ? <img src={object.card.portrait.assetRef} alt="" /> : <UserRound aria-hidden="true" />}</div><div><p>角色工作面 · 当前作品版本</p><h1>{object.title}</h1><span>{characterRoleLabel(object.subtype, t)} · {object.status === "archived" ? "已归档" : "已确认"}</span></div></div><div className="character-workspace-actions"><button type="button" onClick={props.onEdit}><Pencil aria-hidden="true" />编辑资料</button><button type="button" onClick={props.onAddToNuwa}><Link2 aria-hidden="true" />加入女娲</button></div></header>
+      <header className="character-workspace-header"><button type="button" className="character-workspace-back" onClick={props.onClose}><ChevronLeft aria-hidden="true" />返回世界总览</button><div className="character-workspace-identity"><div className="character-workspace-avatar">{object.card.portrait ? <img src={object.card.portrait.assetRef} alt="" /> : <UserRound aria-hidden="true" />}</div><div><p>角色工作面 · 当前作品版本</p><h1>{object.title}</h1><span>{characterRoleLabel(object.subtype, t)} · {object.status === "archived" ? "已归档" : "已确认"}</span></div></div><div className="character-workspace-actions"><button type="button" onClick={props.onEdit}><Pencil aria-hidden="true" />编辑资料</button><button type="button" onClick={props.onAddToNuwa}><Link2 aria-hidden="true" />加入女娲</button><button type="button" data-testid="character-open-state-inspector" onClick={openStateInspector}><Brain aria-hidden="true" />查看角色状态</button></div></header>
       <div className="character-workspace-grid"><section className="character-workspace-main"><article className="character-workspace-profile"><h2>角色资料</h2><p>{getCharacterDirectorySummary(object, "暂无角色摘要。")}</p><dl><div><dt>角色核心</dt><dd>{authorProfileValue(object, "character_core") ?? "未设置"}</dd></div><div><dt>底线</dt><dd>{authorProfileValue(object, "boundaries") ?? "未设置"}</dd></div><div><dt>别名</dt><dd>{object.aliases.join("、") || "无"}</dd></div><div><dt>标签</dt><dd>{object.tags.join("、") || "无"}</dd></div></dl>{details.length ? <details><summary>完整角色资料</summary>{details.map((detail) => <article key={detail.heading}><h3>{detail.heading}</h3><p>{detail.content}</p></article>)}</details> : null}</article>
         <CharacterMemoryQuery query={data.memoryQuery} error={data.memoryError} search={search} kind={kind} onSearchChange={changeSearch} onKindChange={changeKind} onOpenEvent={(eventId) => navigateSource("/event-line", { eventId })} onOpenNuwa={(runId) => navigateSource("/nuwa", { runId })} />
         <section className="character-workspace-story"><h2><BookOpen aria-hidden="true" />关联故事</h2>{events.length ? <ul>{events.map((event) => <li key={event.eventId}><button type="button" onClick={() => navigateSource("/event-line", { eventId: event.eventId })}>{data.labels.get(event.eventId) ?? "正式事件"}</button><details><summary>技术详情</summary><code>{event.eventId}</code></details></li>)}</ul> : <p>当前没有关联的正式事件。</p>}</section>

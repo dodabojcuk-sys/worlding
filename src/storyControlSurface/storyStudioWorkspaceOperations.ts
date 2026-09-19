@@ -3151,11 +3151,14 @@ export function createStoryStudioWorkspaceOperations(input: {
       const expectedContentRevision = requireNonNegativeInteger(nodeInput.expectedContentRevision, "节点内容修订");
       if (current.contentRevision !== expectedContentRevision) return clone({ conflict: true, replayed: false, reason: "节点内容已变化；请基于最新草稿重试。", node: current });
       const editedAt = requireText(nodeInput.editedAt, "编辑时间", 48);
+      // Persist the replay marker this operation's durable-replay check above keys
+      // on; without it a retry with the same operationId would fall through to the
+      // content-revision guard and be rejected as a conflict.
+      const provenance = capNuwaBranchProvenance([...current.provenance, { kind: "author-edit", authorActionId: replayAuthorActionId, at: editedAt }]);
       const node = normalizeNuwaBranchNode({
         ...current,
         blocks: nodeInput.blocks,
-        // Provenance is capped at 64; trim oldest author-edits, keep nuwa-run origins.
-        provenance: current.provenance,
+        provenance,
         contentRevision: current.contentRevision + 1,
         updatedAt: editedAt
       });
@@ -3195,7 +3198,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       const node = normalizeNuwaBranchNode({
         ...current,
         reviewState: "branch-adopted",
-        provenance: [...current.provenance, { kind: "author-edit", authorActionId: requireText(nodeInput.authorActionId, "采纳作者动作", 180), at: adoptedAt }]
+        provenance: capNuwaBranchProvenance([...current.provenance, { kind: "author-edit", authorActionId: requireText(nodeInput.authorActionId, "采纳作者动作", 180), at: adoptedAt }])
       });
       const noteContent = serializeStoryMarkdown({
         frontmatter: {
@@ -4400,6 +4403,16 @@ function nuwaBranchAtomicWrite(target: string, content: string): void {
 
 function nuwaBranchStoreDigest(store: NarrativeArrangementStore): string {
   return createHash("sha256").update(stableJson(store), "utf8").digest("hex");
+}
+
+// Provenance is capped at 64; trim oldest author-edits, keep nuwa-run origins.
+function capNuwaBranchProvenance(provenance: NuwaBranchNodeProvenance[]): NuwaBranchNodeProvenance[] {
+  while (provenance.length > 64) {
+    const oldestAuthorEdit = provenance.findIndex((entry) => entry.kind === "author-edit");
+    if (oldestAuthorEdit < 0) break;
+    provenance.splice(oldestAuthorEdit, 1);
+  }
+  return provenance;
 }
 
 function branchArrangementFile(projectPath: string, branchWorkVersionId: string, narrativePathId: string): string {

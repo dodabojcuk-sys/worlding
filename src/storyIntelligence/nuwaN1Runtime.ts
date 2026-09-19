@@ -57,6 +57,8 @@ export type NuwaN1Scope = {
 };
 export type NuwaN1Context = {
   version: "tianyan-nuwa-n1-role-context/v1";
+  /** Present only on a non-dispatchable author preview. Real Run contexts omit it. */
+  previewMode?: true;
   runId: string;
   attemptId: string;
   step: number;
@@ -68,11 +70,20 @@ export type NuwaN1Context = {
   knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"]; worldStateObjectId?: string; memorySource?: NuwaN1MemorySource }>;
   beliefs: Array<NuwaN1Belief & { sourceId: string; sourceRevision: string }>;
   excludedKnowledgeCount: number;
+  /** Stable reason codes are optional for historical RunPacks. */
+  excludedKnowledgeReasonCodes?: string[];
   attention: NuwaN1AttentionSelection;
   recentDialogue: Array<{ speakerId: string; text: string; observedStep: number }>;
   allowedActions: string[];
   remaining: { committedSteps: number; dispatches: number; inputTokenBudget: 4096; outputTokenBudget: 1024 };
   authorCue: string | null;
+  /** Read-only projection provenance; absent on historical Run contexts. */
+  stateProjection?: {
+    projectionRevision: string | null;
+    asOf: null;
+    asOfText: "无世界时间依据";
+    sourceAnchors: string[];
+  };
 };
 export type NuwaN1ToolRequest = { type: "tool-request"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef };
 export type NuwaN1ToolResult = { type: "tool-result"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef; context: NuwaN1Context };

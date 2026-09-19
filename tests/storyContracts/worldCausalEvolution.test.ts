@@ -71,8 +71,8 @@ test("time frames attach origin/evolution from related confirmed clues with even
 
 test("world context pack excludes secrets/unknown with reasons and filters by scope and relatedness", () => {
   const entries = projectWorldReferences([
-    { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["单元：北滨码头"] },
-    { id: "location.北滨码头", title: "北滨码头", type: "location", status: "active", tags: ["港区"] },
+    { id: "rule.潮汐信令", title: "潮汐信令", type: "rule", status: "active", tags: ["知情：林月如=已得知", "单元：北滨码头"] },
+    { id: "location.北滨码头", title: "北滨码头", type: "location", status: "active", tags: ["知情：林月如=已得知", "港区"] },
     { id: "event.接头", title: "栈桥接头", type: "event", status: "active", tags: ["知情：林月如=已得知", "知情：沈砚=未知", "单元：北滨码头"] },
     { id: "event.真相", title: "钟声的真相", type: "event", status: "draft", tags: ["作者秘密"] },
     { id: "event.传闻", title: "渡口的传闻", type: "event", status: "draft", tags: ["推测：摆渡人"] },
@@ -87,4 +87,34 @@ test("world context pack excludes secrets/unknown with reasons and filters by sc
   assert.ok(shenPack.excludedSecrets.some((item) => item.title === "栈桥接头" && item.reason === "character-unknown"), "沈砚 must not receive the unknown event");
   const macroPack = buildWorldContextPack({ sceneTitle: null, characterTitle: null, taskKeyword: null, scopeLevel: "macro", entries });
   assert.deepEqual(macroPack.roleAllowedFacts.map((entry) => entry.category), ["rule"], "macro scope keeps rules only");
+});
+
+test("WorldContextPack 知识边界 fail-closed：角色只见显式已知；作者公共视角不变", () => {
+  const entries = projectWorldReferences([
+    { id: "loc.暗渠", title: "潮门暗渠", type: "location", status: "active", tags: ["知情：林月如=已得知"] },
+    { id: "faction.灰雾商会", title: "灰雾商会", type: "faction", status: "active", tags: [] },
+    { id: "char.港主", title: "哑口港主", type: "character", status: "active", tags: ["知情：林月如=未知"] },
+    { id: "event.夜火", title: "码头夜火", type: "event", status: "active", tags: ["知情：林月如=已得知"] },
+    { id: "loc.真港", title: "作者暗线真港", type: "location", status: "active", tags: ["作者秘密"] },
+    { id: "loc.怪谈", title: "海雾怪谈", type: "location", status: "active", tags: ["推测：海雾成因"] },
+  ]);
+
+  // 角色视角：只有显式「知情：林月如=已得知」的条目进入角色上下文。
+  const characterView = buildWorldContextPack({ sceneTitle: null, characterTitle: "林月如", taskKeyword: null, entries });
+  assert.ok(characterView.roleAllowedFacts.some((entry) => entry.id === "loc.暗渠"), "角色已知事实可见");
+  assert.ok(characterView.roleAllowedFacts.some((entry) => entry.id === "event.夜火"), "明确允许传播的线索可见");
+  // fail-closed：未带「知情」标签 ≠ 公共知识（修复前该断言失败——灰雾商会泄漏进角色包）。
+  assert.equal(characterView.roleAllowedFacts.some((entry) => entry.id === "faction.灰雾商会"), false, "无知情标签的条目不得默认可见");
+  assert.equal(characterView.roleAllowedFacts.some((entry) => entry.id === "char.港主"), false, "显式未知排除");
+  assert.equal(characterView.roleAllowedFacts.some((entry) => entry.id === "loc.真港"), false, "作者秘密永不进入角色上下文");
+  assert.equal(characterView.roleAllowedFacts.some((entry) => entry.id === "loc.怪谈"), false, "传闻永不进入角色上下文");
+  // 排除必须诚实披露，且原因准确。
+  assert.ok(characterView.excludedSecrets.some((item) => item.title === "灰雾商会" && item.reason === "character-unknown"), "无知情标签以 character-unknown 诚实披露");
+  assert.ok(characterView.excludedSecrets.some((item) => item.title === "作者暗线真港" && item.reason === "author-note"));
+  assert.ok(characterView.excludedSecrets.some((item) => item.title === "海雾怪谈" && item.reason === "rumor"));
+
+  // 作者公共视角（characterTitle=null）不受角色过滤影响：未标注条目仍在作者视图。
+  const authorView = buildWorldContextPack({ sceneTitle: null, characterTitle: null, taskKeyword: null, entries });
+  assert.ok(authorView.roleAllowedFacts.some((entry) => entry.id === "faction.灰雾商会"), "作者视角未标注条目保持可见");
+  assert.equal(authorView.publicFacts.length, characterView.publicFacts.length, "publicFacts 字段不随角色过滤变化");
 });
