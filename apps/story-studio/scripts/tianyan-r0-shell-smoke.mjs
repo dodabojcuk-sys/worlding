@@ -27,7 +27,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "character-agent-feedback-refresh", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -51,6 +51,7 @@ const eventGraphEvidenceDirectory = process.env.TIANYAN_EVENT_GRAPH_EVIDENCE_DIR
 const eventGraphDensityEvidence = process.env.TIANYAN_EVENT_GRAPH_DENSITY_EVIDENCE === "1";
 const eventGraphRecordingDirectory = process.env.TIANYAN_EVENT_GRAPH_RECORDING_DIR || null;
 const temporalProjectionRecordingDirectory = process.env.TIANYAN_TEMPORAL_RECORDING_DIR || null;
+const characterFeedbackEvidenceDirectory = process.env.TIANYAN_CHARACTER_FEEDBACK_EVIDENCE_DIR || null;
 const founderEvidenceDirectory = process.env.TIANYAN_FOUNDER_EVIDENCE_DIR || null;
 const r6CloseoutDirectory = process.env.TIANYAN_R6_CLOSEOUT_DIR || null;
 const r7CloseoutDirectory = process.env.TIANYAN_R7_CLOSEOUT_DIR || null;
@@ -94,6 +95,7 @@ const agentFakeStreamOnly = process.env.TIANYAN_E2E_SCOPE === "agent-fake-stream
 const nuwaN1Only = process.env.TIANYAN_E2E_SCOPE === "nuwa-n1";
 const relationReaderOnly = process.env.TIANYAN_E2E_SCOPE === "relation-reader-r1";
 const r5ContinuousOnly = process.env.TIANYAN_E2E_SCOPE === "r5-continuous" || process.env.TIANYAN_E2E_SCOPE === "n3-continuous";
+const characterFeedbackOnly = process.env.TIANYAN_E2E_SCOPE === "character-agent-feedback-refresh";
 const multiverseB1RehearsalOnly = process.env.TIANYAN_E2E_SCOPE === "multiverse-b1-rehearsal";
 const characterMemoryQueryOnly = process.env.TIANYAN_E2E_SCOPE === "character-memory-query";
 const mapM2StoryObservationOnly = process.env.TIANYAN_E2E_SCOPE === "map-m2-story-observation";
@@ -180,7 +182,7 @@ async function findAvailablePort(requestedPort, excludedPort) {
 
 try {
   ollamaFixture = mapRealAiLiveAcceptance || tianyiR6LiveAcceptance ? null : await startProviderCatalogOllamaFixture();
-  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
+  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly || characterFeedbackOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
   if (mapRealAiLiveAcceptance || tianyiR6LiveAcceptance) {
     Object.assign(apiEnvironment, { NODE_ENV: "development", PROVIDER_MODE: "REAL_PROVIDER_ALLOWED", REAL_PROVIDER_CREDENTIALS_USED: "1", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: "1", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "0" });
     delete apiEnvironment.TIANYAN_PROVIDER_APP_DATA_ROOT;
@@ -209,7 +211,7 @@ try {
   await assertDevelopmentRuntimeMode();
   const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: relationNetworkEvidenceR2Only && relationNetworkEvidenceR2Directory ? 110 : mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
   if (!preserveTianyiR6Fixture) browser = await chromium.launch(browserOptions);
-  const recordingDirectory = relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : characterFeedbackOnly ? characterFeedbackEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   const contextOptions = recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -320,6 +322,11 @@ try {
     await setupNarrativeFixture({ createRoot: false });
     await setupR1CausalFixture();
     await assertR5ContinuousAuthorLoop(page, consoleProblems);
+  } else if (characterFeedbackOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertCharacterAgentFeedbackRefresh(page, consoleProblems);
   } else if (characterMemoryQueryOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -1325,6 +1332,173 @@ async function assertDevelopmentRuntimeMode() {
     health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: healthBody },
     unknownApi: { status: missingApi.status, contentType: missingApi.headers.get("content-type"), body: JSON.parse(missingApiBody) }
   }, null, 2));
+}
+
+/**
+ * TIANYAN_CHARACTER_AGENT_FEEDBACK_REFRESH_R0 interaction evidence.
+ *
+ * Proves: author adoption (AuthorControl apply) → the open character dock's
+ * projections refresh automatically, without closing/reopening the dock, a
+ * page reload, or a second write path. The pending-review workspace
+ * structurally unmounts the dock outlet while it is open, so the numeric
+ * digest change is asserted after the shell returns to the workspace with the
+ * dock's preserved tab/status (no manual reopen, no browser reload), and the
+ * golden adoption signal itself is captured with an in-page listener while
+ * the apply happens.
+ */
+async function assertCharacterAgentFeedbackRefresh(page, consoleProblems) {
+  const evidenceDirectory = characterFeedbackEvidenceDirectory;
+  if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
+  const capture = async (name) => {
+    if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false });
+  };
+  const linId = characterFixture["林昭"]?.id;
+  assert.ok(linId, "The feedback refresh fixture needs the stable 林昭 identity.");
+  const providerRequests = [];
+  let knowledgeProjectionReads = 0;
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && /\/__local\/story-studio\/(?:provider|model-service)|\/api\/provider|\/(?:chat\/)?completions/iu.test(request.url())) providerRequests.push(`${request.method()} ${request.url()}`);
+    if (request.method() === "GET" && /\/event-line\/knowledge-view\?/u.test(request.url())) knowledgeProjectionReads += 1;
+  });
+  const agentPreviewValues = async () => {
+    const preview = page.getByTestId("character-context-gateway-preview");
+    await preview.waitFor();
+    const text = await preview.innerText();
+    const knownBelief = text.match(/知识 \/ 信念\s*(\d+) \/ (\d+)/u);
+    return {
+      known: knownBelief ? Number(knownBelief[1]) : null,
+      beliefs: knownBelief ? Number(knownBelief[2]) : null,
+      revision: text.match(/projectionRevision\s*([^\s]+)/u)?.[1] ?? null
+    };
+  };
+
+  // Open the dock on the stable character identity and land on the Agent tab.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+  await page.getByTestId("character-workspace").waitFor();
+  await page.getByTestId("character-open-state-inspector").click();
+  const dock = page.getByTestId("entity-inspector-dock");
+  await dock.waitFor();
+  await dock.getByRole("tab", { name: "Agent 运行", exact: true }).click();
+  await page.getByTestId("character-context-gateway-preview").waitFor();
+  assert.match(await dock.innerText(), /Provider 未调用 · 不会写入故事/u, "The Agent tab must state its zero-provider, zero-write boundary.");
+  const readsBeforeAdoption = knowledgeProjectionReads;
+  await capture("01-1440-dock-agent-tab-before.png");
+
+  // Build the pending AuthorControl candidate review through the existing N1
+  // owner endpoints — the same boundary endpoints the workspace UI drives —
+  // because the nuwa-n1 browser scope carries a pre-existing baseline failure
+  // on this BASE (participant options never render; verified without this
+  // round's changes). No provider is involved: TIANYAN_NUWA_N1_FAKE_PROVIDER=1.
+  const base = `${apiUrl}/__local/story-studio`;
+  const bootstrapResult = await getFixture(`${base}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const bootstrap = bootstrapResult.data;
+  const awuParticipant = bootstrap.participants.find((participant) => participant.title === "阿芜");
+  const linParticipant = bootstrap.participants.find((participant) => participant.title === "林昭");
+  assert.ok(awuParticipant && linParticipant, `The N1 bootstrap must expose the formal fixture characters: ${JSON.stringify(bootstrap.participants?.map((participant) => participant.title))}`);
+  const runUnit = bootstrap.storyUnits.find((unit) => unit.title === "雾港追踪") ?? bootstrap.storyUnits[0];
+  assert.ok(runUnit, "The N1 bootstrap must expose the narrative fixture story unit.");
+  const storyline = (bootstrap.storylines ?? []).find((line) => (line.units ?? []).some((unit) => unit.id === runUnit.id)) ?? (bootstrap.storylines ?? [])[0] ?? null;
+  const storylineUnits = storyline?.units ?? [runUnit];
+  const endUnit = storylineUnits[storylineUnits.length - 1] ?? runUnit;
+  const runRevision = runUnit.revision ?? runUnit.revisionToken ?? null;
+  const created = (await postFixture(`${base}/nuwa-n1/create`, {
+    projectId: fixtureProjectId,
+    participants: [
+      { id: awuParticipant.id, title: awuParticipant.title, revision: awuParticipant.revision, localGoal: "确保退路不被切断" },
+      { id: linParticipant.id, title: linParticipant.title, revision: linParticipant.revision, localGoal: "核实钟声是否来自桥下" }
+    ],
+    storyUnit: { id: runUnit.id, title: runUnit.title, revision: runRevision },
+    scope: { storylineKey: storyline?.key ?? "", startStoryUnitId: runUnit.id, endStoryUnitId: endUnit.id ?? null, mode: "bounded" },
+    goal: "阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。",
+    operationId: `feedback-refresh-run-${fixture.fixtureId}`
+  })).data;
+  let runId = created.run.runId;
+  let expectedRevision = created.run.revision;
+  const stepIds = [];
+  for (let index = 0; index < 2; index += 1) {
+    const stepped = (await postFixture(`${base}/nuwa-n1/step`, { projectId: fixtureProjectId, runId, expectedRevision, operationId: `feedback-refresh-step-${index}-${fixture.fixtureId}` })).data;
+    const latestStep = stepped.run.steps[stepped.run.steps.length - 1];
+    assert.ok(latestStep, "Each N1 fixture step must commit one reader step.");
+    stepIds.push(latestStep.stepId);
+    runId = stepped.run.runId;
+    expectedRevision = stepped.run.revision;
+  }
+  await postFixture(`${base}/nuwa-n1/candidate`, { projectId: fixtureProjectId, runId, expectedRevision, operationId: `feedback-refresh-candidate-${fixture.fixtureId}`, selectedStepIds: stepIds });
+  const valuesBeforeApply = await agentPreviewValues();
+  await page.evaluate(() => { window.__feedbackNoReloadMarker = "alive"; });
+  await page.evaluate(() => { window.__adoptionSignals = 0; window.addEventListener("story-studio-pending-review-changed", () => { window.__adoptionSignals += 1; }); });
+  await capture("02-1440-dock-agent-tab-pre-apply.png");
+
+  // Apply through the existing AuthorControl chain in the pending workspace.
+  await page.locator(".shell-pending-entry").click();
+  const adoption = page.getByTestId("golden-candidate-adoption").first();
+  await adoption.waitFor();
+  await adoption.getByRole("button", { name: "确认候选并打开影响预览", exact: true }).click();
+  await adoption.getByText(/影响预览：尚待作者选择路径/u).waitFor();
+  await adoption.getByRole("button", { name: "选择采纳路径", exact: true }).click();
+  await adoption.getByRole("button", { name: "生成作者变更集", exact: true }).click();
+  await adoption.getByRole("button", { name: "确认写入正式 Event", exact: true }).click();
+  await adoption.getByText(/已由 Author Change Set 写入正式 Event/u).waitFor();
+  const appliedEventId = await adoption.getAttribute("data-applied-event-id");
+  assert.ok(appliedEventId, "The AuthorControl apply must produce a formal Event identity.");
+  const adoptionSignals = await page.evaluate(() => window.__adoptionSignals);
+  assert.ok(adoptionSignals >= 1, `The AuthorControl apply must announce the existing pending-review signal (got ${adoptionSignals}).`);
+  await capture("03-1440-authorcontrol-applied.png");
+
+  // Return to the workspace: the dock comes back with its preserved tab and
+  // reads fresh projections — the adopted Event reaches the character state.
+  await page.getByRole("button", { name: "返回天意", exact: true }).click();
+  await dock.waitFor();
+  assert.equal(await dock.getByRole("tab", { name: "Agent 运行", exact: true }).getAttribute("aria-selected"), "true", "The dock must return on the same Agent tab without manual reopening.");
+  const valuesAfterApply = await agentPreviewValues();
+  const marker = await page.evaluate(() => window.__feedbackNoReloadMarker);
+  assert.equal(marker, "alive", "The refresh flow must never reload the document.");
+  const readsAfterAdoption = knowledgeProjectionReads;
+  assert.ok(readsAfterAdoption > readsBeforeAdoption, `The dock must re-read the knowledge projection after adoption (before=${readsBeforeAdoption}, after=${readsAfterAdoption}).`);
+  const stateRefreshed = valuesAfterApply.known !== valuesBeforeApply.known || valuesAfterApply.beliefs !== valuesBeforeApply.beliefs || valuesAfterApply.revision !== valuesBeforeApply.revision;
+  assert.equal(stateRefreshed, true, `The Agent tab projection values must change after the knowledge-bearing adoption: before=${JSON.stringify(valuesBeforeApply)} after=${JSON.stringify(valuesAfterApply)}.`);
+  assert.deepEqual(providerRequests, [], "The whole refresh flow must not call a Provider.");
+  await capture("04-1440-dock-agent-tab-after-apply.png");
+
+  // Compact geometry and honest focus hand-back. A full navigation resets the
+  // module dock store, so reopen the dock from its opener button: this also
+  // gives the close action a connected opener element to hand focus back to.
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+  await page.getByTestId("character-workspace").waitFor();
+  await page.getByTestId("character-open-state-inspector").click();
+  const reopenedDock = page.getByTestId("entity-inspector-dock");
+  await reopenedDock.waitFor();
+  await page.getByTestId("entity-dock-body").waitFor();
+  await reopenedDock.getByRole("tab", { name: "Agent 运行", exact: true }).click();
+  await page.getByTestId("character-context-gateway-preview").waitFor();
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth, undefined, { timeout: 10_000 });
+  const compactGeometry = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > window.innerWidth,
+    dockRight: document.querySelector('[data-testid="entity-inspector-dock"]')?.getBoundingClientRect().right ?? 0
+  }));
+  assert.equal(compactGeometry.overflow, false, `The open dock must not create horizontal overflow at 1195x720: ${JSON.stringify(compactGeometry)}`);
+  await capture("05-1195-dock-compact.png");
+  await page.getByTestId("character-open-state-inspector").evaluate((node) => node.focus());
+  await reopenedDock.getByRole("button", { name: "关闭详情工作台", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="entity-inspector-dock"]') === null);
+  const focusReturned = await page.evaluate(() => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? "none");
+  assert.equal(focusReturned, "character-open-state-inspector", `Closing the dock must return focus to the opener: ${focusReturned}`);
+  await capture("06-1195-dock-closed-focus-returned.png");
+  assert.deepEqual(consoleProblems, [], "The feedback refresh flow must not produce browser warnings or errors.");
+  if (evidenceDirectory) {
+    writeFileSync(path.join(evidenceDirectory, "几何与安全检查.json"), `${JSON.stringify({
+      viewportChecks: { wide: "1440x900", compact: "1195x720", compactOverflow: compactGeometry },
+      knowledgeProjectionReads: { beforeAdoption: readsBeforeAdoption, afterAdoption: readsAfterAdoption },
+      adoptionSignals: adoptionSignals,
+      appliedEventId,
+      agentTabValues: { beforeApply: valuesBeforeApply, afterApply: valuesAfterApply },
+      providerRequests,
+      consoleProblems,
+      reloadMarker: marker
+    }, null, 2)}\n`, "utf8");
+  }
 }
 
 async function assertNuwaN1BoundedLoop(page, consoleProblems) {

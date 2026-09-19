@@ -1208,16 +1208,18 @@
     {
       "id": "character-agent-magnetic-workbench-r0",
       "status": "LOCAL_REVIEW",
-      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-character-knowledge-handoff-gated-nuwa-context-preview-and-shared-provider-safe-projection",
+      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-character-knowledge-handoff-gated-nuwa-context-preview-shared-provider-safe-projection-and-automatic-projection-refresh-after-author-control-adoption",
       "entrypoints": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
+        "apps/story-studio/src/components/entity-dock/entityDockProjectionRefresh.ts",
         "src/storyContracts/characterContextPack.ts",
         "src/storyContracts/characterAgentContextGateway.ts"
       ],
       "sourceFiles": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
+        "apps/story-studio/src/components/entity-dock/entityDockProjectionRefresh.ts",
         "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx",
         "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx",
         "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
@@ -1246,13 +1248,14 @@
         "tests/storyContracts/worldReferenceProjection.test.ts",
         "tests/storyIntelligence/characterAgentContextGatewayR0.test.ts",
         "tests/storyStudio/characterAgentContextGatewayUiR0.test.ts",
-        "tests/storyStudio/characterStateInspectorEntryR0.test.ts"
+        "tests/storyStudio/characterStateInspectorEntryR0.test.ts",
+        "tests/storyStudio/characterAgentFeedbackRefreshR0.test.ts"
       ],
       "legacyProvenance": [
         "CharacterInspectorCard memory/relation/knowledge components",
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
-      "remainingGap": "R0 local slice: the character state tab consumes the real knowledge/belief read-only projection and Agent 运行 now gates a read-only NuwaN1Context preview through CharacterKnowledgeHandoff using stable IDs. Single-role dispatch, action/Event candidates, Canon writes, a character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry remain open; no real Provider calls."
+      "remainingGap": "R0 local slice: the character state tab consumes the real knowledge/belief read-only projection and Agent 运行 now gates a read-only NuwaN1Context preview through CharacterKnowledgeHandoff using stable IDs. Author-control adoption now auto-refreshes the open dock through the existing pending-review signal plus a pure-UI coalescing coordinator (scope-checked, stale-response-guarded, zero new event names). Single-role dispatch, action/Event candidates, Canon writes, a character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry remain open; no real Provider calls."
     },
     {
       "id": "hybrid-semantic-retrieval-r3",

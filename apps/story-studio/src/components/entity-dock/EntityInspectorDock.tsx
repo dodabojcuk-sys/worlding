@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Pin, PinOff, X, ChevronsLeft, ChevronsRight, RefreshCw } from "lucide-react";
 
 import {
@@ -17,6 +17,7 @@ import { buildCharacterContextPack, type CharacterContextPack } from "../../../.
 import { prepareCharacterContextGateway, projectCharacterContextExclusionCounts, type CharacterGatewayPreparation } from "../../../../../src/storyContracts/characterAgentContextGateway.ts";
 import { attachTimeFrames, projectCausalEvolution, type CausalEvolutionCard } from "../../../../../src/storyContracts/worldCausalEvolution.ts";
 import { buildCharacterStateInspectorView, type CharacterStateInspectorView } from "./characterStateInspectorPresentation.ts";
+import { useEntityDockProjectionRefresh } from "./entityDockProjectionRefresh.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { CharacterMemoryQuery, FormalRelations, CharacterKnowledgePreview } from "../../product-shell/project-directory/character/CharacterInspectorCard";
 import {
@@ -72,13 +73,22 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
   const [memoryQuery, setMemoryQuery] = useState<CharacterMemoryQueryProjection | null>(null);
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [worldObjects, setWorldObjects] = useState<WorldObjectSummary[] | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const loadSequenceRef = useRef(0);
+  const loadedScopeKeyRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    setRead(null); setFailed(false); setKnowledge(null); setRelations([]); setMemoryQuery(null); setWorldObjects(null);
-    if (!projectId) return () => { active = false; };
+  const loadCharacterRead = useCallback((mode: "initial" | "refresh") => {
+    if (!projectId) return;
+    const sequence = ++loadSequenceRef.current;
+    const isCurrent = () => sequence === loadSequenceRef.current;
+    // Refresh keeps the previous read on screen until the new one arrives; only
+    // a scope change (角色/项目/版本切换) may clear the dock.
+    if (mode === "initial") {
+      setRead(null); setFailed(false); setKnowledge(null); setRelations([]); setMemoryQuery(null); setMemoryError(null); setWorldObjects(null);
+    }
+    setRefreshError(null);
     void Promise.all([readWorldObject(projectId, props.objectId), getWorldLibrary(projectId), getEventStoryCrossingKnowledgeProjection(projectId, props.objectId), listRelations({ projectId, workVersionId, objectId: props.objectId, reviewState: "confirmed" })]).then(([object, library, projection, relationRead]) => {
-      if (!active) return;
+      if (!isCurrent()) return;
       if (object.type !== "character") { setFailed(true); return; }
       setRead({
         title: object.title,
@@ -93,10 +103,21 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       setKnowledge(projection.observer.id === object.id ? projection : null);
       setRelations(relationRead.relations);
       setWorldObjects(library.objects);
-    }).catch(() => { if (active) setFailed(true); });
-    void getCharacterMemoryQuery(projectId, props.objectId, workVersionId).then((query) => { if (active) setMemoryQuery(query); }).catch(() => { if (active) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。"); });
-    return () => { active = false; };
+    }).catch(() => {
+      if (!isCurrent()) return;
+      if (mode === "initial") setFailed(true);
+      else setRefreshError("最新变化读取失败；以下保留上一次成功读取的角色状态。");
+    });
+    void getCharacterMemoryQuery(projectId, props.objectId, workVersionId).then((query) => { if (isCurrent()) setMemoryQuery(query); }).catch(() => { if (isCurrent()) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。"); });
   }, [projectId, props.objectId, workVersionId]);
+
+  const scopeKey = `${projectId ?? ""}\u0000${props.objectId}\u0000${workVersionId ?? ""}`;
+  useEffect(() => {
+    const initial = loadedScopeKeyRef.current !== scopeKey;
+    loadedScopeKeyRef.current = scopeKey;
+    loadCharacterRead(initial ? "initial" : "refresh");
+  }, [loadCharacterRead, scopeKey]);
+  useEntityDockProjectionRefresh({ projectId, workVersionId }, loadCharacterRead.bind(null, "refresh"));
 
   const references = useMemo(() => projectWorldReferences(worldObjects ?? []), [worldObjects]);
   const objectLabels = useMemo(() => new Map((worldObjects ?? []).filter((item) => item.type === "character").map((item) => [item.id, item.title])), [worldObjects]);
@@ -182,7 +203,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
         <button type="button" aria-label="关闭详情工作台" onClick={closeEntityDock}><X size={15} /></button>
       </div>
     </header>
-
+    {refreshError ? <p className="entity-dock-line" role="status"><small>刷新</small>{refreshError}</p> : null}
     {props.status === "peek" ? <div className="entity-dock-peek" data-testid="entity-dock-peek">
       <p className="entity-dock-line"><small>当前故事位置</small>{lastParticipation}</p>
       <p className="entity-dock-line"><small>角色核心</small>{read.profileCore ?? "未设置"}</p>

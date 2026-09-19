@@ -147,6 +147,9 @@ function GoldenCandidateAdoptionCard(props: {
       if (activeProjectId.current !== requestedProjectId) return;
       await props.onChanged();
       if (activeProjectId.current !== requestedProjectId) return;
+      // AuthorControl 采纳正式 Event 后广播既有待审信号（带项目 scope），
+      // 让已打开的磁吸角色工作台无需关闭重开即可重算投影。
+      window.dispatchEvent(new CustomEvent("story-studio-pending-review-changed", { detail: { projectId: requestedProjectId } }));
       await refreshProgress();
     } catch (cause) { if (activeProjectId.current === requestedProjectId) setError(cause instanceof Error ? cause.message : "候选采纳没有完成；正式故事未被静默改写。"); }
     finally { if (activeProjectId.current === requestedProjectId) setBusy(false); }
@@ -312,7 +315,7 @@ export function PendingReviewPanel(props: {
     try {
       await action();
       if (activeProjectId.current !== requestedProjectId) return;
-      window.dispatchEvent(new Event("story-studio-pending-review-changed"));
+      window.dispatchEvent(new CustomEvent("story-studio-pending-review-changed", { detail: { projectId: requestedProjectId } }));
       await reload();
     }
     catch (error) { if (activeProjectId.current === requestedProjectId) setNotice(error instanceof Error ? error.message : t("pending.actionFailed")); }
