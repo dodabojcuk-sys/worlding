@@ -1,0 +1,39 @@
+{
+  "viewport": {
+    "width": 1195,
+    "height": 720
+  },
+  "horizontalOverflow": {
+    "document": 0,
+    "entityInspectorDock": 0,
+    "agentRunContent": 0
+  },
+  "consoleErrors": 0,
+  "providerRequests": 0,
+  "storyWrites": 0,
+  "observedNetworkRequests": {
+    "total": 5,
+    "methods": {
+      "GET": 5
+    },
+    "readKinds": [
+      "world-object",
+      "world-library",
+      "event-line/knowledge-view",
+      "relations",
+      "characters/memory-query"
+    ]
+  },
+  "agentRunActionButtons": 0,
+  "excludedSecretSentinelDomMatches": 0,
+  "focusReturn": {
+    "tag": "BUTTON",
+    "testId": "character-open-state-inspector",
+    "text": "查看角色状态"
+  },
+  "screenshotCount": 8,
+  "notes": [
+    "Provider-unconfigured evidence used an empty isolated Provider application-data root.",
+    "The story library remained the current read-only local project; no Event, branch, WorkVersion, or story fact was created."
+  ]
+}
