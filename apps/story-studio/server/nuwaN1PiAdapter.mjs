@@ -1,3 +1,5 @@
+import { projectNuwaN1ProviderSafeContext } from "../../../src/storyContracts/characterAgentContextGateway.ts";
+
 const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
 
 /**
@@ -54,7 +56,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, actorIds, pro
           inputSchema: { type: "object", additionalProperties: false, properties: {} },
           async execute(input) {
             if (input.toolCallId.length > 240 || Object.keys(input.arguments).length) throw new Error("Pi N1 context tool accepts no arguments.");
-            return { context: safeContextForProvider(context) };
+            return { context: projectNuwaN1ProviderSafeContext(context) };
           }
         }],
         requiredToolName: contextTool,
@@ -93,28 +95,6 @@ export const NUWA_N1_PI_ADAPTER_ID = ADAPTER_ID;
 
 function toolRequestId(context) { return `n1-pi-tool.${context.runId}.${context.step}.${context.attemptId}`; }
 function sameRef(left, right) { return left?.id === right?.id && left?.revision === right?.revision; }
-function safeContextForProvider(context) {
-  return {
-    version: context.version,
-    runId: context.runId,
-    step: context.step,
-    actor: context.actor,
-    scene: context.scene,
-    localGoal: context.localGoal,
-    coreSummary: context.coreSummary,
-    profileBasis: context.profileBasis,
-    knownFacts: context.knownFacts,
-    beliefs: context.beliefs,
-    // Excluded identities can themselves disclose a future secret. The role
-    // gets only an auditable count/reason; the author inspector retains IDs.
-    attention: context.attention,
-    excluded: { count: context.excludedKnowledgeCount, reasonCodes: context.excludedKnowledgeCount ? ["not-known-by-actor"] : [] },
-    recentDialogue: context.recentDialogue,
-    allowedActions: context.allowedActions,
-    remaining: context.remaining,
-    authorCue: context.authorCue
-  };
-}
 function promptFor(context, actorIds) {
   const eligibleHearerActorIds = [...new Set((Array.isArray(actorIds) ? actorIds : []).filter((actorId) => typeof actorId === "string" && actorId !== context.actor.id))].slice(0, 2);
   return [

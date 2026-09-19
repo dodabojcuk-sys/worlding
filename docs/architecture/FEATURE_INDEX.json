@@ -425,6 +425,7 @@
       "sourceFiles": [
         "src/storyIntelligence/nuwaN1Runtime.ts",
         "src/storyIntelligence/nuwaN1Attention.ts",
+        "src/storyContracts/nuwaN1Attention.ts",
         "src/storyIntelligence/nuwaRunPack.ts",
         "src/storyContinuity/characterMemoryRepository.ts",
         "src/storyContinuity/characterMemoryQuery.ts",
@@ -1207,11 +1208,12 @@
     {
       "id": "character-agent-magnetic-workbench-r0",
       "status": "LOCAL_REVIEW",
-      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-deterministic-contextpack-preview-and-knowledge-boundary",
+      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-character-knowledge-handoff-gated-nuwa-context-preview-and-shared-provider-safe-projection",
       "entrypoints": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
-        "src/storyContracts/characterContextPack.ts"
+        "src/storyContracts/characterContextPack.ts",
+        "src/storyContracts/characterAgentContextGateway.ts"
       ],
       "sourceFiles": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
@@ -1221,7 +1223,12 @@
         "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
         "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx",
         "src/storyContracts/characterContextPack.ts",
-        "src/storyContracts/worldReferenceProjection.ts"
+        "src/storyContracts/characterKnowledgeHandoff.ts",
+        "src/storyContracts/worldReferenceProjection.ts",
+        "src/storyContracts/characterAgentContextGateway.ts",
+        "src/storyContracts/nuwaN1Attention.ts",
+        "src/storyIntelligence/nuwaN1Runtime.ts",
+        "apps/story-studio/server/nuwaN1PiAdapter.mjs"
       ],
       "owners": [
         "src/storyContracts/characterContextPack.ts"
@@ -1232,18 +1239,20 @@
       "stateOwners": [
         "apps/story-studio/server/server.mjs"
       ],
-      "persistenceOwner": "None. The dock reads the existing WorldObject / Relation / CharacterMemory / knowledge-projection owners; the context pack is a pure deterministic preview with no writes and no second fact store.",
-      "providerDependency": "none; the workbench and its context pack preview issue zero Provider requests and never display credentials.",
+      "persistenceOwner": "None. The dock reads the existing WorldObject / Relation / CharacterMemory / knowledge-projection owners; both the legacy context pack and the handoff-gated NuwaN1Context preview are pure deterministic projections with no writes and no second fact store.",
+      "providerDependency": "The Agent tab issues zero Provider requests. Its author preview and the Nuwa N1 Pi adapter consume one shared provider-safe projection; no credentials or excluded prose are displayed.",
       "tests": [
         "tests/storyContracts/characterContextPack.test.ts",
         "tests/storyContracts/worldReferenceProjection.test.ts",
+        "tests/storyIntelligence/characterAgentContextGatewayR0.test.ts",
+        "tests/storyStudio/characterAgentContextGatewayUiR0.test.ts",
         "tests/storyStudio/characterStateInspectorEntryR0.test.ts"
       ],
       "legacyProvenance": [
         "CharacterInspectorCard memory/relation/knowledge components",
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
-      "remainingGap": "R0 local slice: the character state tab consumes the real knowledge/belief read-only projection already exposed by the knowledge-view owner, and the central character workspace now opens this same dock expanded on that tab through the store-held tab contract (no new crossing field, no second view, no write, no Provider call); character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry in favour of this entry remain open; no real Provider calls."
+      "remainingGap": "R0 local slice: the character state tab consumes the real knowledge/belief read-only projection and Agent 运行 now gates a read-only NuwaN1Context preview through CharacterKnowledgeHandoff using stable IDs. Single-role dispatch, action/Event candidates, Canon writes, a character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry remain open; no real Provider calls."
     },
     {
       "id": "hybrid-semantic-retrieval-r3",
