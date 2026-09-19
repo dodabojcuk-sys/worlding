@@ -1,0 +1,49 @@
+{
+  "viewport": {
+    "width": 1195,
+    "height": 720
+  },
+  "horizontalOverflow": {
+    "document": 0,
+    "entityInspectorDock": 0,
+    "agentRunContent": 0
+  },
+  "consoleErrors": 0,
+  "providerRequests": 0,
+  "storyWrites": 0,
+  "observedNetworkRequests": {
+    "total": 141,
+    "methods": {
+      "GET": 141
+    },
+    "readKinds": [
+      "world-object",
+      "world-library",
+      "event-line/knowledge-view",
+      "relations",
+      "characters/memory-query"
+    ]
+  },
+  "agentRunActionButtons": 0,
+  "excludedSecretSentinelDomMatches": 0,
+  "focusReturn": {
+    "tag": "BUTTON",
+    "testId": "character-open-state-inspector",
+    "text": "查看角色状态"
+  },
+  "screenshotCount": 8,
+  "contextPreview": {
+    "excludedCount": 4,
+    "excludedReasonCodes": [
+      "character-unknown"
+    ],
+    "previewDigest": "fnv1a32:b05f422d",
+    "canonicalBytes": 1735,
+    "executionFieldsPresent": []
+  },
+  "notes": [
+    "Provider-unconfigured evidence used an empty isolated Provider application-data root.",
+    "The story library remained the current read-only local project; no Event, branch, WorkVersion, or story fact was created.",
+    "The recapture session reopened actor pages several times; all 141 observed static-resource and API requests were GET."
+  ]
+}

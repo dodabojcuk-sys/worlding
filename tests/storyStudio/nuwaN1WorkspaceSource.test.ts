@@ -89,6 +89,7 @@ test("Nuwa N2A exposes author-owned character basis and per-character scene goal
   const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
   const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
   const adapter = source("apps/story-studio/server/nuwaN1PiAdapter.mjs");
+  const contextGateway = source("src/storyContracts/characterAgentContextGateway.ts");
 
   assert.match(editor, /profile: characterProfileWithAuthorBasis\(object\.profile/u, "the existing WorldObject update remains the only character-profile write");
   assert.match(editor, /character_core/u);
@@ -96,21 +97,24 @@ test("Nuwa N2A exposes author-owned character basis and per-character scene goal
   assert.match(workspace, /逐角色本场目标/u);
   assert.match(workspace, /participantIds\.every\(\(id\) => Boolean\(participantGoals\[id\]\?\.trim\(\)\)\)/u);
   assert.match(runtime, /profileBasis: structuredClone\(canonicalActor\.profileBasis\)/u, "the frozen Run actor is the role-context source");
-  assert.match(adapter, /profileBasis: context\.profileBasis/u, "the inspected basis crosses the actual Provider tool boundary");
+  assert.match(adapter, /projectNuwaN1ProviderSafeContext\(context\)/u, "the Provider tool consumes the shared safe projection");
+  assert.match(contextGateway, /profileBasis: context\.profileBasis/u, "the inspected basis crosses the actual Provider tool boundary through the shared projection");
   assert.doesNotMatch(adapter, /private_notes|profile\.fields/u, "the adapter cannot inspect unrelated author profile fields");
 });
 
 test("Nuwa N2B keeps attention permission-first, deterministic and visible at the actual tool boundary", () => {
-  const attention = source("src/storyIntelligence/nuwaN1Attention.ts");
+  const attention = source("src/storyContracts/nuwaN1Attention.ts");
   const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
   const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
   const adapter = source("apps/story-studio/server/nuwaN1PiAdapter.mjs");
+  const contextGateway = source("src/storyContracts/characterAgentContextGateway.ts");
 
   assert.match(attention, /already-authorized role source set/u);
   assert.match(attention, /current-scene-required/u);
   assert.match(runtime, /required attention sources exceed budget before dispatch/u);
   assert.match(runtime, /excludedKnowledgeCount: canonicalActor\.unknownFactIds\.length/u);
-  assert.match(adapter, /attention: context\.attention/u);
+  assert.match(adapter, /projectNuwaN1ProviderSafeContext\(context\)/u);
+  assert.match(contextGateway, /attention: context\.attention/u);
   assert.match(workspace, /UTF-8 保守估算/u);
   assert.match(workspace, /权限排除（身份隐藏）/u);
 });
