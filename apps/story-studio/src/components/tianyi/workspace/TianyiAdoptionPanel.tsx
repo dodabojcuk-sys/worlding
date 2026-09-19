@@ -31,9 +31,6 @@ export function TianyiAdoptionPanel(props: {
     try {
       const next = await props.runtime.withConnection(action);
       setReview(next);
-      // 采纳走 AuthorControl 写入正式 Event；广播既有待审信号（带项目 scope），
-      // 让与天意并排打开的角色工作台自动重算投影，而不必关闭重开。
-      if (props.runtime.project) window.dispatchEvent(new CustomEvent("story-studio-pending-review-changed", { detail: { projectId: props.runtime.project.id } }));
       props.onChanged?.(next);
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.adoption.failed")); }

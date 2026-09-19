@@ -27,7 +27,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   // keep their full assertions, but receive independent fixture/API/browser
   // lifecycles so one CPU-heavy scenario cannot starve another scenario's
   // bounded product-state transition.
-  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "character-agent-feedback-refresh", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
+  for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
 const require = createRequire(import.meta.url);
@@ -326,7 +326,7 @@ try {
     await setupCharacterFixture();
     await setupObservationFixture();
     await setupNarrativeFixture();
-    await assertCharacterAgentFeedbackRefresh(page, consoleProblems);
+    await assertCharacterAgentFeedbackRefreshArchitecture(page, consoleProblems);
   } else if (characterMemoryQueryOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -1335,18 +1335,246 @@ async function assertDevelopmentRuntimeMode() {
 }
 
 /**
- * TIANYAN_CHARACTER_AGENT_FEEDBACK_REFRESH_R0 interaction evidence.
- *
- * Proves: author adoption (AuthorControl apply) → the open character dock's
- * projections refresh automatically, without closing/reopening the dock, a
- * page reload, or a second write path. The pending-review workspace
- * structurally unmounts the dock outlet while it is open, so the numeric
- * digest change is asserted after the shell returns to the workspace with the
- * dock's preserved tab/status (no manual reopen, no browser reload), and the
- * golden adoption signal itself is captured with an in-page listener while
- * the apply happens.
+ * R1 architecture proof: one mounted Tianyi apply plus one separately named
+ * Golden remount recovery. Neither path calls a real Provider.
  */
-async function assertCharacterAgentFeedbackRefresh(page, consoleProblems) {
+async function assertCharacterAgentFeedbackRefreshArchitecture(page, consoleProblems) {
+  const evidenceDirectory = characterFeedbackEvidenceDirectory;
+  if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
+  const capture = async (name) => {
+    if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false });
+  };
+  const linId = characterFixture["林昭"]?.id;
+  assert.ok(linId, "The feedback refresh fixture needs the stable 林昭 identity.");
+  const providerRequests = [];
+  const formalWriteRequests = [];
+  const loaderTraffic = [];
+  let measureReads = false;
+  const loaderReads = { worldObject: 0, worldLibrary: 0, knowledge: 0, relations: 0, memory: 0 };
+  page.on("request", (request) => {
+    const url = request.url();
+    const pathname = new URL(url).pathname;
+    if (/\/(?:world-object|world-library|event-line\/knowledge-view|relations|characters\/memory-query)$/u.test(pathname)) loaderTraffic.push(`request:${request.method()}:${pathname}`);
+    if (request.method() !== "GET" && /\/__local\/story-studio\/(?:provider|model-service)|\/api\/provider|\/(?:chat\/)?completions/iu.test(url)) providerRequests.push(`${request.method()} ${url}`);
+    if (request.method() === "POST" && /\/(?:tianyi\/creative\/candidate\/event-review\/confirm|author-control\/change-set\/apply)$/u.test(pathname)) formalWriteRequests.push(pathname);
+    if (!measureReads || request.method() !== "GET") return;
+    if (pathname.endsWith("/world-object")) loaderReads.worldObject += 1;
+    else if (pathname.endsWith("/world-library")) loaderReads.worldLibrary += 1;
+    else if (pathname.endsWith("/event-line/knowledge-view")) loaderReads.knowledge += 1;
+    else if (pathname.endsWith("/relations")) loaderReads.relations += 1;
+    else if (pathname.endsWith("/characters/memory-query")) loaderReads.memory += 1;
+  });
+  page.on("response", (response) => {
+    const pathname = new URL(response.url()).pathname;
+    if (/\/(?:world-object|world-library|event-line\/knowledge-view|relations|characters\/memory-query)$/u.test(pathname)) loaderTraffic.push(`response:${response.status()}:${pathname}`);
+  });
+  const agentPreviewValues = async () => {
+    const preview = page.getByTestId("character-context-gateway-preview");
+    await preview.waitFor();
+    const text = await preview.innerText();
+    const technical = page.getByTestId("entity-agent-run").locator("details");
+    if ((await technical.getAttribute("open")) === null) await technical.locator("summary").click();
+    const technicalText = await technical.innerText();
+    const knownBelief = text.match(/知识 \/ 信念\s*(\d+) \/ (\d+)/u);
+    return {
+      knownFacts: knownBelief ? Number(knownBelief[1]) : null,
+      beliefs: knownBelief ? Number(knownBelief[2]) : null,
+      excluded: Number(text.match(/未知与排除\s*(\d+) 项/u)?.[1] ?? Number.NaN),
+      projectionRevision: text.match(/projectionRevision\s*([^\s]+)/u)?.[1] ?? null,
+      previewDigest: technicalText.match(/规范化摘要\s*([^\s]+)/u)?.[1] ?? null,
+    };
+  };
+  const waitForLoaderRound = async () => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && Object.values(loaderReads).some((count) => count < 1)) await page.waitForTimeout(50);
+    assert.deepEqual(loaderReads, { worldObject: 1, worldLibrary: 1, knowledge: 1, relations: 1, memory: 1 }, "One typed completion must produce one five-source refresh round.");
+  };
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, `${baseUrl}/tianyi?testFixture=legacy-three-candidates`);
+  await page.getByLabel("天意统一会话").waitFor();
+  await page.getByLabel("创意模式草稿").fill("让雾港守灯人在回信抵达前交出旧约钥匙，并留下一个会改变主故事顺序的选择。");
+  await page.getByRole("button", { name: "整理成三个候选", exact: true }).click();
+  const candidates = page.locator(".tianyi-candidate-grid article");
+  await candidates.nth(1).getByRole("button", { name: /进入工作模式/u }).click();
+  await page.getByRole("button", { name: "打开结构化影响预览", exact: true }).click();
+  let adoption = page.getByTestId("tianyi-adoption-panel");
+  await adoption.locator(".tianyi-structured-diff").waitFor();
+
+  // Open the real character workspace through the project directory, keeping
+  // this browser document and Shell alive.
+  await openCharacterDirectory(page);
+  const characterDirectory = page.getByTestId("character-directory");
+  await characterDirectory.waitFor();
+  await characterDirectory.getByRole("option", { name: /林昭/u }).click();
+  const characterInspector = page.getByTestId("character-inspector");
+  await characterInspector.waitFor();
+  await characterInspector.getByRole("button", { name: /展开角色工作面/u }).click();
+  await page.getByTestId("character-workspace").waitFor();
+  await page.getByTestId("character-open-state-inspector").click();
+  let dock = page.getByTestId("entity-inspector-dock");
+  await dock.waitFor();
+  await page.waitForFunction(() => {
+    const current = document.querySelector('[data-testid="entity-inspector-dock"]');
+    return current?.hasAttribute("data-status") === true || current?.querySelector('[role="alert"]') !== null;
+  }, undefined, { timeout: 10_000 }).catch(async (cause) => { throw new Error(`Dock snapshot did not settle: ${JSON.stringify({ text: await dock.innerText(), loaderTraffic })}`, { cause }); });
+  assert.equal(await dock.getAttribute("data-status") !== null, true, `The complete Dock snapshot must load before E2E interaction: ${await dock.innerText()}`);
+  if (await dock.getAttribute("data-status") !== "expanded") await dock.getByRole("button", { name: "展开为完整工作台", exact: true }).click();
+  await dock.getByRole("button", { name: "固定工作台", exact: true }).click();
+  await dock.getByRole("tab", { name: "Agent 运行", exact: true }).click();
+  await page.getByTestId("character-context-gateway-preview").waitFor();
+  await dock.evaluate((node) => {
+    node.setAttribute("data-feedback-mount-sentinel", "mounted-r1");
+    window.__feedbackMountAudit = { removals: 0, completionEvents: [] };
+    const observer = new MutationObserver(() => { if (!node.isConnected) window.__feedbackMountAudit.removals += 1; });
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.__feedbackMountAudit.observer = observer;
+    window.addEventListener("story-studio-pending-review-changed", (event) => {
+      if (event instanceof CustomEvent && event.detail?.kind === "projection-change-completed") window.__feedbackMountAudit.completionEvents.push(structuredClone(event.detail));
+    });
+  });
+  assert.equal(await dock.getAttribute("data-pinned"), "true");
+  assert.equal(await dock.getAttribute("data-status"), "expanded");
+
+  await page.getByRole("button", { name: "返回世界总览", exact: true }).click();
+  await page.getByLabel("天意统一会话").waitFor();
+  const closeDirectory = page.getByRole("button", { name: "关闭工程目录", exact: true });
+  if (await closeDirectory.isVisible().catch(() => false)) await closeDirectory.click();
+  dock = page.getByTestId("entity-inspector-dock");
+  assert.equal(await dock.getAttribute("data-feedback-mount-sentinel"), "mounted-r1", "The same Dock DOM node must survive the route change.");
+  adoption = page.getByTestId("tianyi-adoption-panel");
+  await adoption.locator(".tianyi-structured-diff").waitFor();
+  const mountedBefore = await agentPreviewValues();
+  await page.evaluate(() => { window.__feedbackNoReloadMarker = "alive"; });
+  await capture("01-mounted-refresh-before.png");
+
+  Object.keys(loaderReads).forEach((key) => { loaderReads[key] = 0; });
+  measureReads = true;
+  // At the evidence viewport the intentionally overlaid expanded Dock covers
+  // the Tianyi action column. A wider author viewport keeps both mounted and
+  // makes the real button physically clickable without force or DOM dispatch.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  const adoptButton = adoption.getByRole("button", { name: "采纳", exact: true });
+  await adoptButton.focus();
+  await adoptButton.click();
+  await adoption.getByText("采纳已生效", { exact: true }).waitFor();
+  await page.waitForFunction(() => window.__feedbackMountAudit?.completionEvents.length === 1);
+  await waitForLoaderRound();
+  measureReads = false;
+  const mountedAudit = await page.evaluate(() => ({
+    removals: window.__feedbackMountAudit.removals,
+    completionEvents: window.__feedbackMountAudit.completionEvents,
+    marker: window.__feedbackNoReloadMarker,
+    focusInsideDock: document.querySelector('[data-testid="entity-inspector-dock"]')?.contains(document.activeElement) ?? false,
+    tab: document.querySelector('[data-testid="entity-inspector-dock"] [role="tab"][aria-selected="true"]')?.textContent?.trim() ?? null,
+    status: document.querySelector('[data-testid="entity-inspector-dock"]')?.getAttribute("data-status"),
+    pinned: document.querySelector('[data-testid="entity-inspector-dock"]')?.getAttribute("data-pinned"),
+  }));
+  const mountedAfter = await agentPreviewValues();
+  assert.equal(mountedAudit.removals, 0, "The Dock must remain mounted through Tianyi apply and refresh.");
+  assert.equal(mountedAudit.marker, "alive");
+  assert.equal(mountedAudit.tab, "Agent 运行");
+  assert.equal(mountedAudit.status, "expanded");
+  assert.equal(mountedAudit.pinned, "true");
+  assert.equal(mountedAudit.focusInsideDock, false, "Refresh must not steal focus into the Dock.");
+  assert.ok(mountedAfter.projectionRevision && mountedAfter.previewDigest, "The one completed five-source round must publish one complete safe preview.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await capture("02-mounted-refresh-after.png");
+
+  // UNMOUNTED_DOCK_REMOUNT_REFRESH: prepare one Golden candidate, enter the
+  // pending workspace (which replaces ShellWorkspaceOutlet), apply once, then
+  // return and prove a fresh complete snapshot is recovered on remount.
+  const base = `${apiUrl}/__local/story-studio`;
+  const bootstrap = (await getFixture(`${base}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(fixtureProjectId)}`)).data;
+  const awuParticipant = bootstrap.participants.find((participant) => participant.title === "阿芜");
+  const linParticipant = bootstrap.participants.find((participant) => participant.title === "林昭");
+  const runUnit = bootstrap.storyUnits.find((unit) => unit.title === "雾港追踪") ?? bootstrap.storyUnits[0];
+  assert.ok(awuParticipant && linParticipant && runUnit);
+  const storyline = (bootstrap.storylines ?? []).find((line) => (line.units ?? []).some((unit) => unit.id === runUnit.id)) ?? (bootstrap.storylines ?? [])[0] ?? null;
+  const storylineUnits = storyline?.units ?? [runUnit];
+  const created = (await postFixture(`${base}/nuwa-n1/create`, {
+    projectId: fixtureProjectId,
+    participants: [
+      { id: awuParticipant.id, title: awuParticipant.title, revision: awuParticipant.revision, localGoal: "确保退路不被切断" },
+      { id: linParticipant.id, title: linParticipant.title, revision: linParticipant.revision, localGoal: "核实钟声是否来自桥下" }
+    ],
+    storyUnit: { id: runUnit.id, title: runUnit.title, revision: runUnit.revision ?? runUnit.revisionToken ?? null },
+    scope: { storylineKey: storyline?.key ?? "", startStoryUnitId: runUnit.id, endStoryUnitId: storylineUnits.at(-1)?.id ?? null, mode: "bounded" },
+    goal: "阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。",
+    operationId: `feedback-remount-run-${fixture.fixtureId}`
+  })).data;
+  let runId = created.run.runId;
+  let expectedRevision = created.run.revision;
+  const stepIds = [];
+  for (let index = 0; index < 2; index += 1) {
+    const stepped = (await postFixture(`${base}/nuwa-n1/step`, { projectId: fixtureProjectId, runId, expectedRevision, operationId: `feedback-remount-step-${index}-${fixture.fixtureId}` })).data;
+    const latestStep = stepped.run.steps.at(-1);
+    assert.ok(latestStep);
+    stepIds.push(latestStep.stepId);
+    expectedRevision = stepped.run.revision;
+  }
+  await postFixture(`${base}/nuwa-n1/candidate`, { projectId: fixtureProjectId, runId, expectedRevision, operationId: `feedback-remount-candidate-${fixture.fixtureId}`, selectedStepIds: stepIds });
+  const remountBefore = await agentPreviewValues();
+  const completionCountBeforeRemount = mountedAudit.completionEvents.length;
+  await page.locator(".shell-pending-entry").click();
+  await dock.waitFor({ state: "detached" });
+  const golden = page.getByTestId("golden-candidate-adoption").first();
+  await golden.waitFor();
+  await golden.getByRole("button", { name: "确认候选并打开影响预览", exact: true }).click();
+  await golden.getByRole("button", { name: "选择采纳路径", exact: true }).click();
+  await golden.getByRole("button", { name: "生成作者变更集", exact: true }).click();
+  await golden.getByRole("button", { name: "确认写入正式 Event", exact: true }).click();
+  await golden.getByText(/已由 Author Change Set 写入正式 Event/u).waitFor();
+  await page.getByRole("button", { name: "返回天意", exact: true }).click();
+  dock = page.getByTestId("entity-inspector-dock");
+  await dock.waitFor();
+  await page.getByTestId("character-context-gateway-preview").waitFor();
+  const remountAfter = await agentPreviewValues();
+  assert.notEqual(remountAfter.previewDigest, remountBefore.previewDigest);
+  assert.equal(await dock.getByRole("tab", { name: "Agent 运行", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await dock.getAttribute("data-pinned"), "true");
+  const remountCompletionCount = await page.evaluate(() => window.__feedbackMountAudit.completionEvents.length);
+  assert.equal(remountCompletionCount - completionCountBeforeRemount, 1);
+
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const compactGeometry = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > window.innerWidth,
+    dockRight: document.querySelector('[data-testid="entity-inspector-dock"]')?.getBoundingClientRect().right ?? 0,
+    viewportWidth: window.innerWidth,
+  }));
+  assert.equal(compactGeometry.overflow, false);
+  await capture("03-1195-compact.png");
+
+  const bodyText = await page.locator("body").innerText();
+  const secretSentinels = ["雾灯匣揭示第二层刻痕", "作者秘密"];
+  const secretLeakageCount = secretSentinels.filter((sentinel) => bodyText.includes(sentinel)).length;
+  assert.equal(secretLeakageCount, 0);
+  assert.deepEqual(providerRequests, []);
+  assert.deepEqual(formalWriteRequests.map((entry) => entry.replace(/^\/__local\/story-studio/u, "")), [
+    "/tianyi/creative/candidate/event-review/confirm",
+    "/author-control/change-set/apply",
+  ]);
+  assert.deepEqual(consoleProblems, []);
+  const evidence = {
+    mountedInPlace: { completionEvents: mountedAudit.completionEvents.length, refreshRounds: loaderReads.knowledge, loaderReads, dockRemovals: mountedAudit.removals, before: mountedBefore, after: mountedAfter, tab: mountedAudit.tab, status: mountedAudit.status, pinned: mountedAudit.pinned, focusPreserved: !mountedAudit.focusInsideDock },
+    unmountedDockRemountRecovery: { proven: true, completionEvents: remountCompletionCount - completionCountBeforeRemount, before: remountBefore, after: remountAfter },
+    viewportChecks: { wide: "1440x900", compact: "1195x720", compactGeometry },
+    providerRequests,
+    formalWriteRequests,
+    secretLeakageCount,
+    consoleProblems,
+  };
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "几何与安全检查.json"), `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+}
+
+/**
+ * Historical R0 diagnostic: UNMOUNTED_DOCK_REMOUNT_REFRESH only.
+ *
+ * The pending-review workspace structurally unmounts the Dock outlet. This
+ * legacy helper is intentionally not the R1 mounted-in-place proof.
+ */
+async function assertCharacterAgentFeedbackRefreshLegacyBaseline(page, consoleProblems) {
   const evidenceDirectory = characterFeedbackEvidenceDirectory;
   if (evidenceDirectory) mkdirSync(evidenceDirectory, { recursive: true });
   const capture = async (name) => {

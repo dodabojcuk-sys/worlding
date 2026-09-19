@@ -12,7 +12,11 @@ const dock = readFileSync("apps/story-studio/src/components/entity-dock/EntityIn
 const characterDock = dock.slice(dock.indexOf("function CharacterEntityDock"), dock.indexOf("/** 只读展示知情投影已经跨界的内容"));
 const pendingReviewPanel = readFileSync("apps/story-studio/src/product-shell/project-directory/PendingReviewPanel.tsx", "utf8");
 const tianyiAdoptionPanel = readFileSync("apps/story-studio/src/components/tianyi/workspace/TianyiAdoptionPanel.tsx", "utf8");
+const eventLineProjection = readFileSync("apps/story-studio/src/components/event-observation/R0EventLineProjection.tsx", "utf8");
 const coordinatorModule = readFileSync("apps/story-studio/src/components/entity-dock/entityDockProjectionRefresh.ts", "utf8");
+const completionBridge = readFileSync("apps/story-studio/src/lib/projectProjectionCompletionBridge.ts", "utf8");
+const localTransport = readFileSync("apps/story-studio/src/lib/localTransport.ts", "utf8");
+const e2eScript = readFileSync("apps/story-studio/scripts/tianyan-r0-shell-smoke.mjs", "utf8");
 
 function manualScheduler() {
   const queue: Array<() => void> = [];
@@ -43,6 +47,7 @@ function deferred<T>() {
 /** Lets every pending coordinator microtask (round start and completion) settle. */
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+const completion = (projectId = "project.a", workVersionId?: string) => ({ kind: "projection-change-completed" as const, projectId, operationPath: "/author-control/change-set/apply", ...(workVersionId ? { workVersionId } : {}) });
 const currentProjectOnly = (detail?: { projectId?: string } | null) => detail?.projectId === "project.a";
 
 test("the dock refresh trigger reuses the existing pending-review event name and introduces no third signal", () => {
@@ -54,18 +59,18 @@ test("the dock refresh trigger reuses the existing pending-review event name and
 
 test("invalidation scope check rejects unrelated projects and accepts the current project", () => {
   const scope = { projectId: "project.a", workVersionId: null };
-  assert.equal(invalidationTouchesScope(scope, { projectId: "project.a" }), true);
-  assert.equal(invalidationTouchesScope(scope, { projectId: "project.b" }), false, "T4: another project's invalidation must not refresh this dock.");
-  assert.equal(invalidationTouchesScope(scope, null), true, "A bare legacy event stays a current-project signal.");
-  assert.equal(invalidationTouchesScope({ projectId: null, workVersionId: null }, { projectId: "project.a" }), false, "No open project scope means nothing to refresh.");
+  assert.equal(invalidationTouchesScope(scope, completion()), true);
+  assert.equal(invalidationTouchesScope(scope, completion("project.b")), false, "T4: another project's invalidation must not refresh this dock.");
+  assert.equal(invalidationTouchesScope(scope, null), false, "A bare legacy event must not refresh the Character Dock.");
+  assert.equal(invalidationTouchesScope({ projectId: null, workVersionId: null }, completion()), false, "No open project scope means nothing to refresh.");
 });
 
 test("invalidation scope check honours workVersion narrowing without dropping project-wide signals", () => {
   const scoped = { projectId: "project.a", workVersionId: "wv.1" };
-  assert.equal(invalidationTouchesScope(scoped, { projectId: "project.a", workVersionId: "wv.1" }), true);
-  assert.equal(invalidationTouchesScope(scoped, { projectId: "project.a", workVersionId: "wv.2" }), false, "T5: another work version's invalidation must not refresh this dock.");
-  assert.equal(invalidationTouchesScope(scoped, { projectId: "project.a", workVersionId: null }), true, "An apply signal without a work version is project-wide.");
-  assert.equal(invalidationTouchesScope({ projectId: "project.a", workVersionId: null }, { projectId: "project.a", workVersionId: "wv.2" }), true, "A dock without a work version scope reads the project-wide signal.");
+  assert.equal(invalidationTouchesScope(scoped, completion("project.a", "wv.1")), true);
+  assert.equal(invalidationTouchesScope(scoped, completion("project.a", "wv.2")), false, "T5: another work version's invalidation must not refresh this dock.");
+  assert.equal(invalidationTouchesScope(scoped, completion()), true, "An apply signal without a work version is project-wide.");
+  assert.equal(invalidationTouchesScope({ projectId: "project.a", workVersionId: null }, completion("project.a", "wv.2")), false, "An authoritative work version cannot match an unversioned dock scope.");
 });
 
 test("duplicate author signals for one apply coalesce into a single refresh round", async () => {
@@ -167,14 +172,16 @@ test("out-of-scope notifications never reach the coordinator queue", async () =>
   coordinator.dispose();
 });
 
-test("the character dock subscribes through the coordinator with a sequence guard and preserves state on refresh", () => {
+test("the character dock awaits a generation-guarded atomic snapshot and preserves it on refresh failure", () => {
   assert.match(characterDock, /useEntityDockProjectionRefresh\(/, "The dock must subscribe through the shared pure-UI coordinator.");
-  assert.match(characterDock, /loadSequenceRef/, "A load sequence guard must drop stale responses.");
-  assert.match(characterDock, /mode === "initial"/, "State resets must be gated on the initial mode so a refresh keeps the previous read.");
+  assert.match(characterDock, /createCharacterDockSnapshotController/, "A generation guard must drop stale responses.");
+  assert.match(characterDock, /loadCharacterDockSnapshot/, "Every round must await one complete snapshot loader.");
+  assert.match(characterDock, /snapshotControllerRef\.current\?\.run\("refresh"\)\s*\?\?\s*Promise\.resolve\(\)/, "The coordinator callback must return the current effect-scoped refresh Promise.");
+  assert.match(characterDock, /useEffect\(\(\) => \{[\s\S]*const snapshotController = createCharacterDockSnapshotController/u, "StrictMode cleanup must dispose only an effect-scoped controller, never a permanently memoized instance.");
   assert.doesNotMatch(characterDock, /setInterval|location\.reload|window\.location/u, "No polling, reload or URL forcing may enter the dock.");
   assert.match(characterDock, /refreshError/, "A failed refresh must be surfaced instead of being read as empty data.");
   assert.match(dock, /role="status"[^>]*>/u, "Refresh status must be announced politely for assistive tech.");
-  assert.match(characterDock, /没有把读取失败当成没有经历/u, "The honest memory failure wording must survive.");
+  assert.match(characterDock, /刷新失败，当前仍显示上一次完整快照/u, "Refresh failure must preserve and name the prior complete snapshot.");
 });
 
 test("the refresh path adds no writes, no provider use and no second context assembly", () => {
@@ -183,21 +190,25 @@ test("the refresh path adds no writes, no provider use and no second context ass
   assert.doesNotMatch(coordinatorModule, /localTransport|fetch\(|providerGateway|storyContracts/u, "The coordinator is pure UI: no transport, no provider, no context reassembly.");
 });
 
-test("the AuthorControl adoption surfaces announce the existing pending-review signal with project scope", () => {
+test("formal completion is emitted only by the centralized transport bridge, never by apply UI", () => {
   const goldenCard = pendingReviewPanel.slice(pendingReviewPanel.indexOf("function GoldenCandidateAdoptionCard"), pendingReviewPanel.indexOf("export function PendingReviewPanel"));
   assert.match(goldenCard, /applyAuthorChangeSet/, "The golden adoption card must be the apply site.");
-  assert.match(goldenCard, new RegExp(`CustomEvent\\("${STORY_STUDIO_PENDING_REVIEW_CHANGED}"`), "The apply run must dispatch the existing event name.");
-  assert.match(goldenCard, /detail:\s*\{\s*projectId:\s*requestedProjectId\s*\}/, "The apply dispatch must carry the project scope.");
-  const perform = pendingReviewPanel.slice(pendingReviewPanel.indexOf("const perform = async"), pendingReviewPanel.indexOf("const openSource ="));
-  assert.match(perform, new RegExp(`CustomEvent\\("${STORY_STUDIO_PENDING_REVIEW_CHANGED}"`));
-  assert.match(perform, /detail:\s*\{\s*projectId:\s*requestedProjectId\s*\}/);
+  assert.doesNotMatch(goldenCard, /dispatchEvent|projection-change-completed/u, "Golden apply must not manually announce completion.");
   const adoptionRun = tianyiAdoptionPanel.slice(tianyiAdoptionPanel.indexOf("const run = async"), tianyiAdoptionPanel.indexOf("if (!review || !project"));
-  assert.match(adoptionRun, new RegExp(`CustomEvent\\("${STORY_STUDIO_PENDING_REVIEW_CHANGED}"`), "The tianyi adoption panel (the dock-coexisting adoption surface) must announce formal adoption.");
-  assert.match(adoptionRun, /detail:\s*\{\s*projectId:/, "The adoption dispatch must carry the project scope.");
+  assert.doesNotMatch(adoptionRun, /dispatchEvent|projection-change-completed/u, "Tianyi apply and undo must not manually announce completion.");
+  assert.doesNotMatch(eventLineProjection, /projection-change-completed/u, "Event Line must not manufacture a formal completion detail.");
+  assert.match(localTransport, /completeProjectProjectionTransport\(/, "localTransport must own the single completion bridge call.");
+  assert.match(completionBridge, /emitStoryStudioProjectionChangeCompleted\(/, "Only the centralized bridge may emit typed completion.");
 });
 
 test("existing projection ownership and safe-context contracts stay untouched by the refresh wiring", () => {
   assert.match(dock, /prepareCharacterContextGateway\(/, "The safe preview must keep flowing through the shared gateway.");
   assert.match(dock, /projectCharacterContextExclusionCounts\(knowledge\)/);
   assert.match(coordinatorModule, /不保存领域事实|纯 UI/u, "The coordinator must document its no-owner boundary.");
+});
+
+test("the feature E2E remains explicit but is absent from the default serial sweep", () => {
+  assert.match(e2eScript, /characterFeedbackOnly = process\.env\.TIANYAN_E2E_SCOPE === "character-agent-feedback-refresh"/u);
+  const defaultSweep = e2eScript.slice(e2eScript.indexOf("if (!process.env.TIANYAN_E2E_SCOPE)"), e2eScript.indexOf("const require = createRequire"));
+  assert.doesNotMatch(defaultSweep, /character-agent-feedback-refresh/u);
 });

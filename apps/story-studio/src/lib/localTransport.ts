@@ -25,6 +25,7 @@ import type {
 import { directoryReadDiagnosticsEnabled, recordDirectoryReadDiagnostic } from "./directoryReadDiagnostics";
 import { InFlightReadRegistry, InFlightReadTimeoutError } from "./inFlightReadRegistry";
 import { projectProjectionInvalidationMode } from "./projectProjectionInvalidation";
+import { completeProjectProjectionTransport } from "./projectProjectionCompletionBridge";
 
 export type { GoldenLoopCandidate, GoldenLoopCandidateReviewHistoryEntry, GoldenLoopResult } from "./goldenLoopContract";
 export type { SourceImportCandidateR0, SourceImportDocumentR0, SourceImportHandoffR0 } from "../../../../src/storyContracts/sourceImportReviewR0.ts";
@@ -3768,6 +3769,7 @@ async function request<T>(
     }
     throw new LocalTransportError("本地服务暂时未连接。当前页面会保留；需要读取或保存时请重新连接。", 0);
   }
+  let data: T;
   try {
     if (directoryEndpoint) recordDirectoryReadDiagnostic({ phase: "http-response", endpoint: directoryEndpoint, projectId: directoryProjectId, status: response.status, outcome: response.ok ? "ready" : "failed", durationMs: startedAt === null ? undefined : Math.round(performance.now() - startedAt) });
     const source = await response.text();
@@ -3786,7 +3788,7 @@ async function request<T>(
         : "本地项目操作失败。";
       throw new LocalTransportError(payload.error || fallback, response.status);
     }
-    return payload.data;
+    data = payload.data;
   } finally {
     // A read begun while the write was pending was marked non-cacheable when
     // it entered the registry. Closing the boundary therefore cannot evict a
@@ -3794,4 +3796,6 @@ async function request<T>(
     closeProjectionWriteBoundary?.();
     if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
   }
+  completeProjectProjectionTransport({ pathname: parsedUrl.pathname, body: input.body, data, invalidationMode: projectionInvalidationMode });
+  return data;
 }

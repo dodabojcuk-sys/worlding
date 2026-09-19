@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Pin, PinOff, X, ChevronsLeft, ChevronsRight, RefreshCw } from "lucide-react";
 
-import {
-  getCharacterMemoryQuery,
-  getEventStoryCrossingKnowledgeProjection,
-  getWorldLibrary,
-  listRelations,
-  readWorldObject,
-  type WorldObjectSummary,
-} from "../../lib/localTransport";
+import { getCharacterMemoryQuery, getEventStoryCrossingKnowledgeProjection, getWorldLibrary, listRelations, readWorldObject } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
-import type { EventStoryCrossingKnowledgeProjection } from "../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
-import type { CharacterMemoryQueryProjection } from "../../../../../src/storyContinuity/characterMemoryQuery.ts";
 import { projectWorldReferences, WORLD_REFERENCE_CATEGORY_LABELS } from "../../../../../src/storyContracts/worldReferenceProjection.ts";
 import { buildCharacterContextPack, type CharacterContextPack } from "../../../../../src/storyContracts/characterContextPack.ts";
 import { prepareCharacterContextGateway, projectCharacterContextExclusionCounts, type CharacterGatewayPreparation } from "../../../../../src/storyContracts/characterAgentContextGateway.ts";
 import { attachTimeFrames, projectCausalEvolution, type CausalEvolutionCard } from "../../../../../src/storyContracts/worldCausalEvolution.ts";
 import { buildCharacterStateInspectorView, type CharacterStateInspectorView } from "./characterStateInspectorPresentation.ts";
+import { createCharacterDockSnapshotController, loadCharacterDockSnapshot, type CharacterDockReadSnapshot, type CharacterDockSnapshotController } from "./characterDockSnapshot.ts";
 import { useEntityDockProjectionRefresh } from "./entityDockProjectionRefresh.ts";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { CharacterMemoryQuery, FormalRelations, CharacterKnowledgePreview } from "../../product-shell/project-directory/character/CharacterInspectorCard";
@@ -33,17 +25,6 @@ import {
 
 const DOCK_TABS = ENTITY_DOCK_CHARACTER_TABS;
 type DockTab = EntityDockCharacterTab;
-
-interface CharacterDockRead {
-  title: string;
-  revisionToken: string;
-  subtype: string | null;
-  status: string;
-  portraitAssetRef: string | null;
-  profileCore: string | null;
-  boundaries: string | null;
-  participations: Array<{ eventId: string }>;
-}
 
 /** 通用磁吸详情工作台：peek/expanded/pinned；当前支持 character，容器与入口对任意实体通用。
  * 只读组合既有 Owner（WorldObject/Relation/CharacterMemory/知识投影），不建立第二事实库。 */
@@ -66,58 +47,42 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
   const tab = props.tab;
   const projectId = props.runtime.project?.id ?? null;
   const workVersionId = props.runtime.workVersionId ?? null;
-  const [read, setRead] = useState<CharacterDockRead | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [knowledge, setKnowledge] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
-  const [relations, setRelations] = useState<RelationReadProjectionR0[]>([]);
-  const [memoryQuery, setMemoryQuery] = useState<CharacterMemoryQueryProjection | null>(null);
-  const [memoryError, setMemoryError] = useState<string | null>(null);
-  const [worldObjects, setWorldObjects] = useState<WorldObjectSummary[] | null>(null);
+  const [snapshot, setSnapshot] = useState<CharacterDockReadSnapshot | null>(null);
+  const [initialError, setInitialError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
-  const loadSequenceRef = useRef(0);
-  const loadedScopeKeyRef = useRef<string | null>(null);
-
-  const loadCharacterRead = useCallback((mode: "initial" | "refresh") => {
-    if (!projectId) return;
-    const sequence = ++loadSequenceRef.current;
-    const isCurrent = () => sequence === loadSequenceRef.current;
-    // Refresh keeps the previous read on screen until the new one arrives; only
-    // a scope change (角色/项目/版本切换) may clear the dock.
-    if (mode === "initial") {
-      setRead(null); setFailed(false); setKnowledge(null); setRelations([]); setMemoryQuery(null); setMemoryError(null); setWorldObjects(null);
-    }
-    setRefreshError(null);
-    void Promise.all([readWorldObject(projectId, props.objectId), getWorldLibrary(projectId), getEventStoryCrossingKnowledgeProjection(projectId, props.objectId), listRelations({ projectId, workVersionId, objectId: props.objectId, reviewState: "confirmed" })]).then(([object, library, projection, relationRead]) => {
-      if (!isCurrent()) return;
-      if (object.type !== "character") { setFailed(true); return; }
-      setRead({
-        title: object.title,
-        revisionToken: object.revisionToken,
-        subtype: object.subtype ?? null,
-        status: object.status,
-        portraitAssetRef: object.card.portrait?.assetRef ?? null,
-        profileCore: profileValue(object, "character_core"),
-        boundaries: profileValue(object, "boundaries"),
-        participations: (object.worldProjection?.timelineParticipations ?? []).map((item) => ({ eventId: item.eventId })),
-      });
-      setKnowledge(projection.observer.id === object.id ? projection : null);
-      setRelations(relationRead.relations);
-      setWorldObjects(library.objects);
-    }).catch(() => {
-      if (!isCurrent()) return;
-      if (mode === "initial") setFailed(true);
-      else setRefreshError("最新变化读取失败；以下保留上一次成功读取的角色状态。");
-    });
-    void getCharacterMemoryQuery(projectId, props.objectId, workVersionId).then((query) => { if (isCurrent()) setMemoryQuery(query); }).catch(() => { if (isCurrent()) setMemoryError("角色记忆记录暂时无法读取；没有把读取失败当成没有经历。"); });
-  }, [projectId, props.objectId, workVersionId]);
-
-  const scopeKey = `${projectId ?? ""}\u0000${props.objectId}\u0000${workVersionId ?? ""}`;
+  const snapshotControllerRef = useRef<CharacterDockSnapshotController | null>(null);
   useEffect(() => {
-    const initial = loadedScopeKeyRef.current !== scopeKey;
-    loadedScopeKeyRef.current = scopeKey;
-    loadCharacterRead(initial ? "initial" : "refresh");
-  }, [loadCharacterRead, scopeKey]);
-  useEntityDockProjectionRefresh({ projectId, workVersionId }, loadCharacterRead.bind(null, "refresh"));
+    const snapshotController = createCharacterDockSnapshotController({
+      load: () => {
+        if (!projectId) return Promise.reject(new Error("No project is open."));
+        return loadCharacterDockSnapshot({ projectId, objectId: props.objectId, workVersionId }, {
+          readCharacter: readWorldObject,
+          readWorldLibrary: getWorldLibrary,
+          readKnowledge: getEventStoryCrossingKnowledgeProjection,
+          readRelations: (scope) => listRelations({ projectId: scope.projectId, workVersionId: scope.workVersionId, objectId: scope.objectId, reviewState: "confirmed" }),
+          readMemories: getCharacterMemoryQuery,
+        });
+      },
+      commit: (next) => { setSnapshot(next); setInitialError(null); setRefreshError(null); },
+      onInitialFailure: () => { setSnapshot(null); setInitialError("角色完整快照读取失败；Agent 安全预览未生成。"); },
+      onRefreshFailure: () => setRefreshError("刷新失败，当前仍显示上一次完整快照。"),
+    });
+    snapshotControllerRef.current = snapshotController;
+    setSnapshot(null); setInitialError(null); setRefreshError(null);
+    void snapshotController.run("initial");
+    return () => {
+      if (snapshotControllerRef.current === snapshotController) snapshotControllerRef.current = null;
+      snapshotController.dispose();
+    };
+  }, [projectId, props.objectId, workVersionId]);
+  const refreshSnapshot = useCallback(() => snapshotControllerRef.current?.run("refresh") ?? Promise.resolve(), []);
+  useEntityDockProjectionRefresh({ projectId, workVersionId }, refreshSnapshot);
+
+  const read = snapshot?.read ?? null;
+  const knowledge = snapshot?.knowledge ?? null;
+  const relations = snapshot?.relations ?? [];
+  const memoryQuery = snapshot?.memoryQuery ?? null;
+  const worldObjects = snapshot?.worldObjects ?? null;
 
   const references = useMemo(() => projectWorldReferences(worldObjects ?? []), [worldObjects]);
   const objectLabels = useMemo(() => new Map((worldObjects ?? []).filter((item) => item.type === "character").map((item) => [item.id, item.title])), [worldObjects]);
@@ -178,9 +143,9 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
     exclusions: contextPack?.excluded ?? []
   }), [knowledge, contextPack]);
 
-  if (failed) return <aside className="entity-dock is-peek" data-testid="entity-inspector-dock" role="complementary" aria-label="详情工作台">
+  if (initialError) return <aside className="entity-dock is-peek" data-testid="entity-inspector-dock" role="complementary" aria-label="详情工作台">
     <DockHeader title="详情工作台" status="peek" pinned={false} onPin={() => undefined} onExpand={() => undefined} onClose={closeEntityDock} />
-    <p className="entity-dock-empty" role="alert"><AlertTriangle size={14} />该对象不存在或已归档；没有读取到可展示的角色。</p>
+    <p className="entity-dock-empty" role="alert"><AlertTriangle size={14} />{initialError}</p>
   </aside>;
   if (!read) return <aside className="entity-dock is-peek" data-testid="entity-inspector-dock" role="complementary" aria-label="详情工作台">
     <DockHeader title="详情工作台" status="peek" pinned={false} onPin={() => undefined} onExpand={() => undefined} onClose={closeEntityDock} />
@@ -222,7 +187,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
         {tab === "总览" ? <OverviewTab objectId={props.objectId} read={read} relations={relations} objectLabels={objectLabels} pack={contextPack} /> : null}
         {tab === "档案" ? <div className="entity-dock-section"><p>档案字段以角色目录编辑器为唯一编辑入口；此处只读展示。</p><dl><div><dt>角色核心</dt><dd>{read.profileCore ?? "未设置"}</dd></div><div><dt>底线</dt><dd>{read.boundaries ?? "未设置"}</dd></div></dl><a href={`/world?worldView=character&objectId=${encodeURIComponent(props.objectId)}`}>在角色目录中编辑档案</a></div> : null}
         {tab === "心理与状态" ? <CharacterStateTab view={stateView} sourced={Boolean(knowledge)} /> : null}
-        {tab === "记忆" ? <CharacterMemoryQuery query={memoryQuery} error={memoryError} /> : null}
+        {tab === "记忆" ? <CharacterMemoryQuery query={memoryQuery} error={null} /> : null}
         {tab === "关系与知情" ? <div className="entity-dock-section"><FormalRelations objectId={props.objectId} relations={relations} graphRelationCount={0} objectLabels={objectLabels} /><CharacterKnowledgePreview projection={knowledge} /></div> : null}
         {tab === "人生与事件" ? <div className="entity-dock-section"><p>{lastParticipation}。</p><a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}`}>在事件线查看</a></div> : null}
         {tab === "演化与命运" ? <div className="entity-dock-section"><p>命运投影合同（tianyan-character-fate-projection/v1）已定义；当前没有 actual / planned / candidate 生产数据，不生成无来源轨迹。</p></div> : null}
@@ -344,11 +309,6 @@ function sanitizeInternalIds(text: string, labels: Map<string, string>): string 
     const known: Record<string, string> = { character: "角色", event: "事件", item: "物件", location: "地点", faction: "组织", rule: "规则", "story-unit": "单元", "work-version": "作品版本", nuwa: "排演" };
     return known[prefix] ? `${known[prefix]}（已隐去标识）` : match;
   });
-}
-
-function profileValue(object: { profile?: { authorConfirmed?: boolean; fields?: Record<string, { source?: string; value?: unknown }> | null } | null }, key: string): string | null {
-  const field = object.profile?.authorConfirmed === true ? object.profile.fields?.[key] : null;
-  return field?.source === "author" && typeof field.value === "string" ? field.value : null;
 }
 
 function isActiveProviderConfigured(status: TianyanShellRuntimeState["modelStatus"]): boolean {

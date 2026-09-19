@@ -1,4 +1,11 @@
 import { useEffect, useRef } from "react";
+import {
+  readStoryStudioProjectionChangeDetail,
+  STORY_STUDIO_PENDING_REVIEW_CHANGED,
+  type StoryStudioProjectionChangeCompletedDetail,
+} from "../../lib/storyStudioProjectionChangeEvent.ts";
+
+export { STORY_STUDIO_PENDING_REVIEW_CHANGED };
 
 /**
  * 纯 UI 刷新协调器：只负责订阅、去重、scope 判断、触发读取与忽略过期响应。
@@ -7,23 +14,20 @@ import { useEffect, useRef } from "react";
  * 数据新鲜度权威仍是 projectProjectionInvalidation 的写入围栏（transport 内部）。
  */
 
-/** The only browser-subscribable author-change signal in the product shell. */
-export const STORY_STUDIO_PENDING_REVIEW_CHANGED = "story-studio-pending-review-changed";
-
-export type EntityDockInvalidationDetail = { projectId?: string; workVersionId?: string | null };
+export type EntityDockInvalidationDetail = StoryStudioProjectionChangeCompletedDetail;
 
 export type EntityDockRefreshScope = { projectId: string | null; workVersionId: string | null };
 
 /**
- * A signal touches this dock when it is project-wide for the dock's project.
- * A signal narrowed to another project, or to another work version than the
- * dock's, must not cause reads. A bare legacy Event (no detail) keeps its
- * historical meaning: an author action in the current project.
+ * Only a typed completion for this project touches the dock. If the completion
+ * carries an authoritative workVersionId it must equal the dock scope. A
+ * project-scoped completion intentionally omits that field and reloads the
+ * work version already selected by the dock.
  */
 export function invalidationTouchesScope(scope: EntityDockRefreshScope, detail?: EntityDockInvalidationDetail | null): boolean {
-  if (!scope.projectId) return false;
-  if (detail?.projectId && detail.projectId !== scope.projectId) return false;
-  if (detail?.workVersionId && scope.workVersionId && detail.workVersionId !== scope.workVersionId) return false;
+  if (!scope.projectId || !detail || detail.kind !== "projection-change-completed") return false;
+  if (detail.projectId !== scope.projectId) return false;
+  if (detail.workVersionId && detail.workVersionId !== scope.workVersionId) return false;
   return true;
 }
 
@@ -105,22 +109,21 @@ function defaultSchedule(task: () => void): () => void {
  * judge against the project/work version currently on screen.
  */
 export function useEntityDockProjectionRefresh(scope: EntityDockRefreshScope, onRefreshRound: () => void | Promise<void>): void {
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
   const roundRef = useRef(onRefreshRound);
   roundRef.current = onRefreshRound;
   useEffect(() => {
     const coordinator = createEntityDockRefreshCoordinator({
       runRound: () => roundRef.current(),
-      isRelevant: (detail) => invalidationTouchesScope(scopeRef.current, detail)
+      isRelevant: (detail) => invalidationTouchesScope(scope, detail)
     });
     const onInvalidation = (event: Event) => {
-      coordinator.notify((event as CustomEvent).detail as EntityDockInvalidationDetail | undefined);
+      const detail = readStoryStudioProjectionChangeDetail(event);
+      if (detail) coordinator.notify(detail);
     };
     window.addEventListener(STORY_STUDIO_PENDING_REVIEW_CHANGED, onInvalidation);
     return () => {
       window.removeEventListener(STORY_STUDIO_PENDING_REVIEW_CHANGED, onInvalidation);
       coordinator.dispose();
     };
-  }, []);
+  }, [scope.projectId, scope.workVersionId]);
 }

@@ -7,6 +7,8 @@ const immediateOwnerWritePaths = [
   /^\/narrative-arrangements\/(?:create|insert|move|remove|rollback)$/u,
   /^\/story-collection-points\/(?:create|update|dissolve)$/u,
   /^\/author-control\/(?:change-set\/apply|prediction-review\/accept)$/u,
+  /^\/event-line\/normal-creation\/confirm$/u,
+  /^\/tianyi\/creative\/candidate\/event-review\/(?:confirm|undo)$/u,
   /^\/nuwa-n1\/(?:auto-apply|auto-rollback)$/u,
   /^\/world-objects\/(?:create|open|close|agent-type|update|duplicate|archive|restore|bulk|move-to-folder|delete)$/u,
   /^\/character-templates\/apply$/u,
