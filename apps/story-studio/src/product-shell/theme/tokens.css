@@ -18,6 +18,12 @@
   --color-warning: #9d6a19;
   --color-danger: #a5433d;
   --color-focus: #247f76;
+  --color-world-location: #5f83a1;
+  --color-world-rule: #a97b24;
+  --color-world-faction: #857aa3;
+  --color-world-item: #a06b3c;
+  --color-world-clue: #6f7a72;
+  --color-world-secret: #8a6d1f;
   --shadow-panel: 0 18px 50px rgba(23, 35, 42, 0.12);
   --font-ui: "Noto Sans CJK SC", "Noto Sans", sans-serif;
   --font-display: "Noto Serif CJK SC", "Noto Serif", serif;
@@ -75,6 +81,12 @@
   --color-warning: #9d6a19;
   --color-danger: #a5433d;
   --color-focus: #247f76;
+  --color-world-location: #5f83a1;
+  --color-world-rule: #a97b24;
+  --color-world-faction: #857aa3;
+  --color-world-item: #a06b3c;
+  --color-world-clue: #6f7a72;
+  --color-world-secret: #8a6d1f;
 }
 
 .tianyan-r0-shell[data-theme="night-paper"] {
