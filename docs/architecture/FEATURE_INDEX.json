@@ -1208,7 +1208,7 @@
     {
       "id": "character-agent-magnetic-workbench-r0",
       "status": "LOCAL_REVIEW",
-      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-character-knowledge-handoff-gated-nuwa-context-preview-and-atomic-five-source-refresh-after-browser-localtransport-formal-completion",
+      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-workbench-plus-one-call-transient-single-character-action-preview-over-existing-owners",
       "entrypoints": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
@@ -1217,7 +1217,8 @@
         "apps/story-studio/src/lib/projectProjectionCompletionBridge.ts",
         "apps/story-studio/src/lib/storyStudioProjectionChangeEvent.ts",
         "src/storyContracts/characterContextPack.ts",
-        "src/storyContracts/characterAgentContextGateway.ts"
+        "src/storyContracts/characterAgentContextGateway.ts",
+        "apps/story-studio/server/singleCharacterActionCandidatePort.mjs"
       ],
       "sourceFiles": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
@@ -1238,7 +1239,8 @@
         "src/storyContracts/characterAgentContextGateway.ts",
         "src/storyContracts/nuwaN1Attention.ts",
         "src/storyIntelligence/nuwaN1Runtime.ts",
-        "apps/story-studio/server/nuwaN1PiAdapter.mjs"
+        "apps/story-studio/server/nuwaN1PiAdapter.mjs",
+        "apps/story-studio/server/singleCharacterActionCandidatePort.mjs"
       ],
       "owners": [
         "src/storyContracts/characterContextPack.ts"
@@ -1249,8 +1251,8 @@
       "stateOwners": [
         "apps/story-studio/server/server.mjs"
       ],
-      "persistenceOwner": "None. The dock reads the existing WorldObject / Relation / CharacterMemory / knowledge-projection owners; both the legacy context pack and the handoff-gated NuwaN1Context preview are pure deterministic projections with no writes and no second fact store.",
-      "providerDependency": "The Agent tab issues zero Provider requests. Its author preview and the Nuwa N1 Pi adapter consume one shared provider-safe projection; no credentials or excluded prose are displayed.",
+      "persistenceOwner": "None. The dock reads the existing WorldObject / Story Unit / Relation / CharacterMemory / knowledge-projection owners. A generated action candidate exists only in component memory, is explicitly not saved, is lost on close or reload, and cannot be replayed or placed in pending review.",
+      "providerDependency": "The Agent tab may issue exactly one Provider Gateway completion after server-side revision and permission checks, with retry disabled. It reuses the shared provider-safe projection, Nuwa actor-result validator, budget and receipt boundary; credentials, excluded prose and raw response bodies are not returned.",
       "tests": [
         "tests/storyContracts/characterContextPack.test.ts",
         "tests/storyContracts/worldReferenceProjection.test.ts",
@@ -1259,13 +1261,14 @@
         "tests/storyStudio/characterStateInspectorEntryR0.test.ts",
         "tests/storyStudio/characterAgentFeedbackRefreshR0.test.ts",
         "tests/storyStudio/characterDockAtomicSnapshot.test.ts",
-        "tests/storyStudio/projectionChangeCompletionBridge.test.ts"
+        "tests/storyStudio/projectionChangeCompletionBridge.test.ts",
+        "tests/storyStudio/singleCharacterActionCandidateR0.test.ts"
       ],
       "legacyProvenance": [
         "CharacterInspectorCard memory/relation/knowledge components",
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
-      "remainingGap": "R1 browser-local slice: after a successful formal change and cache-boundary completion, localTransport emits one typed project-scoped completion over the existing pending-review event name. A mounted Character Dock accepts only that typed detail, awaits one atomic five-source snapshot, drops stale/unmounted generations, and preserves the previous complete snapshot on refresh failure. AuthorControl paths without an authoritative workVersionId intentionally reload the Dock's current version at project scope; external API, cross-tab and filesystem changes have no realtime push. Single-role dispatch, action/Event candidates, Canon writes, a character-level provider configuration owner, the fate production feed and retiring the nuwa-only quick-view entry remain open; no real Provider calls."
+      "remainingGap": "R0 intentionally stops at a transient, unconfirmed action preview. There is no saved action-candidate Owner, pending-review lifecycle, replay, adoption, Event proposal, Canon write, character-level provider configuration owner or fate production feed. Founder visual acceptance and any future durable candidate design remain separate work."
     },
     {
       "id": "hybrid-semantic-retrieval-r3",

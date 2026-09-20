@@ -112,6 +112,7 @@ const mapM4ManagementAiEditingOnly = process.env.TIANYAN_E2E_SCOPE === "map-m4-m
 const mapRealAiCollaborationOnly = process.env.TIANYAN_E2E_SCOPE === "map-real-ai-collaboration-r1";
 const mapRealAiLiveAcceptance = mapRealAiCollaborationOnly && process.env.TIANYAN_MAP_REAL_AI_LIVE_ACCEPTANCE === "1";
 const worldMaterialsOnly = process.env.TIANYAN_E2E_SCOPE === "world-materials-m1";
+const singleCharacterActionOnly = process.env.TIANYAN_E2E_SCOPE === "single-character-action-candidate-r0";
 const multiverseB1EvidenceDirectory = process.env.TIANYAN_MULTI_B1_EVIDENCE_DIR || null;
 const characterMemoryEvidenceDirectory = process.env.TIANYAN_CHARACTER_MEMORY_EVIDENCE_DIR || null;
 const mapM2EvidenceDirectory = process.env.TIANYAN_MAP_M2_EVIDENCE_DIR || null;
@@ -124,6 +125,7 @@ const tianyiR6EvidenceDirectory = process.env.TIANYAN_TIANYI_R6_EVIDENCE_DIR || 
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
+const singleCharacterActionEvidenceDirectory = process.env.TIANYAN_SINGLE_CHARACTER_ACTION_EVIDENCE_DIR || null;
 const relationReaderEvidenceDirectory = process.env.TIANYAN_RELATION_READER_EVIDENCE_DIR || null;
 const r4R2EvidenceDirectory = process.env.TIANYAN_R4_R2_EVIDENCE_DIR || null;
 const diagnosticEvidenceDirectory = process.env.TIANYAN_E2E_DIAGNOSTIC_DIR || null;
@@ -149,6 +151,7 @@ let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 let expectedMapCompensationConflict = false;
 let expectedRelationFailureConsoleBudget = 0;
+let expectedSingleCharacterFailure = false;
 const r062Captures = [];
 
 async function runIsolatedE2eScope(scope) {
@@ -182,7 +185,7 @@ async function findAvailablePort(requestedPort, excludedPort) {
 
 try {
   ollamaFixture = mapRealAiLiveAcceptance || tianyiR6LiveAcceptance ? null : await startProviderCatalogOllamaFixture();
-  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly || characterFeedbackOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
+  const apiEnvironment = { ...process.env, NODE_ENV: "test", PORT: String(apiPort), WORLD_OS_STORY_STUDIO_ROOT: fixtureRoot, WORLD_OS_STORY_STUDIO_STATE_FILE: path.join(fixtureRoot, ".story-studio", "state.json"), WORLD_OS_LOCAL_CONTROL_TOKEN: controlToken, PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", REAL_PROVIDER_CREDENTIALS_USED: "0", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "1", TIANYAN_AGENT_FAKE_STORY_INTAKE_FAILURE_ORDINAL: storyIntakeOnly ? "2" : "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "1", TIANYAN_STORY_MODELING_TEST_BATCH_DELAY_MS: r8RecordingOnly || r9RecordingOnly || r10RecordingOnly ? "650" : "0", TIANYAN_NUWA_N1_FAKE_PROVIDER: nuwaN1Only || r5ContinuousOnly || characterMemoryQueryOnly || characterFeedbackOnly ? "1" : "0", TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS: nuwaN1Only ? "350" : "0", TIANYAN_SINGLE_CHARACTER_ACTION_FAKE_DELAY_MS: singleCharacterActionOnly ? "500" : "0", TIANYAN_MULTIVERSE_B1_FIXTURE: multiverseB1RehearsalOnly ? "1" : "0", TIANYAN_PROVIDER_APP_DATA_ROOT: providerFixtureRoot, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "api-only" };
   if (mapRealAiLiveAcceptance || tianyiR6LiveAcceptance) {
     Object.assign(apiEnvironment, { NODE_ENV: "development", PROVIDER_MODE: "REAL_PROVIDER_ALLOWED", REAL_PROVIDER_CREDENTIALS_USED: "1", TIANYAN_REAL_PROVIDER_PRODUCT_PATH: "1", TIANYAN_AGENT_FAKE_PROVIDER_STREAM: "0", TIANYAN_STORY_MODELING_TEST_PROVIDER: "0" });
     delete apiEnvironment.TIANYAN_PROVIDER_APP_DATA_ROOT;
@@ -239,6 +242,7 @@ try {
       expectedRelationFailureConsoleBudget -= 1;
       return;
     }
+    if (expectedSingleCharacterFailure && /Failed to load resource.*422/u.test(problem)) return;
     if (expectedMapCompensationConflict && /Failed to load resource.*400/u.test(problem)) return;
     consoleProblems.push(problem);
   });
@@ -246,7 +250,7 @@ try {
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/model-service/tianyi-grounded-answer")) tianyiR6Lifecycle.requestCount += 1;
   });
-  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && !(expectedMapCompensationConflict && response.url().endsWith("/maps/proposals/compensate")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
+  page.on("response", (response) => response.status() >= 400 && !(expectedProviderCatalogFailure && response.url().endsWith("/model-service/models")) && !(expectedMapCompensationConflict && response.url().endsWith("/maps/proposals/compensate")) && !(expectedSingleCharacterFailure && response.url().endsWith("/single-character-action-candidate")) && consoleProblems.push(`HTTP ${response.status()}: ${response.url()}`));
   page.on("response", (response) => {
     if (response.status() === 200 && response.url().endsWith("/model-service/tianyi-grounded-answer")) {
       tianyiR6Lifecycle.providerReturned = true;
@@ -327,6 +331,11 @@ try {
     await setupObservationFixture();
     await setupNarrativeFixture();
     await assertCharacterAgentFeedbackRefreshArchitecture(page, consoleProblems);
+  } else if (singleCharacterActionOnly) {
+    await setupCharacterFixture();
+    await setupObservationFixture();
+    await setupNarrativeFixture();
+    await assertSingleCharacterActionCandidateR0(page, consoleProblems);
   } else if (characterMemoryQueryOnly) {
     await setupCharacterFixture();
     await setupObservationFixture();
@@ -1332,6 +1341,135 @@ async function assertDevelopmentRuntimeMode() {
     health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: healthBody },
     unknownApi: { status: missingApi.status, contentType: missingApi.headers.get("content-type"), body: JSON.parse(missingApiBody) }
   }, null, 2));
+}
+
+/** R0 single-role dispatch proof. The one successful request uses the local
+ * fake adapter; error and unconfigured screenshots are UI-only injected
+ * transport states and therefore cannot add a second Provider dispatch. */
+async function assertSingleCharacterActionCandidateR0(page, consoleProblems) {
+  const evidenceDirectory = singleCharacterActionEvidenceDirectory;
+  const screenshotDirectory = evidenceDirectory ? path.join(evidenceDirectory, "截图") : null;
+  if (screenshotDirectory) mkdirSync(screenshotDirectory, { recursive: true });
+  const capture = async (name) => {
+    if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, name), fullPage: false });
+  };
+  const linId = characterFixture["林昭"]?.id;
+  assert.ok(linId, "The single-character fixture needs the stable 林昭 identity.");
+  const base = `${apiUrl}/__local/story-studio`;
+  const beforeWorld = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const beforeUnits = await getFixture(`${base}/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const actionPayloads = [];
+  const formalWriteRequests = [];
+  const requestListener = (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (request.method() === "POST" && pathname.endsWith("/single-character-action-candidate")) actionPayloads.push(request.postData() || "");
+    if (request.method() === "POST" && /\/(?:change-set\/apply|events\/create|world-objects\/(?:create|update)|relations\/(?:confirm|create)|story-units\/(?:create|update)|nuwa-n1\/(?:create|action|candidate))/u.test(pathname)) formalWriteRequests.push(pathname);
+  };
+  page.on("request", requestListener);
+
+  const openAgentDock = async () => {
+    await gotoProduct(page, `${baseUrl}/world?locale=zh-CN&worldView=character&characterId=${encodeURIComponent(linId)}`);
+    await page.getByTestId("character-workspace").waitFor();
+    const opener = page.getByTestId("character-open-state-inspector");
+    await opener.click();
+    const dock = page.getByTestId("entity-inspector-dock");
+    await dock.waitFor();
+    await dock.getByRole("tab", { name: "Agent 运行", exact: true }).click();
+    await dock.getByTestId("character-context-gateway-preview").waitFor();
+    return { dock, opener };
+  };
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let { dock } = await openAgentDock();
+  const sceneSelect = dock.getByLabel("故事单元 / 场景");
+  await sceneSelect.selectOption({ index: 1 });
+  await dock.getByLabel("本场局部目标").fill("核实潮门异动，不把未知信息当成事实。");
+  assert.match(await dock.innerText(), /知识 \/ 信念|Provider|Context/u);
+  await capture("01-1440-派发前准备态.png");
+  const generate = dock.getByRole("button", { name: "生成行动候选", exact: true });
+  await generate.click();
+  const pendingButton = dock.getByRole("button", { name: "正在生成……", exact: true });
+  await pendingButton.waitFor();
+  assert.equal(await pendingButton.isDisabled(), true, "The first click must lock the dispatch button.");
+  await capture("02-1440-请求中.png");
+  const candidate = dock.getByTestId("single-character-action-candidate");
+  const providerAlert = dock.getByRole("alert");
+  await Promise.race([candidate.waitFor({ timeout: 8_000 }), providerAlert.waitFor({ timeout: 8_000 })]);
+  if (await providerAlert.isVisible()) throw new Error(`Single-character action request failed: ${await providerAlert.innerText()}`);
+  const candidateText = await candidate.innerText();
+  assert.match(candidateText, /未确认 · 未写入故事/u);
+  assert.match(candidateText, /Provider 1 次 · 自动重试 0 次 · Event\/Canon 写入 0\/0/u);
+  assert.match(candidateText, /未保存候选 · 不可重放/u);
+  await candidate.scrollIntoViewIfNeeded();
+  await capture("03-1440-合法候选.png");
+  await candidate.getByRole("button", { name: "丢弃候选", exact: true }).click();
+  await candidate.waitFor({ state: "detached" });
+  await capture("06-1440-候选丢弃后.png");
+
+  const actionPattern = "**/__local/story-studio/single-character-action-candidate";
+  expectedSingleCharacterFailure = true;
+  await page.route(actionPattern, (route) => route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ error: "模型结果未通过 NuwaN1ActorResult 合同校验。" }) }));
+  await dock.getByLabel("本场局部目标").fill("触发受控的校验失败界面。");
+  await dock.getByRole("button", { name: "生成行动候选", exact: true }).click();
+  await dock.getByRole("alert").waitFor();
+  assert.match(await dock.getByRole("alert").innerText(), /没有自动重试/u);
+  await dock.getByRole("alert").scrollIntoViewIfNeeded();
+  await capture("04-1440-合同校验失败.png");
+  await page.unroute(actionPattern);
+  expectedSingleCharacterFailure = false;
+
+  const statusPattern = "**/__local/story-studio/model-service/status";
+  await page.route(statusPattern, async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.data.tianyiDialogue = { ready: false, runtime: "unavailable", reason: "provider-unconfigured" };
+    await route.fulfill({ response, json: payload });
+  });
+  await page.reload();
+  ({ dock } = await openAgentDock());
+  await dock.getByLabel("故事单元 / 场景").selectOption({ index: 1 });
+  await dock.getByLabel("本场局部目标").fill("未配置 Provider 时不应派发。");
+  assert.equal(await dock.getByRole("button", { name: "生成行动候选", exact: true }).isDisabled(), true);
+  await capture("05-1440-Provider未配置.png");
+  await page.unroute(statusPattern);
+
+  await page.setViewportSize({ width: 1195, height: 720 });
+  await page.reload();
+  const opened = await openAgentDock();
+  dock = opened.dock;
+  await capture("07-1195-紧凑抽屉.png");
+  const geometry = await page.evaluate(() => {
+    const dockElement = document.querySelector('[data-testid="entity-inspector-dock"]');
+    const rect = dockElement?.getBoundingClientRect();
+    return { viewport: { width: window.innerWidth, height: window.innerHeight }, horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth, dock: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null };
+  });
+  assert.equal(geometry.horizontalOverflow, false);
+  await capture("08-1195-无水平溢出.png");
+  await dock.getByRole("button", { name: "关闭详情工作台", exact: true }).click();
+  await dock.waitFor({ state: "detached" });
+  assert.equal(await opened.opener.evaluate((element) => element === document.activeElement), true, "Closing the compact dock must restore focus to its opener.");
+  await capture("09-1195-关闭后焦点归还.png");
+
+  const afterWorld = await getFixture(`${base}/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const afterUnits = await getFixture(`${base}/story-units?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(afterWorld, beforeWorld, "The action preview must not change World or Canon-owned objects.");
+  assert.deepEqual(afterUnits, beforeUnits, "The action preview must not change Story Units.");
+  assert.deepEqual(formalWriteRequests, []);
+  assert.equal(actionPayloads.length, 2, "One real local-fake request plus one intercepted error-state request are expected.");
+  const forbiddenSentinels = ["SECRET_UNKNOWN_TITLE_SENTINEL", "SECRET_UNKNOWN_BODY_SENTINEL", "API_KEY_SENTINEL", "作者秘密"];
+  const bodyText = await page.locator("body").innerText();
+  assert.deepEqual(forbiddenSentinels.filter((value) => bodyText.includes(value) || actionPayloads.some((payload) => payload.includes(value))), []);
+  assert.deepEqual(consoleProblems, []);
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "几何与安全检查.json"), `${JSON.stringify({
+    viewportChecks: { wide: "1440x900", compact: "1195x720", geometry, focusReturned: true },
+    provider: { mode: "local-fake", successfulProviderCalls: 1, automaticRetries: 0, realProviderCalls: 0 },
+    storyWrites: 0,
+    formalWriteRequests,
+    transient: { discarded: true, reloadRestoredCandidate: false, replayAvailable: false },
+    secretSentinelHits: 0,
+    consoleProblems
+  }, null, 2)}\n`, "utf8");
+  page.off("request", requestListener);
 }
 
 /**
