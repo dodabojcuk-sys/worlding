@@ -1,6 +1,7 @@
 # Story Studio 工程规则
 
 - 涉及产品、功能、体验、信息架构或故事语义的任务，开始前必须完整阅读根目录的 `TIANYAN_PRODUCT_CORE.md`；它是唯一产品核心。
+- 涉及 Author、Future、Character、Agent、Cross Device、Canon 准入或同步权威时，在产品核心之后按顺序完整阅读 `docs/product/TIANYAN_PRODUCT_SEMANTIC_CORE_R1.md`、`docs/product/TIANYAN_BOUNDARY_MODEL_R1.md`；进入工程设计、实现或准入审查前，再完整阅读 `docs/handoff/TIANYAN_ENGINEERING_GOVERNANCE_ALIGNMENT_R1.md`。三份 R1 文档是冻结语义与准入对照，不取代 `TIANYAN_PRODUCT_CORE.md`，也不得由实现便利反向改写。
 - 新增、移动、拆分或定位代码前，必须阅读根目录的 `项目目录导航.md`；责任区、入口、所有者或验证路径改变时必须同步更新导航。
 - 新增 Shell 功能前必须先定位唯一责任目录；`App.tsx` 只做顶层组装，`TianyanR0Shell.tsx` 只做区域组合，禁止继续向两者堆菜单、Dock 状态、业务数据或执行逻辑。
 - 产品入口是 `apps/story-studio`。
