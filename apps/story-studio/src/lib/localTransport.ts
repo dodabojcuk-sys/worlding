@@ -773,6 +773,27 @@ export type StoryCollectionPointReceipt = { operationId: string; action: "create
 export type StoryUnitKind = "main" | "branch";
 export type StoryUnitStatus = "draft" | "active" | "candidate" | "conflict" | "archived";
 export type StoryUnit = { id: string; relativeId: string; title: string; summary: string; kind: StoryUnitKind; parentUnitId: string | null; branchPointEventId: string | null; mergeTargetUnitId: string | null; order: number; sourceVersionRef: string | null; status: StoryUnitStatus; objective: string; coreConflict: string; turningPoint: string; openHook: string; lifecycle: "draft" | "active" | "frozen" | "superseded" | "archived"; sourceRefs: StoryUnitSourceRef[]; items: StoryUnitItem[]; collectionPoints: StoryCollectionPoint[]; linkedEntityIds: string[]; unresolvedQuestionIds: string[]; generationConstraints: Record<string, unknown>; version: string; createdAt: string; updatedAt: string; source: "markdown" };
+export type SingleCharacterActionCandidate = {
+  version: "tianyan-single-character-action-candidate/r0";
+  candidateId: string;
+  label: "未保存候选";
+  lifecycle: "transient" | "stale";
+  persistence: "not-saved";
+  usable: boolean;
+  replayAvailable: false;
+  actor: { id: string; revision: string };
+  scene: { id: string; revision: string };
+  localGoal: string;
+  contextDigest: string;
+  projectionRevision: string | null;
+  sourceRefs: string[];
+  result: { type: "actor-result"; actor: { id: string; revision: string }; intent: string; speech: string | null; action: { action: string; targetId: string | null }; observableResult: string; heardByActorIds?: string[]; usage?: { inputTokens: number | null; outputTokens: number | null } };
+  provider: { providerId: string; profileId: string; modelId: string };
+  receiptEnvelopeId: string | null;
+  providerCalls: 1;
+  automaticRetries: 0;
+  writes: { canon: 0; event: 0; world: 0; relation: 0; character: 0; storyUnit: 0; nuwaRun: 0 };
+};
 export type NarrativePlacementRole = "primary" | "flashback" | "recap" | "reveal" | "reinterpretation";
 export type NarrativePositionIntent = { kind: "start" | "end" } | { kind: "before" | "after"; anchorPlacementId: string };
 export type NarrativePlacementSourceRef = { sourceKind: "author-action" | "author-control"; authorActionId: string; sourceRef: string; capturedAt: string };
@@ -2054,6 +2075,23 @@ export async function recordAgentActivity(input: { projectId: string; actor: Age
 
 export async function listStoryUnits(projectId: string, includeArchived = false): Promise<StoryUnit[]> {
   return readProjectProjection<StoryUnit[]>(`${basePath}/story-units?projectId=${encodeURIComponent(projectId)}${includeArchived ? "&includeArchived=true" : ""}`);
+}
+
+export async function generateSingleCharacterActionCandidate(input: {
+  projectId: string;
+  actorId: string;
+  actorRevision: string;
+  sceneId: string;
+  sceneRevision: string;
+  localGoal: string;
+  contextDigest: string;
+  projectionRevision: string | null;
+  operationId: string;
+  token: string;
+  signal?: AbortSignal;
+}): Promise<SingleCharacterActionCandidate> {
+  const { token, signal, ...body } = input;
+  return request<SingleCharacterActionCandidate>(`${basePath}/single-character-action-candidate`, { method: "POST", token, body, signal });
 }
 
 export async function getStoryUnit(projectId: string, unitId: string): Promise<StoryUnit> {

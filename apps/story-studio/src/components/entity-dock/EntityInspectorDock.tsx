@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Pin, PinOff, X, ChevronsLeft, ChevronsRight, RefreshCw } from "lucide-react";
 
-import { getCharacterMemoryQuery, getEventStoryCrossingKnowledgeProjection, getWorldLibrary, listRelations, readWorldObject } from "../../lib/localTransport";
+import { generateSingleCharacterActionCandidate, getCharacterMemoryQuery, getEventStoryCrossingKnowledgeProjection, getWorldLibrary, listRelations, listStoryUnits, readWorldObject, type SingleCharacterActionCandidate, type StoryUnit } from "../../lib/localTransport";
 import type { RelationReadProjectionR0 } from "../../../../../src/storyControlSurface/storyStudioRelationOperations.ts";
 import { projectWorldReferences, WORLD_REFERENCE_CATEGORY_LABELS } from "../../../../../src/storyContracts/worldReferenceProjection.ts";
 import { buildCharacterContextPack, type CharacterContextPack } from "../../../../../src/storyContracts/characterContextPack.ts";
@@ -50,6 +50,9 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
   const [snapshot, setSnapshot] = useState<CharacterDockReadSnapshot | null>(null);
   const [initialError, setInitialError] = useState<string | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [storyUnits, setStoryUnits] = useState<StoryUnit[]>([]);
+  const [selectedSceneId, setSelectedSceneId] = useState("");
+  const [localGoal, setLocalGoal] = useState("");
   const snapshotControllerRef = useRef<CharacterDockSnapshotController | null>(null);
   useEffect(() => {
     const snapshotController = createCharacterDockSnapshotController({
@@ -77,6 +80,15 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
   }, [projectId, props.objectId, workVersionId]);
   const refreshSnapshot = useCallback(() => snapshotControllerRef.current?.run("refresh") ?? Promise.resolve(), []);
   useEntityDockProjectionRefresh({ projectId, workVersionId }, refreshSnapshot);
+  useEffect(() => {
+    let active = true;
+    setStoryUnits([]); setSelectedSceneId(""); setLocalGoal("");
+    if (!projectId) return () => { active = false; };
+    void listStoryUnits(projectId).then((units) => {
+      if (active) setStoryUnits(units.filter((unit) => unit.status !== "archived" && unit.lifecycle !== "archived"));
+    }).catch(() => { if (active) setStoryUnits([]); });
+    return () => { active = false; };
+  }, [projectId, props.objectId]);
 
   const read = snapshot?.read ?? null;
   const knowledge = snapshot?.knowledge ?? null;
@@ -116,6 +128,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
       characters.push({ id: props.objectId, label: read.title, type: "character", formal: read.status === "active", version: read.revisionToken });
     }
     const excludedReasonCounts = projectCharacterContextExclusionCounts(knowledge);
+    const selectedScene = storyUnits.find((unit) => unit.id === selectedSceneId) ?? null;
     return prepareCharacterContextGateway({
       projectId,
       projection: knowledge,
@@ -126,14 +139,18 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
         profileCore: read.profileCore,
         boundaries: read.boundaries
       },
-      // The Dock has a display label, not stable scene/time references. Passing
-      // it as model context would manufacture provenance, so the gap stays open.
-      scene: null,
-      localGoal: null,
+      scene: selectedScene ? {
+        storyUnit: { id: selectedScene.id, revision: selectedScene.version },
+        sceneRef: { id: selectedScene.id, revision: selectedScene.version },
+        observedAt: "无世界时间依据",
+        label: selectedScene.title
+      } : null,
+      localGoal,
+      allowedActions: ["speak", "observe", "ask"],
       excludedReasonCounts,
       providerConfigured: isActiveProviderConfigured(props.runtime.modelStatus)
     });
-  }, [read, projectId, worldObjects, props.objectId, knowledge, props.runtime.modelStatus]);
+  }, [read, projectId, worldObjects, props.objectId, knowledge, props.runtime.modelStatus, storyUnits, selectedSceneId, localGoal]);
   const stateView = useMemo<CharacterStateInspectorView>(() => buildCharacterStateInspectorView({
     // 取不到知情投影时按最保守的读者范围处理，不把读取失败当成无知。
     observerKind: knowledge?.observer.kind ?? "character",
@@ -191,7 +208,7 @@ function CharacterEntityDock(props: { runtime: TianyanShellRuntimeState; objectI
         {tab === "关系与知情" ? <div className="entity-dock-section"><FormalRelations objectId={props.objectId} relations={relations} graphRelationCount={0} objectLabels={objectLabels} /><CharacterKnowledgePreview projection={knowledge} /></div> : null}
         {tab === "人生与事件" ? <div className="entity-dock-section"><p>{lastParticipation}。</p><a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}`}>在事件线查看</a></div> : null}
         {tab === "演化与命运" ? <div className="entity-dock-section"><p>命运投影合同（tianyan-character-fate-projection/v1）已定义；当前没有 actual / planned / candidate 生产数据，不生成无来源轨迹。</p></div> : null}
-        {tab === "Agent 运行" ? <AgentRunTab preparation={contextPreparation} /> : null}
+        {tab === "Agent 运行" ? <AgentRunTab runtime={props.runtime} projectId={projectId!} actorId={props.objectId} actorRevision={read.revisionToken} preparation={contextPreparation} storyUnits={storyUnits} selectedSceneId={selectedSceneId} onSceneChange={setSelectedSceneId} localGoal={localGoal} onGoalChange={setLocalGoal} /> : null}
         {tab === "来源与权限" ? <div className="entity-dock-section">
           <p>来源：本机工程（markdown）；技术标识见各条目「来源标识」折叠。</p>
           <p>知识边界：作者备注与传闻 {contextPack?.excluded.length ?? 0} 项不进入该角色上下文；可见事件 {visibleCount} 项、隐藏 {hiddenCount} 项。</p>
@@ -240,10 +257,63 @@ function OverviewTab(props: { objectId: string; read: { title: string; subtype: 
   </div>;
 }
 
-function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null }) {
+function AgentRunTab(props: {
+  runtime: TianyanShellRuntimeState;
+  projectId: string;
+  actorId: string;
+  actorRevision: string;
+  preparation: CharacterGatewayPreparation | null;
+  storyUnits: StoryUnit[];
+  selectedSceneId: string;
+  onSceneChange(value: string): void;
+  localGoal: string;
+  onGoalChange(value: string): void;
+}) {
   const preparation = props.preparation;
+  const [candidate, setCandidate] = useState<SingleCharacterActionCandidate | null>(null);
+  const [requestState, setRequestState] = useState<"idle" | "pending">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const generationRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    generationRef.current += 1;
+    abortRef.current?.abort(); abortRef.current = null;
+    setCandidate(null); setError(null); setRequestState("idle");
+    return () => { abortRef.current?.abort(); };
+  }, [props.actorRevision, props.selectedSceneId, props.localGoal, preparation?.previewDigest]);
   if (!preparation) return <div className="entity-dock-section" data-testid="entity-agent-run"><p aria-busy="true">正在建立角色上下文准备的只读预览……</p></div>;
   const safe = preparation.providerSafeContext;
+  const scene = props.storyUnits.find((unit) => unit.id === props.selectedSceneId) ?? null;
+  const providerProfile = props.runtime.modelStatus?.profile.profile;
+  const canGenerate = requestState !== "pending" && Boolean(scene && props.localGoal.trim() && preparation.previewDigest && safe && preparation.handoff.contextAccess === "character" && isActiveProviderConfigured(props.runtime.modelStatus));
+  const generate = () => {
+    if (!canGenerate || !scene || !preparation.previewDigest) return;
+    const requestGeneration = ++generationRef.current;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRequestState("pending"); setCandidate(null); setError(null);
+    void props.runtime.withConnection((token) => generateSingleCharacterActionCandidate({
+      projectId: props.projectId,
+      actorId: props.actorId,
+      actorRevision: props.actorRevision,
+      sceneId: scene.id,
+      sceneRevision: scene.version,
+      localGoal: props.localGoal.trim(),
+      contextDigest: preparation.previewDigest!,
+      projectionRevision: preparation.projectionRevision,
+      operationId: crypto.randomUUID(),
+      token,
+      signal: controller.signal
+    })).then((result) => {
+      if (generationRef.current !== requestGeneration) return;
+      abortRef.current = null;
+      setCandidate(result); setRequestState("idle");
+    }).catch((cause: unknown) => {
+      if (generationRef.current !== requestGeneration) return;
+      abortRef.current = null;
+      setError(cause instanceof Error ? cause.message : "候选生成失败。"); setRequestState("idle");
+    });
+  };
   const accessLabel = preparation.handoff.contextAccess === "character"
     ? "允许建立角色范围的只读模型上下文"
     : preparation.handoff.contextAccess === "author"
@@ -257,8 +327,13 @@ function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null })
     provider: "未配置 Provider"
   };
   return <div className="entity-dock-section" data-testid="entity-agent-run">
-    <h4>角色上下文准备</h4>
-    <p><small>当前状态</small>只读预览 · Provider 未调用 · 不会写入故事</p>
+    <h4>生成单角色行动候选</h4>
+    <p><small>保存边界</small>未保存候选 · 关闭或刷新即丢失 · 不进入待处理</p>
+    <label className="entity-dock-field"><span>故事单元 / 场景</span><select value={props.selectedSceneId} onChange={(event) => props.onSceneChange(event.target.value)} disabled={requestState === "pending"}>
+      <option value="">请选择已有故事单元</option>
+      {props.storyUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.title}</option>)}
+    </select></label>
+    <label className="entity-dock-field"><span>本场局部目标</span><textarea value={props.localGoal} maxLength={600} rows={3} onChange={(event) => props.onGoalChange(event.target.value)} disabled={requestState === "pending"} placeholder="例：先确认潮门是否安全" /></label>
     <h4>权限裁定</h4>
     <p>{accessLabel}。<small><code>{preparation.handoff.contextAccess}</code>{preparation.blockedReason ? ` · ${preparation.blockedReason}` : ""}</small></p>
     <div className="entity-dock-contextpack" data-testid="character-context-gateway-preview">
@@ -269,7 +344,7 @@ function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null })
       <p><small>projectionRevision</small><code>{preparation.projectionRevision ?? "尚无派生状态"}</code></p>
       <p><small>截至</small>{preparation.asOfText}</p>
     </div>
-    <h4>可供模型的安全上下文预览（尚不可派发）</h4>
+    <h4>可供模型的安全上下文摘要</h4>
     {safe ? <div className="entity-dock-contextpack">
       <p><small>角色依据</small>{safe.profileBasis.core ?? "未设置角色核心"}；底线 {safe.profileBasis.boundaries ?? "未设置"}</p>
       <p><small>已知事实</small>{safe.knownFacts.map((fact) => fact.summary).join("；") || "无"}</p>
@@ -281,11 +356,28 @@ function AgentRunTab(props: { preparation: CharacterGatewayPreparation | null })
     {preparation.missingConditions.length
       ? <ul>{preparation.missingConditions.map((condition) => <li key={condition}>{missingLabels[condition]}</li>)}</ul>
       : <p>当前没有已知缺失条件。</p>}
+    <div className="entity-dock-contextpack">
+      <p><small>Provider</small>{props.runtime.modelStatus?.tianyiDialogue.runtime === "local-fake" ? "本地 Mock（不调用真实 Provider）" : providerProfile ? `${providerProfile.provider} · ${providerProfile.modelId ?? "未选模型"}` : "未配置"}</p>
+      <p><small>调用上限</small>1 次 Provider 请求 · 0 次自动重试</p>
+      <p><small>写入上限</small>Canon / Event / World / Relation / 人物 / Story Unit / Nuwa Run 全部为 0</p>
+    </div>
+    <button type="button" className="entity-dock-generate" disabled={!canGenerate} aria-busy={requestState === "pending"} onClick={generate}>{requestState === "pending" ? "正在生成……" : "生成行动候选"}</button>
+    {error ? <p role="alert">{error}<small>没有自动重试；请先检查上下文与 Provider 状态。</small></p> : null}
+    {candidate ? <div className="entity-dock-candidate" data-testid="single-character-action-candidate" data-lifecycle={candidate.lifecycle}>
+      <h4>{candidate.lifecycle === "stale" ? "结果已失效" : "未确认 · 未写入故事"}</h4>
+      <p><small>意图</small>{candidate.result.intent}</p>
+      <p><small>说话</small>{candidate.result.speech ?? "无"}</p>
+      <p><small>动作</small>{candidate.result.action.action}</p>
+      <p><small>可观察结果</small>{candidate.result.observableResult}</p>
+      <p><small>安全回执</small>Provider {candidate.providerCalls} 次 · 自动重试 {candidate.automaticRetries} 次 · Event/Canon 写入 {candidate.writes.event}/{candidate.writes.canon}</p>
+      <p><small>生命周期</small>{candidate.label} · 不可重放 · 刷新即丢失</p>
+      <button type="button" onClick={() => setCandidate(null)}>丢弃候选</button>
+    </div> : null}
     <details>
       <summary>技术详情</summary>
       <p><small>闸门合同</small><code>{preparation.version}</code></p>
       <p><small>规范化摘要</small><code>{preparation.previewDigest ?? "无"}</code></p>
-      <p><small>一致性</small>作者预览与共享 Provider 安全字段投影引用同一份规范化 JSON；真实 Run 身份与预算仅在实际 Run 创建后加入。</p>
+      <p><small>一致性</small>作者预览与 Provider 出站使用同一份安全字段投影；本入口不创建或冒充 Nuwa Run。</p>
       <p><small>规范化字节数</small>{preparation.authorPreviewCanonicalJson ? new TextEncoder().encode(preparation.authorPreviewCanonicalJson).length : 0}</p>
     </details>
   </div>;
@@ -312,6 +404,7 @@ function sanitizeInternalIds(text: string, labels: Map<string, string>): string 
 }
 
 function isActiveProviderConfigured(status: TianyanShellRuntimeState["modelStatus"]): boolean {
+  if (status?.tianyiDialogue.ready && status.tianyiDialogue.runtime === "local-fake") return true;
   const active = status?.profile.profile;
   if (!active?.enabled || !active.modelId) return false;
   return status?.profile.credentialRequired === false || status?.profile.credential.configured === true;

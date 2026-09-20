@@ -58,6 +58,7 @@ export function prepareCharacterContextGateway(input: {
   };
   scene: NuwaN1Scene | null;
   localGoal: string | null;
+  allowedActions?: readonly string[];
   excludedReasonCounts?: Partial<Record<CharacterContextExclusionReason, number>>;
   providerConfigured?: boolean;
 }): CharacterGatewayPreparation {
@@ -136,7 +137,7 @@ export function prepareCharacterContextGateway(input: {
     excludedKnowledgeCount,
     excludedKnowledgeReasonCodes,
     recentDialogue: [],
-    allowedActions: [],
+    allowedActions: [...new Set((input.allowedActions ?? []).map((action) => action.trim()).filter(Boolean))],
     remaining,
     authorCue: null,
     stateProjection: {
