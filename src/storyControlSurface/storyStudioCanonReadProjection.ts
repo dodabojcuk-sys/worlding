@@ -3,6 +3,7 @@ import type {
   createStoryStudioWorkspaceOperations,
   StoryStudioWorldObject
 } from "./storyStudioWorkspaceOperations.ts";
+import { createStoryStudioWorkVersionAuthority } from "../storyWorkspace/workVersionAuthority.ts";
 
 export type StoryStudioCanonReadFailureKind =
   | "authority-failure"
@@ -24,6 +25,23 @@ export type StoryStudioVerifiedCanonDetailRead =
   | { status: "ready"; event: StoryStudioWorldObject & { canonicalReadVerified: true } }
   | { status: "error"; error: StoryStudioCanonReadFailure };
 
+type StoryStudioEventCanonAuthorityClass = "canon" | "derived-canon" | "unverified";
+
+type StoryStudioEventCanonAdmissionResult =
+  | { status: "admitted"; code: "verified-owner-admission" }
+  | { status: "rejected"; code: "owner-rejected" | "work-version-mismatch" | "revision-mismatch" }
+  | { status: "error"; error: StoryStudioCanonReadFailure };
+
+type StoryStudioEventCanonReadCertification = {
+  projectId: string;
+  workVersionId: string;
+  ownerKind: "event";
+  entityId: string;
+  revision: string | null;
+  authorityClass: StoryStudioEventCanonAuthorityClass;
+  admissionResult: StoryStudioEventCanonAdmissionResult;
+};
+
 type WorkspaceOperations = ReturnType<typeof createStoryStudioWorkspaceOperations>;
 type AuthorControl = ReturnType<typeof createStoryStudioAuthorControl>;
 
@@ -36,6 +54,62 @@ export function createStoryStudioCanonReadProjection(input: {
   authorControl: AuthorControl;
 }) {
   return {
+    certifyEventRead(readInput: {
+      projectId: string;
+      workVersionId: string;
+      eventId: string;
+      expectedRevision?: string;
+    }): StoryStudioEventCanonReadCertification {
+      const base = {
+        projectId: readInput.projectId,
+        workVersionId: readInput.workVersionId,
+        ownerKind: "event" as const,
+        entityId: readInput.eventId
+      };
+      try {
+        const projectPath = input.workspace.resolveProjectWorkspacePath({ projectId: readInput.projectId });
+        const workVersions = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+        const workVersion = workVersions.getVersion(readInput.workVersionId);
+        workVersions.verifyVersionIntegrity(readInput.workVersionId);
+
+        const before = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
+        if (!input.authorControl.verifyCanonEventRead({
+          projectId: readInput.projectId,
+          eventId: readInput.eventId,
+          workVersionId: readInput.workVersionId
+        })) {
+          const rejection = input.authorControl.verifyCanonEventRead({
+            projectId: readInput.projectId,
+            eventId: readInput.eventId
+          })
+            ? "work-version-mismatch"
+            : "owner-rejected";
+          return rejectedEventCertification(base, before.revisionToken, rejection);
+        }
+
+        const after = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
+        if (
+          before.revisionToken !== after.revisionToken
+          || (readInput.expectedRevision !== undefined && after.revisionToken !== readInput.expectedRevision)
+        ) {
+          return rejectedEventCertification(base, after.revisionToken, "revision-mismatch");
+        }
+        return {
+          ...base,
+          revision: after.revisionToken,
+          authorityClass: workVersion.identity.kind === "derived" ? "derived-canon" : "canon",
+          admissionResult: { status: "admitted", code: "verified-owner-admission" }
+        };
+      } catch (cause) {
+        return {
+          ...base,
+          revision: null,
+          authorityClass: "unverified",
+          admissionResult: { status: "error", error: classifyCanonReadFailure(cause) }
+        };
+      }
+    },
+
     listVerifiedCanonEvents(readInput: { projectId: string; workVersionId?: string | null }): StoryStudioVerifiedCanonListRead {
       try {
         const events = input.workspace.listWorldObjects({ projectId: readInput.projectId, type: "event" });
@@ -70,6 +144,19 @@ export function createStoryStudioCanonReadProjection(input: {
         return { status: "error", error: classifyCanonReadFailure(cause) };
       }
     }
+  };
+}
+
+function rejectedEventCertification(
+  base: Pick<StoryStudioEventCanonReadCertification, "projectId" | "workVersionId" | "ownerKind" | "entityId">,
+  revision: string,
+  code: Extract<StoryStudioEventCanonAdmissionResult, { status: "rejected" }>["code"]
+): StoryStudioEventCanonReadCertification {
+  return {
+    ...base,
+    revision,
+    authorityClass: "unverified",
+    admissionResult: { status: "rejected", code }
   };
 }
 
