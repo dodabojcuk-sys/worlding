@@ -1742,7 +1742,7 @@ input:focus-visible {
 
 /* ── 角色磁吸详情工作台（EntityInspectorDock R0）── */
 .entity-dock { position: fixed; z-index: 46; inset-block: 3.6rem 1rem; inset-inline: auto 1rem; inline-size: 23rem; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: -0.6rem 0.4rem 1.6rem color-mix(in srgb, var(--color-text) 14%, transparent); overflow: hidden; }
-.entity-dock.is-expanded { inline-size: min(40rem, 60vw); }
+.entity-dock.is-expanded { inline-size: min(32.5rem, 55vw); }
 .entity-dock-head { display: flex; align-items: center; gap: .55rem; padding: .6rem .65rem; border-block-end: 1px solid var(--color-border); }
 .entity-dock-avatar { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; color: var(--color-surface); background: linear-gradient(160deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 62%, var(--color-text))); border-radius: 50%; font-weight: 700; }
 .entity-dock-identity { display: grid; gap: .06rem; min-inline-size: 0; }
@@ -1772,8 +1772,67 @@ input:focus-visible {
 .entity-dock-chain { display: grid; gap: .2rem; margin: .3rem 0; padding: 0; list-style: decimal; padding-inline-start: 1.2rem; font-size: .72rem; color: var(--color-text-muted); }
 .entity-dock-contextpack { display: grid; gap: .35rem; padding: .5rem; background: var(--color-surface-muted); border: 1px dashed color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); border-radius: 8px; }
 .entity-dock-contextpack p { display: grid; gap: .08rem; margin: 0; font-size: .7rem; }
+.entity-dock-field { display: grid; gap: .25rem; color: var(--color-text-muted); font-size: .66rem; }
+.entity-dock-field select, .entity-dock-field textarea { inline-size: 100%; box-sizing: border-box; padding: .45rem .5rem; border: 1px solid var(--color-border); border-radius: 7px; background: var(--color-surface); color: var(--color-text); font: inherit; resize: vertical; }
+.entity-dock-generate { inline-size: 100%; padding: .55rem .7rem; border: 0; border-radius: 8px; background: var(--color-accent); color: var(--color-surface); font-weight: 650; }
+.entity-dock-generate:disabled { opacity: .45; cursor: not-allowed; }
+.entity-dock-candidate { display: grid; gap: .4rem; padding: .6rem; border: 1px solid color-mix(in srgb, var(--color-accent) 50%, var(--color-border)); border-radius: 8px; background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface)); }
+.entity-dock-candidate[data-lifecycle="stale"] { border-color: var(--color-danger); }
 .entity-dock .character-memory-query, .entity-dock .character-inspector-formal-relations { font-size: .7rem; }
 .world-reference-card-actions { display: inline-flex; gap: .35rem; }
 @media (max-width: 75rem) {
   .entity-dock { inset-block: 0 0; inset-inline: auto 0; inline-size: min(23rem, 94vw); border-radius: 0; }
 }
+
+/* ── 世界参考 R3：两行工具栏 + 筛选弹层 + 为什么命中 ── */
+.world-reference-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem .6rem; margin-block-start: .5rem; }
+.world-reference-filter-popover { position: relative; }
+.world-reference-filter-popover summary { padding: .3rem .6rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; font-size: .72rem; cursor: pointer; list-style: none; }
+.world-reference-filter-popover summary::-webkit-details-marker { display: none; }
+.world-reference-filter-popover[open] summary { color: var(--color-accent); }
+.world-reference-filter-popover .world-reference-filter-panel { position: absolute; z-index: 30; inset-inline: 0 auto; inset-block-start: calc(100% + 6px); inline-size: max(100%, 30rem); display: grid; gap: .5rem; padding: .6rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; box-shadow: var(--shadow-panel); }
+.world-reference-semantic-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--color-text-muted); cursor: not-allowed; }
+.world-reference-semantic-toggle input { accent-color: var(--color-accent); }
+.world-reference-excluded { color: var(--color-text-muted); font-size: .66rem; }
+.world-reference-card.is-clickable { cursor: pointer; }
+.world-reference-card.is-clickable:hover { border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
+.world-reference-why { margin: 0; padding: .2rem .45rem; color: var(--color-accent); background: color-mix(in srgb, var(--color-accent-soft) 40%, var(--color-surface)); border-radius: .3rem; font-size: .66rem; }
+.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.4; }
+
+/* ── R3.1：检索模式/结果分组/因果链/演化时间 ── */
+.world-reference-mode { display: inline-flex; align-items: center; gap: .35rem; font-size: .7rem; color: var(--color-text-muted); }
+.world-reference-mode select { min-block-size: 1.8rem; padding-inline: .4rem; border: 1px solid var(--color-border); border-radius: .3rem; background: var(--color-surface); color: var(--color-text); font-size: .7rem; }
+.world-reference-mode small { color: var(--color-text-muted); font-size: .62rem; }
+.world-reference-groups { display: grid; gap: .8rem; }
+.world-reference-group > h3 { margin: 0 0 .35rem; color: var(--color-accent); font-size: .78rem; }
+.entity-dock-section p small { display: inline-block; min-inline-size: 4.5rem; margin-inline-end: .4rem; }
+.entity-dock-section[data-testid="world-causal-chain"] { display: grid; gap: 0; }
+.entity-dock-section[data-testid="world-causal-chain"] p { position: relative; margin: 0; padding: .3rem 0 .3rem 1.1rem; border-inline-start: 2px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-border)); }
+.entity-dock-section[data-testid="world-causal-chain"] p::before { content: ""; position: absolute; inset-inline-start: -0.32rem; inset-block-start: .52rem; inline-size: .5rem; block-size: .5rem; background: var(--color-accent); border-radius: 50%; }
+.entity-dock-section[data-testid="world-causal-chain"] p:last-child::before { background: var(--color-surface); border: 2px dashed var(--color-accent); }
+.entity-dock-section[data-testid="world-causal-chain"] p small { display: block; }
+.entity-dock-section[data-testid="world-time-frames"] { position: relative; padding-inline-start: 1rem; }
+.entity-dock-section[data-testid="world-time-frames"]::before { content: ""; position: absolute; inset-block: .3rem; inset-inline-start: .3rem; inline-size: 2px; background: color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); }
+.entity-dock-section[data-testid="world-time-frames"] p { position: relative; margin: 0 0 .4rem; }
+.entity-dock-section[data-testid="world-time-frames"] p::before { content: ""; position: absolute; inset-inline-start: -0.82rem; inset-block-start: .35rem; inline-size: .55rem; block-size: .55rem; background: var(--color-accent); border-radius: 50%; }
+.entity-dock.is-expanded + .entity-dock-scrim, .entity-dock-scrim { position: fixed; z-index: 45; inset: 0; background: color-mix(in srgb, var(--color-text) 18%, transparent); pointer-events: none; }
+@media (max-width: 75rem) {
+  .entity-dock { box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--color-text) 18%, transparent); }
+  .entity-dock-tabs { overflow-x: auto; flex-wrap: nowrap; }
+}
+
+/* ── R3.1C：卡片压缩与密度收口 ── */
+.world-reference-card { padding: .38rem .5rem; }
+.world-reference-card-head { gap: .35rem .45rem; }
+.world-reference-card-head strong { font-size: .8rem; }
+.world-reference-summary { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.45; }
+.world-reference-tags { gap: .22rem; }
+.world-reference-tags span { padding: .06rem .38rem; font-size: .62rem; }
+.world-reference-card-actions button { min-block-size: 1.7rem; padding-inline: .45rem; font-size: .68rem; }
+
+/* ── R3.1C 终验：Dock expanded 收窄 + 持久索引状态降权 ── */
+.entity-dock.is-expanded { inline-size: min(32.5rem, 55vw) !important; }
+.entity-dock-head .entity-dock-identity span { font-size: .62rem; }
+/* 持久索引状态：弱化为单行圆点 */
+.world-reference-index-status { display: inline-flex; align-items: center; gap: .28rem; font-size: .64rem; color: var(--color-text-muted); }
+.world-reference-index-status::before { content: "●"; font-size: .5rem; }

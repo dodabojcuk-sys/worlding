@@ -118,12 +118,15 @@ import { readCharacterMemoryLedger } from "../../../src/storyContinuity/characte
 import { createNuwaBoundedScenarioFixtureAdapter } from "./nuwaBoundedScenarioFixture.mjs";
 import { createNuwaN1Port } from "./nuwaN1Port.mjs";
 import { NUWA_N1_PI_ADAPTER_ID, createNuwaN1PiAdapter } from "./nuwaN1PiAdapter.mjs";
+import { createSingleCharacterActionCandidatePort } from "./singleCharacterActionCandidatePort.mjs";
+import { prepareCharacterContextGateway, projectCharacterContextExclusionCounts } from "../../../src/storyContracts/characterAgentContextGateway.ts";
 import { createMultiverseSingleDerivedFixtureAdapter } from "./multiverseSingleDerivedFixture.mjs";
 import { createMultiverseB1FixtureAdapter } from "./multiverseB1Fixture.mjs";
 import { createCreationSourceSelectionPort } from "./creationSourceSelectionPort.mjs";
 import { createWorkVersionBoundCreationFixtureAdapter } from "./workVersionBoundCreationFixture.mjs";
 import { createNormalEventCreationPort } from "./normalEventCreationPort.mjs";
 import { createTianyiCreativeEventPort } from "./tianyiCreativeEventPort.mjs";
+import { createSemanticIndexService } from "./semanticIndexService.mjs";
 import { createStoryIntakeBatchPort } from "./storyIntakeBatchPort.mjs";
 import { resolveStoryStudioRuntimeMode } from "./runtimeMode.mjs";
 import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "./publicAccess.mjs";
@@ -171,6 +174,7 @@ const MAX_JSON_BODY_BYTES = 12 * 1024 * 1024;
 const MAX_PORTABLE_PACKAGE_BODY_BYTES = 700 * 1024 * 1024;
 const MAX_CONTINUITY_JSON_BODY_BYTES = 64 * 1024;
 const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+const semanticIndexService = createSemanticIndexService({ operations });
 const workspacePackagePort = createWorkspacePackagePort({
   libraryRoot: rootPath,
   resolveProjectPath: ({ projectId }) => operations.resolveProjectWorkspacePath({ projectId }),
@@ -450,6 +454,52 @@ const providerGateway = createAiProviderGateway({
     defaultAuthorizationReceiptId: productAuthorizationReceiptId,
     maxOutputTokensCap: 4_096
   } : {})
+});
+const singleCharacterActionCandidatePort = createSingleCharacterActionCandidatePort({
+  readActor({ projectId, actorId }) {
+    requireProject(projectId);
+    const actor = operations.readWorldObject({ projectId, objectId: actorId });
+    if (actor.type !== "character" || actor.status === "archived") throw productError("找不到可用角色。", 404);
+    return { id: actor.id, revision: actor.revisionToken, title: actor.title, source: actor };
+  },
+  readScene({ projectId, sceneId }) {
+    requireProject(projectId);
+    const scene = operations.readStoryUnit({ projectId, unitId: sceneId });
+    if (scene.status === "archived" || scene.lifecycle === "archived") throw productError("找不到可用故事单元。", 404);
+    return { id: scene.id, revision: scene.version, title: scene.title, source: scene };
+  },
+  prepareContext({ input, actor, scene, allowedActions }) {
+    const projection = projectEventStoryCrossingKnowledge(input.projectId, input.actorId);
+    const characters = operations.listWorldObjects({ projectId: input.projectId, type: "character" })
+      .map((item) => ({ id: item.id, label: item.title, type: "character", formal: item.status !== "archived", version: item.revisionToken }));
+    const profile = actor.source?.profile?.authorConfirmed === true ? actor.source.profile.fields ?? {} : {};
+    const profileValue = (key) => profile[key]?.source === "author" && typeof profile[key]?.value === "string" ? profile[key].value || null : null;
+    return prepareCharacterContextGateway({
+      projectId: input.projectId,
+      projection,
+      characters,
+      actor: { id: actor.id, revision: actor.revision, profileCore: profileValue("character_core"), boundaries: profileValue("boundaries") },
+      scene: {
+        storyUnit: { id: scene.id, revision: scene.revision },
+        sceneRef: { id: scene.id, revision: scene.revision },
+        observedAt: "无世界时间依据",
+        label: scene.title
+      },
+      localGoal: input.localGoal,
+      allowedActions,
+      excludedReasonCounts: projectCharacterContextExclusionCounts(projection),
+      providerConfigured: true
+    });
+  },
+  resolveProvider() {
+    if (agentFakeProviderStreamAllowed) return { configured: true, profileId: localFakeGroundedProfile.id, providerId: localFakeGroundedProfile.providerId, modelId: localFakeGroundedProfile.modelId, profileRevision: "local-fixture" };
+    const active = readActiveProviderProfile();
+    const gatewayProfile = active ? providerGateway.metadata().profiles.find((item) => item.providerId === active.provider && item.modelId === active.modelId) : null;
+    const configured = productPathRealProviderAllowed && active?.enabled !== false && providerCredential.configured() && Boolean(gatewayProfile);
+    return { configured, profileId: gatewayProfile?.id ?? null, providerId: active?.provider ?? null, modelId: active?.modelId ?? null, profileRevision: providerProfileState.revision };
+  },
+  providerGateway,
+  receiptStore: replaySafeProviderReceiptEnvelopeStore
 });
 if (nuwaN1LocalHostUrl) providerGateway.selectDiscoveredModel([nuwaN1LocalHostProfile.modelId], { providerId: nuwaN1LocalHostProfile.providerId });
 else syncProviderGatewayProfile();
@@ -1062,6 +1112,14 @@ async function handleProductRequest(request, response, url) {
     sendJson(response, 201, { data: runProductOperation(() => actionPermissionBroker.record(activity.projectId, activity)) });
     return;
   }
+  if (request.method === "POST" && pathname === "/__local/story-studio/single-character-action-candidate") {
+    requireToken(request);
+    const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
+    requireAllowedKeys(body, ["projectId", "actorId", "actorRevision", "sceneId", "sceneRevision", "localGoal", "contextDigest", "projectionRevision", "operationId"]);
+    requireProject(body.projectId);
+    sendJson(response, 200, { data: await singleCharacterActionCandidatePort.generate(body) });
+    return;
+  }
   if (request.method === "POST" && pathname === "/__local/story-studio/storage/reveal") {
     requireToken(request);
     const body = await readJsonBody(request);
@@ -1137,6 +1195,22 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/world-library") {
     const projectId = requireQueryValue(url, "projectId");
     sendJson(response, 200, { data: runProductOperation(() => operations.getStoryStudioWorldLibraryBootstrap({ projectId })) });
+    return;
+  }
+  if (request.method === "GET" && pathname === "/__local/story-studio/semantic-index") {
+    const projectId = requireQueryValue(url, "projectId");
+    requireProject(projectId);
+    const workVersionId = url.searchParams.get("workVersionId") ?? "当前主线";
+    const branchId = url.searchParams.get("branchId") ?? "当前主线";
+    sendJson(response, 200, { data: runProductOperation(() => semanticIndexService.load(rootPath, projectId, workVersionId, branchId)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/semantic-index/rebuild") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "workVersionId", "branchId", "generation", "force"]);
+    requireProject(body.projectId);
+    sendJson(response, 200, { data: runProductOperation(() => semanticIndexService.rebuild({ rootPath, projectId: body.projectId, workVersionId: body.workVersionId ?? "当前主线", branchId: body.branchId ?? "当前主线", generation: body.generation ?? "none-v0", force: body.force === true })) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/relations") {
@@ -3960,6 +4034,30 @@ function createLocalFakeGroundedAdapter() {
     status() { return Object.freeze({ configured: false, reason: "deterministic-test-fixture" }); },
     async openChatCompletion(input) {
       const user = [...input.messages].reverse().find((message) => message.role === "user");
+      if (typeof user?.content === "string") {
+        let request = null;
+        try { request = JSON.parse(user.content); }
+        catch { /* Other local fixture paths may use plain text. */ }
+        if (request?.context?.previewMode === true && request?.context?.actor?.id) {
+          const fixtureDelayMs = Math.max(0, Math.min(2_000, Number(process.env.TIANYAN_SINGLE_CHARACTER_ACTION_FAKE_DELAY_MS || "0") || 0));
+          if (fixtureDelayMs) await new Promise((resolve) => setTimeout(resolve, fixtureDelayMs));
+          const invalidFixture = String(request.context.localGoal || "").includes("[invalid]");
+          return Object.freeze({
+            modelId: input.modelId,
+            traceId: `trace.local-fake.single-character.${stableHash(user.content).slice(0, 16)}`,
+            content: JSON.stringify({
+              intent: "先根据已知信息观察当前场景",
+              speech: null,
+              heardByActorIds: [],
+              action: { action: invalidFixture ? "rewrite-canon" : "observe", targetId: null },
+              observableResult: "角色保持原位，对当前场景进行了一次有限观察。"
+            }),
+            finishReason: "stop",
+            usage: { promptTokens: 40, completionTokens: 28, totalTokens: 68 },
+            toolCalls: []
+          });
+        }
+      }
       const parts = Array.isArray(user?.content) ? user.content : [];
       if (!parts.some((part) => part.type === "image_url")) throw new Error("Local image fixture requires selected image bytes.");
       const requestPart = parts.find((part) => part.type === "text")?.text || "{}";

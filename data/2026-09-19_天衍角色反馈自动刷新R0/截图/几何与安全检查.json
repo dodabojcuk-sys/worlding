@@ -1,0 +1,66 @@
+{
+  "mountedInPlace": {
+    "completionEvents": 1,
+    "refreshRounds": 1,
+    "loaderReads": {
+      "worldObject": 1,
+      "worldLibrary": 1,
+      "knowledge": 1,
+      "relations": 1,
+      "memory": 1
+    },
+    "dockRemovals": 0,
+    "before": {
+      "knownFacts": 2,
+      "beliefs": 1,
+      "excluded": 10,
+      "projectionRevision": "390211e3",
+      "previewDigest": "fnv1a32:69b6e1c6"
+    },
+    "after": {
+      "knownFacts": 2,
+      "beliefs": 1,
+      "excluded": 10,
+      "projectionRevision": "390211e3",
+      "previewDigest": "fnv1a32:69b6e1c6"
+    },
+    "tab": "Agent 运行",
+    "status": "expanded",
+    "pinned": "true",
+    "focusPreserved": true
+  },
+  "unmountedDockRemountRecovery": {
+    "proven": true,
+    "completionEvents": 1,
+    "before": {
+      "knownFacts": 2,
+      "beliefs": 1,
+      "excluded": 11,
+      "projectionRevision": "7139c8c1",
+      "previewDigest": "fnv1a32:07247f6a"
+    },
+    "after": {
+      "knownFacts": 2,
+      "beliefs": 1,
+      "excluded": 13,
+      "projectionRevision": "9ca98964",
+      "previewDigest": "fnv1a32:8a559a70"
+    }
+  },
+  "viewportChecks": {
+    "wide": "1440x900",
+    "compact": "1195x720",
+    "compactGeometry": {
+      "overflow": false,
+      "dockRight": 1195,
+      "viewportWidth": 1195
+    }
+  },
+  "providerRequests": [],
+  "formalWriteRequests": [
+    "/__local/story-studio/tianyi/creative/candidate/event-review/confirm",
+    "/__local/story-studio/author-control/change-set/apply"
+  ],
+  "secretLeakageCount": 0,
+  "consoleProblems": []
+}

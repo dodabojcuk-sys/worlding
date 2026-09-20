@@ -425,6 +425,7 @@
       "sourceFiles": [
         "src/storyIntelligence/nuwaN1Runtime.ts",
         "src/storyIntelligence/nuwaN1Attention.ts",
+        "src/storyContracts/nuwaN1Attention.ts",
         "src/storyIntelligence/nuwaRunPack.ts",
         "src/storyContinuity/characterMemoryRepository.ts",
         "src/storyContinuity/characterMemoryQuery.ts",
@@ -1207,20 +1208,39 @@
     {
       "id": "character-agent-magnetic-workbench-r0",
       "status": "LOCAL_REVIEW",
-      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-super-workbench-readonly-over-existing-owners-with-deterministic-contextpack-preview-and-knowledge-boundary",
+      "maturity": "generic-magnetic-entity-dock-with-character-peek-and-nine-tab-workbench-plus-one-call-transient-single-character-action-preview-over-existing-owners",
       "entrypoints": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
-        "src/storyContracts/characterContextPack.ts"
+        "apps/story-studio/src/components/entity-dock/entityDockProjectionRefresh.ts",
+        "apps/story-studio/src/components/entity-dock/characterDockSnapshot.ts",
+        "apps/story-studio/src/lib/projectProjectionCompletionBridge.ts",
+        "apps/story-studio/src/lib/storyStudioProjectionChangeEvent.ts",
+        "src/storyContracts/characterContextPack.ts",
+        "src/storyContracts/characterAgentContextGateway.ts",
+        "apps/story-studio/server/singleCharacterActionCandidatePort.mjs"
       ],
       "sourceFiles": [
         "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx",
         "apps/story-studio/src/components/entity-dock/entityInspectorDockStore.ts",
+        "apps/story-studio/src/components/entity-dock/entityDockProjectionRefresh.ts",
+        "apps/story-studio/src/components/entity-dock/characterDockSnapshot.ts",
+        "apps/story-studio/src/lib/projectProjectionCompletionBridge.ts",
+        "apps/story-studio/src/lib/storyStudioProjectionChangeEvent.ts",
+        "apps/story-studio/src/lib/projectProjectionInvalidation.ts",
+        "apps/story-studio/src/lib/localTransport.ts",
         "apps/story-studio/src/product-shell/workspace/ShellWorkspaceOutlet.tsx",
         "apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx",
         "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "apps/story-studio/src/product-shell/project-directory/character/CharacterWorkspace.tsx",
         "src/storyContracts/characterContextPack.ts",
-        "src/storyContracts/worldReferenceProjection.ts"
+        "src/storyContracts/characterKnowledgeHandoff.ts",
+        "src/storyContracts/worldReferenceProjection.ts",
+        "src/storyContracts/characterAgentContextGateway.ts",
+        "src/storyContracts/nuwaN1Attention.ts",
+        "src/storyIntelligence/nuwaN1Runtime.ts",
+        "apps/story-studio/server/nuwaN1PiAdapter.mjs",
+        "apps/story-studio/server/singleCharacterActionCandidatePort.mjs"
       ],
       "owners": [
         "src/storyContracts/characterContextPack.ts"
@@ -1231,17 +1251,64 @@
       "stateOwners": [
         "apps/story-studio/server/server.mjs"
       ],
-      "persistenceOwner": "None. The dock reads the existing WorldObject / Relation / CharacterMemory / knowledge-projection owners; the context pack is a pure deterministic preview with no writes and no second fact store.",
-      "providerDependency": "none; the workbench and its context pack preview issue zero Provider requests and never display credentials.",
+      "persistenceOwner": "None. The dock reads the existing WorldObject / Story Unit / Relation / CharacterMemory / knowledge-projection owners. A generated action candidate exists only in component memory, is explicitly not saved, is lost on close or reload, and cannot be replayed or placed in pending review.",
+      "providerDependency": "The Agent tab may issue exactly one Provider Gateway completion after server-side revision and permission checks, with retry disabled. It reuses the shared provider-safe projection, Nuwa actor-result validator, budget and receipt boundary; credentials, excluded prose and raw response bodies are not returned.",
       "tests": [
         "tests/storyContracts/characterContextPack.test.ts",
-        "tests/storyContracts/worldReferenceProjection.test.ts"
+        "tests/storyContracts/worldReferenceProjection.test.ts",
+        "tests/storyIntelligence/characterAgentContextGatewayR0.test.ts",
+        "tests/storyStudio/characterAgentContextGatewayUiR0.test.ts",
+        "tests/storyStudio/characterStateInspectorEntryR0.test.ts",
+        "tests/storyStudio/characterAgentFeedbackRefreshR0.test.ts",
+        "tests/storyStudio/characterDockAtomicSnapshot.test.ts",
+        "tests/storyStudio/projectionChangeCompletionBridge.test.ts",
+        "tests/storyStudio/singleCharacterActionCandidateR0.test.ts"
       ],
       "legacyProvenance": [
         "CharacterInspectorCard memory/relation/knowledge components",
         "WORLD_REFERENCE_AND_CHARACTER_AGENT_PREP_R0"
       ],
-      "remainingGap": "R0 local slice: character-level provider configuration owner, state/fate production feeds and the character-directory entry migration remain open; no real Provider calls."
+      "remainingGap": "R0 intentionally stops at a transient, unconfirmed action preview. There is no saved action-candidate Owner, pending-review lifecycle, replay, adoption, Event proposal, Canon write, character-level provider configuration owner or fate production feed. Founder visual acceptance and any future durable candidate design remain separate work."
+    },
+    {
+      "id": "hybrid-semantic-retrieval-r3",
+      "status": "LOCAL_REVIEW",
+      "maturity": "contract-first-hybrid-exact-keyword-dense-rrf-retrieval-with-structural-chunking-derived-index-cache-golden-eval-and-world-reference-ui-rework-no-second-fact-store",
+      "entrypoints": [
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "src/storyContracts/hybridRetrieval.ts",
+        "src/storyContracts/semanticChunking.ts",
+        "src/storyContracts/semanticIndexCache.ts",
+        "src/storyContracts/embeddingProfile.ts",
+        "src/storyContracts/hybridRetrievalGoldenSet.ts"
+      ],
+      "sourceFiles": [
+        "apps/story-studio/src/components/world/WorldReferenceWorkspace.tsx",
+        "src/storyContracts/hybridRetrieval.ts",
+        "src/storyContracts/semanticChunking.ts",
+        "src/storyContracts/semanticIndexCache.ts",
+        "src/storyContracts/embeddingProfile.ts",
+        "src/storyContracts/hybridRetrievalGoldenSet.ts",
+        "apps/story-studio/src/components/entity-dock/EntityInspectorDock.tsx"
+      ],
+      "owners": [
+        "src/storyContracts/hybridRetrieval.ts"
+      ],
+      "domainOwners": [
+        "src/storyContracts/hybridRetrieval.ts"
+      ],
+      "stateOwners": [],
+      "persistenceOwner": "The semantic index is a rebuildable derived cache and never a fact owner; this slice keeps it as a pure serializable contract with atomic tmp+rename file storage deferred, and it is excluded from work-version digests and exports.",
+      "providerDependency": "Embedding/Reranker profiles only reference providerProfileId; no credentials stored or displayed; semantic channel is honestly unavailable until a profile is configured; chat models are never used for retrieval.",
+      "tests": [
+        "tests/storyContracts/hybridRetrievalEval.test.ts"
+      ],
+      "legacyProvenance": [
+        "World reference R1",
+        "Causal-evolution workbench R2",
+        "embeddingIndexBinding generation semantics"
+      ],
+      "remainingGap": "Real embedding/reranker evaluation pending a configured provider profile (ACTUAL_EMBEDDING_EVAL=NOT_RUN with fake vectors in eval); file-backed index store; world reference density polish after founder review."
     }
   ]
 }

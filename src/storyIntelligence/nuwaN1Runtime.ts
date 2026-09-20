@@ -57,6 +57,8 @@ export type NuwaN1Scope = {
 };
 export type NuwaN1Context = {
   version: "tianyan-nuwa-n1-role-context/v1";
+  /** Present only on a non-dispatchable author preview. Real Run contexts omit it. */
+  previewMode?: true;
   runId: string;
   attemptId: string;
   step: number;
@@ -68,11 +70,20 @@ export type NuwaN1Context = {
   knownFacts: Array<{ factId: string; summary: string; sourceId: string; sourceRevision: string; visibility: NuwaN1KnownFact["visibility"]; worldStateObjectId?: string; memorySource?: NuwaN1MemorySource }>;
   beliefs: Array<NuwaN1Belief & { sourceId: string; sourceRevision: string }>;
   excludedKnowledgeCount: number;
+  /** Stable reason codes are optional for historical RunPacks. */
+  excludedKnowledgeReasonCodes?: string[];
   attention: NuwaN1AttentionSelection;
   recentDialogue: Array<{ speakerId: string; text: string; observedStep: number }>;
   allowedActions: string[];
   remaining: { committedSteps: number; dispatches: number; inputTokenBudget: 4096; outputTokenBudget: 1024 };
   authorCue: string | null;
+  /** Read-only projection provenance; absent on historical Run contexts. */
+  stateProjection?: {
+    projectionRevision: string | null;
+    asOf: null;
+    asOfText: "无世界时间依据";
+    sourceAnchors: string[];
+  };
 };
 export type NuwaN1ToolRequest = { type: "tool-request"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef };
 export type NuwaN1ToolResult = { type: "tool-result"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef; context: NuwaN1Context };
@@ -335,7 +346,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   let result: NuwaN1ActorResult;
   try {
     result = await input.adapter.continueAfterTool({ context, toolResult });
-    validateActorResult(result, actor);
+    validateNuwaN1ActorResult(result, actor);
     validateUsage(result.usage);
   } catch (error) {
     current = afterAwait(input, current, attemptId);
@@ -360,7 +371,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
     const sourceRevision = current.sourceIdentity?.revision ?? `run-r${current.revision}`;
     step = {
       stepId,
-      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), scene: cloneScene(current.scene), intent: text(result.intent, "intent", 600), speech, action: normalizeAction(result.action), observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
+      operationId: safeOperation(input.operationId), sequence, actor: structuredClone(actor.character), scene: cloneScene(current.scene), intent: text(result.intent, "intent", 600), speech, action: normalizeNuwaN1Action(result.action), observableResult: text(result.observableResult, "observableResult", 1_200), heardByActorIds,
       contextEvidenceRefs: contextEvidenceRefs(context),
       heardStatements: heardByActorIds.map((recipientId) => ({ recipientId, speakerId: actor.character.id, statement: speech!, sourceStepId: stepId, sourceRevision })),
       toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
@@ -722,7 +733,7 @@ function normalizeRun(value: unknown): NuwaN1Run {
     const allowed = new Set(run.actors.map((actor) => actor.character.id));
     if (heardStatements.some((heard) => heard.speakerId !== step.actor.id || heard.sourceStepId !== step.stepId || heard.recipientId === step.actor.id || !allowed.has(heard.recipientId))) throw new Error("Nuwa N1 heard statement is outside its completed step or Run roster.");
     if (heardStatements.length !== heardByActorIds.length || heardStatements.some((heard) => !heardByActorIds.includes(heard.recipientId))) throw new Error("Nuwa N1 statement delivery ledger is inconsistent.");
-    return { ...step, scene: step.scene ? cloneScene(step.scene) : cloneScene(run.scene), speech, action: normalizeAction(step.action), heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
+    return { ...step, scene: step.scene ? cloneScene(step.scene) : cloneScene(run.scene), speech, action: normalizeNuwaN1Action(step.action), heardByActorIds, heardStatements, contextEvidenceRefs: Array.isArray(step.contextEvidenceRefs) ? step.contextEvidenceRefs.map(normalizeContextEvidenceRef) : [] };
   });
   run.attempts = run.attempts.map(normalizeAttempt);
   return structuredClone(run);
@@ -780,12 +791,12 @@ function normalizeMemorySource(value: NuwaN1MemorySource): NuwaN1MemorySource {
 function validateToolRequest(request: NuwaN1ToolRequest, actor: NuwaN1Actor): void {
   if (request.type !== "tool-request" || request.toolName !== "read_role_context" || !safeId(request.requestId) || !sameRef(request.actor, actor.character)) throw new Error("Nuwa N1 adapter requested an unsupported or cross-character tool.");
 }
-function validateActorResult(result: NuwaN1ActorResult, actor: NuwaN1Actor): void {
+export function validateNuwaN1ActorResult(result: NuwaN1ActorResult, actor: Pick<NuwaN1Actor, "character" | "allowedActions">): void {
   if (result.type !== "actor-result" || !sameRef(result.actor, actor.character) || !actor.allowedActions.includes(result.action.action)) throw new Error("Nuwa N1 adapter result is outside the actor scope or allowed actions.");
   text(result.intent, "intent", 600); text(result.observableResult, "observableResult", 1_200); if (result.speech != null) text(result.speech, "speech", 1_200);
   if (result.heardByActorIds != null && !Array.isArray(result.heardByActorIds)) throw new Error("Nuwa N1 statement recipients are invalid.");
 }
-function normalizeAction(value: NuwaN1ActorResult["action"]): NuwaN1Step["action"] {
+export function normalizeNuwaN1Action(value: NuwaN1ActorResult["action"]): NuwaN1Step["action"] {
   if (!value || typeof value !== "object") throw new Error("Nuwa N1 action is invalid.");
   const action = { action: text(value.action, "action", 160), targetId: value.targetId == null ? null : stableObjectId(value.targetId) };
   if (value.worldState == null) return action;

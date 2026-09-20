@@ -205,9 +205,9 @@ export function buildWorldContextPack(input: WorldContextPackInput): WorldContex
   const publicFacts = input.entries.filter((entry) => entry.nature !== "author-note" && entry.nature !== "rumor");
   const roleAllowed = input.characterTitle
     ? publicFacts.filter((entry) => {
-      const knowledge = entry.knowledge.find((item) => item.character === input.characterTitle);
-      if (!knowledge) return entry.category !== "clue";
-      return knowledge.state === "known";
+      // Fail-closed: 未带「知情」标签 ≠ 公共知识；只有显式 已得知 才进入角色上下文。
+      // 作者公共视角（characterTitle=null）不经过本分支，结果保持不变。
+      return entry.knowledge.find((item) => item.character === input.characterTitle)?.state === "known";
     })
     : publicFacts;
   const excludedSecrets: WorldContextPack["excludedSecrets"] = input.entries

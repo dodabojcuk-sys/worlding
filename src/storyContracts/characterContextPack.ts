@@ -57,6 +57,8 @@ export interface CharacterContextPackInput {
   memories: ContextPackMemoryItem[];
   /** 事件线知识投影已经裁定该角色可见的事件标题 */
   visibleEventTitles: string[];
+  /** 连续性回退：仅当调用方明确要求时，零命中后才以最近有效记忆补位；默认 "none" 返回 0 条。 */
+  memoryFallback?: "none" | "recent";
 }
 
 export interface CharacterContextPack {
@@ -105,14 +107,16 @@ export function buildCharacterContextPack(input: CharacterContextPackInput): Cha
     .sort((left, right) => left.title.localeCompare(right.title, "zh-CN"));
 
   // 2. 记忆检索：只取与当前场景或已纳入事实/可见事件相关的记忆，不返回全部；
-  // 无精确相关命中时，回退为最近的有效记忆（明确标注回退，保持确定性）。
+  // 零命中时默认返回 0 条。只有调用方显式传 memoryFallback="recent"（continuity 回退）
+  // 才以最近有效记忆补位；该回退不写任何事实。
   const sceneTitle = input.sceneFrame?.title ?? "";
   const needles = [sceneTitle, ...input.visibleEventTitles, ...includedFacts.map((fact) => fact.title)]
     .map((needle) => needle.trim())
     .filter(Boolean);
   const activeMemories = input.memories.filter((memory) => memory.validity !== "invalidated");
   const matched = activeMemories.filter((memory) => needles.some((needle) => `${memory.title}${memory.summary}`.includes(needle)));
-  const relatedMemories = (matched.length ? matched : activeMemories).slice(0, MAX_RETRIEVED_MEMORIES);
+  const orderedSource = matched.length || input.memoryFallback !== "recent" ? matched : [...activeMemories].sort((left, right) => String(right.occurredAt).localeCompare(String(left.occurredAt)));
+  const relatedMemories = orderedSource.slice(0, MAX_RETRIEVED_MEMORIES);
 
   const partial: Omit<CharacterContextPack, "estimatedTokens" | "providerCalls"> = {
     version: CHARACTER_CONTEXT_PACK_VERSION,

@@ -28,7 +28,11 @@ export function TianyiAdoptionPanel(props: {
   const run = async (action: (token: string) => Promise<TianyiCreativeEventReview>) => {
     if (busy) return;
     setBusy(true); setError("");
-    try { const next = await props.runtime.withConnection(action); setReview(next); props.onChanged?.(next); }
+    try {
+      const next = await props.runtime.withConnection(action);
+      setReview(next);
+      props.onChanged?.(next);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : t("tianyi.adoption.failed")); }
     finally { setBusy(false); }
   };

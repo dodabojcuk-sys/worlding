@@ -1,3 +1,5 @@
+import { projectNuwaN1ProviderSafeContext } from "../../../src/storyContracts/characterAgentContextGateway.ts";
+
 const ADAPTER_ID = "pi-n1-role-tool-roundtrip/v1";
 
 /**
@@ -40,7 +42,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, actorIds, pro
         // unversioned draft is explicit; a fabricated constant is not.
         workVersionId: sourceIdentity.workVersionId,
         sessionId: runId,
-        prompt: promptFor(context, scopedActorIds),
+        prompt: buildNuwaN1ActorPrompt(context, scopedActorIds),
         systemPrompt: "你是女娲 N1 的受控 Pi 回合适配器。只能使用 read_role_context 返回的冻结角色范围。不得访问文件、Shell、网络以外的产品工具、凭据、其他作品或隐藏角色信息；不得写入 Canon、World、Event、Relation、人物资料或记忆。只输出严格 JSON，不要解释过程。",
         providerId: provider.providerId,
         profileId: provider.profileId,
@@ -54,7 +56,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, actorIds, pro
           inputSchema: { type: "object", additionalProperties: false, properties: {} },
           async execute(input) {
             if (input.toolCallId.length > 240 || Object.keys(input.arguments).length) throw new Error("Pi N1 context tool accepts no arguments.");
-            return { context: safeContextForProvider(context) };
+            return { context: projectNuwaN1ProviderSafeContext(context) };
           }
         }],
         requiredToolName: contextTool,
@@ -81,7 +83,7 @@ export function createNuwaN1PiAdapter({ runtime, projectId, runId, actorIds, pro
         },
         onEvent() { /* RunPack stores the resulting bounded turn, not model-chain text. */ }
       });
-      return parseActorResult(result.text, context, result.usage, scopedActorIds);
+      return parseNuwaN1ActorResult(result.text, context, result.usage, scopedActorIds);
       } finally {
         activeAgentRunId = null;
       }
@@ -93,39 +95,19 @@ export const NUWA_N1_PI_ADAPTER_ID = ADAPTER_ID;
 
 function toolRequestId(context) { return `n1-pi-tool.${context.runId}.${context.step}.${context.attemptId}`; }
 function sameRef(left, right) { return left?.id === right?.id && left?.revision === right?.revision; }
-function safeContextForProvider(context) {
-  return {
-    version: context.version,
-    runId: context.runId,
-    step: context.step,
-    actor: context.actor,
-    scene: context.scene,
-    localGoal: context.localGoal,
-    coreSummary: context.coreSummary,
-    profileBasis: context.profileBasis,
-    knownFacts: context.knownFacts,
-    beliefs: context.beliefs,
-    // Excluded identities can themselves disclose a future secret. The role
-    // gets only an auditable count/reason; the author inspector retains IDs.
-    attention: context.attention,
-    excluded: { count: context.excludedKnowledgeCount, reasonCodes: context.excludedKnowledgeCount ? ["not-known-by-actor"] : [] },
-    recentDialogue: context.recentDialogue,
-    allowedActions: context.allowedActions,
-    remaining: context.remaining,
-    authorCue: context.authorCue
-  };
-}
-function promptFor(context, actorIds) {
+export function buildNuwaN1ActorPrompt(context, actorIds, options = {}) {
   const eligibleHearerActorIds = [...new Set((Array.isArray(actorIds) ? actorIds : []).filter((actorId) => typeof actorId === "string" && actorId !== context.actor.id))].slice(0, 2);
   return [
-    "先调用 read_role_context；之后只根据该工具结果输出一个角色回合。",
+    options.contextAlreadyProvided === true
+      ? "安全角色上下文已随本次请求提供；只根据该冻结投影输出一个角色回合。"
+      : "先调用 read_role_context；之后只根据该工具结果输出一个角色回合。",
     "输出严格 JSON：{\"intent\":string,\"speech\":string|null,\"heardByActorIds\":string[],\"action\":{\"action\":\"speak\"|\"observe\"|\"ask\",\"targetId\":null},\"observableResult\":string}。",
     `heardByActorIds 只能取这些当前 Run 稳定角色 ID：${JSON.stringify(eligibleHearerActorIds)}；speech 为 null 时必须为 []。`,
     "未知、怀疑和误解不得提升为事实；不可引用工具结果之外的内容。",
     `当前回合：${context.step}；角色：${context.actor.id}；场景：${context.scene.label}`
   ].join("\n");
 }
-function parseActorResult(text, context, usage, actorIds) {
+export function parseNuwaN1ActorResult(text, context, usage, actorIds) {
   let value;
   try { value = JSON.parse(String(text).trim()); }
   catch { throw new Error("Pi N1 response must be one strict JSON actor result."); }

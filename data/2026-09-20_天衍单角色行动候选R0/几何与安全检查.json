@@ -1,0 +1,35 @@
+{
+  "viewportChecks": {
+    "wide": "1440x900",
+    "compact": "1195x720",
+    "geometry": {
+      "viewport": {
+        "width": 1195,
+        "height": 720
+      },
+      "horizontalOverflow": false,
+      "dock": {
+        "left": 675,
+        "right": 1195,
+        "top": 0,
+        "bottom": 720
+      }
+    },
+    "focusReturned": true
+  },
+  "provider": {
+    "mode": "local-fake",
+    "successfulProviderCalls": 1,
+    "automaticRetries": 0,
+    "realProviderCalls": 0
+  },
+  "storyWrites": 0,
+  "formalWriteRequests": [],
+  "transient": {
+    "discarded": true,
+    "reloadRestoredCandidate": false,
+    "replayAvailable": false
+  },
+  "secretSentinelHits": 0,
+  "consoleProblems": []
+}
