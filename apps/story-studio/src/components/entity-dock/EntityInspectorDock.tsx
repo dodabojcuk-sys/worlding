@@ -471,9 +471,10 @@ function WorldEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: s
       : props.status === "peek" ? <div className="entity-dock-peek" data-testid="entity-dock-peek">
         <p className="entity-dock-line"><small>摘要</small>{(object.body ?? "").split(/\r?\n/u).find((line) => line.trim() && !line.startsWith("#")) ?? "尚未记录"}</p>
         <p className="entity-dock-line"><small>当前性质</small>{natureLabel ?? "尚未记录"}</p>
+        <p className="entity-dock-line"><small>当前状态</small>{object.status === "active" ? "已确认（现行）" : "草稿候选"}{card?.dimensions.worldTime ? ` · ${card.dimensions.worldTime}` : ""}</p>
+        <p className="entity-dock-line"><small>当前故事关联</small>{object.tags.filter((tag) => tag.startsWith("单元") || tag.startsWith("故事线")).join("；") || "尚未标记单元或故事线"}</p>
         <p className="entity-dock-line"><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "暂无标签引用"}</p>
-        <p className="entity-dock-line"><small>当前压力</small>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</p>
-        <button type="button" className="entity-dock-expand" onClick={() => setEntityDockStatus("expanded")}>展开因果—演化工作台</button>
+        <button type="button" className="entity-dock-expand" onClick={() => setEntityDockStatus("expanded")}>展开工作台</button>
       </div> : card ? <div className="entity-dock-body" data-testid="world-causal-card">
         <nav className="entity-dock-tabs" role="tablist" aria-label="世界条目页签">
           {WORLD_TABS.map((name) => <button key={name} type="button" role="tab" aria-selected={tab === name} onClick={() => setTab(name)}>{name}</button>)}
@@ -485,15 +486,47 @@ function WorldEntityDock(props: { runtime: TianyanShellRuntimeState; objectId: s
           <p><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "尚未记录"}</p>
         </div> : null}
         {tab === "因果链" ? <div className="entity-dock-section" data-testid="world-causal-chain">
-          <p><small>起源</small>{card.origin.text ?? "尚未记录"}</p>
-          <p><small>机制</small>{card.mechanism.text ?? "尚未记录"}</p>
-          <p><small>利益与代价</small>{card.interests.text ?? "尚未记录"}</p>
-          <p><small>当前压力</small>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</p>
-          <p><small>可能变化</small>{card.evolutionNotes.text ?? "尚未记录"}</p>
+          <ol className="wb-causal-chain" aria-label="因果链">
+            <li className="wb-causal-node" data-filled={card.origin.text ? "true" : "false"}>
+              <small>起源</small><span>{card.origin.text ?? "尚未记录"}</span>
+            </li>
+            <li aria-hidden="true" className="wb-causal-arrow">→</li>
+            <li className="wb-causal-node" data-filled={card.mechanism.text ? "true" : "false"}>
+              <small>机制</small><span>{card.mechanism.text ?? "尚未记录"}</span>
+            </li>
+            <li aria-hidden="true" className="wb-causal-arrow">→</li>
+            <li className="wb-causal-node" data-filled={object.status === "active" ? "true" : "false"}>
+              <small>当前</small><span>{object.status === "active" ? `已确认（现行）${card.dimensions.worldTime ? ` · ${card.dimensions.worldTime}` : ""}` : "草稿候选"}</span>
+            </li>
+            <li aria-hidden="true" className="wb-causal-arrow">→</li>
+            <li className="wb-causal-node" data-filled={card.evolutionNotes.text ? "true" : "false"}>
+              <small>可能变化</small><span>{card.evolutionNotes.text ?? "尚未记录"}</span>
+            </li>
+          </ol>
+          <p className="wb-field"><small>利益与代价</small><span>{card.interests.text ?? "尚未记录"}</span></p>
+          <p className="wb-field"><small>当前压力</small><span>{pressureCount ? `${pressureCount} 项压力/冲突记录` : "尚未记录"}</span></p>
         </div> : null}
         {tab === "演化时间" ? <div className="entity-dock-section" data-testid="world-time-frames">
-          {card.timeFrames.length ? card.timeFrames.map((frame) => <p key={frame.label + frame.title}><small>{frame.label}</small>{frame.title}{frame.detail ? ` · ${frame.detail}` : ""}{frame.eventId ? <a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}&eventId=${encodeURIComponent(frame.eventId)}`}>回事件线</a> : null}</p>) : <p>尚无已确认的时间节点。</p>}
-          <p><small>规划/候选</small>暂无 planned/candidate 数据（诚实空态）。</p>
+          <ol className="wb-dock-timeline" aria-label="演化时间轨迹">
+            <li className="wb-timeline-track" data-authority="confirmed">
+              <h4>已确认</h4>
+              {card.timeFrames.length ? <ul>
+                {card.timeFrames.filter((frame) => frame.frameAuthority === "confirmed-event").map((frame) => <li key={frame.label + frame.title}>
+                  <span className="wb-timeline-marker" aria-hidden="true" />
+                  <div><strong>{frame.label} · {frame.title}</strong>{frame.detail ? <small>{frame.detail}</small> : null}{frame.eventId ? <a href={`/event-line?projectId=${encodeURIComponent(props.runtime.project?.id ?? "")}&eventId=${encodeURIComponent(frame.eventId)}`}>回事件线</a> : null}</div>
+                </li>)}
+                {card.timeFrames.every((frame) => frame.frameAuthority !== "confirmed-event") ? <li className="wb-empty">尚无已确认的时间节点。</li> : null}
+              </ul> : <p className="wb-empty">尚无已确认的时间节点。</p>}
+            </li>
+            <li className="wb-timeline-track" data-authority="planned">
+              <h4>规划</h4>
+              <p className="wb-empty">暂无规划数据；规划轨迹由作者明确设计后出现在这里（诚实空态）。</p>
+            </li>
+            <li className="wb-timeline-track" data-authority="candidate">
+              <h4>候选</h4>
+              <p className="wb-empty">暂无候选数据（诚实空态）。</p>
+            </li>
+          </ol>
         </div> : null}
         {tab === "关系与影响" ? <div className="entity-dock-section" data-testid="world-relations-impact">
           <p><small>相关对象</small>{relatedObjectCount ? `标签引用 ${relatedObjectCount} 个对象` : "尚未记录"}</p>

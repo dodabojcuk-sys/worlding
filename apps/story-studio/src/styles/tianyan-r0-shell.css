@@ -1836,3 +1836,134 @@ input:focus-visible {
 /* 持久索引状态：弱化为单行圆点 */
 .world-reference-index-status { display: inline-flex; align-items: center; gap: .28rem; font-size: .64rem; color: var(--color-text-muted); }
 .world-reference-index-status::before { content: "●"; font-size: .5rem; }
+
+/* ── R4 世界观工作台：紧凑二级导航（≤48px，非卡片） ── */
+.world-reference-workspace .materials-section-navigation { padding: .15rem .25rem; background: transparent; border: 0; box-shadow: none; border-radius: 0; max-block-size: 3rem; }
+.world-reference-workspace .materials-section-navigation a { min-height: 1.9rem; padding: .25rem .6rem; }
+
+/* ── R4 世界页头 ── */
+.wb-root { --wb-rule: var(--color-world-rule); --wb-location: var(--color-world-location); --wb-faction: var(--color-world-faction); --wb-item: var(--color-world-item); --wb-clue: var(--color-world-clue); --wb-secret: var(--color-world-secret); display: flex; flex-direction: column; gap: .55rem; }
+.wb-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: .5rem .9rem; padding-block-end: .55rem; border-block-end: 1px solid var(--color-border); }
+.wb-header-identity h1 { margin: 0; font-size: 1.12rem; line-height: 1.25; }
+.wb-header-meta { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin-block-start: .2rem; color: var(--color-text-muted); font-size: .72rem; }
+.wb-header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.wb-header-actions .wb-action { display: inline-flex; align-items: center; gap: .3rem; padding: .28rem .6rem; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: .35rem; font-size: .72rem; text-decoration: none; cursor: pointer; }
+.wb-header-actions .wb-action:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.wb-search { display: inline-flex; align-items: center; gap: .35rem; min-inline-size: 13rem; padding: .25rem .55rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; font-size: .74rem; }
+.wb-search input { min-inline-size: 0; border: 0; background: transparent; color: var(--color-text); font-size: .74rem; }
+.wb-search input:focus { outline: none; }
+.wb-search button { border: 0; background: transparent; color: var(--color-text-muted); cursor: pointer; font-size: .85rem; line-height: 1; }
+
+/* ── R4 主/辅工作区 ── */
+.wb-columns { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: .8rem; align-items: start; }
+.wb-main { display: grid; gap: .85rem; min-inline-size: 0; }
+.wb-section > h2, .wb-aux-head h2 { margin: 0 0 .4rem; font-size: .92rem; }
+.wb-pulse { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .55rem; padding: .6rem; background: color-mix(in srgb, var(--color-accent-soft) 24%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-accent) 22%, var(--color-border)); border-radius: 10px; }
+.wb-pulse-block h3 { margin: 0 0 .3rem; font-size: .74rem; letter-spacing: .05em; color: var(--color-text-muted); }
+.wb-pulse-block ul { display: grid; gap: .28rem; margin: 0; padding: 0; list-style: none; }
+.wb-pulse-block li { display: grid; gap: .05rem; font-size: .76rem; }
+.wb-pulse-block li small { color: var(--color-text-muted); font-size: .64rem; }
+.wb-pulse-block li button { padding: 0; text-align: start; color: var(--color-text); background: transparent; border: 0; cursor: pointer; font-size: .76rem; }
+.wb-pulse-block li button:hover { color: var(--color-accent); text-decoration: underline; }
+.wb-empty { margin: 0; color: var(--color-text-muted); font-size: .72rem; line-height: 1.55; }
+
+/* ── R4 类型化卡片 ── */
+.wb-typed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .55rem; align-items: start; }
+.wb-card { display: grid; gap: .35rem; padding: .6rem .7rem; background: var(--color-surface); border: 1px solid var(--color-border); border-top: 2px solid var(--wb-clue); border-radius: 8px; font-size: .74rem; }
+.wb-card-location { border-top-color: var(--wb-location); }
+.wb-card-rule { border-top-color: var(--wb-rule); }
+.wb-card-faction { border-top-color: var(--wb-faction); }
+.wb-card-item { border-top-color: var(--wb-item); }
+.wb-card-clue { border-top-color: var(--wb-clue); }
+.wb-card[data-nature="author-note"] { border-inline-start: 2px solid var(--wb-secret); }
+.wb-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: .4rem; cursor: pointer; }
+.wb-card > header strong { font-size: .84rem; }
+.wb-card > header:focus { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.wb-card-kind { flex: 0 0 auto; padding: .05rem .45rem; border-radius: 999px; font-size: .62rem; color: var(--color-text-muted); background: var(--color-surface-muted); }
+.wb-card-location .wb-card-kind { color: var(--wb-location); }
+.wb-card-rule .wb-card-kind { color: var(--wb-rule); }
+.wb-card-faction .wb-card-kind { color: var(--wb-faction); }
+.wb-card-item .wb-card-kind { color: var(--wb-item); }
+.wb-field { display: grid; gap: .08rem; margin: 0; }
+.wb-field small { color: var(--color-text-muted); font-size: .62rem; letter-spacing: .04em; }
+.wb-field span { line-height: 1.5; }
+.wb-field a { color: var(--color-accent); }
+
+/* ── R4 历史/演化轨迹 ── */
+.wb-timeline, .wb-dock-timeline { display: grid; gap: .5rem; margin: 0; padding: 0 0 0 1rem; list-style: none; border-inline-start: 2px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); }
+.wb-timeline li { position: relative; display: flex; gap: .5rem; align-items: baseline; }
+.wb-timeline li > div { display: grid; gap: .1rem; }
+.wb-timeline-marker { position: absolute; inset-inline-start: -1.32rem; align-self: center; inline-size: .55rem; block-size: .55rem; border-radius: 50%; background: var(--color-accent); border: 2px solid var(--color-surface); }
+.wb-timeline li[data-origin="true"] .wb-timeline-marker { background: var(--wb-rule); }
+.wb-timeline li[data-nature="rumor"] .wb-timeline-marker, .wb-timeline li[data-nature="pending-clue"] .wb-timeline-marker { background: transparent; border: 2px dashed var(--wb-clue); }
+.wb-timeline button { padding: 0; color: var(--color-text); background: transparent; border: 0; cursor: pointer; font-size: .78rem; text-align: start; }
+.wb-timeline button:hover { color: var(--color-accent); text-decoration: underline; }
+.wb-timeline small { color: var(--color-text-muted); font-size: .66rem; }
+
+/* ── R4 辅助区与 1152 抽屉 ── */
+.wb-aux { position: sticky; top: 1rem; display: grid; gap: .6rem; padding: .6rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-radius: 10px; max-block-size: calc(100vh - 6rem); overflow: auto; }
+.wb-aux-head { display: flex; align-items: center; justify-content: space-between; }
+.wb-aux-close { display: none; border: 0; background: transparent; color: var(--color-text-muted); font-size: 1rem; cursor: pointer; }
+.wb-aux-block { display: grid; gap: .3rem; padding-block-end: .45rem; border-block-end: 1px dashed var(--color-border); }
+.wb-aux-block:last-child { border-block-end: 0; }
+.wb-aux-block h3 { margin: 0; font-size: .74rem; color: var(--color-text-muted); letter-spacing: .05em; }
+.wb-aux-block p { display: grid; gap: .05rem; margin: 0; font-size: .76rem; }
+.wb-aux-block p small, .wb-aux-block li small { color: var(--color-text-muted); font-size: .64rem; }
+.wb-aux-block ul { display: grid; gap: .28rem; margin: 0; padding: 0; list-style: none; font-size: .76rem; }
+.wb-aux-block li { display: grid; gap: .05rem; }
+.wb-aux-block li button { padding: 0; text-align: start; color: var(--color-text); background: transparent; border: 0; cursor: pointer; font-size: .76rem; }
+.wb-aux-block li button:hover { color: var(--color-accent); text-decoration: underline; }
+.wb-unit h4 { margin: .2rem 0 .15rem; font-size: .74rem; }
+.wb-aux-links { display: flex; flex-wrap: wrap; gap: .35rem; }
+.wb-aux-links a { padding: .22rem .55rem; color: var(--color-accent); background: var(--color-surface); border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); border-radius: .3rem; font-size: .7rem; text-decoration: none; }
+.wb-aux-scrim { display: none; }
+@media (max-width: 80rem) {
+  .wb-columns { grid-template-columns: minmax(0, 1fr); }
+  .wb-pulse { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wb-aux { position: fixed; z-index: 60; inset-block: 1rem; inset-inline: auto 1rem; inline-size: min(20rem, 86vw); background: var(--color-surface); box-shadow: -0.6rem 0.4rem 1.6rem color-mix(in srgb, var(--color-text) 16%, transparent); visibility: hidden; transform: translateX(110%); transition: transform .18s ease, visibility .18s; }
+  .wb-aux.is-open { visibility: visible; transform: none; }
+  .wb-aux-close { display: block; }
+  .wb-aux-scrim { display: block; position: fixed; z-index: 55; inset: 0; background: color-mix(in srgb, var(--color-text) 24%, transparent); border: 0; cursor: pointer; }
+}
+
+/* ── R4 折叠面板（不遮挡首条结果） ── */
+.wb-details-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.wb-details { position: relative; }
+.wb-details > summary { padding: .2rem .6rem; color: var(--color-text-muted); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 999px; font-size: .7rem; cursor: pointer; list-style: none; }
+.wb-details > summary::-webkit-details-marker { display: none; }
+.wb-details[open] > summary, .wb-details > summary:hover { color: var(--color-accent); border-color: var(--color-accent); }
+.wb-details-panel { position: absolute; z-index: 20; inset-inline-start: 0; top: calc(100% + .3rem); display: grid; gap: .4rem; min-inline-size: 15rem; padding: .5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; box-shadow: var(--shadow-panel); font-size: .72rem; }
+
+/* ── R4 搜索第二状态 ── */
+.wb-search-surface { display: grid; gap: .6rem; }
+.wb-search-status { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; color: var(--color-text-muted); font-size: .74rem; }
+.wb-search-status .world-reference-excluded { font-size: .66rem; }
+.world-reference-summary { display: grid; gap: .12rem; margin: 0; font-size: .74rem; line-height: 1.55; }
+
+/* ── R4 搜索结果类别徽标语义色 ── */
+.world-reference-category.is-location { color: var(--wb-location); }
+.world-reference-category.is-rule { color: var(--wb-rule); }
+.world-reference-category.is-faction { color: var(--wb-faction); }
+.world-reference-category.is-item { color: var(--wb-item); }
+.world-reference-category.is-clue { color: var(--wb-clue); }
+.world-reference-category.is-character { color: var(--color-accent); }
+
+/* ── R4 Dock：因果链节点 + 演化时间轨迹 + 密度 ── */
+.entity-dock .wb-causal-chain { display: grid; gap: .35rem; margin: 0 0 .5rem; padding: 0; list-style: none; }
+.entity-dock .wb-causal-node { display: grid; gap: .12rem; padding: .42rem .55rem; background: var(--color-surface-muted); border: 1px solid var(--color-border); border-inline-start: 3px solid var(--color-accent); border-radius: .4rem; font-size: .74rem; }
+.entity-dock .wb-causal-node small { color: var(--color-text-muted); font-size: .6rem; letter-spacing: .06em; }
+.entity-dock .wb-causal-node[data-filled="false"] { border-inline-start-style: dashed; border-inline-start-color: var(--color-text-muted); }
+.entity-dock .wb-causal-arrow { color: var(--color-accent); font-size: .8rem; line-height: 1; padding-inline-start: .9rem; }
+.entity-dock .wb-dock-timeline { gap: .6rem; }
+.entity-dock .wb-timeline-track h4 { margin: 0 0 .3rem; font-size: .7rem; color: var(--color-text-muted); letter-spacing: .06em; }
+.entity-dock .wb-timeline-track ul { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.entity-dock .wb-timeline-track li { position: relative; display: grid; gap: .1rem; font-size: .74rem; }
+.entity-dock .wb-timeline-track .wb-timeline-marker { position: absolute; inset-block-start: .3rem; inset-inline-start: -1.28rem; }
+.entity-dock .wb-timeline-track strong { font-size: .74rem; }
+.entity-dock .wb-timeline-track small { display: block; color: var(--color-text-muted); font-size: .66rem; }
+.entity-dock .wb-field span { font-size: .74rem; }
+.entity-dock .wb-empty { font-size: .7rem; }
+@media (min-width: 90rem) {
+  .entity-dock.is-expanded .entity-dock-section { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem .8rem; align-items: start; }
+  .entity-dock.is-expanded .entity-dock-section > .wb-causal-chain, .entity-dock.is-expanded .entity-dock-section > .wb-dock-timeline, .entity-dock.is-expanded .entity-dock-section > p:first-child { grid-column: 1 / -1; }
+}

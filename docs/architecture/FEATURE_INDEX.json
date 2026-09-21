@@ -1202,7 +1202,7 @@
         "Materials section navigation",
         "Nuwa R6/R6.1 author workspace story sidebar"
       ],
-      "remainingGap": "Local review only: founder visual review, entry-to-event-line deep links and the future character-agent context assembly remain open.",
+      "remainingGap": "R4 workbench rework (world pulse, typed cards, causal-chain nodes, evolution tracks, aux story rail, search-as-second-state) is local review only: founder visual review and the future character-agent context assembly remain open.",
       "notes": "Read-only projection over the existing world-library owner; classifies entries into character/location/faction/item/rule/clue and confirmed-fact/pending-clue/rumor/author-note from existing tags and status. characterAllowedReferences() is the prepared boundary for future character agents: author notes and rumors never enter character context."
     },
     {
