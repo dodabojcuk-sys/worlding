@@ -152,7 +152,9 @@ test("Nuwa N3A keeps author content primary while preserving exact permission an
   assert.match(workspace, /本步骤使用的依据/u);
   assert.match(workspace, /<details className="nuwa-n1-technical">/u, "request counts belong in progressive technical detail");
   assert.match(workspace, /本地工程演练 · 真实 Provider 0 次/u);
-  assert.match(workspace, /排演进行中或已暂停；先完成或停止排演，再送入待确认/u);
+  assert.match(workspace, /排演进行中或已暂停；完成或停止后可送入待确认/u);
+  assert.match(workspace, /nuwa-n1-selection-bar/u, "candidate handoff is presented with explicit selection controls");
+  assert.match(workspace, /nuwa-n1-command-tools/u, "scene settings and auxiliary views have an on-demand toolbar entry");
   assert.match(workspace, /已授权自动应用/u);
   assert.match(workspace, /普通候选/u);
   assert.match(workspace, /发生的结果/u);

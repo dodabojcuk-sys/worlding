@@ -1431,6 +1431,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
+  // Context preview uses an on-demand drawer; close it before starting the Run.
+  if (await workspace.locator(".nuwa-n1-inspector.is-open").isVisible()) await workspace.locator(".nuwa-n1-inspector > header button").click();
 
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
@@ -1453,7 +1455,9 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await steps.locator('.nuwa-n1-step-select input').count(), 0, "Leaving selection mode hides checkboxes without discarding selection.");
   await workspace.getByRole("button", { name: /选择结果.*已选/u }).click();
   assert.equal(await steps.first().locator('.nuwa-n1-step-select input').isChecked(), true);
+  await workspace.getByRole("button", { name: "角色与来源" }).click();
   assert.equal(await contextCards.count(), 2, "Both knowledge boundaries remain inspectable after steps commit.");
+  await workspace.getByRole("button", { name: "角色与来源" }).click();
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "02-1440-two-role-steps.png"), fullPage: false });
   await evidenceDwell();
 
@@ -1505,24 +1509,23 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "布局切换保留的草稿");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "07-1440-directory-reopened.png") });
   await directoryToggle.click();
+  const eventToggle = workspace.getByRole("button", { name: "事件线", exact: true });
+  await eventToggle.click();
+  await workspace.locator(".nuwa-n1-auxiliary.is-open.is-drawer").waitFor();
+  await checkAuthorWidth("1440 event drawer does not reserve reading width");
+  await workspace.getByRole("button", { name: "收起事件线辅助栏" }).click();
   await page.locator('[data-panel-toggle="tianyi-agent"]').click();
   await page.locator(".tianyi-sidebar").waitFor();
-  await page.waitForFunction(() => {
-    const assistant = document.querySelector('.tianyi-sidebar[data-overlay="false"]');
-    const event = document.querySelector('.nuwa-n1-auxiliary.is-open:not(.is-drawer)');
-    return assistant && event && event.getBoundingClientRect().right <= assistant.getBoundingClientRect().left;
-  });
-  await checkAuthorWidth("1440 event + Tianyi");
+  await checkAuthorWidth("1440 Tianyi does not erase the Nuwa draft");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "08-1440-event-tianyi.png") });
   await page.locator('[data-panel-toggle="tianyi-agent"]').click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await checkAuthorWidth("1280 suggestion and input");
-  const eventClose = workspace.getByRole("button", { name: "收起事件线辅助栏", exact: true });
-  if (await eventClose.isVisible()) await eventClose.click();
-  await workspace.getByTestId("nuwa-auxiliary-reopen").click();
+  await eventToggle.click();
+  await workspace.locator(".nuwa-n1-auxiliary.is-open.is-drawer").waitFor();
   assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "布局切换保留的草稿");
-  if (await eventClose.isVisible()) await eventClose.click();
-  await checkAuthorWidth("1280 close and reopen event rail preserves draft");
+  await workspace.getByRole("button", { name: "收起事件线辅助栏" }).click();
+  await checkAuthorWidth("1280 close and reopen event drawer preserves draft");
   await page.setViewportSize({ width: 1440, height: 900 });
   await workspace.locator(".nuwa-n1-composer textarea").fill("");
   if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "layout-measurements.json"), JSON.stringify(layoutMeasurements, null, 2));
@@ -1546,6 +1549,22 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "暂停刷新草稿不发送", "Refresh retains the unsent author draft.");
   assert.equal(await workspace.getByLabel("作者提示接收对象").inputValue(), "all-actors", "Refresh retains the explicitly chosen addressee.");
   assert.match(await workspace.locator(".nuwa-n1-director-card").innerText(), /已采纳，并已在第 3 步生效/u, "Refresh preserves the adopted director adjustment and its exact future boundary.");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.querySelector('.tianyan-r0-shell')?.getAttribute('data-nuwa-mobile-rail') === 'true' && (document.querySelector('.shell-space-rail')?.getBoundingClientRect().right ?? Infinity) <= 0);
+  const phoneLayout = await workspace.evaluate((node) => {
+    const rail = document.querySelector(".shell-space-rail")?.getBoundingClientRect();
+    const composer = node.querySelector(".nuwa-n1-composer")?.getBoundingClientRect();
+    return { overflow: document.documentElement.scrollWidth > innerWidth, railRight: rail?.right ?? 0, composerBottom: composer?.bottom ?? Infinity };
+  });
+  assert.equal(phoneLayout.overflow, false, `Phone reading must not overflow horizontally: ${JSON.stringify(phoneLayout)}`);
+  assert.ok(phoneLayout.railRight <= 0 && phoneLayout.composerBottom <= 844, `Phone navigation is a drawer and composer remains reachable: ${JSON.stringify(phoneLayout)}`);
+  await workspace.getByRole("button", { name: "事件线", exact: true }).click();
+  await workspace.locator(".nuwa-n1-auxiliary.is-open.is-drawer").waitFor();
+  await workspace.getByRole("button", { name: "收起事件线辅助栏" }).click();
+  await workspace.getByRole("button", { name: /选择结果.*已选/u }).click();
+  assert.equal(await workspace.locator('.nuwa-n1-step-select input:checked').count(), 1, "Phone selection mode preserves the saved choice.");
+  await workspace.getByRole("button", { name: /完成选择/u }).click();
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "暂停刷新草稿不发送", "Phone navigation keeps the unsent author draft.");
   await page.setViewportSize({ width: 1195, height: 792 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   const compactGeometry = await workspace.evaluate((node) => {
@@ -1582,6 +1601,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
 
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  await workspace.getByRole("button", { name: /选择结果.*已选/u }).click();
+  assert.equal(await workspace.locator('.nuwa-n1-step-select input:checked').count(), 1, "Saved result selection survives refresh even though the reader opens outside selection mode.");
   await workspace.getByRole("button", { name: "送入待确认", exact: true }).click();
   await workspace.getByText(/送入待确认；尚未写入正式故事/u).waitFor();
   const reviews = await getFixture(`${apiUrl}/__local/story-studio/author-control/candidate-reviews?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1626,6 +1647,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
   await evidenceDwell();
+  if (await workspace.locator(".nuwa-n1-inspector.is-open").isVisible()) await workspace.locator(".nuwa-n1-inspector > header button").click();
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
   await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
@@ -1638,9 +1660,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(secondScene.data.run.providerDispatches, 0, "The continuous N2A-to-N2C evidence remains a zero-Provider local rehearsal.");
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
-  // The rewritten control bar keeps 推演设置 collapsed once a Run exists; its
-  // status row only renders while the disclosure is open.
-  await workspace.locator(".nuwa-n1-controlbar > summary").click();
+  // Run settings now open from the compact toolbar; no permanent settings row remains.
+  await workspace.getByRole("button", { name: "推演设置", exact: true }).click();
   assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /本地\/网络模型发送 0 \/ 12 · 内部工具回合 [1-9]\d*/u, "A stopped local-tool turn must remain visible without being mislabelled as a model send.");
   assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
   assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");

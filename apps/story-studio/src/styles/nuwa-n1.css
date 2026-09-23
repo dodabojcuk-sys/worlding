@@ -497,3 +497,117 @@
   .tianyan-r0-shell[data-nuwa-mobile-rail="true"] { --rail-current: var(--space-rail-collapsed-width); }
   .tianyan-r0-shell[data-nuwa-mobile-rail-open="true"] .shell-space-rail { position: fixed; inset: 0 auto 0 0; inline-size: min(13rem, 72vw); z-index: 60; box-shadow: .5rem 0 1.25rem rgb(23 36 74 / 18%); }
 }
+
+/* Continuous Nuwa reading layout: the scene owns the space between its toolbar and composer. */
+.tianyan-r0-shell[data-nuwa-reading="true"] { --rail-current: var(--space-rail-collapsed-width); }
+.shell-nuwa-space-menu { display: grid; place-items: center; flex: none; inline-size: 2.25rem; block-size: 2.25rem; padding: 0; border: 0; border-radius: .35rem; background: transparent; color: var(--color-text); cursor: pointer; }
+.shell-nuwa-space-menu svg { inline-size: 1.15rem; }
+.shell-nuwa-space-menu:hover, .shell-nuwa-space-menu:focus-visible { background: var(--color-accent-soft); }
+.tianyan-r0-shell[data-nuwa-reading="true"][data-rail-collapsed="false"] { --rail-current: var(--space-rail-width); }
+.shell-workspace-nuwa:has(.nuwa-n1-workspace.has-run) { overflow: hidden; }
+.nuwa-n1-workspace.has-run { display: flex; flex-direction: column; block-size: 100%; min-block-size: 0; max-block-size: 100%; padding: 0 clamp(.55rem, 1.2vw, 1rem); overflow: hidden; }
+.nuwa-n1-workspace.has-run .nuwa-n1-header { display: none; }
+.nuwa-n1-workspace.has-run .nuwa-n1-commandbar { z-index: 6; flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .4rem .75rem; min-block-size: 3.25rem; margin: 0; padding: .35rem .6rem; border: 0; border-block-end: 1px solid #e2e7f2; border-radius: 0; }
+.nuwa-n1-command-status { min-inline-size: 0; }
+.nuwa-n1-command-status > div { display: flex; align-items: center; gap: .25rem; }
+.nuwa-n1-command-status small, .nuwa-n1-command-summary small { display: none; }
+.nuwa-n1-command-summary { display: flex; align-items: baseline; gap: .5rem; }
+.nuwa-n1-command-summary strong { font-size: .82rem; }
+.nuwa-n1-command-summary span { flex: none; font-size: .72rem; }
+.nuwa-n1-command-actions, .nuwa-n1-command-tools { display: flex; align-items: center; flex-wrap: nowrap; gap: .25rem; }
+.nuwa-n1-command-tools button { display: inline-flex; align-items: center; gap: .25rem; min-block-size: 2rem; padding: .25rem .4rem; border: 0; background: transparent; font-size: .73rem; }
+.nuwa-n1-command-tools svg { inline-size: .9rem; }
+.nuwa-n1-workspace.has-run .nuwa-n1-body { flex: 1 1 auto; min-block-size: 0; overflow: hidden; align-items: stretch; }
+.nuwa-n1-workspace.has-run .nuwa-n1-primary { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-block-size: 0; block-size: 100%; gap: 0; overflow: hidden; }
+.nuwa-n1-workspace.has-run .nuwa-n1-controlbar.is-hidden { display: none; }
+.nuwa-n1-workspace.has-run .nuwa-n1-controlbar:not(.is-hidden) { position: absolute; z-index: 20; inset: .35rem .35rem auto auto; inline-size: min(34rem, calc(100% - .7rem)); max-block-size: min(70vh, 42rem); overflow: auto; margin: 0; box-shadow: 0 .75rem 2rem rgb(28 39 82 / 18%); }
+.nuwa-n1-workspace.has-run .nuwa-n1-reader { flex: 1 1 auto; min-block-size: 0; max-inline-size: 64rem; overflow-x: hidden; overflow-y: auto; padding: .6rem clamp(.4rem, 2vw, 1.5rem) 1rem; scrollbar-gutter: stable; }
+.nuwa-n1-reader > header { position: relative; display: flex; align-items: center; justify-content: space-between; min-block-size: 2rem; padding: 0 0 .3rem; }
+.nuwa-n1-reader > header small { font-size: .72rem; font-weight: 500; color: #667396; }
+.nuwa-n1-reader ol { margin-block-start: .45rem; }
+.nuwa-n1-workspace.has-run .nuwa-n1-composer { flex: none; max-inline-size: 64rem; margin: 0 auto; padding: .4rem clamp(.4rem, 2vw, 1rem) .55rem; border: 0; border-block-start: 1px solid #dce3f3; border-radius: 0; }
+.nuwa-n1-composer form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .3rem .5rem; align-items: end; }
+.nuwa-n1-composer form > .nuwa-n1-cue-target { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; padding: 0; border: 0; }
+.nuwa-n1-cue-target > strong { flex: none; font-size: .73rem; }
+.nuwa-n1-cue-target > small { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .68rem; }
+.nuwa-n1-composer form > .nuwa-n1-cue-target > label { display: flex; align-items: center; gap: .25rem; }
+.nuwa-n1-composer .nuwa-n1-cue-input > span { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); }
+.nuwa-n1-composer textarea { field-sizing: content; min-block-size: 2.7rem; max-block-size: min(12rem, 30vh); font-size: .84rem; }
+.nuwa-n1-composer form > button { min-block-size: 2.7rem; }
+.nuwa-n1-selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .7rem; max-inline-size: 64rem; inline-size: 100%; min-block-size: 2.6rem; margin-inline: auto; padding: .3rem .7rem; border-block: 1px solid #dce3f3; color: #243456; font-size: .75rem; }
+.nuwa-n1-selection-bar small { color: #667396; }
+.nuwa-n1-selection-bar > button { margin-inline-start: auto; min-block-size: 2rem; padding: .25rem .6rem; border: 1px solid #c9d2e9; border-radius: .3rem; background: #fff; color: #243456; }
+.nuwa-n1-selection-bar > button:disabled { opacity: .55; }
+.nuwa-n1-workspace.has-run .nuwa-n1-director-card { flex: none; display: flex; align-items: center; gap: .4rem .75rem; inline-size: 100%; max-inline-size: 64rem; min-block-size: 2.25rem; margin: 0 auto; padding: .2rem .7rem; border-block: 1px solid #e1e6f2; }
+.nuwa-n1-director-card > div:first-child { display: flex; align-items: center; gap: .5rem; min-inline-size: 0; }
+.nuwa-n1-director-card > div:first-child > strong { flex: none; font-size: .72rem; }
+.nuwa-n1-director-card .nuwa-n1-director-summary { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .73rem; }
+.nuwa-n1-director-card .nuwa-n1-director-error { flex: none; margin: 0; font-size: .69rem; }
+.nuwa-n1-director-card .nuwa-n1-director-state { flex: none; margin-inline-start: auto; font-size: .69rem; }
+.nuwa-n1-director-details { position: relative; flex: none; }
+.nuwa-n1-director-details summary { cursor: pointer; font-size: .7rem; white-space: nowrap; }
+.nuwa-n1-director-details[open] { position: absolute; z-index: 15; inset: auto .7rem 6.3rem auto; inline-size: min(29rem, calc(100% - 1.4rem)); max-block-size: 40vh; overflow: auto; padding: .7rem; border: 1px solid #dce3f3; border-radius: .45rem; background: white; box-shadow: 0 .6rem 1.5rem rgb(23 36 74 / 14%); }
+.nuwa-n1-workspace.has-run .nuwa-n1-auxiliary, .nuwa-n1-workspace.has-run .nuwa-n1-inspector { display: none; }
+.nuwa-n1-workspace.has-run .nuwa-n1-auxiliary.is-open, .nuwa-n1-workspace.has-run .nuwa-n1-inspector.is-open { display: grid; position: fixed; z-index: 30; inset: calc(var(--topbar-height) + 3.5rem) .75rem .75rem auto; inline-size: min(24rem, calc(100vw - 1.5rem)); max-block-size: none; overflow: auto; background: #fff; box-shadow: 0 .8rem 2rem rgb(23 36 74 / 20%); }
+.nuwa-n1-workspace.has-run .nuwa-n1-technical { flex: none; margin: 0; }
+@media (max-width: 68rem) {
+  .nuwa-n1-workspace.has-run .nuwa-n1-commandbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .nuwa-n1-command-tools { grid-column: 1 / -1; justify-content: flex-end; }
+}
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-mobile-rail="true"] { --rail-current: 0rem; }
+  .tianyan-r0-shell[data-nuwa-mobile-rail="true"] .shell-space-rail { position: fixed; inset: 0 auto 0 0; inline-size: min(14rem, 74vw); transform: translateX(-105%); transition: transform 160ms ease; z-index: 60; }
+  .tianyan-r0-shell[data-nuwa-mobile-rail-open="true"] .shell-space-rail { transform: translateX(0); }
+  .nuwa-n1-workspace.has-run { padding: 0 .4rem; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-commandbar { grid-template-columns: auto minmax(0, 1fr); gap: .1rem .4rem; min-block-size: 0; padding: .25rem .2rem; }
+  .nuwa-n1-command-summary span { display: none; }
+  .nuwa-n1-command-actions { grid-column: 1; grid-row: 2; justify-content: flex-start; }
+  .nuwa-n1-command-tools { grid-column: 2; grid-row: 2; justify-content: flex-end; }
+  .nuwa-n1-command-tools button { min-inline-size: 2rem; min-block-size: 2.25rem; overflow: hidden; font-size: 0; padding: .25rem; }
+  .nuwa-n1-command-tools button svg { inline-size: 1rem; }
+  .nuwa-n1-command-actions button { min-block-size: 2.25rem; padding-inline: .4rem; font-size: .7rem; }
+  .nuwa-n1-command-actions .danger-action { font-size: 0; }
+  .nuwa-n1-command-actions .danger-action svg { inline-size: .9rem; }
+  .nuwa-n1-reader > header { min-block-size: 1.7rem; }
+  .nuwa-n1-reader > header small { font-size: .67rem; }
+  .nuwa-n1-reader ol { margin-block-start: .35rem; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-reader { padding: .35rem .2rem .75rem; }
+  .nuwa-n1-composer form > .nuwa-n1-cue-target { flex-wrap: wrap; }
+  .nuwa-n1-cue-target > small { display: none; }
+  .nuwa-n1-composer form { grid-template-columns: minmax(0, 1fr) auto; }
+  .nuwa-n1-composer form > button { font-size: 0; min-inline-size: 2.7rem; padding: .35rem; }
+  .nuwa-n1-composer form > button svg { inline-size: 1rem; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-director-card { min-block-size: 2rem; }
+  .nuwa-n1-director-card > div:first-child > strong { display: none; }
+  .nuwa-n1-director-card .nuwa-n1-director-state { max-inline-size: 9rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .nuwa-n1-director-details summary { font-size: 0; }
+  .nuwa-n1-director-details summary::after { content: '详情'; font-size: .7rem; }
+}
+
+.nuwa-n1-workspace.has-run .nuwa-n1-director-card { flex-wrap: nowrap; }
+.nuwa-n1-director-card > div:first-child { flex: 1 1 auto; overflow: hidden; }
+.nuwa-n1-director-card .nuwa-n1-director-summary { flex: 1 1 auto; margin: 0; }
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-reading="true"][data-nuwa-mobile-rail="true"] { --rail-current: 0rem; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-body { display: flex; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-primary { grid-column: auto; grid-row: auto; }
+  .nuwa-n1-reader-tools > button { min-block-size: 1.55rem; padding-block: 0; }
+  .nuwa-n1-step-menu summary { min-block-size: 1.5rem; }
+  .nuwa-n1-reader article > .nuwa-n1-step-content > header { min-block-size: 1.5rem; }
+}
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar { gap: .25rem; padding-inline: .45rem; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar-context { flex: 1 1 auto; min-inline-size: 0; max-inline-size: none; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-context-control { flex: 1 1 auto; max-inline-size: none; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-context-control strong { max-inline-size: 8.5rem; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar-actions { flex: 0 0 auto; gap: .1rem; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar-panel-toggle span,
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-pending-entry span { display: none; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar-panel-toggle,
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-pending-entry { inline-size: 2rem; min-inline-size: 2rem; padding-inline: .35rem; }
+}
+.nuwa-n1-workspace.has-run .nuwa-n1-commandbar { position: relative; z-index: 40; }
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar { z-index: 70; }
+  .tianyan-r0-shell[data-nuwa-mobile-rail="true"] .shell-space-rail { inset: var(--topbar-height) auto 0 0; block-size: calc(100vh - var(--topbar-height)); }
+}

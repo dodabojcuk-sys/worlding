@@ -86,7 +86,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   })();
   const directory = useDirectoryWorkspaceState(props.runtime.project?.id ?? null, initialDirectoryOpen);
   const directoryState = directory.state;
-  const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(false);
+  const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(() => resolveActiveDestination() === "nuwa");
   const shellRef = useRef<HTMLDivElement>(null);
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
   const [shellWidth, setShellWidth] = useState(0);
@@ -99,8 +99,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const tianyiOpen = rightWorkSurface.activeSurface?.kind === "tianyi-assistant";
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
-  const nuwaMobileRail = activeId === "nuwa" && shellWidth > 0 && shellWidth <= 768;
-  const railCollapsed = nuwaMobileRail ? !nuwaMobileRailOpen : resolveShellRailCollapsed(railPreference, autoCollapseRail);
+  const nuwaMobileRail = activeId === "nuwa" && (shellWidth > 0 ? shellWidth <= 768 : window.matchMedia("(max-width: 48rem)").matches);
+  const railCollapsed = activeId === "nuwa" ? !nuwaMobileRailOpen : resolveShellRailCollapsed(railPreference, autoCollapseRail);
   const locationParams = new URLSearchParams(window.location.search);
   const pendingReviewOpen = activeId === "tianyi" && locationParams.get("directoryReview") === "pending";
   const directorySelection = locationParams.get("directoryObject");
@@ -154,7 +154,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
 
   useEffect(() => {
     const handlePopState = () => {
-      setActiveId(resolveActiveDestination());
+      const next = resolveActiveDestination();
+      setActiveId(next);
+      setWorkspaceDirectorySuppressed(next === "nuwa");
+      setNuwaMobileRailOpen(false);
       setSettingsOpen(isSettingsRoute());
       setAccountOpen(false);
       setLocationRevision((value) => value + 1);
@@ -175,7 +178,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, []);
 
   useEffect(() => {
-    setWorkspaceDirectorySuppressed(false);
+    setWorkspaceDirectorySuppressed(activeId === "nuwa");
+    setNuwaMobileRailOpen(false);
   }, [props.runtime.project?.id]);
 
   useEffect(() => {
@@ -298,7 +302,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setAccountOpen(false);
     dock.closePanel();
     workspaceSurfaceManager.closeSurface();
-    setWorkspaceDirectorySuppressed(false);
+    setWorkspaceDirectorySuppressed(destination.id === "nuwa");
+    setNuwaMobileRailOpen(false);
   };
   const searchContext = props.runtime.project
     ? { projectId: props.runtime.project.id, workVersionId: props.runtime.workVersionId ?? "work-version.unversioned" }
@@ -439,7 +444,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   };
 
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
-  const toggleRail = () => nuwaMobileRail ? setNuwaMobileRailOpen((open) => !open) : setRailPreference(nextShellRailPreference(railCollapsed));
+  const toggleRail = () => activeId === "nuwa" ? setNuwaMobileRailOpen((open) => !open) : setRailPreference(nextShellRailPreference(railCollapsed));
   const openSettings = () => {
     if (!requestWorkspaceNavigation()) return;
     if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
@@ -519,6 +524,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-rail-collapsed={railCollapsed}
     data-nuwa-mobile-rail={nuwaMobileRail}
     data-nuwa-mobile-rail-open={nuwaMobileRail && nuwaMobileRailOpen}
+    data-nuwa-reading={activeId === "nuwa"}
     data-directory-visible={directoryPresented}
     data-directory-preferred-open={directoryPreferredOpen}
     data-dock-panel-count={dock.state.openPanelIds.length}
@@ -543,12 +549,14 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onAccount={openAccount}
     />
     <GlobalStatusBar
+      showSpaceMenu={activeId === "nuwa"}
+      onToggleSpaceMenu={toggleRail}
       theme={theme}
       projectId={props.runtime.project?.id ?? null}
       projectName={props.runtime.project?.title}
       projects={props.runtime.projects}
       workVersionLabel={props.runtime.workVersionLabel}
-      directoryOpen={directoryPreferredOpen}
+      directoryOpen={directoryPresented}
       tianyiOpen={tianyiOpen}
       tianyiActionAvailable={activeId !== "tianyi"}
       searchContext={searchContext}
@@ -573,7 +581,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       open={commandOpen}
       railCollapsed={railCollapsed}
       panelVisibility={{
-        "project-directory": directoryPreferredOpen,
+        "project-directory": directoryPresented,
         "tianyi-agent": tianyiOpen
       }}
       theme={theme}

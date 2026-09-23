@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, MoreHorizontal, Sparkles, SunMedium } from "lucide-react";
+import { Check, ChevronDown, CloudOff, FolderTree, Languages, Menu, MoonStar, MoreHorizontal, Sparkles, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GlobalSearchControl } from "../global-search/GlobalSearchControl";
@@ -9,6 +9,8 @@ import { useI18n } from "../i18n/I18nProvider";
 import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
+  showSpaceMenu?: boolean;
+  onToggleSpaceMenu?(): void;
   theme: ShellTheme;
   projectName?: string;
   projectId: string | null;
@@ -111,6 +113,7 @@ export function GlobalStatusBar(props: {
 
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context shell-project-selector">
+      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" aria-label="打开或收起空间导航" onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
       <button
         ref={projectToggleRef}
         type="button"
