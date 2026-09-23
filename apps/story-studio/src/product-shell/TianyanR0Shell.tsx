@@ -90,6 +90,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
   const [shellWidth, setShellWidth] = useState(0);
+  const [nuwaMobileRailOpen, setNuwaMobileRailOpen] = useState(false);
   // While the Tianyi assistant borrows workspace width, the author may still
   // explicitly reopen the directory; that choice wins until Tianyi closes.
   const [tianyiDirectoryOverride, setTianyiDirectoryOverride] = useState(false);
@@ -98,7 +99,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const tianyiOpen = rightWorkSurface.activeSurface?.kind === "tianyi-assistant";
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
-  const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
+  const nuwaMobileRail = activeId === "nuwa" && shellWidth > 0 && shellWidth <= 768;
+  const railCollapsed = nuwaMobileRail ? !nuwaMobileRailOpen : resolveShellRailCollapsed(railPreference, autoCollapseRail);
   const locationParams = new URLSearchParams(window.location.search);
   const pendingReviewOpen = activeId === "tianyi" && locationParams.get("directoryReview") === "pending";
   const directorySelection = locationParams.get("directoryObject");
@@ -437,7 +439,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   };
 
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
-  const toggleRail = () => setRailPreference(nextShellRailPreference(railCollapsed));
+  const toggleRail = () => nuwaMobileRail ? setNuwaMobileRailOpen((open) => !open) : setRailPreference(nextShellRailPreference(railCollapsed));
   const openSettings = () => {
     if (!requestWorkspaceNavigation()) return;
     if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
@@ -515,6 +517,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-theme={theme}
     data-locale={locale}
     data-rail-collapsed={railCollapsed}
+    data-nuwa-mobile-rail={nuwaMobileRail}
+    data-nuwa-mobile-rail-open={nuwaMobileRail && nuwaMobileRailOpen}
     data-directory-visible={directoryPresented}
     data-directory-preferred-open={directoryPreferredOpen}
     data-dock-panel-count={dock.state.openPanelIds.length}

@@ -21,7 +21,7 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(workspace, /上一个单元/u);
   assert.match(workspace, /节点推进/u);
   assert.match(workspace, /预测 \/ 决策点/u);
-  assert.match(workspace, /查看角色 \$\{participant\.title\}/u, "a role avatar opens the existing context sidebar by stable character identity");
+  assert.match(workspace, /查看角色 \$\{actor\?\.title/u, "a message identity opens the existing context sidebar by stable character identity");
   assert.match(workspace, /心理状态<\/dt><dd>未接入/u, "the sidebar does not fabricate an emotion system");
   assert.match(workspace, /送入待确认/u);
   assert.match(workspace, /加入后续步骤/u);
@@ -156,7 +156,10 @@ test("Nuwa N3A keeps author content primary while preserving exact permission an
   assert.match(workspace, /已授权自动应用/u);
   assert.match(workspace, /普通候选/u);
   assert.match(workspace, /发生的结果/u);
-  assert.match(workspace, /查看本步骤依据与执行详情/u);
+  assert.match(workspace, /查看来源与依据/u);
+  assert.match(workspace, /作者控制 · 非场景对白/u);
+  assert.match(workspace, /cueDrafts: \{ \.\.\.cueDrafts, \[cueTarget\]: cue \}/u, "recipient switching persists separate unsent drafts");
+  assert.match(workspace, /selectionMode \? "is-selecting"/u, "bulk choice controls appear only in selection mode");
   assert.match(workspace, /不是实际计费 token/u);
   assert.match(workspace, /本次排演方式/u);
   assert.match(workspace, /本批未配置合法关系类型，没有补造关系/u);

@@ -434,3 +434,66 @@
   .nuwa-n1-reader-tools { justify-content: start; }
   .nuwa-n1-composer form > button, .nuwa-n1-composer > div > button { min-block-size: 2.7rem; }
 }
+
+/* Continuous Nuwa conversation: saved steps stay in order and keep one identity. */
+.shell-workspace-nuwa { background: #fbfcff; }
+.nuwa-n1-workspace { --nuwa-ink: #17244a; --nuwa-paper: #fff; max-inline-size: none; padding: .55rem clamp(.65rem, 1.6vw, 1.4rem) 2rem; }
+.nuwa-n1-header { display: flex; align-items: baseline; gap: .7rem; padding: .05rem .2rem .35rem; }
+.nuwa-n1-header h1 { font: 650 1rem/1.35 var(--font-display); }
+.nuwa-n1-header p { margin: 0; font-size: .79rem; }
+.nuwa-n1-commandbar { position: static; min-block-size: 2.8rem; padding: .35rem .65rem; border: 1px solid #dfe5f3; border-radius: .4rem; background: #fff; box-shadow: none; color: var(--nuwa-ink); }
+.nuwa-n1-commandbar small { color: #5b6988; }
+.nuwa-n1-command-summary strong, .nuwa-n1-command-status strong { color: var(--nuwa-ink); }
+.nuwa-n1-command-summary span { color: #5b6988; }
+.nuwa-n1-commandbar button { color: var(--nuwa-ink); background: #fff; border-color: #d5ddf0; }
+.nuwa-n1-commandbar .primary-action { background: #4559c6; border-color: #4559c6; color: #fff; }
+.nuwa-n1-commandbar .danger-action { color: #983e4a; border-color: #e8cbd1; }
+.nuwa-n1-primary { gap: .45rem; }
+.nuwa-n1-reader { max-inline-size: 56rem; inline-size: 100%; margin-inline: auto; padding: .5rem 0 1rem; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.nuwa-n1-reader > header { padding: .2rem 0 .45rem; border-color: #e3e8f4; }
+.nuwa-n1-reader > header small { color: #59688d; font-size: .74rem; font-weight: 650; letter-spacing: normal; text-transform: none; }
+.nuwa-n1-reader > header p { margin: .1rem 0 0; font-size: .72rem; }
+.nuwa-n1-reader-tools > button { min-block-size: 2rem; border: 0; color: #344c9a; font-size: .75rem; }
+.nuwa-n1-reader ol { gap: .5rem; margin-block-start: .8rem; }
+.nuwa-n1-reader li { padding: 0; }
+.nuwa-n1-reader li::before { display: none; }
+.nuwa-n1-reader article { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .55rem; overflow: visible; border: 0; border-radius: 0; background: transparent; }
+.nuwa-n1-reader li.is-selected article { border: 0; box-shadow: none; }
+.nuwa-n1-avatar { display: grid; place-items: center; inline-size: 2.25rem; block-size: 2.25rem; flex: none; border-radius: 50%; color: #fff; background: #58688d; font-size: .83rem; font-weight: 650; }
+.nuwa-n1-reader li:nth-child(2n) .nuwa-n1-avatar { background: #6d7898; }
+.nuwa-n1-step-content { min-inline-size: 0; }
+.nuwa-n1-reader article > .nuwa-n1-step-content > header { display: flex; align-items: center; gap: .45rem; min-block-size: 1.35rem; padding: 0; border: 0; }
+.nuwa-n1-reader article > .nuwa-n1-step-content > header > button { display: inline; min-inline-size: 0; padding: 0; color: var(--nuwa-ink); border: 0; background: transparent; font-size: .82rem; font-weight: 700; text-align: start; }
+.nuwa-n1-reader article > .nuwa-n1-step-content > header > small { color: #7380a0; font-size: .65rem; font-weight: 400; letter-spacing: normal; text-transform: none; }
+.nuwa-n1-reader article .nuwa-n1-step-speech, .nuwa-n1-reader article .nuwa-n1-step-happened { margin: .18rem 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.nuwa-n1-reader article .nuwa-n1-step-speech { color: #17244a; font-size: 1rem; line-height: 1.62; }
+.nuwa-n1-reader article .nuwa-n1-step-happened { display: block; color: #647293; font-size: .87rem; line-height: 1.58; }
+.nuwa-n1-step-menu { position: relative; margin-inline-start: auto; }
+.nuwa-n1-step-menu summary { display: grid; place-items: center; min-inline-size: 2rem; min-block-size: 2rem; color: #536386; cursor: pointer; font-size: 1.05rem; line-height: 1; list-style: none; opacity: .18; }
+.nuwa-n1-step-menu summary::-webkit-details-marker { display: none; }
+.nuwa-n1-reader li:hover .nuwa-n1-step-menu summary, .nuwa-n1-reader li:focus-within .nuwa-n1-step-menu summary, .nuwa-n1-step-menu[open] summary { opacity: 1; }
+.nuwa-n1-step-menu > div { position: absolute; z-index: 10; inset-inline-end: 0; inset-block-start: 2rem; display: grid; min-inline-size: 10rem; padding: .25rem; border: 1px solid #dce3f3; border-radius: .4rem; background: #fff; box-shadow: 0 .4rem 1rem rgb(32 48 94 / 12%); }
+.nuwa-n1-step-menu button { min-block-size: 2.2rem; padding-inline: .5rem; border: 0; background: transparent; color: var(--nuwa-ink); text-align: start; font-size: .75rem; }
+.nuwa-n1-step-menu button:hover, .nuwa-n1-step-menu button:focus-visible { background: #eef1fb; }
+.nuwa-n1-reader ol.is-selecting li.is-chosen { border-inline-start: 2px solid #7d8bd8; padding-inline-start: .4rem; }
+.nuwa-n1-step-select { display: inline-flex; align-items: center; gap: .35rem; min-block-size: 2rem; margin-block-start: .15rem; color: #4255a3; font-size: .72rem; }
+.nuwa-n1-step-select input { accent-color: #4559c6; }
+.nuwa-n1-composer { max-inline-size: 56rem; inline-size: 100%; margin: .35rem auto 0; padding: .55rem .65rem; border: 1px solid #dce3f3; border-radius: .7rem; background: #fff; box-shadow: none; backdrop-filter: none; }
+.nuwa-n1-composer form > .nuwa-n1-cue-target { border: 0; padding-block-end: .12rem; }
+.nuwa-n1-cue-target > strong { color: var(--nuwa-ink); font-size: .78rem; }
+.nuwa-n1-composer textarea { min-block-size: 2.7rem; max-block-size: 12rem; font-size: .85rem; line-height: 1.5; }
+.nuwa-n1-director-card { max-inline-size: 56rem; margin-inline: auto; padding: .5rem .65rem; border-inline: 0; border-block: 1px solid #e1e6f2; border-radius: 0; background: transparent; }
+.nuwa-n1-director-card p { font-size: .78rem; }
+@media (hover: none) { .nuwa-n1-step-menu summary { opacity: 1; } }
+@media (max-width: 48rem) {
+  .nuwa-n1-reader { padding-inline: .15rem; }
+  .nuwa-n1-reader article { grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; }
+  .nuwa-n1-avatar { inline-size: 2rem; block-size: 2rem; }
+  .nuwa-n1-commandbar { grid-template-columns: minmax(0, 1fr); }
+  .nuwa-n1-command-actions { grid-column: 1; }
+  .nuwa-n1-step-menu summary { opacity: 1; }
+}
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-mobile-rail="true"] { --rail-current: var(--space-rail-collapsed-width); }
+  .tianyan-r0-shell[data-nuwa-mobile-rail-open="true"] .shell-space-rail { position: fixed; inset: 0 auto 0 0; inline-size: min(13rem, 72vw); z-index: 60; box-shadow: .5rem 0 1.25rem rgb(23 36 74 / 18%); }
+}
