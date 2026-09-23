@@ -159,7 +159,8 @@ test("Nuwa N3A keeps author content primary while preserving exact permission an
   assert.match(workspace, /普通候选/u);
   assert.match(workspace, /发生的结果/u);
   assert.match(workspace, /查看来源与依据/u);
-  assert.match(workspace, /作者控制 · 非场景对白/u);
+  assert.match(workspace, /作者输入 · 非角色对白/u);
+  assert.match(workspace, /tianyan-nuwa-open-structure/u, "story structure opens the shared directory without changing the Run scope");
   assert.match(workspace, /cueDrafts: \{ \.\.\.cueDrafts, \[cueTarget\]: cue \}/u, "recipient switching persists separate unsent drafts");
   assert.match(workspace, /selectionMode \? "is-selecting"/u, "bulk choice controls appear only in selection mode");
   assert.match(workspace, /不是实际计费 token/u);

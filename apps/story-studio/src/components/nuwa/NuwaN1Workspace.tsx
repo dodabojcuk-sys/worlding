@@ -32,7 +32,7 @@ import {
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
 import { useWorkspaceSurface, workspaceSurfaceManager } from "../../product-shell/WorkspaceDockCoordinator";
 import { clampNuwaAuxiliaryWidth, readNuwaAuxiliaryLayout, writeNuwaAuxiliaryLayout, type NuwaAuxiliaryLayout } from "./nuwaAuxiliaryLayout";
-import { NuwaEventLineRail, type BrowsedEvent } from "./NuwaEventLineRail";
+import type { BrowsedEvent } from "./NuwaEventLineRail";
 import type { StoryStudioEventReference } from "../../../../../src/storyContracts/storyStudioEventReference";
 
 const MAX_PARTICIPANTS = 3;
@@ -132,6 +132,11 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
   const [queuedParticipantId, setQueuedParticipantId] = useState<string | null>(null);
   const [formalNodePreselect, setFormalNodePreselect] = useState<FormalNodePreselect | null>(null);
   const [browsedEvent, setBrowsedEvent] = useState<BrowsedEvent | null>(null);
+  useEffect(() => {
+    const browse = (event: Event) => setBrowsedEvent((event as CustomEvent<BrowsedEvent | null>).detail);
+    window.addEventListener("tianyan-nuwa-browse-event", browse);
+    return () => window.removeEventListener("tianyan-nuwa-browse-event", browse);
+  }, []);
   const [auxiliary, setAuxiliary] = useState<NuwaAuxiliaryLayout>(() => readNuwaAuxiliaryLayout(projectId));
   const workspaceSurface = useWorkspaceSurface();
   const inspectorOpen = workspaceSurface.activeSurface?.kind === "nuwa-inspector";
@@ -471,7 +476,8 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
         </div>
         <div className="nuwa-n1-command-tools">
           <button type="button" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 aria-hidden="true" />推演设置</button>
-          <button type="button" aria-expanded={eventVisible} onClick={() => { if (eventVisible) { setEventDrawer(false); updateAuxiliary({ auxiliaryOpen: false }); } else { setEventDrawer(true); updateAuxiliary({ auxiliaryOpen: true }); workspaceSurfaceManager.closeSurface("nuwa-inspector"); } }}><Network aria-hidden="true" />事件线</button>
+          <button type="button" onClick={() => window.dispatchEvent(new Event("tianyan-nuwa-open-structure"))}><Network aria-hidden="true" />故事结构</button>
+          <button type="button" aria-expanded={eventVisible} onClick={() => { if (eventVisible) { setEventDrawer(false); updateAuxiliary({ auxiliaryOpen: false }); } else { setEventDrawer(true); updateAuxiliary({ auxiliaryOpen: true }); workspaceSurfaceManager.closeSurface("nuwa-inspector"); } }}><GitBranch aria-hidden="true" />排演脉络</button>
           <button type="button" aria-expanded={inspectorOpen} onClick={() => inspectorOpen ? workspaceSurfaceManager.closeSurface("nuwa-inspector") : openInspector()}><PanelRight aria-hidden="true" />角色与来源</button>
         </div>
       </section>
@@ -507,36 +513,22 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
       {!run && setup ? <section className="nuwa-n1-context-preview"><ShieldCheck /><div><strong>本轮上下文预览</strong><p>{setup.setup.contextPreview.map((actor) => `${bootstrap?.participants.find((item) => item.id === actor.actorId)?.title ?? "角色"}：${actor.profileBasis.core ?? "未设置核心"}；底线 ${actor.profileBasis.boundaries ?? "未设置"}；目标 ${actor.localGoal}`).join("；")}</p><small>这里只是发送前预览；尚未提交步骤，也没有网络发送回执。</small></div></section> : null}
       {run?.run && run.automaticApplication ? <ApplicationSummary application={run.automaticApplication} heardCount={run.run.steps.reduce((count, step) => count + step.heardStatements.length, 0)} onOpenEvent={openApplicationEvent} onOpenRelation={openApplicationRelation} onOpenFixedDraft={openFixedDraft} /> : null}
       {run?.run?.directorAdjustment?.status !== "adopted" && previousDirector ? <p className="nuwa-n1-message is-notice">上一份已采纳调整仍在本场景生效：{previousDirector.proposedAdjustment} 新建议只有采纳后才会替换它。</p> : null}
-      {run?.run?.directorAdjustment ? <section className={`nuwa-n1-director-card is-${run.run.directorAdjustment.status}`} role="status">
-        <div><strong>后续排演调整</strong>
-          {run.run.directorAdjustment.proposedAdjustment ? <p className="nuwa-n1-director-summary">{run.run.directorAdjustment.proposedAdjustment}</p> : <p>尚无可执行调整。</p>}
-          {run.run.directorAdjustment.unsupported?.length ? <p className="nuwa-n1-director-error">有 {run.run.directorAdjustment.unsupported.length} 项要求未执行，可展开查看。</p> : null}
-          {run.run.directorAdjustment.failure ? <p className="nuwa-n1-director-error">{run.run.directorAdjustment.failure}</p> : null}
-          <details className="nuwa-n1-director-details"><summary>查看作者原话、解释与生效范围</summary>
-            <p>作者原话：{run.run.directorAdjustment.instruction}</p>
-            {run.run.directorAdjustment.understood ? <p>建议理解：{run.run.directorAdjustment.understood}</p> : null}
-            {run.run.directorAdjustment.unsupported?.length ? <p>未执行的要求：{run.run.directorAdjustment.unsupported.join("；")}</p> : null}
-            {run.run.directorAdjustment.scope ? <p>适用范围：{run.run.directorAdjustment.scope}</p> : null}
-            <p>采纳后仅把保存的推进提示交给后续步骤；不保证角色会按预期行动，也不改变角色知情边界。</p>
-          </details>
-        </div>
-        <div className="nuwa-n1-director-state"><span>{directorStatusLabel(run.run.directorAdjustment.status, run.run.directorAdjustment.appliesFromStep, run.run.directorAdjustment.appliedStepId)}</span>{run.run.directorAdjustment.status === "suggested" ? <><button type="button" className="primary-action" disabled={busy} onClick={() => decideDirector("adopt")}>采纳调整</button><button type="button" disabled={busy} onClick={() => decideDirector("discard")}>放弃</button></> : null}{run.run.directorAdjustment.status === "failed" ? <button type="button" disabled={busy} onClick={() => { setCue(run.run!.directorAdjustment!.instruction); setCueTarget("nuwa"); cueTargetRef.current?.focus(); }}>保留输入并重试</button> : null}</div>
-      </section> : null}
+      {run?.run?.directorAdjustment ? <section className={`nuwa-n1-director-card is-${run.run.directorAdjustment.status}`} role="status"><details className="nuwa-n1-director-disclosure"><summary><strong>导演调整</strong><span>{directorStatusLabel(run.run.directorAdjustment.status, run.run.directorAdjustment.appliesFromStep, run.run.directorAdjustment.appliedStepId)}</span>{run.run.directorAdjustment.status === "suggested" ? <em>待作者审阅</em> : null}</summary><div className="nuwa-n1-director-full">
+        <p><strong>保存的推进提示：</strong>{run.run.directorAdjustment.proposedAdjustment || "尚无可执行调整。"}</p>
+        <p>作者原话：{run.run.directorAdjustment.instruction}</p>
+        {run.run.directorAdjustment.understood ? <p>建议理解：{run.run.directorAdjustment.understood}</p> : null}
+        {run.run.directorAdjustment.unsupported?.length ? <p>未执行的要求：{run.run.directorAdjustment.unsupported.join("；")}</p> : null}
+        {run.run.directorAdjustment.scope ? <p>适用范围：{run.run.directorAdjustment.scope}</p> : null}
+        {run.run.directorAdjustment.failure ? <p role="alert">{run.run.directorAdjustment.failure}</p> : null}
+        <p>采纳后仅把保存的推进提示交给后续步骤；不保证角色会按预期行动，也不改变角色知情边界。</p>
+        {run.run.directorAdjustment.status === "suggested" ? <div className="nuwa-n1-director-state"><button type="button" className="primary-action" disabled={busy} onClick={() => decideDirector("adopt")}>采纳调整</button><button type="button" disabled={busy} onClick={() => decideDirector("discard")}>放弃</button></div> : null}
+        {run.run.directorAdjustment.status === "failed" ? <button type="button" disabled={busy} onClick={() => { setCue(run.run!.directorAdjustment!.instruction); setCueTarget("nuwa"); cueTargetRef.current?.focus(); }}>保留输入并重试</button> : null}
+      </div></details></section> : null}
       {run?.run?.pendingCue ? <section className="nuwa-n1-pending-cue" role="status"><div><strong>待生效的作者提示</strong><p>{run.run.pendingCue.instruction}</p></div><span>{cueProgressLabel(run.run.pendingCue, new Map(run.run.participants.map((participant) => [participant.id, participant.title])), run.run.participants) ?? cueStateLabel(run.run.pendingCue.addressee, new Map(run.run.participants.map((participant) => [participant.id, participant.title])))}</span>{run.run.pendingCue.addressee ? null : <button type="button" disabled={busy} onClick={() => { setCue(run.run!.pendingCue!.instruction); cueTargetRef.current?.focus(); }}>补选对象</button>}</section> : null}
-      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><div className="nuwa-n1-cue-target"><strong>作者控制 · 非场景对白</strong><label><span>接收对象</span><select aria-label="作者提示接收对象" ref={cueTargetRef} value={cueTarget} disabled={busy || !["ready", "running", "paused"].includes(run.run.status)} onChange={(event) => changeCueTarget(event.target.value as "" | NuwaN1CueAddressee["kind"])}><option value="">必须选择对象</option><option value="nuwa">与女娲讨论／安排</option><option value="actors">指定角色的后续提示</option><option value="all-actors">全体角色的后续提示</option></select></label>{cueTarget === "actors" ? <div className="nuwa-n1-cue-actors">{run.run.participants.map((participant) => { const checked = cueActorIds.includes(participant.id); return <label key={participant.id}><input type="checkbox" checked={checked} disabled={busy} onChange={() => setCueActorIds((current) => checked ? current.filter((id) => id !== participant.id) : [...current, participant.id])} /><span>{participant.title}</span></label>; })}</div> : null}<small>{cueTarget === "nuwa" ? "先生成建议，作者采纳后才影响后续步骤。" : cueAddressee ? `${cueStateLabel(cueAddressee, new Map(run.run.participants.map((participant) => [participant.id, participant.title])))}；这不是角色对白。` : "选择对象后才可提交；作者内容不会作为场景对白。"}</small></div><label className="nuwa-n1-cue-input"><span>{cueTarget === "nuwa" ? "给女娲的导演要求" : "给所选对象的下一步指令"}</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["ready", "running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder={cueTarget === "nuwa" ? "与女娲讨论或安排后续排演…" : "选择接收对象，写下后续步骤提示…"} /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !cueAddressee || !["ready", "running", "paused"].includes(run.run.status)}><Send />{cueTarget === "nuwa" ? "生成调整建议" : "加入后续步骤"}</button></form></footer> : null}
+      {run?.run ? <footer className="nuwa-n1-composer"><form onSubmit={sendCue}><div className="nuwa-n1-cue-target"><strong>作者输入 · 非角色对白</strong><label><span>接收对象</span><select aria-label="作者提示接收对象" ref={cueTargetRef} value={cueTarget} disabled={busy || !["ready", "running", "paused"].includes(run.run.status)} onChange={(event) => changeCueTarget(event.target.value as "" | NuwaN1CueAddressee["kind"])}><option value="">必须选择对象</option><option value="nuwa">调整排演（女娲）</option><option value="actors">指定角色的后续提示</option><option value="all-actors">全体角色的后续提示</option></select></label>{cueTarget === "actors" ? <div className="nuwa-n1-cue-actors">{run.run.participants.map((participant) => { const checked = cueActorIds.includes(participant.id); return <label key={participant.id}><input type="checkbox" checked={checked} disabled={busy} onChange={() => setCueActorIds((current) => checked ? current.filter((id) => id !== participant.id) : [...current, participant.id])} /><span>{participant.title}</span></label>; })}</div> : null}<details className="nuwa-n1-cue-boundary"><summary>用途与边界</summary><small>{cueTarget === "nuwa" ? "先生成建议，作者采纳后才影响后续步骤。" : cueAddressee ? `${cueStateLabel(cueAddressee, new Map(run.run.participants.map((participant) => [participant.id, participant.title])))}；这不是角色对白。` : "选择对象后才可提交；作者内容不会作为场景对白。"}</small></details></div><label className="nuwa-n1-cue-input"><span>{cueTarget === "nuwa" ? "给女娲的导演要求" : "给所选对象的下一步指令"}</span><textarea value={cue} onChange={(event) => setCue(event.target.value)} disabled={busy || !["ready", "running", "paused"].includes(run.run.status)} maxLength={800} rows={2} placeholder={cueTarget === "nuwa" ? "向女娲提出后续排演要求…" : "选择接收对象，写下后续步骤提示…"} /></label><button type="submit" className="primary-action" disabled={busy || !cue.trim() || !cueAddressee || !["ready", "running", "paused"].includes(run.run.status)}><Send />{cueTarget === "nuwa" ? "生成调整建议" : "加入后续步骤"}</button></form></footer> : null}
         </div>
 
         <div className={`nuwa-n1-auxiliary ${eventVisible ? "is-open is-drawer" : ""}`} role={eventVisible ? "dialog" : undefined} aria-label="事件线辅助面" onKeyDown={(event) => { if (event.key === "Escape") { setEventDrawer(false); updateAuxiliary({ auxiliaryOpen: false }); } }} style={{ "--nuwa-aux-size": `${panes.eventWidth}px` } as CSSProperties}>
-          <NuwaEventLineRail
-            projectId={projectId}
-            workVersionId={workVersionId || null}
-            storylines={bootstrap?.storylines ?? []}
-            currentStoryUnitId={run?.run?.scope.scenes[run.run.scope.currentSceneIndex]?.storyUnit.id ?? run?.run?.scene.storyUnitId ?? null}
-            browsedEventId={browsedEvent?.eventId ?? null}
-            onSelectEvent={setBrowsedEvent}
-            onCollapse={() => { setEventDrawer(false); updateAuxiliary({ auxiliaryOpen: false }); }}
-            onOpenTianyi={(reference, draft, sourceLabels) => props.onOpenTianyi?.(reference, draft, sourceLabels)}
-          />
           <StoryThreadMap run={run} selectedStepId={selectedStepId} selectedStepIds={selectedStepIds} onSelectStep={(step) => { setSelectedStepId(step.stepId); setSelectedActorId(step.actorId); }} onToggleCandidate={(stepId) => setSelectedStepIds((current) => current.includes(stepId) ? current.filter((id) => id !== stepId) : [...current, stepId])} />
         </div>
 
@@ -557,18 +549,34 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
 function NuwaRunReader(props: { run: NuwaN1ReadModel; selectionMode: boolean; onSelectionModeChange(value: boolean): void; selectedStepId: string | null; selectedStepIds: string[]; onSelectActor(actorId: string): void; onSelectStep(step: NuwaN1Step): void; onToggleCandidate(stepId: string): void }) {
   const run = props.run.run;
   const readerListRef = useRef<HTMLOListElement | null>(null);
+  const [atLatest, setAtLatest] = useState(true);
   const selectionMode = props.selectionMode;
+  useEffect(() => {
+    if (!run) return;
+    const reader = readerListRef.current?.closest<HTMLElement>(".nuwa-n1-reader");
+    try { if (reader) reader.scrollTop = Number(window.sessionStorage.getItem(`tianyan-nuwa-reader-scroll:${run.runId}`)) || 0; }
+    catch { /* the reader still scrolls without browser storage */ }
+  }, [run?.runId, run?.steps.length]);
+  useEffect(() => {
+    const focusStep = (event: Event) => {
+      const stepId = (event as CustomEvent<string>).detail;
+      const item = Array.from(readerListRef.current?.children ?? []).find((node) => (node as HTMLElement).dataset.stepId === stepId);
+      item?.scrollIntoView({ block: "center" });
+    };
+    window.addEventListener("tianyan-nuwa-focus-step", focusStep);
+    return () => window.removeEventListener("tianyan-nuwa-focus-step", focusStep);
+  }, []);
   if (!run) return null;
   const scrollToLatest = () => {
     const items = readerListRef.current?.children;
     items?.[items.length - 1]?.scrollIntoView({ block: "nearest" });
   };
   if (!run.steps.length) return <section className="nuwa-n1-empty-run"><Sparkles /><strong>排演已建立，等待第一步</strong><p>选择“单步”开始局部演练；这里不会把场景输入直接写入正式事件。</p></section>;
-  return <section className="nuwa-n1-reader" aria-label="排演步骤"><header><div><small>{run.steps.length} 条已保存消息</small></div><div className="nuwa-n1-reader-tools"><button type="button" onClick={scrollToLatest}><ChevronDown aria-hidden="true" />最新消息</button><button type="button" aria-pressed={selectionMode} onClick={() => props.onSelectionModeChange(!selectionMode)}>{selectionMode ? `完成选择${props.selectedStepIds.length ? ` · ${props.selectedStepIds.length} 已选` : ""}` : `选择结果${props.selectedStepIds.length ? ` · ${props.selectedStepIds.length} 已选` : ""}`}</button></div></header><ol ref={readerListRef} className={selectionMode ? "is-selecting" : ""}>{run.steps.map((step) => {
+  return <section className="nuwa-n1-reader" aria-label="排演步骤" onScroll={(event) => { const node = event.currentTarget; setAtLatest(node.scrollHeight - node.scrollTop - node.clientHeight < 48); try { window.sessionStorage.setItem(`tianyan-nuwa-reader-scroll:${run.runId}`, String(node.scrollTop)); } catch { /* scrolling remains usable */ } }}><header><div><small>{run.steps.length} 条已保存消息</small></div><div className="nuwa-n1-reader-tools">{!atLatest ? <button type="button" onClick={scrollToLatest}><ChevronDown aria-hidden="true" />最新消息</button> : null}<button type="button" aria-pressed={selectionMode} onClick={() => props.onSelectionModeChange(!selectionMode)}>{selectionMode ? `完成选择${props.selectedStepIds.length ? ` · ${props.selectedStepIds.length} 已选` : ""}` : `选择结果${props.selectedStepIds.length ? ` · ${props.selectedStepIds.length} 已选` : ""}`}</button></div></header><ol ref={readerListRef} className={selectionMode ? "is-selecting" : ""}>{run.steps.map((step) => {
     const actor = run.participants.find((participant) => participant.id === step.actorId);
     const chosen = props.selectedStepIds.includes(step.stepId);
     const heardNames = step.heardStatements.map((heard) => run.participants.find((participant) => participant.id === heard.recipientId)?.title ?? heard.recipientId).join("、");
-    return <li key={step.stepId} className={`${step.stepId === props.selectedStepId ? "is-selected" : ""} ${chosen ? "is-chosen" : ""}`}><article><span className="nuwa-n1-avatar" aria-hidden="true">{(actor?.title ?? "角").slice(0, 1)}</span><div className="nuwa-n1-step-content"><header><button type="button" aria-label={`查看角色 ${actor?.title ?? "角色"}`} onClick={() => props.onSelectActor(step.actorId)}>{actor?.title ?? "角色"}</button><small>第 {step.sequence} 步</small><details className="nuwa-n1-step-menu"><summary aria-label={`第 ${step.sequence} 步消息操作`}>···</summary><div><button type="button" aria-label={`查看第 ${step.sequence} 步来源与依据`} onClick={() => props.onSelectStep(step)}>查看来源与依据</button>{selectionMode ? <button type="button" aria-label={`${chosen ? "取消选择" : "选择"}第 ${step.sequence} 步结果`} onClick={() => props.onToggleCandidate(step.stepId)}>{chosen ? "取消选择" : "选择此结果"}</button> : null}</div></details></header>{step.speech ? <p className="nuwa-n1-step-speech">{step.speech}</p> : null}{step.observableResult ? <p className="nuwa-n1-step-happened">{step.observableResult}</p> : null}{selectionMode ? <label className="nuwa-n1-step-select"><input type="checkbox" checked={chosen} onChange={() => props.onToggleCandidate(step.stepId)} /><span>{chosen ? "已选结果" : "选择结果"}</span></label> : null}</div></article></li>;
+    return <li key={step.stepId} data-step-id={step.stepId} className={`${step.stepId === props.selectedStepId ? "is-selected" : ""} ${chosen ? "is-chosen" : ""}`}><article><span className="nuwa-n1-avatar" aria-hidden="true">{(actor?.title ?? "角").slice(0, 1)}</span><div className="nuwa-n1-step-content"><header><button type="button" aria-label={`查看角色 ${actor?.title ?? "角色"}`} onClick={() => props.onSelectActor(step.actorId)}>{actor?.title ?? "角色"}</button><small>第 {step.sequence} 步</small><details className="nuwa-n1-step-menu" onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); event.stopPropagation(); } }}><summary aria-label={`第 ${step.sequence} 步消息操作`}>···</summary><div><button type="button" aria-label={`查看第 ${step.sequence} 步来源与依据`} onClick={(event) => { const details = event.currentTarget.closest("details"); if (details) { details.open = false; details.querySelector("summary")?.focus(); } props.onSelectStep(step); }}>查看来源与依据</button>{selectionMode ? <button type="button" aria-label={`${chosen ? "取消选择" : "选择"}第 ${step.sequence} 步结果`} onClick={() => props.onToggleCandidate(step.stepId)}>{chosen ? "取消选择" : "选择此结果"}</button> : null}</div></details></header>{step.speech ? <p className="nuwa-n1-step-speech">{step.speech}</p> : null}{step.observableResult ? <p className="nuwa-n1-step-happened">{step.observableResult}</p> : null}{selectionMode ? <label className="nuwa-n1-step-select"><input type="checkbox" checked={chosen} onChange={() => props.onToggleCandidate(step.stepId)} /><span>{chosen ? "已选结果" : "选择结果"}</span></label> : null}</div></article></li>;
   })}</ol></section>;
 }
 

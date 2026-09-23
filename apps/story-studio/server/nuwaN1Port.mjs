@@ -1226,13 +1226,18 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         const knownKey = context.knownFacts.find((fact) => fact.visibility === "world-state" && fact.worldStateObjectId && fact.summary.includes("持有状态"));
         const recipient = current.actors.find((actor) => actor.character.id !== context.actor.id) ?? null;
         const rehearsalHandoff = Boolean(knownKey && recipient && current.authorGoal.includes("交接钥匙"));
+        // Varied synthetic reading density only; the production Provider path
+        // and the permission-filtered tool context are unchanged.
+        const baseSpeech = heard ? "我听到了这句话；我只按自己可知的信息继续观察。" : "我只依据当前可知信息继续观察。";
+        const fixtureSpeech = context.step === 2 ? `${baseSpeech}\n先把已经确认的事说清，再决定要不要往前走。` : context.step === 4 ? "等等。" : context.step >= 5 ? `${baseSpeech}\n\n你刚才提出的疑问仍然没有答案。我们可以继续观察，但现在不能把猜测说成已经发生的事。` : baseSpeech;
+        const fixtureResult = context.step === 4 ? "角色停下，没有把疑问写成事实。" : context.step >= 5 ? "角色先回望同伴，再核对眼前可见的线索；这只是本次排演的行动描述，未产生新的正式事实。" : "角色完成一次受限观察；结果仍留在本次排演里。";
         return {
           type: "actor-result",
           actor: context.actor,
           intent: `依据受限上下文核对：${evidence}`,
-          speech: heard ? `我听到了这句话；我只按自己可知的信息继续观察。` : `我只依据当前可知信息继续观察。`,
+          speech: fixtureSpeech,
           action: rehearsalHandoff ? { action: "handoff-item", targetId: knownKey.worldStateObjectId, worldState: { kind: "holder", objectId: knownKey.worldStateObjectId, state: "held", holderId: recipient.character.id } } : { action: "observe", targetId: null },
-          observableResult: rehearsalHandoff ? "角色依据自己合法获知的持有状态，提出将关键物件正式交给同场角色。" : "角色完成一次受限观察；结果仍留在本次排演里。",
+          observableResult: rehearsalHandoff ? "角色依据自己合法获知的持有状态，提出将关键物件正式交给同场角色。" : fixtureResult,
           ...(context.step === 1 && current.actors[1] ? { speech: current.authorGoal.includes("北闸已封") ? "北闸已封。" : "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
           usage: { inputTokens: null, outputTokens: null }
         };

@@ -611,3 +611,34 @@
   .tianyan-r0-shell[data-nuwa-reading="true"] .shell-topbar { z-index: 70; }
   .tianyan-r0-shell[data-nuwa-mobile-rail="true"] .shell-space-rail { inset: var(--topbar-height) auto 0 0; block-size: calc(100vh - var(--topbar-height)); }
 }
+
+/* The project directory owns Nuwa navigation; other spaces keep the existing rail. */
+.tianyan-r0-shell[data-nuwa-reading="true"],
+.tianyan-r0-shell[data-nuwa-reading="true"][data-rail-collapsed="false"] { --rail-current: 0rem; --directory-width: 17.5rem; }
+.tianyan-r0-shell[data-nuwa-reading="true"] .shell-space-rail { display: none; }
+.tianyan-r0-shell[data-nuwa-reading="true"] .shell-nuwa-project-name { min-inline-size: 0; max-inline-size: 15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); font-size: .8rem; font-weight: 600; }
+.nuwa-n1-workspace.has-run .nuwa-n1-director-card { position: relative; display: block; min-block-size: 2rem; }
+.nuwa-n1-director-disclosure { inline-size: 100%; }
+.nuwa-n1-director-disclosure > summary { display: flex; align-items: center; gap: .55rem; min-block-size: 1.7rem; cursor: pointer; list-style-position: inside; font-size: .73rem; }
+.nuwa-n1-director-disclosure > summary strong { flex: none; }
+.nuwa-n1-director-disclosure > summary span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nuwa-n1-director-disclosure > summary em { margin-inline-start: auto; color: var(--color-warning); font-style: normal; }
+.nuwa-n1-director-disclosure[open] { position: absolute; z-index: 25; inset: auto .35rem 2rem .35rem; inline-size: calc(100% - .7rem); max-block-size: min(55vh, 24rem); overflow: auto; padding: .4rem .7rem; border: 1px solid var(--color-border); border-radius: .35rem; background: var(--color-surface); box-shadow: 0 .6rem 1.6rem rgb(23 36 74 / 16%); }
+.nuwa-n1-director-full { display: grid; gap: .35rem; }
+.nuwa-n1-director-full p { margin: 0; line-height: 1.5; white-space: pre-wrap; }
+.nuwa-n1-director-full .nuwa-n1-director-state { display: flex; gap: .5rem; margin: .3rem 0 0; }
+.nuwa-n1-cue-target > .nuwa-n1-cue-boundary { margin-inline-start: auto; }
+.nuwa-n1-cue-boundary summary { cursor: pointer; font-size: .69rem; color: var(--color-text-muted); }
+.nuwa-n1-cue-boundary[open] { position: absolute; z-index: 28; inset: auto .7rem calc(100% - .2rem) auto; max-inline-size: min(22rem, calc(100vw - 1.5rem)); padding: .55rem; border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: var(--shadow-panel); }
+.nuwa-n1-cue-boundary small { display: block; padding-block-start: .3rem; white-space: normal; }
+.nuwa-n1-step-menu > div { max-inline-size: min(16rem, calc(100vw - 2.25rem)); }
+@media (max-width: 76rem) {
+  .tianyan-r0-shell[data-nuwa-reading="true"] .nuwa-unified-directory { inline-size: min(18rem, calc(100vw - var(--panel-controls-width))); inset-inline-start: 0; }
+}
+@media (max-width: 48rem) {
+  .tianyan-r0-shell[data-nuwa-reading="true"],
+  .tianyan-r0-shell[data-nuwa-reading="true"][data-rail-collapsed="false"] { --rail-current: 0rem; --directory-current: 0rem; }
+  .tianyan-r0-shell[data-nuwa-reading="true"] .nuwa-unified-directory { inline-size: min(20rem, 88vw); z-index: 65; }
+  .nuwa-n1-cue-target > .nuwa-n1-cue-boundary { margin-inline-start: 0; }
+  .nuwa-n1-workspace.has-run .nuwa-n1-director-card { padding-inline: .35rem; }
+}

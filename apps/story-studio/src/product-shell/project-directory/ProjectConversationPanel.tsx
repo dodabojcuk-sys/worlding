@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MessageSquarePlus, FolderPlus, Pencil, X } from "lucide-react";
 import { getNuwaN1Bootstrap, getTianyiSessionMetadata, openTianyiSession, renameTianyiSession, renameStoryProject, type TianyiSessionMetadata } from "../../lib/localTransport";
 import type { TianyanShellRuntimeState } from "../runtime/TianyanShellRuntime";
@@ -8,7 +8,7 @@ import { useI18n } from "../i18n/I18nProvider";
 type RunHistoryItem = { runId: string; conversationId?: string | null; label: string; status: string; createdAt: string };
 
 /** Navigation projection only; projects, session archives and RunPack retain ownership. */
-export function ProjectConversationPanel({ runtime, onDirectory, onClose }: { runtime: TianyanShellRuntimeState; onDirectory(): void; onClose(): void }) {
+export function ProjectConversationPanel({ runtime, onDirectory, onClose, currentProjectOnly = false }: { runtime: TianyanShellRuntimeState; onDirectory(): void; onClose(): void; currentProjectOnly?: boolean }) {
   const { t, locale } = useI18n();
   const [expanded, setExpanded] = useState<string[]>(() => runtime.project ? [runtime.project.id] : []);
   const [sessions, setSessions] = useState<Record<string, TianyiSessionMetadata[]>>({});
@@ -20,7 +20,22 @@ export function ProjectConversationPanel({ runtime, onDirectory, onClose }: { ru
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [renaming, setRenaming] = useState<{ projectId: string; title: string; session?: TianyiSessionMetadata } | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const activeRunId = new URLSearchParams(window.location.search).get("runId");
+  const scrollKey = `tianyan-nuwa-conversations-scroll:${runtime.project?.id ?? "none"}`;
+  useEffect(() => {
+    if (!currentProjectOnly || !runtime.project || !sessions[runtime.project.id]) return;
+    try { if (listRef.current) listRef.current.scrollTop = Number(window.sessionStorage.getItem(scrollKey)) || 0; }
+    catch { /* scrolling remains usable without storage */ }
+  }, [currentProjectOnly, runtime.project?.id, scrollKey, sessions]);
+  useEffect(() => {
+    if (!activeRunId) return;
+    // History arrives after the conversation list. Open the current association
+    // once it exists; authors may then collapse it without losing Run identity.
+    for (const details of listRef.current?.querySelectorAll<HTMLDetailsElement>(".conversation-runs:not(.project-run-history)") ?? []) {
+      if (details.querySelector('[aria-current="page"]')) details.open = true;
+    }
+  }, [activeRunId, history]);
   function runLabel(run: RunHistoryItem) {
     const statusKey = {
       ready: "conversation.runReady", running: "conversation.runRunning", paused: "conversation.runPaused",
@@ -78,17 +93,17 @@ export function ProjectConversationPanel({ runtime, onDirectory, onClose }: { ru
       }
     } catch (cause) { setError(String(cause)); setBusy(false); }
   }
-  return <aside className="project-directory-panel project-conversation-panel" aria-label={t("conversation.title")} data-testid="project-conversations">
-    <header><h2>{t("conversation.title")}</h2><button type="button" onClick={onClose} aria-label={t("conversation.close")}><X /></button></header>
+  return <aside className={`project-directory-panel project-conversation-panel${currentProjectOnly ? " is-embedded" : ""}`} aria-label={t("conversation.title")} data-testid="project-conversations">
+    {!currentProjectOnly ? <header><h2>{t("conversation.title")}</h2><button type="button" onClick={onClose} aria-label={t("conversation.close")}><X /></button></header> : null}
     <button className="conversation-new" type="button" disabled={busy} onClick={() => void createConversation(runtime.project?.id)}><MessageSquarePlus />{t("conversation.newChat")}</button>
-    <button className="conversation-secondary" type="button" onClick={() => { setCreating((v) => !v); setRenaming(null); setTitle(""); }}><FolderPlus />{t("conversation.newProject")}</button>
+    {!currentProjectOnly ? <button className="conversation-secondary" type="button" onClick={() => { setCreating((v) => !v); setRenaming(null); setTitle(""); }}><FolderPlus />{t("conversation.newProject")}</button> : null}
     {creating || renaming ? <form onSubmit={(event) => { event.preventDefault(); if (renaming) { void rename(); return; } if (!title.trim() || busy) return; setBusy(true); void runtime.createProject(title.trim()).then(() => window.location.reload()).catch((cause) => { setError(String(cause)); setBusy(false); }); }}>
       <input autoFocus aria-label={t(renaming ? "conversation.name" : "conversation.projectName")} placeholder={t(renaming ? "conversation.name" : "conversation.projectName")} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={renaming?.session ? 120 : 80} />
       <div><button type="submit" disabled={busy || !title.trim()}>{t(renaming ? "conversation.save" : "conversation.create")}</button><button type="button" onClick={() => { setCreating(false); setRenaming(null); }}>{t("conversation.cancel")}</button></div>
     </form> : null}
-    <div className="project-conversation-list">
+    <div className="project-conversation-list" ref={listRef} onScroll={(event) => { if (currentProjectOnly) try { window.sessionStorage.setItem(scrollKey, String(event.currentTarget.scrollTop)); } catch { /* navigation remains usable */ } }}>
       {!runtime.projects.length && <p>{t("conversation.first")}</p>}
-      {runtime.projects.map((project) => <section key={project.id} data-project-id={project.id}>
+      {(currentProjectOnly ? runtime.projects.filter((project) => project.id === runtime.project?.id) : runtime.projects).map((project) => <section key={project.id} data-project-id={project.id}>
         <div className="project-conversation-heading" data-current={runtime.project?.id === project.id}>
           <button className="conversation-icon" type="button" aria-label={`${t("conversation.expand")} ${project.title}`} aria-expanded={expanded.includes(project.id)} onClick={() => setExpanded((items) => items.includes(project.id) ? items.filter((id) => id !== project.id) : [...items, project.id])}>{expanded.includes(project.id) ? <ChevronDown /> : <ChevronRight />}</button>
           <button className="conversation-label" type="button" title={project.title} aria-current={runtime.project?.id === project.id ? "true" : undefined} disabled={busy} onClick={() => void select(project.id, readSelectedConversation(project.id))}>{project.title}</button>
@@ -103,12 +118,12 @@ export function ProjectConversationPanel({ runtime, onDirectory, onClose }: { ru
               {runs.length > 0 && <details className="conversation-runs"><summary>{t("conversation.runs")} · {runs.length}</summary>{runs.map((run) => <button type="button" key={run.runId} disabled={busy} title={`${runLabel(run)} · ${run.runId}`} aria-current={activeRunId === run.runId ? "page" : undefined} onClick={() => void select(project.id, session.id, run.runId)}><span>{runLabel(run)}</span><small>{run.runId.slice(-6)}</small></button>)}</details>}
             </div>;
           })}
-          <button className="conversation-secondary" type="button" disabled={busy} onClick={() => void createConversation(project.id)}>＋ {t("conversation.newChat")}</button>
-          {Boolean(history[project.id]?.length) && <details className="conversation-runs"><summary>{t("conversation.history")}</summary>{history[project.id]!.map((run) => <button type="button" key={run.runId} disabled={busy} title={`${runLabel(run)} · ${run.runId}`} aria-current={activeRunId === run.runId ? "page" : undefined} onClick={() => void select(project.id, run.conversationId ?? null, run.runId)}><span>{runLabel(run)}</span><small>{run.runId.slice(-6)}</small></button>)}</details>}
+          {!currentProjectOnly ? <button className="conversation-secondary" type="button" disabled={busy} onClick={() => void createConversation(project.id)}>＋ {t("conversation.newChat")}</button> : null}
+          {Boolean(history[project.id]?.length) && <details className="conversation-runs project-run-history"><summary>{t("conversation.history")}</summary>{history[project.id]!.map((run) => <button type="button" key={run.runId} disabled={busy} title={`${runLabel(run)} · ${run.runId}`} aria-current={activeRunId === run.runId ? "page" : undefined} onClick={() => void select(project.id, run.conversationId ?? null, run.runId)}><span>{runLabel(run)}</span><small>{run.runId.slice(-6)}</small></button>)}</details>}
         </div>}
       </section>)}
     </div>
     {error && <p role="alert">{error}</p>}
-    <button className="conversation-directory" type="button" onClick={onDirectory}>{t("conversation.directory")}</button>
+    {!currentProjectOnly ? <button className="conversation-directory" type="button" onClick={onDirectory}>{t("conversation.directory")}</button> : null}
   </aside>;
 }

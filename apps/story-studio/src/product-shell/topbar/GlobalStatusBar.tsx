@@ -10,6 +10,7 @@ import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
   showSpaceMenu?: boolean;
+  projectChoiceInDirectory?: boolean;
   onToggleSpaceMenu?(): void;
   theme: ShellTheme;
   projectName?: string;
@@ -113,8 +114,8 @@ export function GlobalStatusBar(props: {
 
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context shell-project-selector">
-      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" aria-label="打开或收起空间导航" onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
-      <button
+      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={props.directoryOpen ? "收起目录" : "打开目录"} onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
+      {props.projectChoiceInDirectory ? <span className="shell-nuwa-project-name" title={props.projectName ?? t("topbar.projectName")}>{props.projectName ?? t("topbar.projectName")}</span> : <button
         ref={projectToggleRef}
         type="button"
         className="shell-context-control"
@@ -127,8 +128,8 @@ export function GlobalStatusBar(props: {
       >
         <span><strong>{props.projectName ?? t("topbar.projectName")}</strong>{props.workVersionLabel && <i>{props.workVersionLabel}</i>}</span>
         <ChevronDown aria-hidden="true" />
-      </button>
-      {projectSelectorOpen && <section id="shell-project-selector-menu" className="shell-project-selector-menu" role="menu" aria-label={t("topbar.projects")}>
+      </button>}
+      {!props.projectChoiceInDirectory && projectSelectorOpen && <section id="shell-project-selector-menu" className="shell-project-selector-menu" role="menu" aria-label={t("topbar.projects")}>
         {props.projects.length === 0 && <p>{t("topbar.noProjectOptions")}</p>}
         {props.projects.map((project) => <button
           key={project.id}
@@ -189,7 +190,7 @@ export function GlobalStatusBar(props: {
         <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")} title={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
         <span className="shell-topbar-divider" aria-hidden="true" />
       </div>
-      <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button>
+      {!props.showSpaceMenu ? <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button> : null}
       <button type="button" className="shell-topbar-text-control shell-pending-entry" data-panel-toggle="pending-review" onClick={props.onOpenPendingReview}><Check aria-hidden="true" /><span>{t("pendingReview.entry")}</span></button>
       {props.tianyiActionAvailable ? <button ref={tianyiToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="tianyi-agent" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} title={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("panel.tianyiAgent")}</span></button> : null}
       <div className="shell-topbar-more">

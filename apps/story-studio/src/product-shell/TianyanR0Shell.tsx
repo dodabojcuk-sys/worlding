@@ -22,6 +22,7 @@ import { ProductShellNavigation } from "./navigation/ProductShellNavigation";
 import { requestWorkspaceNavigation } from "./navigation/workspaceNavigationGuard";
 import { GlobalStatusBar } from "./topbar/GlobalStatusBar";
 import { ProjectDirectoryPanel, type ProjectDirectoryMode } from "./project-directory/ProjectDirectoryPanel";
+import { NuwaUnifiedDirectory } from "./project-directory/NuwaUnifiedDirectory";
 import { PendingReviewWorkspace } from "./project-directory/PendingReviewPanel";
 import type { StoryIntakeReviewTarget } from "./project-directory/pendingReviewAggregation";
 import { CharacterDirectoryPanel } from "./project-directory/character/CharacterDirectoryPanel";
@@ -82,11 +83,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const initialDirectoryOpen = (() => {
     const params = new URLSearchParams(window.location.search);
     const requestedByStableUrl = ["directoryView", "directoryObject", "directorySource", "directoryReview"].some((key) => params.has(key));
-    return requestedByStableUrl || resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches);
+    return requestedByStableUrl || (resolveActiveDestination() === "nuwa"
+      ? !window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches
+      : resolveInitialDirectoryOpen(window.matchMedia(SHELL_DIRECTORY_OVERLAY_QUERY).matches));
   })();
   const directory = useDirectoryWorkspaceState(props.runtime.project?.id ?? null, initialDirectoryOpen);
   const directoryState = directory.state;
-  const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(() => resolveActiveDestination() === "nuwa");
+  const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
   const [shellWidth, setShellWidth] = useState(0);
@@ -115,7 +118,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       ? "account"
       : pendingReviewOpen
         ? "central-review"
-        : workspaceDirectorySuppressed || nuwaWidth.suppressDirectory
+        : workspaceDirectorySuppressed || (activeId !== "nuwa" && nuwaWidth.suppressDirectory)
           ? "workspace-overlay"
           : rightWorkSurface.mode === "TIANYI" && !tianyiDirectoryOverride && (focusLayout !== "wide" || (shellWidth > 0 && shellWidth < 1600))
             ? "tianyi"
@@ -127,6 +130,11 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const directoryPresented = resolveDirectoryPresentation({ preferredOpen: directoryPreferredOpen, temporarySurface: temporaryDirectorySurface });
   const updateDirectoryState = directory.updateState;
   const setDirectoryPreferredOpen = directory.setPreferredOpen;
+  useEffect(() => {
+    const openStructure = () => setDirectoryPreferredOpen(true);
+    window.addEventListener("tianyan-nuwa-open-structure", openStructure);
+    return () => window.removeEventListener("tianyan-nuwa-open-structure", openStructure);
+  }, [setDirectoryPreferredOpen]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -156,7 +164,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const handlePopState = () => {
       const next = resolveActiveDestination();
       setActiveId(next);
-      setWorkspaceDirectorySuppressed(next === "nuwa");
+      setWorkspaceDirectorySuppressed(false);
       setNuwaMobileRailOpen(false);
       setSettingsOpen(isSettingsRoute());
       setAccountOpen(false);
@@ -178,7 +186,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, []);
 
   useEffect(() => {
-    setWorkspaceDirectorySuppressed(activeId === "nuwa");
+    setWorkspaceDirectorySuppressed(false);
     setNuwaMobileRailOpen(false);
   }, [props.runtime.project?.id]);
 
@@ -302,7 +310,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setAccountOpen(false);
     dock.closePanel();
     workspaceSurfaceManager.closeSurface();
-    setWorkspaceDirectorySuppressed(destination.id === "nuwa");
+    setWorkspaceDirectorySuppressed(false);
     setNuwaMobileRailOpen(false);
   };
   const searchContext = props.runtime.project
@@ -444,7 +452,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   };
 
   const toggleTheme = () => setTheme((current) => current === "cloud-ink" ? "night-paper" : "cloud-ink");
-  const toggleRail = () => activeId === "nuwa" ? setNuwaMobileRailOpen((open) => !open) : setRailPreference(nextShellRailPreference(railCollapsed));
+  const toggleRail = () => activeId === "nuwa" ? toggleDirectory() : setRailPreference(nextShellRailPreference(railCollapsed));
   const openSettings = () => {
     if (!requestWorkspaceNavigation()) return;
     if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
@@ -550,6 +558,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     />
     <GlobalStatusBar
       showSpaceMenu={activeId === "nuwa"}
+      projectChoiceInDirectory={activeId === "nuwa"}
       onToggleSpaceMenu={toggleRail}
       theme={theme}
       projectId={props.runtime.project?.id ?? null}
@@ -569,7 +578,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onToggleTianyi={toggleTianyi}
       onOpenPendingReview={() => openPendingReview(null)}
     />
-    {!settingsOpen && !accountOpen && directoryPresented && directoryStateReady && (characterDirectoryOpen ? <CharacterDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} selectedId={resolvedDirectorySelection} directoryState={directoryState} onDirectoryState={updateDirectoryState} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryMode") === "pending" ? "pending" : "classified"} directoryState={directoryState} onDirectoryState={updateDirectoryState} onClose={toggleDirectory} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryMode", "pending"); else params.delete("directoryMode"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onOpenPendingReview={openPendingReview} onOpenRelationReview={openPendingRelationReview} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
+    {!settingsOpen && !accountOpen && directoryPresented && directoryStateReady && (activeId === "nuwa" ? <NuwaUnifiedDirectory runtime={props.runtime} onClose={toggleDirectory} onNavigate={navigate} onSettings={openSettings} onAccount={openAccount} onOpenTianyi={openTianyi} /> : characterDirectoryOpen ? <CharacterDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} selectedId={resolvedDirectorySelection} directoryState={directoryState} onDirectoryState={updateDirectoryState} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryMode") === "pending" ? "pending" : "classified"} directoryState={directoryState} onDirectoryState={updateDirectoryState} onClose={toggleDirectory} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryMode", "pending"); else params.delete("directoryMode"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onOpenPendingReview={openPendingReview} onOpenRelationReview={openPendingRelationReview} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
     {pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenNuwa={openNuwaFromFormalNode} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} characterObjectId={centralCharacterId} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
     {!settingsOpen && !accountOpen && <RightDock projectId={props.runtime.project?.id ?? null} compact={focusLayout !== "wide"} modal={focusLayout === "narrow"} layout={dock.state} onToggle={togglePageTool} onResize={dock.resizePanel} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={() => openCharacterWorkspace(directorySelection)} onOpenKnowledge={openCharacterKnowledge} onAddToNuwa={addCharacterToNuwa} />}

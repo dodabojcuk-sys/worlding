@@ -30,8 +30,11 @@ export function NuwaEventLineRail(props: {
   workVersionId: string | null;
   storylines: NuwaN1Storyline[];
   currentStoryUnitId: string | null;
+  selectedStorylineKey?: string | null;
+  onlySelectedStoryline?: boolean;
   browsedEventId: string | null;
   onSelectEvent(event: BrowsedEvent | null): void;
+  onSelectUnit?(unitId: string, title: string): void;
   onCollapse?(): void;
   onOpenTianyi(reference: StoryStudioEventReference, initialDraft: string, sourceLabels?: string[]): void;
 }) {
@@ -104,8 +107,8 @@ export function NuwaEventLineRail(props: {
     const related = linked.filter((id) => !placed.some((event) => event.id === id)).map((id) => eventById.get(id)!).sort((left, right) => left.title.localeCompare(right.title, "zh-Hans"));
     return { placed, related };
   };
-  const currentStoryline = useMemo(() => props.storylines.find((line) => line.units.some((unit) => unit.id === props.currentStoryUnitId)) ?? props.storylines[0] ?? null, [props.storylines, props.currentStoryUnitId]);
-  const branchLines = useMemo(() => props.storylines.filter((line) => line !== currentStoryline), [props.storylines, currentStoryline]);
+  const currentStoryline = useMemo(() => props.storylines.find((line) => line.key === props.selectedStorylineKey) ?? props.storylines.find((line) => line.units.some((unit) => unit.id === props.currentStoryUnitId)) ?? props.storylines[0] ?? null, [props.storylines, props.currentStoryUnitId, props.selectedStorylineKey]);
+  const branchLines = useMemo(() => props.onlySelectedStoryline ? [] : props.storylines.filter((line) => line !== currentStoryline), [props.storylines, currentStoryline, props.onlySelectedStoryline]);
   const selectEvent = (event: WorldObjectSummary, unitId: string) => {
     props.onSelectEvent({ eventId: event.id, title: event.title, unitTitle: titleByUnitId.get(unitId) ?? "", inCurrentScope: unitId === props.currentStoryUnitId });
   };
@@ -134,7 +137,7 @@ export function NuwaEventLineRail(props: {
             const isCurrent = unit.id === props.currentStoryUnitId;
             const { placed, related } = railNodes(unit.id);
             return <li key={unit.id} className={isCurrent ? "is-current" : ""}>
-              <div className="nuwa-n1-rail-unit"><strong>{unit.title}</strong>{isCurrent ? <span className="nuwa-n1-rail-now">当前排演位置</span> : null}</div>
+              <div className="nuwa-n1-rail-unit"><button type="button" title={unit.title} onClick={() => props.onSelectUnit?.(unit.id, unit.title)}>{unit.title}</button>{isCurrent ? <span className="nuwa-n1-rail-now">当前排演位置</span> : null}</div>
               {placed.length ? <ul>{placed.map((event) => <RailEventNode key={event.id} event={event} browsed={props.browsedEventId === event.id} inCurrentScope={isCurrent} unitTitle={unit.title} order={orderIndexByEventId.get(event.id) ?? null} onSelect={() => selectEvent(event, unit.id)} onOpenTianyi={() => props.onOpenTianyi(referenceFor(event), `请结合事件「${event.title}」检查当前排演的走向。`, [event.title])} />)}</ul> : null}
               {related.length ? <details className="nuwa-n1-rail-related">
                 <summary><Link2 aria-hidden="true" />关联事件<small>{related.length} 项 · 无正式叙事编排</small></summary>
