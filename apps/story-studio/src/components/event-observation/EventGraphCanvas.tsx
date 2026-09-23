@@ -22,7 +22,7 @@ import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eve
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import type { StorylineProjection } from "../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
-import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
+import { useWorkspaceSurface, workspaceSurfaceManager } from "../../product-shell/WorkspaceDockCoordinator";
 import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
 import { CollectionPointNode, type CollectionPointNodeData } from "../graph-nodes/CollectionPointNode";
 import { FormalEventNode } from "../graph-nodes/FormalEventNode";
@@ -63,6 +63,7 @@ function NarrativeTrackNode(props: NodeProps<Node<NodeData>>) { return <span cla
 
 export type EventGraphCanvasProps = {
   projectId: string;
+  workVersionId?: string | null;
   events: readonly EventLineEventSummary[];
   relations: readonly RelationReadProjectionR0[];
   relationTypes: readonly RelationTypeDefinitionR0[];
@@ -136,8 +137,8 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const [graphLayer, setGraphLayer] = useState<TianyiGraphLayer>("EVENT_GRAPH");
   const [executionProjection, setExecutionProjection] = useState<TianyiAgentExecutionProjection | null>(null);
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
-  const rightWorkSurface = useWorkspaceDockSlot();
-  const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
+  const rightWorkSurface = useWorkspaceSurface();
+  const inspectorOpen = ["object-inspector", "relation-review", "creation-surface"].includes(rightWorkSurface.activeSurface?.kind ?? "");
   const [railOpen, setRailOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -183,10 +184,16 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(displayedGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(displayedGraph.edges);
   const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
-  const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
-    workspaceDockCoordinator.openPageInspector("event-line", mode);
-  }, []);
-  const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
+  const openInspector = useCallback((mode: "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW") => {
+    const eventId = selection?.kind === "node" ? selection.id : props.selectedEventId;
+    workspaceSurfaceManager.openSurface({
+      kind: mode === "RELATION_REVIEW" ? "relation-review" : mode === "EVENT_CREATE" ? "creation-surface" : "object-inspector",
+      context: { projectId: props.projectId, eventId: mode === "EVENT_CREATE" ? null : eventId, workVersionId: props.workVersionId ?? null, viewMode: mode === "EVENT_CREATE" ? "event-create" : mode === "RELATION_REVIEW" ? "relation-review" : "event-detail" }
+    });
+  }, [props.projectId, props.selectedEventId, props.workVersionId, selection]);
+  const closeInspector = useCallback(() => {
+    if (["object-inspector", "relation-review", "creation-surface"].includes(rightWorkSurface.activeSurface?.kind ?? "")) workspaceSurfaceManager.closeSurface();
+  }, [rightWorkSurface.activeSurface]);
 
   // The graph owns the visible relation inspector. Route recovery can also
   // restore the parent event-detail dock in the same commit, so keep the Shell
@@ -195,11 +202,11 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   // remain in the existing Event/Relation projections.
   useEffect(() => {
     if ((selection?.kind === "relation" || selection?.kind === "smart-relation")
-      && rightWorkSurface.ownerId === "event-line"
+      && rightWorkSurface.activeSurface?.context.projectId === props.projectId
       && rightWorkSurface.mode !== "RELATION_REVIEW") {
       openInspector("RELATION_REVIEW");
     }
-  }, [openInspector, rightWorkSurface.mode, rightWorkSurface.ownerId, selection?.kind]);
+  }, [openInspector, props.projectId, rightWorkSurface.activeSurface?.context.projectId, rightWorkSurface.mode, selection?.kind]);
 
   useEffect(() => {
     if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;

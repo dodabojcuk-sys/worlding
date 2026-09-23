@@ -299,7 +299,9 @@ test("unknown Provider outcome never auto-redispatches and explicit retry retain
   const fixture = await createFixture();
   try {
     let providerCalls = 0;
-    const first = operations(fixture, gatewayFrom(async () => {
+    const dispatchKeys: string[] = [];
+    const first = operations(fixture, gatewayFrom(async (request) => {
+      dispatchKeys.push(request.idempotencyKey!);
       providerCalls += 1;
       throw new Error("delivery interrupted");
     }));
@@ -315,7 +317,8 @@ test("unknown Provider outcome never auto-redispatches and explicit retry retain
     assert.equal(afterFailure?.value.filter((event) => event.type === "author-message").length, 1);
     assert.equal((await listReceiptReservations(fixture.rootPath)).length, 1);
 
-    const restarted = operations(fixture, gatewayFrom(async () => {
+    const restarted = operations(fixture, gatewayFrom(async (request) => {
+      dispatchKeys.push(request.idempotencyKey!);
       providerCalls += 1;
       return ANSWER;
     }));
@@ -331,6 +334,12 @@ test("unknown Provider outcome never auto-redispatches and explicit retry retain
     });
     assert.equal(completed.status, "current");
     assert.equal(providerCalls, 2);
+    assert.equal(new Set(dispatchKeys).size, 2, "explicit retry must receive a new budget reservation key");
+    assert.ok(dispatchKeys[0].endsWith(".1"));
+    assert.ok(dispatchKeys[1].endsWith(".2"));
+    const recovered = await restarted.readTianyiGroundedAnswer({ projectId: fixture.projectId, sessionId: fixture.sessionId, questionAttemptKey: completed.questionAttemptKey });
+    assert.equal(recovered?.answer?.summary, completed.answer?.summary);
+    assert.equal(providerCalls, 2, "refresh of the retried answer must not redispatch");
     const finalSession = await readSession(fixture.projectContext, fixture.sessionId);
     assert.equal(finalSession?.value.filter((event) => event.type === "author-message").length, 1);
     assert.equal(finalSession?.value.filter((event) => event.type === "tianyi-response").length, 1);
@@ -1088,13 +1097,13 @@ function operations(fixture: Awaited<ReturnType<typeof createFixture>>, gateway:
   });
 }
 
-function gatewayFrom(run: () => Promise<string>): TianyiGroundedModelGateway {
+function gatewayFrom(run: (input: Parameters<TianyiGroundedModelGateway["openChatStream"]>[0]) => Promise<string>): TianyiGroundedModelGateway {
   return {
     metadata() {
       return { profiles: [{ id: "loopback", providerId: "loopback", modelId: "loopback/model" }] };
     },
-    async openChatStream() {
-      const value = await run();
+    async openChatStream(input) {
+      const value = await run(input);
       return {
         events: (async function* () {
           yield { type: "chunk" as const, text: value };

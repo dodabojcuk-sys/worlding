@@ -144,8 +144,9 @@ export function buildStoryIntakeEnvelope(input: {
     const confidence = typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1 ? candidate.confidence : (() => { throw new Error("Story Intake confidence must be between 0 and 1."); })();
     const uncertainties = parseTextList(candidate.uncertainties, "Candidate uncertainties", 1, 8, 320);
     const identityDecision = requireIdentityDecision(candidate.identityDecision);
-    const existingEntityId = candidate.existingEntityId === null ? null : requireId(candidate.existingEntityId, "Existing entity identifier", 180);
+    const existingEntityId = candidate.existingEntityId === null ? null : requireText(candidate.existingEntityId, "Existing entity identifier", 180);
     const existingEntityMatch = existingEntityId === null ? null : (input.existingEntities ?? []).find((entity) => entity.objectId === existingEntityId) ?? (() => { throw new Error("Story Intake existing entity match is outside the authorized project index."); })();
+    if (existingEntityMatch && existingEntityMatch.objectType !== type) throw new Error("Existing entity type does not match the candidate type.");
     if (identityDecision === "link_existing" && !existingEntityMatch) throw new Error("link_existing requires an authorized existing entity match.");
     if (identityDecision === "propose_new" && existingEntityMatch) throw new Error("propose_new cannot silently link an existing entity.");
     if (!NAME_TYPES.has(type) && (existingEntityMatch || identityDecision !== "propose_new")) throw new Error("Only entity candidates may make identity-link decisions.");
@@ -234,7 +235,11 @@ export function updateStoryIntakeCandidateLifecycle(envelope: StoryIntakeEnvelop
  * intact; only the version precondition advances to the verified current root. */
 export function rebaseStoryIntakeEnvelopeAfterUndo(envelope: StoryIntakeEnvelope, baseVersion: StoryIntakeBaseVersion): StoryIntakeEnvelope {
   if (envelope.candidates.some((candidate) => candidate.formalApplication !== null || candidate.lifecycleStatus === "confirmed")) throw new Error("Story Intake 批次仍有未撤销的正式应用，不能更新 BaseVersion。");
-  if (baseVersion.workVersionId !== envelope.baseVersion.workVersionId || baseVersion.revision < envelope.baseVersion.revision) throw new Error("Story Intake 撤销后的 BaseVersion 不属于同一条前进的主版本。");
+  const firstRoot = envelope.baseVersion.workVersionId === "work-version.unversioned"
+    && envelope.baseVersion.revision === 0
+    && baseVersion.workVersionId.startsWith("work-version.root.")
+    && baseVersion.revision >= 1;
+  if (!firstRoot && (baseVersion.workVersionId !== envelope.baseVersion.workVersionId || baseVersion.revision < envelope.baseVersion.revision)) throw new Error("Story Intake 撤销后的 BaseVersion 不属于同一条前进的主版本。");
   const nextBase = structuredClone(baseVersion);
   return { ...structuredClone(envelope), baseVersion: nextBase, candidates: envelope.candidates.map((candidate) => ({ ...candidate, baseVersion: structuredClone(nextBase) })) };
 }
@@ -291,7 +296,7 @@ function parseSourceSpan(value: unknown, sourceText: string): StoryIntakeSourceS
   const excerpt = requireText(input.excerpt, "Story Intake source excerpt", 1_200, false);
   const start = sourceText.indexOf(excerpt);
   const end = start + excerpt.length;
-  if (start < 0 || sourceText.slice(start, end) !== excerpt) throw new Error("Story Intake source evidence does not exactly match the retained author source.");
+  if (start < 0 || sourceText.slice(start, end) !== excerpt) throw new Error(`Story Intake source evidence does not exactly match the retained author source: ${JSON.stringify(excerpt)}. Copy an exact substring, preserving punctuation; do not replace semicolons with periods or append punctuation.`);
   return { start, end, excerpt };
 }
 

@@ -25,6 +25,7 @@ export function ShellWorkspaceOutlet(props: {
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext, mapEdit?: TianyiMapEditContext): void;
+  onOpenNuwa(input: { storyUnitId: string; eventId: string; narrativePathId: string; workVersionId: string | null }): void;
   onOpenPendingReview(): void;
   directoryObjectId: string | null;
   characterObjectId: string | null;
@@ -52,11 +53,11 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "tianyi") {
-    return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} />;
+    return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} onOpenNuwa={props.onOpenNuwa} />;
   }
 
   if (!props.shellLab && props.destination.id === "nuwa") {
-    return <NuwaN1Workspace runtime={props.runtime} />;
+    return <NuwaN1Workspace runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} />;
   }
 
   if (!props.shellLab && props.destination.id === "multiverse") {

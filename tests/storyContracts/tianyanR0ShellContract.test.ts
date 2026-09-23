@@ -49,7 +49,7 @@ test("R0.2 workbench keeps global panels separate from the composable page-tool 
   const initial = createInitialDockLayout();
   assert.deepEqual(initial.openPanelIds, []);
   assert.equal(initial.activeToolId, null);
-  assert.deepEqual(RIGHT_WORK_SURFACE_MODES, ["NONE", "EVENT_DETAILS", "EVENT_CREATE", "RELATION_REVIEW", "TIANYI"]);
+  assert.deepEqual(RIGHT_WORK_SURFACE_MODES, ["NONE", "EVENT_DETAILS", "EVENT_CREATE", "RELATION_REVIEW", "TIANYI", "NUWA_INSPECTOR"]);
 
   const expertFirst = toggleDockPanel(initial, "expert-analysis");
   const logSecond = toggleDockPanel(expertFirst, "engineering-log");
@@ -172,10 +172,10 @@ test("settings sits above personal center and changes the Shell workspace withou
   assert.match(navigation, /onAccount\(\): void/);
   assert.match(navigation, /onSettings\(\): void/);
   assert.match(shell, /const openAccount = \(\) => \{/);
-  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.match(shell, /setAccountOpen\(true\);[\s\S]*setSettingsOpen\(false\);[\s\S]*workspaceSurfaceManager\.closeSurface\(\)/);
   assert.doesNotMatch(shell, /const openAccount = \(\) => \{[\s\S]{0,240}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /const openSettings = \(\) => \{/);
-  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setAccountOpen\(false\);[\s\S]*workspaceDockCoordinator\.close\(\)/);
+  assert.match(shell, /setSettingsOpen\(true\);[\s\S]*setAccountOpen\(false\);[\s\S]*workspaceSurfaceManager\.closeSurface\(\)/);
   assert.doesNotMatch(shell, /const openSettings = \(\) => \{[\s\S]{0,280}setDirectoryPreferredOpen\(false\)/);
   assert.match(shell, /data-settings-open=\{settingsOpen\}/);
   assert.match(shell, /ShellWorkspaceOutlet[\s\S]*settingsOpen=\{settingsOpen\}/);

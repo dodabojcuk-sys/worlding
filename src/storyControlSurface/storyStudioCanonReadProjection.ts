@@ -42,6 +42,26 @@ type StoryStudioEventCanonReadCertification = {
   admissionResult: StoryStudioEventCanonAdmissionResult;
 };
 
+type StoryStudioWorldStateCanonAdmissionResult =
+  | { status: "admitted"; code: "verified-owner-admission" }
+  | { status: "rejected"; code: "derived-slice-missing" | "event-evidence-missing" | "event-evidence-rejected" | "revision-mismatch" }
+  | { status: "error"; error: StoryStudioCanonReadFailure };
+
+type StoryStudioWorldStateCanonReadCertification = {
+  projectId: string;
+  workVersionId: string;
+  ownerKind: "world-state";
+  objectId: string;
+  revision: string | null;
+  authorityClass: StoryStudioEventCanonAuthorityClass;
+  eventEvidence: {
+    eventId: string;
+    revision: string;
+    certification: StoryStudioEventCanonReadCertification;
+  } | null;
+  admissionResult: StoryStudioWorldStateCanonAdmissionResult;
+};
+
 type WorkspaceOperations = ReturnType<typeof createStoryStudioWorkspaceOperations>;
 type AuthorControl = ReturnType<typeof createStoryStudioAuthorControl>;
 
@@ -53,62 +73,145 @@ export function createStoryStudioCanonReadProjection(input: {
   workspace: WorkspaceOperations;
   authorControl: AuthorControl;
 }) {
-  return {
-    certifyEventRead(readInput: {
-      projectId: string;
-      workVersionId: string;
-      eventId: string;
-      expectedRevision?: string;
-    }): StoryStudioEventCanonReadCertification {
-      const base = {
+  function certifyEventRead(readInput: {
+    projectId: string;
+    workVersionId: string;
+    eventId: string;
+    expectedRevision?: string;
+  }): StoryStudioEventCanonReadCertification {
+    const base = {
+      projectId: readInput.projectId,
+      workVersionId: readInput.workVersionId,
+      ownerKind: "event" as const,
+      entityId: readInput.eventId
+    };
+    try {
+      const projectPath = input.workspace.resolveProjectWorkspacePath({ projectId: readInput.projectId });
+      const workVersions = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+      const workVersion = workVersions.getVersion(readInput.workVersionId);
+      workVersions.verifyVersionIntegrity(readInput.workVersionId);
+
+      const before = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
+      if (!input.authorControl.verifyCanonEventRead({
+        projectId: readInput.projectId,
+        eventId: readInput.eventId,
+        workVersionId: readInput.workVersionId
+      })) {
+        const rejection = input.authorControl.verifyCanonEventRead({
+          projectId: readInput.projectId,
+          eventId: readInput.eventId
+        })
+          ? "work-version-mismatch"
+          : "owner-rejected";
+        return rejectedEventCertification(base, before.revisionToken, rejection);
+      }
+
+      const after = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
+      if (
+        before.revisionToken !== after.revisionToken
+        || (readInput.expectedRevision !== undefined && after.revisionToken !== readInput.expectedRevision)
+      ) {
+        return rejectedEventCertification(base, after.revisionToken, "revision-mismatch");
+      }
+      return {
+        ...base,
+        revision: after.revisionToken,
+        authorityClass: workVersion.identity.kind === "derived" ? "derived-canon" : "canon",
+        admissionResult: { status: "admitted", code: "verified-owner-admission" }
+      };
+    } catch (cause) {
+      return {
+        ...base,
+        revision: null,
+        authorityClass: "unverified",
+        admissionResult: { status: "error", error: classifyCanonReadFailure(cause) }
+      };
+    }
+  }
+
+  function certifyWorldStateRead(readInput: {
+    projectId: string;
+    workVersionId: string;
+    objectId: string;
+    observedAt: string;
+    expectedRevision?: string;
+  }): StoryStudioWorldStateCanonReadCertification {
+    const base = {
+      projectId: readInput.projectId,
+      workVersionId: readInput.workVersionId,
+      ownerKind: "world-state" as const,
+      objectId: readInput.objectId
+    };
+    let revision: string | null = null;
+    try {
+      const projectPath = input.workspace.resolveProjectWorkspacePath({ projectId: readInput.projectId });
+      const workVersions = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
+      const workVersion = workVersions.getVersion(readInput.workVersionId);
+      workVersions.verifyVersionIntegrity(readInput.workVersionId);
+
+      const before = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.objectId });
+      revision = before.revisionToken;
+      const worldState = input.workspace.readWorldStateN4({
+        projectId: readInput.projectId,
+        objectId: readInput.objectId,
+        workVersionId: readInput.workVersionId,
+        observedAt: readInput.observedAt
+      });
+      const evidence = worldState.change?.evidence.event ?? null;
+      if (!evidence) {
+        return rejectedWorldStateCertification(base, revision, null, "event-evidence-missing");
+      }
+      const eventCertification = certifyEventRead({
         projectId: readInput.projectId,
         workVersionId: readInput.workVersionId,
-        ownerKind: "event" as const,
-        entityId: readInput.eventId
-      };
-      try {
-        const projectPath = input.workspace.resolveProjectWorkspacePath({ projectId: readInput.projectId });
-        const workVersions = createStoryStudioWorkVersionAuthority({ projectRoot: projectPath });
-        const workVersion = workVersions.getVersion(readInput.workVersionId);
-        workVersions.verifyVersionIntegrity(readInput.workVersionId);
-
-        const before = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
-        if (!input.authorControl.verifyCanonEventRead({
-          projectId: readInput.projectId,
-          eventId: readInput.eventId,
-          workVersionId: readInput.workVersionId
-        })) {
-          const rejection = input.authorControl.verifyCanonEventRead({
-            projectId: readInput.projectId,
-            eventId: readInput.eventId
-          })
-            ? "work-version-mismatch"
-            : "owner-rejected";
-          return rejectedEventCertification(base, before.revisionToken, rejection);
-        }
-
-        const after = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.eventId });
-        if (
-          before.revisionToken !== after.revisionToken
-          || (readInput.expectedRevision !== undefined && after.revisionToken !== readInput.expectedRevision)
-        ) {
-          return rejectedEventCertification(base, after.revisionToken, "revision-mismatch");
-        }
+        eventId: evidence.id,
+        expectedRevision: evidence.revision
+      });
+      const eventEvidence = { eventId: evidence.id, revision: evidence.revision, certification: eventCertification };
+      if (eventCertification.admissionResult.status === "error") {
         return {
           ...base,
-          revision: after.revisionToken,
-          authorityClass: workVersion.identity.kind === "derived" ? "derived-canon" : "canon",
-          admissionResult: { status: "admitted", code: "verified-owner-admission" }
-        };
-      } catch (cause) {
-        return {
-          ...base,
-          revision: null,
+          revision,
           authorityClass: "unverified",
-          admissionResult: { status: "error", error: classifyCanonReadFailure(cause) }
+          eventEvidence,
+          admissionResult: eventCertification.admissionResult
         };
       }
-    },
+      if (eventCertification.admissionResult.status !== "admitted") {
+        return rejectedWorldStateCertification(base, revision, eventEvidence, "event-evidence-rejected");
+      }
+
+      const after = input.workspace.readWorldObject({ projectId: readInput.projectId, objectId: readInput.objectId });
+      if (
+        before.revisionToken !== after.revisionToken
+        || (readInput.expectedRevision !== undefined && after.revisionToken !== readInput.expectedRevision)
+      ) {
+        return rejectedWorldStateCertification(base, after.revisionToken, eventEvidence, "revision-mismatch");
+      }
+      return {
+        ...base,
+        revision: after.revisionToken,
+        authorityClass: workVersion.identity.kind === "derived" ? "derived-canon" : "canon",
+        eventEvidence,
+        admissionResult: { status: "admitted", code: "verified-owner-admission" }
+      };
+    } catch (cause) {
+      if (cause instanceof Error && cause.message === "World state slice does not exist for the requested derived WorkVersion.") {
+        return rejectedWorldStateCertification(base, revision, null, "derived-slice-missing");
+      }
+      return {
+        ...base,
+        revision,
+        authorityClass: "unverified",
+        eventEvidence: null,
+        admissionResult: { status: "error", error: classifyCanonReadFailure(cause) }
+      };
+    }
+  }
+
+  return {
+    certifyEventRead,
+    certifyWorldStateRead,
 
     listVerifiedCanonEvents(readInput: { projectId: string; workVersionId?: string | null }): StoryStudioVerifiedCanonListRead {
       try {
@@ -156,6 +259,21 @@ function rejectedEventCertification(
     ...base,
     revision,
     authorityClass: "unverified",
+    admissionResult: { status: "rejected", code }
+  };
+}
+
+function rejectedWorldStateCertification(
+  base: Pick<StoryStudioWorldStateCanonReadCertification, "projectId" | "workVersionId" | "ownerKind" | "objectId">,
+  revision: string | null,
+  eventEvidence: StoryStudioWorldStateCanonReadCertification["eventEvidence"],
+  code: Extract<StoryStudioWorldStateCanonAdmissionResult, { status: "rejected" }>["code"]
+): StoryStudioWorldStateCanonReadCertification {
+  return {
+    ...base,
+    revision,
+    authorityClass: "unverified",
+    eventEvidence,
     admissionResult: { status: "rejected", code }
   };
 }

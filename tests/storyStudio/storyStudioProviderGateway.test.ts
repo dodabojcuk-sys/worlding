@@ -116,6 +116,8 @@ test("Gateway wire-normalizes the native Pi tool continuation without retaining 
 
   const stream = await gateway.openChatStream({
     ...requestInput(),
+    tools: [],
+    toolChoice: "none",
     messages: [
       { role: "assistant", content: null, toolCalls: [{ id: "call_role_context", name: "read_role_context", argumentsJson: "{}" }] },
       { role: "tool", toolCallId: "call_role_context", name: "read_role_context", content: "{}" }
@@ -127,6 +129,16 @@ test("Gateway wire-normalizes the native Pi tool continuation without retaining 
     { role: "assistant", content: "", tool_calls: [{ id: "call_role_context", type: "function", function: { name: "read_role_context", arguments: "{}" } }] },
     { role: "tool", tool_call_id: "call_role_context", content: "{}" }
   ]);
+  assert.equal(body?.tools, undefined);
+  assert.equal(body?.tool_choice, undefined, "closing a tool loop must not advertise another tool");
+});
+
+test("Gateway still rejects active tool choices after tools are withdrawn", async () => {
+  const gateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => { throw new Error("must not dispatch"); } });
+  for (const toolChoice of ["auto", "required", { type: "function", function: { name: "propose_story_intake" } }]) {
+    await assert.rejects(gateway.openChatStream({ ...requestInput(), tools: [], toolChoice }),
+      (error: unknown) => error instanceof ProviderGatewayError && error.code === "invalid-request");
+  }
 });
 
 test("SiliconFlow adapter uses the fixed official endpoint and normalizes ordered SSE chunks", async () => {
@@ -393,9 +405,34 @@ test("one large transport chunk may contain many individually bounded SSE events
   assert.deepEqual(events.at(-1), { type: "done" });
 });
 
+test("HTTP 200 SSE upstream errors fail without completion, leakage or retry", async () => {
+  for (const [error, expected] of [
+    [{ code: "upstream_error", message: `504 Gateway Timeout ${TEST_CREDENTIAL}` }, "timeout"],
+    [{ status: 402, message: TEST_CREDENTIAL }, "payment-required"],
+    [{ code: "upstream_error", message: TEST_CREDENTIAL }, "unavailable"]
+  ] as const) {
+    let calls = 0;
+    const gateway = createGateway({ environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL }, fetchImpl: async () => {
+      calls += 1;
+      return sseResponse([`event: error\ndata: ${JSON.stringify({ error })}\n\n`, "data: [DONE]\n\n"]);
+    } });
+    const stream = await gateway.openChatStream(requestInput());
+    await assert.rejects(collect(stream.events), (cause: unknown) => {
+      assert.equal(providerGatewayErrorPayload(cause).code, expected);
+      assert.equal(providerGatewayErrorPayload(cause).diagnostic?.stage, "sse-error");
+      assert.equal(providerGatewayErrorPayload(cause).diagnostic?.responseHeadersReceived, true);
+      assert.equal(providerGatewayErrorPayload(cause).diagnostic?.contentStarted, false);
+      assert.equal(JSON.stringify(providerGatewayErrorPayload(cause)).includes(TEST_CREDENTIAL), false);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+});
+
 test("upstream status errors map without response-body or credential leakage and do not retry", async () => {
   const cases = [
     { status: 401, code: "unauthorized" },
+    { status: 402, code: "payment-required" },
     { status: 403, code: "forbidden" },
     { status: 404, code: "not-found" },
     { status: 429, code: "rate-limited" },
@@ -414,16 +451,47 @@ test("upstream status errors map without response-body or credential leakage and
         });
       }
     });
-    await assert.rejects(gateway.openChatStream(requestInput()), (error: unknown) => {
+    const lifecycle: string[] = [];
+    await assert.rejects(gateway.openChatStream({ ...requestInput(), idempotencyKey: `status-${current.status}`, onProviderLifecycle: (event: { phase: string }) => lifecycle.push(event.phase) }), (error: unknown) => {
       assert.equal(error instanceof ProviderGatewayError, true);
       const payload = providerGatewayErrorPayload(error);
       assert.equal(payload.code, current.code);
+      assert.equal(payload.diagnostic?.stage, "http-response");
+      assert.equal(payload.diagnostic?.upstreamHttpStatus, current.status);
+      assert.equal(payload.diagnostic?.contentStarted, false);
+      assert.equal(payload.diagnostic?.errorBodyReceived, true);
       assert.equal(JSON.stringify(payload).includes(TEST_CREDENTIAL), false);
       assert.equal(JSON.stringify(payload).includes("upstream-secret-body"), false);
       return true;
     });
     assert.equal(fetchCount, 1);
+    assert.deepEqual(lifecycle, ["reserved", "dispatched", "unknown"], "HTTP failures still count as sends and retain conservative replay status");
   }
+});
+
+test("HTTP error JSON is parsed before bounded diagnostic storage and preserves numeric upstream code", async () => {
+  const gateway = createGateway({
+    environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
+    fetchImpl: async () => new Response(JSON.stringify({ error: { code: 20012, message: "Insufficient Balance", data: "x".repeat(700) } }), {
+      status: 402,
+      headers: { "content-type": "application/json", "x-siliconcloud-trace-id": "trace-safe-1" }
+    })
+  });
+  await assert.rejects(gateway.openChatStream({ ...requestInput(), idempotencyKey: "numeric-upstream-error" }), (cause: unknown) => {
+    const payload = providerGatewayErrorPayload(cause);
+    assert.equal(payload.code, "payment-required");
+    assert.equal(payload.diagnostic?.upstreamHttpStatus, 402);
+    assert.equal(payload.diagnostic?.upstreamErrorCode, "20012");
+    assert.equal(payload.diagnostic?.requestId, "trace-safe-1");
+    assert.equal(payload.diagnostic?.summary, "上游报告余额不足");
+    assert.equal(payload.diagnostic?.upstreamMessage, "Insufficient balance");
+    assert.equal(payload.diagnostic?.responseHeadersReceived, true);
+    assert.equal(payload.diagnostic?.errorBodyReceived, true);
+    assert.equal(payload.diagnostic?.contentStarted, false);
+    assert.equal(JSON.stringify(payload).includes(TEST_CREDENTIAL), false);
+    assert.equal(JSON.stringify(payload).includes("xxx"), false);
+    return true;
+  });
 });
 
 test("caller AbortSignal cancels an active stream without a second request", async () => {
@@ -457,7 +525,7 @@ test("caller AbortSignal cancels an active stream without a second request", asy
   assert.equal(streamCancelled, true);
 });
 
-test("profile timeout aborts one pending request and maps to timeout", async () => {
+test("bounded request timeout reaches the HTTP AbortSignal and maps to timeout", async () => {
   let fetchCount = 0;
   const adapter = createSiliconFlowAdapter({
     environment: { SILICONFLOW_API_KEY: TEST_CREDENTIAL },
@@ -477,12 +545,12 @@ test("profile timeout aborts one pending request and maps to timeout", async () 
     profiles: [{
       ...DEFAULT_MODEL_PROFILES[0],
       id: "timeout-profile",
-      timeoutMs: 50
+      timeoutMs: 45_000
     }]
   });
 
   await assert.rejects(
-    gateway.openChatStream({ ...requestInput(), profileId: "timeout-profile" }),
+    gateway.openChatStream({ ...requestInput(), profileId: "timeout-profile", timeoutMs: 50 }),
     (error: unknown) => error instanceof ProviderGatewayError && error.code === "timeout"
   );
   assert.equal(fetchCount, 1);

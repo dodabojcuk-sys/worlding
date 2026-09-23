@@ -1243,8 +1243,8 @@ export type TianyiProjectResume = { status: "none" | "current" | "stale" | "miss
 export type TianyiOwnerResult = { owner: string; attempted: boolean; saved: boolean; conflicted: boolean; rejected: boolean; alreadyCompleted: boolean; currentHash: string | null; expectedHash: string | null; recoveryAction: string | null };
 export type TianyiMemoryCandidate = { version: "tianyi-memory-candidate/v1"; candidateId: string; statement: string; scope: TianyiMemoryScope; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; sources: Array<{ id: string; hash: string; kind?: "story-source" | "archive-message"; sessionId?: string | null; state?: "current" | "stale" | "deleted" | "missing" }>; runtimeInvolvement: "deterministic-fixture"; sessionId: string; operationId: string; personaRevision: number; relationshipPolicyRevision: number; currentState?: "current" | "stale" };
 export type TianyiStoppingPointCandidate = { version: "tianyi-stopping-point-candidate/v1"; candidateId: string; sourceId: string; sourceHash: string; statement: string; unresolvedThreadIds: string[]; sessionId: string; operationId: string };
-export type TianyiVisibleMessage = { eventId: string; sequence: number; actor: "author" | "tianyi"; recordedAt: string; visibleContent: string; receiptId: string | null };
-export type TianyiSessionMetadata = { id: string; contentHash: string | null; eventCount: number; openedAt: string; closed: boolean; retentionMode: "normal" | "temporary"; recoverable: boolean; packEligible: boolean; candidateCount: number; memoryCandidates: TianyiMemoryCandidate[]; stoppingPointCandidates: TianyiStoppingPointCandidate[]; decidedCandidateIds: string[]; visibleMessages: TianyiVisibleMessage[]; groundedAttempts: Array<{ submissionId: string; questionAttemptKey: string; question: string; profileId: string; state: "PREPARED" | "PROVIDER_UNCERTAIN" | "RESULT_STAGED" | "RECEIPT_COMMITTED_UNACKNOWLEDGED" | "COMPLETED"; retryRequired: boolean }> };
+export type TianyiVisibleMessage = { contentHash?: string; eventId: string; sequence: number; actor: "author" | "tianyi"; recordedAt: string; visibleContent: string; receiptId: string | null };
+export type TianyiSessionMetadata = { id: string; title?: string | null; contentHash: string | null; eventCount: number; openedAt: string; closed: boolean; retentionMode: "normal" | "temporary"; recoverable: boolean; packEligible: boolean; candidateCount: number; memoryCandidates: TianyiMemoryCandidate[]; stoppingPointCandidates: TianyiStoppingPointCandidate[]; decidedCandidateIds: string[]; visibleMessages: TianyiVisibleMessage[]; groundedAttempts: Array<{ submissionId: string; questionAttemptKey: string; question: string; profileId: string; state: "PREPARED" | "PROVIDER_UNCERTAIN" | "RESULT_STAGED" | "RECEIPT_COMMITTED_UNACKNOWLEDGED" | "COMPLETED"; retryRequired: boolean }> };
 export type TianyiQuestionOperation = { status: "current" | "stale" | "blocked" | "partial"; ownerResults: TianyiOwnerResult[]; receiptId: string; question: null | { status: "current" | "stale" | "blocked"; projectionFingerprint: string; currentProjectionFingerprint: string; currentVisibleResponse: string | null; visibleResponse: string; classifications: TianyiResponseClassification[]; memoryCandidates: Array<{ statement: string; scope: TianyiMemoryScope; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; sourceRefs: string[] }>; failure: null | string; receipt: TianyiContextReceipt } };
 export type TianyiMemoryItem = { world_os: string; id: string; type: "tianyi-memory"; agent_id: string; scope: TianyiMemoryScope; project_id: string; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; approval_state: "candidate" | "author-approved" | "rejected"; model_involvement: string; created_revision: number; last_confirmed_revision: number; review_after: string; expires_after: string; state: "active" | "revoked"; source_refs: string[]; knowledge_subject_refs: string[]; body: string };
 export type TianyiMemoryRecord = { value: TianyiMemoryItem; contentHash: string; byteLength: number };
@@ -1527,8 +1527,8 @@ export async function runGoldenLoop(input: {
   return request<GoldenLoopResult>(`${basePath}/model-service/golden-loop/run`, { method: "POST", token, body, signal });
 }
 
-export async function getGoldenLoopCandidateReview(projectId: string, reviewId?: string): Promise<GoldenLoopCandidateReview | null> {
-  return request<GoldenLoopCandidateReview | null>(`${basePath}/author-control/candidate-review?projectId=${encodeURIComponent(projectId)}${reviewId ? `&reviewId=${encodeURIComponent(reviewId)}` : ""}`);
+export async function getGoldenLoopCandidateReview(projectId: string, reviewId?: string, conversationId?: string | null): Promise<GoldenLoopCandidateReview | null> {
+  return request<GoldenLoopCandidateReview | null>(`${basePath}/author-control/candidate-review?projectId=${encodeURIComponent(projectId)}${reviewId ? `&reviewId=${encodeURIComponent(reviewId)}` : ""}${conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : ""}`);
 }
 
 /** Query-gated R0 adapter: persists only a Candidate Review through the existing owner. */
@@ -2495,7 +2495,7 @@ export async function getNuwaDirectorStateR1(projectId: string, runId: string): 
  * owned by the Nuwa RunPack/AuthorControl server path; the browser only keeps
  * the currently rendered projection and never becomes a Run or candidate owner.
  */
-export type NuwaN1Availability = { kind: "unavailable" | "local-fake" | "pi-agent"; label: string; providerCalls: 0; adapterId?: string | null };
+export type NuwaN1Availability = { kind: "unavailable" | "local-fake" | "local-pi-host" | "pi-agent"; label: string; providerCalls: number; adapterId?: string | null };
 export type NuwaN1Participant = { id: string; title: string; revision: string; localGoal?: string };
 export type NuwaN1ProfileBasis = {
   core: string | null;
@@ -2538,6 +2538,16 @@ export type NuwaN1Step = {
   usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
   committedAt: string;
 };
+/** Mirrors NuwaN1CueAddressee: an author instruction is only accepted with a
+ * named recipient, and `null` marks a cue carried over from a pre-targeting Run. */
+export type NuwaN1CueAddressee = { kind: "nuwa" } | { kind: "all-actors" } | { kind: "actors"; actorIds: string[] };
+export type NuwaN1DirectorFocus = "defer-reveal" | "prioritize-character-interaction" | "preserve-uncertainty" | "advance-observation";
+export type NuwaN1DirectorAdjustment = {
+  operationId: string; instruction: string; status: "generating" | "suggested" | "adopted" | "discarded" | "failed" | "stale" | "expired";
+  sceneIndex: number; unsupported: string[];
+  basedOnStep: number; appliesFromStep: number; understood: string | null; proposedAdjustment: string | null; scope: string | null;
+  focus: NuwaN1DirectorFocus[]; failure: string | null; adoptedAt: string | null; appliedStepId: string | null;
+};
 export type NuwaN1Run = {
   runId: string;
   status: "ready" | "running" | "paused" | "completed" | "cancelled" | "blocked";
@@ -2550,7 +2560,11 @@ export type NuwaN1Run = {
   /** Actual model-boundary sends; never inferred from local tool bookkeeping. */
   providerDispatches: number;
   providerDispatchEvidence: "complete" | "unknown";
-  pendingCue: { operationId: string; instruction: string } | null;
+  /** Recipients who already committed the turn that delivered this cue; the
+   * cue stays until every named recipient has had that turn. */
+  pendingCue: { operationId: string; instruction: string; addressee: NuwaN1CueAddressee | null; consumedByActorIds: string[] } | null;
+  directorAdjustment: NuwaN1DirectorAdjustment | null;
+  directorHistory?: NuwaN1DirectorAdjustment[];
   dispatches: number;
   attempts: Array<{
     attemptId: string;
@@ -2569,6 +2583,17 @@ export type NuwaN1Run = {
     }>;
     tool: { status: "pending" | "completed" | "failed" | "cancelled"; recordedAt: string; detail: string | null };
     usage: { inputTokens: number; outputTokens: number; source: "reported" | "estimated" } | null;
+    observation?: {
+      contextAssemblyMs: number | null;
+      firstModelWaitMs: number | null;
+      localToolMs: number | null;
+      secondModelWaitMs: number | null;
+      businessValidationMs: number | null;
+      stepSaveMs: number | null;
+      endToEndMs: number;
+      context: { version: string; actorRevision: string; bytes: number; sourceCount: number; dialogueCount: number; sourceSetId: string } | null;
+      rounds: Array<{ status: string | null; requestBytes: number | null; messageCount: number | null; toolCount: number | null; shapeId: string | null; wire?: { modelId: string; maxTokens: number; thinking: boolean | null; stream: boolean; toolChoice: string | null; toolNames: string[]; timeoutMs: number | null }; frames?: { contentBytes: number; contentChunks: number; reasoningBytes: number; reasoningChunks: number; toolArgumentBytes: number; toolArgumentChunks: number; toolCalls: number; toolName: string | null; argumentsJsonClosed: boolean | null; argumentsSchemaValid: boolean | null; finishReason: string | null; usageReceived: boolean; malformedReason: string | null } }>;
+    } | null;
     outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
     recordedAt: string;
     updatedAt: string;
@@ -2609,7 +2634,7 @@ export type NuwaN1ReadModel = {
   };
   run: NuwaN1Run | null;
   contextInspector: NuwaN1ContextInspector | null;
-  receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string }>;
+  receipts: Array<{ operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "director" | "handoff"; revision: number; recordedAt: string }>;
   automaticApplication?: NuwaN1AutomaticApplication;
 };
 export type NuwaN1Bootstrap = {
@@ -2620,6 +2645,7 @@ export type NuwaN1Bootstrap = {
   storylines: NuwaN1Storyline[];
   relationTypes: Array<{ id: string; title: string; revision: number }>;
   latestRunId: string | null;
+  runs?: Array<{ runId: string; conversationId?: string | null; label: string; status: string; createdAt: string }>;
 };
 export type NuwaN1Setup = {
   setup: {
@@ -2671,20 +2697,20 @@ export async function getNuwaN1Bootstrap(projectId: string): Promise<NuwaN1Boots
   return request<NuwaN1Bootstrap>(`${basePath}/nuwa-n1/bootstrap?projectId=${encodeURIComponent(projectId)}`);
 }
 
-export async function getNuwaN1Latest(projectId: string): Promise<NuwaN1ReadModel> {
-  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/latest?projectId=${encodeURIComponent(projectId)}`);
+export async function getNuwaN1Latest(projectId: string, conversationId?: string | null): Promise<NuwaN1ReadModel> {
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/latest?projectId=${encodeURIComponent(projectId)}${conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : ""}`);
 }
 
 export async function getNuwaN1Run(projectId: string, runId: string): Promise<NuwaN1ReadModel> {
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/read?projectId=${encodeURIComponent(projectId)}&runId=${encodeURIComponent(runId)}`);
 }
 
-export async function setupNuwaN1(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
+export async function setupNuwaN1(input: { projectId: string; conversationId?: string | null; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1Setup> {
   const { token, ...body } = input;
   return request<NuwaN1Setup>(`${basePath}/nuwa-n1/setup`, { method: "POST", token, body });
 }
 
-export async function createNuwaN1Run(input: { projectId: string; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function createNuwaN1Run(input: { projectId: string; conversationId?: string | null; participants: NuwaN1Participant[]; storyUnit: NuwaN1StoryUnit; scope: NuwaN1ScopeSelection; goal: string; relationTypeId?: string | null; workVersionId?: string | null; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/create`, { method: "POST", token, body });
 }
@@ -2706,9 +2732,17 @@ export async function replayNuwaN1Run(input: { projectId: string; runId: string;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/replay`, { method: "POST", token, body });
 }
 
-export async function cueNuwaN1Run(input: { projectId: string; runId: string; expectedRevision: number; instruction: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+export async function cueNuwaN1Run(input: { projectId: string; runId: string; expectedRevision: number; instruction: string; addressee: NuwaN1CueAddressee; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
   const { token, ...body } = input;
   return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/cue`, { method: "POST", token, body });
+}
+export async function suggestNuwaN1Director(input: { projectId: string; runId: string; expectedRevision: number; instruction: string; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/director-suggest`, { method: "POST", token, body });
+}
+export async function decideNuwaN1Director(input: { projectId: string; runId: string; expectedRevision: number; decision: "adopt" | "discard"; operationId: string; token: string }): Promise<NuwaN1ReadModel> {
+  const { token, ...body } = input;
+  return request<NuwaN1ReadModel>(`${basePath}/nuwa-n1/director-decide`, { method: "POST", token, body });
 }
 
 export async function createNuwaN1Candidate(input: { projectId: string; runId: string; expectedRevision: number; selectedStepIds: string[]; operationId: string; token: string }): Promise<NuwaN1CandidateResult> {
@@ -3036,6 +3070,7 @@ export async function createPlanningEvent(input: {
   title: string;
   body?: string;
   tags?: string[];
+  knowledgeSubjects?: string[];
   operationId?: string;
   token: string;
 }): Promise<WorldObject> {
@@ -3379,6 +3414,10 @@ export async function getTianyiAgentRunEvents(input: { projectId: string; workVe
 export async function handoffTianyiAgentCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/candidate/handoff`, { method: "POST", token, body }); }
 export async function decideTianyiStoryIntakeCandidate(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; lifecycleStatus: import("../../../../src/storyContracts/storyIntakeEnvelope.ts").StoryIntakeLifecycleStatus; operationId: string; token: string }): Promise<TianyiAgentRunProjection> { const { token, ...body } = input; return request<TianyiAgentRunProjection>(`${basePath}/tianyi-agent/story-intake/candidate/decision`, { method: "POST", token, body }); }
 
+export type StoryIntakeKnowledgePreview = { candidateId: string; eventId: string; eventRevision: string; fact: string; excerpt: string; source: string; observers: Array<{ id: string; label: string }>; confirmedObserverIds: string[] };
+export async function previewTianyiStoryIntakeKnowledge(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; token: string }): Promise<StoryIntakeKnowledgePreview> { const { token, ...body } = input; return request<StoryIntakeKnowledgePreview>(`${basePath}/tianyi-agent/story-intake/knowledge/preview`, { method: "POST", token, body }); }
+export async function confirmTianyiStoryIntakeKnowledge(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateId: string; observerIds: string[]; expectedEventRevision: string; token: string }): Promise<StoryIntakeKnowledgePreview> { const { token, ...body } = input; return request<StoryIntakeKnowledgePreview>(`${basePath}/tianyi-agent/story-intake/knowledge/confirm`, { method: "POST", token, body }); }
+
 export type StoryIntakeBatchPreviewProjection = {
   version: "tianyan-story-intake-batch-preview/v1";
   previewId: string;
@@ -3387,6 +3426,7 @@ export type StoryIntakeBatchPreviewProjection = {
   runId: string;
   envelopeId: string;
   baseVersion: { workVersionId: string; revision: number; manifestId: string | null };
+  targetVersion: { workVersionId: string; revision: number; manifestId: string | null };
   candidateIds: string[];
   excludedRelationKeys: string[];
   relationBindings: Array<{ relationKey: string; targetObjectId: string; targetObjectTitle: string; targetObjectType: WorldObjectType; targetObjectRevision: string }>;
@@ -3397,6 +3437,7 @@ export type StoryIntakeBatchPreviewProjection = {
   conflicts: string[];
   canConfirm: boolean;
   activeReceipt: StoryIntakeBatchReceiptProjection | null;
+  resumeReceipt: StoryIntakeBatchReceiptProjection | null;
 };
 
 export type StoryIntakeBatchReceiptProjection = {
@@ -3424,6 +3465,11 @@ export type StoryIntakeBatchReceiptProjection = {
 export async function previewTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; token: string }): Promise<StoryIntakeBatchPreviewProjection> {
   const { token, ...body } = input;
   return request<StoryIntakeBatchPreviewProjection>(`${basePath}/tianyi-agent/story-intake/batch/preview`, { method: "POST", token, body });
+}
+
+export async function prepareTianyiStoryIntakeVersion(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; action: "create-root" | "select-root"; selectedWorkVersionId?: string; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; targetVersion: StoryIntakeBatchPreviewProjection["targetVersion"] }> {
+  const { token, ...body } = input;
+  return request(`${basePath}/tianyi-agent/story-intake/batch/prepare-version`, { method: "POST", token, body });
 }
 
 export async function confirmTianyiStoryIntakeBatch(input: { projectId: string; workVersionId: string; sessionId: string; runId: string; candidateIds: string[]; excludedRelationKeys?: string[]; relationBindings?: Array<{ relationKey: string; targetObjectId: string }>; entityBindings?: Array<{ candidateId: string; targetObjectId: string }>; position: "start" | "end"; previewId: string; expectedBaseRevision: number; operationId: string; token: string }): Promise<{ run: TianyiAgentRunProjection; receipt: StoryIntakeBatchReceiptProjection }> {
@@ -3749,3 +3795,6 @@ async function request<T>(
     if (projectionInvalidationMode === "completion") projectProjectionReads.invalidateSettled();
   }
 }
+
+export async function renameTianyiSession(input: { projectId: string; sessionId: string; title: string; operationId: string; expectedContentHash: string; token: string }): Promise<TianyiSessionMetadata> { const { token, ...body } = input; return tianyiRequest("session/rename", token, body); }
+export async function renameStoryProject(input: { projectId: string; title: string; expectedTitle: string; token: string }): Promise<StoryStudioProject> { const { token, ...body } = input; return request<StoryStudioProject>("/__local/story-studio/projects/rename", { method: "POST", token, body }); }

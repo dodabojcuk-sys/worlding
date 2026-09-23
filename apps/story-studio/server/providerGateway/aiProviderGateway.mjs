@@ -125,9 +125,10 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       // silently rewritten.
       const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : Math.min(boundedInteger(maxOutputTokensCap, 1, 8_192), profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
+      const timeoutMs = input?.timeoutMs == null ? profile.timeoutMs : boundedInteger(input.timeoutMs, 50, 120_000);
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
-        timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
+        timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
         ...(tools.length ? { tools, toolChoice } : {}),
         ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
       });
@@ -143,25 +144,31 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           reservationId: reservation?.reservation?.reservationId ?? null,
           receiptEnvelopeId: receipt?.envelopeId ?? null
         });
+        const onTransportDispatch = async () => {
+          if (enteredTransport) return;
+          enteredTransport = true;
+          await notifyProviderLifecycle(onProviderLifecycle, {
+          phase: "dispatched",
+          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
+          reservationId: reservation?.reservation?.reservationId ?? null,
+          receiptEnvelopeId: receipt?.envelopeId ?? null
+        });
+        };
         const stream = await adapter.openChatStream({
+          onTransportDispatch,
+          onRequestShape: input?.onRequestShape,
           modelId: profile.modelId,
           messages,
           maxOutputTokens,
           temperature: profile.temperature,
-          timeoutMs: profile.timeoutMs,
+          timeoutMs,
           signal: input?.signal,
           responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
           enableThinking: profile.enableThinking,
           ...(tools.length ? { tools, toolChoice } : {}),
           ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
         });
-        enteredTransport = true;
-        await notifyProviderLifecycle(onProviderLifecycle, {
-          phase: "dispatched",
-          requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
-          reservationId: reservation?.reservation?.reservationId ?? null,
-          receiptEnvelopeId: receipt?.envelopeId ?? null
-        });
+        await onTransportDispatch(); // Legacy adapters signal on successful open.
         if (!reservation && !receipt) return stream;
         return Object.freeze({
           traceId: stream.traceId,
@@ -431,7 +438,7 @@ function persistReceiptFailure(store, receipt, error) {
   if (!store || !receipt) return;
   const code = typeof error?.code === "string" ? error.code : "transport-failed";
   const replayStatus = code === "timeout" ? "timeout" : (code === "cancelled" || error?.name === "AbortError") ? "cancelled" : "transport_failed";
-  try { store.markFailure({ envelopeId: receipt.envelopeId, replayStatus, errorClassification: code }); } catch { /* never replace the Provider error */ }
+  try { store.markFailure({ envelopeId: receipt.envelopeId, replayStatus, errorClassification: code, errorDiagnostic: error?.diagnostic ?? null }); } catch { /* never replace the Provider error */ }
 }
 
 function completeBudgetFailure(ledger, reservation, error) {
@@ -581,7 +588,7 @@ function validateTools(value) {
 
 function validateToolChoice(value, tools) {
   if (!tools.length) {
-    if (value != null) throw providerGatewayError("invalid-request");
+    if (value != null && value !== "none") throw providerGatewayError("invalid-request");
     return null;
   }
   if (value == null || value === "auto") return "auto";

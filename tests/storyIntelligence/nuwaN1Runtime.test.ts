@@ -1,3 +1,4 @@
+import { createNuwaN1PiAdapter } from "../../apps/story-studio/server/nuwaN1PiAdapter.mjs";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,12 +7,17 @@ import test from "node:test";
 
 import {
   advanceNuwaN1Run,
+  beginNuwaN1DirectorSuggestion,
   cancelNuwaN1Run,
   compileNuwaN1Context,
+  completeNuwaN1DirectorSuggestion,
   createNuwaN1Run,
   createNuwaPlan,
   createNuwaRunPack,
   cueNuwaN1Run,
+  decideNuwaN1DirectorSuggestion,
+  directorBrief,
+  failNuwaN1DirectorSuggestion,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
@@ -55,6 +61,96 @@ function withRun(runTest: (fixture: { root: string; workspace: string; run: Nuwa
   return Promise.resolve(runTest({ root, workspace, run })).finally(() => rmSync(root, { recursive: true, force: true }));
 }
 
+test("N1 director may be adopted before the first actor step with real dispatch accounting", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const base = { workspacePath: workspace, runId: run.runId };
+    const pending = beginNuwaN1DirectorSuggestion({ ...base, expectedRevision: run.revision, operationId: "ready.director", instruction: "优先观察", adapterId: "local-pi" });
+    const dispatch = { ...base, operationId: "ready.director", providerCall: 1, requestKey: "ready.request", reservationId: "ready.reservation", receiptEnvelopeId: null, provider: { providerId: "local", profileId: "local.profile", modelId: "local-model" } };
+    assert.equal(pending.lifecycle, "ready");
+    recordNuwaN1ProviderReservation(dispatch);
+    recordNuwaN1ProviderDispatch(dispatch);
+    resolveNuwaN1ProviderDispatch({ ...dispatch, status: "completed" });
+    const suggestion = completeNuwaN1DirectorSuggestion({ ...base, operationId: "ready.director", suggestion: { understood: "先观察", proposedAdjustment: "先观察", scope: "当前场景", focus: ["advance-observation"], unsupported: [] } });
+    assert.equal(suggestion.providerDispatches, 1);
+    assert.deepEqual(compileNuwaN1Context(suggestion, suggestion.actors[0]!, "before.adopt").directorFocus, []);
+    const adopted = decideNuwaN1DirectorSuggestion({ ...base, expectedRevision: suggestion.revision, operationId: "ready.adopt", decision: "adopt" });
+    assert.equal(adopted.lifecycle, "ready");
+    assert.equal(adopted.steps.length, 0);
+    assert.equal(adopted.directorAdjustment?.status, "adopted");
+    const started = startNuwaN1Run({ ...base, expectedRevision: adopted.revision, operationId: "ready.start" });
+    assert.deepEqual(compileNuwaN1Context(started, started.actors[0]!, "first.step").directorFocus, ["advance-observation"]);
+  });
+});
+
+test("N1 director suggestion is separate from role cues, adopts once at a safe boundary, and survives reload", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "director.start" });
+    const begun = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "director.suggest", instruction: "暂缓揭露幕后人 SECRET_DIRECTOR_CANARY，先推进角色之间的试探。", adapterId: "fake-director" });
+    assert.equal(begun.pendingCue, null, "a director request never occupies the role cue slot");
+    const suggested = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "director.suggest", suggestion: { understood: "先保留揭露，推进试探。", proposedAdjustment: "先以行动和对话推进试探。", scope: "仅未开始步骤。", focus: ["defer-reveal", "prioritize-character-interaction"], unsupported: [] } });
+    assert.equal(suggested.directorAdjustment?.status, "suggested");
+    const beforeAdopt = compileNuwaN1Context(suggested, suggested.actors[0]!, "director.before-adopt");
+    assert.deepEqual(beforeAdopt.directorFocus, [], "an unadopted suggestion cannot change a later turn");
+    assert.equal(JSON.stringify(beforeAdopt).includes("SECRET_DIRECTOR_CANARY"), false, "the author director instruction never enters a role context");
+    const adopted = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: suggested.revision, operationId: "director.adopt", decision: "adopt" });
+    assert.equal(adopted.directorAdjustment?.status, "adopted");
+    assert.equal(adopted.directorAdjustment?.appliesFromStep, 1);
+    const paused = pauseNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: adopted.revision, operationId: "director.pause" });
+    assert.equal(readNuwaN1Run(workspace, run.runId)?.directorAdjustment?.status, "adopted", "a paused and reloaded Run preserves its accepted adjustment before it can take effect");
+    const resumed = resumeNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: paused.revision, operationId: "director.resume" });
+    const actualRoleContext = compileNuwaN1Context(resumed, resumed.actors[0]!, "director.after-adopt");
+    assert.deepEqual(actualRoleContext.directorFocus, ["defer-reveal", "prioritize-character-interaction"]);
+    assert.equal(JSON.stringify(actualRoleContext).includes("SECRET_DIRECTOR_CANARY"), false);
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: resumed.revision, operationId: "director.step", adapter: adapter(observed) });
+    assert.ok(stepped.directorAdjustment?.appliedStepId, "the first subsequent committed step records where the adoption took effect");
+    assert.equal(readNuwaN1Run(workspace, run.runId)?.directorAdjustment?.appliedStepId, stepped.directorAdjustment?.appliedStepId, "RunPack reload preserves the adoption and effective step");
+    const stale = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: stepped.revision, operationId: "director.repeat-adopt", decision: "adopt" });
+    assert.equal(stale.revision, stepped.revision + 1, "a repeated adoption is a receipt only and cannot duplicate the adjustment");
+    assert.equal(stale.directorAdjustment?.appliedStepId, stepped.directorAdjustment?.appliedStepId);
+  });
+});
+
+test("N1 director failures retain input and stale or old completions cannot mutate a newer decision", async () => {
+  await withRun(({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "director-failure.start" });
+    const begun = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "director-failure.first", instruction: "保留这条导演要求。", adapterId: "fake-director" });
+    const failed = failNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "director-failure.first", detail: "模型暂不可用" });
+    assert.deepEqual(failed.directorAdjustment && { status: failed.directorAdjustment.status, instruction: failed.directorAdjustment.instruction }, { status: "failed", instruction: "保留这条导演要求。" });
+    const retried = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: failed.revision, operationId: "director-failure.retry", instruction: "新的导演要求。", adapterId: "fake-director" });
+    const ignoredLate = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "director-failure.first", suggestion: { understood: "旧", proposedAdjustment: "旧", scope: "旧", focus: ["advance-observation"], unsupported: [] } });
+    assert.equal(ignoredLate.directorAdjustment?.operationId, "director-failure.retry", "an old response cannot overwrite the newer request");
+    const discarded = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: retried.revision, operationId: "director-failure.discard", decision: "discard" });
+    assert.equal(discarded.directorAdjustment?.status, "discarded");
+  });
+});
+
+test("a failed optional director suggestion leaves the basic role step available", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "director-optional.start" });
+    const begun = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "director-optional.suggest", instruction: "先观察。", adapterId: "fake-director" });
+    const failed = failNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "director-optional.suggest", detail: "模型暂不可用" });
+    const observed = { contexts: [] as unknown[], calls: [] as number[] };
+    const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: failed.revision, operationId: "director-optional.step", adapter: adapter(observed) });
+    assert.equal(stepped.steps.length, 1);
+    assert.equal(stepped.directorAdjustment?.status, "failed");
+    assert.equal(stepped.directorAdjustment?.instruction, begun.directorAdjustment?.instruction);
+    assert.deepEqual((observed.contexts[0] as { directorFocus: string[] }).directorFocus, []);
+  });
+});
+
+test("N1 director suggestion becomes stale when its Run advances before adoption", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "director-stale.start" });
+    const begun = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "director-stale.suggest", instruction: "先观察。", adapterId: "fake-director" });
+    const suggested = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "director-stale.suggest", suggestion: { understood: "观察", proposedAdjustment: "观察后再推进", scope: "仅未开始步骤", focus: ["advance-observation"], unsupported: [] } });
+    const advanced = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: suggested.revision, operationId: "director-stale.step", adapter: adapter({ contexts: [], calls: [] }) });
+    const stale = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: advanced.revision, operationId: "director-stale.adopt", decision: "adopt" });
+    assert.equal(stale.directorAdjustment?.status, "stale");
+    assert.deepEqual(compileNuwaN1Context(stale, stale.actors[1]!, "director-stale.context").directorFocus, [], "a stale suggestion cannot reach a role context");
+  });
+});
+
 function adapter(observed: { contexts: unknown[]; calls: number[] }): NuwaN1ExecutionAdapter {
   return {
     adapterId: "local-fake.nuwa-n1",
@@ -94,9 +190,15 @@ test("N1 compiles role-local context by stable ID and never leaks author secret 
     assert.equal(first.actor.id, "character.林昭");
     assert.equal(second.actor.id, "character.阿芜", "same display names cannot merge character identities");
     assert.notDeepEqual(first.knownFacts, second.knownFacts);
-    assert.equal(JSON.stringify(first).includes("AUTHOR_SECRET_CANARY"), false);
-    assert.equal(JSON.stringify(second).includes("AUTHOR_SECRET_CANARY"), false);
+    // The canary below really exists upstream: both fixture actors carry it in
+    // `unknownFactIds`, while the compiled context may only expose a count.
+    assert.ok(run.actors.every((actor) => actor.unknownFactIds.includes("secret.author-canary")), "the author-only identity must be present upstream or this check proves nothing");
+    assert.equal(JSON.stringify(first).includes("secret.author-canary"), false, "an author-only identity stays author-side");
+    assert.equal(JSON.stringify(second).includes("secret.author-canary"), false, "an author-only identity stays author-side");
     assert.equal(JSON.stringify(first).includes("顾澜"), false, "another actor's belief does not enter the request");
+    assert.equal(first.excludedKnowledgeCount, 1, "the blind spot survives as a count instead of an identity");
+    assert.ok(JSON.stringify(first).includes("亲眼见到守夜钟失踪"), "the role keeps its own evidence, so an emptied context cannot pass");
+    assert.ok(JSON.stringify(second).includes("从码头工人处听说守夜钟不见了"), "the other role keeps its own evidence");
     assert.equal(readNuwaN1Run(workspace, run.runId)?.revision, 1);
   });
 });
@@ -258,12 +360,12 @@ test("N1 pause, resume, and author cue preserve a bounded future-only control po
     const runFile = path.join(workspace, ".world-os", "runs", "nuwa", run.runId, "run.json");
     assert.equal(JSON.parse(readFileSync(runFile, "utf8")).status, "paused", "RunPack projects the exact N1 pause lifecycle for every consumer");
     assert.throws(() => cueNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "operation.n1.stale-cue", instruction: "不应写入" }), /revision conflict/u);
-    const cued = cueNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: paused.revision, operationId: "operation.n1.cue", instruction: "后续只讨论可见的钟声线索。" });
+    const cued = cueNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: paused.revision, operationId: "operation.n1.cue", instruction: "后续只讨论可见的钟声线索。", addressee: { kind: "all-actors" } });
     const resumed = resumeNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: cued.revision, operationId: "operation.n1.resume" });
     const observed = { contexts: [] as any[], calls: [] as number[] };
     const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: resumed.revision, operationId: "operation.n1.step.after-cue", adapter: adapter(observed) });
     assert.equal(observed.contexts[0].authorCue, "后续只讨论可见的钟声线索。");
-    assert.equal(stepped.pendingCue, null);
+    assert.deepEqual(stepped.pendingCue, { operationId: "operation.n1.cue", instruction: "后续只讨论可见的钟声线索。", addressee: { kind: "all-actors" }, consumedByActorIds: ["character.林昭"] }, "the first receiver's committed turn records progress; the cue waits for the remaining recipients");
   });
 });
 
@@ -399,6 +501,66 @@ test("N1 records an invalid post-result delivery contract as a terminal failed a
   });
 });
 
+test("N1 resumes the same Run after a verified pre-transport task budget block without repeating a committed step", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const base = { workspacePath: workspace, runId: run.runId };
+    const running = startNuwaN1Run({ ...base, expectedRevision: run.revision, operationId: "budget-recovery.start" });
+    const first = await advanceNuwaN1Run({ ...base, expectedRevision: running.revision, operationId: "budget-recovery.first", adapter: adapter({ contexts: [], calls: [] }) });
+    const firstStepId = first.steps[0]!.stepId;
+    const failedOperation = "budget-recovery.second-blocked";
+    const blockedAdapter: NuwaN1ExecutionAdapter = {
+      adapterId: "local-fake.pre-transport-budget",
+      async request(context) {
+        const requestKey = "budget-recovery.sent-first-round";
+        recordNuwaN1ProviderReservation({ ...base, operationId: failedOperation, providerCall: 1, requestKey, reservationId: "budget-recovery.reservation", receiptEnvelopeId: "budget-recovery.envelope", provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" } });
+        recordNuwaN1ProviderDispatch({ ...base, operationId: failedOperation, requestKey });
+        resolveNuwaN1ProviderDispatch({ ...base, operationId: failedOperation, requestKey, status: "completed" });
+        return { type: "tool-request", toolName: "read_role_context", requestId: "tool.budget-recovery", actor: context.actor };
+      },
+      async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
+      async continueAfterTool() { throw new Error("Provider request budget is exhausted; dispatch was blocked before transport."); }
+    };
+    const blocked = await advanceNuwaN1Run({ ...base, expectedRevision: first.revision, operationId: failedOperation, adapter: blockedAdapter });
+    assert.equal(blocked.lifecycle, "blocked");
+    assert.equal(blocked.steps.length, 1);
+    assert.equal(blocked.attempts.at(-1)?.outcome, "failed");
+    assert.equal(blocked.attempts.some((attempt) => attempt.outcome === "pending"), false);
+    assert.equal(blocked.providerDispatches, 1, "only the first completed Provider send is counted");
+    const reloaded = readNuwaN1Run(workspace, run.runId)!;
+    const resumed = resumeNuwaN1Run({ ...base, expectedRevision: reloaded.revision, operationId: "budget-recovery.resume" });
+    assert.equal(resumed.lifecycle, "running");
+    assert.equal(resumed.steps[0]!.stepId, firstStepId);
+    assert.equal(resumed.attempts.at(-1)?.outcome, "failed", "the failed attempt remains in the Run ledger");
+    const second = await advanceNuwaN1Run({ ...base, expectedRevision: resumed.revision, operationId: "budget-recovery.second-retry", adapter: adapter({ contexts: [], calls: [] }) });
+    assert.equal(second.steps.length, 2);
+    assert.equal(second.steps[0]!.stepId, firstStepId);
+    assert.equal(second.attempts.length, 3);
+    assert.equal(resumeNuwaN1Run({ ...base, expectedRevision: reloaded.revision, operationId: "budget-recovery.resume" }).steps.length, 2, "repeated recovery is idempotent");
+    const unavailableOperation = "budget-recovery.third-unavailable";
+    const unavailableAdapter: NuwaN1ExecutionAdapter = {
+      adapterId: "local-fake.transport-unavailable",
+      async request(context) {
+        const requestKey = "budget-recovery.transport-uncertain";
+        recordNuwaN1ProviderReservation({ ...base, operationId: unavailableOperation, providerCall: 1, requestKey, reservationId: "transport-uncertain.reservation", receiptEnvelopeId: "transport-uncertain.envelope", provider: { providerId: "fixture", profileId: "fixture.default", modelId: "fixture-model" } });
+        recordNuwaN1ProviderDispatch({ ...base, operationId: unavailableOperation, requestKey });
+        resolveNuwaN1ProviderDispatch({ ...base, operationId: unavailableOperation, requestKey, status: "unknown", detail: "当前模型服务暂时不可用。" });
+        return { type: "tool-request", toolName: "read_role_context", requestId: "tool.transport-unavailable", actor: context.actor };
+      },
+      async executeTool({ context, request }) { return { type: "tool-result", toolName: "read_role_context", requestId: request.requestId, actor: context.actor, context }; },
+      async continueAfterTool() { throw new Error("当前模型服务暂时不可用。"); }
+    };
+    const unavailable = await advanceNuwaN1Run({ ...base, expectedRevision: second.revision, operationId: unavailableOperation, adapter: unavailableAdapter });
+    assert.equal(unavailable.lifecycle, "blocked");
+    assert.equal(unavailable.steps.length, 2);
+    assert.equal(unavailable.providerDispatches, 2, "the uncertain transport send stays counted");
+    assert.throws(() => resumeNuwaN1Run({ ...base, expectedRevision: unavailable.revision, operationId: "budget-recovery.resume-without-proof" }), /verified terminal dispatch failure/u);
+    assert.throws(() => resumeNuwaN1Run({ ...base, expectedRevision: unavailable.revision, operationId: "budget-recovery.resume-wrong-proof", terminalFailureProof: { requestKey: "other", reservationId: "transport-uncertain.reservation", receiptEnvelopeId: "transport-uncertain.envelope" } }), /verified terminal dispatch failure/u);
+    const recoveredTransport = resumeNuwaN1Run({ ...base, expectedRevision: unavailable.revision, operationId: "budget-recovery.resume-after-unavailable", terminalFailureProof: { requestKey: "budget-recovery.transport-uncertain", reservationId: "transport-uncertain.reservation", receiptEnvelopeId: "transport-uncertain.envelope" } });
+    assert.equal(recoveredTransport.lifecycle, "running");
+    assert.deepEqual(recoveredTransport.steps.map((step) => step.stepId), second.steps.map((step) => step.stepId));
+  });
+});
+
 test("N1 pause wins over an in-flight continuation from its pre-dispatch revision", async () => {
   await withRun(async ({ workspace, run }) => {
     const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "operation.n1.start" });
@@ -489,5 +651,98 @@ test("N1 handoff operation binds its selected-step payload exactly", async () =>
     const replayed = prepareNuwaN1CandidateHandoff({ workspacePath: workspace, runId: run.runId, expectedRevision: handed.run.revision, operationId: "operation.n1.handoff.bound", selectedStepIds: selected });
     assert.deepEqual(replayed.handoff, handed.handoff);
     assert.throws(() => prepareNuwaN1CandidateHandoff({ workspacePath: workspace, runId: run.runId, expectedRevision: handed.run.revision, operationId: "operation.n1.handoff.bound", selectedStepIds: [second.steps[1]!.stepId] }), /payload does not match/u);
+  });
+});
+
+
+test("director execution reaches the Pi request for consecutive turns, replaces only on adoption, expires and never teaches a secret", async () => {
+  await withRun(async ({ workspace, run }) => {
+    let current = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "focus.start" });
+    const requests: Array<{ prompt: string; payload: any }> = [];
+    const pi = createNuwaN1PiAdapter({
+      runtime: { async run(input: any) {
+        if (input.requiredToolName === "read_director_brief") {
+          const { brief } = await input.tools[0].execute({ toolCallId: "director.read", arguments: {} });
+          return { text: JSON.stringify({ understood: "理解作者要求", proposedAdjustment: "立即指定角色揭露凶手", scope: "任意场景", focus: brief.instruction.includes("观察") ? ["advance-observation"] : ["preserve-uncertainty"], unsupported: ["指定角色揭露凶手未执行"] }), usage: { promptTokens: 10, completionTokens: 10 } };
+        }
+        const payload = await input.tools[0].execute({ toolCallId: "role.read", arguments: {} });
+        requests.push({ prompt: input.prompt, payload });
+        return { text: JSON.stringify({ intent: "观察", speech: null, heardByActorIds: [], action: { action: "observe", targetId: null }, observableResult: "保持观察" }), usage: { promptTokens: 10, completionTokens: 10 } };
+      } },
+      projectId: "synthetic", runId: run.runId, actorIds: run.actors.map((a) => a.character.id),
+      provider: { providerId: "fake", profileId: "fake", modelId: "fake" },
+      sourceIdentity: { kind: "unversioned-draft", workVersionId: "synthetic", revision: "unversioned" },
+      async openProviderStream() { throw new Error("local fake runtime only"); }
+    });
+    const suggest = async (id: string, focus: string[]) => {
+      current = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: id, instruction: `${focus.includes("advance-observation") ? "先观察已有可感知内容" : "保留不确定性"}。指定角色揭露凶手 SECRET_DIRECTOR_CANARY`, adapterId: "fake" });
+      current = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: id, suggestion: await pi.suggestDirector(directorBrief(current)) });
+    };
+    const adopt = (id: string) => { current = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: id, decision: "adopt" }); };
+    const step = async (id: string) => { current = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: id, adapter: pi }); };
+    await suggest("focus.first", ["preserve-uncertainty"]);
+    assert.doesNotMatch(current.directorAdjustment!.proposedAdjustment!, /揭露凶手/);
+    await step("focus.unadopted");
+    assert.match(requests[0]!.prompt, /没有已采纳/);
+    // Source step changed, so request a fresh suggestion.
+    await suggest("focus.fresh", ["preserve-uncertainty"]);
+    adopt("focus.adopt");
+    await step("focus.one");
+    const firstReceipt = current.directorAdjustment!.appliedStepId;
+    await step("focus.two");
+    assert.equal(current.directorAdjustment!.appliedStepId, firstReceipt);
+    for (const request of requests.slice(1)) assert.match(request.prompt, /对缺少依据的判断保持怀疑或未知/);
+    current = pauseNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "focus.pause" });
+    current = readNuwaN1Run(workspace, run.runId)!;
+    current = resumeNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "focus.resume" });
+    await suggest("focus.replacement", ["advance-observation"]);
+    assert.deepEqual(compileNuwaN1Context(current, current.actors[0]!, "focus.pending").directorFocus, ["preserve-uncertainty"], "unadopted replacement leaves active guidance intact");
+    assert.ok(current.directorHistory.some((item) => item.operationId === "focus.fresh"));
+    adopt("focus.replace");
+    await step("focus.observation");
+    assert.match(requests.at(-1)!.prompt, /先观察已有可感知内容/);
+    assert.doesNotMatch(requests.at(-1)!.prompt, /对缺少依据的判断保持怀疑或未知/);
+    assert.doesNotMatch(JSON.stringify(requests), /SECRET_DIRECTOR_CANARY|揭露凶手|unsupported|understood/);
+    await step("focus.five");
+    assert.ok(current.dispatches > 12, "local tool bookkeeping is not the actual Provider send budget");
+    assert.equal(readNuwaN1Run(workspace, run.runId)!.providerDispatches, 0, "fake runtime never consumes or expands real Provider quota");
+    current = cancelNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "focus.stop" });
+    assert.deepEqual(compileNuwaN1Context(current, current.actors[0]!, "focus.ended").directorFocus, []);
+  });
+});
+
+test("director focus expires on the scene boundary and unsupported requests never become a default label", async () => {
+  const scene = (id: string) => ({ storyUnit: { id, revision }, sceneRef: { id: `scene.${id}`, revision }, observedAt: "world-time.23:00", label: id });
+  await withRun(async ({ workspace, run }) => {
+    let current = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: run.revision, operationId: "scene.start" });
+    current = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "scene.suggest", instruction: "先观察", adapterId: "fake" });
+    current = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "scene.suggest", suggestion: { understood: "观察", proposedAdjustment: "观察", scope: "本场", focus: ["advance-observation"], unsupported: [] } });
+    current = decideNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "scene.adopt", decision: "adopt" });
+    const observed = { contexts: [] as any[], calls: [] as number[] };
+    for (let i = 0; i < 3; i++) current = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: `scene.step.${i}`, adapter: adapter(observed) });
+    assert.deepEqual(observed.contexts.map((context) => context.directorFocus), [["advance-observation"], ["advance-observation"], []]);
+    assert.equal(readNuwaN1Run(workspace, run.runId)!.directorAdjustment!.status, "expired");
+    current = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, expectedRevision: current.revision, operationId: "scene.unsupported", instruction: "改写角色记忆", adapterId: "fake" });
+    current = completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: run.runId, operationId: "scene.unsupported", suggestion: { understood: "改记忆", proposedAdjustment: "无", scope: "无", focus: [], unsupported: ["不支持改写角色记忆"] } });
+    assert.equal(current.directorAdjustment!.status, "failed");
+    assert.match(current.directorAdjustment!.failure!, /未执行.*记忆/);
+    assert.deepEqual(compileNuwaN1Context(current, current.actors[0]!, "scene.none").directorFocus, []);
+  }, fixtureActors(), { version: "tianyan-nuwa-n1-scope/v1", mode: "bounded", storylineKey: "two-scenes", storylineLabel: "两场", currentSceneIndex: 0, scenes: [scene("unit.first"), scene("unit.second")] });
+});
+
+
+test("N1 private narration stays available for author candidate review but never enters role context", async () => {
+  await withRun(async ({ workspace, run }) => {
+    const running = startNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: 1, operationId: "private.start" });
+    const fake = adapter({ contexts: [], calls: [] });
+    fake.continueAfterTool = async ({ context }) => ({ type: "actor-result", actor: context.actor, intent: "心里藏着青鹭七号", speech: null, heardByActorIds: [], action: { action: "observe", targetId: null }, observableResult: "蓝匣暗码青鹭七号的事我记在心里，但先不说破。", usage: { inputTokens: 20, outputTokens: 20 } });
+    const stepped = await advanceNuwaN1Run({ workspacePath: workspace, runId: run.runId, expectedRevision: running.revision, operationId: "private.step", adapter: fake });
+    assert.match(stepped.steps[0]!.observableResult, /青鹭七号/u);
+    assert.deepEqual(stepped.steps[0]!.heardStatements, []);
+    assert.doesNotMatch(JSON.stringify(compileNuwaN1Context(stepped, stepped.actors[1]!, "private.context")), /青鹭七号/u);
+    const { handoff } = prepareNuwaN1CandidateHandoff({ workspacePath: workspace, runId: run.runId, expectedRevision: stepped.revision, operationId: "private.handoff", selectedStepIds: [stepped.steps[0]!.stepId] });
+    assert.match(handoff.candidates[0]!.observedResult, /青鹭七号/u);
+    assert.doesNotMatch(handoff.candidates[0]!.summary, /青鹭七号/u);
+    assert.equal(handoff.candidates[0]!.action, "observe");
   });
 });

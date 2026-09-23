@@ -57,12 +57,14 @@ test("graph leaves dimension switching to the named workspace navigation", () =>
   assert.match(graph, /<Focus \/><span>聚焦当前<\/span>/u);
 });
 
-test("one five-state right work surface arbitrates page inspectors, creation, review, and Tianyi", () => {
+test("one Surface coordinator arbitrates Event Line inspection, creation, review, and Tianyi", () => {
   assert.match(coordinator, /"NONE",\s*"EVENT_DETAILS",\s*"EVENT_CREATE",\s*"RELATION_REVIEW",\s*"TIANYI"/u);
   assert.match(shell, /rightWorkSurface\.mode === "TIANYI"/u);
-  assert.match(workspace, /activeLens === "create" \? "EVENT_CREATE"/u);
-  assert.match(workspace, /activeLens === "review" \? "RELATION_REVIEW"/u);
-  assert.match(graph, /useWorkspaceDockSlot/u);
+  assert.match(workspace, /activeLens === "create" \? "creation-surface"/u);
+  assert.match(workspace, /activeLens === "review" \? "relation-review"/u);
+  assert.match(workspace, /state=\{\{ \.\.\.dockState, open: eventLineSurfaceOpen \}\}/u);
+  assert.match(workspace, /setDockState\(\{ \.\.\.next, open: false \}\)/u);
+  assert.match(graph, /useWorkspaceSurface/u);
   assert.doesNotMatch(graph, /setInspectorOpen|useState\(Boolean\(props\.selectedEventId\)\)/u);
   assert.doesNotMatch(dockLayout, /isTianyiOpen|setTianyiOpen/u);
   assert.doesNotMatch(workspace, /event-line-simulation-entry/u);

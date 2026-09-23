@@ -108,7 +108,7 @@ import {
 import { createDeterministicStoryStudioAgentDraft } from "../../../src/storyContracts/storyStudioAgentDraft.ts";
 import { createTianyiAgentRuntimePort, validateTianyiAgentToolCall } from "../../../src/storyAgent/tianyiAgentRuntimePort.ts";
 import { parseStoryIntakeRequest } from "../../../src/storyContracts/storyIntakeEnvelope.ts";
-import { createStoryIntakeProposalTool } from "../../../src/storyAgent/storyIntakeTool.ts";
+import { assertStoryIntakeProviderTurn, createStoryIntakeProposalTool } from "../../../src/storyAgent/storyIntakeTool.ts";
 import { agentRuntimePluginStatusProjection, createAgentRuntimePluginRegistry } from "../../../src/storyAgent/agentRuntimePluginRegistry.ts";
 import { BUILTIN_PI_AGENT_RUNTIME_PLUGIN_ID, createBuiltinPiAgentRuntimePlugin } from "../../../src/storyAgent/plugins/builtinPiAgentRuntimePlugin.ts";
 import { createCharacterStateImpactFixtureAdapter } from "./characterStateImpactFixture.mjs";
@@ -213,6 +213,16 @@ const nuwaN1Port = createNuwaN1Port({
   sourceIdentityForProject: nuwaN1SourceIdentity,
   fakeProviderAllowed: process.env.NODE_ENV !== "production" && process.env.TIANYAN_NUWA_N1_FAKE_PROVIDER === "1",
   fakeStepDelayMs: process.env.NODE_ENV === "test" ? Math.min(5_000, Math.max(0, Number(process.env.TIANYAN_NUWA_N1_FAKE_STEP_DELAY_MS || "0") || 0)) : 0,
+  verifyTransportFailure(dispatch) {
+    if (!dispatch?.requestKey || !dispatch?.reservationId || !dispatch?.receiptEnvelopeId) return false;
+    const receipt = replaySafeProviderReceiptEnvelopeStore.read({ envelopeId: dispatch.receiptEnvelopeId });
+    const envelope = receipt.status === "ready" ? receipt.envelope : null;
+    const reservation = providerBudgetLedger.reservationForIdempotencyKey(dispatch.requestKey);
+    return envelope?.budgetReservationId === dispatch.reservationId
+      && envelope.replayStatus === "transport_failed" && envelope.errorClassification === "unavailable"
+      && !envelope.frozenResponseId && !envelope.frozenResponseHash && Boolean(envelope.completedAt)
+      && reservation?.reservationId === dispatch.reservationId && reservation.outcome === "transport-failed" && Boolean(reservation.completedAt);
+  },
   piAdapterFactory: {
     availability() { return nuwaN1PiAvailability(); },
     create({ projectId, runId, sourceIdentity, actorIds, onProviderLifecycle }) {
@@ -230,11 +240,17 @@ const nuwaN1Port = createNuwaN1Port({
         ? nuwaN1LocalHostProfile
         : providerGateway.metadata().profiles.find((candidate) => candidate.providerId === profile?.provider && candidate.modelId === profile?.modelId);
       if (!profile || !gatewayProfile) return null;
+      const isolatedRoleVerification = projectId === process.env.TIANYAN_NUWA_N1_ROLE_VERIFICATION_PROJECT_ID;
+      const roleMaxOutputTokens = isolatedRoleVerification ? Number(process.env.TIANYAN_NUWA_N1_ROLE_VERIFICATION_OUTPUT_TOKENS) : 512;
+      const roleTimeoutMs = isolatedRoleVerification ? Number(process.env.TIANYAN_NUWA_N1_ROLE_VERIFICATION_TIMEOUT_MS) : null;
+      if (isolatedRoleVerification && (!Number.isSafeInteger(roleMaxOutputTokens) || roleMaxOutputTokens < 1 || roleMaxOutputTokens > gatewayProfile.maxOutputTokens || !Number.isSafeInteger(roleTimeoutMs) || roleTimeoutMs < 50 || roleTimeoutMs > 120_000)) throw new Error("Nuwa N1 isolated role verification limits are invalid.");
       return createNuwaN1PiAdapter({
         runtime: agentRuntimePluginResolution.runtime,
         projectId,
         runId,
         actorIds,
+        roleMaxOutputTokens,
+        directorMaxOutputTokens: Math.min(2_400, gatewayProfile.maxOutputTokens),
         provider: { providerId: profile.provider, profileId: profile.id, modelId: profile.modelId },
         sourceIdentity,
         onProviderLifecycle,
@@ -245,7 +261,8 @@ const nuwaN1Port = createNuwaN1Port({
             messages: providerInput.messages,
             tools: providerInput.tools,
             toolChoice: providerInput.toolChoice,
-            maxOutputTokens: 512,
+            maxOutputTokens: Math.min(providerInput.maxOutputTokens, gatewayProfile.maxOutputTokens),
+            ...(isolatedRoleVerification ? { timeoutMs: roleTimeoutMs } : {}),
             signal: providerInput.signal,
             // Pi restarts its providerCall ordinal for every actor attempt.
             // agentRunId contains the durable N1 attempt identity, so a retry
@@ -268,7 +285,8 @@ const nuwaN1Port = createNuwaN1Port({
               operationId: requestKey,
               providerProfileRevision: sourceIdentity.revision
             },
-            onProviderLifecycle: providerInput.onProviderLifecycle
+            onProviderLifecycle: providerInput.onProviderLifecycle,
+            onRequestShape: providerInput.onRequestShape
           });
         }
       });
@@ -715,7 +733,9 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const storyIntakePrompt = storyIntakeContext ? [
       "请只根据下方已保存的作者原话进行结构化识别。",
       "必须恰好调用一次 propose_story_intake；正式候选仅来自该工具。",
-      "sourceSpan.excerpt 必须是原文中逐字存在的连续片段。uncertainties 必须非空，不得伪装确定性。",
+      "严格遵守类型字段：character/item/location 填 proposedName、proposedTitle 为 null；其他类型填 proposedTitle、proposedName 为 null。仅 narrative_path_membership 的 narrativePath 可填对象，其他类型为 null。",
+      "proposedRelations.targetLocalRef 只能指向本次 candidates 内的 localRef；要引用已有角色，先提出带 existingEntityId 和 link_existing 的角色候选，再引用其 localRef。没有充分依据的关系留空，不臆造。",
+      "sourceSpan.excerpt 必须是原文中逐字存在的连续片段，包括标点。不要把分号改为句号，不要补写句末标点；可以直接选取不含句末标点的短片段。uncertainties 必须非空，不得伪装确定性。",
       "Event 是世界中发生的稳定事实；story_unit 是作者组织故事的叙事单元；narrative_path_membership 只表示 Event/StoryUnit 在同版本故事路径中的成员关系。三者不得混同。",
       "摘要中要保留知情边界：亲历、被告知、推断、误解必须分开表达；误解不是 Canon。",
       existingEntities.length
@@ -744,6 +764,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       requiredToolName: storyIntakeContext ? "propose_story_intake" : null,
       authorizeTool: input.authorizeTool,
       async openProviderStream(providerInput) {
+        if (storyIntakeContext) assertStoryIntakeProviderTurn(providerInput.providerCall, !!capturedStoryIntakeEnvelope);
         if (agentFakeProviderStreamAllowed && storyIntakeContext) {
           if (providerInput.providerCall === 1 && !observedFakeStoryIntakeRunIds.has(input.runId)) observedFakeStoryIntakeRunIds.add(input.runId);
           const fakeRunOrdinal = [...observedFakeStoryIntakeRunIds].indexOf(input.runId) + 1;
@@ -1125,6 +1146,13 @@ async function handleProductRequest(request, response, url) {
     const body = await readJsonBody(request);
     requireAllowedKeys(body, ["title", "folderSlug", "genre", "ambience"]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createProject(body)) });
+    return;
+  }
+  if (request.method === "POST" && pathname === "/__local/story-studio/projects/rename") {
+    requireToken(request);
+    const body = await readJsonBody(request);
+    requireAllowedKeys(body, ["projectId", "title", "expectedTitle"]);
+    sendJson(response, 200, { data: runProductOperation(() => operations.renameProject(body)) });
     return;
   }
   if (request.method === "POST" && pathname === "/__local/story-studio/projects/open") {
@@ -2098,7 +2126,7 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "POST" && pathname === "/__local/story-studio/planning-events/create") {
     requireToken(request);
     const body = await readJsonBody(request);
-    requireAllowedKeys(body, ["projectId", "title", "body", "tags", "operationId"]);
+    requireAllowedKeys(body, ["projectId", "title", "body", "tags", "knowledgeSubjects", "operationId"]);
     recordAuthorInitiatedAction(body.projectId, "event-impact-review", "event", [body.title]);
     sendJson(response, 201, { data: runProductOperation(() => operations.createPlanningEvent(body)) });
     return;
@@ -2541,7 +2569,12 @@ async function handleProductRequest(request, response, url) {
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/candidate-review") {
     const projectId = requireQueryValue(url, "projectId");
     const reviewId = String(url.searchParams.get("reviewId") || "").trim();
-    sendJson(response, 200, { data: runProductOperation(() => authorControl.readCandidateReview({ projectId, ...(reviewId ? { reviewId } : {}) })) });
+    const conversationId = url.searchParams.get("conversationId");
+    sendJson(response, 200, { data: runProductOperation(() => {
+      if (!conversationId || reviewId) return authorControl.readCandidateReview({ projectId, ...(reviewId ? { reviewId } : {}) });
+      const runIds = new Set(nuwaN1Port.bootstrap(projectId).runs.filter((run) => run.conversationId === conversationId).map((run) => run.runId));
+      return authorControl.listCandidateReviews({ projectId }).find((review) => runIds.has(review.result.nuwaRunId)) ?? null;
+    }) });
     return;
   }
   if (request.method === "GET" && pathname === "/__local/story-studio/author-control/character-state-fixture") {
@@ -4242,7 +4275,7 @@ async function handleNuwaN1Request(request, response, url) {
       return;
     }
     if (route === "latest") {
-      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.latest(requireQueryValue(url, "projectId"))) });
+      sendJson(response, 200, { data: runProductOperation(() => nuwaN1Port.latest(requireQueryValue(url, "projectId"), url.searchParams.get("conversationId"))) });
       return;
     }
     if (route === "read") {
@@ -4255,7 +4288,7 @@ async function handleNuwaN1Request(request, response, url) {
   requireToken(request);
   const body = await readJsonBody(request, MAX_CONTINUITY_JSON_BODY_BYTES);
   if (route === "setup" || route === "create") {
-    requireAllowedKeys(body, ["projectId", "participants", "storyUnit", "scope", "goal", "relationTypeId", "operationId", "workVersionId"]);
+    requireAllowedKeys(body, ["projectId", "conversationId", "participants", "storyUnit", "scope", "goal", "relationTypeId", "operationId", "workVersionId"]);
     const result = await runAsyncProductOperation(() => route === "setup" ? nuwaN1Port.setup(body) : nuwaN1Port.create(body));
     if (route === "create") recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-run", [result.run.runId], "author");
     sendJson(response, route === "create" ? 201 : 200, { data: result });
@@ -4295,9 +4328,23 @@ async function handleNuwaN1Request(request, response, url) {
     return;
   }
   if (route === "cue") {
-    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "instruction"]);
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "instruction", "addressee"]);
     const result = runProductOperation(() => nuwaN1Port.cue(body));
     recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-cue", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "director-suggest") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "instruction"]);
+    const result = await runAsyncProductOperation(() => nuwaN1Port.directorSuggest(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", "nuwa-n1-director-suggest", [body.runId], "author");
+    sendJson(response, 200, { data: result });
+    return;
+  }
+  if (route === "director-decide") {
+    requireAllowedKeys(body, ["projectId", "runId", "expectedRevision", "operationId", "decision"]);
+    const result = runProductOperation(() => nuwaN1Port.directorDecide(body));
+    recordAuthorInitiatedAction(body.projectId, "rehearsal-run", `nuwa-n1-director-${body.decision}`, [body.runId], "author");
     sendJson(response, 200, { data: result });
     return;
   }
@@ -4708,10 +4755,30 @@ async function handleTianyiAgentRuntimeRequest(request, response, url) {
     sendJson(response, 200, { data: await tianyiAgentRuntime.decideStoryIntakeCandidate(body) });
     return;
   }
+  if (route === "story-intake/knowledge/preview") {
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "runId", "candidateId"]);
+    requireProject(body.projectId);
+    sendJson(response, 200, { data: await storyIntakeBatchPort.previewKnowledge(body) });
+    return;
+  }
+  if (route === "story-intake/knowledge/confirm") {
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "runId", "candidateId", "observerIds", "expectedEventRevision"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "library-write", "story-intake-knowledge-confirm", [body.candidateId], "author");
+    sendJson(response, 200, { data: await storyIntakeBatchPort.confirmKnowledge(body) });
+    return;
+  }
   if (route === "story-intake/batch/preview") {
     requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "runId", "candidateIds", "excludedRelationKeys", "relationBindings", "entityBindings", "position"]);
     requireProject(body.projectId);
     sendJson(response, 200, { data: await storyIntakeBatchPort.preview(body) });
+    return;
+  }
+  if (route === "story-intake/batch/prepare-version") {
+    requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "runId", "action", "selectedWorkVersionId", "operationId"]);
+    requireProject(body.projectId);
+    recordAuthorInitiatedAction(body.projectId, "draft-write", "story-intake-version-choice", [String(body.selectedWorkVersionId || body.projectId)], "author");
+    sendJson(response, 200, { data: await storyIntakeBatchPort.prepareVersion(body) });
     return;
   }
   if (route === "story-intake/batch/confirm") {
@@ -4787,6 +4854,7 @@ async function handleTianyiRequest(request, response, url) {
     "memory-candidate/decide": [["projectId", "sessionId", "candidateId", "operationId", "decision", "edits", "secondConfirmation", "createProjectGrant", "contextRequest"], () => tianyi.decideTianyiMemoryCandidate(body)],
     "stopping-point/decide": [["projectId", "sessionId", "candidateId", "operationId", "decision", "contextRequest"], () => tianyi.decideTianyiStoppingPointCandidate(body)],
     "session/finalize-close": [["projectId", "sessionId", "operationId"], () => tianyi.finalizeTianyiSessionClose(body)],
+    "session/rename": [["projectId", "sessionId", "title", "operationId", "expectedContentHash"], () => tianyi.renameTianyiSession(body)],
     "session/metadata": [["projectId", "sessionId"], () => tianyi.readTianyiSessionMetadata(body)],
     "grounded-answer/read": [["projectId", "sessionId", "questionAttemptKey"], () => tianyi.readTianyiGroundedAnswer(body)],
     "session/events": [["projectId", "sessionId", "startSequence", "limit"], () => tianyi.readTianyiSessionEvents(body)],

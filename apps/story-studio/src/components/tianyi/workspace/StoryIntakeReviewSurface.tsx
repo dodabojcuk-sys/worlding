@@ -1,9 +1,12 @@
 import { ArrowRight, Check, FileText, MessageSquareText } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import type { StoryIntakeCandidateProjection, StoryIntakeLifecycleStatusProjection, TianyiAgentRunProjection } from "../../../lib/localTransport";
+import { confirmTianyiStoryIntakeKnowledge, previewTianyiStoryIntakeKnowledge, type StoryIntakeCandidateProjection, type StoryIntakeKnowledgePreview, type StoryIntakeLifecycleStatusProjection, type TianyiAgentRunProjection } from "../../../lib/localTransport";
+import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
 
 export function StoryIntakeReviewSurface(props: {
   run: TianyiAgentRunProjection;
+  runtime: TianyanShellRuntimeState;
   selectedCandidateIds: readonly string[];
   focusedCandidateId: string | null;
   busy: boolean;
@@ -35,6 +38,7 @@ export function StoryIntakeReviewSurface(props: {
     </div>
 
     {focused ? <details className="story-intake-evidence-compact"><summary>当前候选原文与来源</summary><blockquote>{focused.sourceSpan.excerpt}</blockquote><span>对话记录 · 字符 {focused.sourceSpan.start}–{focused.sourceSpan.end} · 基础版本 r{focused.baseVersion.revision}</span></details> : null}
+    {focused?.type === "event" && focused.lifecycleStatus === "confirmed" ? <StoryIntakeKnowledgeReview run={props.run} runtime={props.runtime} candidateId={focused.candidateId} /> : null}
 
     <div className="story-intake-review-layout">
       <div className="story-intake-ledger" role="list" aria-label="本批故事候选">
@@ -67,6 +71,38 @@ export function StoryIntakeReviewSurface(props: {
       <div><strong>已选 {selected.size} 项</strong>{selected.size ? <button type="button" onClick={() => selected.forEach((candidateId) => props.onToggle(candidateId))}>清空选择</button> : <span>未选择时将进入当前候选</span>}</div>
       <button type="button" disabled={scope.length === 0 || props.busy} onClick={() => props.onEnterWork(scope)}><FileText />查看 {scope.length} 项影响<ArrowRight /></button>
     </footer>
+  </section>;
+}
+
+function StoryIntakeKnowledgeReview(props: { run: TianyiAgentRunProjection; runtime: TianyanShellRuntimeState; candidateId: string }) {
+  const [preview, setPreview] = useState<StoryIntakeKnowledgePreview | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setPreview(null); setError("");
+    void props.runtime.withConnection((token) => previewTianyiStoryIntakeKnowledge({ projectId: props.run.projectId, workVersionId: props.run.workVersionId, sessionId: props.run.sessionId, runId: props.run.runId, candidateId: props.candidateId, token }))
+      .then((result) => { if (active) { setPreview(result); setSelected(result.confirmedObserverIds.length ? result.confirmedObserverIds : result.observers.map((observer) => observer.id)); } })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "知情候选读取失败。"); });
+    return () => { active = false; };
+  }, [props.candidateId, props.run.projectId, props.run.runId, props.runtime]);
+  const confirm = async () => {
+    if (!preview || busy) return;
+    setBusy(true); setError("");
+    try {
+      const result = await props.runtime.withConnection((token) => confirmTianyiStoryIntakeKnowledge({ projectId: props.run.projectId, workVersionId: props.run.workVersionId, sessionId: props.run.sessionId, runId: props.run.runId, candidateId: props.candidateId, observerIds: selected, expectedEventRevision: preview.eventRevision, token }));
+      setPreview(result);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "知情确认失败。"); }
+    finally { setBusy(false); }
+  };
+  return <section aria-label="共同观察知情审阅"><strong>共同观察 · 待作者确认</strong>
+    {preview ? <><p>事实：{preview.fact}</p><blockquote>{preview.excerpt}</blockquote><small>来源消息：{preview.source}</small>
+      <div>{preview.observers.map((observer) => <label key={observer.id}><input type="checkbox" checked={selected.includes(observer.id)} disabled={busy || preview.confirmedObserverIds.length > 0} onChange={() => setSelected((ids) => ids.includes(observer.id) ? ids.filter((id) => id !== observer.id) : [...ids, observer.id])} />{observer.label}</label>)}</div>
+      <p>只确认上述观察；灯闪的原因仍未知。已确认 {preview.confirmedObserverIds.length}/{preview.observers.length} 人。</p>
+      {preview.confirmedObserverIds.length === 0 ? <button type="button" disabled={busy || selected.length === 0} onClick={() => void confirm()}>确认所选角色目击</button> : null}
+    </> : !error ? <p>正在核对原候选和正式 Event……</p> : null}
+    {error ? <p role="alert">{error}</p> : null}
   </section>;
 }
 

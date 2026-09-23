@@ -746,7 +746,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
     const salt = projectionSalt({ projectId, sourceGeneration });
     const slices = {
       project: projectionSlice("project", [`project:${project.id}`], { projectId: project.id, title: project.title }),
-      "story-structure": projectionSlice("story-structure", storyUnits.length ? storyUnits.map((unit) => `story-unit:${unit.id}`) : [`story-structure:${project.id}:empty`], { storyUnits: storyUnits.map((unit) => ({ id: unit.id, version: unit.version })), ...(salt ? { projectionSalt: salt } : {}) }),
+      "story-structure": projectionSlice("story-structure", storyUnits.length ? storyUnits.map((unit) => `story-unit:${unit.id}`) : [`story-structure:${project.id}:empty`], { ...(storyUnits.length ? {} : { state: "empty" }), storyUnits: storyUnits.map((unit) => ({ id: unit.id, version: unit.version })), ...(salt ? { projectionSalt: salt } : {}) }),
       // Canon verification can legitimately yield no Event on a new project.
       // Keep that explicit empty slice hashable; an empty array alone has no
       // scalar evidence for the strict snapshot resolver.
@@ -755,7 +755,7 @@ export function createCreationSourceSelectionPort({ operations, relationOperatio
       // existing Character State owner still supplies a complete, explicit
       // empty projection; an empty array alone is not a valid digest input.
       "character-state": projectionSlice("character-state", characters.length ? characters.map((item) => `character:${item.id}`) : [`character-state:${project.id}:empty`], { state: characters.length ? "present" : "empty", characters: characters.map((item) => ({ id: item.id, revision: item.revisionToken })) }),
-      "world-state": projectionSlice("world-state", worldObjects.length ? worldObjects.map((item) => `world-object:${item.id}`) : [`world-state:${project.id}:empty`], { objects: worldObjects.map((item) => ({ id: item.id, type: item.type, revision: item.revisionToken, status: item.status })) }),
+      "world-state": projectionSlice("world-state", worldObjects.length ? worldObjects.map((item) => `world-object:${item.id}`) : [`world-state:${project.id}:empty`], { ...(worldObjects.length ? {} : { state: "empty" }), objects: worldObjects.map((item) => ({ id: item.id, type: item.type, revision: item.revisionToken, status: item.status })) }),
       relation: projectionSlice("relation", relations.length ? relations.map((item) => `relation:${item.relationId}`) : [`relation:${project.id}:empty`], { repositoryVersion: relationsRead.repositoryVersion, repositoryRevision: relationsRead.repositoryRevision, relations: relations.map((item) => ({ id: item.relationId, revision: item.revision, archived: item.archived })) }),
       canon: projectionSlice("canon", canonEventIds.length ? canonEventIds.map((id) => `canon-event:${id}`) : [`canon:${project.id}:empty`], { verifiedEventIds: canonEventIds, invalidRecordCount: verifiedCanon?.status === "ready" ? verifiedCanon.invalidRecordCount : 0 }),
       "source-anchors": projectionSlice("source-anchors", anchors.length ? anchors : [`source-anchors:${project.id}:empty`], { state: anchors.length ? "present" : "empty", anchors, ...(salt ? { projectionSalt: salt } : {}) }),

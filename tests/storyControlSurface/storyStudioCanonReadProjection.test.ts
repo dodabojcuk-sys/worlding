@@ -272,6 +272,188 @@ test("Event Canon certification rejects non-Owner claims and preserves authority
   });
 });
 
+test("WorldState Canon certification admits exact root and derived slices without fallback", () => {
+  const fixture = createFixture("world-state-certification");
+  try {
+    const versions = createVersions(fixture.projectPath);
+    const gate = fixture.workspace.createWorldObject({ projectId: fixture.projectId, type: "location", title: "北闸" });
+    const rootEvent = createVerifiedCanon(fixture, "主线北闸封闭", versions.root.identity.workVersionId);
+    fixture.workspace.applyWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: gate.id,
+      workVersionId: versions.root.identity.workVersionId,
+      expectedObjectRevision: gate.revisionToken,
+      expectedRevision: 0,
+      operationId: "world-state-certification.root.closed",
+      effectiveAt: "2026-09-20T01:00:00.000Z",
+      value: { kind: "passage", state: "closed" },
+      evidence: { kind: "confirmed-event", event: { id: rootEvent.canon.id, revision: rootEvent.canon.revisionToken } },
+      now: "2026-09-20T01:00:01.000Z"
+    });
+    const rootSubject = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: gate.id });
+    const subjectPath = path.join(fixture.projectPath, rootSubject.relativeId);
+    const beforeCertificationHash = fileHash(subjectPath);
+    const rootCertification = fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.root.identity.workVersionId,
+      objectId: gate.id,
+      observedAt: "2026-09-20T01:00:02.000Z",
+      expectedRevision: rootSubject.revisionToken
+    });
+    assert.equal(rootCertification.authorityClass, "canon");
+    assert.equal(rootCertification.revision, rootSubject.revisionToken);
+    assert.equal(rootCertification.eventEvidence?.eventId, rootEvent.canon.id);
+    assert.deepEqual(rootCertification.admissionResult, { status: "admitted", code: "verified-owner-admission" });
+    assert.deepEqual(rootCertification.eventEvidence?.certification.admissionResult, { status: "admitted", code: "verified-owner-admission" });
+    assert.equal(fileHash(subjectPath), beforeCertificationHash, "WorldState certification must not rewrite its Owner object");
+
+    assert.throws(() => fixture.workspace.readWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: gate.id,
+      workVersionId: versions.derived.identity.workVersionId,
+      observedAt: "2026-09-20T01:00:02.000Z"
+    }), /slice does not exist.*derived WorkVersion/i);
+    assert.deepEqual(fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.derived.identity.workVersionId,
+      objectId: gate.id,
+      observedAt: "2026-09-20T01:00:02.000Z"
+    }).admissionResult, { status: "rejected", code: "derived-slice-missing" });
+
+    fixture.workspace.forkWorldStateN4({
+      projectId: fixture.projectId,
+      parentWorkVersionId: versions.root.identity.workVersionId,
+      childWorkVersionId: versions.derived.identity.workVersionId,
+      operationId: "world-state-certification.fork"
+    });
+    assert.deepEqual(fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.derived.identity.workVersionId,
+      objectId: gate.id,
+      observedAt: "2026-09-20T01:00:02.000Z"
+    }).admissionResult, { status: "rejected", code: "event-evidence-rejected" }, "a copied root Event cannot masquerade as derived evidence");
+
+    const derivedEvent = createVerifiedCanon(fixture, "IF 北闸重开", versions.derived.identity.workVersionId);
+    const forkedSubject = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: gate.id });
+    fixture.workspace.applyWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: gate.id,
+      workVersionId: versions.derived.identity.workVersionId,
+      expectedObjectRevision: forkedSubject.revisionToken,
+      expectedRevision: 1,
+      operationId: "world-state-certification.derived.open",
+      effectiveAt: "2026-09-20T01:01:00.000Z",
+      value: { kind: "passage", state: "open" },
+      evidence: { kind: "confirmed-event", event: { id: derivedEvent.canon.id, revision: derivedEvent.canon.revisionToken } },
+      now: "2026-09-20T01:01:01.000Z"
+    });
+    const derivedSubject = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: gate.id });
+    const derivedCertification = fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.derived.identity.workVersionId,
+      objectId: gate.id,
+      observedAt: "2026-09-20T01:01:02.000Z",
+      expectedRevision: derivedSubject.revisionToken
+    });
+    assert.equal(derivedCertification.authorityClass, "derived-canon");
+    assert.equal(derivedCertification.eventEvidence?.eventId, derivedEvent.canon.id);
+    assert.deepEqual(derivedCertification.admissionResult, { status: "admitted", code: "verified-owner-admission" });
+
+    const mixedGate = fixture.workspace.createWorldObject({ projectId: fixture.projectId, type: "location", title: "南闸" });
+    fixture.workspace.applyWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: mixedGate.id,
+      workVersionId: versions.root.identity.workVersionId,
+      expectedObjectRevision: mixedGate.revisionToken,
+      expectedRevision: 0,
+      operationId: "world-state-certification.root-derived-mix",
+      effectiveAt: "2026-09-20T01:02:00.000Z",
+      value: { kind: "passage", state: "open" },
+      evidence: { kind: "confirmed-event", event: { id: derivedEvent.canon.id, revision: derivedEvent.canon.revisionToken } },
+      now: "2026-09-20T01:02:01.000Z"
+    });
+    assert.deepEqual(fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.root.identity.workVersionId,
+      objectId: mixedGate.id,
+      observedAt: "2026-09-20T01:02:02.000Z"
+    }).admissionResult, { status: "rejected", code: "event-evidence-rejected" });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("WorldState Canon certification rejects fake evidence and revision drift", () => {
+  const fixture = createFixture("world-state-certification-rejections");
+  try {
+    const versions = createVersions(fixture.projectPath);
+    const gate = fixture.workspace.createWorldObject({ projectId: fixture.projectId, type: "location", title: "伪造证据北闸" });
+    const fakeEvent = fixture.workspace.createWorldObject({
+      projectId: fixture.projectId,
+      type: "event",
+      title: "伪造已确认事件",
+      status: "committed",
+      tags: ["作者确认"]
+    });
+    fixture.workspace.applyWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: gate.id,
+      workVersionId: versions.root.identity.workVersionId,
+      expectedObjectRevision: gate.revisionToken,
+      expectedRevision: 0,
+      operationId: "world-state-certification.fake-evidence",
+      effectiveAt: "2026-09-20T02:00:00.000Z",
+      value: { kind: "passage", state: "closed" },
+      evidence: { kind: "confirmed-event", event: { id: fakeEvent.id, revision: fakeEvent.revisionToken } },
+      now: "2026-09-20T02:00:01.000Z"
+    });
+    const rejected = fixture.projection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.root.identity.workVersionId,
+      objectId: gate.id,
+      observedAt: "2026-09-20T02:00:02.000Z"
+    });
+    assert.deepEqual(rejected.admissionResult, { status: "rejected", code: "event-evidence-rejected" });
+    assert.deepEqual(rejected.eventEvidence?.certification.admissionResult, { status: "rejected", code: "owner-rejected" });
+
+    const validGate = fixture.workspace.createWorldObject({ projectId: fixture.projectId, type: "location", title: "版本漂移北闸" });
+    const validEvent = createVerifiedCanon(fixture, "版本漂移证据", versions.root.identity.workVersionId);
+    fixture.workspace.applyWorldStateN4({
+      projectId: fixture.projectId,
+      objectId: validGate.id,
+      workVersionId: versions.root.identity.workVersionId,
+      expectedObjectRevision: validGate.revisionToken,
+      expectedRevision: 0,
+      operationId: "world-state-certification.revision-drift",
+      effectiveAt: "2026-09-20T02:01:00.000Z",
+      value: { kind: "passage", state: "closed" },
+      evidence: { kind: "confirmed-event", event: { id: validEvent.canon.id, revision: validEvent.canon.revisionToken } },
+      now: "2026-09-20T02:01:01.000Z"
+    });
+    let subjectReadCount = 0;
+    const readWorldObject = fixture.workspace.readWorldObject.bind(fixture.workspace);
+    const unstableProjection = createStoryStudioCanonReadProjection({
+      workspace: {
+        ...fixture.workspace,
+        readWorldObject(readInput) {
+          const object = readWorldObject(readInput);
+          if (readInput.objectId !== validGate.id || ++subjectReadCount === 1) return object;
+          return { ...object, revisionToken: `${object.revisionToken}.changed-during-certification` };
+        }
+      },
+      authorControl: fixture.authorControl
+    });
+    assert.deepEqual(unstableProjection.certifyWorldStateRead({
+      projectId: fixture.projectId,
+      workVersionId: versions.root.identity.workVersionId,
+      objectId: validGate.id,
+      observedAt: "2026-09-20T02:01:02.000Z"
+    }).admissionResult, { status: "rejected", code: "revision-mismatch" });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 function createFixture(name: string) {
   const root = mkdtempSync(path.join(tmpdir(), `story-studio-canon-read-projection-${name}-`));
   const rootPath = path.join(root, "projects");

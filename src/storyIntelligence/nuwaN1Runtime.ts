@@ -1,3 +1,4 @@
+import { describeNuwaDirectorFocus, NUWA_DIRECTOR_SCOPE } from "./nuwaDirectorFocus.ts";
 import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -73,6 +74,9 @@ export type NuwaN1Context = {
   allowedActions: string[];
   remaining: { committedSteps: number; dispatches: number; inputTokenBudget: 4096; outputTokenBudget: 1024 };
   authorCue: string | null;
+  /** A deliberately small director-layer execution tag.  It is not the
+   * author's instruction or the director's prose suggestion. */
+  directorFocus: NuwaN1DirectorFocus[];
 };
 export type NuwaN1ToolRequest = { type: "tool-request"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef };
 export type NuwaN1ToolResult = { type: "tool-result"; toolName: "read_role_context"; requestId: string; actor: NuwaN1StableRef; context: NuwaN1Context };
@@ -93,6 +97,7 @@ export type NuwaN1ActorResult = {
 export type NuwaN1Usage = { inputTokens: number; outputTokens: number; source: "reported" | "estimated" };
 export interface NuwaN1ExecutionAdapter {
   readonly adapterId: string;
+  diagnostics?(): { rounds: Array<{ durationMs: number | null; status: string | null; requestBytes: number | null; messageCount: number | null; toolCount: number | null; shapeId: string | null }>; localToolMs: number | null; businessParseMs: number | null; context: { version: string; actorRevision: string; bytes: number; sourceCount: number; dialogueCount: number; sourceSetId: string } | null };
   request(input: NuwaN1Context): Promise<NuwaN1ToolRequest>;
   /** The runtime owns scope validation; the adapter owns actual tool execution. */
   executeTool(input: { context: NuwaN1Context; request: NuwaN1ToolRequest }): Promise<NuwaN1ToolResult>;
@@ -124,7 +129,37 @@ export type NuwaN1Step = {
   heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>;
   committedAt: string;
 };
-export type NuwaN1Receipt = { operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "handoff"; revision: number; recordedAt: string; payloadHash?: string };
+export type NuwaN1Receipt = { operationId: string; kind: "create" | "start" | "step" | "pause" | "resume" | "cancel" | "cue" | "director" | "handoff"; revision: number; recordedAt: string; payloadHash?: string };
+/**
+ * An author instruction must name its recipient before it is stored, so a
+ * missing recipient can never degrade into a broadcast.  A legacy `nuwa` cue
+ * remains pending for compatibility; director execution uses the separate
+ * `directorAdjustment` ledger rather than handing anything to the roles.
+ * `addressee: null` only comes from RunPacks written before targeting existed.
+ * Consumption is tracked per recipient: a multi-recipient cue stays pending
+ * (with `consumedByActorIds` growing) until every named recipient has committed
+ * the turn that actually delivered it.
+ */
+export type NuwaN1CueAddressee = { kind: "nuwa" } | { kind: "all-actors" } | { kind: "actors"; actorIds: string[] };
+export type NuwaN1PendingCue = { operationId: string; instruction: string; addressee: NuwaN1CueAddressee | null; consumedByActorIds: string[] };
+export const NUWA_N1_DIRECTOR_FOCUS = ["defer-reveal", "prioritize-character-interaction", "preserve-uncertainty", "advance-observation"] as const;
+export type NuwaN1DirectorFocus = typeof NUWA_N1_DIRECTOR_FOCUS[number];
+export type NuwaN1DirectorAdjustment = {
+  operationId: string;
+  instruction: string;
+  status: "generating" | "suggested" | "adopted" | "discarded" | "failed" | "stale" | "expired";
+  sceneIndex: number;
+  unsupported: string[];
+  basedOnStep: number;
+  appliesFromStep: number;
+  understood: string | null;
+  proposedAdjustment: string | null;
+  scope: string | null;
+  focus: NuwaN1DirectorFocus[];
+  failure: string | null;
+  adoptedAt: string | null;
+  appliedStepId: string | null;
+};
 export type NuwaN1ProviderDispatchStatus = "reserved" | "dispatched" | "completed" | "failed" | "cancelled" | "unknown";
 export type NuwaN1Attempt = {
   operationId: string;
@@ -151,8 +186,22 @@ export type NuwaN1Attempt = {
   outcome: "pending" | "committed" | "failed" | "cancelled" | "blocked";
   recordedAt: string;
   updatedAt: string;
+  observation?: NuwaN1AttemptObservation;
 };
+export type NuwaN1AttemptObservation = {
+  contextAssemblyMs: number | null;
+  firstModelWaitMs: number | null;
+  localToolMs: number | null;
+  secondModelWaitMs: number | null;
+  businessValidationMs: number | null;
+  stepSaveMs: number | null;
+  endToEndMs: number;
+  context: { version: string; actorRevision: string; bytes: number; sourceCount: number; dialogueCount: number; sourceSetId: string } | null;
+  rounds: Array<{ status: string | null; requestBytes: number | null; messageCount: number | null; toolCount: number | null; shapeId: string | null; wire?: { modelId: string; maxTokens: number; thinking: boolean | null; stream: boolean; toolChoice: string | null; toolNames: string[]; timeoutMs: number | null }; frames?: { contentBytes: number; contentChunks: number; reasoningBytes: number; reasoningChunks: number; toolArgumentBytes: number; toolArgumentChunks: number; toolCalls: number; toolName: string | null; argumentsJsonClosed: boolean | null; argumentsSchemaValid: boolean | null; finishReason: string | null; usageReceived: boolean; malformedReason: string | null } }>;
+};
+export type NuwaN1StepClock = { contextAssemblyMs?: number; runtimeToolMs?: number; businessValidationMs?: number; stepSaveMs?: number };
 export type NuwaN1Run = {
+  conversationId?: string | null;
   version: typeof NUWA_N1_RUNTIME_VERSION;
   runId: string;
   sourceSnapshotHash: string;
@@ -172,7 +221,11 @@ export type NuwaN1Run = {
   providerDispatchEvidence: "complete" | "unknown";
   dispatches: number;
   steps: NuwaN1Step[];
-  pendingCue: { operationId: string; instruction: string } | null;
+  pendingCue: NuwaN1PendingCue | null;
+  /** Separate from role-targeted author cue: it is never delivered as speech,
+   * knowledge, memory, or a role authorCue. */
+  directorAdjustment: NuwaN1DirectorAdjustment | null;
+  directorHistory: NuwaN1DirectorAdjustment[];
   blocker: string | null;
   receipts: NuwaN1Receipt[];
   /** Dispatch and tool receipts are durable even when no scene step commits. */
@@ -191,7 +244,7 @@ export type NuwaN1CandidateHandoff = {
   formalWrites: 0;
 };
 
-export function createNuwaN1Run(input: { workspacePath: string; runId: string; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; scope?: NuwaN1Scope; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
+export function createNuwaN1Run(input: { workspacePath: string; runId: string; conversationId?: string | null; sourceSnapshotHash: string; sourceIdentity?: { kind: "root" | "derived" | "unversioned-draft"; workVersionId: string; revision: string } | null; scene: NuwaN1Scene; scope?: NuwaN1Scope; authorGoal: string; actors: NuwaN1Actor[]; operationId: string; now?: string }): NuwaN1Run {
   assertRunPack(input.workspacePath, input.runId, input.sourceSnapshotHash);
   assertSetup(input);
   if (readNuwaN1Run(input.workspacePath, input.runId)) {
@@ -201,7 +254,7 @@ export function createNuwaN1Run(input: { workspacePath: string; runId: string; s
   }
   const now = input.now || new Date().toISOString();
   const run: NuwaN1Run = {
-    version: NUWA_N1_RUNTIME_VERSION, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), scope: normalizeScope(input.scope, input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, providerDispatchEvidence: "complete", dispatches: 0, steps: [], pendingCue: null, blocker: null,
+    version: NUWA_N1_RUNTIME_VERSION, conversationId: input.conversationId ? safeId(input.conversationId) : null, runId: safeId(input.runId), sourceSnapshotHash: checkedHash(input.sourceSnapshotHash), sourceIdentity: normalizeSourceIdentity(input.sourceIdentity), scene: cloneScene(input.scene), scope: normalizeScope(input.scope, input.scene), authorGoal: text(input.authorGoal, "authorGoal", 1_000), actors: input.actors.map(normalizeActor), lifecycle: "ready", revision: 1, providerDispatches: 0, providerDispatchEvidence: "complete", dispatches: 0, steps: [], pendingCue: null, directorAdjustment: null, directorHistory: [], blocker: null,
     receipts: [{ operationId: safeOperation(input.operationId), kind: "create", revision: 1, recordedAt: now }], attempts: [], createdAt: now, updatedAt: now
   };
   writeAtomically(input.workspacePath, input.runId, run);
@@ -237,11 +290,23 @@ export function pauseNuwaN1Run(input: { workspacePath: string; runId: string; ex
   return persist(input, current, "pause", { ...current, lifecycle: "paused", blocker: input.reason ? text(input.reason, "pause reason", 240) : null });
 }
 
-export function resumeNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; now?: string }): NuwaN1Run {
+export function resumeNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; terminalFailureProof?: { requestKey: string; reservationId: string; receiptEnvelopeId: string }; now?: string }): NuwaN1Run {
   return transition(input, "resume", (run) => {
-    if (run.lifecycle !== "paused") throw new Error("Only a paused Nuwa N1 Run can resume.");
+    if (run.lifecycle !== "paused" && !isRecoverableDispatchBlock(run, input.terminalFailureProof)) throw new Error("Only a paused Run or a verified terminal dispatch failure can resume.");
     return { ...run, lifecycle: "running", blocker: null };
   });
+}
+
+function isRecoverableDispatchBlock(run: NuwaN1Run, proof?: { requestKey: string; reservationId: string; receiptEnvelopeId: string }): boolean {
+  if (run.lifecycle !== "blocked" || run.providerDispatchEvidence !== "complete" || run.providerDispatches >= NUWA_N1_MAX_DISPATCHES || run.attempts.some((attempt) => attempt.outcome === "pending")) return false;
+  const last = run.attempts.at(-1);
+  if (last?.outcome !== "failed" || last.tool.status !== "completed") return false;
+  const budgetBlocked = last.dispatches.some((dispatch) => dispatch.phase === "continue-after-tool" && dispatch.status === "failed" && dispatch.detail === "continue-after-tool failed: Provider request budget is exhausted; dispatch was blocked before transport.")
+    && last.dispatches.some((dispatch) => dispatch.phase === "provider" && dispatch.status === "completed");
+  const transportUnavailable = last.dispatches.some((dispatch) => dispatch.phase === "continue-after-tool" && dispatch.status === "failed" && dispatch.detail === "continue-after-tool failed: 当前模型服务暂时不可用。")
+    && Boolean(proof && last.dispatches.some((dispatch) => dispatch.phase === "provider" && dispatch.status === "unknown" && dispatch.detail === "当前模型服务暂时不可用。"
+      && proof.requestKey === dispatch.requestKey && proof.reservationId === dispatch.reservationId && proof.receiptEnvelopeId === dispatch.receiptEnvelopeId));
+  return budgetBlocked || transportUnavailable;
 }
 
 export function cancelNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; reason?: string; now?: string }): NuwaN1Run {
@@ -255,15 +320,99 @@ export function cancelNuwaN1Run(input: { workspacePath: string; runId: string; e
   return persist(input, current, "cancel", { ...current, lifecycle: "cancelled", blocker: input.reason ? text(input.reason, "cancel reason", 240) : "作者停止了本次排演。" });
 }
 
-export function cueNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; instruction: string; now?: string }): NuwaN1Run {
+export function cueNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; instruction: string; addressee?: unknown; now?: string }): NuwaN1Run {
   return transition(input, "cue", (run) => {
     if (!["ready", "running", "paused"].includes(run.lifecycle)) throw new Error("Author cue is only available before the Run ends.");
-    return { ...run, pendingCue: { operationId: safeOperation(input.operationId), instruction: text(input.instruction, "cue", 800) } };
+    return { ...run, pendingCue: { operationId: safeOperation(input.operationId), instruction: text(input.instruction, "cue", 800), addressee: normalizeCueAddressee(input.addressee, run, "strict"), consumedByActorIds: [] } };
+  });
+}
+
+/** Reserve one Run-bound director suggestion.  The prose request remains in
+ * this author-side ledger; only a finite focus enum can later reach a role. */
+export function beginNuwaN1DirectorSuggestion(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; instruction: string; adapterId: string; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const operationId = safeOperation(input.operationId);
+  if (current.receipts.some((receipt) => receipt.operationId === operationId)) return current;
+  if (current.revision !== input.expectedRevision) throw new Error("Nuwa N1 revision conflict.");
+  if (!["ready", "running"].includes(current.lifecycle)) throw new Error("导演建议只能在排演准备好或进行中生成；暂停后可查看、采纳或放弃现有建议。");
+  if (current.providerDispatchEvidence === "unknown") throw new Error("这份历史 Run 缺少模型发送记录；为避免绕过既有预算，不能生成新的导演建议。");
+  if (current.providerDispatches >= NUWA_N1_MAX_DISPATCHES) throw new Error("实际 Provider 发送预算已用尽；不能生成新的导演建议。");
+  if (current.attempts.some((attempt) => attempt.outcome === "pending")) throw new Error("女娲已有执行中的请求；请等待、停止或恢复同一操作。");
+  const directorAdjustment: NuwaN1DirectorAdjustment = {
+    operationId, instruction: text(input.instruction, "director instruction", 800), status: "generating",
+    sceneIndex: current.scope.currentSceneIndex, unsupported: [], basedOnStep: current.steps.length, appliesFromStep: current.steps.length + 1,
+    understood: null, proposedAdjustment: null, scope: null, focus: [], failure: null, adoptedAt: null, appliedStepId: null
+  };
+  const begun = persist(input, current, "director", { ...current, directorAdjustment, directorHistory: current.directorAdjustment ? [...current.directorHistory, current.directorAdjustment] : current.directorHistory });
+  return recordAttempt(input, begun, {
+    operationId, attemptId: operationId, adapterId: text(input.adapterId, "adapterId", 160), actor: structuredClone(begun.actors[0]!.character), contextHash: stableHash(directorBrief(begun)), requestId: null,
+    dispatches: [{ phase: "request", status: "dispatched", recordedAt: recordedAt(input), detail: "director-suggestion" }],
+    tool: { status: "pending", recordedAt: recordedAt(input), detail: "director-brief" }, usage: null, outcome: "pending", recordedAt: recordedAt(input), updatedAt: recordedAt(input)
+  }, 1);
+}
+
+export function directorBrief(run: NuwaN1Run) {
+  const director = run.directorAdjustment;
+  if (!director) throw new Error("Nuwa N1 has no director suggestion request.");
+  return {
+    version: "tianyan-nuwa-n1-director-brief/v1" as const, runId: run.runId, operationId: director.operationId,
+    instruction: director.instruction, authorGoal: run.authorGoal, scene: cloneScene(run.scene),
+    completedSteps: run.steps.map((step) => ({ sequence: step.sequence, actorId: step.actor.id, intent: step.intent, observableResult: step.observableResult })),
+    scope: { label: run.scope.storylineLabel, remainingSteps: maximumScopeSteps(run) - run.steps.length }
+  };
+}
+
+export function completeNuwaN1DirectorSuggestion(input: { workspacePath: string; runId: string; operationId: string; suggestion: { understood: string; proposedAdjustment: string; scope: string; focus: unknown; unsupported?: string[] }; usage?: NuwaN1Usage | null; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const operationId = safeOperation(input.operationId);
+  if (current.directorAdjustment?.operationId !== operationId || current.directorAdjustment.status !== "generating") return current;
+  const attempt = current.attempts.find((item) => item.operationId === operationId);
+  if (!attempt || attempt.outcome !== "pending") return current;
+  if (["cancelled", "completed"].includes(current.lifecycle)) return failNuwaN1DirectorSuggestion({ ...input, detail: "导演建议在排演停止后返回；未执行。" });
+  const unsupported = input.suggestion.unsupported;
+  if (!Array.isArray(unsupported) || unsupported.length > 8 || unsupported.some((item) => typeof item !== "string" || !item.trim() || item.length > 240)) throw new Error("导演建议缺少有效的未执行项；未执行。");
+  if (Array.isArray(input.suggestion.focus) && input.suggestion.focus.length === 0) return failNuwaN1DirectorSuggestion({ ...input, detail: `未执行：${unsupported.join("；") || "没有受支持的推进调整"}`.slice(0, 240) });
+  const focus = normalizeDirectorFocus(input.suggestion.focus);
+  const directorAdjustment: NuwaN1DirectorAdjustment = {
+    ...current.directorAdjustment,
+    status: "suggested", understood: text(input.suggestion.understood, "director understood", 600),
+    proposedAdjustment: describeNuwaDirectorFocus(focus),
+    // The model may explain its proposal, but execution scope is product-owned
+    // rather than model-declared, so unsupported changes can never look adopted.
+    scope: NUWA_DIRECTOR_SCOPE,
+    focus, unsupported, failure: null
+  };
+  return writeAttempt(input, current, {
+    ...current, directorAdjustment,
+    attempts: current.attempts.map((item) => item.operationId === operationId ? { ...item, tool: { status: "completed", recordedAt: recordedAt(input), detail: "director-suggestion" }, usage: input.usage ?? item.usage, outcome: "committed", dispatches: item.dispatches.map((dispatch) => dispatch.status === "dispatched" ? { ...dispatch, status: "completed", recordedAt: recordedAt(input) } : dispatch), updatedAt: recordedAt(input) } : item)
+  });
+}
+
+export function failNuwaN1DirectorSuggestion(input: { workspacePath: string; runId: string; operationId: string; detail: string; usage?: NuwaN1Usage | null; now?: string }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const operationId = safeOperation(input.operationId);
+  if (current.directorAdjustment?.operationId !== operationId || current.directorAdjustment.status !== "generating") return current;
+  const directorAdjustment = { ...current.directorAdjustment, status: "failed" as const, failure: text(input.detail, "director failure", 240) };
+  const attempt = current.attempts.find((item) => item.operationId === operationId);
+  if (!attempt || attempt.outcome !== "pending") return current;
+  return writeAttempt(input, current, { ...current, directorAdjustment, attempts: current.attempts.map((item) => item.operationId === operationId ? { ...item, tool: { status: "failed", recordedAt: recordedAt(input), detail: directorAdjustment.failure }, usage: input.usage ?? item.usage, outcome: "failed", updatedAt: recordedAt(input) } : item) });
+}
+
+export function decideNuwaN1DirectorSuggestion(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; decision: "adopt" | "discard"; now?: string }): NuwaN1Run {
+  return transition(input, "director", (run) => {
+    const director = run.directorAdjustment;
+    if (!director) throw new Error("当前排演没有可处理的导演建议。");
+    if (input.decision === "discard" && director.status === "adopted") throw new Error("已采纳调整只能由新采纳调整替换，不能作为未执行建议放弃。");
+    if (input.decision === "discard") return { ...run, directorAdjustment: { ...director, status: "discarded", failure: null } };
+    if (director.status === "adopted") return run;
+    if (director.status !== "suggested") throw new Error("当前导演建议尚不可采纳。");
+    if (!["ready", "running", "paused"].includes(run.lifecycle) || director.sceneIndex !== run.scope.currentSceneIndex || director.basedOnStep !== run.steps.length) return { ...run, directorAdjustment: { ...director, status: "stale", failure: "排演已越过这份建议的生成位置；请重新生成后再采纳。" } };
+    return { ...run, directorAdjustment: { ...director, status: "adopted", adoptedAt: recordedAt(input), failure: null } };
   });
 }
 
 /** Executes a real product-shaped tool round trip against a local/fake adapter. */
-export async function advanceNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; adapter: NuwaN1ExecutionAdapter; now?: string }): Promise<NuwaN1Run> {
+export async function advanceNuwaN1Run(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; adapter: NuwaN1ExecutionAdapter; observation?: NuwaN1StepClock; now?: string }): Promise<NuwaN1Run> {
   const initial = requireRun(input.workspacePath, input.runId);
   if (initial.receipts.some((receipt) => receipt.operationId === input.operationId) || initial.attempts.some((attempt) => attempt.operationId === input.operationId)) return initial;
   if (initial.attempts.some((attempt) => attempt.outcome === "pending")) throw new Error("Nuwa N1 has a persisted pending attempt; recover or cancel it before starting another Provider operation.");
@@ -280,7 +429,9 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   // multi-unit scope may allocate fewer turns than actors per scene; resetting
   // here would starve the final actor whenever every scene has two turns.
   const actor = initial.actors[initial.steps.length % initial.actors.length]!;
+  const contextStarted = performance.now();
   const context = compileNuwaN1Context(initial, actor, input.operationId);
+  if (input.observation) input.observation.contextAssemblyMs = elapsedMs(contextStarted);
   const attemptId = safeOperation(input.operationId);
   const preflightInputTokens = Buffer.byteLength(stableJson(context), "utf8");
   if (context.attention.budget.requiredOverflow || preflightInputTokens > context.remaining.inputTokenBudget) {
@@ -321,12 +472,15 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after request dispatch");
   if (current.lifecycle !== "running") return finishAttempt(input, current, attemptId, "failed", `run is ${current.lifecycle} after request dispatch`);
   let toolResult: NuwaN1ToolResult;
+  const toolStarted = performance.now();
   try {
     toolResult = await input.adapter.executeTool({ context, request });
     validateToolResult(toolResult, request, context, actor);
   } catch (error) {
+    if (input.observation) input.observation.runtimeToolMs = elapsedMs(toolStarted);
     return finishAttempt(input, current, attemptId, "failed", `tool failed: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色上下文工具执行失败；本次排演已阻塞。" }, "tool");
   }
+  if (input.observation) input.observation.runtimeToolMs = elapsedMs(toolStarted);
   current = afterAwait(input, current, attemptId);
   if (hasNewerAuthorCue(initial, current)) return preserveNewerAuthorCue(input, current, attemptId);
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after tool execution", undefined, "tool");
@@ -345,6 +499,7 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
   if (hasNewerAuthorCue(initial, current)) return preserveNewerAuthorCue(input, current, attemptId);
   if (current.lifecycle === "cancelled") return finishAttempt(input, current, attemptId, "cancelled", "cancelled after continue-after-tool dispatch");
   if (current.lifecycle !== "running") return finishAttempt(input, current, attemptId, "failed", `run is ${current.lifecycle} after continue-after-tool dispatch`);
+  const validationStarted = performance.now();
   const usage = resolveUsage(context, result);
   if (usage.inputTokens > 4096 || usage.outputTokens > 1024) {
     return finishAttempt(input, current, attemptId, "blocked", "reported token usage exceeds N1 per-turn budget", { lifecycle: "blocked", blocker: "角色回合的精确 Token 用量超过 N1 上限；未提交场景步骤。" }, undefined, usage);
@@ -366,8 +521,11 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
       toolRequestId: safeId(request.requestId), execution: { adapterId: text(input.adapter.adapterId, "adapterId", 160), attemptId, contextVersion: context.version, tool: { name: "read_role_context", requestId: safeId(request.requestId), status: "completed" } }, contextHash: stableHash(context), usage, committedAt: input.now || new Date().toISOString()
     };
   } catch (error) {
+    if (input.observation) input.observation.businessValidationMs = elapsedMs(validationStarted);
     return finishAttempt(input, current, attemptId, "failed", `actor result rejected: ${diagnostic(error)}`, { lifecycle: "blocked", blocker: "角色回合结果不符合 N1 边界；未提交场景步骤。" }, undefined, usage);
   }
+  const appliedDirectorId = context.directorFocus.length ? [current.directorAdjustment, ...[...current.directorHistory].reverse()].find((item) => item?.status === "adopted")?.operationId : null;
+  const recordDirectorApplication = (item: NuwaN1DirectorAdjustment) => item.operationId === appliedDirectorId && !item.appliedStepId ? { ...item, appliedStepId: step.stepId } : item;
   const nextScopeIndex = nextScopeSceneIndex(current, sequence);
   const completed = sequence >= maximumScopeSteps(current);
   const next: NuwaN1Run = {
@@ -377,13 +535,39 @@ export async function advanceNuwaN1Run(input: { workspacePath: string; runId: st
       scene: cloneScene(current.scope.scenes[nextScopeIndex]!),
       scope: { ...current.scope, currentSceneIndex: nextScopeIndex }
     }),
-    pendingCue: null,
+    pendingCue: cueAfterCommit(current, actor.character.id),
+    directorAdjustment: current.directorAdjustment ? recordDirectorApplication(current.directorAdjustment) : null,
+    directorHistory: current.directorHistory.map(recordDirectorApplication),
     lifecycle: completed ? "completed" : "running",
     blocker: null,
     attempts: current.attempts.map((attempt) => attempt.operationId === attemptId ? { ...attempt, requestId: safeId(request.requestId), tool: { status: "completed", recordedAt: recordedAt(input), detail: null }, usage, outcome: "committed", dispatches: attempt.dispatches.map((dispatch) => dispatch.phase === "provider" ? dispatch : { ...dispatch, status: "completed" }), updatedAt: recordedAt(input) } : attempt)
   };
-  return persist(input, current, "step", next);
+  if (input.observation) input.observation.businessValidationMs = elapsedMs(validationStarted);
+  const saveStarted = performance.now();
+  const saved = persist(input, current, "step", next);
+  if (input.observation) input.observation.stepSaveMs = elapsedMs(saveStarted);
+  return saved;
 }
+
+/** Adds a bounded technical observation after the attempt settles.  This
+ * updates the existing Run receipt; it cannot create or replay a scene step. */
+export function recordNuwaN1AttemptObservation(input: { workspacePath: string; runId: string; operationId: string; observation: NuwaN1AttemptObservation }): NuwaN1Run {
+  const current = requireRun(input.workspacePath, input.runId);
+  const attempt = current.attempts.find((item) => item.operationId === input.operationId);
+  if (!attempt || attempt.observation) return current;
+  const duration = (value: number | null) => value == null ? null : Number.isFinite(value) && value >= 0 ? Math.min(Math.round(value), 120_000) : null;
+  const raw = input.observation;
+  const bounded: NuwaN1AttemptObservation = {
+    contextAssemblyMs: duration(raw.contextAssemblyMs), firstModelWaitMs: duration(raw.firstModelWaitMs), localToolMs: duration(raw.localToolMs), secondModelWaitMs: duration(raw.secondModelWaitMs), businessValidationMs: duration(raw.businessValidationMs), stepSaveMs: duration(raw.stepSaveMs), endToEndMs: duration(raw.endToEndMs) ?? 0,
+    context: raw.context ? { version: text(raw.context.version, "context version", 100), actorRevision: text(raw.context.actorRevision, "actor revision", 160), bytes: Math.max(0, Math.floor(raw.context.bytes)), sourceCount: Math.max(0, Math.floor(raw.context.sourceCount)), dialogueCount: Math.max(0, Math.floor(raw.context.dialogueCount)), sourceSetId: text(raw.context.sourceSetId, "source set id", 32) } : null,
+    rounds: raw.rounds.slice(0, 2).map((round) => ({ status: round.status ? text(round.status, "round status", 24) : null, requestBytes: round.requestBytes == null ? null : Math.max(0, Math.floor(round.requestBytes)), messageCount: round.messageCount == null ? null : Math.max(0, Math.floor(round.messageCount)), toolCount: round.toolCount == null ? null : Math.max(0, Math.floor(round.toolCount)), shapeId: round.shapeId ? text(round.shapeId, "request shape id", 32) : null,
+      ...(round.wire ? { wire: { modelId: text(round.wire.modelId, "wire model", 160), maxTokens: Math.max(0, Math.floor(round.wire.maxTokens)), thinking: round.wire.thinking === null ? null : round.wire.thinking === true, stream: round.wire.stream === true, toolChoice: round.wire.toolChoice ? text(round.wire.toolChoice, "tool choice", 80) : null, toolNames: round.wire.toolNames.slice(0, 4).map((name) => text(name, "tool name", 80)), timeoutMs: round.wire.timeoutMs == null ? null : duration(round.wire.timeoutMs) } } : {}),
+      ...(round.frames ? { frames: { contentBytes: Math.max(0, Math.floor(round.frames.contentBytes)), contentChunks: Math.max(0, Math.floor(round.frames.contentChunks)), reasoningBytes: Math.max(0, Math.floor(round.frames.reasoningBytes)), reasoningChunks: Math.max(0, Math.floor(round.frames.reasoningChunks)), toolArgumentBytes: Math.max(0, Math.floor(round.frames.toolArgumentBytes)), toolArgumentChunks: Math.max(0, Math.floor(round.frames.toolArgumentChunks)), toolCalls: Math.max(0, Math.floor(round.frames.toolCalls)), toolName: round.frames.toolName ? text(round.frames.toolName, "tool name", 80) : null, argumentsJsonClosed: round.frames.argumentsJsonClosed, argumentsSchemaValid: round.frames.argumentsSchemaValid, finishReason: round.frames.finishReason ? text(round.frames.finishReason, "finish reason", 40) : null, usageReceived: round.frames.usageReceived === true, malformedReason: round.frames.malformedReason ? text(round.frames.malformedReason, "malformed reason", 80) : null } } : {}) }))
+  };
+  return writeAttempt({ workspacePath: input.workspacePath, runId: input.runId }, current, { ...current, attempts: current.attempts.map((item) => item.operationId === input.operationId ? { ...item, observation: bounded } : item) });
+}
+
+function elapsedMs(started: number): number { return Math.max(0, Math.round(performance.now() - started)); }
 
 export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operationId: string): NuwaN1Context {
   const canonicalActor = run.actors.find((candidate) => sameRef(candidate.character, actor.character));
@@ -392,7 +576,7 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   const knownFacts = [...canonicalActor.knownFacts.map((fact) => ({ factId: fact.factId, summary: fact.summary, sourceId: fact.sourceRef.id, sourceRevision: fact.sourceRef.revision, visibility: fact.visibility, attentionRequired: fact.attentionRequired === true, ...(fact.worldStateObjectId ? { worldStateObjectId: fact.worldStateObjectId } : {}), ...(fact.memorySource ? { memorySource: structuredClone(fact.memorySource) } : {}) })), ...heardStatements(run, actor.character.id).map((fact) => ({ ...fact, attentionRequired: false }))];
   const beliefs = canonicalActor.beliefs.map((belief) => ({ beliefId: belief.beliefId, summary: belief.summary, stance: belief.stance, sourceRef: structuredClone(belief.sourceRef), sourceId: belief.sourceRef.id, sourceRevision: belief.sourceRef.revision, attentionRequired: belief.attentionRequired === true }));
   const remaining = { committedSteps: maximumScopeSteps(run) - run.steps.length, dispatches: NUWA_N1_MAX_DISPATCHES - run.providerDispatches, inputTokenBudget: 4096 as const, outputTokenBudget: 1024 as const };
-  const fixedContext = { version: "tianyan-nuwa-n1-role-context/v1" as const, runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis), excludedKnowledgeCount: canonicalActor.unknownFactIds.length, recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining, authorCue: run.pendingCue?.instruction ?? null };
+  const fixedContext = { version: "tianyan-nuwa-n1-role-context/v1" as const, runId: run.runId, attemptId: safeOperation(operationId), step: run.steps.length + 1, actor: structuredClone(canonicalActor.character), scene: cloneScene(run.scene), localGoal: canonicalActor.localGoal, coreSummary: canonicalActor.coreSummary, profileBasis: structuredClone(canonicalActor.profileBasis), excludedKnowledgeCount: canonicalActor.unknownFactIds.length, recentDialogue: dialogue, allowedActions: [...canonicalActor.allowedActions], remaining, authorCue: authorCueForActor(run, canonicalActor.character.id), directorFocus: directorFocusForStep(run) };
   const baseBytes = Buffer.byteLength(stableJson({ ...fixedContext, knownFacts: [], beliefs: [], attention: null }), "utf8");
   const attention = selectNuwaN1Attention({
     goal: `${canonicalActor.localGoal}\n${run.authorGoal}`,
@@ -414,11 +598,58 @@ export function compileNuwaN1Context(run: NuwaN1Run, actor: NuwaN1Actor, operati
   };
 }
 
+/** Delivery is decided by the stored recipient, never by the absence of one.
+ * A recipient who already committed against this cue does not receive it a
+ * second time. */
+function authorCueForActor(run: NuwaN1Run, actorId: string): string | null {
+  const cue = run.pendingCue;
+  if (!cue?.addressee) return null;
+  if (cue.addressee.kind === "nuwa") return null;
+  if (cue.consumedByActorIds.includes(actorId)) return null;
+  if (cue.addressee.kind === "all-actors") return cue.instruction;
+  return cue.addressee.actorIds.includes(actorId) ? cue.instruction : null;
+}
+
+function cueRecipients(run: NuwaN1Run, cue: NuwaN1PendingCue): string[] {
+  if (!cue.addressee || cue.addressee.kind === "nuwa") return [];
+  return cue.addressee.kind === "all-actors" ? run.actors.map((actor) => actor.character.id) : cue.addressee.actorIds;
+}
+
+/** A committed turn consumes only the copy it delivered.  Other recipients
+ * keep the cue (with delivery progress on the cue itself) until their own turn
+ * commits; an instruction held for 女娲, or still awaiting an addressee, is
+ * untouched. */
+function cueAfterCommit(run: NuwaN1Run, actorId: string): NuwaN1PendingCue | null {
+  const cue = run.pendingCue;
+  if (!cue || authorCueForActor(run, actorId) === null) return run.pendingCue;
+  const consumedByActorIds = [...new Set([...cue.consumedByActorIds, actorId])];
+  return cueRecipients(run, cue).some((id) => !consumedByActorIds.includes(id)) ? { ...cue, consumedByActorIds } : null;
+}
+
+function expireDirectorAdjustments(run: NuwaN1Run): void {
+  const expire = (director: NuwaN1DirectorAdjustment) => director.status === "adopted" && (["completed", "cancelled"].includes(run.lifecycle) || director.sceneIndex !== run.scope.currentSceneIndex) ? { ...director, status: "expired" as const } : director;
+  if (run.directorAdjustment) run.directorAdjustment = expire(run.directorAdjustment);
+  run.directorHistory = (run.directorHistory ?? []).map(expire);
+}
+
+function directorFocusForStep(run: NuwaN1Run): NuwaN1DirectorFocus[] {
+  const director = [run.directorAdjustment, ...[...(run.directorHistory ?? [])].reverse()].find((item) => item?.status === "adopted");
+  return ["running", "paused"].includes(run.lifecycle) && director?.sceneIndex === run.scope.currentSceneIndex && run.steps.length + 1 >= director.appliesFromStep ? [...director.focus] : [];
+}
+
+function normalizeDirectorFocus(value: unknown): NuwaN1DirectorFocus[] {
+  if (!Array.isArray(value) || !value.length || value.length > 2) throw new Error("导演建议必须给出一到两个受支持的推进侧重点。");
+  const allowed = new Set<string>(NUWA_N1_DIRECTOR_FOCUS);
+  const focus = [...new Set(value.map((item) => typeof item === "string" ? item.normalize("NFC").trim() : ""))];
+  if (focus.some((item) => !allowed.has(item))) throw new Error("导演建议包含当前 N1 不支持的调整范围；未执行。");
+  return focus as NuwaN1DirectorFocus[];
+}
+
 /** Called by the Pi bridge immediately before every model-boundary send. */
 export function recordNuwaN1ProviderReservation(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; requestKey: string; reservationId: string | null; receiptEnvelopeId: string | null; provider: { providerId: string; profileId: string; modelId: string }; now?: string }): NuwaN1Run {
   const current = requireRun(input.workspacePath, input.runId);
   const attemptId = safeOperation(input.operationId);
-  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
+  if (current.lifecycle !== "running" && !(current.lifecycle === "ready" && current.directorAdjustment?.status === "generating" && current.directorAdjustment.operationId === attemptId)) throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
   if (current.providerDispatches >= NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 actual Provider dispatch budget is exhausted before transport.");
   if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
   const requestKey = safeRequestKey(input.requestKey);
@@ -447,7 +678,7 @@ export function recordNuwaN1ProviderReservation(input: { workspacePath: string; 
 export function recordNuwaN1ProviderPreflightFailure(input: { workspacePath: string; runId: string; operationId: string; providerCall: number; requestKey: string; detail: string; provider: { providerId: string; profileId: string; modelId: string }; now?: string }): NuwaN1Run {
   const current = requireRun(input.workspacePath, input.runId);
   const attemptId = safeOperation(input.operationId);
-  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider preflight validation.");
+  if (current.lifecycle !== "running" && !(current.lifecycle === "ready" && current.directorAdjustment?.status === "generating" && current.directorAdjustment.operationId === attemptId)) throw new Error("Nuwa N1 Run is no longer running before Provider preflight validation.");
   if (!Number.isSafeInteger(input.providerCall) || input.providerCall < 1 || input.providerCall > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch ordinal is invalid.");
   const requestKey = safeRequestKey(input.requestKey);
   const detail = providerPreflightDiagnostic(input.detail);
@@ -471,7 +702,7 @@ export function recordNuwaN1ProviderPreflightFailure(input: { workspacePath: str
 export function recordNuwaN1ProviderDispatch(input: { workspacePath: string; runId: string; operationId: string; requestKey: string; now?: string }): NuwaN1Run {
   const current = requireRun(input.workspacePath, input.runId);
   const attemptId = safeOperation(input.operationId);
-  if (current.lifecycle !== "running") throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
+  if (current.lifecycle !== "running" && !(current.lifecycle === "ready" && current.directorAdjustment?.status === "generating" && current.directorAdjustment.operationId === attemptId)) throw new Error("Nuwa N1 Run is no longer running before Provider dispatch.");
   if (current.providerDispatches >= NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 actual Provider dispatch budget is exhausted.");
   const requestKey = safeRequestKey(input.requestKey);
   const attempt = current.attempts.find((candidate) => candidate.operationId === attemptId);
@@ -526,7 +757,18 @@ export function prepareNuwaN1CandidateHandoff(input: { workspacePath: string; ru
 function buildHandoff(run: NuwaN1Run, selectedStepIds: string[]): NuwaN1CandidateHandoff {
   const selected = run.steps.filter((step) => selectedStepIds.includes(step.stepId));
   if (!selected.length || selected.length !== new Set(selectedStepIds).size) throw new Error("Nuwa N1 selected steps must belong to this Run.");
-  return { version: "tianyan-nuwa-n1-candidate-handoff/v1", handoffId: `nuwa-n1-handoff.${stableHash({ runId: run.runId, selectedStepIds: selected.map((step) => step.stepId) }).slice(0, 20)}`, runId: run.runId, sourceSnapshotHash: run.sourceSnapshotHash, selectedStepIds: selected.map((step) => step.stepId), status: "candidate", candidates: selected.map((step) => ({ candidateId: `nuwa-n1-candidate.${step.stepId}`, title: `${run.actors.find((actor) => sameRef(actor.character, step.actor))?.displayName || "角色"}的场景行动`, summary: step.intent, speech: step.speech, action: step.action.action, sourceStepId: step.stepId, affectedCharacterIds: [step.actor.id], observedResult: step.observableResult })), formalWrites: 0 };
+  return { version: "tianyan-nuwa-n1-candidate-handoff/v1", handoffId: `nuwa-n1-handoff.${stableHash({ runId: run.runId, selectedStepIds: selected.map((step) => step.stepId) }).slice(0, 20)}`, runId: run.runId, sourceSnapshotHash: run.sourceSnapshotHash, selectedStepIds: selected.map((step) => step.stepId), status: "candidate", candidates: selected.map((step) => ({ candidateId: `nuwa-n1-candidate.${step.stepId}`, title: `${run.actors.find((actor) => sameRef(actor.character, step.actor))?.displayName || "角色"}的场景行动`, summary: publicStepSummary(step), speech: step.speech, action: step.action.action, sourceStepId: step.stepId, affectedCharacterIds: [step.actor.id], observedResult: authorStepContent(step) })), formalWrites: 0 };
+}
+
+// Concrete result is preserved for author review; it does not become role
+// knowledge. Candidate adoption carries a separate explicit visibility scope.
+function authorStepContent(step: NuwaN1Step): string {
+  return [step.intent ? `意图：${step.intent}` : null, `行动：${step.action.action}`, step.speech ? `台词：${step.speech}` : null, step.observableResult ? `场景结果：${step.observableResult}` : publicStepSummary(step)].filter(Boolean).join("\n\n");
+}
+
+function publicStepSummary(step: NuwaN1Step): string {
+  const actions: Record<string, string> = { observe: "进行观察", speak: "发言", ask: "提出询问", "handoff-item": "交接物品", "change-passage": "改变通路" };
+  return `${step.actor.id}：${actions[step.action.action] || "完成场景行动"}。`;
 }
 
 function transition(input: { workspacePath: string; runId: string; expectedRevision: number; operationId: string; now?: string }, kind: NuwaN1Receipt["kind"], mutate: (run: NuwaN1Run) => NuwaN1Run): NuwaN1Run {
@@ -542,6 +784,7 @@ function persist(input: { workspacePath: string; runId: string; operationId: str
   if (latest.revision !== current.revision) throw new Error("Nuwa N1 revision conflict.");
   const recordedAt = input.now || new Date().toISOString();
   const next: NuwaN1Run = { ...candidate, revision: current.revision + 1, updatedAt: recordedAt, receipts: [...current.receipts, { operationId: safeOperation(input.operationId), kind, revision: current.revision + 1, recordedAt, ...(input.payloadHash ? { payloadHash: checkedHash(input.payloadHash) } : {}) }].slice(-96) };
+  expireDirectorAdjustments(next);
   writeAtomically(input.workspacePath, input.runId, next);
   return structuredClone(next);
 }
@@ -561,6 +804,7 @@ function writeAttempt(input: { workspacePath: string; runId: string; now?: strin
   const latest = requireRun(input.workspacePath, input.runId);
   if (latest.revision !== current.revision) throw new Error("Nuwa N1 revision changed while the adapter was running.");
   const next = { ...candidate, revision: current.revision + 1, updatedAt: recordedAt(input) };
+  expireDirectorAdjustments(next);
   writeAtomically(input.workspacePath, input.runId, next);
   return structuredClone(next);
 }
@@ -656,6 +900,50 @@ function validateUsage(usage: NuwaN1ActorResult["usage"]): void {
   for (const value of [usage?.inputTokens, usage?.outputTokens]) if (value != null && (!Number.isSafeInteger(value) || value < 0)) throw new Error("Nuwa N1 reported token usage is invalid.");
 }
 
+/**
+ * `strict` rejects anything that could silently widen the audience; reading a
+ * persisted Run only drops identities that left the frozen roster, which leaves
+ * the cue undelivered rather than turning a damaged record into a broadcast.
+ */
+function normalizeCueAddressee(value: unknown, run: NuwaN1Run, mode: "strict" | "lenient"): NuwaN1CueAddressee | null {
+  const reject = (message: string): null => {
+    if (mode === "strict") throw new Error(message);
+    return null;
+  };
+  if (value == null) return reject("作者提示必须指定接收对象：没有对象的提示不会发送给任何角色。");
+  if (typeof value !== "object" || Array.isArray(value)) return reject("作者提示的接收对象无效。");
+  const addressee = value as { kind?: unknown; actorIds?: unknown };
+  if (addressee.kind === "nuwa" || addressee.kind === "all-actors") return { kind: addressee.kind };
+  if (addressee.kind !== "actors" || !Array.isArray(addressee.actorIds)) return reject("作者提示的接收对象无效。");
+  const ids = [...new Set(addressee.actorIds.map((id) => stableObjectId(String(id))))];
+  const roster = new Set(run.actors.map((actor) => actor.character.id));
+  if (ids.some((id) => !roster.has(id))) return reject("接收角色不在本次排演的冻结名单内。");
+  if (!ids.length) return reject("作者提示至少需要一位接收角色，或改为显式全体角色。");
+  return { kind: "actors", actorIds: ids };
+}
+
+function normalizeDirectorAdjustment(value: unknown, singleScene = false): NuwaN1DirectorAdjustment {
+  if (!value || typeof value !== "object") throw new Error("Nuwa N1 director adjustment is invalid.");
+  const director = value as Partial<NuwaN1DirectorAdjustment>;
+  const statuses = new Set(["generating", "suggested", "adopted", "discarded", "failed", "stale", "expired"]);
+  if (!statuses.has(String(director.status)) || !safeOperation(String(director.operationId || "")) || !Number.isSafeInteger(director.basedOnStep) || !Number.isSafeInteger(director.appliesFromStep) || (director.basedOnStep ?? -1) < 0 || (director.appliesFromStep ?? 0) < 1) throw new Error("Nuwa N1 director adjustment is invalid.");
+  return {
+    operationId: safeOperation(String(director.operationId)), instruction: text(String(director.instruction || ""), "director instruction", 800), status: director.status as NuwaN1DirectorAdjustment["status"],
+    sceneIndex: Number.isSafeInteger(director.sceneIndex) ? director.sceneIndex! : (singleScene ? 0 : Math.floor(director.basedOnStep! / NUWA_N1_STEPS_PER_SCOPE_UNIT)), unsupported: Array.isArray(director.unsupported) ? director.unsupported.map((item) => text(item, "unsupported request", 240)) : ["历史建议未逐项核对；仅执行所列推进提示，其他剧情要求未执行。"], basedOnStep: director.basedOnStep!, appliesFromStep: director.appliesFromStep!, understood: director.understood == null ? null : text(String(director.understood), "director understood", 600),
+    proposedAdjustment: director.focus?.length ? describeNuwaDirectorFocus(normalizeDirectorFocus(director.focus)) : null, scope: director.scope == null ? null : NUWA_DIRECTOR_SCOPE,
+    focus: director.focus == null || (Array.isArray(director.focus) && !director.focus.length && !["suggested", "adopted"].includes(String(director.status))) ? [] : normalizeDirectorFocus(director.focus),
+    failure: director.failure == null ? null : text(String(director.failure), "director failure", 240), adoptedAt: director.adoptedAt == null ? null : text(String(director.adoptedAt), "director adoptedAt", 80), appliedStepId: director.appliedStepId == null ? null : safeId(String(director.appliedStepId))
+  };
+}
+
+/** Reading a persisted Run drops consumer identities that left the roster; a
+ * missing field belongs to RunPacks written before per-recipient progress. */
+function decodedCueConsumers(value: unknown, run: NuwaN1Run): string[] {
+  if (!Array.isArray(value)) return [];
+  const roster = new Set(run.actors.map((actor) => actor.character.id));
+  return [...new Set(value.map((item) => stableObjectId(String(item))).filter((id) => roster.has(id)))];
+}
+
 function normalizeHearers(value: unknown, speakerId: string, actors: NuwaN1Actor[]): string[] {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 2) throw new Error("Nuwa N1 statement recipients are invalid.");
@@ -696,22 +984,31 @@ function normalizeRun(value: unknown): NuwaN1Run {
   if (!value || typeof value !== "object") throw new Error("Nuwa N1 state is invalid.");
   const run = value as NuwaN1Run;
   if (run.version !== NUWA_N1_RUNTIME_VERSION || !safeId(run.runId) || !Number.isSafeInteger(run.revision) || run.revision < 1) throw new Error("Nuwa N1 state version or identity is invalid.");
-  if (!Array.isArray(run.actors) || run.actors.length < 2 || run.actors.length > 3 || !Array.isArray(run.steps) || run.steps.length > NUWA_N1_MAX_COMMITTED_STEPS || !Number.isSafeInteger(run.dispatches) || run.dispatches < 0 || run.dispatches > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 state bounds are invalid.");
+  // Local request/tool bookkeeping can exceed the send budget after director retries.
+  // Only providerDispatches counts actual model-boundary sends and remains capped below.
+  if (!Array.isArray(run.actors) || run.actors.length < 2 || run.actors.length > 3 || !Array.isArray(run.steps) || run.steps.length > NUWA_N1_MAX_COMMITTED_STEPS || !Number.isSafeInteger(run.dispatches) || run.dispatches < 0) throw new Error("Nuwa N1 state bounds are invalid.");
   // v1 persisted local tool-round-trip dispatches only.  Keep old Runs
   // readable and explicitly report that no model-boundary send was recorded.
   if (run.providerDispatches == null) {
     run.providerDispatches = 0;
     run.providerDispatchEvidence = "unknown";
   }
+  run.directorHistory = Array.isArray(run.directorHistory) ? run.directorHistory.map((item) => normalizeDirectorAdjustment(item, run.scope?.scenes?.length === 1)) : [];
+  if (run.directorAdjustment == null) run.directorAdjustment = null;
+  else run.directorAdjustment = normalizeDirectorAdjustment(run.directorAdjustment, run.scope?.scenes?.length === 1);
   if (!Number.isSafeInteger(run.providerDispatches) || run.providerDispatches < 0 || run.providerDispatches > NUWA_N1_MAX_DISPATCHES) throw new Error("Nuwa N1 Provider dispatch bounds are invalid.");
   if (run.providerDispatchEvidence == null) run.providerDispatchEvidence = "complete";
   if (run.providerDispatchEvidence !== "complete" && run.providerDispatchEvidence !== "unknown") throw new Error("Nuwa N1 Provider dispatch evidence is invalid.");
   if (!["ready", "running", "paused", "completed", "cancelled", "blocked"].includes(run.lifecycle)) throw new Error("Nuwa N1 lifecycle is invalid.");
   run.scope = normalizeScope(run.scope, run.scene);
   run.scene = cloneScene(run.scope.scenes[run.scope.currentSceneIndex]!);
+  expireDirectorAdjustments(run);
   if (!Array.isArray(run.attempts)) run.attempts = [];
   run.sourceIdentity = normalizeSourceIdentity(run.sourceIdentity);
   run.actors = run.actors.map(normalizeActor);
+  // RunPacks written before targeting carry a cue with no recipient.  It stays
+  // readable and stays undelivered until the author names a recipient.
+  if (run.pendingCue) run.pendingCue = { operationId: safeOperation(run.pendingCue.operationId), instruction: text(run.pendingCue.instruction, "cue", 800), addressee: normalizeCueAddressee(run.pendingCue.addressee, run, "lenient"), consumedByActorIds: decodedCueConsumers(run.pendingCue.consumedByActorIds, run) };
   run.steps = run.steps.map((step) => {
     const heardByActorIds = Array.isArray(step.heardByActorIds) ? step.heardByActorIds.map((id) => stableObjectId(id)) : [];
     const speech = step.speech == null ? null : text(step.speech, "speech", 1_200);

@@ -135,13 +135,23 @@
 }
 
 @media (min-width: 64.0625rem) and (max-width: 90rem) {
-  .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 23.25rem; }
+  .shell-workspace-event-line .page-context-dock:has(.page-context-dock-panel) { flex-basis: 3.25rem; z-index: 20; }
+  .shell-workspace-event-line .page-context-dock-panel { position: absolute; inset-block: 0; inset-inline-end: 3.25rem; z-index: 21; inline-size: min(23.25rem, calc(100vw - var(--rail-current) - 4rem)); background: var(--color-surface); box-shadow: var(--shadow-panel); }
 }
 
 @media (max-width: 64rem) {
   .shell-workspace-event-line .page-context-dock { z-index: 20; }
   .shell-workspace-event-line .page-context-dock-panel { position: absolute; inset-block: 0; inset-inline-end: 3.25rem; z-index: 21; inline-size: min(20rem, calc(100vw - var(--rail-current) - 4rem)); background: var(--color-surface); box-shadow: var(--shadow-panel); }
 }
+@media (max-width: 48rem) {
+  .shell-workspace-event-line .page-context-dock-panel {
+    inline-size: calc(100vw - var(--rail-current) - 4.25rem);
+    max-inline-size: none;
+  }
+}
+.shell-workspace-event-line .event-line-source-links { display: grid; justify-items: start; gap: .5rem; }
+.shell-workspace-event-line .event-line-source-links > a { color: var(--color-accent); font-weight: 600; text-underline-offset: .15rem; }
+.shell-workspace-event-line .event-line-source-links > a:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 
 .shell-workspace-event-line .event-line-spine-main {
   overflow: auto;

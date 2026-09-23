@@ -681,6 +681,16 @@ export function createStoryStudioWorkspaceOperations(input: {
       return project;
     },
 
+    renameProject(input: { projectId: string; title: string; expectedTitle: string }): StoryStudioProject {
+      const projectPath = resolveProjectPath(rootPath, requireProjectId(input.projectId));
+      const current = readWorkspaceNote(projectPath, "project.md");
+      const title = requireText(input.title, "Project title", 80);
+      if (current.title !== input.expectedTitle) throw new Error("Project changed; reload before renaming.");
+      const result = updateWorkspaceNote(projectPath, { relativePath: "project.md", expectedContentHash: current.contentHash, frontmatter: { title } });
+      if (!result.ok) throw new Error("Project changed; reload before renaming.");
+      return readProductProject(rootPath, input.projectId);
+    },
+
     openProject(projectInput: { projectId: string }): StoryStudioProject {
       const projectId = requireProjectId(projectInput.projectId);
       const project = readProductProject(rootPath, projectId);
@@ -1513,7 +1523,7 @@ export function createStoryStudioWorkspaceOperations(input: {
     readWorldStateN4(stateInput: { projectId: string; objectId: string; observedAt: string; workVersionId?: string | null }) {
       const projectPath = resolveProjectPath(rootPath, stateInput.projectId);
       const object = readProductObject(projectPath, requireText(stateInput.objectId, "World state object", 160));
-      return clone(projectWorldStateN4({ store: readWorldStateN4Store(projectPath, object.id, stateInput.workVersionId ?? null), subjectId: object.id, observedAt: stateInput.observedAt }));
+      return clone(projectWorldStateN4({ store: readWorldStateN4Store(projectPath, object.id, stateInput.workVersionId ?? null, true), subjectId: object.id, observedAt: stateInput.observedAt }));
     },
 
     applyWorldStateN4(stateInput: { projectId: string; objectId: string; workVersionId?: string | null; expectedObjectRevision: string; expectedRevision: number; operationId: string; effectiveAt: string; value: WorldStateN4Value; evidence: WorldStateN4Evidence; now: string; compensatesChangeId?: string | null }) {
@@ -3035,6 +3045,7 @@ export function createStoryStudioWorkspaceOperations(input: {
       title: string;
       body?: string;
       tags?: string[];
+      knowledgeSubjects?: string[];
       operationId?: string;
     }): StoryStudioWorldObject {
       const title = requireText(planningInput.title, "Planning event title", 100);
@@ -3054,7 +3065,7 @@ export function createStoryStudioWorkspaceOperations(input: {
         if (matches.length > 1) throw new Error("Planning event operation resolves to multiple durable objects.");
         if (matches[0]) {
           const existing = readProductObject(projectPath, matches[0].id);
-          if (existing.title !== title || existing.body.trimEnd() !== body.trimEnd() || stableJson([...existing.tags].sort()) !== stableJson([...tags].sort())) throw new Error("Planning event operation was already used with a different payload.");
+          if (existing.title !== title || existing.body.trimEnd() !== body.trimEnd() || stableJson([...existing.tags].sort()) !== stableJson([...tags].sort()) || stableJson([...(existing.knowledgeSubjects || [])].sort()) !== stableJson(requireStringList(planningInput.knowledgeSubjects, "Knowledge subjects").sort())) throw new Error("Planning event operation was already used with a different payload.");
           return existing;
         }
       }
@@ -3064,7 +3075,8 @@ export function createStoryStudioWorkspaceOperations(input: {
         title,
         status: "planned",
         tags,
-        body
+        body,
+        knowledgeSubjects: planningInput.knowledgeSubjects
       });
     },
 
@@ -3337,8 +3349,8 @@ function findObjectNote(projectPath: string, objectId: string) {
  * exclusively by WorkspaceOperations, never by a Multiverse cache. */
 type WorldStateN4Envelope = { version: typeof WORLD_STATE_N4_BY_WORK_VERSION_VERSION; mainline: WorldStateN4Store; workVersions: Record<string, WorldStateN4Store> };
 
-function readWorldStateN4Store(projectPath: string, objectId: string, workVersionId: string | null = null): WorldStateN4Store {
-  return worldStateStoreForVersion(readWorldStateN4Envelope(projectPath, objectId), worldStateWorkVersionKey(projectPath, workVersionId));
+function readWorldStateN4Store(projectPath: string, objectId: string, workVersionId: string | null = null, rejectMissingDerivedSlice = false): WorldStateN4Store {
+  return worldStateStoreForVersion(readWorldStateN4Envelope(projectPath, objectId), worldStateWorkVersionKey(projectPath, workVersionId), rejectMissingDerivedSlice);
 }
 
 function readWorldStateN4Envelope(projectPath: string, objectId: string): WorldStateN4Envelope {
@@ -3375,8 +3387,11 @@ function worldStateWorkVersionKey(projectPath: string, workVersionId: string | n
   return version.identity.kind === "root" ? null : version.identity.workVersionId;
 }
 
-function worldStateStoreForVersion(envelope: WorldStateN4Envelope, workVersionId: string | null): WorldStateN4Store {
-  return structuredClone(workVersionId == null ? envelope.mainline : envelope.workVersions[workVersionId] ?? envelope.mainline);
+function worldStateStoreForVersion(envelope: WorldStateN4Envelope, workVersionId: string | null, rejectMissingDerivedSlice = false): WorldStateN4Store {
+  if (workVersionId == null) return structuredClone(envelope.mainline);
+  const slice = envelope.workVersions[workVersionId];
+  if (!slice && rejectMissingDerivedSlice) throw new Error("World state slice does not exist for the requested derived WorkVersion.");
+  return structuredClone(slice ?? envelope.mainline);
 }
 
 function withWorldStateStoreForVersion(envelope: WorldStateN4Envelope, workVersionId: string | null, store: WorldStateN4Store): WorldStateN4Envelope {

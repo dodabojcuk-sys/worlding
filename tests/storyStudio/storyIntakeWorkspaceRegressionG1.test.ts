@@ -64,8 +64,8 @@ test("Work numbers only Event or scene candidates and keeps objects, units, path
 test("the main Work surface can continue the same TianyiConversation without turning every message into Story Intake", () => {
   assert.match(workspace, /submitConversation/u);
   assert.match(workspace, /streamTianyiGroundedAnswer/u);
-  assert.match(workspace, /发送消息/u);
-  assert.match(workspace, /整理为故事候选/u);
+  assert.match(workspace, /"conversation.send"/u);
+  assert.match(workspace, /t\("conversation.extract"\)/u);
   assert.match(workSurface, /story-intake-work-conversation/u);
   assert.match(workSurface, /继续和天意讨论当前范围/u);
 });
@@ -82,7 +82,7 @@ test("R2 keeps one task frame across Creative, Review and Work while preserving 
 test("R2 exact pending targets recover their requested candidate from the same persisted Envelope", () => {
   assert.match(workspace, /get\("tianyiCandidate"\)/u);
   assert.match(workspace, /get\("tianyiEnvelope"\)/u);
-  assert.match(workspace, /const runId = requestedRunId \?\? window\.sessionStorage\.getItem/u, "冷启动必须优先用完整 URL 的 run 身份恢复，而不是依赖同页 sessionStorage");
+  assert.match(workspace, /const runId = requestedRunId \?\? readBrowserRecovery\(tianyiStoryIntakeRunStorageKey\(project\.id, workVersionId, sessionId\)\)/u, "冷启动必须优先用完整 URL 的 run 身份恢复，而不是依赖同页 sessionStorage");
   assert.match(workspace, /requestedEnvelopeId !== envelope\.envelopeId/u);
   assert.match(workspace, /createActiveStoryIntakeCandidateRef\(envelope, requestedCandidate\.candidateId\)/u);
   assert.match(workspace, /requestedCandidate \? \[requestedCandidate\.candidateId\] : \[\]/u);

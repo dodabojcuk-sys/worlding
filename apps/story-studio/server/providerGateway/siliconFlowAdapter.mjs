@@ -139,6 +139,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       const timeoutId = setTimeout(() => { timeoutTriggered = true; controller.abort(); }, normalizeTimeout(input.timeoutMs));
       let response;
       try {
+        await input.onTransportDispatch?.();
         response = await fetchImpl(providerEndpoint(baseUrlProvider, "chat/completions"), {
           method: "POST",
           redirect: "error",
@@ -161,22 +162,21 @@ export function createOpenAiCompatibleAdapter(options = {}) {
       } catch (error) {
         clearTimeout(timeoutId);
         callerSignal?.removeEventListener("abort", onCallerAbort);
-        throw normalizeTransportError(error, { callerSignal, timeoutTriggered });
+        throw normalizeTransportError(error, { callerSignal, timeoutTriggered, stage: "request-before-headers", responseHeadersReceived: false, contentStarted: false });
       }
       let payload;
       try {
         if (!response?.ok) {
-          await discardResponseBody(response);
-          throw mapHttpStatus(response?.status);
+          throw await httpError(response);
         }
         payload = await response.json();
       } catch (error) {
         clearTimeout(timeoutId);
         callerSignal?.removeEventListener("abort", onCallerAbort);
-        if (timeoutTriggered) throw providerGatewayError("timeout");
+        if (timeoutTriggered) throw providerGatewayError("timeout", responseDiagnostic(response, "response-body", null, "响应正文超时", false));
         if (error?.name === "ProviderGatewayError" || error?.name === "ProviderCredentialBackendError") throw error;
         if (typeof error?.statusCode === "number") throw error;
-        throw providerGatewayError("invalid-response");
+        throw providerGatewayError("invalid-response", responseDiagnostic(response, "response-body", null, "响应正文无法解析", false));
       }
       clearTimeout(timeoutId);
       callerSignal?.removeEventListener("abort", onCallerAbort);
@@ -211,6 +211,7 @@ export function createOpenAiCompatibleAdapter(options = {}) {
         let completion;
         try {
           completion = await this.openChatCompletion({
+            onTransportDispatch: input.onTransportDispatch,
             modelId: input.modelId,
             messages: input.messages,
             maxOutputTokens: input.maxOutputTokens,
@@ -274,6 +275,18 @@ export function createOpenAiCompatibleAdapter(options = {}) {
 
       let response;
       try {
+        const requestBody = {
+          model: input.modelId,
+          messages: input.messages,
+          stream: true,
+          max_tokens: input.maxOutputTokens,
+          temperature: input.temperature,
+          ...reasoningRequestFields(input, enableThinking),
+          ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
+          ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
+        };
+        input.onRequestShape?.({ modelId: requestBody.model, maxTokens: requestBody.max_tokens, thinking: requestBody.enable_thinking ?? null, stream: requestBody.stream, toolChoice: requestBody.tool_choice?.function?.name ?? requestBody.tool_choice ?? null, toolNames: requestBody.tools?.map((tool) => tool.function?.name ?? tool.name) ?? [], timeoutMs: input.timeoutMs ?? null });
+        await input.onTransportDispatch?.();
         response = await fetchImpl(providerEndpoint(baseUrlProvider, "chat/completions"), {
           method: "POST",
           redirect: "error",
@@ -281,35 +294,25 @@ export function createOpenAiCompatibleAdapter(options = {}) {
             accept: "text/event-stream",
             "content-type": "application/json"
           }),
-          body: JSON.stringify({
-            model: input.modelId,
-            messages: input.messages,
-            stream: true,
-            max_tokens: input.maxOutputTokens,
-            temperature: input.temperature,
-            ...reasoningRequestFields(input, enableThinking),
-            ...(input.tools?.length ? { tools: input.tools, tool_choice: input.toolChoice || "auto" } : {}),
-            ...(input.responseFormat === "json-object" ? { response_format: { type: "json_object" } } : {})
-          }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal
         });
       } catch (error) {
         clearTimeout(timeoutId);
         callerSignal?.removeEventListener("abort", onCallerAbort);
-        throw normalizeTransportError(error, { callerSignal, timeoutTriggered });
+        throw normalizeTransportError(error, { callerSignal, timeoutTriggered, stage: "request-before-headers", responseHeadersReceived: false, contentStarted: false });
       }
 
       if (!response?.ok) {
         clearTimeout(timeoutId);
         callerSignal?.removeEventListener("abort", onCallerAbort);
-        await discardResponseBody(response);
-        throw mapHttpStatus(response?.status);
+        throw await httpError(response);
       }
       if (!isEventStreamResponse(response) || !response.body) {
         clearTimeout(timeoutId);
         callerSignal?.removeEventListener("abort", onCallerAbort);
         await discardResponseBody(response);
-        throw providerGatewayError("invalid-response");
+        throw providerGatewayError("invalid-response", responseDiagnostic(response, "response-headers", null, "缺少可读的 SSE 内容", false));
       }
 
       const traceId = boundedTraceId(response.headers?.get?.(traceHeader));
@@ -392,12 +395,19 @@ function validateEmbeddingVector(vector) {
 }
 
 async function* consumeProviderStream(input) {
+  let contentStarted = false;
   try {
-    yield* parseSse(input.responseBody, input.signal, input.onUsage);
+    for await (const event of parseSse(input.responseBody, input.signal, input.onUsage)) {
+      if ((event?.type === "chunk" && event.text) || event?.type?.startsWith?.("tool-call-")) contentStarted = true;
+      yield event;
+    }
   } catch (error) {
     throw normalizeTransportError(error, {
       callerSignal: input.callerSignal,
-      timeoutTriggered: input.timeoutTriggered()
+      timeoutTriggered: input.timeoutTriggered(),
+      stage: "sse-content",
+      responseHeadersReceived: true,
+      contentStarted
     });
   } finally {
     input.cleanup();
@@ -413,6 +423,7 @@ async function* parseSse(body, signal, onUsage) {
   let toolFinishSeen = false;
   let responseModelSeen = false;
   let lastFinishReason = null;
+  let generatedContentSeen = false;
   try {
     while (!completed) {
       const result = await readWithAbort(reader, signal);
@@ -450,6 +461,7 @@ async function* parseSse(body, signal, onUsage) {
               responseModelSeen = true;
             }
             if (item.type === "chunk" && item.usage) onUsage?.(item.usage);
+            if ((item.type === "chunk" && item.text) || item.type.startsWith("tool-call-")) generatedContentSeen = true;
             yield item;
           }
         }
@@ -463,6 +475,9 @@ async function* parseSse(body, signal, onUsage) {
       for (const call of [...toolCalls.values()].filter((item) => !item.ended).sort((left, right) => left.order - right.order)) {
         yield Object.freeze({ type: "tool-call-aborted", id: call.id || null, name: call.name || null, index: call.index, reason: "cancelled" });
       }
+    }
+    if (isProviderGatewayError(error) && error.diagnostic?.stage === "sse-error" && generatedContentSeen) {
+      throw providerGatewayError(error.code, { ...error.diagnostic, contentStarted: true });
     }
     throw error;
   } finally {
@@ -487,6 +502,18 @@ function parseSseEvent(source) {
   } catch {
     throw providerGatewayError("invalid-response");
   }
+  // Some compatible gateways open HTTP 200 before their upstream fails.
+  // Never interpret their SSE error envelope as an empty successful answer.
+  if (payload?.error || source.split("\n").some((line) => /^event:\s*error\s*$/u.test(line))) {
+    const code = payload?.error?.code ?? "";
+    const type = payload?.error?.type ?? "";
+    const message = String(payload?.error?.message || "");
+    const diagnostic = { stage: "sse-error", upstreamHttpStatus: 200, upstreamErrorCode: safeCode(code !== "" ? code : type), requestId: safeCode(payload?.request_id), summary: safeSummary(message), upstreamMessage: safeUpstreamMessage(message), responseHeadersReceived: true, contentStarted: false, errorBodyReceived: true };
+    if (/timeout|timed.out|504/iu.test(`${code} ${type} ${message}`)) throw providerGatewayError("timeout", diagnostic);
+    const status = Number(payload?.error?.status ?? payload?.error?.status_code ?? code);
+    if (Number.isInteger(status) && status >= 400 && status <= 599) throw providerGatewayError(mapHttpStatus(status).code, { ...diagnostic, upstreamErrorStatus: status });
+    throw providerGatewayError("unavailable", diagnostic);
+  }
   const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
   const text = typeof choice?.delta?.content === "string" ? choice.delta.content : "";
   const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : null;
@@ -502,7 +529,8 @@ function normalizeProviderPayload(payload, toolCalls, toolFinishSeen) {
   const rawCalls = Array.isArray(choice?.delta?.tool_calls) ? choice.delta.tool_calls : [];
   const events = [];
   if (typeof payload?.model === "string" && payload.model.trim()) events.push(Object.freeze({ type: "response-metadata", responseModelId: payload.model.trim().slice(0, 240) }));
-  if (text || (finishReason && finishReason !== "tool_calls") || usage) events.push(Object.freeze({ type: "chunk", text, finishReason: finishReason === "tool_calls" ? null : finishReason, usage }));
+  const reasoningBytes = typeof choice?.delta?.reasoning_content === "string" ? Buffer.byteLength(choice.delta.reasoning_content) : 0;
+  if (text || reasoningBytes || (finishReason && finishReason !== "tool_calls") || usage) events.push(Object.freeze({ type: "chunk", text, ...(reasoningBytes ? { reasoningBytes } : {}), finishReason: finishReason === "tool_calls" ? null : finishReason, usage }));
   for (const raw of rawCalls) {
     const index = Number.isInteger(raw?.index) && raw.index >= 0 ? raw.index : null;
     if (index === null) {
@@ -618,13 +646,84 @@ function abortError() {
 }
 
 function normalizeTransportError(error, state) {
-  if (isProviderGatewayError(error)) return error;
-  if (state.callerSignal?.aborted) return providerGatewayError("cancelled");
-  if (state.timeoutTriggered) return providerGatewayError("timeout");
-  return providerGatewayError("unavailable");
+  if (isProviderGatewayError(error) && error.diagnostic) return error;
+  const diagnostic = { stage: state.stage || "transport", upstreamHttpStatus: null, upstreamErrorCode: safeCode(error?.cause?.code || error?.code), requestId: null, summary: safeSummary(error?.cause?.message || error?.message), responseHeadersReceived: state.responseHeadersReceived === true, contentStarted: state.contentStarted === true };
+  if (state.callerSignal?.aborted) return providerGatewayError("cancelled", diagnostic);
+  if (state.timeoutTriggered) return providerGatewayError("timeout", diagnostic);
+  if (isProviderGatewayError(error)) return providerGatewayError(error.code, diagnostic);
+  return providerGatewayError("unavailable", diagnostic);
+}
+
+async function httpError(response) {
+  let body = "";
+  let bodyTruncated = false;
+  try { ({ body, truncated: bodyTruncated } = await readLimitedErrorBody(response)); } catch { /* status and headers still identify the failure */ }
+  let payload = null;
+  if (!bodyTruncated) try { payload = JSON.parse(body); } catch { /* a plain-text upstream error is valid diagnostic input */ }
+  const detail = payload?.error || payload || {};
+  const summary = safeSummary(detail.message || (bodyTruncated ? "" : body) || `HTTP ${response.status}`);
+  return providerGatewayError(mapHttpStatus(response?.status).code, { ...responseDiagnostic(response, "http-response", safeCode(detail.code ?? detail.type), summary, false), upstreamMessage: safeUpstreamMessage(detail.message), errorBodyReceived: body.length > 0 });
+}
+
+async function readLimitedErrorBody(response) {
+  const reader = response?.body?.getReader?.();
+  if (!reader) return { body: "", truncated: false };
+  const chunks = [];
+  let size = 0;
+  let truncated = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const remaining = 16_384 - size;
+      if (value.byteLength > remaining) {
+        if (remaining > 0) chunks.push(value.subarray(0, remaining));
+        truncated = true;
+        break;
+      }
+      chunks.push(value);
+      size += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  return { body: new TextDecoder().decode(Buffer.concat(chunks)), truncated };
+}
+
+function responseDiagnostic(response, stage, upstreamErrorCode, summary, contentStarted) {
+  return { stage, upstreamHttpStatus: Number.isInteger(response?.status) ? response.status : null, upstreamErrorCode, requestId: safeCode(response?.headers?.get?.("x-siliconcloud-trace-id") || response?.headers?.get?.("x-request-id") || response?.headers?.get?.("x-amzn-requestid")), summary: safeSummary(summary), responseHeadersReceived: Boolean(response), contentStarted };
+}
+
+function safeCode(value) {
+  const code = Number.isSafeInteger(value) && value >= 0 ? String(value) : typeof value === "string" ? value : "";
+  return /^[a-z0-9._:-]{1,100}$/iu.test(code) ? code : null;
+}
+function safeUpstreamMessage(value) {
+  const source = typeof value === "string" ? value : "";
+  // Preserve only a small, known provider error meaning. Arbitrary upstream
+  // prose may echo an API key or author text and must not reach receipts.
+  if (/insufficient\s+(?:account\s+)?balance|余额不足/iu.test(source)) return "Insufficient balance";
+  if (/account\s+(?:is\s+)?(?:in\s+arrears|overdue)|账户欠费/iu.test(source)) return "Account in arrears";
+  if (/quota\s+(?:exceeded|unavailable)|额度不足/iu.test(source)) return "Quota unavailable";
+  if (/payment\s+required/iu.test(source)) return "Payment required";
+  return null;
+}
+function safeSummary(value) {
+  const source = String(value || "");
+  // Upstream prose can echo credentials or story content. Persist only a
+  // short classified summary; status and machine code carry exact diagnosis.
+  if (/timeout|timed.out|超时|504/iu.test(source)) return "上游等待超时";
+  if (/insufficient\s+(?:account\s+)?balance|余额不足/iu.test(source)) return "上游报告余额不足";
+  if (/payment|402|balance|余额/iu.test(source)) return "上游计费或余额拒绝";
+  if (/unauthoriz|invalid.key|鉴权|401/iu.test(source)) return "上游鉴权拒绝";
+  if (/rate.limit|429|限流/iu.test(source)) return "上游限流";
+  if (/响应正文超时|响应正文无法解析|缺少可读的 SSE 内容/iu.test(source)) return source.slice(0, 48);
+  return "上游错误正文已隐藏";
 }
 
 function mapHttpStatus(status) {
+  if (status === 402) return providerGatewayError("payment-required");
   if (status === 401) return providerGatewayError("unauthorized");
   if (status === 403) return providerGatewayError("forbidden");
   if (status === 404) return providerGatewayError("not-found");

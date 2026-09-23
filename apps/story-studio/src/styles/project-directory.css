@@ -178,3 +178,46 @@
   }
   .project-directory-close { display: grid; }
 }
+
+
+/* Conversation navigation has its own control scope, separate from the material tree. */
+.project-conversation-panel { gap: var(--space-2); padding: var(--space-3); }
+.project-conversation-panel header { display:flex; align-items:center; justify-content:space-between; }
+.project-conversation-panel h2 { margin:0; font-size:var(--font-size-sm); }
+.project-conversation-panel :is(button,input) { box-sizing:border-box; min-width:0; font:inherit; color:var(--color-text); text-align:start; }
+.project-conversation-panel button { display:flex; align-items:center; gap:var(--space-2); padding:6px 8px; min-height:32px; border:0; border-radius:var(--radius-sm); background:transparent; cursor:pointer; }
+.project-conversation-panel button:hover { background:var(--color-surface-muted); }
+.project-conversation-panel button:focus-visible { outline:2px solid var(--color-focus); outline-offset:-2px; }
+.project-conversation-panel button:disabled { opacity:.55; cursor:default; }
+.project-conversation-panel svg { width:16px; height:16px; flex-shrink:0; }
+.project-conversation-panel .conversation-new { background:var(--color-accent-soft); font-weight:600; }
+.project-conversation-panel .conversation-secondary { color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.project-conversation-panel form { display:grid; gap:var(--space-2); }
+.project-conversation-panel form > div { display:flex; }
+.project-conversation-panel input { width:100%; padding:8px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); }
+.project-conversation-list { overflow:auto; flex:1; min-height:0; }
+.project-conversation-heading,.conversation-row { display:flex; align-items:center; gap:2px; min-width:0; }
+.project-conversation-heading { margin-top:var(--space-3); font-weight:600; }
+.project-conversation-heading[data-current="true"] { color:var(--color-accent); }
+.project-conversation-heading [aria-current="true"] { color:var(--color-accent); }
+.project-conversation-panel .conversation-label { display:block; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-conversation-panel .conversation-icon { padding:6px; flex-shrink:0; }
+.project-conversation-panel .row-action { opacity:0; }
+.project-conversation-panel :is(.conversation-row,.project-conversation-heading):is(:hover,:focus-within) .row-action { opacity:1; }
+.project-conversation-items { display:grid; gap:2px; margin-inline-start:22px; }
+.project-conversation-items p { margin:6px 8px; color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.project-conversation-panel [aria-current="page"] { background:var(--color-accent-soft); font-weight:600; }
+.conversation-runs { padding-inline:8px; color:var(--color-text-muted); font-size:var(--font-size-xs); }
+.conversation-runs summary { padding-block:6px; cursor:pointer; }
+.project-conversation-panel .conversation-runs button { width:100%; font-size:inherit; }
+.project-conversation-panel .conversation-directory { border-top:1px solid var(--color-border); border-radius:0; }
+
+.project-conversation-list, .project-conversation-list section, .project-conversation-items > div { min-width:0; max-width:100%; }
+.project-conversation-items { grid-template-columns:minmax(0,1fr); }
+.project-conversation-list { overflow-x:hidden; }
+.project-conversation-panel .conversation-label:is(:focus,:active) { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.project-conversation-panel .conversation-runs button { justify-content: space-between; gap: .4rem; }
+.project-conversation-panel .conversation-runs button span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-conversation-panel .conversation-runs button:is(:focus,:active) span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.project-conversation-panel .conversation-runs button small { flex: 0 0 auto; color: var(--color-text-muted); font-size: .67rem; }
+.project-conversation-panel .conversation-runs button[aria-current="page"] { background: var(--color-accent-soft); font-weight: 600; }

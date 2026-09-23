@@ -15,6 +15,7 @@ import { createCreationSourceSelectionPort } from "../../apps/story-studio/serve
 import { buildStorySnapshot } from "../../src/storyIntelligence/storySnapshotBuilder.ts";
 import { readNuwaN1Run } from "../../src/storyIntelligence/nuwaN1Runtime.ts";
 
+import { knowledgeState } from "../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 const TOKEN = "nuwa-n1-local-test-token";
 
 test("Nuwa N1 local API is explicit about provider availability and keeps a fake tool loop scoped, recoverable, and candidate-only", async (t) => {
@@ -85,6 +86,21 @@ test("Nuwa N1 local API is explicit about provider availability and keeps a fake
   assert.equal(JSON.stringify(model).includes("CANARY_OTHER_CHARACTER_SECRET"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_FUTURE"), false);
   assert.equal(JSON.stringify(model).includes("CANARY_AUTHOR_PROFILE_SECRET"), false);
+  const directorSuggestion = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/director-suggest", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "director-suggest", instruction: "暂缓揭露 SECRET_DIRECTOR_CANARY，先推进角色之间的试探。" });
+  assert.equal(directorSuggestion.status, 200, JSON.stringify(directorSuggestion.payload));
+  model = directorSuggestion.payload.data as NuwaReadModel;
+  assert.equal(model.run.directorAdjustment?.status, "suggested");
+  assert.equal(model.run.directorAdjustment?.appliesFromStep, 2);
+  assert.equal(JSON.stringify(model.contextInspector).includes("SECRET_DIRECTOR_CANARY"), false, "the author director request cannot enter role context inspection");
+  const directorAdoption = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/director-decide", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "director-adopt", decision: "adopt" });
+  assert.equal(directorAdoption.status, 200, JSON.stringify(directorAdoption.payload));
+  model = directorAdoption.payload.data as NuwaReadModel;
+  assert.equal(model.run.directorAdjustment?.status, "adopted");
+  const directedStep = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "step-directed" });
+  assert.equal(directedStep.status, 200, JSON.stringify(directedStep.payload));
+  model = directedStep.payload.data as NuwaReadModel;
+  assert.equal(model.run.directorAdjustment?.appliedStepId, model.run.steps[1]?.stepId, "the next safety-boundary step records the applied director adjustment");
+  assert.equal(JSON.stringify(model.contextInspector).includes("SECRET_DIRECTOR_CANARY"), false, "director secret never enters persisted role context");
 
   const memoryQuery = await getJson(enabled.baseUrl, `/__local/story-studio/characters/memory-query?projectId=${encodeURIComponent(value.project.id)}&characterId=${encodeURIComponent(value.characters[1]!.id)}`);
   assert.equal(memoryQuery.status, 200, JSON.stringify(memoryQuery.payload));
@@ -322,6 +338,7 @@ test("Nuwa N1 reaches a loopback HTTP/SSE host through Gateway and Pi for altern
   }
   assert.equal(model.run.steps.length, 3);
   assert.deepEqual(model.run.steps.map((step) => step.actorId), [value.characters[0].id, value.characters[1].id, value.characters[0].id]);
+  assert.equal(model.run.provider.providerCalls, model.run.providerDispatches, "read model shows actual sends rather than availability zero");
   assert.equal(model.run.providerDispatches, 6, "only actual HTTP/SSE model sends consume the N1 Provider dispatch budget");
   assert.equal(host.requests.length, 6, "each durable N1 step performs exactly the required tool call and one result call through HTTP/SSE");
   assert.deepEqual(host.requests.map((request) => request.toolLoopTurn), [false, true, false, true, false, true]);
@@ -594,9 +611,36 @@ test("Nuwa N1 stop aborts an in-flight loopback stream without sending a follow-
   assert.equal(duplicateResult.status, 200, JSON.stringify(duplicateResult.payload));
   assert.deepEqual(duplicateResult.payload, stepResult.payload, "same-operation delivery joins the original executor instead of replacing its cancel handle");
   assert.equal((stepResult.payload.data as NuwaReadModel).run.status, "cancelled");
+  const cancelledObservation = (stepResult.payload.data as NuwaReadModel).run.attempts.at(-1)?.observation;
+  assert.ok(cancelledObservation && cancelledObservation.endToEndMs >= 0, "an interrupted step retains an end-to-end observation");
+  assert.equal(cancelledObservation.secondModelWaitMs, null, "a cancelled first request does not invent a second model round");
   await host.firstResponseClosed;
   assert.equal(host.requests.length, 1, "cancellation reaches the active HTTP/SSE stream before a tool-result turn can be sent");
   assert.equal((stepResult.payload.data as NuwaReadModel).run.steps.length, 0, "a late stream result cannot commit a scene step after cancellation");
+});
+
+test("Nuwa N1 retains phase observation when the first upstream response fails", async (t) => {
+  const value = fixture();
+  const host = await startSseHost({ rejectFirstResponse: true });
+  let child: ChildProcess | null = null;
+  t.after(async () => {
+    if (child?.exitCode === null) { child.kill("SIGTERM"); await Promise.race([once(child, "exit"), delay(2_000)]); }
+    await new Promise<void>((resolve, reject) => host.server.close((error) => error ? reject(error) : resolve()));
+    rmSync(value.root, { recursive: true, force: true });
+  });
+  const running = await start(value, false, host.baseUrl);
+  child = running.child;
+  const created = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/create", value.request("http-sse-failure-create"));
+  assert.equal(created.status, 201);
+  const run = (created.payload.data as NuwaReadModel).run;
+  const stepped = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: run.runId, expectedRevision: run.revision, operationId: "http-sse-failure-step" });
+  assert.equal(stepped.status, 200, JSON.stringify(stepped.payload));
+  const failed = (stepped.payload.data as NuwaReadModel).run;
+  assert.equal(failed.steps.length, 0);
+  assert.equal(failed.attempts.at(-1)?.outcome, "failed");
+  assert.ok(failed.attempts.at(-1)?.observation?.endToEndMs != null);
+  assert.equal(failed.attempts.at(-1)?.observation?.secondModelWaitMs, null);
+  assert.equal(host.requests.length, 1);
 });
 
 test("Nuwa N1 preserves an in-flight author cue for the next bounded step", async (t) => {
@@ -618,7 +662,7 @@ test("Nuwa N1 preserves an in-flight author cue for the next bounded step", asyn
   assert.equal(live.status, 200);
   model = live.payload.data as NuwaReadModel;
   const cue = "CANARY_IN_FLIGHT_AUTHOR_CUE";
-  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cue-author", instruction: cue });
+  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "http-sse-cue-author", instruction: cue, addressee: { kind: "all-actors" } });
   assert.equal(cued.status, 200, JSON.stringify(cued.payload));
   host.releaseFirstResponse();
   const firstResult = await inFlight;
@@ -648,7 +692,7 @@ test("Nuwa N1 continuous execution gives an in-flight cue a new durable step ide
   await host.firstRequestSeen;
   const live = await getJson(running.baseUrl, `/__local/story-studio/nuwa-n1/read?projectId=${value.project.id}&runId=${initial.run.runId}`);
   const cue = "CANARY_CONTINUOUS_CUE";
-  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: initial.run.runId, expectedRevision: (live.payload.data as NuwaReadModel).run.revision, operationId: "continuous-cue-author", instruction: cue });
+  const cued = await postJson(running.baseUrl, "/__local/story-studio/nuwa-n1/cue", { projectId: value.project.id, runId: initial.run.runId, expectedRevision: (live.payload.data as NuwaReadModel).run.revision, operationId: "continuous-cue-author", instruction: cue, addressee: { kind: "all-actors" } });
   assert.equal(cued.status, 200, JSON.stringify(cued.payload));
   host.releaseFirstResponse();
   const completed = await completing;
@@ -675,6 +719,9 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   const first = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-first" });
   assert.equal(first.status, 200, JSON.stringify(first.payload));
   model = first.payload.data as NuwaReadModel;
+  const firstObservation = model.run.attempts.at(-1)?.observation;
+  assert.ok(firstObservation && firstObservation.endToEndMs >= 0 && firstObservation.contextAssemblyMs != null && firstObservation.stepSaveMs != null, "a completed step preserves bounded phase timing in its existing attempt receipt");
+  assert.equal(firstObservation.firstModelWaitMs, null, "the local fake does not invent upstream model timings");
   const statement = model.run.steps[0]!;
   const delivery = statement.heardStatements[0];
   assert.deepEqual({ recipientId: delivery?.recipientId, speakerId: delivery?.speakerId, statement: delivery?.statement, sourceStepId: delivery?.sourceStepId }, { recipientId: value.characters[1].id, speakerId: value.characters[0].id, statement: "我只把钟声的线索告诉你。", sourceStepId: statement.stepId });
@@ -685,6 +732,7 @@ test("Nuwa N1 records an explicit heard statement for only its stable-ID recipie
   const duplicate = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision - 1, operationId: "heard-three-first" });
   assert.equal(duplicate.status, 200, JSON.stringify(duplicate.payload));
   assert.equal((duplicate.payload.data as NuwaReadModel).run.steps.length, 1, "the same step operation cannot duplicate a delivery");
+  assert.deepEqual((duplicate.payload.data as NuwaReadModel).run.attempts[0]?.observation, firstObservation, "repeated operation keeps the original observation rather than inventing another run");
 
   const paused = await postJson(enabled.baseUrl, "/__local/story-studio/nuwa-n1/pause", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "heard-three-pause" });
   assert.equal(paused.status, 200);
@@ -774,6 +822,12 @@ test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart
   const secondRequest = { projectId: value.project.id, participants, storyUnit: { id: secondUnit.id, revision: secondUnit.version }, goal: "在第二场依据各自实际听闻判断钟声线索。", operationId: "n2c-scene-two" };
   const setup = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/setup", secondRequest);
   assert.equal(setup.status, 200, JSON.stringify(setup.payload));
+  const newConversation = await postJson(server.baseUrl, "/__local/story-studio/tianyi/session/open", { projectId: value.project.id, operationId: "isolated-conversation" });
+  assert.equal(newConversation.status, 200, JSON.stringify(newConversation.payload));
+  const sessionId = (newConversation.payload.data as { sessionId: string }).sessionId;
+  const isolated = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/setup", { ...secondRequest, conversationId: sessionId, operationId: "isolated-preview" });
+  assert.equal(isolated.status, 200, JSON.stringify(isolated.payload));
+  assert.ok((isolated.payload.data as { setup: { contextPreview: Array<{ memoryItems: unknown[] }> } }).setup.contextPreview.every((actor) => actor.memoryItems.length === 0), "an independent conversation cannot inherit another conversation's Future heard records");
   const preview = setup.payload.data as { setup: { contextPreview: Array<{ actorId: string; memoryItems: Array<{ summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string } }> }> } };
   assert.equal(preview.setup.contextPreview[0]!.memoryItems.length, 1, "B receives the persisted heard record in the later scene");
   assert.equal(preview.setup.contextPreview[0]!.memoryItems[0]!.summary.includes(delivered.statement), true);
@@ -804,7 +858,7 @@ test("Nuwa N2C recalls A-to-B heard memory in a later scene after server restart
 });
 
 type NuwaReadModel = {
-  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
+  run: { runId: string; status: string; revision: number; dispatches: number; providerDispatches: number; scene: { storyUnitId: string }; pendingCue: { operationId: string; instruction: string } | null; directorAdjustment: { status: string; appliesFromStep: number; appliedStepId: string | null } | null; steps: Array<{ stepId: string; actorId: string; speech: string | null; heardStatements: Array<{ recipientId: string; speakerId: string; statement: string; sourceStepId: string; sourceRevision: string }>; contextEvidenceRefs: Array<{ sourceId: string; summary: string; visibility: string }>; tool: { name: string } }>; provider: { providerCalls: number; kind?: string } };
   contextInspector: { actors: Array<{ actorId: string; localGoal: string; profileBasis: { core: string | null; boundaries: string | null; sourceRevision: string }; knowledgeItems: Array<{ id: string; summary: string; sourceRevision: string; visibility: string }>; beliefItems: Array<{ summary: string }>; memoryItems: Array<{ id: string; summary: string; source: { memoryId: string; speakerId: string; sourceRunId: string; sourceStepId: string; sceneId: string; sceneObservedAt: string; workVersionId: string; workRevision: string; validity: string }; selectedByAttention?: boolean }> }> };
   candidate: { formalWrites: number };
   review: { status: string };
@@ -961,7 +1015,7 @@ async function waitForServer(baseUrl: string, child: ChildProcess) {
 
 function delay(milliseconds: number) { return new Promise((resolve) => setTimeout(resolve, milliseconds)); }
 
-async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }>; firstRequestSeen: Promise<void>; firstResponseClosed: Promise<void>; releaseFirstResponse(): void }> {
+async function startSseHost(options: { holdFirstResponse?: boolean; rejectFirstResponse?: boolean } = {}): Promise<{ baseUrl: string; server: HttpServer; requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }>; firstRequestSeen: Promise<void>; firstResponseClosed: Promise<void>; releaseFirstResponse(): void }> {
   const requests: Array<{ idempotencyKey: string | null; toolLoopTurn: boolean; messages: unknown[] }> = [];
   let resolveFirstRequestSeen: (() => void) | null = null;
   const firstRequestSeen = new Promise<void>((resolve) => { resolveFirstRequestSeen = resolve; });
@@ -977,6 +1031,11 @@ async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Prom
     const toolLoopTurn = Array.isArray(payload.messages) && payload.messages.some((message) => (message as { role?: string }).role === "tool");
     requests.push({ idempotencyKey: request.headers["idempotency-key"]?.toString() || null, toolLoopTurn, messages: payload.messages || [] });
     if (requests.length === 1) resolveFirstRequestSeen?.();
+    if (options.rejectFirstResponse && requests.length === 1) {
+      response.writeHead(503, { "content-type": "application/json", "x-request-id": "local-rejected-first" });
+      response.end(JSON.stringify({ error: { code: "fixture_unavailable", message: "Synthetic upstream rejection" } }));
+      return;
+    }
     response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", "x-request-id": `local-sse-${requests.length}` });
     if (options.holdFirstResponse && requests.length === 1) {
       response.once("close", () => resolveFirstResponseClosed?.());
@@ -996,3 +1055,57 @@ async function startSseHost(options: { holdFirstResponse?: boolean } = {}): Prom
   assert.ok(address && typeof address === "object");
   return { baseUrl: `http://127.0.0.1:${address.port}`, server, requests, firstRequestSeen, firstResponseClosed, releaseFirstResponse() { releaseFirstResponse?.(); } };
 }
+
+
+test("selected private scene remains complete in author review and explicit admission survives the formal writer", () => {
+  const value = fixture();
+  try {
+    const text = "场景结果：蓝匣暗码青鹭七号；林昭心里记着，未向阿芜说出口。" + "具体动作与停顿。".repeat(120);
+    const review = value.authorControl.createCandidateReview({ projectId: value.project.id, minimumCandidates: 1, createdAt: "2026-09-22T12:00:00.000Z", result: { version: "tianyan-golden-loop-candidate/v1", contextPack: { id: "private-scene-review", sources: [] }, contextReceiptId: "private-scene-review", nuwaRunId: "nuwa-run-private-scene", nuwa: { candidates: [{ id: "private-scene", title: "雨棚下的停顿", change: "林昭进行观察", after: text }] } } });
+    assert.equal(review.result.nuwa.candidates[0]!.after, text);
+    assert.equal(review.candidates[0]!.summary.length, 800, "list summary is bounded while complete source remains intact");
+    const planning = value.operations.createPlanningEvent({ projectId: value.project.id, title: "雨棚下的停顿", body: text, tags: ["女娲候选", "仅作者"], knowledgeSubjects: [value.characters[0]!.id], operationId: "private-scene-adopt" });
+    assert.throws(() => value.operations.createPlanningEvent({ projectId: value.project.id, title: planning.title, body: text, tags: ["女娲候选", "仅作者"], knowledgeSubjects: [value.characters[1]!.id], operationId: "private-scene-adopt" }), /different payload/u);
+    const impact = value.authorControl.createPlanningEventImpactReview({ projectId: value.project.id, planningEventId: planning.id });
+    value.authorControl.chooseImpactRoute({ projectId: value.project.id, reviewId: impact.id, optionId: impact.options[0]!.id, action: "adopt" });
+    const change = value.authorControl.createAuthorChangeSet({ projectId: value.project.id, reviewId: impact.id });
+    const applied = value.authorControl.applyAuthorChangeSet({ projectId: value.project.id, changeSetId: change.id });
+    const formal = value.operations.readWorldObject({ projectId: value.project.id, objectId: applied.application.appliedEventId! });
+    assert.equal(formal.body.trimEnd(), text, "formal Event retains the complete selected scene, not the bounded list summary");
+    assert.deepEqual(formal.knowledgeSubjects, [value.characters[0]!.id]);
+    assert.equal(knowledgeState(formal.tags, { kind: "character", id: value.characters[1]!.id, label: "阿芜" }), "unknown");
+  } finally { rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("two conversations recover their own Run and candidate through the local API", async (t) => {
+  const value = fixture();
+  const server = await start(value, true);
+  t.after(async () => { server.child.kill("SIGTERM"); await Promise.race([once(server.child, "exit"), delay(2_000)]); rmSync(value.root, { recursive: true, force: true }); });
+  const sessions: string[] = [];
+  const runIds: string[] = [];
+  for (let index = 0; index < 2; index += 1) {
+    const session = await postJson(server.baseUrl, "/__local/story-studio/tianyi/session/open", { projectId: value.project.id, operationId: `conversation-${index}` });
+    assert.equal(session.status, 200, JSON.stringify(session.payload));
+    const conversationId = (session.payload.data as { sessionId: string }).sessionId;
+    sessions.push(conversationId);
+    const created = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/create", { ...value.request(`conversation-run-${index}`), conversationId });
+    assert.equal(created.status, 201, JSON.stringify(created.payload));
+    let model = created.payload.data as NuwaReadModel;
+    runIds.push(model.run.runId);
+    if (index === 0) {
+      const stepped = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/step", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "conversation-step" });
+      assert.equal(stepped.status, 200, JSON.stringify(stepped.payload));
+      model = stepped.payload.data as NuwaReadModel;
+      const candidate = await postJson(server.baseUrl, "/__local/story-studio/nuwa-n1/candidate", { projectId: value.project.id, runId: model.run.runId, expectedRevision: model.run.revision, operationId: "conversation-candidate", selectedStepIds: [model.run.steps[0]!.stepId] });
+      assert.equal(candidate.status, 201, JSON.stringify(candidate.payload));
+    }
+  }
+  for (const [index, conversationId] of sessions.entries()) {
+    const latest = await getJson(server.baseUrl, `/__local/story-studio/nuwa-n1/latest?projectId=${value.project.id}&conversationId=${conversationId}`);
+    assert.equal((latest.payload.data as NuwaReadModel).run.runId, runIds[index]);
+    assert.equal((latest.payload.data as NuwaReadModel).run.steps.length, index === 0 ? 1 : 0);
+    const candidate = await getJson(server.baseUrl, `/__local/story-studio/author-control/candidate-review?projectId=${value.project.id}&conversationId=${conversationId}`);
+    if (index === 0) assert.equal((candidate.payload.data as { result: { nuwaRunId: string } }).result.nuwaRunId, runIds[0]);
+    else assert.equal(candidate.payload.data, null, "an empty conversation must not borrow the project's latest candidate");
+  }
+});

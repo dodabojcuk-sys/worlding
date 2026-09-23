@@ -416,6 +416,24 @@ export function createTianyiSessionOperations(dependencies: {
     return { closed: Boolean(appended.session), ownerResult: appended.result };
   }
 
+  async function renameTianyiSession(input: { projectId: string; sessionId: string; title: string; operationId: string; expectedContentHash: string }) {
+    const projectContext = context(input.projectId);
+    const sessionId = requireId(input.sessionId, "Session identifier");
+    const session = await readSession(projectContext, sessionId);
+    if (!session) throw new Error("Conversation not found in this project.");
+    const title = requireCreativeShortText(input.title, "Conversation title", 120);
+    const operationId = requireId(input.operationId, "Operation identifier");
+    const previous = session.value.find((event) => event.type === "session-renamed" && event.operationId === operationId);
+    if (previous) {
+      if (JSON.parse(previous.content).title !== title) throw new Error("Rename operation already used for another title.");
+      return sessionDto(session.value, session.contentHash, "normal");
+    }
+    if (session.contentHash !== input.expectedContentHash) throw new Error("Conversation changed; reload before renaming.");
+    const next = await append(projectContext, session, makeEvent({ sessionId, sequence: session.value.length + 1, type: "session-renamed", actor: "system", content: json({ title }), operationId, recordedAt: requireTimestamp(now()) }));
+    if (!next.session || !next.result.saved) throw new Error("Conversation changed; reload before renaming.");
+    return sessionDto(next.session.value, next.session.contentHash, "normal");
+  }
+
   async function readTianyiSessionMetadata(input: { projectId: string; sessionId?: string }) {
     if (input.sessionId && temporarySessions.has(input.sessionId)) {
       const temporary = temporarySessions.get(input.sessionId) as NonNullable<ReturnType<typeof temporarySessions.get>>;
@@ -917,7 +935,7 @@ export function createTianyiSessionOperations(dependencies: {
     return resolved.map((item) => ({ projectId: item.projectId, sessionId: item.sessionId, eventId: item.eventId, sequence: item.sequence as number, actor: item.actor as "author" | "tianyi", recordedAt: item.recordedAt as string, contentHash: item.contentHash as string, excerpt: item.excerpt as string }));
   }
 
-  return { openTianyiSession, runTianyiQuestion, captureTianyiCreativeAuthorSource, extractTianyiCreativeProjection, readTianyiCreativeProjection, editTianyiCreativeCandidate, decideTianyiCreativeCandidate, pauseTianyiCreativeSession, markTianyiCreativeProviderUnavailable, recoverTianyiCreativeSession, completeTianyiCreativeSession, prepareTianyiSessionClose, reviewTianyiMemoryCandidate, decideTianyiMemoryCandidate, decideTianyiStoppingPointCandidate, finalizeTianyiSessionClose, readTianyiSessionMetadata, retainTemporarySessionMessages, recordTianyiSourceReturn, recordTianyiNuwaResult, rolloverTianyiSession };
+  return { renameTianyiSession, openTianyiSession, runTianyiQuestion, captureTianyiCreativeAuthorSource, extractTianyiCreativeProjection, readTianyiCreativeProjection, editTianyiCreativeCandidate, decideTianyiCreativeCandidate, pauseTianyiCreativeSession, markTianyiCreativeProviderUnavailable, recoverTianyiCreativeSession, completeTianyiCreativeSession, prepareTianyiSessionClose, reviewTianyiMemoryCandidate, decideTianyiMemoryCandidate, decideTianyiStoppingPointCandidate, finalizeTianyiSessionClose, readTianyiSessionMetadata, retainTemporarySessionMessages, recordTianyiSourceReturn, recordTianyiNuwaResult, rolloverTianyiSession };
 }
 
 async function requireOpenSession(context: ContinuityContext, sessionId: string) {
@@ -953,10 +971,10 @@ function sessionDto(events: InteractionEvent[], contentHash: string | null, rete
   });
   const visibleMessages = events.flatMap((event) => {
     const visibleContent = visibleArchiveEventContent(event);
-    return visibleContent && (event.actor === "author" || event.actor === "tianyi") ? [{ eventId: event.eventId, sequence: event.sequence, actor: event.actor, recordedAt: event.recordedAt, visibleContent, receiptId: event.receiptId }] : [];
+    return visibleContent && (event.actor === "author" || event.actor === "tianyi") ? [{ eventId: event.eventId, sequence: event.sequence, actor: event.actor, recordedAt: event.recordedAt, visibleContent, contentHash: archiveEventHash(event), receiptId: event.receiptId }] : [];
   });
   const groundedAttempts = retentionMode === "normal" ? groundedAttemptMetadata(events) : [];
-  return { id: events[0]?.sessionId ?? null, contentHash, eventCount: events.length, openedAt: events[0]?.recordedAt ?? null, closed: events.some((event) => event.type === "session-closed"), retentionMode, recoverable: retentionMode === "normal", packEligible: retentionMode === "normal", candidateCount: memoryCandidates.length + stoppingPointCandidates.length, memoryCandidates, stoppingPointCandidates, decidedCandidateIds, visibleMessages, groundedAttempts };
+  return { id: events[0]?.sessionId ?? null, title: events.filter((event) => event.type === "session-renamed").map((event) => JSON.parse(event.content).title as string).at(-1) ?? null, contentHash, eventCount: events.length, openedAt: events[0]?.recordedAt ?? null, closed: events.some((event) => event.type === "session-closed"), retentionMode, recoverable: retentionMode === "normal", packEligible: retentionMode === "normal", candidateCount: memoryCandidates.length + stoppingPointCandidates.length, memoryCandidates, stoppingPointCandidates, decidedCandidateIds, visibleMessages, groundedAttempts };
 }
 
 function groundedAttemptMetadata(events: InteractionEvent[]) {

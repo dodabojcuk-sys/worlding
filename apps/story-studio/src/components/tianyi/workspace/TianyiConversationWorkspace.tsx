@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BookOpen, CircleStop, FilePlus2, History, LoaderCircle, MessageSquareText, RotateCcw, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CircleStop, FilePlus2, History, Library, LoaderCircle, MessageSquareText, Network, PanelRight, RotateCcw, Send, Sparkles, UsersRound, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -37,6 +37,7 @@ import {
   type TianyiAgentRunProjection,
   type TianyiCreativeProjection,
   type TianyiSessionMetadata,
+  type TianyiVisibleMessage,
   type StoryUnit,
   type TianyiObjectContextRef,
   type MapDocument,
@@ -51,12 +52,14 @@ import {
 } from "../../../../../../src/storyContinuity/tianyiGroundedEvidenceRetrieval.ts";
 import { prepareTianyiContinuationRequest, type TianyiContinuationSource, type TianyiContinuationTarget } from "../../../../../../src/storyContinuity/tianyiContinuationRequest.ts";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
+import { useWorkspaceSurface, workspaceSurfaceManager } from "../../../product-shell/WorkspaceDockCoordinator";
 import { TianyiAdoptionPanel } from "./TianyiAdoptionPanel";
 import { StoryIntakeReviewSurface } from "./StoryIntakeReviewSurface";
 import { StoryIntakeWorkSurface } from "./StoryIntakeWorkSurface";
+import { TianyiFormalStoryMap, type TianyiFormalNarrativeContext } from "./TianyiFormalStoryMap";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TranslationKey } from "../../../product-shell/i18n/translations";
-import { tianyiContinuationSourceStorageKey, tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
+import { tianyiContinuationSourceStorageKey, readBrowserRecovery, retainBrowserRecovery, clearBrowserRecovery, readSelectedConversation, tianyiConversationStorageKey, tianyiStoryIntakeRunStorageKey } from "../../../product-shell/runtime/tianyiShellSessionRecovery";
 import { readCreativeComposerDraft, writeCreativeComposerDraftBody } from "./creativeComposerDraft";
 import { readTianyiRelationHandoff } from "./tianyiRelationHandoff";
 import {
@@ -73,17 +76,17 @@ import {
 } from "./storyIntakeWorkspaceState";
 
 type Lane = "creative" | "review" | "work";
-type ConversationProjectVisit = { projectId: string | null; workVersionId: string; generation: number };
+type ConversationProjectVisit = { sessionId: string | null; projectId: string | null; workVersionId: string; generation: number };
 /** Must stay at or below the Grounded Context Gate's server-enforced cap. */
 const MAX_GLOBAL_WORK_EVENT_REFS = 6;
 const MAX_EXPLICIT_MATERIAL_REFS = 4;
-const materialSelectionStorageKey = (projectId: string) => `tianyi-explicit-materials:${projectId}`;
+const materialSelectionStorageKey = (projectId: string, sessionId: string | null) => `tianyi-explicit-materials:${projectId}${sessionId ? `:${sessionId}` : ""}`;
 
 function sameConversationProjectVisit(current: ConversationProjectVisit, expected: ConversationProjectVisit) {
-  return current.projectId === expected.projectId && current.workVersionId === expected.workVersionId && current.generation === expected.generation;
+  return current.sessionId === expected.sessionId && current.projectId === expected.projectId && current.workVersionId === expected.workVersionId && current.generation === expected.generation;
 }
 
-export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenPendingReview(): void }) {
+export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntimeState; onOpenPendingReview(): void; onOpenNuwa(input: { storyUnitId: string; eventId: string; narrativePathId: string; workVersionId: string | null }): void }) {
   const { runtime } = props;
   const { t } = useI18n();
   const project = runtime.project;
@@ -93,6 +96,10 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [intakeRun, setIntakeRun] = useState<TianyiAgentRunProjection | null>(null);
   const [intakeStreamText, setIntakeStreamText] = useState("");
   const [busy, setBusy] = useState(false);
+  const sendingRef = useRef(false);
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
+  const [storyMapOpen, setStoryMapOpen] = useState(false);
+  useEffect(() => () => { conversationProjectVisit.current = { ...conversationProjectVisit.current, generation: conversationProjectVisit.current.generation + 1 }; }, []);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [activeIntakeRef, setActiveIntakeRef] = useState<ActiveStoryIntakeCandidateRef | null>(null);
@@ -105,7 +112,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     let stored: string[] = [];
     let hasStoredSelection = false;
     try {
-      const raw = project ? window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) : null;
+      const raw = project ? readBrowserRecovery(materialSelectionStorageKey(project.id, runtime.tianyiConversationId)) : null;
       hasStoredSelection = raw !== null;
       stored = raw ? JSON.parse(raw) : [];
     } catch { stored = []; }
@@ -131,13 +138,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const [continuationSource, setContinuationSource] = useState<TianyiContinuationSource | null>(null);
   const [continuationChoice, setContinuationChoice] = useState<{ reason: string; candidates: TianyiContinuationTarget[] } | null>(null);
   const [workContextState, setWorkContextState] = useState<"loading" | "ready" | "failed">("loading");
+  const [creationSideOpen, setCreationSideOpen] = useState(false);
+  const [formalNarrativeContext, setFormalNarrativeContext] = useState<TianyiFormalNarrativeContext>({ projectTitle: project?.title ?? null, unitTitle: null, nodeTitle: null, eventId: null, openQuestion: null, characters: [] });
+  const activeSurface = useWorkspaceSurface().activeSurface;
+  const [selectedStoryCharacterId, setSelectedStoryCharacterId] = useState<string | null>(null);
   const workVersionId = runtime.workVersionId ?? "work-version.unversioned";
   const intakeAbort = useRef<AbortController | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const characterSurfaceTriggerRef = useRef<HTMLButtonElement | null>(null);
   const materialSelectionProject = useRef(project?.id ?? null);
-  const conversationProjectVisit = useRef({ projectId: project?.id ?? null, workVersionId, generation: 0 });
-  if (conversationProjectVisit.current.projectId !== (project?.id ?? null) || conversationProjectVisit.current.workVersionId !== workVersionId) {
-    conversationProjectVisit.current = { projectId: project?.id ?? null, workVersionId, generation: conversationProjectVisit.current.generation + 1 };
+  const conversationProjectVisit = useRef({ projectId: project?.id ?? null, sessionId: runtime.tianyiConversationId, workVersionId, generation: 0 });
+  if (conversationProjectVisit.current.sessionId !== runtime.tianyiConversationId || conversationProjectVisit.current.projectId !== (project?.id ?? null) || conversationProjectVisit.current.workVersionId !== workVersionId) {
+    conversationProjectVisit.current = { projectId: project?.id ?? null, sessionId: runtime.tianyiConversationId, workVersionId, generation: conversationProjectVisit.current.generation + 1 };
   }
   const legacyFixture = new URLSearchParams(window.location.search).get("testFixture") === "legacy-three-candidates";
   const dialogueRuntime = runtime.modelStatus?.tianyiDialogue.runtime ?? "unavailable";
@@ -158,6 +170,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const authorDismissedMaterialIds = useRef(new Set<string>());
   const dismissMaterial = useCallback((materialId: string) => { authorDismissedMaterialIds.current.add(materialId); }, []);
   const relationHandoff = handoffRequest;
+  const receiveFormalNarrativeContext = useCallback((next: TianyiFormalNarrativeContext) => {
+    setFormalNarrativeContext((current) => current.projectTitle === next.projectTitle && current.unitTitle === next.unitTitle && current.nodeTitle === next.nodeTitle && current.eventId === next.eventId && current.openQuestion === next.openQuestion && current.characters.map((character) => `${character.id ?? ""}:${character.title}:${character.identity ?? ""}`).join("\u0000") === next.characters.map((character) => `${character.id ?? ""}:${character.title}:${character.identity ?? ""}`).join("\u0000") ? current : next);
+  }, []);
 
   useEffect(() => {
     if (!relationHandoff.active || lane !== "work") return;
@@ -168,18 +183,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [lane, project?.id, relationHandoff.relationId]);
 
   useEffect(() => {
+    const continuingFirstRoot = Boolean(project && intakeRun?.projectId === project.id && intakeRun.sessionId === runtime.tianyiConversationId && intakeRun.workVersionId === "work-version.unversioned" && intakeRun.storyIntakeEnvelope?.baseVersion.workVersionId === workVersionId);
     intakeAbort.current?.abort();
     setProjection(null);
     setMetadata(null);
-    setIntakeRun(null);
+    if (!continuingFirstRoot) setIntakeRun(null);
     setIntakeStreamText("");
-    setActiveIntakeRef(null);
-    setSelectedIntakeCandidateIds([]);
+    if (!continuingFirstRoot) { setActiveIntakeRef(null); setSelectedIntakeCandidateIds([]); }
     setWorkContextEvents([]);
     setWorkContextUnits([]);
     setWorkMaterials([]);
     let restoredMaterials: string[] = [];
-    try { restoredMaterials = project ? JSON.parse(window.sessionStorage.getItem(materialSelectionStorageKey(project.id)) ?? "[]") : []; } catch { restoredMaterials = []; }
+    try { restoredMaterials = project ? JSON.parse(readBrowserRecovery(materialSelectionStorageKey(project.id, runtime.tianyiConversationId)) ?? "[]") : []; } catch { restoredMaterials = []; }
     setSelectedMaterialIds(restoredMaterials.slice(0, MAX_EXPLICIT_MATERIAL_REFS));
     setSelectedMapEvidence(null); setMapEvidenceState("idle");
     setSelectedMaterialFile(null);
@@ -192,9 +207,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setImageObservation(null);
     setImageObservationBusy(false);
     setImageObservationError("");
+    setFormalNarrativeContext({ projectTitle: project?.title ?? null, unitTitle: null, nodeTitle: null, eventId: null, openQuestion: null, characters: [] });
+    setSelectedStoryCharacterId(null);
     let restoredContinuation: TianyiContinuationSource | null = null;
     try {
-      restoredContinuation = project ? JSON.parse(window.localStorage.getItem(tianyiContinuationSourceStorageKey(project.id)) ?? "null") : null;
+      restoredContinuation = project ? JSON.parse(window.localStorage.getItem(tianyiContinuationSourceStorageKey(project.id, runtime.tianyiConversationId)) ?? "null") : null;
     } catch { restoredContinuation = null; }
     setContinuationSource(restoredContinuation);
     setContinuationChoice(null);
@@ -207,7 +224,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     setContinuationSource(source);
     setContinuationChoice(null);
     if (!project) return;
-    const key = tianyiContinuationSourceStorageKey(project.id);
+    const key = tianyiContinuationSourceStorageKey(project.id, runtime.tianyiConversationId);
     if (source) window.localStorage.setItem(key, JSON.stringify(source));
     else window.localStorage.removeItem(key);
   }, [project]);
@@ -215,7 +232,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   useEffect(() => {
     if (!project) return;
     if (materialSelectionProject.current !== project.id) { materialSelectionProject.current = project.id; return; }
-    window.sessionStorage.setItem(materialSelectionStorageKey(project.id), JSON.stringify(selectedMaterialIds));
+    retainBrowserRecovery(materialSelectionStorageKey(project.id, runtime.tianyiConversationId), JSON.stringify(selectedMaterialIds));
   }, [project?.id, selectedMaterialIds]);
 
   const globalWorkTargetIds = useMemo(() => {
@@ -355,7 +372,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         if (relationHandoff.active && exactRequestedEvents.length) runtime.setWorkScope("selected-events");
         setSelectedMaterialIds((current) => {
           let dismissedIds: string[] = [];
-          try { dismissedIds = JSON.parse(window.sessionStorage.getItem(`tianyi-handoff-dismissed:${project.id}`) ?? "[]"); } catch { dismissedIds = []; }
+          try { dismissedIds = JSON.parse(readBrowserRecovery(`tianyi-handoff-dismissed:${project.id}`) ?? "[]"); } catch { dismissedIds = []; }
           const valid = relationHandoff.materialIds.filter((id) => materials.some((item) => item.id === id) && !dismissedIds.includes(id));
           const next = [...new Set([...valid, ...current.filter((id) => materials.some((item) => item.id === id))])];
           if (next.length > MAX_EXPLICIT_MATERIAL_REFS) setError(`带入的资料超过 ${MAX_EXPLICIT_MATERIAL_REFS} 项上限；已保留原选择，请移除一项后再加入。`);
@@ -545,8 +562,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       if (handoffRequest.materialIds.includes(materialId) && project) {
         try {
           const key = `tianyi-handoff-dismissed:${project.id}`;
-          const dismissed: string[] = JSON.parse(window.sessionStorage.getItem(key) ?? "[]");
-          if (!dismissed.includes(materialId)) { dismissed.push(materialId); window.sessionStorage.setItem(key, JSON.stringify(dismissed)); }
+          const dismissed: string[] = JSON.parse(readBrowserRecovery(key) ?? "[]");
+          if (!dismissed.includes(materialId)) { dismissed.push(materialId); retainBrowserRecovery(key, JSON.stringify(dismissed)); }
         } catch { /* session storage full/blocked: re-entry may re-seed, acceptable */ }
       }
       return;
@@ -569,11 +586,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, []);
 
   const operationId = (label: string) => `operation.tianyi.${label}.${crypto.randomUUID()}`;
-  const scrollTarget = (targetLane: Lane) => workspaceRef.current?.querySelector<HTMLElement>(targetLane === "creative" ? ".tianyi-conversation-column" : targetLane === "review" ? ".story-intake-ledger" : activeIntakeCandidate ? ".story-intake-arrangement" : ".tianyi-global-work-scroll") ?? null;
+  const scrollTarget = (targetLane: Lane) => workspaceRef.current?.querySelector<HTMLElement>(targetLane === "creative" ? ".tianyi-work-content" : targetLane === "review" ? ".story-intake-ledger" : activeIntakeCandidate ? ".story-intake-arrangement" : ".tianyi-global-work-scroll") ?? null;
   const scrollStorageKey = (targetLane: Lane) => `tianyi-lane-scroll:${project?.id ?? "no-project"}:${runtime.tianyiConversationId ?? intakeRun?.sessionId ?? "no-session"}:${targetLane}`;
   const saveLaneScroll = (targetLane: Lane) => {
     const target = scrollTarget(targetLane);
-    if (target) window.sessionStorage.setItem(scrollStorageKey(targetLane), String(Math.max(0, Math.round(target.scrollTop))));
+    if (target) retainBrowserRecovery(scrollStorageKey(targetLane), String(Math.max(0, Math.round(target.scrollTop))));
   };
   const changeLane = (nextLane: Lane) => {
     saveLaneScroll(lane);
@@ -587,9 +604,9 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const frame = window.requestAnimationFrame(() => {
       const target = scrollTarget(lane);
       if (!target) return;
-      const stored = Number(window.sessionStorage.getItem(scrollStorageKey(lane)) ?? 0);
+      const stored = Number(readBrowserRecovery(scrollStorageKey(lane)) ?? 0);
       if (Number.isFinite(stored)) target.scrollTop = stored;
-      const persist = () => window.sessionStorage.setItem(scrollStorageKey(lane), String(Math.max(0, Math.round(target.scrollTop))));
+      const persist = () => { retainBrowserRecovery(scrollStorageKey(lane), String(Math.max(0, Math.round(target.scrollTop)))); setAwayFromLatest(target.scrollHeight - target.clientHeight - target.scrollTop > 100); };
       target.addEventListener("scroll", persist, { passive: true });
       (target as HTMLElement & { __tianyiScrollCleanup?: () => void }).__tianyiScrollCleanup = () => target.removeEventListener("scroll", persist);
     });
@@ -606,15 +623,15 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const sessionId = ref?.sessionId ?? runtime.tianyiConversationId;
     if (!project || !sessionId) return;
     const key = storyIntakeCandidateRefStorageKey(project.id, sessionId);
-    if (ref) window.sessionStorage.setItem(key, serializeActiveStoryIntakeCandidateRef(ref));
-    else window.sessionStorage.removeItem(key);
+    if (ref) retainBrowserRecovery(key, serializeActiveStoryIntakeCandidateRef(ref));
+    else clearBrowserRecovery(key);
   }, [project, runtime.tianyiConversationId]);
   // Runtime bootstrap normally restores this pointer.  Keep the Work surface
   // independently resilient to its asynchronous project bootstrap so a
   // completed grounded-answer receipt remains recoverable after refresh.
   useEffect(() => {
     if (!project || runtime.tianyiConversationId) return;
-    const savedSessionId = window.sessionStorage.getItem(tianyiConversationStorageKey(project.id));
+    const savedSessionId = readSelectedConversation(project.id);
     if (savedSessionId) { runtime.setTianyiConversationId(savedSessionId); return; }
     const requestedSessionId = new URLSearchParams(window.location.search).get("tianyiSession");
     if (!requestedSessionId) return;
@@ -634,11 +651,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const recoveredSessionId = intakeRun?.storyIntakeEnvelope?.sessionId;
     if (recoveredSessionId) {
       if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
+      visit.sessionId = recoveredSessionId;
       runtime.setTianyiConversationId(recoveredSessionId);
       return recoveredSessionId;
     }
     const opened = await runtime.withConnection((token) => openTianyiSession(project.id, operationId("open"), token));
     if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return null;
+    visit.sessionId = opened.sessionId;
     runtime.setTianyiConversationId(opened.sessionId);
     return opened.sessionId;
   }, [intakeRun?.storyIntakeEnvelope?.sessionId, project, runtime, t]);
@@ -694,12 +713,12 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   }, [lastGroundedAnswer?.questionAttemptKey, metadata?.groundedAttempts, project, runtime, workVersionId]);
 
   useEffect(() => {
-    if (!project || runtime.tianyiConversationId || !runtime.workVersionId) return;
+    if (!project || runtime.tianyiConversationId || !runtime.workVersionId || window.localStorage.getItem(tianyiConversationStorageKey(project.id)) === "") return;
     let active = true;
     void runtime.withConnection((token) => getLatestTianyiStoryIntakeRun({ projectId: project.id, workVersionId: runtime.workVersionId!, token })).then((recovered) => {
       if (!active || !recovered?.storyIntakeEnvelope) return;
       if (recovered.projectId !== project.id || recovered.workVersionId !== runtime.workVersionId || recovered.sessionId !== recovered.storyIntakeEnvelope.sessionId || recovered.runId !== recovered.storyIntakeEnvelope.runId) return;
-      window.sessionStorage.setItem(tianyiStoryIntakeRunStorageKey(project.id, recovered.workVersionId, recovered.sessionId), recovered.runId);
+      retainBrowserRecovery(tianyiStoryIntakeRunStorageKey(project.id, recovered.workVersionId, recovered.sessionId), recovered.runId);
       setIntakeRun(recovered);
       runtime.setTianyiConversationId(recovered.sessionId);
       setError("");
@@ -714,12 +733,17 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const requested = new URLSearchParams(window.location.search);
     const hasExplicitIntakeTarget = Boolean(requested.get("tianyiEnvelope") || requested.get("tianyiCandidate") || requested.get("tianyiRun"));
     const requestedRunId = requested.get("tianyiRun");
-    const runId = requestedRunId ?? window.sessionStorage.getItem(tianyiStoryIntakeRunStorageKey(project.id, workVersionId, sessionId));
+    const currentRunId = readBrowserRecovery(tianyiStoryIntakeRunStorageKey(project.id, workVersionId, sessionId));
+    const originalRunId = workVersionId !== "work-version.unversioned" ? readBrowserRecovery(tianyiStoryIntakeRunStorageKey(project.id, "work-version.unversioned", sessionId)) : null;
+    const runId = requestedRunId ?? currentRunId ?? originalRunId;
+    const runWorkVersionId = requestedRunId && requested.get("pendingWorkVersion")
+      ? requested.get("pendingWorkVersion")!
+      : currentRunId || !originalRunId ? workVersionId : "work-version.unversioned";
     if (!runId) {
       if (lane === "review" || hasExplicitIntakeTarget) setError("未找到可恢复的候选批次；原文仍保留，请回到创意重新整理。");
       return;
     }
-    void runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, runId, token })).then((next) => {
+    void runtime.withConnection((token) => recoverTianyiAgentRun({ projectId: project.id, workVersionId: runWorkVersionId, sessionId, runId, token })).then((next) => {
       if (!active) return;
       setIntakeRun(next);
       if (!next?.storyIntakeEnvelope) {
@@ -731,14 +755,14 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       const requestedWorkVersionId = requested.get("pendingWorkVersion");
       const requestedSessionId = requested.get("tianyiSession");
       const requestedEnvelopeId = requested.get("tianyiEnvelope");
-      if (hasExplicitIntakeTarget && (requestedProjectId !== project.id || requestedWorkVersionId !== workVersionId || requestedSessionId !== sessionId || requestedRunId !== runId || requestedEnvelopeId !== envelope.envelopeId)) {
+      if (hasExplicitIntakeTarget && (requestedProjectId !== project.id || requestedWorkVersionId !== runWorkVersionId || requestedSessionId !== sessionId || requestedRunId !== runId || requestedEnvelopeId !== envelope.envelopeId)) {
         setActiveIntakeRef(null);
         setSelectedIntakeCandidateIds([]);
         setError("待确认入口对应的候选批次已变化或无法恢复；没有写入任何内容，请回到待确认重新选择。");
         return;
       }
       setError("");
-      const restoredRef = parseActiveStoryIntakeCandidateRef(window.sessionStorage.getItem(storyIntakeCandidateRefStorageKey(project.id, sessionId)), project.id);
+      const restoredRef = parseActiveStoryIntakeCandidateRef(readBrowserRecovery(storyIntakeCandidateRefStorageKey(project.id, sessionId)), project.id);
       const requestedCandidateId = requested.get("tianyiCandidate");
       const requestedCandidate = requestedCandidateId ? envelope.candidates.find((candidate) => candidate.candidateId === requestedCandidateId) : null;
       if (hasExplicitIntakeTarget && requestedCandidateId && !requestedCandidate) {
@@ -750,11 +774,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       if (requestedCandidate) {
         const requestedRef = createActiveStoryIntakeCandidateRef(envelope, requestedCandidate.candidateId);
         setActiveIntakeRef(requestedRef);
-        window.sessionStorage.setItem(storyIntakeCandidateRefStorageKey(project.id, sessionId), serializeActiveStoryIntakeCandidateRef(requestedRef));
-      } else if (restoredRef) setActiveIntakeRef(restoredRef);
+        retainBrowserRecovery(storyIntakeCandidateRefStorageKey(project.id, sessionId), serializeActiveStoryIntakeCandidateRef(requestedRef));
+      } else if (restoredRef) {
+        const restoredCandidate = envelope.candidates.find((candidate) => candidate.candidateId === restoredRef.candidateId);
+        if (restoredCandidate && restoredRef.envelopeId === envelope.envelopeId && restoredRef.runId === envelope.runId) {
+          const currentRef = createActiveStoryIntakeCandidateRef(envelope, restoredCandidate.candidateId);
+          setActiveIntakeRef(currentRef);
+          retainBrowserRecovery(storyIntakeCandidateRefStorageKey(project.id, sessionId), serializeActiveStoryIntakeCandidateRef(currentRef));
+        }
+      }
       const selectionKey = storyIntakeSelectionStorageKey(project.id, sessionId, runId);
       try {
-        const storedIds = JSON.parse(window.sessionStorage.getItem(selectionKey) ?? "[]") as unknown;
+        const storedIds = JSON.parse(readBrowserRecovery(selectionKey) ?? "[]") as unknown;
         if (Array.isArray(storedIds)) {
           const valid = storedIds.filter((id): id is string => typeof id === "string" && envelope.candidates.some((candidate) => candidate.candidateId === id));
           setSelectedIntakeCandidateIds(valid.length ? valid : requestedCandidate ? [requestedCandidate.candidateId] : []);
@@ -769,7 +800,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (!envelope || !project) return;
     const selectionKey = storyIntakeSelectionStorageKey(project.id, envelope.sessionId, envelope.runId);
     try {
-      const storedIds = JSON.parse(window.sessionStorage.getItem(selectionKey) ?? "[]") as unknown;
+      const storedIds = JSON.parse(readBrowserRecovery(selectionKey) ?? "[]") as unknown;
       setSelectedIntakeCandidateIds(Array.isArray(storedIds)
         ? filterStoryIntakeSelection(envelope, storedIds.filter((id): id is string => typeof id === "string"))
         : []);
@@ -801,9 +832,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     if (intakeAbort.current === controller) intakeAbort.current = null;
   };
 
-  const submitCreative = async () => {
-    const text = readCreativeComposerDraft(runtime.creativeComposerDraft).body.trim();
-    if (!text || !project || busy) return;
+  const submitCreative = async (sourceMessage?: TianyiVisibleMessage) => {
+    const text = sourceMessage?.visibleContent ?? readCreativeComposerDraft(runtime.creativeComposerDraft).body.trim();
+    if (sourceMessage && (sourceMessage.actor !== "author" || !sourceMessage.contentHash)) return;
+    if (!text || !project || busy || sendingRef.current) return;
+    sendingRef.current = true;
     const visit = conversationProjectVisit.current;
     const projectId = project.id;
     const frozenWorkVersionId = workVersionId;
@@ -811,18 +844,21 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     try {
       const sessionId = await ensureConversation(visit);
       if (!sessionId || !sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
-      const captureOperationId = operationId("capture");
-      const captured = await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
+      // Retrying extraction of unchanged text keeps one author source even if
+      // the capture acknowledgement or later stream was lost. Scoped by session.
+      const sourceDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      const captureOperationId = `story-intake.capture.${sourceDigest}`;
+      const captured = sourceMessage ? { source: { sessionId, eventId: sourceMessage.eventId, contentHash: sourceMessage.contentHash! } } : await runtime.withConnection((token) => captureTianyiCreativeAuthorSource({
         projectId,
         sessionId,
         operationId: captureOperationId,
-        submissionId: operationId("submission"),
+        submissionId: `story-intake.submission.${sourceDigest}`,
         text,
         collaborate: false,
         token
       }));
       if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
-      runtime.setCreativeComposerDraft("");
+      if (!sourceMessage) runtime.setCreativeComposerDraft("");
       if (legacyFixture) {
         const extracted = await runtime.withConnection((token) => extractTianyiCreativeProjection({ projectId, sessionId, operationId: operationId("extract"), source: captured.source, fixture: deterministicThreeCandidates(text, t), token }));
         if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
@@ -833,21 +869,22 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           projectId, workVersionId: frozenWorkVersionId, sessionId, currentPage: "/tianyi",
           task: "把本轮已保存的作者原话整理为带精确来源的结构化故事候选。",
           contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: captured.source } },
-          permissionProfile: "conservative", operationId: operationId("story-intake.start"), token
+          permissionProfile: "conservative", operationId: `story-intake.source.${captured.source.contentHash}`, token
         }));
         if (!sameConversationProjectVisit(conversationProjectVisit.current, visit)) return;
-        window.sessionStorage.setItem(tianyiStoryIntakeRunStorageKey(projectId, frozenWorkVersionId, sessionId), run.runId);
+        retainBrowserRecovery(tianyiStoryIntakeRunStorageKey(projectId, frozenWorkVersionId, sessionId), run.runId);
         setIntakeRun(run);
         await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
-        await streamIntakeRun(sessionId, run.runId, "story-intake", true, visit);
+        if (!run.storyIntakeEnvelope) await streamIntakeRun(sessionId, run.runId, "story-intake", !run.contextManifest, visit);
       }
-    } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : t("tianyi.workspace.prepareFailed")); }
-    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
+    } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) { if (!sourceMessage) runtime.setCreativeComposerDraft(text); setError(cause instanceof Error ? cause.message : t("tianyi.workspace.prepareFailed")); } }
+    finally { sendingRef.current = false; if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const submitConversation = async (conversationLane: "creative" | "work") => {
     const text = (conversationLane === "creative" ? readCreativeComposerDraft(runtime.creativeComposerDraft).body : runtime.workComposerDraft).trim();
-    if (!text || !project || busy) return;
+    if (!text || !project || busy || sendingRef.current) return;
+    sendingRef.current = true;
     const visit = conversationProjectVisit.current;
     setBusy(true); setError(""); setNotice("");
     try {
@@ -874,9 +911,11 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       const profileId = runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
       const localFakeRuntime = dialogueRuntime === "local-fake";
       if ((dialogueRuntime === "provider" && runtime.modelStatus?.tianyiDialogue.ready && profileId) || (localFakeRuntime && conversationLane === "work")) {
+        const retryAttempt = metadata?.groundedAttempts.slice().reverse().find((attempt) => attempt.question === requestText && attempt.profileId === (localFakeRuntime ? "local-fake-grounded-answer" : profileId) && attempt.state !== "COMPLETED");
         const result = await runtime.withConnection((token) => streamTianyiGroundedAnswer({
           operationId: operationId("conversation.answer"),
-          submissionId: operationId("conversation.submission"),
+          submissionId: retryAttempt?.submissionId ?? operationId("conversation.submission"),
+          explicitRetry: retryAttempt?.retryRequired === true,
           profileId: localFakeRuntime ? "local-fake-grounded-answer" : profileId!,
           question: requestText,
           contextRequest: {
@@ -925,8 +964,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         persistContinuationSource(null);
       }
       await refresh(sessionId, runtime.activeTianyiCandidateId, visit);
-    } catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。"); }
-    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
+    } catch (cause) {
+      if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) {
+        if (visit.sessionId) { try { await refresh(visit.sessionId, runtime.activeTianyiCandidateId, visit); } catch { /* Preserve the original failure. */ } }
+        if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "对话失败；草稿与已有候选仍然保留。");
+      }
+    }
+    finally { sendingRef.current = false; if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const stopStoryIntake = async () => {
@@ -937,12 +981,13 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   };
 
   const retryStoryIntake = async () => {
-    if (!runtime.tianyiConversationId || !intakeRun || busy) return;
+    if (!runtime.tianyiConversationId || !intakeRun || busy || sendingRef.current) return;
+    sendingRef.current = true;
     const visit = conversationProjectVisit.current;
     setBusy(true); setError("");
     try { await streamIntakeRun(runtime.tianyiConversationId, intakeRun.runId, "story-intake.retry", false, visit); }
     catch (cause) { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setError(cause instanceof Error ? cause.message : "Story Intake 重试失败。"); }
-    finally { if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
+    finally { sendingRef.current = false; if (sameConversationProjectVisit(conversationProjectVisit.current, visit)) setBusy(false); }
   };
 
   const decideIntakeCandidate = async (candidateId: string, lifecycleStatus: StoryIntakeLifecycleStatusProjection) => {
@@ -994,7 +1039,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
       const next = validCurrent.includes(candidateId)
         ? validCurrent.filter((id) => id !== candidateId)
         : [...validCurrent, candidateId];
-      window.sessionStorage.setItem(storyIntakeSelectionStorageKey(project.id, envelope.sessionId, envelope.runId), JSON.stringify(next));
+      retainBrowserRecovery(storyIntakeSelectionStorageKey(project.id, envelope.sessionId, envelope.runId), JSON.stringify(next));
       return next;
     });
     focusIntakeCandidate(candidateId);
@@ -1007,7 +1052,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
     const ids = candidates.map((candidate) => candidate.candidateId);
     const ref = createActiveStoryIntakeCandidateRef(envelope, ids[0]!);
     setSelectedIntakeCandidateIds(ids);
-    window.sessionStorage.setItem(storyIntakeSelectionStorageKey(project.id, envelope.sessionId, envelope.runId), JSON.stringify(ids));
+    retainBrowserRecovery(storyIntakeSelectionStorageKey(project.id, envelope.sessionId, envelope.runId), JSON.stringify(ids));
     persistIntakeRef(ref);
     runtime.setActiveTianyiCandidateId(null);
     changeLane("work");
@@ -1077,8 +1122,8 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
   const activeIntakeResolution = useMemo(() => {
     const envelope = intakeRun?.storyIntakeEnvelope;
     if (!project || !envelope || !activeIntakeRef) return null;
-    return resolveActiveStoryIntakeCandidate({ projectId: project.id, workVersionId, sessionId: envelope.sessionId, envelope, ref: activeIntakeRef });
-  }, [activeIntakeRef, intakeRun, project, workVersionId]);
+    return resolveActiveStoryIntakeCandidate({ projectId: project.id, workVersionId: envelope.baseVersion.workVersionId, sessionId: envelope.sessionId, envelope, ref: activeIntakeRef });
+  }, [activeIntakeRef, intakeRun, project]);
   const activeIntakeCandidate = activeIntakeResolution?.status === "ready" ? activeIntakeResolution.candidate : null;
   const selectedIntakeCandidates = useMemo(() => {
     const envelope = intakeRun?.storyIntakeEnvelope;
@@ -1171,43 +1216,69 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         ? { eyebrow: "候选工作", title: `编排当前 ${selectedIntakeCandidates.length} 项，再决定是否采纳`, detail: "先看结构化影响；只有明确范围会交给既有 Owner" }
         : { eyebrow: "全局工作", title: "围绕当前故事持续推进", detail: "可讨论、核对范围或添加引用；没有候选也不会关闭工作上下文" };
 
-  if (!project) return <main className="shell-workspace tianyi-workspace"><section className="tianyi-workspace-empty"><Sparkles /><h1>{t("space.tianyi")}</h1><p>{t("tianyi.workspace.noProject")}</p></section></main>;
+  if (!project) return <main className="shell-workspace tianyi-workspace"><section className="tianyi-workspace-empty"><Sparkles /><h1>{t("space.tianyi")}</h1><p>{t(runtime.connectionState === "loading" ? "conversation.loading" : "tianyi.workspace.noProject")}</p></section></main>;
+  const currentStoryCharacter = formalNarrativeContext.characters.find((character) => (character.id ?? character.title) === selectedStoryCharacterId) ?? formalNarrativeContext.characters[0] ?? null;
+  const openStoryCharacter = (character: TianyiFormalNarrativeContext["characters"][number]) => {
+    setSelectedStoryCharacterId(character.id ?? character.title);
+    workspaceSurfaceManager.openSurface({
+      kind: "character-context",
+      context: {
+        projectId: project.id,
+        workVersionId,
+        actorId: character.id ?? character.title,
+        characterId: character.id ?? character.title,
+        eventId: formalNarrativeContext.eventId,
+        contextPackage: {
+          objectType: "character",
+          objectId: character.id ?? character.title,
+          projectId: project.id,
+          workVersionId,
+          sourceContext: "current-narrative-node",
+          currentView: "tianyi"
+        }
+      }
+    });
+  };
+  const characterSurfaceOpen = activeSurface?.kind === "character-context" && activeSurface.context.projectId === project.id;
+  const surfaceCharacter = characterSurfaceOpen ? formalNarrativeContext.characters.find((character) => (character.id ?? character.title) === activeSurface.context.actorId) ?? null : null;
 
   return <main ref={workspaceRef} className="shell-workspace tianyi-workspace" aria-label={t("tianyi.workspaceLabel")} data-tianyi-conversation-id={runtime.tianyiConversationId ?? intakeRun?.storyIntakeEnvelope?.sessionId ?? "not-started"} data-active-lane={lane}>
     <header className="tianyi-workspace-header">
           <div><small>作者工作台</small><h1>天意</h1></div>
       <div className="tianyi-lane-switch" role="tablist" aria-label={t("tianyi.workspace.modeLabel")}>
-        <button type="button" role="tab" aria-selected={lane === "creative"} onClick={() => changeLane("creative")}><span>{t("tianyi.workspace.creativeMode")}</span><small>展开想法</small></button>
-        <button type="button" role="tab" aria-selected={lane === "work"} onClick={() => changeLane("work")}><span>{t("tianyi.workspace.workMode")}</span><small>推进落地</small></button>
+        <button type="button" role="tab" aria-label={t("tianyi.workspace.creativeMode")} aria-selected={lane === "creative"} onClick={() => changeLane("creative")}><span>{t("tianyi.workspace.creativeMode")}</span><small>展开想法</small></button>
+        <button type="button" role="tab" aria-label={t("tianyi.workspace.workMode")} aria-selected={lane === "work"} onClick={() => changeLane("work")}><span>{t("tianyi.workspace.workMode")}</span><small>推进落地</small></button>
       </div>
       <div className="tianyi-header-actions">
+        {lane === "creative" ? <button className="conversation-story-toggle" type="button" aria-expanded={storyMapOpen} onClick={() => setStoryMapOpen((value) => !value)}>{t("storyMap.title")}</button> : null}
         <button type="button" className="tianyi-pending-anchor" onClick={props.onOpenPendingReview}>待确认<span>{intakeCandidateCount ? `${intakeCandidateCount} 项候选` : "查看全部"}</span></button>
         <button type="button" className="tianyi-conversation-anchor" onClick={() => changeLane("creative")} aria-current={lane === "creative" ? "page" : undefined}><History /><span>{lane === "creative" ? "当前长对话" : "返回长对话"}</span><small>草稿与来源保持</small></button>
       </div>
     </header>
 
-    <section className="tianyi-task-header" aria-label="当前任务">
-      <div><small>{relationEntry ? "来自关系图" : task.eyebrow}</small><h2>{relationEntry ? relationReadableSummary ?? (relationHandoff.relationLabel ? `围绕“${relationHandoff.relationLabel}”继续创作` : "围绕所选关系继续创作") : task.title}</h2><p>{relationEntry ? "已带入作者明确选择的双方资料与来源事件；尚未发送。" : task.detail}</p></div>
+    <section hidden={lane === "creative" && !formalNarrativeContext.nodeTitle && !relationEntry} className="tianyi-task-header" aria-label="当前任务">
+      <div><small>{relationEntry ? "来自关系图" : task.eyebrow}</small><h2>{relationEntry ? relationReadableSummary ?? (relationHandoff.relationLabel ? `围绕“${relationHandoff.relationLabel}”继续创作` : "围绕所选关系继续创作") : task.title}</h2><p>{relationEntry ? "已带入作者明确选择的双方资料与来源事件；尚未发送。" : task.detail}</p>{lane === "creative" ? <dl className="tianyi-creative-story-anchor" aria-label="当前故事锚点"><div><dt>作品</dt><dd>{formalNarrativeContext.projectTitle ?? project.title}<span className="tianyi-anchor-version"> / {runtime.workVersionLabel ?? "当前主线"}</span></dd></div><div><dt>单元</dt><dd>{formalNarrativeContext.unitTitle ?? "尚无正式单元"}</dd></div><div><dt>节点</dt><dd>{formalNarrativeContext.nodeTitle ?? "尚无正式节点"}</dd></div><div><dt>正在发生</dt><dd>{formalNarrativeContext.openQuestion ?? "尚未标注待解问题"}</dd></div><div className="tianyi-anchor-characters"><dt>涉及角色</dt><dd>{formalNarrativeContext.characters.length ? formalNarrativeContext.characters.map((character) => <button key={character.id ?? character.title} type="button" onClick={(event) => { characterSurfaceTriggerRef.current = event.currentTarget; openStoryCharacter(character); }}><span>{character.title}</span><small>以此对象继续</small></button>) : "当前节点未标注角色"}</dd></div><div className="tianyi-anchor-future"><dt>未来观察</dt><dd><details><summary>未来能力未接入</summary><div><button type="button" aria-label="打开未来推演视图未接入状态" onClick={() => workspaceSurfaceManager.openSurface({ kind: "future-projection-map", context: { projectId: project.id, workVersionId } })}>未来推演视图未接入</button><button type="button" disabled>命运演化未接入</button><button type="button" disabled>世界演化分析未接入</button><button type="button" disabled>关系演化未接入</button></div></details></dd></div></dl> : null}</div>
       <div className="tianyi-task-actions">{materialReturn ? <button type="button" className="tianyi-material-return" onClick={() => window.location.assign(materialReturn)}><ArrowLeft aria-hidden="true" />{relationEntry ? "返回关系图" : mapEntry ? "返回地图" : "返回资料"}</button> : null}<div className="tianyi-task-status"><span>{project.title}</span><span>{runtime.workVersionLabel ?? "当前主线"}</span>{intakeRun?.storyIntakeEnvelope ? <span>批次已恢复</span> : null}</div></div>
     </section>
 
-    <div className="tianyi-workspace-body" data-full-work-surface={lane !== "creative"} data-global-work={lane === "work" && !activeIntakeCandidate ? "true" : undefined}>
+    <div className="tianyi-workspace-body" data-story-map-open={storyMapOpen} data-full-work-surface={lane !== "creative"} data-global-work={lane === "work" && !activeIntakeCandidate ? "true" : undefined} data-main-creation={lane === "creative" ? "true" : undefined}>
       <section className="tianyi-conversation-column">
+
         <div className={`tianyi-work-content${lane === "work" && !activeIntakeCandidate ? " tianyi-global-work-scroll" : ""}`}>
         {lane === "creative" ? <section className="tianyi-visible-history" aria-label={t("tianyi.workspace.historyLabel")}>
-          {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p></article>) : <div className="tianyi-conversation-welcome"><Sparkles /><h2>{t("tianyi.workspace.welcomeTitle")}</h2><p>{t("tianyi.workspace.welcomeBody")}</p><small>{t("tianyi.workspace.localOnly")}</small></div>}
+          {metadata?.visibleMessages.length ? metadata.visibleMessages.map((message) => <article key={message.eventId} className={`is-${message.actor}`}><span>{message.actor === "author" ? t("tianyi.author") : t("space.tianyi")}</span><p>{message.visibleContent}</p>{message.actor === "author" ? <button type="button" className="conversation-source-action" disabled={busy} onClick={() => void submitCreative(message)}>{t("conversation.extractMessage")}</button> : null}</article>) : <div className="tianyi-conversation-welcome"><Sparkles /><h2>{t("tianyi.workspace.welcomeTitle")}</h2><p>{t("tianyi.workspace.welcomeBody")}</p><small>{t("tianyi.workspace.localOnly")}</small></div>}
         </section> : null}
 
         {lane === "creative" ? <section className="tianyi-lane-stage" aria-label={t("tianyi.workspace.creativeMode")}>
           <div className="tianyi-stage-heading"><div><small>CREATIVE LANE</small><h2>{t("tianyi.workspace.creativeTitle")}</h2></div><span>{t("tianyi.workspace.creativeGuide")}</span></div>
           {legacyFixture ? <p className="tianyi-fixture-notice" role="status">测试夹具模式 · 固定三候选不是 AI 识别结果</p> : null}
           {!legacyFixture && intakeRun ? <section className="tianyi-intake-run" data-story-intake-status={intakeRun.status} aria-label="Story Intake 运行">
-            <header><div><strong>Story Intake</strong><p>{storyIntakeStatusLabel(intakeRun)}</p></div><span>{storyIntakeRuntimeLabel(intakeRun)}</span></header>
+            <header><div><strong>{t("conversation.arrangement")}</strong><p>{storyIntakeStatusLabel(intakeRun)}</p></div><span>{storyIntakeRuntimeLabel(intakeRun)}</span></header>
             {intakeRun.status === "running" ? <div className="tianyi-intake-progress"><LoaderCircle className="is-spinning" /><span>模型运行中；完成后候选会进入待审列表。</span><button type="button" onClick={stopStoryIntake}><CircleStop />停止</button></div> : null}
             {intakeStreamText ? <p className="tianyi-intake-explanation">{intakeStreamText}</p> : null}
-            {intakeRun.error ? <div className="tianyi-intake-failure" role="alert"><p>{intakeRun.error.message}</p>{intakeRun.error.retryable ? <button type="button" onClick={retryStoryIntake}><RotateCcw />重试</button> : null}</div> : null}
+            {intakeRun.error ? <div className="tianyi-intake-failure" role="alert"><p>{["invalid-tool-call", "tool-failed"].includes(intakeRun.error.category) ? t("conversation.invalidCandidates") : intakeRun.error.message}</p><details><summary>{t("conversation.failureDetails")}</summary><pre>{intakeRun.error.message}</pre></details>{intakeRun.error.retryable ? <button type="button" onClick={retryStoryIntake}><RotateCcw />重试</button> : null}</div> : null}
             {intakeRun.storyIntakeEnvelope ? <>
-              <div className="tianyi-intake-boundary"><span>Canon 写入 0 · 已确认资料对象 {intakeRun.storyIntakeEnvelope.formalStoryWrites}</span><span>基于 {intakeRun.storyIntakeEnvelope.baseVersion.workVersionId}@r{intakeRun.storyIntakeEnvelope.baseVersion.revision}</span></div>
+              <div className="tianyi-intake-boundary"><span>正式故事未改写 · 已确认资料对象 {intakeRun.storyIntakeEnvelope.formalStoryWrites}</span><span>基于 {intakeRun.storyIntakeEnvelope.baseVersion.workVersionId}@r{intakeRun.storyIntakeEnvelope.baseVersion.revision}</span></div>
               <div className="tianyi-intake-ready"><div><strong>{intakeRun.storyIntakeEnvelope.candidates.length} 项故事候选已准备好</strong><p>原文、来源和候选状态已保留；审阅只是当前批次的任务，不会切换成另一条会话。</p></div><button type="button" className="primary-action" onClick={() => changeLane("review")}>审阅这批候选<ArrowRight /></button></div>
               <details className="tianyi-intake-runtime-details"><summary>来源与运行诊断</summary><dl className="tianyi-intake-runtime-audit" aria-label="Pi 运行回执"><div><dt>请求</dt><dd>{intakeRun.executionIdentity.requestedProviderId ?? "unknown"} / {intakeRun.executionIdentity.requestedModelId ?? "unknown"}</dd></div><div><dt>响应模型</dt><dd>{intakeRun.executionIdentity.responseModelId ?? "unknown"}</dd></div><div><dt>Run / Step</dt><dd>{intakeRun.executionIdentity.runId} / {intakeRun.executionIdentity.stepId ?? "unknown"}</dd></div><div><dt>耗时</dt><dd>{intakeRun.observability.latencyMs === null ? "unknown" : `${intakeRun.observability.latencyMs} ms`}</dd></div><div><dt>Token</dt><dd>{intakeRun.observability.totalTokens === null ? "unknown" : intakeRun.observability.totalTokens}</dd></div><div><dt>失败码</dt><dd>{intakeRun.error?.code ?? "none"}</dd></div></dl></details>
             </> : null}
@@ -1216,6 +1287,7 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
           {legacyFixture && projection?.candidates.length ? <div className="tianyi-candidate-grid" aria-label={t("tianyi.workspace.candidateRegistry")}>{projection.candidates.map((candidate, index) => <article key={candidate.candidateId} data-candidate-state={candidate.state}><header><span>{t("tianyi.workspace.direction")} {index + 1}</span><small>{t(candidate.state === "deferred" ? "tianyi.workspace.preserved" : candidate.state === "handed-off" ? "tianyi.workspace.handedOff" : "tianyi.workspace.candidate")}</small></header><h3>{candidate.title}</h3><p>{candidate.summary}</p><small>{candidate.uncertainties.join(" · ")}</small><footer>{candidate.state === "pending" ? <><button type="button" onClick={() => preserveCandidate(candidate.candidateId)}>{t("tianyi.workspace.preserve")}</button><button type="button" className="primary-action" onClick={() => moveCandidateToWork(candidate.candidateId)}>{t("tianyi.workspace.enterWork")}<ArrowRight /></button></> : candidate.state === "handed-off" ? <button type="button" onClick={() => { runtime.setActiveTianyiCandidateId(candidate.candidateId); changeLane("work"); }}>{t("tianyi.workspace.continueWork")}</button> : <span>{t("tianyi.workspace.restoreHint")}</span>}</footer></article>)}</div> : null}
         </section> : lane === "review" && intakeRun?.storyIntakeEnvelope ? <StoryIntakeReviewSurface
           run={intakeRun}
+          runtime={runtime}
           selectedCandidateIds={selectedIntakeCandidateIds}
           focusedCandidateId={activeIntakeCandidate?.candidateId ?? intakeRun.storyIntakeEnvelope.candidates[0]?.candidateId ?? null}
           busy={busy}
@@ -1235,12 +1307,21 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
             conversationRuntimeLabel={dialogueRuntime === "local-fake" ? "本地假服务 · 非真实 Pi" : dialogueRuntime === "provider" ? "已配置 Provider · 仅在明确发送时调用" : "当前没有可用的真实 Provider · 发送将保留草稿并停止"}
             onBackToReview={() => changeLane("review")}
             onOpenEventLine={openEventLine}
-            onRunChanged={(next) => { setIntakeRun(next); window.dispatchEvent(new Event("story-studio-pending-review-changed")); }}
+            onRunChanged={(next) => {
+              setIntakeRun(next);
+              const envelope = next.storyIntakeEnvelope;
+              if (envelope && activeIntakeRef && envelope.candidates.some((candidate) => candidate.candidateId === activeIntakeRef.candidateId)) {
+                const currentRef = createActiveStoryIntakeCandidateRef(envelope, activeIntakeRef.candidateId);
+                setActiveIntakeRef(currentRef);
+                retainBrowserRecovery(storyIntakeCandidateRefStorageKey(project!.id, envelope.sessionId), serializeActiveStoryIntakeCandidateRef(currentRef));
+              }
+              window.dispatchEvent(new Event("story-studio-pending-review-changed"));
+            }}
             onSendConversation={() => void submitConversation("work")}
             onIncludeCandidate={(candidateId) => toggleIntakeCandidate(candidateId)}
             onLocateCandidate={(candidateId) => { focusIntakeCandidate(candidateId); changeLane("review"); }}
           /> : activeIntakeResolution ? <div className="story-intake-recovery" role="alert"><strong>无法恢复原候选</strong><p>{storyIntakeRecoveryMessage(activeIntakeResolution.status)}</p><button type="button" onClick={() => changeLane("review")}>返回当前批次审阅</button></div> : <>
-            {!relationEntry ? <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? "当前故事工作上下文"}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div> : null}
+            {!relationEntry ? <div className="tianyi-stage-heading"><div><small>WORK LANE</small><h2>{activeLegacyCandidate?.title ?? t("tianyi.workspace.workContextTitle")}</h2></div><span>{activeLegacyCandidate ? t("tianyi.workspace.workGuide") : "先明确范围，再决定是否需要整理候选"}</span></div> : null}
             {mapEntry ? <section className="tianyi-map-creation-start" aria-label="从地图开始创作">
               <header><div><small>来自地图 · 已保留工作模式草稿</small><h2>{selectedMapEvidence?.map.title ?? "地图上下文"}{mapEntryPromptSubject !== selectedMapEvidence?.map.title ? ` · ${mapEntryPromptSubject}` : ""}</h2></div>{selectedMapEvidence ? <button type="button" onClick={() => openGroundedMap("authoring")}><ArrowLeft aria-hidden="true" />返回地图继续创作</button> : null}</header>
               <section className="tianyi-map-reference-strip" aria-label="本次带入的引用"><div><strong>本次带入</strong><small>{explicitContextRefs.length}/{MAX_EXPLICIT_MATERIAL_REFS} 项 · 发送前会再核验</small></div><ul>
@@ -1295,18 +1376,18 @@ export function TianyiConversationWorkspace(props: { runtime: TianyanShellRuntim
         </div>
         {(lane === "creative" || (lane === "work" && !activeIntakeCandidate && !mapEntry && !relationEntry)) ? <section className={`tianyi-workspace-composer${lane === "creative" && creativeDraftView.source ? " is-sourced-creative-draft" : ""}`}>
           {lane === "creative" && creativeDraftView.source ? <section className="tianyi-creative-draft-source" aria-label="创意草稿来源信息"><div><strong>当前作品的创意编辑草稿</strong><span>来源：{creativeDraftView.source.labels}</span></div><details><summary>查看原回复身份</summary><code>{creativeDraftView.source.responseMessageId}</code><p>来源信息随本浏览器草稿保留；下方只编辑正文。</p></details></section> : null}
-          <p className="tianyi-dialogue-runtime" role="status">{dialogueRuntime === "local-fake" ? "本地假服务 · 非真实 Pi；发送仅用于本地连续性测试。" : dialogueRuntime === "provider" ? "已配置 Provider；仅在明确发送时调用。" : "当前没有可用的真实 Provider；草稿会保留，发送不会生成假回复。"}</p>
-          <textarea aria-label={t(lane === "creative" ? "tianyi.workspace.creativeDraft" : "tianyi.workspace.workDraft")} value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} placeholder={t(lane === "creative" ? "tianyi.workspace.creativePlaceholder" : "tianyi.workspace.workPlaceholder")} />
-          <div>{lane === "work" ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy || workContextState === "loading" || workContextState === "failed"} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}发送到当前工作</button> : legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}><MessageSquareText />发送消息</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={submitCreative}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}整理为故事候选</button></>}</div>
+          {lane === "creative" && !metadata?.visibleMessages.length ? <div className="tianyi-author-intent"><small>作者意图</small><strong>{formalNarrativeContext.nodeTitle ? `围绕「${formalNarrativeContext.nodeTitle}」投射下一步构想` : "从你的意图开始，不会直接改写正式故事"}</strong></div> : null}
+          <p className="tianyi-dialogue-runtime" role="status">{t(busy ? "conversation.sending" : dialogueRuntime === "local-fake" ? "conversation.fake" : dialogueRuntime === "provider" ? "conversation.real" : "conversation.unavailable")}</p>
+          <textarea readOnly={busy} aria-label={t(lane === "creative" ? "tianyi.workspace.creativeDraft" : "tianyi.workspace.workDraft")} value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} placeholder={t(lane === "creative" ? "tianyi.workspace.creativePlaceholder" : "tianyi.workspace.workPlaceholder")} />
+          <div>{lane === "work" ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy || workContextState === "loading" || workContextState === "failed"} onClick={() => void submitConversation("work")}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}发送到当前工作</button> : legacyFixture ? <button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={() => void submitCreative()}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("tianyi.workspace.createCandidates")}</button> : <><button type="button" disabled={!draft.trim() || busy} onClick={() => void submitConversation("creative")}>{busy ? <LoaderCircle className="is-spinning" /> : <MessageSquareText />}{t(metadata?.groundedAttempts.some((attempt) => attempt.question === draft.trim() && attempt.retryRequired) ? "conversation.retryReply" : "conversation.send")}</button><button type="button" className="tianyi-send" disabled={!draft.trim() || busy} onClick={() => void submitCreative()}>{busy ? <LoaderCircle className="is-spinning" /> : <Send />}{t("conversation.extract")}</button></>}</div>
+          {lane === "creative" ? <small className="conversation-action-help">{t("conversation.help")}</small> : null}
         </section> : null}
+        {lane === "creative" && awayFromLatest ? <button className="conversation-latest" type="button" onClick={() => { const target = scrollTarget("creative"); if (target) target.scrollTo({ top: target.scrollHeight, behavior: "smooth" }); }}>{t("conversation.latest")}</button> : null}
       </section>
 
-      {lane === "creative" ? <aside className="tianyi-current-context" aria-label={t("tianyi.workspace.currentView")}>
-        <header><strong>{t("tianyi.workspace.currentView")}</strong><small>{t("tianyi.workspace.readOnly")}</small></header>
-        <section><BookOpen /><div><strong>{t("tianyi.workspace.context")}</strong><p>{project.title}</p><small>{runtime.workVersionLabel ?? t("tianyi.workspace.currentStory")}</small></div></section>
-        <section><FilePlus2 /><div><strong>{t("tianyi.workspace.sharedReferences")}</strong>{runtime.sharedTianyiReferences.length ? runtime.sharedTianyiReferences.map((item) => <p key={item.id}>{item.label}</p>) : <p>{t("tianyi.workspace.noReferences")}</p>}</div></section>
-        <section><Sparkles /><div><strong>{t("tianyi.workspace.candidateRegistry")}</strong><p>{t("tianyi.workspace.candidateCount").replace("{count}", String(intakeRun?.storyIntakeEnvelope?.candidates.length ?? projection?.candidates.length ?? 0))}</p><small>{t("tianyi.workspace.sharedVisibility")}</small></div></section>
-      </aside> : null}
+      {lane === "creative" ? <TianyiFormalStoryMap runtime={runtime} onOpenNuwa={props.onOpenNuwa} onContextChange={receiveFormalNarrativeContext} /> : null}
+      {lane === "creative" ? <aside className={`tianyi-creation-sidebar ${creationSideOpen ? "is-open" : ""}`} aria-label="角色与资料辅助侧栏"><header><button type="button" aria-label={creationSideOpen ? "收起辅助侧栏" : "展开辅助侧栏"} aria-pressed={creationSideOpen} onClick={() => setCreationSideOpen((open) => !open)}><PanelRight /></button>{creationSideOpen ? <div><small>当前故事的辅助信息</small><strong>角色与资料</strong></div> : null}</header>{creationSideOpen ? <div className="tianyi-creation-sidebar-content"><section className="tianyi-current-role" aria-label="当前角色详情"><header><UsersRound /><div><small>当前角色</small><strong>{currentStoryCharacter?.title ?? "当前节点未标注角色"}</strong></div></header>{formalNarrativeContext.characters.length ? <div className="tianyi-current-role-switcher" aria-label="当前节点涉及角色">{formalNarrativeContext.characters.map((character) => <button key={character.id ?? character.title} type="button" className={(character.id ?? character.title) === (currentStoryCharacter?.id ?? currentStoryCharacter?.title) ? "is-selected" : ""} onClick={() => setSelectedStoryCharacterId(character.id ?? character.title)}>{character.title}</button>)}</div> : null}<dl className="tianyi-current-role-facts"><div><dt>当前身份</dt><dd>{currentStoryCharacter?.identity ?? "未标注身份"}</dd></div><div><dt>与当前节点</dt><dd>{currentStoryCharacter && formalNarrativeContext.nodeTitle ? `正式事件 涉及「${formalNarrativeContext.nodeTitle}」` : "未接入"}</dd></div><div><dt>已知信息</dt><dd>未接入</dd></div><div><dt>未知信息</dt><dd>未接入</dd></div></dl></section><nav aria-label="辅助信息入口"><button type="button" disabled><BookOpen />记忆<span>未接入</span></button><button type="button" disabled><Network />关系入口<span>未接入</span></button><button type="button" disabled><Library />资料引用<span>{runtime.sharedTianyiReferences.length ? `${runtime.sharedTianyiReferences.length} 项` : "暂无数据"}</span></button></nav></div> : null}</aside> : null}
+      {characterSurfaceOpen && surfaceCharacter ? <aside className="tianyi-character-context-surface" aria-label={`${surfaceCharacter.title}的角色上下文`} data-surface-kind="character-context"><header><div><small>角色上下文 · 只读引用</small><strong>{surfaceCharacter.title}</strong></div><button type="button" aria-label="关闭角色上下文" onClick={() => { workspaceSurfaceManager.closeSurface(activeSurface.id); if (window.matchMedia("(min-width: 72rem)").matches) characterSurfaceTriggerRef.current?.focus(); }}><X /></button></header><p className="tianyi-context-package-label">当前携带对象 · {activeSurface.context.contextPackage?.objectType ?? "character"} / {activeSurface.context.contextPackage?.objectId ?? surfaceCharacter.title}</p><dl><div><dt>身份</dt><dd>{surfaceCharacter.identity ?? "未标注身份"}</dd></div><div><dt>当前作品</dt><dd>{formalNarrativeContext.projectTitle ?? project.title}</dd></div><div><dt>当前涉及正式事件</dt><dd>{formalNarrativeContext.nodeTitle ?? "当前节点未接入"}</dd></div><div><dt>当前故事单元</dt><dd>{formalNarrativeContext.unitTitle ?? "当前单元未接入"}</dd></div></dl><section><strong>记忆</strong><span>未接入</span><strong>已知 / 未知</strong><span>未接入</span><strong>命运演化</strong><span>未接入</span></section></aside> : null}
     </div>
   </main>;
 }

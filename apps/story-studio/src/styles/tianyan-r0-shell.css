@@ -53,7 +53,7 @@ input:focus-visible {
   --dock-current: 0rem;
   --tianyi-current: 0rem;
   display: grid;
-  grid-template-columns: var(--rail-current) var(--directory-current) minmax(0, 1fr) var(--dock-current) var(--panel-controls-width) var(--tianyi-current);
+  grid-template-columns: var(--rail-current) var(--directory-current) minmax(0, 1fr) var(--dock-current) var(--panel-controls-width) minmax(0, var(--tianyi-current));
   grid-template-rows: var(--topbar-height) minmax(0, 1fr);
   grid-template-areas:
     "rail topbar topbar topbar topbar topbar"
@@ -69,10 +69,12 @@ input:focus-visible {
 .tianyan-r0-shell[data-shell-focus-layout="focused"],
 .tianyan-r0-shell[data-shell-focus-layout="narrow"] {
   --dock-current: 0rem;
-  --tianyi-current: 0rem;
 }
 
+/* A focused desktop still reserves the Tianyi column so the assistant, the
+   workspace and the page rail coexist instead of overlapping. */
 .tianyan-r0-shell[data-shell-focus-layout="narrow"] {
+  --tianyi-current: 0rem;
   --directory-current: 0rem;
 }
 
@@ -126,9 +128,9 @@ input:focus-visible {
   --tianyi-current: 0rem;
 }
 
-/* At ordinary desktop widths Tianyi is a layer, not a third permanent column.
-   The event workspace remains legible while its session remains mounted. */
-@media (max-width: 90rem) {
+/* Below tablet widths the assistant becomes a drawer again: a permanent
+   column would squeeze the workspace below a readable width. */
+@media (max-width: 64rem) {
   .tianyan-r0-shell[data-tianyi-open="true"] { --tianyi-current: 0rem; }
 }
 
@@ -1698,3 +1700,14 @@ input:focus-visible {
 .focused-relations-faction-scopes .faction-scope text { fill: hsl(var(--faction-hue) 45% 30%); font-size: 13px; font-weight: 600; }
 .focused-relations-faction-legend { display: flex; flex-wrap: wrap; gap: var(--space-2, 8px); align-items: center; margin-top: var(--space-2, 8px); }
 .focused-relations-faction-legend .faction-legend-chip { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; font-size: 12px; color: hsl(var(--faction-hue) 45% 28%); background: hsl(var(--faction-hue) 42% 88% / .6); border: 1px solid hsl(var(--faction-hue) 38% 62%); }
+.workspace-surface-reservation { position: fixed; z-index: 42; inset: auto var(--space-5) var(--space-5) auto; inline-size: min(20rem, calc(100vw - 2rem)); padding: var(--space-4); color: var(--color-text); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); }
+.workspace-surface-reservation.is-docked { inset: auto var(--space-5) var(--space-5) auto; }
+.workspace-surface-reservation header { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }
+.workspace-surface-reservation header > div { display: inline-flex; align-items: center; gap: var(--space-2); }
+.workspace-surface-reservation header svg { inline-size: 1rem; block-size: 1rem; color: var(--color-accent); }
+.workspace-surface-reservation small { display: block; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.workspace-surface-reservation strong { display: block; font-size: var(--font-size-sm); }
+.workspace-surface-reservation header button { display: grid; place-items: center; inline-size: 1.9rem; block-size: 1.9rem; padding: 0; color: var(--color-text-muted); background: transparent; border: 0; border-radius: var(--radius-sm); }
+.workspace-surface-reservation header button:hover { color: var(--color-text); background: var(--color-surface-muted); }
+.workspace-surface-reservation > p { margin: var(--space-3) 0 var(--space-1); font-weight: 600; }
+@media (max-width: 48rem) { .workspace-surface-reservation { inset: auto var(--space-3) var(--space-3) var(--space-3); inline-size: auto; } }

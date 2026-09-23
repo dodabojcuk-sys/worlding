@@ -1,3 +1,4 @@
+import { useNuwaWidthReservation } from "./layout/useNuwaWidthReservation";
 import { useEffect, useRef, useState } from "react";
 
 import type { TianyiContextualSpaceId } from "../../../../src/storyAgent/contextualCapabilityRegistry.ts";
@@ -37,7 +38,8 @@ import type { ProjectDirectoryNode, ProjectDirectoryStableReference } from "../.
 import { storyStudioWorkspaceRoute } from "./navigation/topLevelDestinationRegistry";
 import type { GlobalSearchOpenRequest, GlobalSearchResult, GlobalSearchScope } from "./global-search/globalSearchTypes";
 import type { StoryStudioEventReference } from "../../../../src/storyContracts/storyStudioEventReference.ts";
-import { useWorkspaceDockSlot, workspaceDockCoordinator } from "./WorkspaceDockCoordinator";
+import { useWorkspaceSurface, workspaceSurfaceManager } from "./WorkspaceDockCoordinator";
+import { WorkspaceSurfaceReservation } from "./WorkspaceSurfaceReservation";
 import type { TianyiMapEditContext } from "../components/tianyi/sidebar/MapAiCollaborationPanel";
 import { cssLength, resolveShellFocusLayout, type ShellFocusLayout } from "./layout/shellFocusLayout";
 import { tianyiStoryIntakeRunStorageKey } from "./runtime/tianyiShellSessionRecovery";
@@ -63,7 +65,11 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     // A full, named space rail is the desktop default.  Compact mode is an
     // author choice, not a side effect of opening the product at a narrower
     // desktop width.
-    return requested === "collapsed" || requested === "expanded" ? requested : "expanded";
+    // A phone opens with the compact space rail so the author has room to
+    // read and edit. An explicit URL choice still wins in either direction.
+    return requested === "collapsed" || requested === "expanded"
+      ? requested
+      : window.matchMedia("(max-width: 50rem)").matches ? "auto" : "expanded";
   });
   const [autoCollapseRail, setAutoCollapseRail] = useState(() => window.matchMedia(SHELL_RAIL_AUTO_COLLAPSE_QUERY).matches);
   const [theme, setTheme] = useState<ShellTheme>(resolveInitialShellTheme);
@@ -83,9 +89,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [workspaceDirectorySuppressed, setWorkspaceDirectorySuppressed] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
+  const [shellWidth, setShellWidth] = useState(0);
+  // While the Tianyi assistant borrows workspace width, the author may still
+  // explicitly reopen the directory; that choice wins until Tianyi closes.
+  const [tianyiDirectoryOverride, setTianyiDirectoryOverride] = useState(false);
   const dock = useDockLayoutState();
-  const rightWorkSurface = useWorkspaceDockSlot();
-  const tianyiOpen = rightWorkSurface.mode === "TIANYI";
+  const rightWorkSurface = useWorkspaceSurface();
+  const tianyiOpen = rightWorkSurface.activeSurface?.kind === "tianyi-assistant";
   const activeDestination = storyStudioShellDestinationById(activeId);
   const capabilityWorkspace: TianyiContextualSpaceId = activeId === "collections" ? "writing" : activeId;
   const railCollapsed = resolveShellRailCollapsed(railPreference, autoCollapseRail);
@@ -96,15 +106,16 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const directorySourceSelection = locationParams.get("directorySource");
   const characterDirectoryOpen = locationParams.get("directoryView") === "characters" || directoryState.path[0] === "characters";
   const resolvedDirectorySelection = directorySelection ?? directoryState.selectedObjectId;
+  const nuwaWidth = useNuwaWidthReservation(shellRef, activeId === "nuwa", directoryState.preferredOpen, tianyiOpen);
   const temporaryDirectorySurface: DirectoryTemporarySurface = settingsOpen
     ? "settings"
     : accountOpen
       ? "account"
       : pendingReviewOpen
         ? "central-review"
-        : workspaceDirectorySuppressed
+        : workspaceDirectorySuppressed || nuwaWidth.suppressDirectory
           ? "workspace-overlay"
-          : focusLayout !== "wide" && rightWorkSurface.mode === "TIANYI"
+          : rightWorkSurface.mode === "TIANYI" && !tianyiDirectoryOverride && (focusLayout !== "wide" || (shellWidth > 0 && shellWidth < 1600))
             ? "tianyi"
             : focusLayout !== "wide" && (dock.state.activeToolId !== null || Boolean(directorySourceSelection))
               ? "right-inspector"
@@ -118,18 +129,26 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell) return;
-    const update = () => setFocusLayout(resolveShellFocusLayout({
-      shellWidth: shell.getBoundingClientRect().width,
-      railWidth: cssLength(shell, "--rail-current"),
-      directoryWidth: cssLength(shell, "--directory-width"),
-      contextDockWidth: cssLength(shell, "--dock-stack-width"),
-      toolRailWidth: cssLength(shell, "--panel-controls-width")
-    }));
+    const update = () => {
+      const width = shell.getBoundingClientRect().width;
+      setShellWidth(width);
+      setFocusLayout(resolveShellFocusLayout({
+        shellWidth: width,
+        railWidth: cssLength(shell, "--rail-current"),
+        directoryWidth: cssLength(shell, "--directory-current"),
+        contextDockWidth: cssLength(shell, "--dock-stack-width"),
+        toolRailWidth: cssLength(shell, "--panel-controls-width")
+      }));
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(shell);
     return () => observer.disconnect();
-  }, [locale, railCollapsed]);
+  }, [locale, railCollapsed, directoryPresented, dock.state.activeToolId]);
+
+  useEffect(() => {
+    if (!tianyiOpen) setTianyiDirectoryOverride(false);
+  }, [tianyiOpen]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -205,8 +224,8 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   }, [accountOpen, activeDestination.labelKey, settingsOpen, t]);
 
   useEffect(() => {
-    if (activeId !== "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI") {
-      workspaceDockCoordinator.close();
+    if (activeId !== "event-line" && ["object-inspector", "relation-review", "creation-surface"].includes(rightWorkSurface.activeSurface?.kind ?? "")) {
+      workspaceSurfaceManager.closeSurface();
     }
   }, [activeId, rightWorkSurface.mode]);
 
@@ -247,7 +266,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const containFocus = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
-        if (rightWorkSurface.mode !== "NONE") workspaceDockCoordinator.close();
+        if (rightWorkSurface.mode !== "NONE") workspaceSurfaceManager.closeSurface();
         else if (dock.state.activeToolId) dock.closePanel();
         else {
           setDirectoryPreferredOpen(false);
@@ -276,7 +295,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     setSettingsOpen(false);
     setAccountOpen(false);
     dock.closePanel();
-    workspaceDockCoordinator.close();
+    workspaceSurfaceManager.closeSurface();
     setWorkspaceDirectorySuppressed(false);
   };
   const searchContext = props.runtime.project
@@ -328,11 +347,16 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const params = new URLSearchParams({ eventView: "perspective", eventObserver: objectId });
     window.history.pushState({}, "", `/event-line?${params.toString()}`);
     props.runtime.setActiveTianyiCandidateId(null);
-    setActiveId("event-line"); setSettingsOpen(false); setAccountOpen(false); dock.closePanel(); workspaceDockCoordinator.close(); setWorkspaceDirectorySuppressed(false); setLocationRevision((value) => value + 1);
+    setActiveId("event-line"); setSettingsOpen(false); setAccountOpen(false); dock.closePanel(); workspaceSurfaceManager.closeSurface(); setWorkspaceDirectorySuppressed(false); setLocationRevision((value) => value + 1);
   };
   const addCharacterToNuwa = (objectId: string) => {
     const projectId = props.runtime.project?.id;
     if (projectId) window.sessionStorage.setItem(`tianyan-nuwa-n1-preselect:${projectId}`, objectId);
+    navigate(storyStudioShellDestinationById("nuwa"));
+  };
+  const openNuwaFromFormalNode = (input: { storyUnitId: string; eventId: string; narrativePathId: string; workVersionId: string | null }) => {
+    const projectId = props.runtime.project?.id;
+    if (projectId) window.sessionStorage.setItem(`tianyan-nuwa-n1-preselect-context:${projectId}`, JSON.stringify({ projectId, ...input }));
     navigate(storyStudioShellDestinationById("nuwa"));
   };
   const openCharacterWorkspace = (objectId: string) => {
@@ -341,7 +365,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     const params = new URLSearchParams({ worldView: "character", characterId: objectId });
     if (!(activeId === "world" && locationParams.get("worldView") === "character")) params.set("characterOrigin", current);
     window.history.pushState({}, "", `/world?${params.toString()}`);
-    setActiveId("world"); setSettingsOpen(false); setAccountOpen(false); dock.closePanel(); workspaceDockCoordinator.close(); setWorkspaceDirectorySuppressed(false); setLocationRevision((value) => value + 1);
+    setActiveId("world"); setSettingsOpen(false); setAccountOpen(false); dock.closePanel(); workspaceSurfaceManager.closeSurface(); setWorkspaceDirectorySuppressed(false); setLocationRevision((value) => value + 1);
   };
   const closeCharacterWorkspace = () => {
     const origin = locationParams.get("characterOrigin");
@@ -419,13 +443,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     if (!isSettingsRoute()) window.history.pushState({}, "", "/settings");
     setSettingsOpen(true);
     setAccountOpen(false);
-    workspaceDockCoordinator.close();
+    workspaceSurfaceManager.closeSurface();
   };
   const openAccount = () => {
     if (!requestWorkspaceNavigation()) return;
     setAccountOpen(true);
     setSettingsOpen(false);
-    workspaceDockCoordinator.close();
+    workspaceSurfaceManager.closeSurface();
   };
   const openTianyi = (reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext, mapEdit?: TianyiMapEditContext) => {
     const eventRefs = reference ? (Array.isArray(reference) ? reference : [reference]) : [];
@@ -440,35 +464,45 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       else props.runtime.setWorkComposerDraft(initialDraft);
     }
     dock.closePanel();
-    workspaceDockCoordinator.openQuickTianyi();
+    workspaceSurfaceManager.openSurface({
+      kind: "tianyi-assistant",
+      context: {
+        projectId: props.runtime.project?.id ?? null,
+        workVersionId: props.runtime.workVersionId,
+        ownerId: "tianyi-agent",
+        eventId: eventRefs[0]?.eventId ?? null
+      }
+    });
   };
 
   const toggleTianyi = () => {
     if (activeId === "tianyi") return;
     dock.closePanel();
-    if (tianyiOpen) workspaceDockCoordinator.closeQuickTianyi();
-    else workspaceDockCoordinator.openQuickTianyi();
+    if (tianyiOpen) workspaceSurfaceManager.closeSurface("tianyi-assistant");
+    else workspaceSurfaceManager.openSurface({ kind: "tianyi-assistant", context: { projectId: props.runtime.project?.id ?? null, workVersionId: props.runtime.workVersionId, ownerId: "tianyi-agent" } });
   };
   const toggleDirectory = () => {
     if (!directoryPresented) {
       setDirectoryPreferredOpen(true);
+      nuwaWidth.prioritizeDirectory();
       setWorkspaceDirectorySuppressed(false);
+      if (tianyiOpen) setTianyiDirectoryOverride(true);
       if (focusLayout !== "wide") {
         dock.closePanel();
-        workspaceDockCoordinator.close();
+        workspaceSurfaceManager.closeSurface();
       }
       return;
     }
     setDirectoryPreferredOpen(false);
     if (directoryPresented && focusLayout !== "wide") {
       dock.closePanel();
-      workspaceDockCoordinator.close();
+      workspaceSurfaceManager.closeSurface();
     }
     window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-panel-toggle="project-directory"]')?.focus());
   };
   const togglePageTool = (toolId: Parameters<typeof dock.togglePanel>[0]) => {
     if (dock.state.activeToolId !== toolId) {
-      workspaceDockCoordinator.close();
+      workspaceSurfaceManager.closeSurface();
     }
     dock.togglePanel(toolId);
   };
@@ -524,12 +558,13 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
       onOpenPendingReview={() => openPendingReview(null)}
     />
     {!settingsOpen && !accountOpen && directoryPresented && directoryStateReady && (characterDirectoryOpen ? <CharacterDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} selectedId={resolvedDirectorySelection} directoryState={directoryState} onDirectoryState={updateDirectoryState} onBack={closeCharacterDirectory} onSelect={selectCharacter} onRequestScopedSearch={() => requestSearch("characters")} /> : <ProjectDirectoryPanel key={props.runtime.project?.id ?? "no-project"} runtime={props.runtime} project={props.runtime.project} mode={locationParams.get("directoryMode") === "pending" ? "pending" : "classified"} directoryState={directoryState} onDirectoryState={updateDirectoryState} onClose={toggleDirectory} onModeChange={(mode: ProjectDirectoryMode) => { const params = new URLSearchParams(window.location.search); if (mode === "pending") params.set("directoryMode", "pending"); else params.delete("directoryMode"); window.history.pushState({}, "", `${window.location.pathname}${params.size ? `?${params.toString()}` : ""}`); setLocationRevision((value) => value + 1); }} onOpenPendingReview={openPendingReview} onOpenRelationReview={openPendingRelationReview} onNavigate={navigateDirectory} onOpenReference={openDirectoryReference} selectedObjectId={directorySelection ?? directorySourceSelection} onCreateProject={props.runtime.createProject} />)}
-    {pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} characterObjectId={centralCharacterId} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
+    {pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={shellLab} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenNuwa={openNuwaFromFormalNode} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} characterObjectId={centralCharacterId} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
     {!settingsOpen && !accountOpen && <RightDock projectId={props.runtime.project?.id ?? null} compact={focusLayout !== "wide"} modal={focusLayout === "narrow"} layout={dock.state} onToggle={togglePageTool} onResize={dock.resizePanel} />}
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={() => openCharacterWorkspace(directorySelection)} onOpenKnowledge={openCharacterKnowledge} onAddToNuwa={addCharacterToNuwa} />}
     {!settingsOpen && !accountOpen && (directorySelection || centralCharacterId) && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={centralCharacterId ?? directorySelection!} onClose={closeCharacterProfileEditor} />}
     {!settingsOpen && !accountOpen && locationParams.get("characterReturn")?.startsWith("/") && !locationParams.get("characterReturn")?.startsWith("//") && <button type="button" className="character-workspace-return" onClick={returnToCharacterWorkspace}>{t("character.returnWorkspace").replace("{name}", locationParams.get("characterReturnLabel") || t("character.directory"))}</button>}
-    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={focusLayout !== "wide"} modal={focusLayout === "narrow"} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line"} contextRequest={tianyiContextRequest} onClose={() => workspaceDockCoordinator.closeQuickTianyi()} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={nuwaWidth.tianyiOverlay || focusLayout === "narrow" || shellWidth < 1024} modal={focusLayout === "narrow" || shellWidth < 1024} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line" || activeId === "nuwa"} contextRequest={tianyiContextRequest} onClose={() => workspaceSurfaceManager.closeSurface("tianyi-assistant")} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && rightWorkSurface.activeSurface && <WorkspaceSurfaceReservation surface={rightWorkSurface.activeSurface} />}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}
