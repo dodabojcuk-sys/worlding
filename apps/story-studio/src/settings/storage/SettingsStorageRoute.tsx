@@ -25,6 +25,8 @@ import { LocalFolderProvider } from "../../lib/storageProvider";
 import { AgentSettingsSection, type ProviderProfileSaveResult, type ProviderProfileUpdate } from "../agent/AgentSettingsSection";
 import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
+import { useI18n } from "../../product-shell/i18n/I18nProvider";
+import { resolveInitialShellTheme, type ShellTheme } from "../../product-shell/theme/theme";
 
 type SettingsSectionId = "storage" | "transfer" | "agent";
 type SettingsNavItem = { id: string; label: string; section: SettingsSectionId; targetId: string };
@@ -42,6 +44,13 @@ const workspaceNavigation: ReadonlyArray<{ group: string; items: ReadonlyArray<S
 
 /** Independent utility route. It composes settings adapters without mounting the product Shell. */
 export function SettingsStorageRoute(props: { presentation?: "utility" | "workspace" } = {}) {
+  const { locale, setLocale } = useI18n();
+  const [appearance, setAppearance] = useState<ShellTheme>(resolveInitialShellTheme);
+  const chooseAppearance = (next: ShellTheme) => {
+    setAppearance(next);
+    try { window.localStorage.setItem("tianyan.shell.theme", next); } catch { /* current session remains usable */ }
+    window.dispatchEvent(new CustomEvent("tianyan-shell-theme-change", { detail: next }));
+  };
   const presentation = props.presentation ?? "utility";
   const storageProvider = useRef(new LocalFolderProvider()).current;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -172,6 +181,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
           </section>)}</nav>
         </aside>}
         <div className="settings-workspace-sections">
+          <section className="settings-appearance" aria-label="外观与语言"><h2>外观与语言</h2><div><label>主题<select aria-label="主题" value={appearance} onChange={(event) => chooseAppearance(event.target.value as ShellTheme)}><option value="cloud-ink">云砚</option><option value="night-paper">夜纸</option></select></label><label>语言<select aria-label="语言" value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}><option value="zh-CN">中文</option><option value="en-US">English</option></select></label></div><small>当前选择保存在本机；切换不会改变作品或模型设置。</small></section>
           {(presentation === "utility" || activeSection === "storage") && <section id="settings-section-storage" aria-label="存储与备份"><SettingsStorageSection
             projectId={project?.id ?? null}
             onReveal={() => project ? withToken(() => revealStorageProject(project.id)) : Promise.reject(new Error("请先打开项目。"))}

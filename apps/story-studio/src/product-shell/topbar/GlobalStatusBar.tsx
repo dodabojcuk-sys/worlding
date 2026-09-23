@@ -9,6 +9,7 @@ import { useI18n } from "../i18n/I18nProvider";
 import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
+  focusedWorkspace?: "nuwa" | "event-line";
   showSpaceMenu?: boolean;
   projectChoiceInDirectory?: boolean;
   onToggleSpaceMenu?(): void;
@@ -112,9 +113,17 @@ export function GlobalStatusBar(props: {
     return () => window.removeEventListener("keydown", closeOverflow);
   }, [moreOpen]);
 
+  if (props.focusedWorkspace) return <header className="shell-topbar shell-topbar-focused" aria-label={t("directory.label")}>
+    <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><Menu aria-hidden="true" /></button>
+    <strong title={props.projectName ?? t("topbar.projectName")}>{t(props.focusedWorkspace === "nuwa" ? "space.nuwa" : "space.eventLine")}<span> · {props.projectName ?? t("topbar.projectName")}</span></strong>
+    <div className="shell-topbar-focused-actions">
+      <GlobalSearchControl engine={searchEngine} context={props.searchContext} labels={searchLabels} openRequest={props.searchRequest} onNavigate={props.onSearchNavigate} />
+    </div>
+  </header>;
+
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context shell-project-selector">
-      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={props.directoryOpen ? "收起目录" : "打开目录"} onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
+      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
       {props.projectChoiceInDirectory ? <span className="shell-nuwa-project-name" title={props.projectName ?? t("topbar.projectName")}>{props.projectName ?? t("topbar.projectName")}</span> : <button
         ref={projectToggleRef}
         type="button"

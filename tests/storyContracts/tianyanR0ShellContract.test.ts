@@ -106,8 +106,10 @@ test("desktop topbar preserves every global control while keeping one search and
   const runtime = readFileSync("apps/story-studio/src/product-shell/runtime/TianyanShellRuntime.tsx", "utf8");
   const styles = readFileSync("apps/story-studio/src/styles/tianyan-r0-shell.css", "utf8");
 
-  assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 1);
-  assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 1);
+  // Focused Nuwa/Event Line and compatibility chrome are mutually exclusive.
+  assert.equal((topbar.match(/<GlobalSearchControl\b/gu) ?? []).length, 2);
+  assert.equal((topbar.match(/data-panel-toggle="project-directory"/gu) ?? []).length, 3);
+  assert.match(topbar, /if \(props\.focusedWorkspace\) return/);
   assert.equal((topbar.match(/data-panel-toggle="tianyi-agent"/gu) ?? []).length, 1);
   assert.match(topbar, /data-panel-toggle="project-directory"/);
   assert.match(topbar, /toggleLocale/);

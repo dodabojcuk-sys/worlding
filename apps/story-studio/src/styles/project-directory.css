@@ -267,3 +267,10 @@
 .nuwa-directory-selection p { margin: 0; color: var(--color-text-muted); font-size: .68rem; line-height: 1.4; }
 .nuwa-directory-selection button { min-inline-size: 0; display: inline-flex; align-items: center; gap: .2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: .3rem; border: 0; border-radius: .2rem; background: var(--color-accent-soft); color: var(--color-text); cursor: pointer; font-size: .68rem; text-align: start; }
 .nuwa-directory-selection button svg { flex: none; inline-size: .8rem; }
+.nuwa-directory-quick { padding: 0 .8rem .4rem; }
+.nuwa-directory-quick button, .nuwa-directory-footer button { display: inline-flex; align-items: center; gap: .35rem; min-height: 2rem; border: 0; border-radius: .25rem; background: transparent; color: var(--color-text); cursor: pointer; font-size: .73rem; }
+.nuwa-directory-quick button { width: 100%; background: var(--color-surface-muted); padding-inline: .45rem; }
+.nuwa-directory-quick svg, .nuwa-directory-footer svg { width: .9rem; height: .9rem; }
+.nuwa-directory-views > strong { grid-column: 1 / -1; padding: .45rem; font-size: .78rem; }
+.nuwa-directory-footer { display: grid; grid-template-columns: 1fr 1fr; gap: .1rem; flex: none; border-block-start: 1px solid var(--color-border); padding: .35rem .65rem; }
+.nuwa-directory-footer button:hover, .nuwa-directory-footer button:focus-visible { background: var(--color-accent-soft); }

@@ -560,7 +560,8 @@
   .tianyan-r0-shell[data-nuwa-mobile-rail-open="true"] .shell-space-rail { transform: translateX(0); }
   .nuwa-n1-workspace.has-run { padding: 0 .4rem; }
   .nuwa-n1-workspace.has-run .nuwa-n1-commandbar { grid-template-columns: auto minmax(0, 1fr); gap: .1rem .4rem; min-block-size: 0; padding: .25rem .2rem; }
-  .nuwa-n1-command-summary span { display: none; }
+  .nuwa-n1-command-summary { flex-wrap: wrap; column-gap: .35rem; }
+  .nuwa-n1-command-summary span { display: inline; font-size: .66rem; }
   .nuwa-n1-command-actions { grid-column: 1; grid-row: 2; justify-content: flex-start; }
   .nuwa-n1-command-tools { grid-column: 2; grid-row: 2; justify-content: flex-end; }
   .nuwa-n1-command-tools button { min-inline-size: 2rem; min-block-size: 2.25rem; overflow: hidden; font-size: 0; padding: .25rem; }

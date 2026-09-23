@@ -185,9 +185,11 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
     setBootstrap(null); setRun(null); setSetup(null); setParticipantIds([]); setParticipantGoals({}); setStoryUnitId(""); setStorylineKey(""); setScopeMode("bounded"); setEndStoryUnitId(""); setRelationTypeId(null); setWorkVersions([]); setWorkVersionId(""); setGoal(""); setSelectedStepIds([]); setSelectedActorId(null); workspaceSurfaceManager.closeSurface("nuwa-inspector"); setBusy(false); setInterrupting(false); setError(null); setNotice(null); setQueuedParticipantId(null); setFormalNodePreselect(null);
     if (!projectId) return () => { active = false; };
     const conversationId = props.runtime.tianyiConversationId;
+    const newRunRequested = new URLSearchParams(window.location.search).get("nuwaView") === "new";
     const requestedRunId = new URLSearchParams(window.location.search).get("runId")?.trim() || (conversationId ? readConversationRunIds(window.localStorage, projectId, conversationId).at(-1) : null) || null;
-    void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId, conversationId), getMultiverseWorkVersions(projectId)]).then(([nextBootstrap, latest, versions]) => {
+    void Promise.all([getNuwaN1Bootstrap(projectId), requestedRunId && !newRunRequested ? getNuwaN1Run(projectId, requestedRunId) : getNuwaN1Latest(projectId, conversationId), getMultiverseWorkVersions(projectId)]).then(([nextBootstrap, latestRead, versions]) => {
       if (!active) return;
+      const latest = newRunRequested ? { ...latestRead, run: null } : latestRead;
       setBootstrap(nextBootstrap);
       setWorkVersions(versions);
       setWorkVersionId(versions.find((version) => isSelectableWorkVersion(version) && version.identity.kind === "root")?.identity.workVersionId ?? "");
@@ -268,6 +270,12 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
       return;
     }
     setRun(next);
+    if (new URLSearchParams(window.location.search).get("nuwaView") === "new") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("nuwaView");
+      url.searchParams.set("runId", next.run.runId);
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
     if (projectId && props.runtime.tianyiConversationId) rememberConversationRun(window.localStorage, projectId, props.runtime.tianyiConversationId, next.run.runId);
     setSetup(null);
     const latestStep = next.run.steps.at(-1);
@@ -457,6 +465,7 @@ export function NuwaN1Workspace(props: { runtime: TianyanShellRuntimeState; onOp
   const status = run?.run?.status ?? "ready";
   return <main className="shell-workspace shell-workspace-nuwa" aria-label="女娲">
     <section className={`nuwa-n1-workspace ${run?.run ? "has-run" : ""}`} data-testid="nuwa-n1-workspace" data-run-id={run?.run?.runId ?? ""} data-run-status={status} data-provider-calls={run?.run?.providerDispatches ?? 0}>
+      <nav className="nuwa-workspace-return" aria-label="女娲页面"><a href="/nuwa?nuwaView=manage">返回女娲</a>{run?.run ? <span>当前排演 · {run.run.runId.slice(-6)}</span> : <span>新建排演 · 尚未运行</span>}</nav>
       {!run?.run ? <header className="nuwa-n1-header"><h1>女娲</h1><p>选择故事范围后开始排演</p></header> : null}
 
       {notice ? <p className="nuwa-n1-message is-notice" role="status"><CheckCircle2 />{notice}</p> : null}

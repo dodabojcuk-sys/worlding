@@ -7,5 +7,8 @@ export const SHELL_THEME_REGISTRY: Record<ShellTheme, { labelKey: "topbar.themeC
 };
 
 export function resolveInitialShellTheme(): ShellTheme {
-  return new URLSearchParams(window.location.search).get("theme") === "night-paper" ? "night-paper" : "cloud-ink";
+  const requested = new URLSearchParams(window.location.search).get("theme");
+  if (requested === "night-paper" || requested === "cloud-ink") return requested;
+  try { return window.localStorage.getItem("tianyan.shell.theme") === "night-paper" ? "night-paper" : "cloud-ink"; }
+  catch { return "cloud-ink"; }
 }

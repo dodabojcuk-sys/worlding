@@ -10,6 +10,7 @@ import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/T
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
 import type { TianyiMapEditContext } from "../../components/tianyi/sidebar/MapAiCollaborationPanel";
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
+import { NuwaManagementWorkspace } from "../../components/nuwa/NuwaManagementWorkspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
 import { MapM1Workspace } from "../../components/world/MapM1Workspace";
@@ -57,6 +58,7 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "nuwa") {
+    if (new URLSearchParams(window.location.search).get("nuwaView") === "manage") return <NuwaManagementWorkspace runtime={props.runtime} />;
     return <NuwaN1Workspace runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} />;
   }
 
