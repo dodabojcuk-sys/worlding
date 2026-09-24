@@ -7,11 +7,11 @@ import { createServer as createNetServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { createCreationSourceSelectionPort } from "../server/creationSourceSelectionPort.mjs";
-import { createStoryStudioWorkspaceOperations } from "../../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
-import { createStoryStudioTianyiOperations } from "../../../src/storyControlSurface/storyStudioTianyiOperations.ts";
-import { createStoryStudioAuthorControl } from "../../../src/storyControlSurface/storyStudioAuthorControl.ts";
-import { terminateChildProcess } from "./bounded-process-teardown.mjs";
+import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
+import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createStoryStudioTianyiOperations } from "../../src/storyControlSurface/storyStudioTianyiOperations.ts";
+import { createStoryStudioAuthorControl } from "../../src/storyControlSurface/storyStudioAuthorControl.ts";
+import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 
 const { chromium } = createRequire(import.meta.url)("playwright");
 const evidence = process.env.TIANYAN_MOBILE_TEMPLATE_EVIDENCE_DIR || null;
@@ -47,6 +47,7 @@ const empty = operations.createStoryUnit({ projectId, title: "空单元", kind: 
 const branch = operations.createStoryUnit({ projectId, title: "支线一雨棚", kind: "branch", parentUnitId: main.id, branchPointEventId: origin.id, linkedEntityIds: [branchEvent.id] });
 const third = operations.createStoryUnit({ projectId, title: "支线二雨棚", kind: "branch", parentUnitId: main.id, branchPointEventId: origin.id, linkedEntityIds: [thirdEvent.id] });
 assert.ok(empty && third);
+const cast = ["林昭", "阿芜"].map((title) => operations.createWorldObject({ projectId, type: "character", title, body: `${title}只知道本场所见。` }));
 const tianyi = createStoryStudioTianyiOperations({ rootPath, stateFilePath });
 const old = await tianyi.openTianyiSession({ projectId, operationId: "mobile-e2e.old" });
 await tianyi.runTianyiQuestion({ projectId, sessionId: old.sessionId, operationId: "mobile-e2e.old-message", request: { boundedAction: "fixture.current" }, contextRequest: { productMode: "world", activeOwner: { kind: "project", id: projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] } });
@@ -59,7 +60,7 @@ const port = await new Promise((resolve, reject) => {
 const base = `http://127.0.0.1:${port}`;
 const child = spawn(process.execPath, ["--experimental-strip-types", "apps/story-studio/server/server.mjs"], {
   cwd: process.cwd(),
-  env: { ...process.env, WORLD_OS_STORY_STUDIO_ROOT: rootPath, WORLD_OS_STORY_STUDIO_STATE_FILE: stateFilePath, WORLD_OS_LOCAL_CONTROL_TOKEN: token, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "combined-static", PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", PORT: String(port) },
+  env: { ...process.env, WORLD_OS_STORY_STUDIO_ROOT: rootPath, WORLD_OS_STORY_STUDIO_STATE_FILE: stateFilePath, WORLD_OS_LOCAL_CONTROL_TOKEN: token, TIANYAN_STORY_STUDIO_RUNTIME_MODE: "combined-static", PROVIDER_MODE: "MOCK_OR_LOCAL_FAKE_ONLY", TIANYAN_NUWA_N1_FAKE_PROVIDER: "1", PORT: String(port) },
   stdio: ["ignore", "pipe", "pipe"]
 });
 let browser;
@@ -72,15 +73,30 @@ try {
     if (attempt === 199) throw new Error("Synthetic mobile server did not start.");
   }
   if (evidence) await mkdir(evidence, { recursive: true });
+  const nuwaHeaders = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: base };
+  const nuwaRequest = { projectId, conversationId: bound.sessionId, participants: cast.map((actor, index) => ({ id: actor.id, revision: operations.readWorldObject({ projectId, objectId: actor.id }).revisionToken, localGoal: index ? "守住退路" : "确认灯塔记录" })), storyUnit: { id: main.id, revision: operations.readStoryUnit({ projectId, unitId: main.id }).version }, goal: "只根据本场正式事件检查下一步。", operationId: "mobile-e2e.nuwa.create" };
+  const createdRun = await fetch(`${base}/__local/story-studio/nuwa-n1/create`, { method: "POST", headers: nuwaHeaders, body: JSON.stringify(nuwaRequest) });
+  if (createdRun.status !== 201) throw new Error(`Nuwa synthetic Run creation failed: ${createdRun.status} ${await createdRun.text()}`);
+  let nuwaModel = (await createdRun.json()).data;
+  for (let step = 1; step <= 4; step += 1) {
+    const response = await fetch(`${base}/__local/story-studio/nuwa-n1/step`, { method: "POST", headers: nuwaHeaders, body: JSON.stringify({ projectId, runId: nuwaModel.run.runId, expectedRevision: nuwaModel.run.revision, operationId: `mobile-e2e.nuwa.step.${step}` }) });
+    if (response.status !== 200) throw new Error(`Nuwa synthetic step ${step} failed: ${response.status} ${await response.text()}`);
+    nuwaModel = (await response.json()).data;
+  }
+  const pausedRun = await fetch(`${base}/__local/story-studio/nuwa-n1/pause`, { method: "POST", headers: nuwaHeaders, body: JSON.stringify({ projectId, runId: nuwaModel.run.runId, expectedRevision: nuwaModel.run.revision, operationId: "mobile-e2e.nuwa.pause" }) });
+  if (pausedRun.status !== 200) throw new Error(`Nuwa synthetic pause failed: ${pausedRun.status} ${await pausedRun.text()}`);
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: "zh-CN" });
   const page = await context.newPage();
+  const groundedRequests = [];
+  page.on("request", (request) => { if (request.url().includes("/model-service/tianyi-grounded-answer")) groundedRequests.push(request.url()); });
   await page.goto(`${base}/`, { waitUntil: "domcontentloaded" });
   await page.getByTestId("tianyan-mobile-template").waitFor();
   await page.getByRole("button", { name: "☰ 功能中心" }).click();
   await page.getByRole("button", { name: /天意 对话/u }).waitFor();
   await page.waitForFunction(() => document.querySelectorAll(".mobile-tree-session").length === 2);
   assert.equal(await page.locator(".mobile-tree-session").count(), 2, "real Tianyi history remains below Tianyi");
+  assert.equal(await page.locator(".mobile-book-other").count(), 1, "another real book appears in the phone directory");
   actions.push("手机目录：天意下显示旧 Session 与已绑定 Session");
   if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-目录-390x844.png") });
   await page.locator(".mobile-tree-session").filter({ hasText: "待选范围" }).click();
@@ -89,24 +105,48 @@ try {
   await page.getByText(/Bounded action/u).waitFor();
   const draft = "长文本草稿：".repeat(35);
   await page.getByRole("textbox", { name: "和天意对话" }).fill(draft);
+  await page.getByRole("button", { name: "展开草稿" }).click();
+  assert.equal(await page.locator(".mobile-chat-inputbar.is-expanded textarea").count(), 1);
+  await page.getByRole("textbox", { name: "和天意对话" }).focus();
+  await page.getByRole("textbox", { name: "和天意对话" }).evaluate((node) => { node.setSelectionRange(7, 7); node.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true })); });
+  assert.equal(await page.getByRole("textbox", { name: "和天意对话" }).inputValue(), draft, "composing Enter does not send or alter Chinese draft");
+  assert.equal(await page.getByRole("textbox", { name: "和天意对话" }).evaluate((node) => node.selectionStart), 7, "caret remains in the long draft");
   await page.getByRole("textbox", { name: "和天意对话" }).press("Shift+Enter");
   assert.match(await page.getByRole("textbox", { name: "和天意对话" }).inputValue(), /\n/u, "phone composer supports multiline keyboard entry");
+  await page.getByRole("textbox", { name: "和天意对话" }).fill(draft);
+  await page.getByRole("textbox", { name: "和天意对话" }).press("Enter");
+  await page.getByRole("alert").getByText(/历史对话尚未绑定范围/u).waitFor();
+  assert.equal(groundedRequests.length, 0, "old unbound Session cannot dispatch a grounded request");
   await page.getByRole("textbox", { name: "和天意对话" }).fill(draft);
   await page.reload();
   await page.waitForFunction((expected) => document.querySelector('textarea[aria-label="和天意对话"]')?.value === expected, draft);
   await page.getByText(/Bounded action/u).waitFor();
   assert.equal(await page.getByRole("textbox", { name: "和天意对话" }).inputValue(), draft, "unsent draft survives refresh");
+  await page.getByRole("button", { name: "展开草稿" }).click();
+  await page.setViewportSize({ width: 844, height: 390 });
+  assert.equal(await page.getByRole("textbox", { name: "和天意对话" }).inputValue(), draft, "rotation keeps the long draft");
+  await page.setViewportSize({ width: 390, height: 600 });
+  await page.waitForFunction(() => Math.round(document.querySelector(".tianyan-mobile")?.getBoundingClientRect().height ?? 0) === 600);
+  const inputBox = await page.getByRole("textbox", { name: "和天意对话" }).boundingBox();
+  const sendBox = await page.getByRole("button", { name: "发送普通对话" }).boundingBox();
+  assert.ok(inputBox && sendBox && inputBox.y + inputBox.height <= 600 && sendBox.y + sendBox.height <= 600, "browser-height simulation leaves input and send visible");
+  await page.locator(".mobile-chat-messages").evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  const lastMessage = await page.locator(".mobile-chat-message").last().boundingBox();
+  const composer = await page.locator(".mobile-chat-composer").boundingBox();
+  assert.ok(lastMessage && composer && lastMessage.y + lastMessage.height <= composer.y, "the last message remains readable above the expanded composer");
+  await page.setViewportSize({ width: 390, height: 844 });
   actions.push("旧 Session 保留历史，未绑定范围；长草稿刷新后恢复");
   await page.getByRole("button", { name: "＋ 技能" }).click();
   await page.locator(".mobile-chat-skills").waitFor();
   await page.getByRole("button", { name: "＋ 技能" }).click();
   actions.push("手机技能浮层可开合；Shift+Enter 可输入长文本");
   if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-对话-390x844.png") });
-  await page.getByRole("button", { name: "更多创作入口" }).click();
+  await page.getByRole("button", { name: /高级工作面/u }).click();
   await page.locator(".tianyi-workspace[data-tianyi-conversation-id]").waitFor();
   assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id"), old.sessionId, "advanced author work keeps the same Session");
+  assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-active-lane"), "work", "advanced phone surface opens the existing Work lane");
   if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-天意工作面-390x844.png") });
-  await page.getByRole("button", { name: /返回/u }).click();
+  await page.getByRole("button", { name: "‹ 返回" }).click();
   assert.equal(await page.getByRole("textbox", { name: "和天意对话" }).inputValue(), draft, "advanced work return keeps draft");
   actions.push("高级创作工作面沿用同一 Session，返回仍保留对话草稿");
   await page.goto(`${base}/event-line`);
@@ -127,7 +167,7 @@ try {
   actions.push("雨棚 → 主线节点 → 正式详情（当前线正式事件正文）");
   if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-节点详情-390x844.png") });
   for (const level of ["unit", "line", "lines"]) {
-    await page.getByRole("button", { name: /返回/u }).click();
+    await page.getByRole("button", { name: "‹ 返回" }).click();
     assert.equal(await journey.getAttribute("data-level"), level);
     actions.push(`逐层返回 → ${level}`);
   }
@@ -149,10 +189,36 @@ try {
   assert.equal(await page.getByLabel("天意对话范围").inputValue(), `branch.${branch.id}`, "bound Session scope survived refresh");
   actions.push("已绑定 Session 的事件线范围在切页与刷新后不变");
   await page.goto(`${base}/settings`);
-  await page.getByRole("button", { name: /Provider 与模型/u }).click();
+  await page.getByLabel("设置首页").waitFor();
+  if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-设置首页-390x844.png") });
+  await page.getByRole("button", { name: /API \/ Provider 配置/u }).click();
   await page.getByText("Provider 配置", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/settings/agent-provider");
   if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-设置-390x844.png") });
-  actions.push("手机设置目录可打开既有 Provider 配置");
+  await page.getByRole("button", { name: "‹ 返回" }).click();
+  await page.getByLabel("设置首页").waitFor();
+  actions.push("手机设置分类首页 → API / Provider 二级页 → 返回分类首页");
+  await page.goto(`${base}/nuwa`);
+  await page.getByTestId("mobile-nuwa-template").waitFor();
+  await page.getByRole("button", { name: "恢复排演" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "暂停排演" }).count(), 0, "paused Run has only the resume action");
+  if (evidence) await page.screenshot({ path: path.join(evidence, "最终实现-女娲已暂停-390x844.png") });
+  await page.getByRole("button", { name: "恢复排演" }).click();
+  await page.getByRole("button", { name: "暂停排演" }).waitFor();
+  await page.getByRole("button", { name: "暂停排演" }).click();
+  await page.getByRole("button", { name: "恢复排演" }).waitFor();
+  await page.getByRole("combobox", { name: "作者提示接收对象" }).selectOption("nuwa");
+  assert.match(await page.getByRole("textbox", { name: "女娲作者指令" }).getAttribute("placeholder"), /采纳后才生效/u);
+  const readScroll = page.locator(".mobile-nuwa-scroll");
+  await readScroll.evaluate((node) => { node.scrollTop = 140; });
+  const savedReadScroll = await readScroll.evaluate((node) => node.scrollTop);
+  assert.ok(savedReadScroll > 0, "a multi-step Run has a real scroll position to restore");
+  await page.getByRole("button", { name: "记录查询" }).click();
+  await page.locator(".nuwa-management ol a").first().click();
+  await page.getByRole("button", { name: "恢复排演" }).waitFor();
+  assert.equal(await page.getByTestId("mobile-nuwa-template").getAttribute("data-run-id"), nuwaModel.run.runId, "record return opens the same Run identity");
+  await page.waitForFunction((expected) => Math.abs((document.querySelector(".mobile-nuwa-scroll")?.scrollTop ?? 0) - expected) < 8, savedReadScroll);
+  actions.push("女娲已暂停 Run：恢复 → 暂停；导演建议提示清楚；记录查询返回原 Run");
   const desktop = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await desktop.goto(`${base}/event-line`);
   const desktopJourney = desktop.getByTestId("event-line-journey");
@@ -165,9 +231,18 @@ try {
   await desktopJourney.getByText(/已有事件“主线节点”/u).waitFor();
   if (evidence) await desktop.screenshot({ path: path.join(evidence, "最终实现-桌面节点详情-1440x900.png") });
   for (const level of ["unit", "line", "lines"]) { await desktop.goBack(); assert.equal(await desktopJourney.getAttribute("data-level"), level); }
-  actions.push("桌面 1440×900：事件线→单元→正式详情与三级返回均可用");
+  for (const width of [1440, 1280, 1152]) {
+    await desktop.setViewportSize({ width, height: 900 });
+    assert.equal(await desktop.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${width}px desktop has no body overflow`);
+    if (evidence) await desktop.screenshot({ path: path.join(evidence, `最终实现-桌面事件线-${width}x900.png`) });
+  }
+  actions.push("桌面 1440/1280/1152：事件线与共享 Shell 无页面横向溢出；1440 三级进入与返回可用");
   if (evidence) await writeFile(path.join(evidence, "操作记录.json"), JSON.stringify({ projectId, oldSessionId: old.sessionId, boundSessionId: bound.sessionId, workVersionId, actions }, null, 2));
   console.log(`mobile template scope E2E PASS: ${actions.length} recorded operations, three lines, two Sessions`);
+  if (process.env.TIANYAN_MOBILE_TEMPLATE_HOLD === "1") {
+    console.log(`Synthetic phone review: ${base}/ (local fake Provider only; press Ctrl+C to remove this temporary project)`);
+    await new Promise((resolve) => { process.once("SIGINT", resolve); process.once("SIGTERM", resolve); });
+  }
 } finally {
   await browser?.close();
   await terminateChildProcess(child, { label: "Synthetic mobile server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);

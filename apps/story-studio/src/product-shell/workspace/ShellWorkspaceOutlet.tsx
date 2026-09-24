@@ -34,13 +34,14 @@ export function ShellWorkspaceOutlet(props: {
   onAddCharacterToNuwa(objectId: string): void;
   onCloseCharacterWorkspace(): void;
   locationRevision: number;
+  mobile?: boolean;
 }) {
   const { t } = useI18n();
   const label = props.shellLab ? t("shellLab.label") : t(props.destination.labelKey as TranslationKey);
   const summary = props.shellLab ? t("shellLab.description") : t(props.destination.summaryKey as TranslationKey);
   const note = props.shellLab ? t("workspace.boundary") : null;
 
-  if (props.settingsOpen) return <SettingsStorageRoute presentation="workspace" />;
+  if (props.settingsOpen) return <SettingsStorageRoute presentation={props.mobile ? "mobile" : "workspace"} />;
   if (props.accountOpen) return <AccountCenterWorkspace />;
 
   if (!props.shellLab && props.destination.id === "event-line") {

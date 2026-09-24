@@ -727,11 +727,17 @@ test("old and new Tianyi Sessions keep explicit line scope through restart and f
     assert.deepEqual(answer.sourceManifest.request.scope, oneScope);
     assert.match(prompt, /只属于第一支线的事实/u);
     assert.doesNotMatch(prompt, /只属于第二支线的事实/u);
+    assert.doesNotMatch(prompt, /同名但属于另一项目的事实/u);
+    const includedIds = answer.includedSources.map((source) => source.sourceKey);
+    assert.ok(includedIds.length > 0, "the fake Provider received cited evidence from this line");
+    assert.deepEqual(answer.answer?.claims[0]?.sourceRefs, includedIds, "candidate claims cite exactly the selected manifest sources");
+    assert.equal(answer.includedSources.some((source) => source.sourceId === branchTwoEvent.id), false);
     const restarted = create();
     assert.deepEqual((await restarted.readTianyiSessionMetadata({ projectId, sessionId: old.sessionId }))?.scope, oneScope);
     const newSession = await restarted.openTianyiSession({ projectId, operationId: "operation.scope-new", scope: twoScope });
     assert.deepEqual((await restarted.readTianyiSessionMetadata({ projectId, sessionId: newSession.sessionId }))?.scope, twoScope);
     await assert.rejects(() => restarted.runTianyiGroundedAnswer!(grounded(newSession.sessionId, oneScope)), /与对话保存范围不一致/u);
+    await assert.rejects(() => restarted.runTianyiGroundedAnswer!({ ...grounded(old.sessionId, oneScope), contextRequest: { ...grounded(old.sessionId, oneScope).contextRequest, projectId: "project-b" } }), /当前项目|对话|Session/u);
     await assert.rejects(() => restarted.openTianyiSession({ projectId: "project-b", operationId: "operation.scope-wrong-project", scope: oneScope }), /不属于当前项目/u);
     await assert.rejects(() => restarted.openTianyiSession({ projectId, operationId: "operation.scope-invalid", scope: { kind: "event-line", storylineKey: "branch.missing" } }), /不可用/u);
     assert.equal(providerCalls, 1, "invalid scope never reaches the fake Provider");

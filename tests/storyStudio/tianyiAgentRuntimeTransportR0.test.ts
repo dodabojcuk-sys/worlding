@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createStoryStudioEventReference } from "../../src/storyContracts/storyStudioEventReference.ts";
 
 test("Tianyi Agent transport preserves an honest unconfigured run through Session/Archive and restart", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-transport-"));
@@ -14,12 +15,21 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
   const token = "tianyi-agent-transport-token";
   const port = 4300 + Math.floor(Math.random() * 400);
   const baseUrl = `http://127.0.0.1:${port}`;
-  createStoryStudioWorkspaceOperations({ rootPath, stateFilePath }).createProject({ title: "Agent 夹具", folderSlug: "agent-fixture" });
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "Agent 夹具", folderSlug: "agent-fixture" });
+  operations.createProject({ title: "其他 Agent 夹具", folderSlug: "other-agent-fixture" });
+  const anchor = operations.createPlanningEvent({ projectId: "agent-fixture", title: "共同起点", body: "共同起点" });
+  const branchEvent = operations.createPlanningEvent({ projectId: "agent-fixture", title: "支线事件", body: "仅此支线" });
+  const otherEvent = operations.createPlanningEvent({ projectId: "agent-fixture", title: "其他支线事件", body: "不能进入当前请求" });
+  const main = operations.createStoryUnit({ projectId: "agent-fixture", title: "主线单元", kind: "main", linkedEntityIds: [anchor.id] });
+  const branch = operations.createStoryUnit({ projectId: "agent-fixture", title: "当前支线", kind: "branch", parentUnitId: main.id, branchPointEventId: anchor.id, linkedEntityIds: [branchEvent.id] });
+  operations.createStoryUnit({ projectId: "agent-fixture", title: "其他支线", kind: "branch", parentUnitId: main.id, branchPointEventId: anchor.id, linkedEntityIds: [otherEvent.id] });
+  const scope = { kind: "event-line", storylineKey: `branch.${branch.id}` };
   let server = startServer(rootPath, stateFilePath, token, port);
   try {
     await waitForServer(baseUrl, server);
     const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
-    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-fixture", operationId: "operation.agent.open", scope: { kind: "project" } }, headers);
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-fixture", operationId: "operation.agent.open", scope }, headers);
     assert.equal(opened.status, 200);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const workVersionId = "work-version.unversioned";
@@ -28,7 +38,19 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
     assert.match(await missingScope.text(), /范围/u);
     const wrongScope = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope: { kind: "event-line", storylineKey: "branch.foreign" } }, task: "错误事件线请求", currentPage: "/tianyi", operationId: "operation.agent.wrong-scope" }, headers);
     assert.equal(wrongScope.status, 400);
-    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope: { kind: "project" } }, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
+    const wrongProject = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "other-agent-fixture", workVersionId, sessionId, contextRequest: { scope }, task: "借用其他项目的 Session", currentPage: "/tianyi", operationId: "operation.agent.wrong-project" }, headers);
+    assert.equal(wrongProject.status, 400, "a Session id cannot be borrowed across projects");
+    const otherReference = createStoryStudioEventReference({ projectId: "agent-fixture", event: otherEvent, requestedUse: "constraint" });
+    const crossedEvent = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope, productMode: "world", activeOwner: { kind: "project", id: "agent-fixture" }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [otherReference] }, task: "越线依据", currentPage: "/tianyi", operationId: "operation.agent.crossed-event" }, headers);
+    assert.equal(crossedEvent.status, 201);
+    const crossedRun = (await crossedEvent.json() as { data: any }).data;
+    const crossedApproval = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-fixture", workVersionId, sessionId, runId: crossedRun.runId, stepId: crossedRun.plan[0].stepId, operationId: "operation.agent.crossed-event.approve" }, headers);
+    assert.equal(crossedApproval.status, 200);
+    const crossedProjection = (await crossedApproval.json() as { data: any }).data;
+    assert.equal(crossedProjection.status, "failed", "out-of-line evidence fails before model dispatch");
+    assert.match(crossedProjection.error.message, /不属于所选事件线/u);
+    const branchReference = createStoryStudioEventReference({ projectId: "agent-fixture", event: branchEvent, requestedUse: "constraint" });
+    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope, productMode: "world", activeOwner: { kind: "project", id: "agent-fixture" }, selection: { documentId: null, objectId: branchEvent.id, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [branchReference] }, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
     assert.equal(started.status, 201);
     const startProjection = (await started.json() as { data: any }).data;
     assert.equal(startProjection.status, "awaiting_author");
@@ -37,7 +59,8 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
     assert.equal(approved.status, 200);
     const contextProjection = (await approved.json() as { data: any }).data;
     assert.equal(contextProjection.contextManifest.sessionId, sessionId);
-    assert.deepEqual(contextProjection.contextManifest.scope, { kind: "project" }, "Context Package keeps the request scope");
+    assert.deepEqual(contextProjection.contextManifest.scope, scope, "the actual Agent request keeps the Session line scope");
+    assert.equal(contextProjection.contextManifest.sourceRefs.some((source: any) => source.label === "其他支线事件"), false, "the Agent context excludes the other line");
     const analyzed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, operationId: "operation.agent.analyze" }, { ...headers, accept: "application/x-ndjson" });
     assert.equal(analyzed.status, 200);
     const analyzedMessages = (await analyzed.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; data?: any });
@@ -55,7 +78,7 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
     assert.equal(recovered.status, 200);
     const recoveredProjection = (await recovered.json() as { data: any }).data;
     assert.equal(recoveredProjection.runId, startProjection.runId);
-    assert.deepEqual(recoveredProjection.contextRequest.scope, { kind: "project" }, "Run scope survives restart independently of navigation");
+    assert.deepEqual(recoveredProjection.contextRequest.scope, scope, "Run scope survives restart independently of navigation");
     assert.equal(recoveredProjection.status, "failed");
     assert.equal(recoveredProjection.error.category, "provider-unavailable");
     assert.equal(recoveredProjection.resultSummary, null);

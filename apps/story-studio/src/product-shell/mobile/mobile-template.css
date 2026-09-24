@@ -1,6 +1,6 @@
 /* Adapted from the supplied css/shell.css and css/chat.css. The phone owns
    its navigation and input layout; the domain workspaces remain shared. */
-.tianyan-mobile{--m-bg:#fff;--m-side:#fff;--m-ink:#284d63;--m-text:#27313a;--m-muted:#8c969e;--m-line:#edf0f1;position:relative;display:flex;flex-direction:column;width:100%;height:100dvh;min-height:0;overflow:hidden;background:var(--m-bg);color:var(--m-text);font-family:system-ui,-apple-system,"Noto Sans CJK SC",sans-serif}
+.tianyan-mobile{--m-bg:#fff;--m-side:#fff;--m-ink:#284d63;--m-text:#27313a;--m-muted:#8c969e;--m-line:#edf0f1;position:relative;display:flex;flex-direction:column;width:100%;height:var(--mobile-visual-height,100dvh);min-height:0;overflow:hidden;background:var(--m-bg);color:var(--m-text);font-family:system-ui,-apple-system,"Noto Sans CJK SC",sans-serif}
 .tianyan-mobile *{box-sizing:border-box}
 .tianyan-mobile button{cursor:pointer}
 .mobile-topbar{height:99px;flex:none;display:grid;grid-template-columns:1fr auto 1fr;align-items:end;padding:47px 8px 0;background:#fff;z-index:15;border-bottom:1px solid var(--m-line)}
@@ -24,6 +24,9 @@
 .mobile-book span:nth-child(2){display:flex;flex:1;min-width:0;flex-direction:column}
 .mobile-book b{font-size:13.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mobile-book small{margin-top:3px;font-size:11px;color:#9aa3aa}
+.mobile-book-other{margin-top:8px;background:#fff;border:1px solid #edf0f2}
+.mobile-drawer-destinations{margin:12px 0 0 30px;padding-left:12px;border-left:1px solid #e9edf0}
+.mobile-drawer-destinations button{display:block;width:100%;min-height:37px;padding:7px 8px;border:0;border-radius:7px;background:#fff;color:#50616b;text-align:left;font-size:13px}
 .mobile-drawer-tree{margin-left:30px;padding-left:12px;border-left:1px solid #e9edf0}
 .mobile-drawer-tree button{display:flex;align-items:center;gap:5px;width:100%;min-height:32px;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#50616b;text-align:left;font-size:13px}
 .mobile-drawer-tree button:hover,.mobile-drawer-tree button[aria-current="page"]{background:#eef5f8;color:var(--m-ink)}
@@ -55,10 +58,13 @@
 .mobile-chat-quick button,.mobile-chat-foot button{flex:none;padding:6px 10px;border:1px solid #e6eaed;border-radius:18px;background:#fff;color:#7b8992;font-size:11.5px}
 .mobile-chat-inputbar{display:flex;align-items:end;gap:5px;min-height:43px;padding:5px 7px;border:1px solid #e5e9ec;border-radius:23px;box-shadow:0 5px 20px rgba(24,43,56,.04)}
 .mobile-chat-inputbar textarea{flex:1;min-width:0;max-height:120px;resize:none;min-height:30px;padding:6px 0;border:0;outline:0;background:transparent;color:#34434d;font:13px/1.45 inherit}
+.mobile-chat-inputbar.is-expanded textarea{height:min(32dvh,240px);max-height:min(32dvh,240px);overflow-y:auto;resize:vertical}
 .mobile-chat-inputbar button{flex:none;display:grid;place-items:center;width:31px;height:31px;border:0;border-radius:50%;background:transparent;color:#718697;font-size:18px}
 .mobile-chat-inputbar button:last-child{background:#315b72;color:#fff;font-size:15px}
 .mobile-chat-inputbar button:disabled{background:#e8ecee;color:#fff}
 .mobile-chat-foot{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:6px;color:#b4bdc3;font-size:10px}
+.mobile-chat-foot span{min-width:0;text-align:right}
+.mobile-chat-foot button{padding:4px 7px;font-size:10px}
 .mobile-chat-skills{position:absolute;left:14px;right:14px;bottom:100%;padding:13px;border:1px solid #e5eaed;border-radius:15px;background:#fff;box-shadow:0 -15px 35px rgba(22,35,44,.13)}
 .mobile-chat-skills h3{margin:0 0 8px;font-size:13px}.mobile-chat-skills button{display:block;width:100%;padding:9px;border:0;border-bottom:1px solid #f0f2f3;background:transparent;text-align:left;color:#4e606b}
 .tianyan-mobile .event-journey-breadcrumb{display:none}
@@ -114,6 +120,20 @@
 .tianyan-mobile .settings-appearance label{font-size:11px}
 .tianyan-mobile .settings-appearance small{font-size:10px;color:#9aa6ad}
 .tianyan-mobile .settings-workspace-route .settings-card dl{grid-template-columns:1fr}
+.tianyan-mobile .settings-workspace-route[data-settings-route="mobile"]{overflow-y:auto}
+.mobile-settings-home{padding:14px 18px 30px;color:#31414c}
+.mobile-settings-profile{display:flex;align-items:center;gap:12px;padding:12px 0 20px}
+.mobile-settings-profile>span{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:#e9f1f5;color:#496c7f;font-family:serif;font-size:19px}
+.mobile-settings-profile strong,.mobile-settings-profile small{display:block}.mobile-settings-profile strong{font-size:16px}.mobile-settings-profile small{margin-top:4px;color:#9aa7ae;font-size:11px}
+.mobile-settings-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;border:1px solid #e7ecef;border-radius:11px;background:#f7f9fa}
+.mobile-settings-tabs button{min-width:0;padding:9px 2px;border:0;border-radius:8px;background:transparent;color:#8b99a1;font-size:11px}.mobile-settings-tabs button[aria-selected="true"]{background:#fff;color:#315b70;box-shadow:0 1px 4px #dce5e8}
+.mobile-settings-group{margin:20px 0 8px;color:#9aa7ad;font-size:11px}
+.mobile-settings-list{padding:0 13px;border:1px solid #e8edef;border-radius:11px;background:#fff}
+.mobile-settings-list>button,.mobile-settings-list>div{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:47px;padding:9px 0;border:0;border-bottom:1px solid #eef1f2;background:none;color:#354a56;text-align:left;font-size:12.5px}
+.mobile-settings-list>*:last-child{border-bottom:0}.mobile-settings-list span{color:#9aa7ad;font-size:10px;text-align:right}
+.mobile-settings-note{margin:14px 2px;color:#9aa7ad;font-size:10.5px;line-height:1.6}
+.tianyan-mobile [data-mobile-page="agent-provider"] #settings-agent-overview>header,.tianyan-mobile [data-mobile-page="agent-provider"] #settings-agent-overview>dl,.tianyan-mobile [data-mobile-page="agent-provider"] #settings-agent-runtime,.tianyan-mobile [data-mobile-page="agent-provider"] #settings-agent-permissions{display:none}
+.tianyan-mobile [data-mobile-page="agent-permissions"] #settings-agent-overview>header,.tianyan-mobile [data-mobile-page="agent-permissions"] #settings-agent-overview>dl,.tianyan-mobile [data-mobile-page="agent-permissions"] #settings-agent-runtime,.tianyan-mobile [data-mobile-page="agent-permissions"] #settings-agent-provider{display:none}
 .tianyan-mobile .tianyi-workspace{display:flex;flex-direction:column;width:100%;min-height:0;height:100%;overflow:hidden;background:#fff;color:#32444e}
 .tianyan-mobile .tianyi-workspace-header{flex:none;display:flex;flex-direction:column;align-items:stretch;gap:7px;min-height:0;padding:8px 14px;border-bottom:1px solid #edf0f2;background:#fff}
 .tianyan-mobile .tianyi-workspace-header>div:first-child{display:none}
@@ -153,6 +173,11 @@
 .mobile-nuwa-unit-chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
 .mobile-nuwa-unit-chips span{padding:5px 8px;border-radius:12px;background:#edf3f6;color:#5e7888;font-size:10.5px}
 .mobile-nuwa-unit>button{width:100%;margin-top:8px;padding:9px 11px;border:1px solid #e8edef;border-radius:8px;background:#fff;color:#637b88;text-align:left;font-size:11.5px}
+.mobile-nuwa-primary-actions{display:flex;align-items:center;gap:8px;margin:0 0 18px}
+.mobile-nuwa-primary-actions button{min-height:39px;flex:1;padding:8px 11px;border:1px solid #dce7eb;border-radius:9px;background:#fff;color:#3b6175;font-size:12px}
+.mobile-nuwa-primary-actions button:first-child{background:#345d73;color:#fff;border-color:#345d73}
+.mobile-nuwa-primary-actions button:disabled{opacity:.5}
+.mobile-nuwa-primary-actions span{color:#8b999f;font-size:11px;line-height:1.5}
 .mobile-nuwa-section{display:flex;align-items:baseline;justify-content:space-between;gap:5px;margin:18px 0 10px;font-size:13px}
 .mobile-nuwa-section strong{font-weight:600}.mobile-nuwa-section small{color:#a0abb1;font-size:10.5px}.mobile-nuwa-section button{border:0;background:none;color:#55778a;font-size:11px}
 .mobile-nuwa-cast{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
@@ -178,8 +203,10 @@
 .mobile-nuwa-composer{flex:none;padding:9px 14px max(12px,env(safe-area-inset-bottom));border-top:1px solid #e9edef;background:#fff}
 .mobile-nuwa-composer>label{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#71818a;font-size:11px}
 .mobile-nuwa-composer select{max-width:60%;padding:6px;border:1px solid #e7ecee;border-radius:8px;background:#fff;color:#446071;font-size:11px}
+.mobile-nuwa-cue-hint{display:block;margin-top:5px;color:#95a2a9;font-size:10px;line-height:1.45}
 .mobile-nuwa-composer>div:last-child{display:flex;gap:6px;align-items:end;margin-top:8px;padding:5px;border:1px solid #e7ecee;border-radius:22px}
 .mobile-nuwa-composer textarea{flex:1;min-width:0;max-height:110px;padding:7px 8px;border:0;outline:0;resize:none;background:transparent;color:#354650;font:12.5px/1.5 inherit}
+.mobile-nuwa-composer textarea{overflow-y:auto}
 .mobile-nuwa-composer>div:last-child button{flex:none;width:30px;height:30px;border:0;border-radius:50%;background:#355c72;color:#fff}
 .mobile-nuwa-composer>div:last-child button:disabled{background:#e3e9ec}
 .mobile-nuwa-cue-cast{display:flex;gap:8px;margin-top:8px;color:#667a85;font-size:11px}
