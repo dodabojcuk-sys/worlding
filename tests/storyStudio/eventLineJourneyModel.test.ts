@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eventLineJourneyLines, eventLineJourneyUrl, readEventLineJourneyLocation } from "../../apps/story-studio/src/components/event-observation/eventLineJourneyModel.ts";
-import type { StoryUnit } from "../../apps/story-studio/src/lib/localTransport.ts";
+import { eventLineJourneyLines, eventLineJourneyNodes, eventLineJourneyUrl, readEventLineJourneyLocation } from "../../apps/story-studio/src/components/event-observation/eventLineJourneyModel.ts";
+import type { NarrativeArrangementRead, StoryUnit } from "../../apps/story-studio/src/lib/localTransport.ts";
 
 test("three storylines keep same-name units and empty units scoped by stable identity", () => {
   const units = [
@@ -29,4 +29,16 @@ test("journey URLs preserve line, unit, and event identity independently", () =>
   const url = eventLineJourneyUrl({ lineKey: "branch", unitId: "branch.1", eventId: "event.shared" });
   assert.deepEqual(readEventLineJourneyLocation(new URL(url, "http://localhost").search), { lineKey: "branch", unitId: "branch.1", eventId: "event.shared" });
   assert.equal(eventLineJourneyUrl({ lineKey: null, unitId: null, eventId: null }), "/event-line");
+});
+
+test("node list follows formal canvas placement without changing Story Unit links", () => {
+  const unit = { id: "unit.1", linkedEntityIds: ["event.c", "event.a", "event.b", "event.d"] } as StoryUnit;
+  const events = ["event.b", "event.c", "event.d", "event.a"].map((id) => ({ id }));
+  const narratives = [{ projection: { placed: [
+    { eventId: "event.b", storyUnitId: "unit.1", narrativeIndex: 0 },
+    { eventId: "event.a", storyUnitId: "unit.1", narrativeIndex: 1 },
+    { eventId: "event.c", storyUnitId: "unit.1", narrativeIndex: 2 }
+  ] } }] as NarrativeArrangementRead[];
+  assert.deepEqual(eventLineJourneyNodes(unit, events, narratives).map((event) => event.id), ["event.b", "event.a", "event.c", "event.d"]);
+  assert.deepEqual(unit.linkedEntityIds, ["event.c", "event.a", "event.b", "event.d"]);
 });

@@ -218,7 +218,7 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
   };
   const route = new URLSearchParams(window.location.search);
   const legacyOverview = route.has("eventAdvanced") || route.has("eventView") || route.has("eventId") || route.has("eventRender") || route.has("eventTask") && route.get("eventTask") !== "story";
-  if (!legacyOverview && !tianyiCandidateActive) return <EventLineJourney projectId={state.projectId} workVersionId={props.runtime.workVersionId ?? state.narratives[0]?.projection.workVersionId ?? null} storylines={storylines} units={state.storyUnits} events={state.events} narratives={state.narratives} onOverview={(location) => {
+  if (!legacyOverview && !tianyiCandidateActive) return <EventLineJourney projectId={state.projectId} workVersionId={props.runtime.workVersionId ?? state.narratives[0]?.projection.workVersionId ?? null} storylines={storylines} units={state.storyUnits} events={state.events} narratives={state.narratives} onOpenTianyi={props.onOpenTianyi} onOverview={(location) => {
     const params = new URLSearchParams();
     params.set("eventAdvanced", "spine");
     params.set("journeyReturn", new URLSearchParams({ ...(location.lineKey ? { line: location.lineKey } : {}), ...(location.unitId ? { unit: location.unitId } : {}), ...(location.eventId ? { node: location.eventId } : {}) }).toString());

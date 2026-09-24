@@ -1,4 +1,4 @@
-import type { NuwaN1Storyline, StoryUnit } from "../../lib/localTransport";
+import type { NarrativeArrangementRead, NuwaN1Storyline, StoryUnit } from "../../lib/localTransport";
 
 /** A navigation projection. The Story Unit and Event owners remain unchanged. */
 export function eventLineJourneyLines(storylines: readonly NuwaN1Storyline[], units: readonly StoryUnit[]) {
@@ -9,6 +9,26 @@ export function eventLineJourneyLines(storylines: readonly NuwaN1Storyline[], un
     title: line.title,
     units: line.units.flatMap((item) => byId.get(item.id) ?? [])
   }));
+}
+
+/** Read the formal placement order; an unplaced linked Event follows placed Events. */
+export function eventLineJourneyNodes<T extends { id: string }>(unit: StoryUnit, events: readonly T[], narratives: readonly NarrativeArrangementRead[]): T[] {
+  const byId = new Map(events.map((event) => [event.id, event]));
+  const positions = new Map<string, number>();
+  for (const read of narratives) {
+    for (const placement of read.projection.placed) {
+      if (placement.storyUnitId !== unit.id || positions.has(placement.eventId)) continue;
+      positions.set(placement.eventId, placement.narrativeIndex);
+    }
+  }
+  return unit.linkedEntityIds.flatMap((id) => byId.get(id) ?? []).sort((left, right) => {
+    const a = positions.get(left.id);
+    const b = positions.get(right.id);
+    if (a !== undefined && b !== undefined) return a - b;
+    if (a !== undefined) return -1;
+    if (b !== undefined) return 1;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export type EventLineJourneyLocation = { lineKey: string | null; unitId: string | null; eventId: string | null };

@@ -191,9 +191,13 @@ export function TianyanShellRuntime() {
     setTianyiConversationId(sessionId);
     if (!project) return;
     if (sessionId && !tianyiConversationId) {
-      window.localStorage.setItem(tianyiComposerDraftStorageKey(project.id, "creative", sessionId), creativeComposerDraft);
-      window.localStorage.setItem(tianyiComposerDraftStorageKey(project.id, "work", sessionId), workComposerDraft);
+      const creativeKey = tianyiComposerDraftStorageKey(project.id, "creative", sessionId);
+      const workKey = tianyiComposerDraftStorageKey(project.id, "work", sessionId);
+      if (window.localStorage.getItem(creativeKey) === null && creativeComposerDraft) window.localStorage.setItem(creativeKey, creativeComposerDraft);
+      if (window.localStorage.getItem(workKey) === null && workComposerDraft) window.localStorage.setItem(workKey, workComposerDraft);
     }
+    setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(project.id, "creative", sessionId)) ?? "");
+    setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(project.id, "work", sessionId)) ?? "");
     retainSelectedConversation(project.id, sessionId);
   }, [project, tianyiConversationId, creativeComposerDraft, workComposerDraft]);
   const persistComposerDraft = useCallback((lane: "creative" | "work", value: string) => {

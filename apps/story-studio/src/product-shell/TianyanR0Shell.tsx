@@ -51,6 +51,7 @@ import {
 } from "./project-directory/directoryWorkspaceState";
 import { useDirectoryWorkspaceState } from "./project-directory/useDirectoryWorkspaceState";
 import { WorkspaceRunRecords } from "./runtime/WorkspaceRunRecords";
+import { MobileStoryStudioShell } from "./mobile/MobileStoryStudioShell";
 
 function resolveActiveDestination(): StoryStudioShellDestinationId {
   const params = new URLSearchParams(window.location.search);
@@ -59,6 +60,13 @@ function resolveActiveDestination(): StoryStudioShellDestinationId {
 }
 
 export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
+  const [mobileTemplate, setMobileTemplate] = useState(() => window.matchMedia("(max-width: 520px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 520px)");
+    const update = () => setMobileTemplate(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const { locale, t, toggleLocale } = useI18n();
   const shellLab = new URLSearchParams(window.location.search).get("shellLab") === "1";
   const [activeId, setActiveId] = useState(resolveActiveDestination);
@@ -567,6 +575,23 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     dock.togglePanel(toolId);
   };
   const togglePanel = (panel: "project-directory" | "tianyi-agent") => panel === "project-directory" ? toggleDirectory() : toggleTianyi();
+
+  if (mobileTemplate && !shellLab) return <MobileStoryStudioShell
+    runtime={props.runtime}
+    activeId={activeId}
+    settingsOpen={settingsOpen}
+    accountOpen={accountOpen}
+    onNavigate={(id) => {
+      navigate(storyStudioShellDestinationById(id));
+      if (id === "nuwa") window.history.replaceState({}, "", "/nuwa");
+    }}
+    onSettings={openSettings}
+    onAccount={openAccount}
+    onSummon={toggleTianyi}
+    content={pendingReviewOpen ? <PendingReviewWorkspace runtime={props.runtime} onOpenSource={openDirectoryReference} onOpenStoryIntakeReview={openPendingReview} onClose={closePendingReview} /> : <ShellWorkspaceOutlet destination={activeDestination} shellLab={false} settingsOpen={settingsOpen} accountOpen={accountOpen} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenNuwa={openNuwaFromFormalNode} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={locationParams.get("directoryType") === "character" ? null : directorySelection} characterObjectId={centralCharacterId} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
+    workContent={<ShellWorkspaceOutlet destination={storyStudioShellDestinationById("tianyi")} shellLab={false} settingsOpen={false} accountOpen={false} runtime={props.runtime} onOpenTianyi={openTianyi} onOpenNuwa={openNuwaFromFormalNode} onOpenPendingReview={() => openPendingReview(null)} directoryObjectId={null} characterObjectId={null} onEditCharacter={openCharacterProfileEditor} onAddCharacterToNuwa={addCharacterToNuwa} onCloseCharacterWorkspace={closeCharacterWorkspace} locationRevision={locationRevision} />}
+    assistant={!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen ? <TianyiSidebar overlay modal workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line" || activeId === "nuwa"} contextRequest={tianyiContextRequest} onClose={() => workspaceSurfaceManager.closeSurface("tianyi-assistant")} onOpenSettings={openSettings} /> : null}
+  />;
 
   return <div
     ref={shellRef}
