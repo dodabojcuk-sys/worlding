@@ -81,7 +81,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [settingsOpen, setSettingsOpen] = useState(isSettingsRoute);
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchRequest, setSearchRequest] = useState<GlobalSearchOpenRequest | null>(null);
-  const [runRecordScope, setRunRecordScope] = useState<"all" | "nuwa" | "event-line" | null>(null);
+  const [runRecordScope, setRunRecordScope] = useState<"all" | "current" | "nuwa" | "event-line" | null>(null);
   const [tianyiPinned, setTianyiPinned] = useState(() => {
     try { return window.localStorage.getItem("tianyan:focused-tianyi-pinned") === "true"; }
     catch { return false; }
@@ -101,6 +101,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   const [focusLayout, setFocusLayout] = useState<ShellFocusLayout>("focused");
   const [shellWidth, setShellWidth] = useState(0);
   const [nuwaMobileRailOpen, setNuwaMobileRailOpen] = useState(false);
+  const [focusedMobileDirectoryOpen, setFocusedMobileDirectoryOpen] = useState(false);
   // While the Tianyi assistant borrows workspace width, the author may still
   // explicitly reopen the directory; that choice wins until Tianyi closes.
   const [tianyiDirectoryOverride, setTianyiDirectoryOverride] = useState(false);
@@ -136,14 +137,21 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
               : "none";
   const directoryPreferredOpen = directoryState.preferredOpen;
   const directoryStateReady = directory.stateReady;
-  const directoryPresented = resolveDirectoryPresentation({ preferredOpen: directoryPreferredOpen, temporarySurface: temporaryDirectorySurface });
+  const directoryPresented = focusedWorkspace && nuwaMobileRail
+    ? focusedMobileDirectoryOpen
+    : resolveDirectoryPresentation({ preferredOpen: directoryPreferredOpen, temporarySurface: temporaryDirectorySurface });
+  // Keep a useful main column before honoring the saved pin preference. A
+  // narrow window uses the same assistant as a temporary panel, without
+  // changing that preference or the assistant draft.
+  const focusedTianyiDocked = focusedChrome && activeId === "nuwa" && tianyiPinned
+    && shellWidth >= (directoryPresented ? 1400 : 1200);
   const updateDirectoryState = directory.updateState;
   const setDirectoryPreferredOpen = directory.setPreferredOpen;
   useEffect(() => {
-    const openStructure = () => setDirectoryPreferredOpen(true);
+    const openStructure = () => { if (nuwaMobileRail) setFocusedMobileDirectoryOpen(true); else setDirectoryPreferredOpen(true); };
     window.addEventListener("tianyan-nuwa-open-structure", openStructure);
     return () => window.removeEventListener("tianyan-nuwa-open-structure", openStructure);
-  }, [setDirectoryPreferredOpen]);
+  }, [setDirectoryPreferredOpen, nuwaMobileRail]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -197,6 +205,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
   useEffect(() => {
     setWorkspaceDirectorySuppressed(false);
     setNuwaMobileRailOpen(false);
+    setFocusedMobileDirectoryOpen(false);
   }, [props.runtime.project?.id]);
 
   useEffect(() => {
@@ -322,6 +331,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     workspaceSurfaceManager.closeSurface();
     setWorkspaceDirectorySuppressed(false);
     setNuwaMobileRailOpen(false);
+    setFocusedMobileDirectoryOpen(false);
   };
   const searchContext = props.runtime.project
     ? { projectId: props.runtime.project.id, workVersionId: props.runtime.workVersionId ?? "work-version.unversioned" }
@@ -528,6 +538,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     return next;
   });
   const toggleDirectory = () => {
+    if (focusedWorkspace && nuwaMobileRail) {
+      setFocusedMobileDirectoryOpen((open) => !open);
+      return;
+    }
     if (!directoryPresented) {
       setDirectoryPreferredOpen(true);
       nuwaWidth.prioritizeDirectory();
@@ -566,6 +580,7 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     data-nuwa-reading={activeId === "nuwa"}
     data-focused-workspace={focusedChrome}
     data-tianyi-pinned={tianyiPinned}
+    data-tianyi-docked={focusedTianyiDocked}
     data-directory-visible={directoryPresented}
     data-directory-preferred-open={directoryPreferredOpen}
     data-dock-panel-count={dock.state.openPanelIds.length}
@@ -618,10 +633,10 @@ export function TianyanR0Shell(props: { runtime: TianyanShellRuntimeState }) {
     {!settingsOpen && !accountOpen && characterDirectoryOpen && directorySelection && locationParams.get("directoryType") === "character" && <CharacterInspectorLoader key={`${directorySelection}:${locationRevision}`} runtime={props.runtime} objectId={directorySelection} onClose={closeCharacterInspector} onOpenFull={() => openCharacterWorkspace(directorySelection)} onOpenKnowledge={openCharacterKnowledge} onAddToNuwa={addCharacterToNuwa} />}
     {!settingsOpen && !accountOpen && (directorySelection || centralCharacterId) && locationParams.get("directoryEdit") === "character" && <CharacterProfileEditor runtime={props.runtime} objectId={centralCharacterId ?? directorySelection!} onClose={closeCharacterProfileEditor} />}
     {!settingsOpen && !accountOpen && locationParams.get("characterReturn")?.startsWith("/") && !locationParams.get("characterReturn")?.startsWith("//") && <button type="button" className="character-workspace-return" onClick={returnToCharacterWorkspace}>{t("character.returnWorkspace").replace("{name}", locationParams.get("characterReturnLabel") || t("character.directory"))}</button>}
-    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={focusedWorkspace ? !tianyiPinned || shellWidth < 1024 : nuwaWidth.tianyiOverlay || focusLayout === "narrow" || shellWidth < 1024} modal={focusLayout === "narrow" || shellWidth < 1024} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line" || activeId === "nuwa"} contextRequest={tianyiContextRequest} onClose={() => workspaceSurfaceManager.closeSurface("tianyi-assistant")} onOpenSettings={openSettings} />}
+    {!settingsOpen && !accountOpen && activeId !== "tianyi" && tianyiOpen && <TianyiSidebar overlay={focusedWorkspace ? !focusedTianyiDocked : nuwaWidth.tianyiOverlay || focusLayout === "narrow" || shellWidth < 1024} modal={focusedWorkspace ? !focusedTianyiDocked : focusLayout === "narrow" || shellWidth < 1024} workspace={capabilityWorkspace} pageLabel={t(activeDestination.labelKey as Parameters<typeof t>[0])} runtime={props.runtime} agentAvailable={activeId === "event-line" || activeId === "nuwa"} contextRequest={tianyiContextRequest} onClose={() => workspaceSurfaceManager.closeSurface("tianyi-assistant")} onOpenSettings={openSettings} />}
     {!settingsOpen && !accountOpen && rightWorkSurface.activeSurface && <WorkspaceSurfaceReservation surface={rightWorkSurface.activeSurface} />}
-    {focusedChrome ? <WorkspaceStatusFooter connectionState={props.runtime.connectionState} currentRunId={locationParams.get("runId")} tianyiOpen={tianyiOpen} tianyiPinned={tianyiPinned} onTasks={() => setRunRecordScope(activeId as "nuwa" | "event-line")} onTianyi={toggleTianyi} onPinTianyi={toggleTianyiPin} /> : null}
-    {runRecordScope ? <WorkspaceRunRecords runtime={props.runtime} scope={runRecordScope} onClose={() => setRunRecordScope(null)} /> : null}
+    {focusedChrome ? <WorkspaceStatusFooter connectionState={props.runtime.connectionState} currentRunId={activeId === "nuwa" ? locationParams.get("runId") : null} tianyiOpen={tianyiOpen} tianyiPinned={tianyiPinned} tianyiDocked={focusedTianyiDocked} onTasks={() => setRunRecordScope(activeId === "nuwa" && locationParams.has("runId") ? "current" : activeId as "nuwa" | "event-line")} onFunctionHistory={() => setRunRecordScope("nuwa")} onTianyi={toggleTianyi} onPinTianyi={toggleTianyiPin} /> : null}
+    {runRecordScope ? <WorkspaceRunRecords runtime={props.runtime} scope={runRecordScope} currentRunId={locationParams.get("runId")} onClose={() => setRunRecordScope(null)} /> : null}
     <ShellCommandPalette
       open={commandOpen}
       railCollapsed={railCollapsed}

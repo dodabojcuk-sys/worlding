@@ -2111,6 +2111,43 @@
 .formal-narrative-flow .react-flow__edge-text { fill: var(--color-text-muted); font-size: .65rem; }
 .formal-narrative-flow .react-flow__edge-textbg { fill: var(--color-surface); fill-opacity: .9; }
 
+/* The active event line is a canvas surface. Range, observer and explanation
+   remain reachable, but do not consume its initial reading height. */
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] { inline-size:100%; max-inline-size:none; block-size:100%; min-block-size:0; overflow:hidden; padding:0; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-heading { min-block-size:2.2rem; display:flex; align-items:center; gap:.6rem; padding:.2rem .7rem; border-block-end:1px solid var(--color-border); }
+.shell-workspace-event-line .story-progression-heading h1 { margin:0; font-size:.88rem; white-space:nowrap; }
+.shell-workspace-event-line .story-progression-heading > span { min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--color-text-muted); font-size:.71rem; }
+.story-progression-help { position:relative; margin-inline-start:auto; font-size:.72rem; }
+.story-progression-help summary { cursor:pointer; white-space:nowrap; }
+.story-progression-help p { position:absolute; z-index:15; inset-block-start:100%; inset-inline-end:0; inline-size:min(20rem,80vw); margin:.3rem 0 0; padding:.65rem; border:1px solid var(--color-border); border-radius:.3rem; background:var(--color-surface); box-shadow:var(--shadow-panel); white-space:normal; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-controls { flex:0 0 auto; display:flex; flex-direction:row; align-items:center; flex-wrap:nowrap; gap:.25rem; margin:0; padding:.2rem .4rem; border:0; border-radius:0; border-block-end:1px solid var(--color-border); background:var(--color-surface); }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-tasks { flex:1; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:thin; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-actions { flex:none; inline-size:auto; padding:0; border:0; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-controls button { min-block-size:1.9rem; padding:.25rem .45rem; }
+.story-progression-filters { position:relative; font-size:.72rem; white-space:nowrap; }
+.story-progression-filters > summary { min-block-size:1.9rem; display:flex; align-items:center; padding:.3rem .45rem; border-radius:.3rem; cursor:pointer; }
+.story-progression-filters > div { position:absolute; z-index:15; inset-block-start:calc(100% + .35rem); inset-inline-end:0; inline-size:min(24rem,calc(100vw - 1.5rem)); display:grid; gap:.55rem; padding:.7rem; border:1px solid var(--color-border); border-radius:.4rem; background:var(--color-surface); box-shadow:var(--shadow-panel); white-space:normal; }
+.story-progression-filters .story-character-observation { margin:0; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-workspace { flex:1 1 0; min-block-size:0; max-inline-size:none; margin:0; border:0; border-radius:0; box-shadow:none; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-toolbar { min-block-size:2.65rem; padding:.25rem .55rem; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-toolbar > div small { display:none; }
+.shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-flow { min-block-size:0; min-inline-size:0; }
+@media (max-width:48rem) {
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] { block-size:100%; min-block-size:0; overflow:hidden; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-heading { min-block-size:2rem; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-controls { min-inline-size:0; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-tasks { inline-size:auto; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-actions { inline-size:auto; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .story-progression-actions > :not(.story-progression-filters):not(.story-progression-more) { display:none; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-workspace { flex-basis:0; min-block-size:0; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-toolbar { flex-wrap:nowrap; }
+  .shell-workspace-event-line .story-progression-workspace[data-event-task="story"] .formal-narrative-toolbar nav { overflow-x:auto; }
+  .shell-workspace-event-line .event-line-shell { grid-template-columns:minmax(0,1fr); }
+  .shell-workspace-event-line .page-context-dock { position:absolute; z-index:20; inset:auto 0 0 auto; inline-size:auto; block-size:auto; border:0; background:transparent; }
+  .shell-workspace-event-line .page-context-dock-rail { display:flex; inline-size:auto; max-inline-size:100vw; gap:.1rem; padding:.2rem; border:1px solid var(--color-border); border-radius:.4rem 0 0 0; background:var(--color-surface); }
+  .shell-workspace-event-line .page-context-dock-panel { position:absolute; inset:auto 0 2.85rem auto; inline-size:min(22rem,100vw); block-size:min(34rem,calc(100vh - 8rem)); }
+}
+
 .formal-focus-point,
 .temporal-focus-point { inline-size: 1.75rem; block-size: 1.75rem; display: grid; place-items: center; color: var(--color-surface); background: var(--color-accent); border: 2px solid var(--color-surface); border-radius: 50%; box-shadow: 0 0 0 1px var(--color-accent), var(--shadow-sm); }
 .formal-focus-point svg,

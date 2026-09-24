@@ -274,3 +274,38 @@
 .nuwa-directory-views > strong { grid-column: 1 / -1; padding: .45rem; font-size: .78rem; }
 .nuwa-directory-footer { display: grid; grid-template-columns: 1fr 1fr; gap: .1rem; flex: none; border-block-start: 1px solid var(--color-border); padding: .35rem .65rem; }
 .nuwa-directory-footer button:hover, .nuwa-directory-footer button:focus-visible { background: var(--color-accent-soft); }
+
+/* The project remains selected once; the middle of the directory is a stable
+   function tree, with only the active function's objects expanded. */
+.nuwa-unified-directory > .nuwa-directory-project { align-items:center; padding: .35rem .55rem; border-block-end:1px solid var(--color-border); }
+.nuwa-unified-directory > .nuwa-directory-project > label { display:block; }
+.nuwa-unified-directory > .nuwa-directory-project > button { inline-size:2rem; padding:0; display:grid; place-items:center; color:var(--color-text-muted); }
+.nuwa-unified-directory > .nuwa-directory-project > button svg { inline-size:.95rem; }
+.nuwa-directory-quick { display:flex; gap:.2rem; padding:.35rem .55rem; border-block-end:1px solid var(--color-border); }
+.nuwa-directory-quick button { inline-size:auto; flex:1; min-inline-size:0; min-block-size:1.9rem; white-space:nowrap; background:transparent; }
+.nuwa-directory-tree { flex:1; min-block-size:0; overflow:auto; padding:.35rem .4rem .8rem; }
+.nuwa-directory-space-row { display:flex; align-items:center; min-block-size:2rem; }
+.nuwa-directory-space-row button, .nuwa-directory-child-link { border:0; background:transparent; color:var(--color-text); cursor:pointer; text-align:start; }
+.nuwa-directory-space-toggle { flex:0 0 1.65rem; inline-size:1.65rem; block-size:1.8rem; display:grid; place-items:center; padding:0; }
+.nuwa-directory-space-toggle svg { inline-size:.85rem; }
+.nuwa-directory-space-name { flex:1; min-inline-size:0; min-block-size:1.85rem; padding:.25rem .4rem; border-radius:.25rem; font-size:.8rem; font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nuwa-directory-space-name[aria-current="page"], .nuwa-directory-space-row button:hover, .nuwa-directory-space-row button:focus-visible, .nuwa-directory-child-link:hover { background:var(--color-accent-soft); }
+.nuwa-directory-children { margin-inline-start:1.65rem; border-inline-start:1px solid var(--color-border); }
+.nuwa-directory-child-link { inline-size:100%; min-block-size:1.9rem; padding-inline:.65rem; font-size:.75rem; }
+.nuwa-directory-children .nuwa-directory-views { display:flex; padding:.1rem .25rem; gap:.15rem; }
+.nuwa-directory-children .nuwa-directory-views button { flex:1; min-inline-size:0; min-block-size:1.8rem; font-size:.69rem; }
+.nuwa-directory-tree .nuwa-directory-content { overflow:visible; padding:.2rem .15rem; }
+.nuwa-directory-tree .project-conversation-panel.is-embedded { block-size:auto; padding:0; }
+.nuwa-directory-tree .project-conversation-list { overflow:visible; }
+.nuwa-directory-tree .project-conversation-items { padding-inline:.3rem 0; }
+.nuwa-directory-tree .conversation-embedded-actions { display:flex; align-items:center; gap:.15rem; }
+.nuwa-directory-tree .conversation-embedded-actions .conversation-new { flex:1; min-inline-size:0; min-block-size:1.8rem; margin:0; padding:.2rem .35rem; font-size:.72rem; }
+.nuwa-directory-tree .conversation-embedded-actions .conversation-icon { flex:none; }
+.nuwa-directory-tree .nuwa-directory-content.is-structure { padding:.25rem .15rem .5rem 1.95rem; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-line-title { margin:.1rem 0; font-size:.74rem; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-unit { min-block-size:1.8rem; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-event { display:flex; align-items:center; border:0; padding:0; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-event > button { min-block-size:1.8rem; padding:.2rem .1rem; border:0; box-shadow:none; background:transparent; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-event strong { font-size:.73rem; font-weight:500; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-event details { flex:none; }
+.nuwa-directory-tree .nuwa-n1-event-rail.is-directory-tree .nuwa-n1-rail-event details summary { font-size:.72rem; padding-inline:.2rem; }

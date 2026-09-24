@@ -32,6 +32,7 @@ export function NuwaEventLineRail(props: {
   currentStoryUnitId: string | null;
   selectedStorylineKey?: string | null;
   onlySelectedStoryline?: boolean;
+  compact?: boolean;
   browsedEventId: string | null;
   onSelectEvent(event: BrowsedEvent | null): void;
   onSelectUnit?(unitId: string, title: string): void;
@@ -118,15 +119,15 @@ export function NuwaEventLineRail(props: {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
   const hasFormalOrder = (arrangements ?? []).some((read) => read.projection.placed.length > 0);
-  return <section className="nuwa-n1-event-rail" aria-label="事件线辅助栏" data-testid="nuwa-event-rail" data-formal-order={hasFormalOrder ? "true" : "false"}>
-    <header className="nuwa-n1-event-rail-header">
+  return <section className={`nuwa-n1-event-rail${props.compact ? " is-directory-tree" : ""}`} aria-label="事件线辅助栏" data-testid="nuwa-event-rail" data-formal-order={hasFormalOrder ? "true" : "false"}>
+    {!props.compact ? <header className="nuwa-n1-event-rail-header">
       <div><Network aria-hidden="true" /><span><small>事件线 · 只读浏览</small><strong>正式故事位置</strong></span></div>
       <div className="nuwa-n1-event-rail-actions">
         <button type="button" title="打开事件线空间，管理多条事件线" onClick={() => navigate("/event-line")}><ListFilterPlus aria-hidden="true" />管理</button>
         <button type="button" title="在事件线空间新增节点或单元（复用既有创建流程）" onClick={() => navigate("/event-line?eventTask=story")}>新增</button>
         {props.onCollapse ? <button type="button" title="收起事件线辅助栏（可随时重新打开，浏览位置会保留）" aria-label="收起事件线辅助栏" onClick={props.onCollapse}><X aria-hidden="true" /></button> : null}
       </div>
-    </header>
+    </header> : null}
     {loading ? <p className="nuwa-n1-event-rail-state"><RefreshCw aria-hidden="true" />正在读取正式事件线…</p> : null}
     {canonError ? <p className="nuwa-n1-event-rail-state is-error" role="alert">事件线读取失败；正式故事没有被修改。<button type="button" onClick={() => setReloadTick((value) => value + 1)}>重试</button></p> : null}
     {!loading && !canonError ? <div className="nuwa-n1-event-rail-body">
@@ -138,10 +139,10 @@ export function NuwaEventLineRail(props: {
             const { placed, related } = railNodes(unit.id);
             return <li key={unit.id} className={isCurrent ? "is-current" : ""}>
               <div className="nuwa-n1-rail-unit"><button type="button" title={unit.title} onClick={() => props.onSelectUnit?.(unit.id, unit.title)}>{unit.title}</button>{isCurrent ? <span className="nuwa-n1-rail-now">当前排演位置</span> : null}</div>
-              {placed.length ? <ul>{placed.map((event) => <RailEventNode key={event.id} event={event} browsed={props.browsedEventId === event.id} inCurrentScope={isCurrent} unitTitle={unit.title} order={orderIndexByEventId.get(event.id) ?? null} onSelect={() => selectEvent(event, unit.id)} onOpenTianyi={() => props.onOpenTianyi(referenceFor(event), `请结合事件「${event.title}」检查当前排演的走向。`, [event.title])} />)}</ul> : null}
+              {placed.length ? <ul>{placed.map((event) => <RailEventNode compact={props.compact} key={event.id} event={event} browsed={props.browsedEventId === event.id} inCurrentScope={isCurrent} unitTitle={unit.title} order={orderIndexByEventId.get(event.id) ?? null} onSelect={() => selectEvent(event, unit.id)} onOpenTianyi={() => props.onOpenTianyi(referenceFor(event), `请结合事件「${event.title}」检查当前排演的走向。`, [event.title])} />)}</ul> : null}
               {related.length ? <details className="nuwa-n1-rail-related">
                 <summary><Link2 aria-hidden="true" />关联事件<small>{related.length} 项 · 无正式叙事编排</small></summary>
-                <ul>{related.map((event) => <RailEventNode key={event.id} event={event} browsed={props.browsedEventId === event.id} inCurrentScope={isCurrent} unitTitle={unit.title} order={orderIndexByEventId.get(event.id) ?? null} onSelect={() => selectEvent(event, unit.id)} onOpenTianyi={() => props.onOpenTianyi(referenceFor(event), `请结合事件「${event.title}」检查当前排演的走向。`, [event.title])} />)}</ul>
+                <ul>{related.map((event) => <RailEventNode compact={props.compact} key={event.id} event={event} browsed={props.browsedEventId === event.id} inCurrentScope={isCurrent} unitTitle={unit.title} order={orderIndexByEventId.get(event.id) ?? null} onSelect={() => selectEvent(event, unit.id)} onOpenTianyi={() => props.onOpenTianyi(referenceFor(event), `请结合事件「${event.title}」检查当前排演的走向。`, [event.title])} />)}</ul>
               </details> : null}
               {!placed.length && !related.length ? <p className="nuwa-n1-rail-empty-unit">该单元暂无已确认事件</p> : null}
             </li>;
@@ -169,6 +170,7 @@ export function NuwaEventLineRail(props: {
 }
 
 function RailEventNode(props: {
+  compact?: boolean;
   event: WorldObjectSummary;
   browsed: boolean;
   inCurrentScope: boolean;
@@ -181,9 +183,9 @@ function RailEventNode(props: {
   const statusLabel = props.event.status === "committed" ? "已确认" : props.event.status === "planned" ? "规划中" : props.event.status === "draft" ? "草稿" : null;
   return <li className={props.browsed ? "is-browsed" : ""}>
     <div className="nuwa-n1-rail-event">
-      <button type="button" data-testid="nuwa-rail-event" onClick={props.onSelect} aria-pressed={props.browsed}>{props.order != null ? <span className="nuwa-n1-rail-order" aria-label={`叙事顺序第 ${props.order + 1} 位`}>{props.order + 1}</span> : null}<strong>{props.event.title}</strong><small>{[statusLabel, props.inCurrentScope ? "排演现场内" : null].filter(Boolean).join(" · ") || props.unitTitle}</small></button>
+      <button type="button" title={props.event.title} data-testid="nuwa-rail-event" onClick={props.onSelect} aria-pressed={props.browsed}>{props.order != null ? <span className="nuwa-n1-rail-order" aria-label={`叙事顺序第 ${props.order + 1} 位`}>{props.order + 1}</span> : null}<strong>{props.event.title}</strong>{!props.compact ? <small>{[statusLabel, props.inCurrentScope ? "排演现场内" : null].filter(Boolean).join(" · ") || props.unitTitle}</small> : null}</button>
       <details>
-        <summary>详情</summary>
+        <summary aria-label={`查看${props.event.title}的详情与引用`}>{props.compact ? "···" : "详情"}</summary>
         <p>{metadata.characterLabels.length ? `关联角色：${metadata.characterLabels.join("、")}` : "暂无关联角色标注"}</p>
         <p>{metadata.locationLabels.length ? `关联地点：${metadata.locationLabels.join("、")}` : "暂无关联地点标注"}</p>
         <button type="button" onClick={props.onOpenTianyi}>引用到天意</button>

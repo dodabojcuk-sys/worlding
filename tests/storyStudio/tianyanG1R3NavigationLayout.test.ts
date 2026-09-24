@@ -4,10 +4,12 @@ import test from "node:test";
 
 const source = (path: string) => readFileSync(path, "utf8");
 
-test("R4 supersedes R3 dismissal with temporary suppression while preserving author intent", () => {
+test("focused workspaces keep the directory preference while narrow Tianyi opens temporarily", () => {
   const shell = source("apps/story-studio/src/product-shell/TianyanR0Shell.tsx");
   const workbench = source("apps/story-studio/src/components/EventLineWorkbench.tsx");
-  assert.match(shell, /focusLayout !== "wide" && rightWorkSurface\.mode === "TIANYI"/u);
+  assert.match(shell, /activeId === "nuwa" && tianyiPinned/u);
+  assert.match(shell, /shellWidth >= \(directoryPresented \? 1400 : 1200\)/u);
+  assert.match(shell, /overlay=\{focusedWorkspace \? !focusedTianyiDocked/u);
   assert.match(shell, /directoryPreferredOpen/u);
   assert.match(shell, /directoryPresented/u);
   assert.doesNotMatch(shell, /rightWorkSurface\.mode !== "NONE" && focusLayout !== "wide"/u);

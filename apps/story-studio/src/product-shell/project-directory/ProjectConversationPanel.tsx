@@ -95,7 +95,7 @@ export function ProjectConversationPanel({ runtime, onDirectory, onClose, curren
   }
   return <aside className={`project-directory-panel project-conversation-panel${currentProjectOnly ? " is-embedded" : ""}`} aria-label={t("conversation.title")} data-testid="project-conversations">
     {!currentProjectOnly ? <header><h2>{t("conversation.title")}</h2><button type="button" onClick={onClose} aria-label={t("conversation.close")}><X /></button></header> : null}
-    <button className="conversation-new" type="button" disabled={busy} onClick={() => void createConversation(runtime.project?.id)}><MessageSquarePlus />{t("conversation.newChat")}</button>
+    <div className="conversation-embedded-actions"><button className="conversation-new" type="button" disabled={busy} onClick={() => void createConversation(runtime.project?.id)}><MessageSquarePlus />{t("conversation.newChat")}</button>{currentProjectOnly && runtime.project ? <button className="conversation-icon" type="button" disabled={busy} title={`${t("conversation.rename")} ${runtime.project.title}`} aria-label={`${t("conversation.rename")} ${runtime.project.title}`} onClick={() => { setCreating(false); setRenaming({ projectId: runtime.project!.id, title: runtime.project!.title }); setTitle(runtime.project!.title); }}><Pencil /></button> : null}</div>
     {!currentProjectOnly ? <button className="conversation-secondary" type="button" onClick={() => { setCreating((v) => !v); setRenaming(null); setTitle(""); }}><FolderPlus />{t("conversation.newProject")}</button> : null}
     {creating || renaming ? <form onSubmit={(event) => { event.preventDefault(); if (renaming) { void rename(); return; } if (!title.trim() || busy) return; setBusy(true); void runtime.createProject(title.trim()).then(() => window.location.reload()).catch((cause) => { setError(String(cause)); setBusy(false); }); }}>
       <input autoFocus aria-label={t(renaming ? "conversation.name" : "conversation.projectName")} placeholder={t(renaming ? "conversation.name" : "conversation.projectName")} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={renaming?.session ? 120 : 80} />
@@ -104,12 +104,12 @@ export function ProjectConversationPanel({ runtime, onDirectory, onClose, curren
     <div className="project-conversation-list" ref={listRef} onScroll={(event) => { if (currentProjectOnly) try { window.sessionStorage.setItem(scrollKey, String(event.currentTarget.scrollTop)); } catch { /* navigation remains usable */ } }}>
       {!runtime.projects.length && <p>{t("conversation.first")}</p>}
       {(currentProjectOnly ? runtime.projects.filter((project) => project.id === runtime.project?.id) : runtime.projects).map((project) => <section key={project.id} data-project-id={project.id}>
-        <div className="project-conversation-heading" data-current={runtime.project?.id === project.id}>
+        {!currentProjectOnly ? <div className="project-conversation-heading" data-current={runtime.project?.id === project.id}>
           <button className="conversation-icon" type="button" aria-label={`${t("conversation.expand")} ${project.title}`} aria-expanded={expanded.includes(project.id)} onClick={() => setExpanded((items) => items.includes(project.id) ? items.filter((id) => id !== project.id) : [...items, project.id])}>{expanded.includes(project.id) ? <ChevronDown /> : <ChevronRight />}</button>
           <button className="conversation-label" type="button" title={project.title} aria-current={runtime.project?.id === project.id ? "true" : undefined} disabled={busy} onClick={() => void select(project.id, readSelectedConversation(project.id))}>{project.title}</button>
           <button className="conversation-icon row-action" type="button" disabled={busy} aria-label={`${t("conversation.rename")} ${project.title}`} onClick={() => { setCreating(false); setRenaming({ projectId: project.id, title: project.title }); setTitle(project.title); }}><Pencil /></button>
-        </div>
-        {expanded.includes(project.id) && <div className="project-conversation-items">
+        </div> : null}
+        {(currentProjectOnly || expanded.includes(project.id)) && <div className="project-conversation-items">
           {failed.includes(project.id) ? <p role="alert">{t("conversation.failed")}<button type="button" onClick={() => setRevision((n) => n + 1)}>{t("conversation.retry")}</button></p> : !sessions[project.id] ? <p role="status">{t("conversation.loading")}</p> : !sessions[project.id]!.length ? <p>{t("conversation.empty")}</p> : sessions[project.id]!.map((session, index) => {
             const label = session.title || session.visibleMessages.find((message) => message.actor === "author")?.visibleContent || `${t("conversation.chat")} ${index + 1}`;
             const runs = (history[project.id] ?? []).filter((run) => run.conversationId === session.id);

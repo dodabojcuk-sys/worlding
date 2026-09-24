@@ -104,6 +104,18 @@ type EventLineFilter =
   | { kind: "pending" };
 
 type EventCandidateStatus = "awaiting" | "rejected" | "submitted-to-impact";
+type CanvasViewport = { x: number; y: number; zoom: number };
+function narrativeViewportStorageKey(projectId: string, scope: string, observer: string, comparison: readonly string[]): string {
+  const screen = window.matchMedia("(max-width: 48rem)").matches ? "phone" : "desktop";
+  return `tianyan:event-line-viewport:v2:${projectId}:${screen}:${scope}:${observer}:${comparison.join(",")}`;
+}
+function readNarrativeViewport(key: string): CanvasViewport | null {
+  try {
+    const value: unknown = JSON.parse(window.sessionStorage.getItem(key) ?? "null");
+    if (!value || typeof value !== "object" || !("x" in value) || !("y" in value) || !("zoom" in value)) return null;
+    return typeof value.x === "number" && Number.isFinite(value.x) && typeof value.y === "number" && Number.isFinite(value.y) && typeof value.zoom === "number" && Number.isFinite(value.zoom) && value.zoom > 0 ? { x: value.x, y: value.y, zoom: value.zoom } : null;
+  } catch { return null; }
+}
 
 export function EventLineWorkbench(props: {
   embedded?: boolean;
@@ -164,6 +176,7 @@ export function EventLineWorkbench(props: {
   const [knowledgeObserverId, setKnowledgeObserverId] = useState(initialKnowledgeObserver);
   const [knowledgeObserverIds, setKnowledgeObserverIds] = useState<string[]>(initialKnowledgeObserverIds);
   const [storylineScope, setStorylineScope] = useState(initialStorylineScope);
+  const narrativeViewportKey = narrativeViewportStorageKey(props.projectId, storylineScope, knowledgeObserverId, knowledgeObserverIds);
   const [loadedKnowledgeProjection, setLoadedKnowledgeProjection] = useState<EventStoryCrossingKnowledgeProjection | null>(null);
   const [loadedKnowledgeProjectionKey, setLoadedKnowledgeProjectionKey] = useState("");
   const [loadedKnowledgeProjectionState, setLoadedKnowledgeProjectionState] = useState<"loading" | "ready" | "failed">("loading");
@@ -192,8 +205,11 @@ export function EventLineWorkbench(props: {
   const [filter, setFilter] = useState<EventLineFilter>(() => props.roleLens ? { kind: "character", value: props.roleLens } : { kind: "all" });
   const [observationState, setObservationState] = useState<EventObservationState>(() => {
     const restored = readEventObservationState(props.projectId, props.perspectiveObjects ?? []);
-    return new URLSearchParams(window.location.search).get("eventAdvanced") === "graph"
+    const initialAdvanced = new URLSearchParams(window.location.search).get("eventAdvanced");
+    return initialAdvanced === "graph"
       ? normalizeEventObservationState({ ...restored, layout: "relation-network", lens: "none" }, props.perspectiveObjects ?? [])
+      : initialAdvanced === "spine"
+        ? normalizeEventObservationState({ ...restored, layout: "structure", lens: "none" }, props.perspectiveObjects ?? [])
       : restored;
   });
   const initialTaskResolution = useMemo(() => resolveEventTaskPreset(window.location.search), []);
@@ -203,7 +219,10 @@ export function EventLineWorkbench(props: {
     : initialTaskResolution.migratedLegacyState
       ? "旧事件线链接已映射到同一工作区的新任务预设。"
       : null);
-  const [advancedView, setAdvancedView] = useState<"spine" | "graph" | null>(() => new URLSearchParams(window.location.search).get("eventAdvanced") === "graph" ? "graph" : null);
+  const [advancedView, setAdvancedView] = useState<"spine" | "graph" | null>(() => {
+    const value = new URLSearchParams(window.location.search).get("eventAdvanced");
+    return value === "graph" || value === "spine" ? value : null;
+  });
   const [arrangementSelection, setArrangementSelection] = useState<NarrativeArrangementSelection | null>(null);
   const [temporalRun, setTemporalRun] = useState<TemporalProjectionRun | null>(null);
   const [temporalState, setTemporalState] = useState<"idle" | "loading" | "ready" | "stale" | "missing" | "failed" | "provider-unavailable">("idle");
@@ -219,7 +238,7 @@ export function EventLineWorkbench(props: {
   const [activeModelingEventRefs, setActiveModelingEventRefs] = useState<StoryStudioEventReference[]>([]);
   const [activePerspectiveRefs, setActivePerspectiveRefs] = useState<StoryModelingPerspectiveRef[]>([]);
   const [spineZoom, setSpineZoom] = useState<"far" | "medium" | "near">("medium");
-  const [narrativeViewport, setNarrativeViewport] = useState<{ x: number; y: number; zoom: number } | null>(null);
+  const [narrativeViewport, setNarrativeViewport] = useState<CanvasViewport | null>(() => readNarrativeViewport(narrativeViewportKey));
   const [timelineViewport, setTimelineViewport] = useState<{ x: number; y: number; zoom: number } | null>(null);
   const [unitCreateOpen, setUnitCreateOpen] = useState(false);
   const [unitActionMessage, setUnitActionMessage] = useState<string | null>(null);
@@ -318,9 +337,9 @@ export function EventLineWorkbench(props: {
     persistKnowledgeCoordinates(knowledgeObserverId, knowledgeObserverIds, storylineScope);
   }, [knowledgeObserverId, knowledgeObserverIds, storylineScope]);
 
-  const selectStorylineScope = (id: string) => { setNarrativeViewport(null); setStorylineScope(id); };
+  const selectStorylineScope = (id: string) => { setNarrativeViewport(readNarrativeViewport(narrativeViewportStorageKey(props.projectId, id, knowledgeObserverId, knowledgeObserverIds))); setStorylineScope(id); };
   const selectKnowledgeObserver = (id: string) => {
-    setNarrativeViewport(null);
+    setNarrativeViewport(readNarrativeViewport(narrativeViewportStorageKey(props.projectId, storylineScope, id, [])));
     setKnowledgeObserverIds([]);
     setKnowledgeObserverId(id);
     if ((props.perspectiveObjects ?? []).some((object) => object.formal === true && object.type === "character" && object.id === id)) {
@@ -329,7 +348,7 @@ export function EventLineWorkbench(props: {
   };
   const selectKnowledgeObservers = (ids: string[]) => {
     const next = [...new Set(ids)].slice(0, 5);
-    setNarrativeViewport(null);
+    setNarrativeViewport(readNarrativeViewport(narrativeViewportStorageKey(props.projectId, storylineScope, next[0] ?? "author", next)));
     // Keep a first checked character in the picker so a second choice can turn
     // it into a comparison.  The contract still treats fewer than two IDs as a
     // normal single-observer projection; this is only durable UI selection.
@@ -952,7 +971,7 @@ export function EventLineWorkbench(props: {
         {knowledgeProjectionState === "failed" ? <p className="story-progression-migration-notice" role="alert">知情投影暂不可用；已封闭当前图形投影，不会回退到全知事件或调用 Provider。</p> : null}
         {knowledgeProjectionState === "loading" ? <p className="story-progression-migration-notice" role="status" data-testid="knowledge-projection-loading">正在恢复当前知情视角；完成前不会短暂绘制全知画布。</p> : null}
         {recoveryNotice ? <p className="story-progression-migration-notice" role="status" data-testid="event-line-recovery-notice">{recoveryNotice}</p> : null}
-        {!advancedView ? <StoryProgressionWorkspace task={eventTask} taskNotice={eventTaskNotice} projectTitle={props.projectTitle} projectId={props.projectId} workVersionId={props.workVersionId} currentUnitLabel={props.currentUnitLabel} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits ?? []} relations={formalRelations} objects={props.perspectiveObjects ?? []} narratives={narrativeReads} focusObjectIds={observationState.focusObjectIds.slice(0, 5)} selectedEventId={selectedEventId} detailsOpen={dockState.open} storylines={knowledgeProjection?.storylines ?? []} storylineScope={storylineScope} observers={observers} observerId={knowledgeObserverId} observerIds={knowledgeObserverIds} comparisonMode={knowledgeProjection?.mode === "compare"} hiddenEventCount={knowledgeProjection?.hiddenCount ?? 0} selectedKnowledgeState={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.knowledgeState ?? null} selectedStorylineLabels={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.storylineLabels ?? []} selectedKnowledgePerspectives={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.perspectives ?? []} onStorylineScope={selectStorylineScope} onObserver={selectKnowledgeObserver} onObservers={selectKnowledgeObservers} onTask={selectEventTask} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} onArrange={openArrangement} onCreateEvent={props.onSaveEvent ? beginEventCreate : undefined} onLocateCurrent={revealCurrentEvent} onOpenAdvanced={openAdvancedView} renderCandidateOverlay={props.renderCandidateOverlay} renderEventLine={({ onOpenStaging }) => <EventGraphCanvas key={`${knowledgeObserverId}:${knowledgeObserverIds.join(":")}:${storylineScope}`} mode="graph" canvasKind="narrative" projectId={props.projectId} workVersionId={props.workVersionId ?? null} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} viewport={narrativeViewport} onViewportChange={setNarrativeViewport} narrativeSurface={{ narratives: narrativeReads, focusObjects: selectedFocusObjects, currentUnitLabel: props.currentUnitLabel, detailsOpen: dockState.open, storylines: knowledgeProjection?.storylines ?? [], storylineScope, onStorylineScope: selectStorylineScope, onArrange: openArrangement, onOpenStaging }} />} renderTimeLine={() => <TemporalCanvas events={knowledgeProjectionState === "ready" ? storylineEvents : []} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} selectedEventId={selectedEventId} onSelectEvent={openEvent} onReturnGraph={() => selectEventTask("story")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} focusObjects={selectedFocusObjects} narratives={narrativeReads} detailsOpen={dockState.open} taskSurface viewport={timelineViewport} onViewportChange={setTimelineViewport} />} /> : null}
+        {!advancedView ? <StoryProgressionWorkspace task={eventTask} taskNotice={eventTaskNotice} projectTitle={props.projectTitle} projectId={props.projectId} workVersionId={props.workVersionId} currentUnitLabel={props.currentUnitLabel} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits ?? []} relations={formalRelations} objects={props.perspectiveObjects ?? []} narratives={narrativeReads} focusObjectIds={observationState.focusObjectIds.slice(0, 5)} selectedEventId={selectedEventId} detailsOpen={dockState.open} storylines={knowledgeProjection?.storylines ?? []} storylineScope={storylineScope} observers={observers} observerId={knowledgeObserverId} observerIds={knowledgeObserverIds} comparisonMode={knowledgeProjection?.mode === "compare"} hiddenEventCount={knowledgeProjection?.hiddenCount ?? 0} selectedKnowledgeState={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.knowledgeState ?? null} selectedStorylineLabels={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.storylineLabels ?? []} selectedKnowledgePerspectives={knowledgeProjection?.visibleEvents.find((event) => event.eventId === selectedEventId)?.perspectives ?? []} onStorylineScope={selectStorylineScope} onObserver={selectKnowledgeObserver} onObservers={selectKnowledgeObservers} onTask={selectEventTask} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} onArrange={openArrangement} onCreateEvent={props.onSaveEvent ? beginEventCreate : undefined} onLocateCurrent={revealCurrentEvent} onOpenAdvanced={openAdvancedView} renderCandidateOverlay={props.renderCandidateOverlay} renderEventLine={({ onOpenStaging }) => <EventGraphCanvas key={`${knowledgeObserverId}:${knowledgeObserverIds.join(":")}:${storylineScope}`} mode="graph" canvasKind="narrative" projectId={props.projectId} workVersionId={props.workVersionId ?? null} events={knowledgeProjectionState === "ready" ? storylineEvents : []} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} viewport={narrativeViewport} onViewportChange={(viewport) => { setNarrativeViewport(viewport); try { window.sessionStorage.setItem(narrativeViewportKey, JSON.stringify(viewport)); } catch { /* canvas remains usable without storage */ } }} narrativeSurface={{ narratives: narrativeReads, focusObjects: selectedFocusObjects, currentUnitLabel: props.currentUnitLabel, detailsOpen: dockState.open, storylines: knowledgeProjection?.storylines ?? [], storylineScope, onStorylineScope: selectStorylineScope, onArrange: openArrangement, onOpenStaging }} />} renderTimeLine={() => <TemporalCanvas events={knowledgeProjectionState === "ready" ? storylineEvents : []} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} selectedEventId={selectedEventId} onSelectEvent={openEvent} onReturnGraph={() => selectEventTask("story")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} focusObjects={selectedFocusObjects} narratives={narrativeReads} detailsOpen={dockState.open} taskSurface viewport={timelineViewport} onViewportChange={setTimelineViewport} />} /> : null}
         {advancedView && (projectionMode === "line" || projectionMode === "graph") ? <EventGraphCanvas mode="graph" canvasKind={projectionMode === "line" ? "narrative" : "relation"} projectId={props.projectId} workVersionId={props.workVersionId ?? null} events={storylineEvents} storyUnits={props.storyUnits} relations={formalRelations.filter((relation) => storylineEvents.some((event) => event.id === relation.sourceObjectId) && storylineEvents.some((event) => event.id === relation.targetObjectId))} relationTypes={props.relationTypes ?? []} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onClearSelection={() => setSelectedEventId(null)} onCreateEvent={beginEventCreate} onTrashDraftEvent={props.onTrashDraftEvent} onCreateCollectionPoint={projectionMode === "line" ? props.onCreateCollectionPoint : undefined} onUpdateCollectionPoint={projectionMode === "line" ? props.onUpdateCollectionPoint : undefined} onDissolveCollectionPoint={projectionMode === "line" ? props.onDissolveCollectionPoint : undefined} createOpen={creationOpen} onCloseCreate={closeEventCreate} createInspector={props.onSaveEvent ? <EventCreateInspector busy={creatingEvent} error={creationError} defaultStoryUnit={props.currentUnitLabel ?? ""} characters={(props.perspectiveObjects ?? []).filter((object) => object.formal === true && object.type === "character").map((object) => ({ id: object.id, label: object.label }))} onCancel={closeEventCreate} onSave={(input) => void saveEventDraft(input)} /> : null} onOpenStorySpine={() => selectView("spine")} onOpenTimeline={() => selectView("timeline")} onReturnGraph={() => selectView("graph")} onCreateRelation={projectionMode === "graph" ? props.onCreateGraphRelation : undefined} onConfirmRelation={props.onConfirmGraphRelation} onUpdateRelation={props.onUpdateGraphRelation} onApproveModifiedRelation={props.onApproveModifiedGraphRelation} onRejectRelation={props.onRejectGraphRelation} onOpenLogicCheck={(eventIds) => { setLogicSelectionIds(eventIds); setLogicPanelOpen(true); }} onExplainWithTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "explain")} onOpenTianyi={(eventIds) => openTianyiForEvents(eventIds ?? [], "predict")} /> : null}
         {advancedView && projectionMode === "timeline" ? <TemporalCanvas events={storylineEvents} relations={formalRelations} selectedEventId={selectedEventId} onSelectEvent={openGraphEvent} onReturnGraph={() => selectView("graph")} temporalRun={temporalRun} temporalState={temporalState} temporalMessage={temporalMessage} /> : null}
         {advancedView && projectionMode === "participation" ? <ParticipationObservation events={storylineEvents} objects={props.perspectiveObjects ?? []} focusObjectIds={observationState.focusObjectIds} layout={observationState.layout === "world-time" ? "world-time" : "narrative"} scale={observationState.scale} renderMode={observationState.renderMode} showSources={observationState.layers.includes("source-evidence")} selectedEventId={selectedEventId} detailsOpen={dockState.open} onFocusObjectIds={selectObservationFocus} onSelectEvent={openEvent} /> : null}
