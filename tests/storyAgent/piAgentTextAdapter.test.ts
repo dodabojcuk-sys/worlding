@@ -43,6 +43,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   let executions = 0;
   const toolChoices: unknown[] = [];
   const retryFlags: boolean[] = [];
+  const outputLimits: number[] = [];
   const adapter = createPiTextAgentAdapter();
   const result = await adapter.run(request({
     tools: [{ name: "read_context_manifest", label: "读取上下文", description: "只读", inputSchema: { type: "object", properties: {}, additionalProperties: false }, async execute() { executions += 1; return { sourceCount: 1 }; } }],
@@ -51,6 +52,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
     async openProviderStream(input) {
       toolChoices.push(input.toolChoice ?? null);
       retryFlags.push(input.retry);
+      outputLimits.push(input.maxOutputTokens);
       calls += 1;
       return calls === 1
         ? { traceId: "trace.tool", events: events([
@@ -68,6 +70,7 @@ test("Pi adapter routes every tool call through the injected approval boundary",
   assert.equal(executions, 1);
   assert.deepEqual(toolChoices, [{ type: "function", function: { name: "read_context_manifest" } }, null]);
   assert.deepEqual(retryFlags, [false, false]);
+  assert.deepEqual(outputLimits, [64, 64], "both tool and answer turns keep the requested output bound");
 });
 
 test("Pi adapter carries native event-graph candidate frames through author approval to the Relation owner port", async () => {
@@ -146,9 +149,12 @@ test("Pi adapter preserves mixed text and multiple ordered native tool calls wit
 
 test("Pi adapter fails closed on malformed and unknown native tool frames", async () => {
   const adapter = createPiTextAgentAdapter();
+  let executions = 0;
   await assert.rejects(adapter.run(request({
-    async openProviderStream() { return { traceId: null, events: events([{ type: "tool-call-malformed", id: "bad", name: "read_context_manifest", index: 0, argumentsJson: "{", reason: "malformed-arguments" }]) }; }
+    tools: [{ name: "read_context_manifest", label: "read", description: "read", inputSchema: { type: "object", properties: {}, additionalProperties: false }, async execute() { executions += 1; return {}; } }],
+    async openProviderStream() { return { traceId: null, events: events([{ type: "tool-call-malformed", id: "bad", name: "read_context_manifest", index: 0, argumentsJson: "{", reason: "truncated-finish-length" }]) }; }
   })), (error: unknown) => error instanceof PiAgentAdapterError && error.code === "invalid-tool-call");
+  assert.equal(executions, 0, "a truncated tool frame must never execute even a declared read tool");
   await assert.rejects(adapter.run(request({
     async openProviderStream() { return { traceId: null, events: events([{ type: "tool-call-start", id: "unknown", name: "shell", index: 0 }]) }; }
   })), (error: unknown) => error instanceof PiAgentAdapterError && error.code === "invalid-tool-call");
@@ -171,4 +177,29 @@ test("Pi adapter propagates AbortSignal and isolates cancellation by project and
   assert.equal(adapter.cancel({ projectId: "project-fixture", workVersionId: "work-version.fixture", sessionId: "session.fixture", runId: "run.fixture" }), true);
   controller.abort();
   await assert.rejects(running, (error: unknown) => error instanceof PiAgentAdapterError && error.code === "cancelled" && error.retryable === false);
+});
+
+test("Story Intake stops the Pi loop after two rejected evidence attempts before another dispatch", async () => {
+  const { assertStoryIntakeProviderTurn } = await import("../../src/storyAgent/storyIntakeTool.ts");
+  let dispatches = 0;
+  let executions = 0;
+  await assert.rejects(createPiTextAgentAdapter().run(request({
+    tools: [{ name: "propose_story_intake", label: "候选", description: "candidate only", inputSchema: { type: "object", properties: {}, additionalProperties: false }, async execute() { executions += 1; throw new Error("Exact source evidence rejected"); } }],
+    requiredToolName: "propose_story_intake",
+    async authorizeTool() { return { allowed: true }; },
+    async openProviderStream(input) {
+      assertStoryIntakeProviderTurn(input.providerCall, false);
+      dispatches += 1;
+      const id = `call.${dispatches}`;
+      return { traceId: null, events: events([
+        { type: "tool-call-start", id, name: "propose_story_intake", index: 0 },
+        { type: "tool-call-delta", id, name: "propose_story_intake", index: 0, argumentsDelta: "{}" },
+        { type: "tool-call-end", id, name: "propose_story_intake", index: 0, argumentsJson: "{}", arguments: {} },
+        { type: "done" }
+      ]) };
+    }
+  })), /连续两次/u);
+  assert.equal(dispatches, 2);
+  assert.equal(executions, 2);
+  assert.doesNotThrow(() => assertStoryIntakeProviderTurn(3, true), "a valid repaired envelope may receive its summary");
 });

@@ -151,7 +151,7 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
       };
     });
     const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
-    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.grounded-open" });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, scope: { kind: "project" }, operationId: "operation.grounded-open" });
     const beforeFiles = await listFiles(fixture.rootPath);
     const beforeHash = fixture.workspace.readWorldObject({ projectId: fixture.projectId, objectId: updated.id }).revisionToken;
     const result = await tianyi.runTianyiGroundedAnswer!({
@@ -159,7 +159,7 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
       submissionId: "submission.grounded-answer",
       profileId: "siliconflow-test",
       question: "林岚为什么背叛顾寒？",
-      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
     });
     assert.equal(observedMaxOutputTokens, 1_200, "ordinary grounded creation stays within the explicit output-token ceiling");
     assert.equal(result.answer?.status, "fact");
@@ -177,7 +177,7 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
       submissionId: "submission.grounded-answer",
       profileId: "siliconflow-test",
       question: "林岚为什么背叛顾寒？",
-      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
     });
     assert.equal(retry.alreadyCompleted, true);
     const metadata = await tianyi.readTianyiSessionMetadata({ projectId: fixture.projectId, sessionId: opened.sessionId });
@@ -202,7 +202,7 @@ test("grounded provider answer reuses Session and Receipt owners with reference-
       submissionId: "submission.grounded-answer-stale",
       profileId: "siliconflow-test",
       question: "林岚为什么背叛顾寒？",
-      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [objectRef] }
     });
     assert.equal(staleResult.answer?.status, "unknown", "a stale necessary source must not confirm the plan");
     assert.equal(staleResult.includedSources.length, 0);
@@ -261,13 +261,13 @@ test("grounded answer includes an explicitly selected chapter as current writing
       };
     });
     const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
-    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.chapter-grounded-open" });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, scope: { kind: "project" }, operationId: "operation.chapter-grounded-open" });
     const result = await tianyi.runTianyiGroundedAnswer!({
       operationId: "operation.chapter-grounded-answer",
       submissionId: "submission.chapter-grounded-answer",
       profileId: "siliconflow-test",
       question: "阿岚带走了什么？",
-      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [chapterRef] }
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [chapterRef] }
     });
     assert.equal(result.includedSources[0]?.sourceType, "writing");
     assert.match(observedPrompt, /阿岚把旧信与印章一同带离钟楼/u);
@@ -302,13 +302,13 @@ test("grounded answer sends the selected setting body and excludes an unselected
       return { summary: "宵禁会限制夜间通行。", claims: [{ statement: "夜间需要通行凭据。", status: "fact", sourceRefs: included, uncertaintyReason: null }], status: "fact", sourceRefs: included, uncertaintyReason: null, includedSources: included, excludedSources: [] };
     });
     const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
-    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.material-grounded-open" });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, scope: { kind: "project" }, operationId: "operation.material-grounded-open" });
     await tianyi.runTianyiGroundedAnswer!({
       operationId: "operation.material-grounded-answer",
       submissionId: "submission.material-grounded-answer",
       profileId: "siliconflow-test",
       question: "宵禁怎样影响行动？",
-      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixture.projectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] }
+      contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [{ version: "story-tianyi-object-context-ref/v1", ownerType: "markdown-object", objectType: "rule", stableId: rule.id, projectId: fixture.projectId, ownerId: rule.id, contentHash: rule.revisionToken, state: "current", inclusion: "included", label: rule.title }] }
     });
     assert.match(observedPrompt, /夜间进入北闸需要守卫签发通行凭据/u);
     assert.match(observedPrompt, /complete author-facing answer in summary/u);
@@ -349,8 +349,8 @@ test("grounded answer sends an explicitly selected generic file revision and pre
       return { summary: "旧修订要求持证通行。", claims: [{ statement: "北闸只允许持证守卫通行。", status: "fact", sourceRefs: included, uncertaintyReason: null }], status: "fact", sourceRefs: included, uncertaintyReason: null, includedSources: included, excludedSources: [] };
     });
     const tianyi = createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway });
-    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.material-file-open" });
-    const answer = await tianyi.runTianyiGroundedAnswer!({ operationId: "operation.material-file-answer", submissionId: "submission.material-file-answer", profileId: "siliconflow-test", question: "北闸怎样通行？", contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [oldRef] } });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, scope: { kind: "project" }, operationId: "operation.material-file-open" });
+    const answer = await tianyi.runTianyiGroundedAnswer!({ operationId: "operation.material-file-answer", submissionId: "submission.material-file-answer", profileId: "siliconflow-test", question: "北闸怎样通行？", contextRequest: { version: "story-tianyi-grounded-context-request/v1", projectId: fixture.projectId, sessionId: opened.sessionId, taskKind: "grounded-answer", scope: { kind: "project" }, accessMode: "author", subjectRef: null, sceneRef: null, explicitRefs: [oldRef] } });
     assert.match(observedPrompt, /旧修订：北闸宵禁后只允许持证守卫通行/u);
     assert.doesNotMatch(observedPrompt, /南仓仍按白天规则/u);
     assert.doesNotMatch(observedPrompt, /渡口没有变化/u);
@@ -680,6 +680,68 @@ test("Tianyi resolves a selected map drawing by exact map revision and turns lat
     assert.equal(stale?.inclusion, "excluded");
   } finally {
     await makeWritable(fixture.rootPath);
+    await rm(fixture.rootPath, { recursive: true, force: true });
+    await rm(fixture.stateFilePath, { force: true });
+  }
+});
+
+test("old and new Tianyi Sessions keep explicit line scope through restart and fake Provider evidence", async () => {
+  const fixture = await createFixture();
+  try {
+    const { workspace, projectId } = fixture;
+    workspace.createProject({ title: "Other Project", folderSlug: "project-b" });
+    const branchPoint = workspace.createWorldObject({ projectId, type: "event", title: "分线起点", status: "committed", body: "主线起点事实" });
+    const branchOneEvent = workspace.createWorldObject({ projectId, type: "event", title: "支线一节点", status: "committed", body: "只属于第一支线的事实" });
+    const branchTwoEvent = workspace.createWorldObject({ projectId, type: "event", title: "支线二节点", status: "committed", body: "只属于第二支线的事实" });
+    workspace.createWorldObject({ projectId: "project-b", type: "event", title: "支线一节点", status: "committed", body: "同名但属于另一项目的事实" });
+    const main = workspace.createStoryUnit({ projectId, title: "主线单元", kind: "main", linkedEntityIds: [branchPoint.id] });
+    workspace.createStoryUnit({ projectId, title: "空单元", kind: "main", linkedEntityIds: [] });
+    const branchOne = workspace.createStoryUnit({ projectId, title: "支线一单元", kind: "branch", parentUnitId: main.id, branchPointEventId: branchPoint.id, linkedEntityIds: [branchOneEvent.id] });
+    const branchTwo = workspace.createStoryUnit({ projectId, title: "支线二单元", kind: "branch", parentUnitId: main.id, branchPointEventId: branchPoint.id, linkedEntityIds: [branchTwoEvent.id] });
+    const oneScope = { kind: "event-line" as const, storylineKey: `branch.${branchOne.id}` };
+    const twoScope = { kind: "event-line" as const, storylineKey: `branch.${branchTwo.id}` };
+    let providerCalls = 0;
+    let prompt = "";
+    const gateway = fakeGroundedGateway((messages) => {
+      providerCalls += 1;
+      prompt = messages.map((message) => message.content).join("\n");
+      const line = messages[0]!.content.split("\n").find((value) => value.startsWith("includedSources must equal exactly: "))!;
+      const sources = JSON.parse(line.slice("includedSources must equal exactly: ".length)) as string[];
+      return { summary: "仅根据本次事件线回答。", claims: [{ statement: "本线存在已确认事件。", status: "fact", sourceRefs: sources, uncertaintyReason: null }], status: "fact", sourceRefs: sources, uncertaintyReason: null, includedSources: sources, excludedSources: [] };
+    });
+    const create = () => createStoryStudioTianyiOperations({ rootPath: fixture.rootPath, stateFilePath: fixture.stateFilePath, now: () => RECORDED_AT, modelGateway: gateway, verifyCanonEventRead: ({ eventId }) => [branchPoint.id, branchOneEvent.id, branchTwoEvent.id].includes(eventId) });
+    const tianyi = create();
+    const old = await tianyi.openTianyiSession({ projectId, operationId: "operation.scope-old" });
+    await tianyi.runTianyiQuestion({ projectId, sessionId: old.sessionId, operationId: "operation.scope-old-question", request: { boundedAction: "fixture.current" }, contextRequest: { productMode: "world", activeOwner: { kind: "project", id: projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] } });
+    const before = await tianyi.readTianyiSessionMetadata({ projectId, sessionId: old.sessionId });
+    const grounded = (sessionId: string, scope?: typeof oneScope | typeof twoScope) => ({ operationId: `operation.scope-answer.${crypto.randomUUID()}`, submissionId: `submission.scope-answer.${crypto.randomUUID()}`, profileId: "siliconflow-test", question: "这条线发生了什么？", contextRequest: { version: "story-tianyi-grounded-context-request/v1" as const, projectId, sessionId, taskKind: "grounded-answer" as const, accessMode: "author" as const, subjectRef: null, sceneRef: null, explicitRefs: [], ...(scope ? { scope } : {}) } });
+    await assert.rejects(() => tianyi.runTianyiGroundedAnswer!(grounded(old.sessionId, oneScope)), /历史对话尚未选择范围/u);
+    await assert.rejects(() => tianyi.runTianyiGroundedAnswer!(grounded(old.sessionId)), /请选择当前天意对话/u);
+    assert.equal(providerCalls, 0);
+    const selected = await tianyi.selectTianyiSessionScope({ projectId, sessionId: old.sessionId, scope: oneScope, operationId: "operation.scope-select" });
+    assert.deepEqual(selected.scope, oneScope);
+    assert.deepEqual(selected.visibleMessages, before?.visibleMessages, "binding an old Session preserves its history");
+    await assert.rejects(() => tianyi.selectTianyiSessionScope({ projectId, sessionId: old.sessionId, scope: twoScope, operationId: "operation.scope-rebind" }), /不能随浏览位置改绑/u);
+    const answer = await tianyi.runTianyiGroundedAnswer!(grounded(old.sessionId, oneScope));
+    assert.equal(providerCalls, 1);
+    assert.deepEqual(answer.sourceManifest.request.scope, oneScope);
+    assert.match(prompt, /只属于第一支线的事实/u);
+    assert.doesNotMatch(prompt, /只属于第二支线的事实/u);
+    assert.doesNotMatch(prompt, /同名但属于另一项目的事实/u);
+    const includedIds = answer.includedSources.map((source) => source.sourceKey);
+    assert.ok(includedIds.length > 0, "the fake Provider received cited evidence from this line");
+    assert.deepEqual(answer.answer?.claims[0]?.sourceRefs, includedIds, "candidate claims cite exactly the selected manifest sources");
+    assert.equal(answer.includedSources.some((source) => source.sourceId === branchTwoEvent.id), false);
+    const restarted = create();
+    assert.deepEqual((await restarted.readTianyiSessionMetadata({ projectId, sessionId: old.sessionId }))?.scope, oneScope);
+    const newSession = await restarted.openTianyiSession({ projectId, operationId: "operation.scope-new", scope: twoScope });
+    assert.deepEqual((await restarted.readTianyiSessionMetadata({ projectId, sessionId: newSession.sessionId }))?.scope, twoScope);
+    await assert.rejects(() => restarted.runTianyiGroundedAnswer!(grounded(newSession.sessionId, oneScope)), /与对话保存范围不一致/u);
+    await assert.rejects(() => restarted.runTianyiGroundedAnswer!({ ...grounded(old.sessionId, oneScope), contextRequest: { ...grounded(old.sessionId, oneScope).contextRequest, projectId: "project-b" } }), /当前项目|对话|Session/u);
+    await assert.rejects(() => restarted.openTianyiSession({ projectId: "project-b", operationId: "operation.scope-wrong-project", scope: oneScope }), /不属于当前项目/u);
+    await assert.rejects(() => restarted.openTianyiSession({ projectId, operationId: "operation.scope-invalid", scope: { kind: "event-line", storylineKey: "branch.missing" } }), /不可用/u);
+    assert.equal(providerCalls, 1, "invalid scope never reaches the fake Provider");
+  } finally {
     await rm(fixture.rootPath, { recursive: true, force: true });
     await rm(fixture.stateFilePath, { force: true });
   }

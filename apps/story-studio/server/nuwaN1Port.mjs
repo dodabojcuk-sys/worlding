@@ -1,19 +1,27 @@
+import { readSession } from "../../../src/storyContinuity/interactionArchiveRepository.ts";
+import { listNuwaRunRecords } from "../../../src/storyIntelligence/nuwaRunPack.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
   advanceNuwaN1Run,
+  beginNuwaN1DirectorSuggestion,
   buildStorySnapshot,
   cancelNuwaN1Run,
   compileNuwaN1Context,
+  completeNuwaN1DirectorSuggestion,
   createNuwaN1Run,
   createNuwaPlan,
   createNuwaRunPack,
   cueNuwaN1Run,
+  decideNuwaN1DirectorSuggestion,
+  directorBrief,
+  failNuwaN1DirectorSuggestion,
   pauseNuwaN1Run,
   prepareNuwaN1CandidateHandoff,
   recordNuwaN1ProviderDispatch,
+  recordNuwaN1AttemptObservation,
   recordNuwaN1ProviderPreflightFailure,
   recordNuwaN1ProviderReservation,
   readLatestNuwaRun,
@@ -39,7 +47,7 @@ const AUTO_APPLICATION_RECEIPT_VERSION = "tianyan-nuwa-n1-auto-application/v1";
  * supplies a replaceable execution adapter, and hands candidates to the
  * existing AuthorControl review owner.
  */
-export function createNuwaN1Port({ operations, authorControl, continuityRootPath, continuityAgentId = "agent.nuwa", actionPermissionBroker = null, relationOperations = null, creationSourceSelectionPort = null, autoApplicationFaultInjector = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
+export function createNuwaN1Port({ operations, authorControl, continuityRootPath, continuityAgentId = "agent.nuwa", actionPermissionBroker = null, relationOperations = null, creationSourceSelectionPort = null, autoApplicationFaultInjector = null, fakeProviderAllowed = false, fakeStepDelayMs = 0, piAdapterFactory = null, verifyTransportFailure = () => false, sourceIdentityForProject = () => null, now = () => new Date().toISOString() }) {
   /** Exactly one executable actor step may own a Run.  The entry owns its
    * cancellation handle and promise; duplicate delivery returns that promise
    * instead of replacing the handle. */
@@ -77,15 +85,20 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       relationTypes: relationOperations?.listRelationTypes({ projectId }).types
         .filter((item) => item.lifecycle === "active")
         .map((item) => ({ id: item.relationTypeId, title: item.label, revision: item.typeRevision })) ?? [],
+      runs: listNuwaRunRecords(workspacePath(projectId)).flatMap((record) => {
+        const run = readNuwaN1Run(workspacePath(projectId), record.runId);
+        return run ? [{ runId: run.runId, label: run.scene.label, conversationId: run.conversationId ?? null, status: run.lifecycle, createdAt: run.createdAt }] : [];
+      }),
       latestRunId: latest?.run.runId ?? null
     };
   }
 
   async function setup(input, frozenSourceIdentity = sourceIdentityForProject(input.projectId, input.workVersionId ?? null)) {
     const project = requireProject(input.projectId);
+    if (input.conversationId && !await readSession({ rootPath: continuityRootPath, agentId: "agent.tianyi", scope: "project", projectId: input.projectId }, input.conversationId)) throw failure("当前项目不存在这条对话。", 404);
     const scope = resolveScope(input.projectId, input.scope, input.storyUnit);
     const scene = scope.scenes[0];
-    const actors = await resolveActors(input.projectId, input.participants, scene, frozenSourceIdentity);
+    const actors = await resolveActors(input.projectId, input.participants, scene, frozenSourceIdentity, input.conversationId ?? null);
     const goal = requiredText(input.goal, "局部目标", 1_000);
     const previewRun = { runId: `nuwa-n1-preview.${createHash("sha256").update(`${project.id}:${scene.storyUnit.id}:${goal}`).digest("hex").slice(0, 20)}`, actors, scene, scope, authorGoal: goal, steps: [], providerDispatches: 0, pendingCue: null };
     return {
@@ -149,6 +162,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       return read(input.projectId, plan.runId);
     }
     createNuwaN1Run({
+      conversationId: input.conversationId ?? null,
       workspacePath: workspace,
       runId: plan.runId,
       sourceSnapshotHash: snapshot.snapshotHash,
@@ -158,7 +172,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
       authorGoal: prepared.setup.goal,
       // The frozen scope, rather than the legacy convenience field in the
       // request, is the authority for every source-dependent actor lookup.
-      actors: await resolveActors(input.projectId, input.participants, prepared.setup.scope.scenes[0], sourceIdentity),
+      actors: await resolveActors(input.projectId, input.participants, prepared.setup.scope.scenes[0], sourceIdentity, input.conversationId ?? null),
       operationId,
       now: now()
     });
@@ -200,6 +214,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     let current = requireRun(workspace, input.runId);
     const expectedRevision = revision(input.expectedRevision);
     const operationId = operation(input.operationId);
+    const previouslyAttempted = current.attempts.some((attempt) => attempt.operationId === operationId);
     const activeKey = `${input.projectId}\u0000${current.runId}`;
     const active = activePiExecutions.get(activeKey);
     if (active) {
@@ -212,21 +227,85 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     const adapter = fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity, operationId);
     const execution = { operationId, adapter, promise: null };
     const promise = (async () => {
-      const next = await advanceNuwaN1Run({
-        workspacePath: workspace,
-        runId: current.runId,
-        expectedRevision: current.revision,
-        operationId,
-        adapter,
-        now: now()
-      });
-      await synchronizeCharacterHeardMemories(continuityContext(input.projectId), next);
+      const started = performance.now();
+      const clock = {};
+      let next = null;
+      try {
+        next = await advanceNuwaN1Run({
+          workspacePath: workspace,
+          runId: current.runId,
+          expectedRevision: current.revision,
+          operationId,
+          adapter,
+          observation: clock,
+          now: now()
+        });
+        await synchronizeCharacterHeardMemories(continuityContext(input.projectId), next);
+      } finally {
+        if (!previouslyAttempted && readNuwaN1Run(workspace, current.runId)?.attempts.some((attempt) => attempt.operationId === operationId)) {
+          const adapterObservation = adapter.diagnostics?.() ?? null;
+          try {
+            next = recordNuwaN1AttemptObservation({ workspacePath: workspace, runId: current.runId, operationId, observation: {
+              contextAssemblyMs: clock.contextAssemblyMs ?? null,
+              firstModelWaitMs: adapterObservation?.rounds?.[0]?.durationMs ?? null,
+              localToolMs: clock.runtimeToolMs == null && adapterObservation?.localToolMs == null ? null : (clock.runtimeToolMs ?? 0) + (adapterObservation?.localToolMs ?? 0),
+              secondModelWaitMs: adapterObservation?.rounds?.[1]?.durationMs ?? null,
+              businessValidationMs: clock.businessValidationMs == null && adapterObservation?.businessParseMs == null ? null : (clock.businessValidationMs ?? 0) + (adapterObservation?.businessParseMs ?? 0),
+              stepSaveMs: clock.stepSaveMs ?? null,
+              endToEndMs: Math.max(0, Math.round(performance.now() - started)),
+              context: adapterObservation?.context ?? null,
+              rounds: adapterObservation?.rounds ?? []
+            } });
+          } catch { /* diagnostics must never replace the actual step outcome */ }
+        }
+      }
       return present(input.projectId, next);
     })();
     execution.promise = promise;
     activePiExecutions.set(activeKey, execution);
     try { return await promise; }
     finally { if (activePiExecutions.get(activeKey) === execution) activePiExecutions.delete(activeKey); }
+  }
+
+  async function directorSuggest(input) {
+    requireExecutionAvailability();
+    const workspace = workspacePath(input.projectId);
+    const current = requireRun(workspace, input.runId);
+    const operationId = operation(input.operationId);
+    const adapter = fakeProviderAllowed ? createLocalFakeAdapter(input.projectId, current.runId) : createPiAdapter(input.projectId, current.runId, current.sourceIdentity, operationId);
+    if (typeof adapter.suggestDirector !== "function") throw failure("当前女娲 Provider 未配置导演建议适配器；请在 Provider 与模型中完成配置后重试。", 503);
+    const begun = beginNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: current.runId, expectedRevision: revision(input.expectedRevision), operationId, instruction: requiredText(input.instruction, "导演要求", 800), adapterId: adapter.adapterId, now: now() });
+    const activeKey = `${input.projectId}\u0000${current.runId}`;
+    const execution = { operationId, adapter, promise: null };
+    const promise = (async () => {
+      const started = performance.now();
+      try {
+        const suggestion = await adapter.suggestDirector(directorBrief(begun));
+        completeNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: current.runId, operationId, suggestion, usage: suggestion.usage ?? null, now: now() });
+      } catch (cause) {
+        failNuwaN1DirectorSuggestion({ workspacePath: workspace, runId: current.runId, operationId, detail: safeMessage(cause), now: now() });
+      } finally {
+        const diagnostic = adapter.diagnostics?.();
+        if (diagnostic && readNuwaN1Run(workspace, current.runId)?.attempts.some((attempt) => attempt.operationId === operationId)) {
+          try {
+            recordNuwaN1AttemptObservation({ workspacePath: workspace, runId: current.runId, operationId, observation: {
+              contextAssemblyMs: null, firstModelWaitMs: diagnostic.rounds?.[0]?.durationMs ?? null, localToolMs: diagnostic.localToolMs, secondModelWaitMs: diagnostic.rounds?.[1]?.durationMs ?? null, businessValidationMs: diagnostic.businessParseMs, stepSaveMs: null, endToEndMs: Math.max(0, Math.round(performance.now() - started)), context: null, rounds: diagnostic.rounds ?? []
+            } });
+          } catch { /* Diagnostics cannot replace a director outcome. */ }
+        }
+      }
+      return present(input.projectId, requireRun(workspace, current.runId));
+    })();
+    execution.promise = promise;
+    activePiExecutions.set(activeKey, execution);
+    try { return await promise; }
+    finally { if (activePiExecutions.get(activeKey) === execution) activePiExecutions.delete(activeKey); }
+  }
+
+  function directorDecide(input) {
+    const decision = input.decision === "adopt" || input.decision === "discard" ? input.decision : null;
+    if (!decision) throw failure("导演建议只能采纳或放弃。", 400);
+    return present(input.projectId, decideNuwaN1DirectorSuggestion({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), decision, now: now() }));
   }
 
   async function continuous(input) {
@@ -263,7 +342,14 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   }
 
   function resume(input) {
-    return present(input.projectId, resumeNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), now: now() }));
+    const workspace = workspacePath(input.projectId);
+    const current = requireRun(workspace, input.runId);
+    if (activePiExecutions.has(`${input.projectId}\u0000${current.runId}`)) throw failure("当前角色回合仍在执行；不能重复恢复。", 409);
+    const unknown = current.lifecycle === "blocked" ? current.attempts.at(-1)?.dispatches.find((dispatch) => dispatch.phase === "provider" && dispatch.status === "unknown") : null;
+    const terminalFailureProof = unknown && verifyTransportFailure(unknown)
+      ? { requestKey: unknown.requestKey, reservationId: unknown.reservationId, receiptEnvelopeId: unknown.receiptEnvelopeId }
+      : undefined;
+    return present(input.projectId, resumeNuwaN1Run({ workspacePath: workspace, runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), ...(terminalFailureProof ? { terminalFailureProof } : {}), now: now() }));
   }
 
   function stop(input) {
@@ -289,7 +375,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   }
 
   function cue(input) {
-    return present(input.projectId, cueNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), instruction: requiredText(input.instruction, "作者提示", 800), now: now() }));
+    return present(input.projectId, cueNuwaN1Run({ workspacePath: workspacePath(input.projectId), runId: input.runId, expectedRevision: revision(input.expectedRevision), operationId: operation(input.operationId), instruction: requiredText(input.instruction, "作者提示", 800), addressee: input.addressee, now: now() }));
   }
 
   function replay(input) {
@@ -425,7 +511,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         `结果：${item.observedResult}`,
         `- 来源步骤：${item.sourceStepId}`
       ].filter(Boolean).join("\n\n")).join("\n\n");
-      const planning = existing || operations.createPlanningEvent({ projectId: project.id, title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`, body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 决策来源：作者开始 Run 时的范围授权\n`, tags: ["女娲自动执行", current.runId, receiptTag] });
+      const planning = existing || operations.createPlanningEvent({ projectId: project.id, title: selected.length === 1 ? primary.title : `${current.scene.label} · ${selected.length} 个女娲步骤`, body: `# ${selected.length === 1 ? primary.title : `${current.scene.label} · 女娲连续场景`}\n\n${sourceSummary}\n\n- 来源女娲 Run：${current.runId}\n- 来源步骤：${sourceStepIds.join("、")}\n- 高权限范围授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 决策来源：作者开始 Run 时的范围授权\n`, tags: ["女娲自动执行", "仅作者", current.runId, receiptTag], knowledgeSubjects: [] });
       application.planningEventId = planning.id;
       persistAutoApplication(receipt);
     }
@@ -489,7 +575,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     }
     if (!application.materialObjectId) {
       const existing = operations.listWorldObjects({ projectId: project.id, type: "location" }).find((item) => item.tags.includes(receiptTag));
-      const material = existing || operations.createWorldObject({ projectId: project.id, type: "location", title: `场景：${current.scene.label}`, tags: ["女娲自动执行", current.runId, receiptTag], body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${sourceStepIds.join("、")}\n- 授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 结果：${selected.map((item) => item.observedResult).join("；")}\n` });
+      const material = existing || operations.createWorldObject({ projectId: project.id, type: "location", title: `场景：${current.scene.label}`, tags: ["女娲自动执行", current.runId, receiptTag], body: `# 场景：${current.scene.label}\n\n本资料由女娲 Run ${current.runId} 的已授权场景结果建立。\n\n- 来源步骤：${sourceStepIds.join("、")}\n- 授权：${prepared.authorization.id}\n- 自动应用回执：${receipt.receiptId}\n- 结果：${selected.map((item) => item.summary).join("；")}\n` });
       application.materialObjectId = material.id;
       persistAutoApplication(receipt);
     }
@@ -755,9 +841,10 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     return present(projectId, run);
   }
 
-  function latest(projectId) {
+  function latest(projectId, conversationId = null) {
     requireProject(projectId);
-    const value = latestRun(projectId);
+    const scoped = listNuwaRunRecords(workspacePath(projectId)).map((record) => readNuwaN1Run(workspacePath(projectId), record.runId)).filter((run) => run && (run.conversationId ?? null) === conversationId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+    const value = scoped ? { run: scoped } : null;
     return value ? present(projectId, value.run) : { version: VERSION, availability: availability(), run: null, contextInspector: null, receipts: [] };
   }
 
@@ -786,7 +873,9 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         dispatches: run.dispatches,
         providerDispatches: run.providerDispatches,
         providerDispatchEvidence: run.providerDispatchEvidence,
-        pendingCue: run.pendingCue ? { operationId: run.pendingCue.operationId, instruction: run.pendingCue.instruction } : null,
+        pendingCue: run.pendingCue ? { operationId: run.pendingCue.operationId, instruction: run.pendingCue.instruction, addressee: run.pendingCue.addressee ?? null, consumedByActorIds: run.pendingCue.consumedByActorIds ?? [] } : null,
+        directorAdjustment: run.directorAdjustment ? { ...run.directorAdjustment } : null,
+        directorHistory: run.directorHistory ?? [],
         attempts: run.attempts.map((attempt) => ({
           attemptId: attempt.attemptId,
           actorId: attempt.actor.id,
@@ -806,11 +895,12 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
           })),
           tool: attempt.tool,
           usage: attempt.usage,
+          observation: attempt.observation ?? null,
           outcome: attempt.outcome,
           recordedAt: attempt.recordedAt,
           updatedAt: attempt.updatedAt
         })),
-        provider: { ...availability(), projectId: project.id },
+        provider: { ...availability(), projectId: project.id, providerCalls: run.providerDispatches },
         blocker: run.blocker
       },
       contextInspector: {
@@ -926,7 +1016,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     return active.length === 1 ? active[0] : null;
   }
 
-  async function resolveActors(projectId, refs, scene, sourceIdentity) {
+  async function resolveActors(projectId, refs, scene, sourceIdentity, conversationId = null) {
     if (!Array.isArray(refs) || refs.length < 2 || refs.length > 3) throw failure("女娲 N1 需要选择两到三个正式角色。", 400);
     const seen = new Set();
     // RunPack needs a stable synthetic identity for a candidate-only project,
@@ -988,7 +1078,8 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         const other = formalCharacters.find((character) => character.id === otherId);
         knownFacts.push({ factId: `relation.${relation.relationId}`, summary: `正式关系：${summary.title}与 ${other?.label ?? otherId} 为${relation.currentTypeLabel ?? relation.relationLabelSnapshot}。`, sourceRef: { id: evidence.eventId, revision: evidence.revisionToken }, visibility: "relation" });
       }
-      const recalledMemories = await listRecallableCharacterMemories(continuityContext(projectId), { recipientId: summary.id, sourceIdentity, observedAt: scene.observedAt });
+      const recalledMemories = (await listRecallableCharacterMemories(continuityContext(projectId), { recipientId: summary.id, sourceIdentity, observedAt: scene.observedAt }))
+        .filter((memory) => (readNuwaN1Run(workspacePath(projectId), memory.sourceRunId)?.conversationId ?? null) === conversationId);
       knownFacts.push(...recalledMemories.map((memory) => ({
         factId: memory.id,
         summary: `听闻：${memory.speakerId} 说“${memory.statement}”`,
@@ -1101,6 +1192,16 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
   function createLocalFakeAdapter(projectId, runId) {
     return {
       adapterId: FAKE_ADAPTER_ID,
+      async suggestDirector(brief) {
+        if (!brief?.instruction || !brief?.runId) throw new Error("本地导演建议缺少冻结 Run 范围。");
+        if (fakeStepDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, fakeStepDelayMs));
+        return {
+          understood: `本地合成夹具收到：${brief.instruction}`,
+          proposedAdjustment: "后续排演优先保留不确定性，并让角色以可见行动与对话推进试探。",
+          scope: "仅当前 Run 的未开始步骤；不改变已提交步骤、角色资料或正式故事。",
+          focus: /观察/.test(brief.instruction) ? ["advance-observation"] : /试探|暂缓/.test(brief.instruction) ? ["defer-reveal", "prioritize-character-interaction"] : /不确定/.test(brief.instruction) ? ["preserve-uncertainty"] : [], unsupported: /删除|改写.*记忆/.test(brief.instruction) ? ["不支持删除剧情或改写角色记忆"] : /观察|试探|暂缓|不确定/.test(brief.instruction) ? [] : ["此合成夹具未匹配受支持要求；未执行"], usage: { inputTokens: null, outputTokens: null }
+        };
+      },
       async request(context) {
         // Tool request IDs are transport identifiers, not story identities.
         // Keep them ASCII while preserving the Unicode formal character ref in
@@ -1125,13 +1226,18 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
         const knownKey = context.knownFacts.find((fact) => fact.visibility === "world-state" && fact.worldStateObjectId && fact.summary.includes("持有状态"));
         const recipient = current.actors.find((actor) => actor.character.id !== context.actor.id) ?? null;
         const rehearsalHandoff = Boolean(knownKey && recipient && current.authorGoal.includes("交接钥匙"));
+        // Varied synthetic reading density only; the production Provider path
+        // and the permission-filtered tool context are unchanged.
+        const baseSpeech = heard ? "我听到了这句话；我只按自己可知的信息继续观察。" : "我只依据当前可知信息继续观察。";
+        const fixtureSpeech = context.step === 2 ? `${baseSpeech}\n先把已经确认的事说清，再决定要不要往前走。` : context.step === 4 ? "等等。" : context.step >= 5 ? `${baseSpeech}\n\n你刚才提出的疑问仍然没有答案。我们可以继续观察，但现在不能把猜测说成已经发生的事。` : baseSpeech;
+        const fixtureResult = context.step === 4 ? "角色停下，没有把疑问写成事实。" : context.step >= 5 ? "角色先回望同伴，再核对眼前可见的线索；这只是本次排演的行动描述，未产生新的正式事实。" : "角色完成一次受限观察；结果仍留在本次排演里。";
         return {
           type: "actor-result",
           actor: context.actor,
           intent: `依据受限上下文核对：${evidence}`,
-          speech: heard ? `我听到了这句话；我只按自己可知的信息继续观察。` : `我只依据当前可知信息继续观察。`,
+          speech: fixtureSpeech,
           action: rehearsalHandoff ? { action: "handoff-item", targetId: knownKey.worldStateObjectId, worldState: { kind: "holder", objectId: knownKey.worldStateObjectId, state: "held", holderId: recipient.character.id } } : { action: "observe", targetId: null },
-          observableResult: rehearsalHandoff ? "角色依据自己合法获知的持有状态，提出将关键物件正式交给同场角色。" : "角色完成一次受限观察；结果仍属于本次女娲 Run。",
+          observableResult: rehearsalHandoff ? "角色依据自己合法获知的持有状态，提出将关键物件正式交给同场角色。" : fixtureResult,
           ...(context.step === 1 && current.actors[1] ? { speech: current.authorGoal.includes("北闸已封") ? "北闸已封。" : "我只把钟声的线索告诉你。", heardByActorIds: [current.actors[1].character.id] } : {}),
           usage: { inputTokens: null, outputTokens: null }
         };
@@ -1139,7 +1245,7 @@ export function createNuwaN1Port({ operations, authorControl, continuityRootPath
     };
   }
 
-  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, candidate, autoApply, freezeAutoApplicationDraft, rollbackAutoApplication };
+  return { bootstrap, setup, create, read, latest, step, continuous, pause, resume, stop, replay, cue, directorSuggest, directorDecide, candidate, autoApply, freezeAutoApplicationDraft, rollbackAutoApplication };
 }
 
 function candidateReviewResult(project, run, handoff) {
@@ -1176,12 +1282,13 @@ function candidateReviewResult(project, run, handoff) {
     title: candidate.title,
     change: candidate.summary,
     after: candidate.observedResult,
+    knowledgeSubjects: [],
     causes: [`Nuwa N1 Run ${run.runId} / Step ${candidate.sourceStepId}`],
     evidence: [...new Set(run.steps.find((step) => step.stepId === candidate.sourceStepId)?.contextEvidenceRefs.map((ref) => ref.sourceId) ?? [])],
     affectedObjects: candidate.affectedCharacterIds,
     uncertainty: "本次排演结果尚未成为正式故事事实。",
     impact: "仅进入既有 Candidate Review；正式写入为 0。",
-    risk: "必须由作者查看影响后再决定是否采纳。"
+    risk: "完整场景内容可能含角色私密心事。写入故事不授予任何角色新增知识；对白听闻仍按原始步骤的明确投递回执处理。"
   }));
   return {
     version: "tianyan-golden-loop-candidate/v1",

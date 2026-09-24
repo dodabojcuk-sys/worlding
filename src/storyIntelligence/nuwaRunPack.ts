@@ -589,6 +589,14 @@ export function writeNuwaAuthorReview(input: {
   writeStableJson(path.join(runPath, "report", "author-review.json"), input.review);
 }
 
+/** Read-only history projection; each entry retains its existing RunPack. */
+export function listNuwaRunRecords(workspacePath: string): NuwaRunRecord[] {
+  const root = path.join(path.resolve(workspacePath), RUNS_ROOT);
+  if (!existsSync(root)) return [];
+  return readdirSync(root).filter((id) => isSafeRunId(id) && existsSync(path.join(root, id, "run.json")))
+    .sort().map((id) => readJson<NuwaRunRecord>(path.join(root, id, "run.json")));
+}
+
 export function readLatestNuwaRun(workspacePath: string): NuwaRunRecord | null {
   const root = path.join(path.resolve(workspacePath), RUNS_ROOT);
   if (!existsSync(root)) return null;

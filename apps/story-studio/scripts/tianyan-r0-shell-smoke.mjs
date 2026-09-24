@@ -30,6 +30,7 @@ if (!process.env.TIANYAN_E2E_SCOPE) {
   for (const scope of ["full-shell", "multi-node-prediction", "agent-fake-stream", "nuwa-n1", "relation-reader-r1", "n3-continuous", "map-m2-story-observation", "map-m3-author-experience", "map-m4-management-ai-editing", "map-real-ai-collaboration-r1", "map-author-workspace-r3", "world-materials-m1"]) await runIsolatedE2eScope(scope);
   process.exit(0);
 }
+const builtUiAcceptance = process.env.TIANYAN_E2E_BUILT_UI === "1";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 // Smoke tests must not attach to a developer's already-running local app.
@@ -119,6 +120,7 @@ const mapR5EvidenceDirectory = process.env.TIANYAN_MAP_R5_EVIDENCE_DIR || null;
 const mapCharacterRelationsR1EvidenceDirectory = process.env.TIANYAN_MAP_CHARACTER_RELATIONS_R1_EVIDENCE_DIR || null;
 const relationNetworkEvidenceR2Directory = process.env.TIANYAN_RELATION_NETWORK_R2_EVIDENCE_DIR || null;
 const tianyiR6EvidenceDirectory = process.env.TIANYAN_TIANYI_R6_EVIDENCE_DIR || null;
+const storyIntakeEvidenceDirectory = process.env.TIANYAN_STORY_INTAKE_EVIDENCE_DIR || null;
 const mapM4EvidenceDirectory = process.env.TIANYAN_MAP_M4_EVIDENCE_DIR || null;
 const mapRealAiEvidenceDirectory = process.env.TIANYAN_MAP_REAL_AI_EVIDENCE_DIR || null;
 const worldMaterialsEvidenceDirectory = process.env.TIANYAN_WORLD_MATERIALS_EVIDENCE_DIR || null;
@@ -146,6 +148,7 @@ let ollamaFixture;
 let expectedProviderCatalogFailure = false;
 let expectedProviderFailureConsoleBudget = 0;
 let expectedMapCompensationConflict = false;
+let expectedRelationFailureConsoleBudget = 0;
 const r062Captures = [];
 
 async function runIsolatedE2eScope(scope) {
@@ -194,6 +197,7 @@ try {
   await waitForApiServer();
   server = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js",
+    ...(builtUiAcceptance ? ["preview"] : []),
     "--config",
     "apps/story-studio/vite.config.ts",
     "--host",
@@ -206,9 +210,9 @@ try {
   server.stderr?.resume();
   await waitForServer();
   await assertDevelopmentRuntimeMode();
-  const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: relationNetworkEvidenceR2Only && relationNetworkEvidenceR2Directory ? 110 : mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
+  const browserOptions = { executablePath: resolveBrowserExecutable(), headless: true, slowMo: storyIntakeOnly && storyIntakeEvidenceDirectory ? 110 : relationNetworkEvidenceR2Only && relationNetworkEvidenceR2Directory ? 110 : mapCharacterRelationsR1Only && mapCharacterRelationsR1EvidenceDirectory ? 110 : tianyiR6Only && tianyiR6EvidenceDirectory ? 110 : mapR5Only && mapR5EvidenceDirectory ? 110 : mapR4Only && mapR4EvidenceDirectory ? 100 : mapR3Only && mapM3EvidenceDirectory ? 90 : mapRealAiEvidenceDirectory ? 180 : mapM4EvidenceDirectory ? 160 : 0 };
   if (!preserveTianyiR6Fixture) browser = await chromium.launch(browserOptions);
-  const recordingDirectory = relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
+  const recordingDirectory = storyIntakeOnly ? storyIntakeEvidenceDirectory : relationNetworkEvidenceR2Only ? relationNetworkEvidenceR2Directory : mapCharacterRelationsR1Only ? mapCharacterRelationsR1EvidenceDirectory : tianyiR6Only ? tianyiR6EvidenceDirectory : mapR5Only ? mapR5EvidenceDirectory : mapR4Only ? mapR4EvidenceDirectory : mapR3Only ? mapM3EvidenceDirectory : mapRealAiCollaborationOnly ? mapRealAiEvidenceDirectory : worldMaterialsOnly ? worldMaterialsEvidenceDirectory : mapM4ManagementAiEditingOnly ? mapM4EvidenceDirectory : mapM3AuthorExperienceOnly ? mapM3EvidenceDirectory : mapM2StoryObservationOnly ? mapM2EvidenceDirectory : characterMemoryQueryOnly ? characterMemoryEvidenceDirectory : r5ContinuousOnly ? r5ContinuousEvidenceDirectory : nuwaN1Only ? nuwaN1EvidenceDirectory : shellFocusR22AOnly ? shellFocusR22AEvidenceDirectory : tianyiGoldenLoopOnly ? tianyiGoldenLoopEvidenceDirectory : r1DualAxisCausalOnly ? r1DualAxisCausalEvidenceDirectory : r2StoryCrossingOnly ? r2StoryCrossingEvidenceDirectory : null;
   if (diagnosticEvidenceDirectory) mkdirSync(diagnosticEvidenceDirectory, { recursive: true });
   const contextOptions = recordingDirectory
     ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: recordingDirectory, size: { width: 1440, height: 900 } } }
@@ -230,6 +234,10 @@ try {
     const problem = `${message.type()}: ${message.text()}`;
     if (expectedProviderFailureConsoleBudget > 0 && /Failed to load resource.*503/u.test(problem)) {
       expectedProviderFailureConsoleBudget -= 1;
+      return;
+    }
+    if (expectedRelationFailureConsoleBudget > 0 && /Failed to load resource.*ERR_CONNECTION_RESET/u.test(problem)) {
+      expectedRelationFailureConsoleBudget -= 1;
       return;
     }
     if (expectedMapCompensationConflict && /Failed to load resource.*400/u.test(problem)) return;
@@ -513,41 +521,78 @@ async function assertTianyiStoryIntake(page, consoleProblems) {
     throw new Error(`Story Intake retry did not complete; status=${status}; visible=${visibleState}`, { cause: error });
   });
 
-  for (const label of ["人物", "物品", "地点", "事件", "故事单元", "故事路径成员", "未解问题"]) await intake.getByRole("heading", { name: label, exact: true }).waitFor();
-  for (const label of ["林昭", "阿芜", "顾澜", "守夜钟", "雾港灯塔"]) assert.match(await intake.innerText(), new RegExp(label, "u"));
-  assert.match(await intake.innerText(), /亲历|亲眼/u);
-  assert.match(await intake.innerText(), /被告知/u);
-  assert.match(await intake.innerText(), /误解/u);
-  assert.match(await intake.innerText(), /原文证据/u);
-  assert.match(await intake.innerText(), /Canon 写入 0.*已确认资料对象 0/u);
+  const messageCount = await page.locator(".tianyi-visible-history article").count();
+  await composer.fill("未发送草稿：不能替换已选来源消息");
+  const sourceMessage = page.locator(".tianyi-visible-history article").filter({ hasText: storyText });
+  await sourceMessage.getByRole("button", { name: "整理这条作者消息", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
+  assert.equal(await page.locator(".tianyi-visible-history article").count(), messageCount, "Reorganizing a retained source must not append another author message");
+  assert.equal(await composer.inputValue(), "未发送草稿：不能替换已选来源消息", "Message extraction must leave unrelated unsent input alone");
+  assert.match(await intake.innerText(), /正式故事未改写.*已确认资料对象 0/u);
+  await intake.getByText("来源与运行诊断", { exact: true }).click();
   assert.match(await intake.innerText(), /请求[\s\S]*deterministic-text-fixture/u);
-
-  const firstCandidate = intake.locator(".tianyi-intake-candidate").first();
+  await intake.getByRole("button", { name: "审阅这批候选", exact: true }).click();
+  const review = page.getByTestId("story-intake-review");
+  await review.waitFor();
+  for (const label of ["角色", "物件", "地点", "事件", "故事单元", "叙事路径", "待明确"]) assert.ok((await review.locator(".story-intake-type").allTextContents()).includes(label), `Candidate type ${label} must remain reviewable`);
+  for (const label of ["林昭", "阿芜", "顾澜", "守夜钟", "雾港灯塔"]) assert.match(await review.innerText(), new RegExp(label, "u"));
+  assert.match(await review.innerText(), /亲历|亲眼/u);
+  assert.match(await review.innerText(), /被告知/u);
+  assert.match(await review.innerText(), /误解/u);
+  const compactEvidence = review.getByText("当前候选原文与来源", { exact: true });
+  if (await compactEvidence.isVisible()) await compactEvidence.click();
+  const excerpt = await review.locator("blockquote:visible").first().innerText();
+  assert.ok(excerpt.length > 0 && storyText.includes(excerpt), "Review must show the exact retained author excerpt.");
+  const firstCandidate = review.locator(".story-intake-ledger-row").first();
+  const archivedId = await firstCandidate.getAttribute("data-candidate-id");
+  await firstCandidate.getByText("处理", { exact: true }).click();
   const decisionResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
-  await firstCandidate.getByRole("button", { name: "送入待归档", exact: true }).click();
+  await firstCandidate.getByRole("button", { name: "移到待归档", exact: true }).click();
   const decisionResponse = await decisionResponsePromise;
   assert.equal(decisionResponse.status(), 200, `Story Intake archive decision failed: ${await decisionResponse.text()}`);
-  const archivedCandidate = intake.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first();
-  await archivedCandidate.waitFor();
-  assert.match(await archivedCandidate.innerText(), /已送入待归档.*未采纳/u);
-  const awuCandidate = intake.locator(".tianyi-intake-candidate").filter({ hasText: "阿芜" }).first();
-  const confirmResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/candidate/decision"));
-  await awuCandidate.getByRole("button", { name: "逐项确认", exact: true }).click();
+  await firstCandidate.getByText("待归档", { exact: true }).waitFor();
+  const awuCandidate = review.locator(".story-intake-ledger-row").filter({ has: page.getByRole("button", { name: /^\d+ 阿芜$/u }) });
+  const awuId = await awuCandidate.getAttribute("data-candidate-id");
+  await awuCandidate.getByRole("button", { name: "进入工作", exact: true }).click();
+  const relationExclusions = page.getByRole("button", { name: "排除此关系", exact: true });
+  await relationExclusions.first().waitFor();
+  assert.equal(await relationExclusions.count(), 2, "The fixture's two unselected relation endpoints must remain explicit conflicts");
+  assert.equal(await page.getByRole("button", { name: "确认采纳 1 项", exact: true }).isEnabled(), false);
+  await relationExclusions.first().click();
+  await relationExclusions.first().click();
+  await page.waitForFunction(() => [...document.querySelectorAll("button")].some((button) => button.textContent?.trim() === "确认采纳 1 项" && !button.disabled)).catch(async (error) => { console.error("Story Intake confirmation state", await page.getByLabel("天意统一会话").innerText()); throw error; });
+  const confirmResponsePromise = page.waitForResponse((response) => response.url().includes("/tianyi-agent/story-intake/batch/confirm"));
+  await page.getByRole("button", { name: "确认采纳 1 项", exact: true }).click();
   const confirmResponse = await confirmResponsePromise;
   assert.equal(confirmResponse.status(), 200, `Story Intake confirmation failed: ${await confirmResponse.text()}`);
-  await awuCandidate.getByText(/已由作者确认为资料对象/u).waitFor();
+  await page.getByRole("button", { name: "已采纳", exact: true }).waitFor();
   const conversationId = await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id");
   await reloadProduct(page);
-  await page.waitForFunction(() => document.querySelector('[aria-label="Story Intake 运行"]')?.getAttribute("data-story-intake-status") === "completed");
   assert.equal(await page.locator(".tianyi-workspace").getAttribute("data-tianyi-conversation-id"), conversationId, "Refresh must recover the same TianyiConversation.");
-  await page.locator('.tianyi-intake-candidate[data-candidate-state="pending-archive"]').first().getByText(/已送入待归档.*未采纳/u).waitFor();
-  await page.locator('.tianyi-intake-candidate[data-candidate-state="confirmed"]').getByText(/已由作者确认为资料对象/u).waitFor();
+  await page.getByRole("tab", { name: "创意模式", exact: true }).click();
+  await page.getByRole("button", { name: "审阅这批候选", exact: true }).click();
+  await page.locator(`[data-candidate-id="${archivedId}"]`).getByText("待归档", { exact: true }).waitFor();
+  await page.locator(`[data-candidate-id="${awuId}"]`).getByText("已采纳", { exact: true }).waitFor();
 
   const libraryAfter = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const canonAfter = await getFixture(`${apiUrl}/__local/story-studio/event-line/verified-events?projectId=${encodeURIComponent(fixtureProjectId)}`);
   assert.equal(libraryAfter.data.objects.length, libraryBefore.data.objects.length + 1, "one explicit confirmation must create exactly one formal object");
   assert.equal(libraryAfter.data.objects.some((object) => object.type === "character" && object.title === "阿芜"), true);
   assert.deepEqual(canonAfter.data, canonBefore.data, "Story Intake candidates must not enter Canon/Event projection.");
+  const firstAdoptedAwu = libraryAfter.data.objects.find((object) => object.type === "character" && object.title === "阿芜");
+  await review.getByRole("button", { name: "查看 1 项影响", exact: true }).click();
+  if (storyIntakeEvidenceDirectory) { await page.getByText("这次采纳已保存", { exact: true }).waitFor(); await page.screenshot({ path: path.join(storyIntakeEvidenceDirectory, "01-原回执已采纳.png") }); await page.waitForTimeout(700); }
+  await page.getByRole("button", { name: "撤销这次采纳", exact: true }).click();
+  await page.getByText("这次采纳已撤销，候选已按当前版本恢复", { exact: true }).waitFor();
+  if (storyIntakeEvidenceDirectory) { await page.screenshot({ path: path.join(storyIntakeEvidenceDirectory, "02-回执恢复并撤销.png") }); await page.waitForTimeout(700); }
+  await page.getByRole("button", { name: "返回审阅继续处理", exact: true }).click();
+  await page.locator(`[data-candidate-id="${awuId}"]`).getByText("待决定", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "查看 1 项影响", exact: true }).click();
+  await page.getByRole("button", { name: "确认采纳 1 项", exact: true }).click();
+  await page.getByRole("button", { name: "已采纳", exact: true }).waitFor();
+  if (storyIntakeEvidenceDirectory) { await page.screenshot({ path: path.join(storyIntakeEvidenceDirectory, "03-同批再次采纳.png") }); await page.waitForTimeout(700); }
+  const recoveredLibrary = await getFixture(`${apiUrl}/__local/story-studio/world-library?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  assert.deepEqual(recoveredLibrary.data.objects.filter((object) => object.type === "character" && object.title === "阿芜").map((object) => object.id), [firstAdoptedAwu.id], "receipt undo and adoption reuse the same character identity");
   assert.deepEqual(consoleProblems, [], "Story Intake stop, retry and refresh must not add browser console problems.");
 }
 
@@ -1286,8 +1331,13 @@ async function assertDevelopmentRuntimeMode() {
   const vitePage = await fetch(`${baseUrl}/event-line`);
   assert.equal(vitePage.status, 200, "Development UI must be served by Vite.");
   const viteHtml = await vitePage.text();
-  assert.match(viteHtml, /\/@vite\/client/);
-  assert.match(viteHtml, /\/src\/main\.tsx/);
+  if (builtUiAcceptance) {
+    assert.equal(viteHtml, readFileSync(path.join(process.cwd(), "apps/story-studio/dist/index.html"), "utf8"), "Built UI acceptance must serve the exact current build.");
+    assert.doesNotMatch(viteHtml, /\/@vite\/client/);
+  } else {
+    assert.match(viteHtml, /\/@vite\/client/);
+    assert.match(viteHtml, /\/src\/main\.tsx/);
+  }
 
   const proxiedBootstrap = await fetch(`${baseUrl}/__local/story-studio/bootstrap`);
   assert.equal(proxiedBootstrap.status, 200, "Vite must proxy the local API.");
@@ -1314,7 +1364,7 @@ async function assertDevelopmentRuntimeMode() {
 
   if (runtimeModeEvidencePath) writeFileSync(runtimeModeEvidencePath, JSON.stringify({
     command: "npm run test:e2e (isolated Vite plus api-only Story Studio)",
-    developmentUi: { entry: `${baseUrl}/event-line`, status: vitePage.status, sourceMarkers: ["/@vite/client", "/src/main.tsx"] },
+    developmentUi: { mode: builtUiAcceptance ? "built-preview" : "development", entry: `${baseUrl}/event-line`, status: vitePage.status, sourceMarkers: builtUiAcceptance ? ["exact-dist-index.html"] : ["/@vite/client", "/src/main.tsx"] },
     directApiUiRequest: { entry: `${apiUrl}/event-line`, status: apiUiRequest.status, body: apiUiHtml },
     proxiedApi: { entry: `${baseUrl}/__local/story-studio/bootstrap`, status: proxiedBootstrap.status },
     health: { entry: `${apiUrl}/__local/story-studio/health`, status: health.status, body: healthBody },
@@ -1339,7 +1389,11 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   const workspace = page.getByTestId("nuwa-n1-workspace");
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-provider-calls"), "0", "The N1 fixture is visibly zero-Provider.");
-  await workspace.getByText("本地工程演练 · 0 Provider", { exact: true }).first().waitFor();
+  const technical = workspace.locator(".nuwa-n1-technical");
+  assert.equal(await technical.getAttribute("open"), null, "Provider details stay folded in the author workspace.");
+  await technical.locator("summary").click();
+  await technical.getByText("本地工程演练 · 真实 Provider 0 次", { exact: true }).waitFor();
+  await technical.locator("summary").click();
 
   const selectedPeople = workspace.locator('.nuwa-n1-participant-options input[type="checkbox"]:checked');
   assert.equal(await selectedPeople.count(), 0, "N1 does not silently choose formal characters for the author.");
@@ -1349,7 +1403,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await workspace.locator(".nuwa-n1-participant-options label").filter({ hasText: "阿芜" }).locator("input").check();
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "林昭" }).locator("input").fill("核实钟声是否来自桥下");
   await workspace.locator(".nuwa-n1-participant-goals label").filter({ hasText: "阿芜" }).locator("input").fill("确保退路不被切断");
-  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-controlbar-grid label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；不得把未知内容当成事实。");
   await workspace.getByRole("button", { name: "查看上下文", exact: true }).click();
   await workspace.getByText("本轮上下文预览", { exact: true }).first().waitFor().catch(async (cause) => {
@@ -1377,6 +1431,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.doesNotMatch((await contextCards.allTextContents()).join("\n"), /CANARY|secret|N2_PRIVATE_/u, "The role-scoped inspector does not disclose excluded secret identities or author-private profile fields.");
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "01-1440-context-boundaries.png"), fullPage: false });
   await evidenceDwell();
+  // Context preview uses an on-demand drawer; close it before starting the Run.
+  if (await workspace.locator(".nuwa-n1-inspector.is-open").isVisible()) await workspace.locator(".nuwa-n1-inspector > header button").click();
 
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
@@ -1388,23 +1444,146 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(await workspace.getByRole("button", { name: "停止", exact: true }).isEnabled(), true, "Stop stays reachable while a later long step request is in flight.");
   await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 2);
   const steps = workspace.locator(".nuwa-n1-reader li");
-  const stepActors = await steps.locator("article > header strong").allTextContents();
+  const stepActors = await steps.locator(".nuwa-n1-step-content > header > button").allTextContents();
   assert.deepEqual(stepActors, ["阿芜", "林昭"], `The first two turns keep the product's stable formal-identity order: ${JSON.stringify(stepActors)}`);
   assert.match(await steps.nth(1).innerText(), /我听到了这句话/u, "Lin Zhao receives A-Wu's actual directed dialogue, not a fixed isolated monologue.");
-  assert.equal(await contextCards.count(), 2, "Both knowledge boundaries remain inspectable after steps commit.");
+  await workspace.getByRole("button", { name: "故事结构", exact: true }).click();
+  await page.waitForURL(/\/event-line/u);
+  await page.getByTestId("event-line-journey").waitFor();
+  assert.equal(await page.getByTestId("event-line-journey").getAttribute("data-level"), "lines", "Story structure starts with line selection in the central workspace.");
+  await page.goBack();
+  await page.getByTestId("nuwa-n1-workspace").waitFor();
+  assert.equal(await page.locator(".nuwa-n1-reader li").count(), 2, "Returning from story browsing keeps the saved Run steps.");
+  const nuwaDirectory = page.getByTestId("nuwa-unified-directory");
+  await nuwaDirectory.getByRole("button", { name: "收起目录" }).click();
+  if (await steps.locator('.nuwa-n1-step-select input').count()) await workspace.getByRole("button", { name: /完成选择/u }).click();
+  assert.equal(await steps.locator('.nuwa-n1-step-select input').count(), 0, "Result checkboxes stay out of the reading flow.");
+  await workspace.getByRole("button", { name: /^选择结果/u }).click();
+  if (!(await steps.first().locator('.nuwa-n1-step-select input').isChecked())) await steps.first().locator('.nuwa-n1-step-select input').check();
+  await workspace.getByRole("button", { name: /完成选择.*已选/u }).click();
+  assert.equal(await steps.locator('.nuwa-n1-step-select input').count(), 0, "Leaving selection mode hides checkboxes without discarding selection.");
+  await workspace.getByRole("button", { name: /选择结果.*已选/u }).click();
+  assert.equal(await steps.first().locator('.nuwa-n1-step-select input').isChecked(), true);
+  await workspace.getByRole("button", { name: "角色与来源" }).click();
+  assert.equal(await contextCards.count(), 1, "After returning, the selected step keeps its scoped actor context instead of showing every role at once.");
+  assert.match(await contextCards.first().innerText(), /本步骤使用的依据/u, "The returned inspector remains bound to a saved step's role context.");
+  await workspace.getByRole("button", { name: "角色与来源" }).click();
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "02-1440-two-role-steps.png"), fullPage: false });
   await evidenceDwell();
 
+  await workspace.getByLabel("作者提示接收对象").selectOption("nuwa");
+  await workspace.locator(".nuwa-n1-composer textarea").fill("只给女娲的草稿");
+  await workspace.getByLabel("作者提示接收对象").selectOption("actors");
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "", "Changing recipient does not carry the director draft into a role instruction.");
+  await workspace.locator(".nuwa-n1-composer textarea").fill("只给角色的草稿");
+  await workspace.getByLabel("作者提示接收对象").selectOption("nuwa");
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "只给女娲的草稿");
+  await workspace.getByLabel("作者提示接收对象").selectOption("actors");
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "只给角色的草稿");
+  await workspace.getByLabel("作者提示接收对象").selectOption("nuwa");
+  await workspace.locator(".nuwa-n1-composer textarea").fill("暂缓揭露线索，先推进角色之间的试探。");
+  await workspace.getByRole("button", { name: "生成调整建议", exact: true }).click();
+  const directorCard = workspace.locator(".nuwa-n1-director-card");
+  await directorCard.waitFor();
+  const directorDetails = directorCard.locator(".nuwa-n1-director-disclosure");
+  assert.equal(await directorDetails.getAttribute("open"), null, "作者原话和限制默认折叠。");
+  await directorDetails.locator("summary").click();
+  await workspace.getByRole("button", { name: "采纳调整", exact: true }).waitFor();
+  assert.match(await directorDetails.innerText(), /导演调整[\s\S]*暂缓主动揭露[\s\S]*作者原话：[\s\S]*建议理解：[\s\S]*适用范围：/u, "完整审阅保存的建议、原话和作用范围后才能采纳。");
+  assert.equal((await contextCards.allTextContents()).join("\n").includes("暂缓揭露线索"), false, "导演原始指令不会进入任何角色上下文。 ");
+  await directorCard.scrollIntoViewIfNeeded();
+  if (evidenceDirectory) {
+    await page.screenshot({ path: path.join(evidenceDirectory, "02a-1440-director-suggestion.png"), fullPage: false });
+    await directorCard.screenshot({ path: path.join(evidenceDirectory, "02b-director-suggestion-card.png") });
+  }
+  const layoutMeasurements = [];
+  const checkAuthorWidth = async (label) => {
+    await page.waitForFunction(() => (document.querySelector(".nuwa-n1-primary")?.getBoundingClientRect().width ?? 0) >= 479);
+    const geometry = await workspace.evaluate((node) => {
+      const rect = (selector) => { const r = node.querySelector(selector)?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, width: r.width, right: r.right, bottom: r.bottom } : null; };
+      return { primary: rect(".nuwa-n1-primary"), input: rect(".nuwa-n1-composer textarea"), composer: rect(".nuwa-n1-composer"), directory: document.querySelector(".tianyan-r0-shell")?.getAttribute("data-directory-visible"), overflow: document.documentElement.scrollWidth > innerWidth };
+    });
+    assert.ok(geometry.primary.width >= 479, `${label}: main must remain readable ${JSON.stringify(geometry)}`);
+    assert.ok(geometry.input.width >= 400, `${label}: input must remain usable ${JSON.stringify(geometry)}`);
+    assert.equal(geometry.overflow, false);
+    layoutMeasurements.push({ label, ...geometry });
+  };
+  await workspace.locator(".nuwa-n1-composer textarea").fill("布局切换保留的草稿");
+  await checkAuthorWidth("1440 event + inspector, directory temporarily yields");
+  await workspace.locator(".nuwa-n1-composer").scrollIntoViewIfNeeded();
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "06-1440-readable-multipanel.png") });
+  const directoryToggle = page.locator('[data-panel-toggle="project-directory"]');
+  if (await page.getByTestId("tianyan-r0-shell").getAttribute("data-directory-visible") === "false") await directoryToggle.click();
+  await checkAuthorWidth("1440 author reopens directory, auxiliaries adapt");
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "布局切换保留的草稿");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "07-1440-directory-reopened.png") });
+  await directoryToggle.click();
+  const eventToggle = workspace.getByRole("button", { name: "排演脉络", exact: true });
+  await eventToggle.click();
+  await workspace.locator(".nuwa-n1-auxiliary.is-open.is-drawer").waitFor();
+  await checkAuthorWidth("1440 event drawer does not reserve reading width");
+  await eventToggle.click();
+  await page.locator('[data-panel-toggle="tianyi-agent"]').click();
+  await page.locator(".tianyi-sidebar").waitFor();
+  await checkAuthorWidth("1440 Tianyi does not erase the Nuwa draft");
+  if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "08-1440-event-tianyi.png") });
+  await page.locator('[data-panel-toggle="tianyi-agent"]').click();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await checkAuthorWidth("1280 suggestion and input");
+  await eventToggle.click();
+  await workspace.locator(".nuwa-n1-auxiliary.is-open.is-drawer").waitFor();
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "布局切换保留的草稿");
+  await eventToggle.click();
+  await checkAuthorWidth("1280 close and reopen event drawer preserves draft");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await workspace.locator(".nuwa-n1-composer textarea").fill("");
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "layout-measurements.json"), JSON.stringify(layoutMeasurements, null, 2));
+  await workspace.getByRole("button", { name: "采纳调整", exact: true }).click();
+
+  await workspace.getByLabel("作者提示接收对象").selectOption("all-actors");
   await workspace.locator(".nuwa-n1-composer textarea").fill("下一步先核对钟楼内的声音来源。");
   await workspace.getByRole("button", { name: "加入后续步骤", exact: true }).click();
   await workspace.getByText(/作者提示已进入/u).waitFor();
+  for (const count of [3, 4]) {
+    await workspace.getByRole("button", { name: "单步", exact: true }).click();
+    await page.waitForFunction((count) => document.querySelectorAll(".nuwa-n1-reader li").length === count, count);
+  }
+  await workspace.locator(".nuwa-n1-composer textarea").fill("暂停刷新草稿不发送");
   await workspace.getByRole("button", { name: "暂停", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "paused");
   await reloadProduct(page);
   await workspace.waitFor();
   assert.equal(await workspace.getAttribute("data-run-status"), "paused", "Refresh restores the paused Run rather than silently restarting it.");
-  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 2, "Refresh restores the committed steps without replay dispatch.");
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 4, "Refresh restores the committed steps without replay dispatch.");
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "暂停刷新草稿不发送", "Refresh retains the unsent author draft.");
+  assert.equal(await workspace.getByLabel("作者提示接收对象").inputValue(), "all-actors", "Refresh retains the explicitly chosen addressee.");
+  assert.match(await workspace.locator(".nuwa-n1-director-card").innerText(), /已采纳，并已在第 3 步生效/u, "Refresh preserves the adopted director adjustment and its exact future boundary.");
+  const pausedRunId = await workspace.getAttribute("data-run-id");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.tianyan-mobile').waitFor();
+  const phoneWorkspace = page.getByTestId("mobile-nuwa-template");
+  await phoneWorkspace.waitFor();
+  const phoneLayout = await phoneWorkspace.evaluate((node) => {
+    const composer = node.querySelector(".mobile-nuwa-composer")?.getBoundingClientRect();
+    return { overflow: document.documentElement.scrollWidth > innerWidth, composerBottom: composer?.bottom ?? Infinity };
+  });
+  assert.equal(phoneLayout.overflow, false, `Phone reading must not overflow horizontally: ${JSON.stringify(phoneLayout)}`);
+  assert.ok(phoneLayout.composerBottom <= 844, `Phone composer remains reachable: ${JSON.stringify(phoneLayout)}`);
+  await phoneWorkspace.getByRole("button", { name: /查看这一单元的故事结构/u }).click();
+  await page.waitForURL(/\/event-line/u);
+  await page.getByTestId("event-line-journey").waitFor();
+  await page.goBack();
+  await phoneWorkspace.waitFor();
+  assert.equal(await phoneWorkspace.getAttribute("data-run-id"), pausedRunId, "Phone story browsing returns to the same paused Run.");
+  await phoneWorkspace.getByText("排演操作与历史", { exact: true }).click();
+  await phoneWorkspace.locator(".mobile-nuwa-process[open]").filter({ hasText: "排演操作与历史" }).waitFor();
+  await phoneWorkspace.getByText("排演操作与历史", { exact: true }).click();
+  await phoneWorkspace.getByRole("button", { name: /选择结果.*已选/u }).click();
+  assert.equal(await phoneWorkspace.locator('.mobile-nuwa-step input:checked').count(), 1, "Phone selection mode preserves the saved choice.");
+  await phoneWorkspace.getByRole("button", { name: /完成选择/u }).click();
+  assert.equal(await phoneWorkspace.locator(".mobile-nuwa-composer textarea").inputValue(), "暂停刷新草稿不发送", "Phone navigation keeps the unsent author draft.");
   await page.setViewportSize({ width: 1195, height: 792 });
+  await workspace.waitFor();
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   const compactGeometry = await workspace.evaluate((node) => {
     const composer = node.querySelector(".nuwa-n1-composer")?.getBoundingClientRect();
@@ -1414,15 +1593,36 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   });
   assert.equal(compactGeometry.overflow, false, `N1 must not hide overflow at 1195: ${JSON.stringify(compactGeometry)}`);
   assert.ok(compactGeometry.composerRight <= compactGeometry.railLeft && compactGeometry.inspectorRight <= compactGeometry.railLeft, `Composer and inspector stay clear of the retained right rail: ${JSON.stringify(compactGeometry)}`);
+  await checkAuthorWidth("1195 paused after refresh");
+  await workspace.locator(".nuwa-n1-composer").scrollIntoViewIfNeeded();
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "03-1195-paused-refresh.png"), fullPage: false });
   await evidenceDwell();
 
   await workspace.getByRole("button", { name: "恢复", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "running");
   await workspace.getByRole("button", { name: "单步", exact: true }).click();
-  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 3);
+  await page.waitForFunction(() => document.querySelectorAll(".nuwa-n1-reader li").length === 5);
+  assert.match(await workspace.locator(".nuwa-n1-director-card").innerText(), /已采纳，并已在第 3 步生效/u, "The next committed safety-boundary step records the adopted director adjustment.");
+  if (evidenceDirectory) await workspace.locator(".nuwa-n1-reader").screenshot({ path: path.join(evidenceDirectory, "03a-five-message-reader.png") });
+  await workspace.getByLabel("作者提示接收对象").selectOption("nuwa");
+  await workspace.locator(".nuwa-n1-composer textarea").fill("删除已发生剧情并改写角色记忆");
+  await workspace.getByRole("button", { name: "生成调整建议", exact: true }).click();
+  if (await directorDetails.getAttribute("open") === null) await directorDetails.locator("summary").click();
+  await workspace.getByRole("button", { name: "保留输入并重试", exact: true }).waitFor();
+  assert.match(await directorCard.innerText(), /未执行.*不支持删除剧情或改写角色记忆/u);
+  await workspace.getByRole("button", { name: "保留输入并重试", exact: true }).click();
+  assert.equal(await workspace.locator(".nuwa-n1-composer textarea").inputValue(), "删除已发生剧情并改写角色记忆");
+  await workspace.locator(".nuwa-n1-composer textarea").fill("先观察已有可感知内容");
+  await workspace.getByRole("button", { name: "生成调整建议", exact: true }).click();
+  if (await directorDetails.getAttribute("open") === null) await directorDetails.locator("summary").click();
+  await workspace.getByRole("button", { name: "放弃", exact: true }).click();
+  await directorCard.getByText(/作者已放弃本建议/u).waitFor();
+  if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "layout-measurements.json"), JSON.stringify(layoutMeasurements, null, 2));
+
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  await workspace.getByRole("button", { name: /选择结果.*已选/u }).click();
+  assert.equal(await workspace.locator('.nuwa-n1-step-select input:checked').count(), 1, "Saved result selection survives refresh even though the reader opens outside selection mode.");
   await workspace.getByRole("button", { name: "送入待确认", exact: true }).click();
   await workspace.getByText(/送入待确认；尚未写入正式故事/u).waitFor();
   const reviews = await getFixture(`${apiUrl}/__local/story-studio/author-control/candidate-reviews?projectId=${encodeURIComponent(fixtureProjectId)}`);
@@ -1433,7 +1633,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "04-1195-stopped-candidate.png"), fullPage: false });
   await evidenceDwell();
   await workspace.getByRole("button", { name: "回放", exact: true }).click();
-  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 3, "Replay reads the recorded steps without dispatching again.");
+  assert.equal(await workspace.locator(".nuwa-n1-reader li").count(), 5, "Replay reads the recorded steps without dispatching again.");
   const firstScene = await getFixture(`${apiUrl}/__local/story-studio/nuwa-n1/latest?projectId=${encodeURIComponent(fixtureProjectId)}`);
   const firstSceneRunId = firstScene.data.run.runId;
   const deliveredStatement = firstScene.data.run.steps[0]?.heardStatements[0]?.statement;
@@ -1467,6 +1667,7 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   await page.setViewportSize({ width: 1440, height: 900 });
   if (evidenceDirectory) await page.screenshot({ path: path.join(evidenceDirectory, "05-1440-n2-cross-scene-memory.png"), fullPage: false });
   await evidenceDwell();
+  if (await workspace.locator(".nuwa-n1-inspector.is-open").isVisible()) await workspace.locator(".nuwa-n1-inspector > header button").click();
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
   await workspace.getByRole("button", { name: "开始第一步", exact: true }).click();
@@ -1479,6 +1680,8 @@ async function assertNuwaN1BoundedLoop(page, consoleProblems) {
   assert.equal(secondScene.data.run.providerDispatches, 0, "The continuous N2A-to-N2C evidence remains a zero-Provider local rehearsal.");
   await workspace.getByRole("button", { name: "停止", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "cancelled");
+  // Run settings now open from the compact toolbar; no permanent settings row remains.
+  await workspace.getByRole("button", { name: "推演设置", exact: true }).click();
   assert.match(await workspace.locator(".nuwa-n1-status").innerText(), /本地\/网络模型发送 0 \/ 12 · 内部工具回合 [1-9]\d*/u, "A stopped local-tool turn must remain visible without being mislabelled as a model send.");
   assert.deepEqual(providerRequests, [], "N1 local engineering rehearsal may not call a Provider endpoint.");
   assert.deepEqual(consoleProblems, [], "N1 bounded loop must not produce browser warnings or errors.");
@@ -1698,7 +1901,7 @@ async function assertR5R2AutomaticApplicationCloseout(page, consoleProblems) {
   // is intentionally scoped to that line and must not accept a cross-line label.
   await workspace.getByLabel("事件线", { exact: true }).selectOption("primary");
   assert.equal(await workspace.getByLabel("事件线", { exact: true }).inputValue(), "primary", "The closeout explicitly returns to the primary storyline before selecting its unit.");
-  await workspace.locator(".nuwa-n1-controlbar > label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
+  await workspace.locator(".nuwa-n1-controlbar-grid label").filter({ hasText: "从单元开始" }).locator("select").selectOption({ label: "雾港追踪" });
   await workspace.locator(".nuwa-n1-goal input").fill("阿芜明确说出北闸已封，只告诉林昭；陆衍保持未知，再将同一 Run 写入可回溯正式成果。");
   await workspace.getByRole("button", { name: "开始排演", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="nuwa-n1-workspace"]')?.getAttribute("data-run-status") === "ready");
@@ -2491,7 +2694,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.deepEqual(afterBrowse.data.documents, beforeBrowse.data.documents, "Browse-mode canvas clicks must not modify the saved layout.");
   await openMapMenuAction(page, "编辑布局");
   await page.locator('.map-workbench-menu button[aria-pressed="true"]').waitFor({ state: "attached" });
-  const initialLayoutSave = page.waitForResponse((response) => {
+  const waitForLayoutSave = () => page.waitForResponse((response) => {
     if (response.request().method() !== "POST" || !response.url().includes("/visual-documents/update")) return false;
     try {
       const requestBody = response.request().postDataJSON();
@@ -2500,10 +2703,19 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
       return false;
     }
   }, { timeout: 60_000 });
+  let initialLayoutSave = waitForLayoutSave();
   await canvas.click({ position: { x: 220, y: 190 } });
-  const initialLayoutResponse = await initialLayoutSave;
+  let initialLayoutResponse = await initialLayoutSave;
   assert.equal(initialLayoutResponse.status(), 200, "The initial North Gate placement must receive its VisualDocument write receipt before later viewport checks begin.");
-  const initialLayoutReceipt = await initialLayoutResponse.json();
+  let initialLayoutReceipt = await initialLayoutResponse.json();
+  if (initialLayoutReceipt.data.conflict) {
+    await page.getByRole("status").getByText(/布局未保存：地图已在其他页面更新/u).waitFor();
+    assert.equal(await page.getByRole("status").getByText(/布局已保存/u).count(), 0, "A stale placement response must not be presented as a successful save.");
+    initialLayoutSave = waitForLayoutSave();
+    await canvas.click({ position: { x: 220, y: 190 } });
+    initialLayoutResponse = await initialLayoutSave;
+    initialLayoutReceipt = await initialLayoutResponse.json();
+  }
   assert.equal(initialLayoutReceipt.data.conflict, false, "The target marker write must not be reported as saved when its base map revision is stale.");
   assert.equal(initialLayoutReceipt.data.document.content.markers.some((marker) => marker.objectId === mapM2Fixture.northGate.id), true, "The write receipt must contain the exact North Gate marker before the UI assertion continues.");
   await page.getByRole("status").getByText(/布局已保存/u).waitFor();
@@ -2731,6 +2943,7 @@ async function assertMapM2StoryObservation(page, consoleProblems) {
   assert.equal(await relationCanvas.locator(".focused-relations-node").count(), 10, "Expanding one dense neighbour must add its formal second-degree endpoint.");
   if (mapM2EvidenceDirectory) await page.screenshot({ path: path.join(mapM2EvidenceDirectory, "focused-relations-dense-expanded-1440x900.png"), fullPage: false });
   await page.setViewportSize({ width: 1152, height: 720 });
+  await relationsWorkspace.getByText("筛选", { exact: true }).click();
   await relationsWorkspace.getByLabel("筛选关系类型").selectOption({ label: "通行协作" });
   await relationCanvas.getByRole("button", { name: "通行协作", exact: true }).first().click();
   const denseDetail = relationsWorkspace.getByLabel("所选关系详情");
@@ -3038,20 +3251,26 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   const evidenceDirectory = relationNetworkEvidenceR2Directory;
   const capture = async (name) => { if (!evidenceDirectory) return; mkdirSync(evidenceDirectory, { recursive: true }); await page.screenshot({ path: path.join(evidenceDirectory, name), fullPage: false }); await page.waitForTimeout(900); };
   await page.setViewportSize({ width: 1440, height: 900 });
-  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&relationCenter=${encodeURIComponent(mapM2Fixture.guLan.id)}&relationScope=all&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
+  await gotoProduct(page, `${baseUrl}/world?projectId=${encodeURIComponent(fixtureProjectId)}`);
+  const worldOverview = page.getByTestId("world-overview-workspace");
+  await worldOverview.waitFor();
+  await worldOverview.getByRole("heading", { name: "主要人物", exact: true }).waitFor();
+  await worldOverview.locator(".world-overview-collection").first().locator("li").first().waitFor();
+  await worldOverview.getByRole("button", { name: "查看地图", exact: true }).waitFor();
+  await capture("00-世界首页内容预览-1440x900.png");
+  const route = `${baseUrl}/library?libraryView=relations&projectId=${encodeURIComponent(fixtureProjectId)}&workVersionId=${encodeURIComponent(mapM2Fixture.root.identity.workVersionId)}&mapObservedAt=2000-01-03T12%3A00%3A00Z&mapObservationEvent=${encodeURIComponent(graph.sourceEvent.id)}&mapObservationLabel=${encodeURIComponent("雾港潮闸争议")}`;
   await gotoProduct(page, route);
   const workspace = page.getByTestId("focused-relations-workspace");
   const canvas = page.getByTestId("focused-relations-canvas");
   await workspace.waitFor(); await canvas.waitFor();
   assert.equal(await canvas.locator(".focused-relations-node").count(), 9, "The global observed network shows seven connected people and two places; the isolated person is not fabricated into an edge.");
-  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 3, "The global graph labels the three groups attached to the current center instead of piling every context label over the network.");
-  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 5, "Five non-focused endpoint groups remain visible as quiet context lines.");
+  assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 6, "The global entry labels a bounded set of relationships without requiring a center selection.");
+  assert.equal(await canvas.locator(".focused-relations-edges > path.is-context").count(), 2, "Remaining global relationships stay visible as quiet context lines.");
   assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 9 \/ 9 条/u);
   const nodeRects = await canvas.locator(".focused-relations-node").evaluateAll((nodes) => nodes.map((node) => { const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }; }));
   assert.equal(nodeRects.every((rect, index) => nodeRects.every((other, otherIndex) => index === otherIndex || rect.right <= other.left || other.right <= rect.left || rect.bottom <= other.top || other.bottom <= rect.top)), true, "Global relationship nodes must not overlap at the author viewport.");
   await capture("01-全局人物关系网络-1440x900.png");
 
-  await workspace.getByRole("button", { name: "直接关系", exact: true }).click();
   await workspace.getByLabel("搜索人物或地点").fill(graph.isolated.title);
   await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(graph.isolated.title, "u") }).click();
   assert.equal(await canvas.locator(".focused-relations-edge-label").count(), 0, "An isolated person remains explicitly relation-free instead of gaining an inferred edge.");
@@ -3059,7 +3278,9 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
 
   await workspace.getByLabel("搜索人物或地点").fill(mapM2Fixture.guLan.title);
   await workspace.locator(".focused-relations-search-results").getByRole("button", { name: new RegExp(mapM2Fixture.guLan.title, "u") }).click();
+  await workspace.getByText("筛选", { exact: true }).click();
   await workspace.getByLabel("筛选关系类型").selectOption({ label: "港务协作" });
+  await workspace.getByText("筛选：港务协作", { exact: true }).click();
   assert.match(await workspace.locator(".focused-relations-filter-summary").innerText(), /当前显示 1 \/ 9 条.*港务协作/u);
   await workspace.getByRole("button", { name: "清除类型筛选", exact: true }).click();
   await workspace.locator(".focused-relations-filter-summary").getByText(/当前显示 4 \/ 9 条/u).waitFor();
@@ -3075,6 +3296,8 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.equal(await divergenceChoice.getAttribute("aria-pressed"), "true", "A same-pair relation is selected independently instead of relying on a merged edge label.");
   assert.ok(new URL(page.url()).searchParams.get("relationItem"), "The exact relation identity is retained in the return route.");
   await detail.getByRole("button", { name: "适配当前关系", exact: true }).click();
+  const relationFilters = workspace.locator(".focused-relations-filters");
+  if (await relationFilters.getAttribute("open") !== null) await relationFilters.locator("summary").click();
   await capture("02-人物聚焦与同对多关系-1440x900.png");
   const evidence = detail.locator(".focused-relations-evidence").first();
   await page.waitForFunction((element) => element?.getAttribute("aria-busy") === "false", await evidence.elementHandle());
@@ -3083,7 +3306,9 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.match(evidenceText, /顾澜主张先封闭旧港航道检修[\s\S]*程野则坚持保留山路货队的渡口时段/u, "The inline reader exposes the actual exact-revision event prose, not only a title or route.");
   await capture("03-关系依据正文-1440x900.png");
 
+  if (await relationFilters.getAttribute("open") === null) await relationFilters.locator("summary").click();
   await workspace.getByLabel("筛选关系类型").selectOption({ label: "航线分歧" });
+  if (await relationFilters.getAttribute("open") !== null) await relationFilters.locator("summary").click();
   await canvas.locator(".focused-relations-edge-label").filter({ hasText: "航线分歧" }).click();
   const singleDetail = workspace.getByLabel("所选关系详情");
   await page.setViewportSize({ width: 1152, height: 720 });
@@ -3103,6 +3328,57 @@ async function assertRelationNetworkEvidenceR2(page, consoleProblems) {
   assert.equal(await workspace.getByLabel("筛选关系类型").inputValue(), "航线分歧", "Returning from Tianyi restores the relationship filter.");
   assert.equal(await workspace.getByLabel("所选关系详情").isVisible(), true, "Returning from Tianyi restores the selected relationship.");
   await capture("05-返回关系现场-1152x720.png");
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoProduct(page, route);
+  await workspace.waitFor();
+  await workspace.getByRole("button", { name: "建立关系", exact: true }).click();
+  const createPanel = page.getByLabel("人工建立关系");
+  await createPanel.waitFor();
+  await createPanel.getByLabel("关系来源人物").selectOption({ label: graph.isolated.title });
+  await createPanel.getByLabel("关系目标人物").selectOption({ label: mapM2Fixture.guLan.title });
+  await createPanel.getByLabel("关系类型").selectOption({ label: "港务协作" });
+  assert.equal(await createPanel.getByLabel("关系来源", { exact: true }).inputValue(), "author-declaration", "A formal Event is optional when the author explicitly declares the setting.");
+  const retryOperationIds = [];
+  const collectRelationCreate = (request) => {
+    if (request.method() !== "POST" || !request.url().endsWith("/relations/create")) return;
+    retryOperationIds.push(request.postDataJSON()?.operationId ?? null);
+  };
+  page.on("request", collectRelationCreate);
+  let dropCreatedResponse = true;
+  expectedRelationFailureConsoleBudget += 1;
+  await page.route("**/__local/story-studio/relations/create", async (route) => {
+    if (!dropCreatedResponse) { await route.continue(); return; }
+    dropCreatedResponse = false;
+    await route.fetch();
+    await route.abort("connectionreset");
+  });
+  await createPanel.getByRole("button", { name: "建立关系候选", exact: true }).click();
+  await createPanel.getByRole("alert").waitFor();
+  await createPanel.getByRole("button", { name: "建立关系候选", exact: true }).click();
+  await createPanel.getByText("候选已建立（尚未成为正式关系）", { exact: true }).waitFor();
+  assert.deepEqual(retryOperationIds.length, 2);
+  assert.equal(retryOperationIds[0], retryOperationIds[1], "A lost response retry must reuse the candidate operation identity.");
+  await page.unroute("**/__local/story-studio/relations/create");
+  page.off("request", collectRelationCreate);
+
+  let failNextRelationRefresh = true;
+  expectedRelationFailureConsoleBudget += 1;
+  await page.route(/\/relations\?.*reviewState=confirmed/u, async (route) => {
+    if (!failNextRelationRefresh) { await route.continue(); return; }
+    failNextRelationRefresh = false;
+    await route.abort("connectionreset");
+  });
+  await createPanel.getByRole("button", { name: "确认建立正式关系", exact: true }).click();
+  const refreshWarning = workspace.getByRole("alert").filter({ hasText: "关系已保存，但列表更新失败" });
+  await refreshWarning.waitFor();
+  assert.equal(await canvas.isVisible(), true, "A failed in-place refresh keeps the prior readable graph visible.");
+  await refreshWarning.getByRole("button", { name: "重试更新", exact: true }).click();
+  await refreshWarning.waitFor({ state: "hidden" });
+  await workspace.getByRole("status").getByText("关系已保存，列表已更新。", { exact: true }).waitFor();
+  await page.unroute(/\/relations\?.*reviewState=confirmed/u);
+  await capture("06-关系写入重试与刷新恢复-1440x900.png");
+  assert.equal(expectedRelationFailureConsoleBudget, 0, "Both deliberately intercepted relation failures must be observed by the browser.");
   assert.deepEqual(consoleProblems, [], "The relation network, inline evidence, Tianyi handoff and return flow must not produce browser errors.");
   if (evidenceDirectory) writeFileSync(path.join(evidenceDirectory, "人物关系网络与依据阅读R2身份.json"), `${JSON.stringify({ sourceRevision: runRevision, projectId: fixtureProjectId, workVersionId: mapM2Fixture.root.identity.workVersionId, people: graph.people.map((item) => ({ id: item.id, title: item.title })), places: graph.places.map((item) => ({ id: item.id, title: item.title })), isolatedPersonId: graph.isolated.id, relationIds: graph.createdRelations.map((item) => item.relationId), evidence: { eventId: graph.sourceEvent.id, revision: graph.sourceEvent.revisionToken }, viewportChecks: ["1440x900", "1152x720"], providerDispatches: 0 }, null, 2)}\n`, "utf8");
 }
@@ -5872,11 +6148,11 @@ async function assertR4GlobalWorkWorkspace(page, consoleProblems) {
   await receipt.scrollIntoViewIfNeeded();
   await capture("mem-a1a-1440-frozen-answer-receipt.png");
   const conversationStorageKey = `tianyi-conversation:${fixtureProjectId}`;
-  assert.ok(await page.evaluate((key) => window.sessionStorage.getItem(key), conversationStorageKey), "A completed grounded answer must persist its session pointer before refresh.");
+  assert.ok(await page.evaluate((key) => window.localStorage.getItem(key), conversationStorageKey), "A completed grounded answer must persist its session pointer before refresh.");
   await reloadProduct(page);
   await page.getByLabel("本问来源回执").waitFor({ timeout: 45_000 }).catch(async () => {
     throw new Error(`Grounded receipt did not recover after refresh: ${JSON.stringify(await page.evaluate((key) => ({
-      storedSessionId: window.sessionStorage.getItem(key),
+      storedSessionId: window.localStorage.getItem(key),
       url: window.location.href,
       body: document.body.innerText.slice(0, 3_000)
     }), conversationStorageKey))}`);
@@ -6767,7 +7043,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   const workspace = page.getByLabel("天意统一会话");
   await workspace.waitFor();
   assert.equal(await page.locator('[data-panel-toggle="tianyi-agent"]').count(), 0, "The primary Tianyi route must not offer a circular Tianyi Agent action.");
-  assert.equal(await page.getByRole("heading", { name: "让想法先展开，不默认改动正式故事" }).count(), 1);
+  assert.equal(await workspace.locator(".tianyi-conversation-welcome").getByRole("heading", { name: "从一个变化开始", exact: true }).count(), 1);
   assert.equal(await page.getByLabel("创意模式草稿").getAttribute("placeholder"), "提出一个故事变化，或粘贴一段灵感……");
   assert.equal(await page.getByRole("button", { name: "整理为故事候选", exact: true }).count(), 1);
   await page.getByLabel("创意模式草稿").fill("这个草稿必须在 Shell 面板切换后继续保留。");
@@ -6786,9 +7062,10 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.getByLabel("工作模式草稿").inputValue(), "只属于工作泳道的草稿");
   assert.equal(await page.getByLabel("工作范围").inputValue(), "selected-events");
   assert.equal(await page.getByText("本地附件（演示）", { exact: true }).count(), 0, "Global Work no longer creates an unbound demo attachment.");
+  if ((await shellGeometry(page)).directoryOpen !== "true") await page.getByRole("button", { name: "打开工程目录", exact: true }).click();
   const before = await shellGeometry(page);
   assert.ok(before.main.width >= 560, `Tianyi MainWorkspace must begin readable=${JSON.stringify(before)}`);
-  await page.getByRole("button", { name: "关闭工程目录", exact: true }).click();
+  await page.locator('[data-panel-toggle="project-directory"]').click();
   const afterDirectoryClose = await shellGeometry(page);
   assert.ok(afterDirectoryClose.main.width >= 560, `Closing DirectoryPane must not collapse MainWorkspace=${JSON.stringify(afterDirectoryClose)}`);
   assert.equal(afterDirectoryClose.scrollWidth, afterDirectoryClose.clientWidth, `Shell must not overflow horizontally=${JSON.stringify(afterDirectoryClose)}`);
@@ -6841,7 +7118,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true");
   assert.equal(await page.getByLabel("Work draft").inputValue(), "只属于工作泳道的草稿", "Locale change must retain user content and lane draft.");
   assert.equal(await page.getByLabel("Work scope").inputValue(), "selected-events");
-  assert.equal(await page.getByRole("heading", { name: "Choose a candidate to continue" }).count(), 1);
+  assert.equal(await page.getByRole("heading", { name: "Current story work context", exact: true }).count(), 1);
   assert.equal(await page.getByLabel("Work draft").getAttribute("placeholder"), "Refine the current candidate and prepare its impact preview…");
   await capture("06-1195x720-TIANYI-complete-English.png");
   await reloadProduct(page);
@@ -6849,7 +7126,7 @@ async function assertWorkspaceShellFocusR22A(page, consoleProblems) {
   assert.equal(await page.getByRole("tab", { name: "Work", exact: true }).getAttribute("aria-selected"), "true", "Lane must survive refresh.");
   await capture("07-1195x720-TIANYI-English-refresh-restored.png");
 
-  await gotoProduct(page, `${baseUrl}/event-line?eventTask=story&locale=zh-CN`);
+  await gotoProduct(page, `${baseUrl}/event-line?eventTask=story&locale=zh-CN`).catch((error) => { console.error("Shell event-entry diagnostics:", consoleProblems); throw error; });
   await page.locator(".event-line-workbench").waitFor();
   const eventUrl = page.url();
   const mainBeforeAgent = await page.locator(".shell-workspace-event-line").count();
@@ -6934,7 +7211,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     assert.equal(await page.locator(".tianyi-candidate-grid article").count(), 3, "Creative lane must form exactly three deterministic candidates.");
     const conversationId = await page.getByLabel("天意统一会话").getAttribute("data-tianyi-conversation-id");
     assert.ok(conversationId && conversationId !== "not-started");
-    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.locator(".tianyi-work-content").evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await capture("02-1440x900-TIANYI-three-candidates.png");
 
     const candidates = page.locator(".tianyi-candidate-grid article");
@@ -6955,7 +7232,7 @@ async function assertTianyiEventLineGoldenLoop(page, consoleProblems) {
     await adoption.locator(".tianyi-structured-diff").waitFor();
     assert.equal(await adoption.getByRole("button", { name: "采纳", exact: true }).isEnabled(), true, "Impact review must enable the single author adoption action.");
     assert.match(await adoption.textContent(), /基础版本.*范围.*变化.*证据.*风险/su);
-    await page.locator(".tianyi-conversation-column").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.locator(".tianyi-work-content").evaluate((element) => { element.scrollTop = element.scrollHeight; });
     await capture("04-1440x900-TIANYI-structured-impact.png");
     await adoption.getByRole("button", { name: /在事件线中打开/u }).click();
 
@@ -7937,8 +8214,22 @@ async function waitForProductReady(page) {
 }
 
 async function gotoProduct(page, url) {
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  await waitForProductReady(page);
+  const pending = new Map();
+  const failures = [];
+  const started = (request) => pending.set(request, { url: request.url(), method: request.method(), startedAt: Date.now() });
+  const finished = (request) => pending.delete(request);
+  const failed = (request) => { failures.push({ url: request.url(), error: request.failure()?.errorText }); pending.delete(request); };
+  page.on("request", started); page.on("requestfinished", finished); page.on("requestfailed", failed);
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await waitForProductReady(page);
+  } catch (error) {
+    console.error("Navigation request diagnostics", { url, pending: [...pending.values()], failures });
+    console.error("Navigation document diagnostics", await page.evaluate(() => ({ url: location.href, readyState: document.readyState, rootChildren: document.querySelector("#root")?.childElementCount, scriptUrls: [...document.scripts].map((script) => script.src), shellState: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getAttribute("data-connection-state"), shellRect: document.querySelector('[data-testid="tianyan-r0-shell"]')?.getBoundingClientRect().toJSON(), shellDisplay: document.querySelector('[data-testid="tianyan-r0-shell"]') && getComputedStyle(document.querySelector('[data-testid="tianyan-r0-shell"]')).display })).catch(() => null));
+    throw error;
+  } finally {
+    page.off("request", started); page.off("requestfinished", finished); page.off("requestfailed", failed);
+  }
 }
 
 async function reloadProduct(page) {

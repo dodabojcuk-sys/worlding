@@ -13,7 +13,7 @@ import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurf
 test("all Tianyi routes share token, same-origin, bounded JSON, and sanitized error middleware", () => {
   const source = readFileSync("apps/story-studio/server/server.mjs", "utf8");
   const expectedRoutes = [
-    "identity", "project-resume", "context-projection", "session/open", "question", "session/prepare-close",
+    "identity", "project-resume", "context-projection", "session/open", "session/select-scope", "question", "session/prepare-close",
     "memory-candidate/review", "memory-candidate/decide", "stopping-point/decide", "session/finalize-close", "session/metadata", "grounded-answer/read",
     "receipt/read", "memory/read", "memory/list", "memory/edit", "memory/revoke", "memory/restore", "memory/hard-delete",
     "memory/revisions", "memory/revision/preview", "global-memory-grant/read", "global-memory-grant/list",
@@ -70,6 +70,12 @@ test("Tianyi loopback transport rejects unauthorized, foreign-origin, unknown, o
     assert.equal(valid.status, 200);
     const payload = await valid.json() as { data?: { sessionId?: string } };
     assert.match(String(payload.data?.sessionId), /^session\.\d{6}$/u);
+    const invalidLine = await post(`${baseUrl}/__local/story-studio/tianyi/session/select-scope`, { projectId: "route-project", sessionId: payload.data?.sessionId, scope: { kind: "event-line", storylineKey: "branch.foreign" }, operationId: "operation.route-invalid-line" }, { "x-world-os-local-control-token": token, origin: baseUrl });
+    assert.equal(invalidLine.status, 400, "a line outside the current project is rejected by the server");
+    const selected = await post(`${baseUrl}/__local/story-studio/tianyi/session/select-scope`, { projectId: "route-project", sessionId: payload.data?.sessionId, scope: { kind: "project" }, operationId: "operation.route-select-project" }, { "x-world-os-local-control-token": token, origin: baseUrl });
+    assert.equal(selected.status, 200, "a legacy Session may be explicitly bound to project discussion");
+    const selectedBody = await selected.json() as { data?: { scope?: { kind?: string } } };
+    assert.equal(selectedBody.data?.scope?.kind, "project");
 
     // This goes through the real local SSE adapter rather than calling the
     // Context Gate directly.  The Gate must reject the seventh explicit Event

@@ -22,7 +22,7 @@ import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eve
 import type { TianyiAgentExecutionProjection, TianyiGraphLayer } from "../../../../../src/storyContracts/tianyiAgentMode.ts";
 import type { StorylineProjection } from "../../../../../src/storyContracts/eventStoryCrossingKnowledge.ts";
 import { eventLineEventMetadata, eventLineSemanticNode, type EventLineEventSummary } from "../eventLineCommittedEvents";
-import { useWorkspaceDockSlot, workspaceDockCoordinator, type RightWorkSurfaceMode } from "../../product-shell/WorkspaceDockCoordinator";
+import { useWorkspaceSurface, workspaceSurfaceManager } from "../../product-shell/WorkspaceDockCoordinator";
 import { CandidateEventNode } from "../graph-nodes/CandidateEventNode";
 import { CollectionPointNode, type CollectionPointNodeData } from "../graph-nodes/CollectionPointNode";
 import { FormalEventNode } from "../graph-nodes/FormalEventNode";
@@ -63,6 +63,7 @@ function NarrativeTrackNode(props: NodeProps<Node<NodeData>>) { return <span cla
 
 export type EventGraphCanvasProps = {
   projectId: string;
+  workVersionId?: string | null;
   events: readonly EventLineEventSummary[];
   relations: readonly RelationReadProjectionR0[];
   relationTypes: readonly RelationTypeDefinitionR0[];
@@ -136,8 +137,8 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const [graphLayer, setGraphLayer] = useState<TianyiGraphLayer>("EVENT_GRAPH");
   const [executionProjection, setExecutionProjection] = useState<TianyiAgentExecutionProjection | null>(null);
   const [miniMapOpen, setMiniMapOpen] = useState(() => !window.matchMedia("(max-width: 75rem)").matches);
-  const rightWorkSurface = useWorkspaceDockSlot();
-  const inspectorOpen = rightWorkSurface.ownerId === "event-line" && rightWorkSurface.mode !== "NONE" && rightWorkSurface.mode !== "TIANYI";
+  const rightWorkSurface = useWorkspaceSurface();
+  const inspectorOpen = ["object-inspector", "relation-review", "creation-surface"].includes(rightWorkSurface.activeSurface?.kind ?? "");
   const [railOpen, setRailOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -183,10 +184,16 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(displayedGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(displayedGraph.edges);
   const temporalNodesRef = useRef<readonly Node<NodeData>[]>(graph.nodes);
-  const openInspector = useCallback((mode: Extract<RightWorkSurfaceMode, "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW">) => {
-    workspaceDockCoordinator.openPageInspector("event-line", mode);
-  }, []);
-  const closeInspector = useCallback(() => workspaceDockCoordinator.closePageInspector("event-line"), []);
+  const openInspector = useCallback((mode: "EVENT_DETAILS" | "EVENT_CREATE" | "RELATION_REVIEW") => {
+    const eventId = selection?.kind === "node" ? selection.id : props.selectedEventId;
+    workspaceSurfaceManager.openSurface({
+      kind: mode === "RELATION_REVIEW" ? "relation-review" : mode === "EVENT_CREATE" ? "creation-surface" : "object-inspector",
+      context: { projectId: props.projectId, eventId: mode === "EVENT_CREATE" ? null : eventId, workVersionId: props.workVersionId ?? null, viewMode: mode === "EVENT_CREATE" ? "event-create" : mode === "RELATION_REVIEW" ? "relation-review" : "event-detail" }
+    });
+  }, [props.projectId, props.selectedEventId, props.workVersionId, selection]);
+  const closeInspector = useCallback(() => {
+    if (["object-inspector", "relation-review", "creation-surface"].includes(rightWorkSurface.activeSurface?.kind ?? "")) workspaceSurfaceManager.closeSurface();
+  }, [rightWorkSurface.activeSurface]);
 
   // The graph owns the visible relation inspector. Route recovery can also
   // restore the parent event-detail dock in the same commit, so keep the Shell
@@ -195,11 +202,11 @@ function LegacyEventGraphCanvas(props: EventGraphCanvasProps) {
   // remain in the existing Event/Relation projections.
   useEffect(() => {
     if ((selection?.kind === "relation" || selection?.kind === "smart-relation")
-      && rightWorkSurface.ownerId === "event-line"
+      && rightWorkSurface.activeSurface?.context.projectId === props.projectId
       && rightWorkSurface.mode !== "RELATION_REVIEW") {
       openInspector("RELATION_REVIEW");
     }
-  }, [openInspector, rightWorkSurface.mode, rightWorkSurface.ownerId, selection?.kind]);
+  }, [openInspector, props.projectId, rightWorkSurface.activeSurface?.context.projectId, rightWorkSurface.mode, selection?.kind]);
 
   useEffect(() => {
     if (pendingRelationRequestHandled.current || new URLSearchParams(window.location.search).get("eventPending") !== "relations") return;
@@ -747,6 +754,7 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
   const [collapsedUnitIds, setCollapsedUnitIds] = useState<Set<string>>(() => new Set());
   const previousSelectedEventId = useRef(props.selectedEventId);
   const focusFrame = useRef(0);
+  const pendingInitialFit = useRef(false);
   const eventById = useMemo(() => new Map(props.events.map((event) => [event.id, event])), [props.events]);
   const unitById = useMemo(() => new Map((props.storyUnits ?? []).map((unit) => [unit.id, unit])), [props.storyUnits]);
   const placements = useMemo<FormalNarrativePlacement[]>(() => props.surface.narratives.flatMap((read) => read.projection.placed.flatMap((placement) => {
@@ -769,16 +777,26 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
       return next;
     })
   }), [collapsedUnitIds, detail, placements, props.selectedEventId, props.storyUnits, props.surface.focusObjects, props.surface.onArrange, props.onSelectEvent]);
-  const fitWholeNarrative = useCallback((instance: ReactFlowInstance<Node<FormalNarrativeNodeData>, Edge> | null = flow, duration = 0) => {
+  const fitWholeNarrative = useCallback((instance: ReactFlowInstance<Node<FormalNarrativeNodeData>, Edge> | null = flow, duration = 0, initial = false) => {
     if (!instance) return;
     setSemanticLevel("overview");
     const visibleIds = new Set(projection.nodes.filter((node) => node.data.kind !== "focus").map((node) => node.id));
     const visibleNodes = instance.getNodes().filter((node) => visibleIds.has(node.id));
     if (!visibleNodes.length) return;
+    const firstReadingNodes = initial && window.matchMedia("(max-width: 48rem)").matches
+      ? visibleNodes.filter((node) => node.data.kind === "placement").slice(0, 2)
+      : [];
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
-      void instance.fitView({ nodes: visibleNodes, padding: .07, minZoom: .24, maxZoom: .82, duration });
+      void instance.fitView({ nodes: firstReadingNodes.length ? firstReadingNodes : visibleNodes, padding: .08, minZoom: firstReadingNodes.length ? .5 : .24, maxZoom: firstReadingNodes.length ? .75 : .82, duration }).then(() => {
+        pendingInitialFit.current = false;
+        if (!initial) props.onViewportChange?.(instance.getViewport());
+      });
     }));
   }, [flow, projection.nodes]);
+  useEffect(() => {
+    if (!flow || !pendingInitialFit.current || !projection.nodes.length) return;
+    fitWholeNarrative(flow, 0, true);
+  }, [flow, projection.nodes, fitWholeNarrative]);
   const focusEvent = useCallback((eventId: string | null, duration = 260) => {
     if (!flow || !eventId) return;
     const target = flow.getNodes().find((node) => node.data.kind === "placement" && node.data.eventId === eventId);
@@ -828,9 +846,12 @@ function NarrativeArrangementGraphCanvas(props: EventGraphCanvasProps & { surfac
         onInit={(instance) => {
           setFlow(instance);
           if (props.viewport) void instance.setViewport(props.viewport, { duration: 0 });
-          else fitWholeNarrative(instance);
+          else {
+            pendingInitialFit.current = true;
+            if (projection.nodes.length) fitWholeNarrative(instance, 0, true);
+          }
         }}
-        onMove={(_, viewport) => { setDetail(viewport.zoom < .9 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); props.onViewportChange?.(viewport); }}
+        onMove={(_, viewport) => { setDetail(viewport.zoom < .9 ? "far" : viewport.zoom > 1.12 ? "near" : "medium"); if (!pendingInitialFit.current) props.onViewportChange?.(viewport); }}
         onNodeClick={(_, node) => { if (node.data.kind === "placement") node.data.onOpen(); else if (node.data.kind === "topology") node.data.onToggle?.(); }}
         nodesDraggable={false}
         nodesConnectable={false}
@@ -1000,7 +1021,9 @@ function buildFormalNarrativeGraph(input: {
       for (const segment of overlay.segments) edges.push({ id: segment.segmentId, source: segment.sourcePointId, target: segment.targetPointId, type: "straight", className: `formal-focus-edge ${segment.weak ? "is-weak" : ""}`, animated: false });
     }
   }
-  return { nodes, edges, unresolvedBranchCount };
+  // React Flow hides an unmeasured node. Seed the known far-view dimensions so
+  // a fresh mobile canvas can paint its first frame before ResizeObserver runs.
+  return { nodes: nodes.map((node) => ({ ...node, initialWidth: node.data.kind === "placement" ? 232 : 172, initialHeight: node.data.kind === "placement" ? 90 : 49 })), edges, unresolvedBranchCount };
 }
 
 function FormalNarrativePlacementNode(props: NodeProps<Node<FormalNarrativeNodeData>>) {

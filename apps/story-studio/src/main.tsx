@@ -12,6 +12,7 @@ import "./styles/tianyi-workspace.css";
 import "./styles/event-line-projection.css";
 import "./styles/nuwa-n1.css";
 import "./styles/settings.css";
+import "./product-shell/mobile/mobile-template.css";
 import "@xyflow/react/dist/style.css";
 
 const root = document.getElementById("root");

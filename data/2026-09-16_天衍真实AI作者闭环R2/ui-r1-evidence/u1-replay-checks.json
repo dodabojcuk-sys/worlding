@@ -1,0 +1,44 @@
+{
+  "before": {
+    "summary": [
+      2,
+      1
+    ],
+    "gu": false,
+    "cheng": false,
+    "event": false
+  },
+  "afterRemove": {
+    "summary": [
+      1,
+      1
+    ],
+    "gu": false,
+    "cheng": true,
+    "event": true
+  },
+  "afterModeSwitch": {
+    "summary": [
+      1,
+      1
+    ],
+    "gu": false,
+    "cheng": true,
+    "event": true
+  },
+  "afterReenter": {
+    "summary": [
+      2,
+      1
+    ],
+    "gu": true,
+    "cheng": true,
+    "event": true
+  },
+  "verdict": {
+    "guNotReadded": false,
+    "chengKept": true,
+    "eventKept": true,
+    "summaryConsistent": false
+  }
+}

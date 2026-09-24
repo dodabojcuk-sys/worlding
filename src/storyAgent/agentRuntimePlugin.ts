@@ -16,7 +16,7 @@ export type AgentRuntimeStreamEvent =
 export type AgentRuntimeUsage = { promptTokens: number; completionTokens: number; totalTokens: number };
 export type AgentRuntimeProviderEvent =
   | { type: "response-metadata"; responseModelId: string }
-  | { type: "chunk"; text: string; finishReason: string | null; usage: AgentRuntimeUsage | null }
+  | { type: "chunk"; text: string; reasoningBytes?: number; finishReason: string | null; usage: AgentRuntimeUsage | null }
   | { type: "tool-call-start"; id: string; name: string; index: number }
   | { type: "tool-call-delta"; id: string; name: string; index: number; argumentsDelta: string }
   | { type: "tool-call-end"; id: string; name: string; index: number; argumentsJson: string; arguments: Record<string, unknown> }

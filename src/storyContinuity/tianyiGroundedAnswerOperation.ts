@@ -160,6 +160,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
   gateway: TianyiGroundedModelGateway;
   now?: () => string;
   compileGroundedContext(request: TianyiGroundedContextRequest): Promise<TianyiCompiledGroundedContext>;
+  validateRequestScope?(request: TianyiGroundedContextRequest): Promise<void>;
   onFaultMilestone?(milestone: TianyiGroundedFaultMilestone, questionAttemptKey: string): void | Promise<void>;
   maxProviderDispatches?: 1 | 2;
 }) {
@@ -181,6 +182,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
     const profileId = machineId(input.profileId, "Model profile identifier");
     const question = boundedText(input.question, "Author question", 4_000);
     const contextRequest = normalizeTianyiGroundedContextRequest(input.contextRequest);
+    await dependencies.validateRequestScope?.(contextRequest);
     const profile = dependencies.gateway.metadata().profiles.find((item) => item.id === profileId);
     if (!profile) throw new Error("Selected model profile is unavailable.");
 
@@ -390,7 +392,8 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
         maxOutputTokens: TIANYI_GROUNDED_MAX_OUTPUT_TOKENS,
         responseFormat: "json-object",
         signal: input.signal,
-        idempotencyKey: `tianyi-grounded.${questionAttemptKey}.${invocationAttempt}`,
+        // A retry is a new counted dispatch, while retaining the same author message.
+        idempotencyKey: `tianyi-grounded.${questionAttemptKey}.${providerDispatchCount}`,
         budgetScope: "tianyi-grounded-answer",
         retry: invocationAttempt > 1 || input.explicitRetry === true
       });
@@ -706,9 +709,12 @@ function buildGroundedMessages(question: string, compiled: TianyiCompiledGrounde
         "You are Tianyi, Story Studio's grounded story-world interface.",
         "Answer in Chinese. Treat only the included source packet as evidence.",
         "Never invent missing evidence. A fact must cite at least one included source.",
+        ...(compiled.manifest.included.length === 0 ? ["本次已授权证据列表为空。作者输入是创作前提，不是已确认事实。summary 可以充分回应创作请求，但顶层 status 和 claims 中每一条 status 都不得为 fact；复述作者设定也必须标为 candidate，并填写 uncertaintyReason（例如：作者提出的待确认设定）。所有 sourceRefs 必须为空。"] : []),
         "Candidate and inference claims must state uncertainty. If necessary evidence is absent, answer unknown.",
+        "The author's current input may itself be a creative premise (author intent), not a fact query. When the author proposes settings, plot directions, or revisions: discuss and develop them under that stated premise, mark everything derived from it as candidate or inference with an uncertainty reason, and keep the premise separate from confirmed facts. The premise itself needs no source reference; such answers use status candidate or inference and never fact.",
         "Preserve explicit constraints and negations. Do not turn a conditional conclusion into an unconditional claim.",
         `Context manifest digest: ${compiled.manifest.digest}`,
+        ...(compiled.manifest.request.scope ? [`Requested discussion scope: ${JSON.stringify(compiled.manifest.request.scope)}. Treat only evidence admitted for this scope as story facts.`] : []),
         `Return exactly one JSON object with this schema: ${schema}`,
         "Put the complete author-facing answer in summary. It must answer the author's request directly; never use summary to restate or describe the task. Preserve requested headings, numbering, and readable prose inside that string.",
         "Use claims only to classify atomic assertions from that answer. Claims do not replace or hide the author-facing answer.",
@@ -915,10 +921,17 @@ function uniqueResultStaged(events: InteractionEvent[], archived: ArchivedQuesti
       throw new TianyiGroundedRecoveryError("ATTEMPT_CONFLICT", "Grounded attempt state is malformed.");
     }
     if (state.questionAttemptKey !== archived.questionAttemptKey || state.state !== "RESULT_STAGED") continue;
+    // Retry results retain their actual dispatch operation. Accept them only
+    // with a prior, same-session claim for this exact question and dispatch.
+    const claimedRetry = state.providerDispatchCount > 1 && events.some((claim) => {
+      if (claim.type !== "grounded-attempt" || claim.actor !== "system" || claim.sessionId !== event.sessionId || claim.operationId !== event.operationId || claim.sequence >= event.sequence) return false;
+      const prior = parseAttemptState(claim.content);
+      return prior.state === "PROVIDER_UNCERTAIN" && prior.questionAttemptKey === archived.questionAttemptKey && prior.providerDispatchCount === state.providerDispatchCount;
+    });
     if (
       event.sessionId !== archived.contextRequest.sessionId
       || event.actor !== "system"
-      || event.operationId !== archived.initialOperationId
+      || (event.operationId !== archived.initialOperationId && !claimedRetry)
     ) {
       throw new TianyiGroundedRecoveryError(
         "ATTEMPT_CONFLICT",

@@ -40,7 +40,7 @@ test("full receipt chain survives restart, replays without Provider or budget, a
 test("malformed strict projection, timeout, cancellation, and unknown tool failure remain durable", () => {
   const cases = [
     { suffix: "malformed", finish(store: ReturnType<typeof createReplaySafeProviderReceiptEnvelopeStore>, envelopeId: string) { store.freezeResponse({ envelopeId, frozenResponseId: "response.bad", frozenResponseHash: hash("malformed") }); store.recordStrictProjection({ envelopeId, strictProjectionId: "strict.bad", strictProjectionSchema: "strict/v1", strictProjectionStatus: "rejected" }); }, status: "strict_parse_failed", frozen: true },
-    { suffix: "timeout", finish(store: ReturnType<typeof createReplaySafeProviderReceiptEnvelopeStore>, envelopeId: string) { store.markFailure({ envelopeId, replayStatus: "timeout", errorClassification: "timeout" }); }, status: "timeout", frozen: false },
+    { suffix: "timeout", finish(store: ReturnType<typeof createReplaySafeProviderReceiptEnvelopeStore>, envelopeId: string) { store.markFailure({ envelopeId, replayStatus: "timeout", errorClassification: "timeout", errorDiagnostic: { stage: "request-before-headers", upstreamHttpStatus: null, responseHeadersReceived: false, contentStarted: false, summary: "上游等待超时" } }); }, status: "timeout", frozen: false },
     { suffix: "cancel", finish(store: ReturnType<typeof createReplaySafeProviderReceiptEnvelopeStore>, envelopeId: string) { store.markFailure({ envelopeId, replayStatus: "cancelled", errorClassification: "cancelled" }); }, status: "cancelled", frozen: false },
     { suffix: "tool", finish(store: ReturnType<typeof createReplaySafeProviderReceiptEnvelopeStore>, envelopeId: string) { store.freezeResponse({ envelopeId, frozenResponseId: "response.tool", frozenResponseHash: hash("tool") }); store.recordStrictProjection({ envelopeId, strictProjectionId: "strict.tool", strictProjectionSchema: "strict/v1", strictProjectionStatus: "accepted" }); store.appendToolReceipt({ envelopeId, toolReceiptId: "tool.unknown.1", toolName: "unknown_tool", argumentsSummary: "unsupported destination", status: "failed", errorClassification: "unsupported-tool" }); }, status: "tool_failed", frozen: true }
   ] as const;
@@ -54,7 +54,26 @@ test("malformed strict projection, timeout, cancellation, and unknown tool failu
     const receipt = restarted.read({ envelopeId: begun.envelope.envelopeId }).envelope!;
     assert.equal(receipt.replayStatus, item.status);
     assert.equal(Boolean(receipt.frozenResponseId), item.frozen);
+    if (item.suffix === "timeout") assert.deepEqual(receipt.errorDiagnostic, { stage: "request-before-headers", upstreamHttpStatus: null, upstreamErrorStatus: null, upstreamErrorCode: null, requestId: null, summary: "上游等待超时", upstreamMessage: null, responseHeadersReceived: false, contentStarted: false, errorBodyReceived: false });
   }
+});
+
+test("numeric upstream error survives safe receipt storage without a secret or false generated-content claim", () => {
+  const store = createReplaySafeProviderReceiptEnvelopeStore({ appDataRoot: freshRoot("numeric-provider-error") });
+  const begun = store.begin(beginInput({ operationId: "operation.numeric-provider-error" }));
+  store.markDispatched({ envelopeId: begun.envelope.envelopeId, dispatchReceiptId: "dispatch.numeric-provider-error" });
+  store.markFailure({ envelopeId: begun.envelope.envelopeId, replayStatus: "transport_failed", errorClassification: "payment-required", errorDiagnostic: {
+    stage: "http-response", upstreamHttpStatus: 402, upstreamErrorCode: 30001, upstreamMessage: "Insufficient balance",
+    summary: "上游计费或余额拒绝", responseHeadersReceived: true, errorBodyReceived: true, contentStarted: false,
+    requestId: "trace-safe", authorization: "Bearer test-secret"
+  } });
+  const receipt = store.read({ envelopeId: begun.envelope.envelopeId }).envelope!;
+  assert.equal(receipt.errorDiagnostic?.upstreamHttpStatus, 402);
+  assert.equal(receipt.errorDiagnostic?.upstreamErrorCode, "30001");
+  assert.equal(receipt.errorDiagnostic?.upstreamMessage, "Insufficient balance");
+  assert.equal(receipt.errorDiagnostic?.contentStarted, false);
+  assert.equal(receipt.errorDiagnostic?.errorBodyReceived, true);
+  assert.equal(JSON.stringify(receipt).includes("test-secret"), false);
 });
 
 test("idempotency conflicts, integrity mismatch, missing owner references, and private payloads fail closed", () => {

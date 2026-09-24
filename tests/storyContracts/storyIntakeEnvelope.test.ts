@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { validateToolArguments } from "@earendil-works/pi-ai";
+import { parseAndNormalizeTianyiGroundedAnswer } from "../../src/storyContinuity/tianyiGroundedAnswer.ts";
 
 import { buildStoryIntakeEnvelope, confirmStoryIntakeCandidate, migrateStoryIntakeEnvelopeV1, updateStoryIntakeCandidateLifecycle } from "../../src/storyContracts/storyIntakeEnvelope.ts";
 import { createStoryIntakeProposalTool } from "../../src/storyAgent/storyIntakeTool.ts";
@@ -75,4 +78,58 @@ test("propose_story_intake validates its native tool frame and produces no forma
   assert.equal(captured?.candidates.length, 3);
   await assert.rejects(tool.execute({ toolCallId: "tool-call.bad", arguments: { candidates: [{ ...argumentsFixture.candidates[0], unexpected: true }] }, approvalReceiptId: null }), /fields are invalid/u);
   await assert.rejects(tool.execute({ toolCallId: "tool-call.too-many", arguments: argumentsFixture, approvalReceiptId: null }), /结构修复机会已用尽/u);
+});
+
+// Reproduce the live provider's structurally valid but semantically invalid frame.
+test("Story Intake rejects incompatible title, path and relation fields without publishing", async () => {
+  let published = 0;
+  const tool = createStoryIntakeProposalTool({ projectId: "project-fixture", sessionId: sourceRef.sessionId, runId: "run.story-intake", sourceRef, sourceText, baseVersion, onEnvelope() { published += 1; } });
+  const invalid = structuredClone(argumentsFixture);
+  invalid.candidates[1]!.proposedName = "旧灯塔";
+  await assert.rejects(tool.execute({ toolCallId: "live-invalid", arguments: invalid, approvalReceiptId: null }), /name\/title/u);
+  assert.equal(published, 0);
+  await tool.execute({ toolCallId: "corrected", arguments: argumentsFixture, approvalReceiptId: null });
+  assert.equal(published, 1);
+  const invalidPath = structuredClone(argumentsFixture);
+  invalidPath.candidates[0]!.narrativePath = { kind: "main", label: "错误公开路径" };
+  assert.throws(() => build(invalidPath), /Only narrative_path_membership/u);
+  const invalidLink = structuredClone(argumentsFixture);
+  invalidLink.candidates[2]!.proposedRelations[0]!.targetLocalRef = "character.林昭";
+  assert.throws(() => build(invalidLink));
+});
+
+const liveEvidence = new URL("../../data/2026-09-22_女娲主导工作区R0/夜间作者工作流R4/", import.meta.url);
+test("captured live ordinary reply rejects unsupported fact claims, independently of candidate tools", () => {
+  const raw = readFileSync(new URL("answer-2.txt", liveEvidence), "utf8");
+  assert.throws(() => parseAndNormalizeTianyiGroundedAnswer(raw, { includedSourceRefs: [], excludedSources: [] }), /factual claim requires current evidence/u);
+});
+
+test("captured live candidate frame is rejected by the actual Pi schema before domain publication", () => {
+  const response = JSON.parse(JSON.parse(readFileSync(new URL("response-5.json", liveEvidence), "utf8")).text);
+  const call = response.choices[0].message.tool_calls[0].function;
+  const args = JSON.parse(call.arguments);
+  const original = JSON.stringify(args);
+  const tool = createStoryIntakeProposalTool({ projectId: "project-fixture", sessionId: sourceRef.sessionId, runId: "run.story-intake", sourceRef, sourceText, baseVersion, onEnvelope() { assert.fail("invalid frame cannot publish"); } });
+  const native = { name: tool.name, description: tool.description, parameters: tool.inputSchema };
+  assert.throws(() => validateToolArguments(native, { name: call.name, arguments: args }), /Validation failed/u);
+  assert.equal(JSON.stringify(args), original, "captured response must not be rewritten");
+  assert.deepEqual(validateToolArguments(native, { name: tool.name, arguments: argumentsFixture }), argumentsFixture);
+  // Fixing mirrored labels alone must not silently accept invented path membership.
+  for (const candidate of args.candidates) candidate.proposedName = null;
+  assert.throws(() => validateToolArguments(native, { name: call.name, arguments: args }), /Validation failed/u);
+  // Even after structural repair, raw object IDs cannot bypass candidate identity links.
+  for (const candidate of args.candidates) candidate.narrativePath = null;
+  const requests = readFileSync(new URL("requests.jsonl", liveEvidence), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const authorSource = requests.find((request) => request.id === 5).body.messages[1].content.split("作者原话：\n")[1];
+  assert.throws(() => buildStoryIntakeEnvelope({ projectId: "project-fixture", sessionId: sourceRef.sessionId, runId: "run.story-intake", sourceRef, sourceText: authorSource, baseVersion, toolArguments: args, providerCalls: 1, createdAt: "2026-09-23T00:00:00Z" }), /Story Intake link target is invalid/u);
+});
+
+test("existing entity links accept exact authorized Chinese IDs but never a cross-type or unlisted ID", () => {
+  const args = structuredClone(argumentsFixture);
+  args.candidates[0]!.existingEntityId = "character.林昭";
+  args.candidates[0]!.identityDecision = "link_existing";
+  const input = { projectId: "project-fixture", sessionId: sourceRef.sessionId, runId: "run.story-intake", sourceRef, sourceText, baseVersion, toolArguments: args, providerCalls: 1, createdAt: "2026-09-23T00:00:00Z", existingEntities: [{ objectId: "character.林昭", objectType: "character" as const, title: "林昭", revisionToken: "r1" }] };
+  assert.equal(buildStoryIntakeEnvelope(input).candidates[0]?.existingEntityMatch?.objectId, "character.林昭");
+  assert.throws(() => buildStoryIntakeEnvelope({ ...input, existingEntities: [] }), /outside the authorized project index/u);
+  assert.throws(() => buildStoryIntakeEnvelope({ ...input, existingEntities: [{ ...input.existingEntities[0]!, objectType: "item" }] }), /type does not match/u);
 });

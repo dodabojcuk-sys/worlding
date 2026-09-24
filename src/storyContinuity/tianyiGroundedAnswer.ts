@@ -86,7 +86,15 @@ export function normalizeTianyiGroundedAnswer(
     if (!answer.uncertaintyReason) throw new Error("An unknown answer requires an uncertainty reason.");
     if (answer.claims.some((claim) => claim.status === "fact")) throw new Error("An unknown answer cannot contain confirmed factual claims.");
   }
-  if (included.length === 0 && answer.status !== "unknown") throw new Error("An answer without included evidence must be unknown.");
+  if (included.length === 0) {
+    // Author intent is input, not confirmed fact (产品核心第五节)： an answer
+    // built purely on the author's stated premise may propose candidates or
+    // inferences without included evidence, but it can never be factual and
+    // must carry uncertainty so the author keeps the confirmation power.
+    if (answer.status === "fact") throw new Error("A factual answer requires at least one included source.");
+    if (answer.status !== "unknown" && !answer.uncertaintyReason) throw new Error("A premise-based answer requires an uncertainty reason.");
+    if (answer.claims.some((claim) => claim.status === "fact")) throw new Error("A premise-based answer cannot contain confirmed factual claims.");
+  }
   return answer;
 }
 

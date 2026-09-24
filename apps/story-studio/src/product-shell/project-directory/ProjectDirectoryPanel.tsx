@@ -1,3 +1,4 @@
+import { ProjectConversationPanel } from "./ProjectConversationPanel";
 import { Network, RotateCcw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -16,6 +17,8 @@ export type ProjectDirectoryMode = "classified" | "pending";
 
 export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState; project: Parameters<typeof useProjectDirectoryProjection>[0]; mode: ProjectDirectoryMode; directoryState: DirectoryWorkspaceState; onDirectoryState(state: DirectoryWorkspaceState): void; onClose(): void; onModeChange(mode: ProjectDirectoryMode): void; onOpenPendingReview(target: StoryIntakeReviewTarget | null): void; onOpenRelationReview(): void; onNavigate(node: ProjectDirectoryNode): void; onOpenReference(reference: ProjectDirectoryStableReference): void; selectedObjectId: string | null; onCreateProject(title: string): Promise<void> }) {
   const { t } = useI18n();
+  const [materials, setMaterials] = useState(() => [...new URLSearchParams(window.location.search).keys()].some((key) => key.startsWith("directory")));
+  useEffect(() => { const open = () => setMaterials(true); window.addEventListener("tianyan-open-material-directory", open); return () => window.removeEventListener("tianyan-open-material-directory", open); }, []);
   const replace = (key: "directory.pendingBatchSummary" | "directory.pendingSourceBreakdown" | "directory.pendingOtherBreakdown" | "directory.pendingProcessedSummary", values: Record<string, number | string>) => Object.entries(values).reduce((text, [name, value]) => text.replace(`{${name}}`, String(value)), t(key));
   const state = useProjectDirectoryProjection(props.project, t, props.runtime);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
@@ -34,9 +37,10 @@ export function ProjectDirectoryPanel(props: { runtime: TianyanShellRuntimeState
   useEffect(() => {
     recordDirectoryReadDiagnostic({ phase: "panel-render", projectId: props.project?.id ?? null, responseProjectId: state.projection?.projectId ?? null, unitCount: renderedUnitCount, classifiedCount: state.projection?.classifiedCount ?? 0, outcome: state.error ? "failed" : state.projectId ? "ready" : "empty", reason: state.pendingStatus });
   }, [props.project?.id, renderedUnitCount, state.error, state.pendingStatus, state.projectId, state.projection?.classifiedCount, state.projection?.projectId]);
+  if (!materials) return <ProjectConversationPanel runtime={props.runtime} onDirectory={() => setMaterials(true)} onClose={props.onClose} />;
   return <aside className="project-directory-panel" aria-label={t("panel.projectDirectory")} data-story-fact-owner="false">
     <header>
-      <h2>{t("directory.label")}</h2>
+      <button type="button" onClick={() => setMaterials(false)}>{t("directory.projectsConversations")}</button><h2>{t("directory.label")}</h2>
       <button type="button" className="project-directory-close" aria-label={t("panel.closeProjectDirectory")} title={t("panel.closeProjectDirectory")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
     <div className="project-directory-tabs" role="tablist" aria-label={t("panel.projectDirectory")}>

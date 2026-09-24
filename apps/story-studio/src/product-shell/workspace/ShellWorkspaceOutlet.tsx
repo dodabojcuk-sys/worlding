@@ -10,12 +10,14 @@ import { TianyiConversationWorkspace } from "../../components/tianyi/workspace/T
 import type { TianyiKnowledgeViewContext } from "../../components/tianyi/sidebar/TianyiSidebar";
 import type { TianyiMapEditContext } from "../../components/tianyi/sidebar/MapAiCollaborationPanel";
 import { NuwaN1Workspace } from "../../components/nuwa/NuwaN1Workspace";
+import { NuwaManagementWorkspace } from "../../components/nuwa/NuwaManagementWorkspace";
 import { CreationSourceWorkspace } from "../../components/creation/CreationSourceWorkspace";
 import { MultiverseB1Workspace } from "../../components/multiverse/MultiverseB1Workspace";
 import { MapM1Workspace } from "../../components/world/MapM1Workspace";
 import { FocusedRelationsWorkspace } from "../../components/world/FocusedRelationsWorkspace";
 import { CharacterWorkspace } from "../project-directory/character/CharacterWorkspace";
 import { MaterialsWorkspace } from "../../components/world/MaterialsWorkspace";
+import { WorldOverviewWorkspace } from "../../components/world/WorldOverviewWorkspace";
 
 export function ShellWorkspaceOutlet(props: {
   destination: StoryStudioShellDestination;
@@ -24,6 +26,7 @@ export function ShellWorkspaceOutlet(props: {
   accountOpen: boolean;
   runtime: TianyanShellRuntimeState;
   onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext, mapEdit?: TianyiMapEditContext): void;
+  onOpenNuwa(input: { storyUnitId: string; eventId: string; narrativePathId: string; workVersionId: string | null }): void;
   onOpenPendingReview(): void;
   directoryObjectId: string | null;
   characterObjectId: string | null;
@@ -31,13 +34,14 @@ export function ShellWorkspaceOutlet(props: {
   onAddCharacterToNuwa(objectId: string): void;
   onCloseCharacterWorkspace(): void;
   locationRevision: number;
+  mobile?: boolean;
 }) {
   const { t } = useI18n();
   const label = props.shellLab ? t("shellLab.label") : t(props.destination.labelKey as TranslationKey);
   const summary = props.shellLab ? t("shellLab.description") : t(props.destination.summaryKey as TranslationKey);
   const note = props.shellLab ? t("workspace.boundary") : null;
 
-  if (props.settingsOpen) return <SettingsStorageRoute presentation="workspace" />;
+  if (props.settingsOpen) return <SettingsStorageRoute presentation={props.mobile ? "mobile" : "workspace"} />;
   if (props.accountOpen) return <AccountCenterWorkspace />;
 
   if (!props.shellLab && props.destination.id === "event-line") {
@@ -51,11 +55,12 @@ export function ShellWorkspaceOutlet(props: {
   }
 
   if (!props.shellLab && props.destination.id === "tianyi") {
-    return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} />;
+    return <TianyiConversationWorkspace runtime={props.runtime} onOpenPendingReview={props.onOpenPendingReview} onOpenNuwa={props.onOpenNuwa} />;
   }
 
   if (!props.shellLab && props.destination.id === "nuwa") {
-    return <NuwaN1Workspace runtime={props.runtime} />;
+    if (new URLSearchParams(window.location.search).get("nuwaView") === "manage") return <NuwaManagementWorkspace runtime={props.runtime} />;
+    return <NuwaN1Workspace runtime={props.runtime} onOpenTianyi={props.onOpenTianyi} />;
   }
 
   if (!props.shellLab && props.destination.id === "multiverse") {
@@ -79,12 +84,13 @@ export function ShellWorkspaceOutlet(props: {
     return <CharacterWorkspace runtime={props.runtime} objectId={props.characterObjectId} onEdit={props.onEditCharacter} onAddToNuwa={() => props.onAddCharacterToNuwa(props.characterObjectId!)} onClose={props.onCloseCharacterWorkspace} />;
   }
 
+  if (!props.shellLab && props.destination.id === "world") return <WorldOverviewWorkspace runtime={props.runtime} />;
+
   return <main className="shell-workspace" aria-labelledby="shell-workspace-title">
     <section className="shell-workspace-stage" data-shell-lab={props.shellLab || undefined}>
       <p className="shell-workspace-eyebrow">{t("workspace.eyebrow")}</p>
       <h1 id="shell-workspace-title">{label}</h1>
       <p className="shell-workspace-summary">{summary}</p>
-      {!props.shellLab && props.destination.id === "world" ? <button type="button" onClick={() => window.location.assign("/library?libraryView=map")}>{t("world.openLocationMap")}</button> : null}
       {props.directoryObjectId && <p className="shell-workspace-status" data-directory-focus={props.directoryObjectId}>{t("directory.focused")}: {props.directoryObjectId}</p>}
       {props.shellLab && <><div className="shell-workspace-rule" aria-hidden="true" />
         <p className="shell-workspace-status"><span aria-hidden="true" />{t("workspace.ready")}</p>

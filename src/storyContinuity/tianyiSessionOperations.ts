@@ -17,6 +17,7 @@ import type { TianyiRuntimeInput } from "./tianyiFixtureAdapter.ts";
 import type { ContinuityContext } from "./continuityFilesystem.ts";
 import type { StoryStudioEventReference } from "../storyContracts/storyStudioEventReference.ts";
 import type { TianyiGroundedModelGateway } from "./tianyiGroundedAnswerOperation.ts";
+import { normalizeTianyiSessionScope, tianyiSessionScopeFromEvents, type TianyiSessionScope } from "./tianyiSessionScope.ts";
 
 export type TianyiContextRequest = {
   productMode: "world" | "writing" | "intelligence" | "localization" | "publish";
@@ -92,6 +93,7 @@ export function createTianyiSessionOperations(dependencies: {
   localControlToken?: string;
   modelGateway?: TianyiGroundedModelGateway;
   resolveArchiveMessages?(projectId: string, refs: Array<{ sessionId: string; eventId: string; contentHash: string }>): Promise<ArchiveRecallResolvedMessage[]>;
+  validateScope?(projectId: string, scope: TianyiSessionScope): void;
 }) {
   const agentId = requireId(dependencies.agentId ?? "agent.tianyi", "Agent identifier");
   const now = dependencies.now ?? (() => new Date().toISOString());
@@ -102,31 +104,51 @@ export function createTianyiSessionOperations(dependencies: {
     return { rootPath: dependencies.rootPath, agentId, scope: "project", projectId: requireProjectId(projectId) };
   }
 
-  async function openTianyiSession(input: { projectId: string; operationId: string; retentionMode?: "normal" | "temporary" }) {
+  async function openTianyiSession(input: { projectId: string; operationId: string; retentionMode?: "normal" | "temporary"; scope?: TianyiSessionScope }) {
     const projectContext = context(input.projectId);
     const operationId = requireId(input.operationId, "Operation identifier");
     const retentionMode = input.retentionMode ?? "normal";
+    const scope = input.scope === undefined ? null : normalizeTianyiSessionScope(input.scope);
+    if (scope) dependencies.validateScope?.(input.projectId, scope);
     if (retentionMode !== "normal" && retentionMode !== "temporary") throw new Error("Tianyi Session retention mode is invalid.");
     if (retentionMode === "temporary") {
       const sessionId = deterministicId("temporary-session", input.projectId, operationId);
       const existing = temporarySessions.get(sessionId);
       if (existing) return { sessionId, contentHash: null, alreadyCompleted: true, conflict: false, retentionMode: "temporary" as const, archiveWriteCount: 0 };
       const recordedAt = requireTimestamp(now());
-      temporarySessions.set(sessionId, { id: sessionId, projectId: input.projectId, openedAt: recordedAt, events: [makeEvent({ sessionId, sequence: 1, type: "session-opened", actor: "system", content: json({ projectId: input.projectId, agentId, retentionMode: "temporary" }), operationId, recordedAt })], questions: new Map() });
+      temporarySessions.set(sessionId, { id: sessionId, projectId: input.projectId, openedAt: recordedAt, events: [makeEvent({ sessionId, sequence: 1, type: "session-opened", actor: "system", content: json({ projectId: input.projectId, agentId, retentionMode: "temporary", ...(scope ? { scope } : {}) }), operationId, recordedAt })], questions: new Map() });
       return { sessionId, contentHash: null, alreadyCompleted: false, conflict: false, retentionMode: "temporary" as const, archiveWriteCount: 0 };
     }
     for (const metadata of await listSessionMetadata(projectContext)) {
       const existing = await readSession(projectContext, metadata.id);
       if (existing?.value.some((event) => event.type === "session-opened" && event.operationId === operationId)) {
+        if (JSON.stringify(tianyiSessionScopeFromEvents(existing.value)) !== JSON.stringify(scope)) throw new Error("新建对话操作已用于不同范围。");
         return { sessionId: metadata.id, contentHash: existing.contentHash, alreadyCompleted: true, retentionMode: "normal" as const, archiveWriteCount: 0 };
       }
     }
     const sessionId = await allocateSessionId(projectContext);
     const recordedAt = requireTimestamp(now());
-    const event = makeEvent({ sessionId, sequence: 1, type: "session-opened", actor: "system", content: json({ projectId: input.projectId, agentId }), operationId, recordedAt });
+    const event = makeEvent({ sessionId, sequence: 1, type: "session-opened", actor: "system", content: json({ projectId: input.projectId, agentId, ...(scope ? { scope } : {}) }), operationId, recordedAt });
     const result = await createSession(projectContext, event, { source: "create", recordedAt, operationId });
     if (!result.ok) return { sessionId, contentHash: result.current?.contentHash ?? null, alreadyCompleted: false, conflict: true };
     return { sessionId, contentHash: result.current.contentHash, alreadyCompleted: false, conflict: false, retentionMode: "normal" as const, archiveWriteCount: 1 };
+  }
+
+  async function selectTianyiSessionScope(input: { projectId: string; sessionId: string; scope: TianyiSessionScope; operationId: string }) {
+    const scope = normalizeTianyiSessionScope(input.scope);
+    dependencies.validateScope?.(input.projectId, scope);
+    const projectContext = context(input.projectId);
+    const sessionId = requireId(input.sessionId, "Session identifier");
+    const operationId = requireId(input.operationId, "Operation identifier");
+    const session = await requireOpenSession(projectContext, sessionId);
+    const current = tianyiSessionScopeFromEvents(session.value);
+    if (current) {
+      if (JSON.stringify(current) !== JSON.stringify(scope)) throw new Error("已有对话范围不能随浏览位置改绑；请新建对话。");
+      return sessionDto(session.value, session.contentHash, "normal");
+    }
+    const next = await append(projectContext, session, makeEvent({ sessionId, sequence: session.value.length + 1, type: "session-scope-selected", actor: "author", content: json({ scope }), operationId, recordedAt: requireTimestamp(now()) }));
+    if (!next.session) throw new Error("对话在选定范围时已变化；请刷新后重试。");
+    return sessionDto(next.session.value, next.session.contentHash, "normal");
   }
 
   async function runTianyiQuestion(input: {
@@ -416,6 +438,24 @@ export function createTianyiSessionOperations(dependencies: {
     return { closed: Boolean(appended.session), ownerResult: appended.result };
   }
 
+  async function renameTianyiSession(input: { projectId: string; sessionId: string; title: string; operationId: string; expectedContentHash: string }) {
+    const projectContext = context(input.projectId);
+    const sessionId = requireId(input.sessionId, "Session identifier");
+    const session = await readSession(projectContext, sessionId);
+    if (!session) throw new Error("Conversation not found in this project.");
+    const title = requireCreativeShortText(input.title, "Conversation title", 120);
+    const operationId = requireId(input.operationId, "Operation identifier");
+    const previous = session.value.find((event) => event.type === "session-renamed" && event.operationId === operationId);
+    if (previous) {
+      if (JSON.parse(previous.content).title !== title) throw new Error("Rename operation already used for another title.");
+      return sessionDto(session.value, session.contentHash, "normal");
+    }
+    if (session.contentHash !== input.expectedContentHash) throw new Error("Conversation changed; reload before renaming.");
+    const next = await append(projectContext, session, makeEvent({ sessionId, sequence: session.value.length + 1, type: "session-renamed", actor: "system", content: json({ title }), operationId, recordedAt: requireTimestamp(now()) }));
+    if (!next.session || !next.result.saved) throw new Error("Conversation changed; reload before renaming.");
+    return sessionDto(next.session.value, next.session.contentHash, "normal");
+  }
+
   async function readTianyiSessionMetadata(input: { projectId: string; sessionId?: string }) {
     if (input.sessionId && temporarySessions.has(input.sessionId)) {
       const temporary = temporarySessions.get(input.sessionId) as NonNullable<ReturnType<typeof temporarySessions.get>>;
@@ -445,7 +485,7 @@ export function createTianyiSessionOperations(dependencies: {
     const selected = temporary.events.filter((event) => selectedIds.has(event.eventId) && visibleArchiveEventContent(event));
     if (selected.length !== selectedIds.size) throw new Error("Temporary message selection contains an unavailable event.");
     const operationId = requireId(input.operationId, "Operation identifier");
-    const opened = await openTianyiSession({ projectId: input.projectId, operationId: deterministicId("operation.retain-open", operationId), retentionMode: "normal" });
+    const opened = await openTianyiSession({ projectId: input.projectId, operationId: deterministicId("operation.retain-open", operationId), retentionMode: "normal", ...(tianyiSessionScopeFromEvents(temporary.events) ? { scope: tianyiSessionScopeFromEvents(temporary.events)! } : {}) });
     let current = await requireOpenSession(context(input.projectId), opened.sessionId);
     let archiveWriteCount = opened.archiveWriteCount;
     for (const source of selected.sort((left, right) => left.sequence - right.sequence)) {
@@ -548,7 +588,7 @@ export function createTianyiSessionOperations(dependencies: {
       const pending = dto.memoryCandidates.filter((candidate) => !dto.decidedCandidateIds.includes(candidate.candidateId));
       if (pending.length > 0) throw new Error("Decide every Memory candidate before Session rollover.");
     }
-    const opened = await openTianyiSession({ projectId: input.projectId, operationId: deterministicId("operation.rollover-open", operationId), retentionMode: "normal" });
+    const opened = await openTianyiSession({ projectId: input.projectId, operationId: deterministicId("operation.rollover-open", operationId), retentionMode: "normal", ...(tianyiSessionScopeFromEvents(current.value) ? { scope: tianyiSessionScopeFromEvents(current.value)! } : {}) });
     if (existingForward && parseRolloverLink(existingForward.content).sessionId !== opened.sessionId) throw new Error("Session rollover operation points to a different Session.");
     let archiveWriteCount = opened.archiveWriteCount;
     if (!existingForward) {
@@ -917,7 +957,7 @@ export function createTianyiSessionOperations(dependencies: {
     return resolved.map((item) => ({ projectId: item.projectId, sessionId: item.sessionId, eventId: item.eventId, sequence: item.sequence as number, actor: item.actor as "author" | "tianyi", recordedAt: item.recordedAt as string, contentHash: item.contentHash as string, excerpt: item.excerpt as string }));
   }
 
-  return { openTianyiSession, runTianyiQuestion, captureTianyiCreativeAuthorSource, extractTianyiCreativeProjection, readTianyiCreativeProjection, editTianyiCreativeCandidate, decideTianyiCreativeCandidate, pauseTianyiCreativeSession, markTianyiCreativeProviderUnavailable, recoverTianyiCreativeSession, completeTianyiCreativeSession, prepareTianyiSessionClose, reviewTianyiMemoryCandidate, decideTianyiMemoryCandidate, decideTianyiStoppingPointCandidate, finalizeTianyiSessionClose, readTianyiSessionMetadata, retainTemporarySessionMessages, recordTianyiSourceReturn, recordTianyiNuwaResult, rolloverTianyiSession };
+  return { renameTianyiSession, openTianyiSession, selectTianyiSessionScope, runTianyiQuestion, captureTianyiCreativeAuthorSource, extractTianyiCreativeProjection, readTianyiCreativeProjection, editTianyiCreativeCandidate, decideTianyiCreativeCandidate, pauseTianyiCreativeSession, markTianyiCreativeProviderUnavailable, recoverTianyiCreativeSession, completeTianyiCreativeSession, prepareTianyiSessionClose, reviewTianyiMemoryCandidate, decideTianyiMemoryCandidate, decideTianyiStoppingPointCandidate, finalizeTianyiSessionClose, readTianyiSessionMetadata, retainTemporarySessionMessages, recordTianyiSourceReturn, recordTianyiNuwaResult, rolloverTianyiSession };
 }
 
 async function requireOpenSession(context: ContinuityContext, sessionId: string) {
@@ -953,10 +993,10 @@ function sessionDto(events: InteractionEvent[], contentHash: string | null, rete
   });
   const visibleMessages = events.flatMap((event) => {
     const visibleContent = visibleArchiveEventContent(event);
-    return visibleContent && (event.actor === "author" || event.actor === "tianyi") ? [{ eventId: event.eventId, sequence: event.sequence, actor: event.actor, recordedAt: event.recordedAt, visibleContent, receiptId: event.receiptId }] : [];
+    return visibleContent && (event.actor === "author" || event.actor === "tianyi") ? [{ eventId: event.eventId, sequence: event.sequence, actor: event.actor, recordedAt: event.recordedAt, visibleContent, contentHash: archiveEventHash(event), receiptId: event.receiptId }] : [];
   });
   const groundedAttempts = retentionMode === "normal" ? groundedAttemptMetadata(events) : [];
-  return { id: events[0]?.sessionId ?? null, contentHash, eventCount: events.length, openedAt: events[0]?.recordedAt ?? null, closed: events.some((event) => event.type === "session-closed"), retentionMode, recoverable: retentionMode === "normal", packEligible: retentionMode === "normal", candidateCount: memoryCandidates.length + stoppingPointCandidates.length, memoryCandidates, stoppingPointCandidates, decidedCandidateIds, visibleMessages, groundedAttempts };
+  return { id: events[0]?.sessionId ?? null, title: events.filter((event) => event.type === "session-renamed").map((event) => JSON.parse(event.content).title as string).at(-1) ?? null, scope: tianyiSessionScopeFromEvents(events), contentHash, eventCount: events.length, openedAt: events[0]?.recordedAt ?? null, closed: events.some((event) => event.type === "session-closed"), retentionMode, recoverable: retentionMode === "normal", packEligible: retentionMode === "normal", candidateCount: memoryCandidates.length + stoppingPointCandidates.length, memoryCandidates, stoppingPointCandidates, decidedCandidateIds, visibleMessages, groundedAttempts };
 }
 
 function groundedAttemptMetadata(events: InteractionEvent[]) {

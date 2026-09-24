@@ -69,6 +69,7 @@ export function createReplaySafeProviderReceiptEnvelopeStore(options = {}) {
         usage: null,
         finishReason: null,
         errorClassification: null,
+        errorDiagnostic: null,
         completedAt: null,
         replayStatus: "reserved",
         createdAt: request.createdAt,
@@ -181,7 +182,7 @@ export function createReplaySafeProviderReceiptEnvelopeStore(options = {}) {
           : null;
         if (!replayStatus) throw envelopeError("REPLAY_ENVELOPE_INVALID", "Failure replay status is invalid.");
         const recordedAt = optionalTimestamp(input?.recordedAt) || now();
-        return { ...current, errorClassification, replayStatus, completedAt: ["cancelled", "timeout", "transport_failed"].includes(replayStatus) ? recordedAt : current.completedAt, updatedAt: recordedAt };
+        return { ...current, errorClassification, errorDiagnostic: safeErrorDiagnostic(input?.errorDiagnostic), replayStatus, completedAt: ["cancelled", "timeout", "transport_failed"].includes(replayStatus) ? recordedAt : current.completedAt, updatedAt: recordedAt };
       });
     },
 
@@ -404,6 +405,23 @@ function publicEnvelope(value) {
   const clone = structuredClone(value);
   delete clone.operationDigest;
   return Object.freeze(clone);
+}
+
+function safeErrorDiagnostic(value) {
+  if (!value || typeof value !== "object") return null;
+  const bounded = (item, length) => typeof item === "string" ? item.replace(/Bearer\s+\S+/giu, "Bearer [已隐藏]").replace(/(?:api[_-]?key|authorization|token|secret)\s*[:=]\s*\S+/giu, "[凭据已隐藏]").replace(/https?:\/\/\S+/giu, "[URL已隐藏]").slice(0, length) : null;
+  return {
+    stage: bounded(value.stage, 48),
+    upstreamHttpStatus: Number.isInteger(value.upstreamHttpStatus) && value.upstreamHttpStatus >= 100 && value.upstreamHttpStatus <= 599 ? value.upstreamHttpStatus : null,
+    upstreamErrorStatus: Number.isInteger(value.upstreamErrorStatus) && value.upstreamErrorStatus >= 100 && value.upstreamErrorStatus <= 599 ? value.upstreamErrorStatus : null,
+    upstreamErrorCode: bounded(Number.isSafeInteger(value.upstreamErrorCode) && value.upstreamErrorCode >= 0 ? String(value.upstreamErrorCode) : value.upstreamErrorCode, 100),
+    requestId: bounded(value.requestId, 100),
+    summary: bounded(value.summary, 180),
+    upstreamMessage: ["Insufficient balance", "Account in arrears", "Quota unavailable", "Payment required"].includes(value.upstreamMessage) ? value.upstreamMessage : null,
+    responseHeadersReceived: value.responseHeadersReceived === true,
+    contentStarted: value.contentStarted === true,
+    errorBodyReceived: value.errorBodyReceived === true
+  };
 }
 
 function readState(target) {

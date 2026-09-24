@@ -1,0 +1,11 @@
+{
+  "sha": "a8392d740bc9df3e9a395071a937eb5e06c494e8",
+  "build": "rehearsal-41954 @ 26c11c1+faction candidate",
+  "works": {
+    "sample": "north-bay-synthetic-review",
+    "faction": "faction-scope-acceptance"
+  },
+  "zoom": "100%",
+  "recordedAt": "2026-09-16T03:19:11.153Z",
+  "note": "零 Provider 请求"
+}

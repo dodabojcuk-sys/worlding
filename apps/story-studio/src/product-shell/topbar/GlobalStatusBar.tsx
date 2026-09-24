@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CloudOff, FolderTree, Languages, MoonStar, MoreHorizontal, Sparkles, SunMedium } from "lucide-react";
+import { Check, ChevronDown, CloudOff, FolderTree, Languages, Menu, MoonStar, MoreHorizontal, Sparkles, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GlobalSearchControl } from "../global-search/GlobalSearchControl";
@@ -9,6 +9,10 @@ import { useI18n } from "../i18n/I18nProvider";
 import { SHELL_THEME_REGISTRY, type ShellTheme } from "../theme/theme";
 
 export function GlobalStatusBar(props: {
+  focusedWorkspace?: "nuwa" | "event-line";
+  showSpaceMenu?: boolean;
+  projectChoiceInDirectory?: boolean;
+  onToggleSpaceMenu?(): void;
   theme: ShellTheme;
   projectName?: string;
   projectId: string | null;
@@ -21,6 +25,7 @@ export function GlobalStatusBar(props: {
   searchRequest: GlobalSearchOpenRequest | null;
   onSearchNavigate(result: GlobalSearchResult): void;
   onOpenProject(projectId: string): Promise<void>;
+  onCreateProject?(title: string): Promise<void>;
   onToggleTheme(): void;
   onToggleDirectory(): void;
   onToggleTianyi(): void;
@@ -35,6 +40,10 @@ export function GlobalStatusBar(props: {
   const [projectSelectorOpen, setProjectSelectorOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [projectOpenError, setProjectOpenError] = useState<string | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectBusy, setNewProjectBusy] = useState(false);
+  const [newProjectError, setNewProjectError] = useState<string | null>(null);
   const themeLabel = t(SHELL_THEME_REGISTRY[props.theme].labelKey);
   const searchEngine = useMemo(() => createGlobalSearchEngine(createProductGlobalSearchReadAdapter()), []);
   const searchLabels = useMemo(() => ({
@@ -104,9 +113,18 @@ export function GlobalStatusBar(props: {
     return () => window.removeEventListener("keydown", closeOverflow);
   }, [moreOpen]);
 
+  if (props.focusedWorkspace) return <header className="shell-topbar shell-topbar-focused" aria-label={t("directory.label")}>
+    <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><Menu aria-hidden="true" /></button>
+    <strong title={props.projectName ?? t("topbar.projectName")}>{t(props.focusedWorkspace === "nuwa" ? "space.nuwa" : "space.eventLine")}<span> · {props.projectName ?? t("topbar.projectName")}</span></strong>
+    <div className="shell-topbar-focused-actions">
+      <GlobalSearchControl engine={searchEngine} context={props.searchContext} labels={searchLabels} openRequest={props.searchRequest} onNavigate={props.onSearchNavigate} />
+    </div>
+  </header>;
+
   return <header className="shell-topbar" aria-label={t("topbar.status")}>
     <div className="shell-topbar-context shell-project-selector">
-      <button
+      {props.showSpaceMenu ? <button type="button" className="shell-nuwa-space-menu" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleSpaceMenu}><Menu aria-hidden="true" /></button> : null}
+      {props.projectChoiceInDirectory ? <span className="shell-nuwa-project-name" title={props.projectName ?? t("topbar.projectName")}>{props.projectName ?? t("topbar.projectName")}</span> : <button
         ref={projectToggleRef}
         type="button"
         className="shell-context-control"
@@ -119,8 +137,8 @@ export function GlobalStatusBar(props: {
       >
         <span><strong>{props.projectName ?? t("topbar.projectName")}</strong>{props.workVersionLabel && <i>{props.workVersionLabel}</i>}</span>
         <ChevronDown aria-hidden="true" />
-      </button>
-      {projectSelectorOpen && <section id="shell-project-selector-menu" className="shell-project-selector-menu" role="menu" aria-label={t("topbar.projects")}>
+      </button>}
+      {!props.projectChoiceInDirectory && projectSelectorOpen && <section id="shell-project-selector-menu" className="shell-project-selector-menu" role="menu" aria-label={t("topbar.projects")}>
         {props.projects.length === 0 && <p>{t("topbar.noProjectOptions")}</p>}
         {props.projects.map((project) => <button
           key={project.id}
@@ -135,6 +153,38 @@ export function GlobalStatusBar(props: {
           }}
         >{project.title}</button>)}
         {projectOpenError && <p role="alert">{projectOpenError}</p>}
+        {props.onCreateProject ? <form
+          className="shell-project-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const title = newProjectTitle.trim();
+            if (!title || newProjectBusy) return;
+            setNewProjectBusy(true);
+            setNewProjectError(null);
+            void props.onCreateProject!(title)
+              .then(() => {
+                setNewProjectOpen(false);
+                setNewProjectTitle("");
+                setProjectSelectorOpen(false);
+              })
+              .catch(() => setNewProjectError(t("topbar.newProjectFailed")))
+              .finally(() => setNewProjectBusy(false));
+          }}
+        >
+          {newProjectOpen ? <>
+            <input
+              value={newProjectTitle}
+              maxLength={80}
+              autoFocus
+              placeholder={t("topbar.newProjectPlaceholder")}
+              aria-label={t("topbar.newProjectTitle")}
+              onChange={(event) => setNewProjectTitle(event.target.value)}
+            />
+            <button type="submit" className="primary-action" disabled={newProjectBusy || !newProjectTitle.trim()}>{newProjectBusy ? t("topbar.newProjectBusy") : t("topbar.newProjectCreate")}</button>
+            <button type="button" onClick={() => { setNewProjectOpen(false); setNewProjectError(null); }}>{t("common.cancel")}</button>
+            {newProjectError && <p role="alert">{newProjectError}</p>}
+          </> : <button type="button" onClick={() => setNewProjectOpen(true)}>{t("topbar.newProject")}</button>}
+        </form> : null}
       </section>}
     </div>
     <div className="shell-topbar-actions">
@@ -149,7 +199,7 @@ export function GlobalStatusBar(props: {
         <div className="shell-runtime-status is-offline" aria-label={t("topbar.syncStatus")} title={t("topbar.syncStatus")}><CloudOff aria-hidden="true" /><span>{t("common.notConnected")}</span></div>
         <span className="shell-topbar-divider" aria-hidden="true" />
       </div>
-      <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button>
+      {!props.showSpaceMenu ? <button ref={directoryToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="project-directory" aria-pressed={props.directoryOpen} aria-label={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} title={t(props.directoryOpen ? "panel.closeProjectDirectory" : "panel.openProjectDirectory")} onClick={props.onToggleDirectory}><FolderTree aria-hidden="true" /><span>{t("directory.label")}</span></button> : null}
       <button type="button" className="shell-topbar-text-control shell-pending-entry" data-panel-toggle="pending-review" onClick={props.onOpenPendingReview}><Check aria-hidden="true" /><span>{t("pendingReview.entry")}</span></button>
       {props.tianyiActionAvailable ? <button ref={tianyiToggleRef} type="button" className="shell-topbar-panel-toggle" data-panel-toggle="tianyi-agent" aria-pressed={props.tianyiOpen} aria-label={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} title={t(props.tianyiOpen ? "panel.closeTianyiAgent" : "panel.openTianyiAgent")} onClick={props.onToggleTianyi}><Sparkles aria-hidden="true" /><span>{t("panel.tianyiAgent")}</span></button> : null}
       <div className="shell-topbar-more">

@@ -9,6 +9,42 @@ import test from "node:test";
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 import { createCreationSourceSelectionPort } from "../../apps/story-studio/server/creationSourceSelectionPort.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { buildEventStoryCrossingKnowledgeProjection } from "../../src/storyContracts/eventStoryCrossingKnowledge.ts";
+
+test("confirmed shared observation adds only reviewed witnesses with source and remains idempotent", async () => {
+  const { createStoryIntakeBatchPort } = await import("../../apps/story-studio/server/storyIntakeBatchPort.mjs");
+  const sourceRef = { sessionId: "session.observation", eventId: "event.author-source", contentHash: "a".repeat(64) };
+  const characterIds = ["character.a", "character.b", "character.c"];
+  const eventCandidate = { candidateId: "candidate.observation", type: "event", lifecycleStatus: "confirmed", formalApplication: { owner: "story-studio-event-owner", objectId: "event.observation" }, proposedTitle: "三人看见航标灯忽明忽暗", sourceEvidence: { excerpt: "三人均看见航标灯忽明忽暗" }, sourceRef, proposedRelations: characterIds.map((_, index) => ({ relation: "involves", targetCandidateId: `candidate.character.${index}` })) };
+  const candidates = [eventCandidate, ...characterIds.map((id, index) => ({ candidateId: `candidate.character.${index}`, type: "character", formalApplication: { objectId: id } }))];
+  const envelope = { projectId: "project.observation", sessionId: sourceRef.sessionId, runId: "run.original", candidates };
+  const frozenRun = structuredClone({ projectId: envelope.projectId, workVersionId: "work-version.root", sessionId: envelope.sessionId, runId: envelope.runId, storyIntakeEnvelope: envelope });
+  let event = { id: "event.observation", type: "event", status: "committed", title: "三人看见航标灯忽明忽暗 · 立即揭示", revisionToken: "rev.1", tags: ["作者确认"], aliases: [], body: "作者私密说明不应进入角色事实。" };
+  let writes = 0;
+  const operations = { readWorldObject({ objectId }: { objectId: string }) { return objectId === event.id ? event : characterIds.includes(objectId) ? { id: objectId, title: objectId, type: "character", status: "draft" } : null; }, updateWorldObject(input: any) { assert.equal(input.expectedHash, event.revisionToken); writes += 1; event = { ...event, tags: input.tags, body: input.body, revisionToken: `rev.${writes + 1}` }; return { conflict: false, object: event }; } };
+  const port = createStoryIntakeBatchPort({ rootPath: "/unused", operations, relationOperations: {}, tianyiCreativeEventPort: {}, creationSourceSelectionPort: {}, tianyiAgentRuntime: { async getRunProjection() { return frozenRun; } } });
+  const input = { projectId: envelope.projectId, workVersionId: frozenRun.workVersionId, sessionId: envelope.sessionId, runId: envelope.runId, candidateId: eventCandidate.candidateId };
+  const preview = await port.previewKnowledge(input);
+  assert.deepEqual(preview.observers.map((item: any) => item.id), characterIds);
+  assert.deepEqual(preview.confirmedObserverIds, []);
+  const project = (observerId: string) => buildEventStoryCrossingKnowledgeProjection({ projectId: envelope.projectId, observerId, characters: characterIds.map((id) => ({ id, label: id, revisionToken: "rev" })), events: [{ id: event.id, title: event.title, status: event.status, revisionToken: event.revisionToken, tags: event.tags, knowledgeSubjectIds: [] }] });
+  assert.equal(project(characterIds[0]).visibleEvents.length, 0);
+  await assert.rejects(port.confirmKnowledge({ ...input, observerIds: ["character.outsider"], expectedEventRevision: preview.eventRevision }), /共同观察/u);
+  assert.equal(writes, 0);
+  const confirmed = await port.confirmKnowledge({ ...input, observerIds: characterIds.slice(0, 2), expectedEventRevision: preview.eventRevision });
+  assert.equal(writes, 1);
+  assert.deepEqual(confirmed.confirmedObserverIds, characterIds.slice(0, 2));
+  assert.equal(event.tags.includes(`知情来源：${sourceRef.eventId}:${sourceRef.contentHash.slice(0, 12)}`), true);
+  assert.equal(event.body.includes(`${sourceRef.sessionId}:${sourceRef.eventId}:${sourceRef.contentHash}`), true);
+  assert.equal(project(characterIds[0]).visibleEvents[0]?.knowledgeState, "witnessed");
+  assert.equal(project(characterIds[2]).visibleEvents.length, 0);
+  await port.confirmKnowledge({ ...input, observerIds: characterIds.slice(0, 2), expectedEventRevision: preview.eventRevision });
+  assert.equal(writes, 1, "repeat confirmation must not write again");
+  await assert.rejects(port.confirmKnowledge({ ...input, observerIds: characterIds, expectedEventRevision: confirmed.eventRevision }), /不同范围/u);
+  await assert.rejects(port.confirmKnowledge({ ...input, observerIds: [characterIds[0]], expectedEventRevision: confirmed.eventRevision }), /不同范围/u);
+  assert.equal(writes, 1, "an existing confirmation cannot silently expand visibility");
+  assert.deepEqual(frozenRun.storyIntakeEnvelope, envelope, "the original run snapshot remains frozen");
+});
 
 test("an explicit Story Intake scope reaches existing Owners, persists its receipt, and undoes after restart", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "story-intake-batch-g1-"));
@@ -37,13 +73,13 @@ test("an explicit Story Intake scope reaches existing Owners, persists its recei
   let server = startServer(rootPath, stateFilePath, token, port);
   try {
     await waitForServer(base);
-    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "batch.open" }, headers);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "batch.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const text = "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。";
     const captured = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "batch.capture", submissionId: "batch.source", text, collaborate: false }, headers);
     const source = (await captured.json() as { data: { source: unknown } }).data.source;
     const workVersionId = rootVersion.identity.workVersionId;
-    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "batch.start" }, headers);
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "batch.start" }, headers);
     const runId = (await started.json() as { data: { runId: string } }).data.runId;
     await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "batch.context" }, headers);
     const streamed = await post(`${base}/__local/story-studio/tianyi-agent/run/stream`, { projectId, workVersionId, sessionId, runId, operationId: "batch.stream" }, { ...headers, accept: "application/x-ndjson" });
@@ -201,6 +237,15 @@ test("an explicit Story Intake scope reaches existing Owners, persists its recei
       recordedAt: new Date().toISOString(),
       undoneAt: null
     }, null, 2)}\n`, "utf8");
+    const changedAfterFailure = operations.updateWorldObject({ projectId, objectId: leakedAfterOwnerWrite.id, expectedHash: leakedAfterOwnerWrite.revisionToken, title: leakedAfterOwnerWrite.title, status: leakedAfterOwnerWrite.status, tags: leakedAfterOwnerWrite.tags, aliases: leakedAfterOwnerWrite.aliases, body: `${leakedAfterOwnerWrite.body}\n作者后续修改` });
+    assert.equal(changedAfterFailure.conflict, false);
+    const refusedRecovery = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/confirm`, { projectId, workVersionId, sessionId, runId, candidateIds: [pick("item").candidateId], position: "end", previewId: "story-intake-preview.interrupted", expectedBaseRevision: preview.baseVersion.revision, operationId: crashOperationId }, headers);
+    assert.equal(refusedRecovery.status, 409, "a later edit must stop receipt recovery before archiving the owned object");
+    assert.equal(operations.readWorldObject({ projectId, objectId: leakedAfterOwnerWrite.id }).status, "active");
+    assert.equal(operations.readWorldObject({ projectId, objectId: leakedAfterOwnerWrite.id }).body.includes("作者后续修改"), true);
+    assert.equal(JSON.parse(await readFile(crashReceiptPath, "utf8")).status, "recovery-required");
+    const restoredAfterConflict = operations.updateWorldObject({ projectId, objectId: leakedAfterOwnerWrite.id, expectedHash: changedAfterFailure.object.revisionToken, title: leakedAfterOwnerWrite.title, status: leakedAfterOwnerWrite.status, tags: leakedAfterOwnerWrite.tags, aliases: leakedAfterOwnerWrite.aliases, body: leakedAfterOwnerWrite.body });
+    assert.equal(restoredAfterConflict.conflict, false);
     const recoveredCrash = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/confirm`, { projectId, workVersionId, sessionId, runId, candidateIds: [pick("item").candidateId], position: "end", previewId: "story-intake-preview.interrupted", expectedBaseRevision: preview.baseVersion.revision, operationId: crashOperationId }, headers);
     assert.equal(recoveredCrash.status, 409, "reusing an interrupted operation must recover it instead of resuming unknown writes");
     assert.equal(operations.readWorldObject({ projectId, objectId: leakedAfterOwnerWrite.id }).status, "archived", "an Owner write completed before a process crash must be found from the durable intent and compensated");
@@ -239,6 +284,7 @@ test("an explicit Story Intake scope reaches existing Owners, persists its recei
     const arrangement = operations.readNarrativeArrangement({ projectId, workVersionId, narrativePathId: unit.id });
     assert.equal(arrangement.projection.placed.length, 2, "the selected Event candidates share one Story Unit arrangement without becoming duplicate repositories");
     const activeReceiptLog = JSON.parse(await readFile(path.join(receiptDirectory, `${confirmed.receipt.receiptId}.json`), "utf8"));
+    assert.equal(activeReceiptLog.undo.storyUnit.writtenVersion, unit.version, "the batch must retain the final Story Unit revision for exact recovery");
     assert.equal(activeReceiptLog.undo.arrangement.createdByBatch, true, "insert completion must retain the create-before-write recovery identity");
     assert.equal(activeReceiptLog.undo.arrangement.createOperationId.startsWith("story-intake-batch.arrangement-create."), true);
     assert.equal(activeReceiptLog.undo.arrangement.insertOperationIds.length, 2);
@@ -267,6 +313,17 @@ test("an explicit Story Intake scope reaches existing Owners, persists its recei
     assert.equal(relationAfterUndo.archived, true);
     const rootAfterUndo = createCreationSourceSelectionPort({ operations }).resolveRootWorkVersion(projectId)!;
     assert.equal(undone.run.storyIntakeEnvelope.baseVersion.revision, rootAfterUndo.identity.currentRevision, "exact compensation must revalidate the same retained candidate envelope against the new current root");
+    const repeatedUndo = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/undo`, { projectId, workVersionId, sessionId, runId, receiptId: confirmed.receipt.receiptId, operationId: "batch.undo.repeated" }, headers);
+    assert.equal(repeatedUndo.status, 200);
+    assert.equal((await repeatedUndo.json() as { data: any }).data.receipt.status, "undone");
+    assert.equal(createCreationSourceSelectionPort({ operations }).resolveRootWorkVersion(projectId)!.identity.currentRevision, rootAfterUndo.identity.currentRevision, "repeated recovery must not advance the root again");
+    await terminateChildProcess(server, { label: "Story Intake post-recovery restart", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 });
+    server = startServer(rootPath, stateFilePath, token, port);
+    await waitForServer(base);
+    const restartedUndo = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/undo`, { projectId, workVersionId, sessionId, runId, receiptId: confirmed.receipt.receiptId, operationId: "batch.undo.after-restart" }, headers);
+    assert.equal(restartedUndo.status, 200);
+    assert.equal((await restartedUndo.json() as { data: any }).data.receipt.status, "undone");
+    assert.equal(createCreationSourceSelectionPort({ operations }).resolveRootWorkVersion(projectId)!.identity.currentRevision, rootAfterUndo.identity.currentRevision, "restart recovery must remain read-only for an undone receipt");
     const remainingCandidate = run.storyIntakeEnvelope.candidates.find((candidate: any) => candidate.type === "item");
     const continuationPreview = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/preview`, { projectId, workVersionId, sessionId, runId, candidateIds: [remainingCandidate.candidateId], position: "end" }, headers);
     const continuation = (await continuationPreview.json() as { data: any }).data;
@@ -338,12 +395,12 @@ test("an omitted or missing relation candidate endpoint can bind one existing pr
   try {
     server = startServer(rootPath, stateFilePath, token, port);
     await waitForServer(base);
-    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "existing-binding.open" }, headers);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "existing-binding.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const captured = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "existing-binding.capture", submissionId: "existing-binding.source", text: "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。", collaborate: false }, headers);
     const source = (await captured.json() as { data: { source: unknown } }).data.source;
     const workVersionId = rootVersion.identity.workVersionId;
-    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "existing-binding.start" }, headers);
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "existing-binding.start" }, headers);
     const runId = (await started.json() as { data: { runId: string } }).data.runId;
     await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "existing-binding.context" }, headers);
     const streamed = await post(`${base}/__local/story-studio/tianyi-agent/run/stream`, { projectId, workVersionId, sessionId, runId, operationId: "existing-binding.stream" }, { ...headers, accept: "application/x-ndjson" });
@@ -390,3 +447,91 @@ function startServer(rootPath: string, stateFilePath: string, token: string, por
 }
 async function post(url: string, body: unknown, headers: Record<string, string>) { return fetch(url, { method: "POST", headers, body: JSON.stringify(body) }); }
 async function waitForServer(base: string) { const deadline = Date.now() + 8_000; while (Date.now() < deadline) { try { if ((await fetch(`${base}/__local/story-studio/bootstrap`)).ok) return; } catch { /* bounded retry */ } await new Promise((resolve) => setTimeout(resolve, 40)); } throw new Error("Story Intake batch test server did not start."); }
+
+test("an unversioned mixed candidate batch fails preflight before any entity writer runs", async () => {
+  const { createStoryIntakeBatchPort } = await import("../../apps/story-studio/server/storyIntakeBatchPort.mjs");
+  const rootPath = await mkdtemp(path.join(tmpdir(), "story-intake-no-root-"));
+  try {
+    const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath: path.join(rootPath, "state.json") });
+    const project = operations.createProject({ title: "隔离空项目", folderSlug: "empty-intake" });
+    const projectId = project.id;
+    const candidates = [
+      { candidateId: "candidate.character", localRef: "character", type: "character", proposedName: "林昭", proposedTitle: null, summary: "角色", lifecycleStatus: "pending", proposedRelations: [] },
+      { candidateId: "candidate.event", localRef: "event", type: "event", proposedName: null, proposedTitle: "航标闪烁", summary: "航标闪烁", lifecycleStatus: "pending", proposedRelations: [] }
+    ];
+    const baseVersion = { workVersionId: "work-version.unversioned", revision: 0, manifestId: null };
+    const envelope = { envelopeId: "envelope.empty", projectId, sessionId: "session.empty", runId: "run.empty", baseVersion, candidates };
+    const port = createStoryIntakeBatchPort({ rootPath, operations, relationOperations: {}, tianyiCreativeEventPort: {}, creationSourceSelectionPort: { resolveRootWorkVersion() { return null; } }, tianyiAgentRuntime: { async getRunProjection() { return { workVersionId: baseVersion.workVersionId, storyIntakeEnvelope: envelope }; } } });
+    const input = { projectId, workVersionId: baseVersion.workVersionId, sessionId: envelope.sessionId, runId: envelope.runId, candidateIds: candidates.map((candidate) => candidate.candidateId), excludedRelationKeys: [], position: "end" };
+    const preview = await port.preview(input);
+    assert.equal(preview.canConfirm, false);
+    assert.ok(preview.conflicts.some((conflict: string) => conflict.includes("尚未建立主故事版本")));
+    await assert.rejects(port.confirm({ ...input, previewId: preview.previewId, expectedBaseRevision: 0, operationId: "confirm.empty" }), /尚未建立主故事版本/u);
+    assert.equal(operations.listWorldObjects({ projectId }).length, 0);
+  } finally { await rm(rootPath, { recursive: true, force: true }); }
+});
+
+test("an empty project can establish its first root and adopt the same selected batch without regenerating candidates", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "story-intake-first-root-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  const projectId = "first-root-intake";
+  const token = "first-root-token";
+  const port = 58_000 + (process.pid % 1_000);
+  const base = `http://127.0.0.1:${port}`;
+  const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: base };
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "首次采纳", folderSlug: projectId });
+  let server = startServer(rootPath, stateFilePath, token, port);
+  try {
+    await waitForServer(base);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "first.open", scope: { kind: "project" } }, headers);
+    const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
+    const text = "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。";
+    const capture = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "first.capture", submissionId: "first.source", text, collaborate: false }, headers);
+    const source = (await capture.json() as { data: { source: unknown } }).data.source;
+    const workVersionId = "work-version.unversioned";
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "first.start" }, headers);
+    assert.equal(started.status, 201, await started.clone().text());
+    const runId = (await started.json() as { data: { runId: string } }).data.runId;
+    await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "first.context" }, headers);
+    const streamed = await post(`${base}/__local/story-studio/tianyi-agent/run/stream`, { projectId, workVersionId, sessionId, runId, operationId: "first.stream" }, { ...headers, accept: "application/x-ndjson" });
+    const messages = (await streamed.text()).trim().split("\n").map((line) => JSON.parse(line));
+    const run = messages.filter((message) => message.type === "projection").at(-1)?.data;
+    assert.ok(run?.storyIntakeEnvelope, JSON.stringify(messages.map((message) => ({ type: message.type, status: message.data?.status, error: message.data?.error, message: message.message }))));
+    const selected = run.storyIntakeEnvelope.candidates.filter((candidate: any) => ["character", "event", "story_unit", "narrative_path_membership"].includes(candidate.type));
+    const candidateIds = selected.map((candidate: any) => candidate.candidateId);
+    const relations = selected.flatMap((candidate: any) => candidate.proposedRelations.map((link: any, index: number) => `${candidate.candidateId}:${link.relation}:${link.targetCandidateId}:${index}`));
+    const scope = { projectId, workVersionId, sessionId, runId, candidateIds, excludedRelationKeys: relations, position: "end" };
+    const blockedResponse = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/preview`, scope, headers);
+    const blocked = (await blockedResponse.json() as { data: any }).data;
+    assert.equal(blocked.canConfirm, false);
+    assert.equal(operations.listWorldObjects({ projectId, type: "character" }).length, 0);
+    const prepared = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/prepare-version`, { projectId, workVersionId, sessionId, runId, action: "create-root", operationId: "first.root" }, headers);
+    assert.equal(prepared.status, 200, await prepared.clone().text());
+    const preparedRun = (await prepared.json() as { data: any }).data.run;
+    assert.deepEqual(preparedRun.storyIntakeEnvelope.candidates.map((candidate: any) => candidate.candidateId), run.storyIntakeEnvelope.candidates.map((candidate: any) => candidate.candidateId));
+    const previewResponse = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/preview`, scope, headers);
+    const preview = (await previewResponse.json() as { data: any }).data;
+    assert.equal(preview.canConfirm, true, JSON.stringify(preview.conflicts));
+    const confirmed = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/confirm`, { ...scope, previewId: preview.previewId, expectedBaseRevision: preview.baseVersion.revision, operationId: "first.confirm" }, headers);
+    assert.equal(confirmed.status, 200, await confirmed.clone().text());
+    const receipt = (await confirmed.json() as { data: any }).data.receipt;
+    assert.equal(receipt.status, "active");
+    assert.equal(operations.listWorldObjects({ projectId, type: "character" }).filter((item) => item.status !== "archived").length, selected.filter((item: any) => item.type === "character").length);
+    const formalEventIds = receipt.items.filter((item: any) => item.owner === "story-studio-event-owner").map((item: any) => item.targetId);
+    const formalUnitId = receipt.items.find((item: any) => item.owner === "story-unit-owner")?.targetId;
+    assert.ok(formalEventIds.length && formalUnitId);
+    assert.deepEqual(operations.readStoryUnit({ projectId, unitId: formalUnitId }).linkedEntityIds, [...formalEventIds].sort(), "author-confirmed Event membership is stored by the Story Unit Owner");
+    const root = createCreationSourceSelectionPort({ operations }).resolveRootWorkVersion(projectId)!;
+    assert.equal(operations.readNarrativeArrangement({ projectId, workVersionId: root.identity.workVersionId, narrativePathId: formalUnitId }).projection.placed.length, formalEventIds.length, "formal narrative position is a separate arrangement receipt");
+    const relationsAfter = await fetch(`${base}/__local/story-studio/relations?projectId=${projectId}&includeArchived=true`);
+    assert.equal((await relationsAfter.json() as { data: { relations: unknown[] } }).data.relations.length, 0, "excluded relations remain excluded after successful retry");
+    const repeated = await post(`${base}/__local/story-studio/tianyi-agent/story-intake/batch/confirm`, { ...scope, previewId: preview.previewId, expectedBaseRevision: preview.baseVersion.revision, operationId: "first.confirm" }, headers);
+    assert.equal(repeated.status, 200);
+    assert.equal((await repeated.json() as { data: any }).data.receipt.receiptId, receipt.receiptId);
+    assert.equal(operations.listWorldObjects({ projectId, type: "character" }).filter((item) => item.status !== "archived").length, selected.filter((item: any) => item.type === "character").length, "retrying the same operation never duplicates formal characters");
+  } finally {
+    await terminateChildProcess(server, { label: "first-root batch server", gracefulTimeoutMs: 2_000, forceTimeoutMs: 2_000 }).catch(() => undefined);
+    await rm(rootPath, { recursive: true, force: true });
+  }
+});

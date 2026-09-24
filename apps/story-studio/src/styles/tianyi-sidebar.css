@@ -445,19 +445,10 @@
 .capability-manage { width: 100%; min-height: 2rem; margin-block-start: var(--space-1); color: var(--color-accent); background: transparent; border: 1px solid var(--color-border); border-radius: var(--radius-sm); cursor: pointer; font-size: var(--font-size-xs); }
 .capability-manage { color: var(--color-text-muted); border-color: transparent; }
 
-@media (max-width: 100rem) {
-  .tianyi-sidebar { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; width: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current))); z-index: var(--layer-tianyi); box-shadow: var(--shadow-panel); }
-  .composer-runtime-control > button span { display: none; }
-}
-
-.tianyan-r0-shell[data-shell-focus-layout="wide"][data-tianyi-open="true"] .tianyi-sidebar {
-  position: static;
-  grid-area: tianyi;
-  inset: auto;
-  inline-size: auto;
-  width: auto;
-  box-shadow: none;
-}
+/* Overlay vs in-flow is decided by the Shell's measured layout through the
+   sidebar's data-overlay attribute, not by a bare viewport media query. */
+.tianyi-sidebar[data-overlay="true"] { position: fixed; inset-block: var(--topbar-height) 0; inset-inline-end: 0; width: min(var(--tianyi-sidebar-width), calc(100vw - var(--rail-current))); z-index: var(--layer-tianyi); box-shadow: var(--shadow-panel); }
+.tianyi-sidebar[data-overlay="false"] { position: static; grid-row: 2; grid-column: 6; inset: auto; inline-size: auto; width: auto; min-inline-size: 0; max-inline-size: var(--tianyi-sidebar-width); max-block-size: calc(100vh - var(--topbar-height)); overflow: hidden auto; box-shadow: none; border-inline-start: 1px solid var(--color-border); }
 
 @media (max-width: 50rem) {
   .tianyi-sidebar { inset-inline: var(--rail-current) 0; width: auto; z-index: var(--layer-tianyi); }

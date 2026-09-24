@@ -15,7 +15,7 @@ import {
 } from "../../lib/localTransport";
 import { LocalFolderProvider } from "../../lib/storageProvider";
 import { TianyanR0Shell } from "../TianyanR0Shell";
-import { tianyiComposerDraftStorageKey, tianyiConversationStorageKey } from "./tianyiShellSessionRecovery";
+import { tianyiComposerDraftStorageKey, readSelectedConversation, retainSelectedConversation, tianyiConversationStorageKey } from "./tianyiShellSessionRecovery";
 
 export type TianyanShellRuntimeState = {
   project: StoryStudioProject | null;
@@ -93,9 +93,9 @@ export function TianyanShellRuntime() {
         setConnectionState("ready");
         return;
       }
-      setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative")) ?? "");
-      setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work")) ?? "");
-      setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(activeProject.id)));
+      setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "creative", readSelectedConversation(activeProject.id))) ?? "");
+      setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(activeProject.id, "work", readSelectedConversation(activeProject.id))) ?? "");
+      setTianyiConversationId(readSelectedConversation(activeProject.id));
       // A failed version read must not leave a previous project's label attached to
       // the current project. The Shell can still become interactive because this is
       // a read-only status projection, not the connection owner.
@@ -155,9 +155,9 @@ export function TianyanShellRuntime() {
   const openActiveProject = useCallback(async (projectId: string) => {
     const nextProject = await withConnection((token) => openProject(projectId, token));
     setProject(nextProject);
-    setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "creative")) ?? "");
-    setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "work")) ?? "");
-    setTianyiConversationId(window.sessionStorage.getItem(tianyiConversationStorageKey(nextProject.id)));
+    setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "creative", readSelectedConversation(nextProject.id))) ?? "");
+    setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(nextProject.id, "work", readSelectedConversation(nextProject.id))) ?? "");
+    setTianyiConversationId(readSelectedConversation(nextProject.id));
     setActivePageAgentRunId(null);
     setActiveTianyiCandidateId(null);
     setSharedTianyiReferences([]);
@@ -190,16 +190,22 @@ export function TianyanShellRuntime() {
   const persistTianyiConversationId = useCallback((sessionId: string | null) => {
     setTianyiConversationId(sessionId);
     if (!project) return;
-    const key = tianyiConversationStorageKey(project.id);
-    if (sessionId) window.sessionStorage.setItem(key, sessionId);
-    else window.sessionStorage.removeItem(key);
-  }, [project]);
+    if (sessionId && !tianyiConversationId) {
+      const creativeKey = tianyiComposerDraftStorageKey(project.id, "creative", sessionId);
+      const workKey = tianyiComposerDraftStorageKey(project.id, "work", sessionId);
+      if (window.localStorage.getItem(creativeKey) === null && creativeComposerDraft) window.localStorage.setItem(creativeKey, creativeComposerDraft);
+      if (window.localStorage.getItem(workKey) === null && workComposerDraft) window.localStorage.setItem(workKey, workComposerDraft);
+    }
+    setCreativeComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(project.id, "creative", sessionId)) ?? "");
+    setWorkComposerDraft(window.localStorage.getItem(tianyiComposerDraftStorageKey(project.id, "work", sessionId)) ?? "");
+    retainSelectedConversation(project.id, sessionId);
+  }, [project, tianyiConversationId, creativeComposerDraft, workComposerDraft]);
   const persistComposerDraft = useCallback((lane: "creative" | "work", value: string) => {
     if (!project) return;
-    const key = tianyiComposerDraftStorageKey(project.id, lane);
+    const key = tianyiComposerDraftStorageKey(project.id, lane, tianyiConversationId);
     if (value) window.localStorage.setItem(key, value);
     else window.localStorage.removeItem(key);
-  }, [project]);
+  }, [project, tianyiConversationId]);
   const persistCreativeComposerDraft = useCallback((value: string) => {
     setCreativeComposerDraft(value);
     persistComposerDraft("creative", value);

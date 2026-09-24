@@ -1,0 +1,24 @@
+{
+  "http": 200,
+  "latencyMs": 36947,
+  "traceId": "ti_8s3fd9ty1i1805p2fo",
+  "finishReason": "tool_calls",
+  "toolCallCount": 1,
+  "firstToolName": "propose_story_intake",
+  "argumentsLength": 572,
+  "argumentsParses": true,
+  "usage": {
+    "prompt_tokens": 399,
+    "completion_tokens": 2190,
+    "total_tokens": 2589,
+    "completion_tokens_details": {
+      "reasoning_tokens": 1900
+    },
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 399
+  },
+  "error": null
+}

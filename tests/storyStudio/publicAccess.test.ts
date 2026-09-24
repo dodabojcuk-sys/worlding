@@ -1,0 +1,100 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import test from "node:test";
+
+import { createReviewAccess, originIsAllowed, publicOriginUsesSecureCookies, resolvePublicOrigin } from "../../apps/story-studio/server/publicAccess.mjs";
+
+test("public origin is one exact HTTPS origin while local loopback remains compatible", () => {
+  assert.equal(resolvePublicOrigin("https://tianyan.omnihex.xyz"), "https://tianyan.omnihex.xyz");
+  assert.throws(() => resolvePublicOrigin("https://*.omnihex.xyz"), /exact HTTPS origin/u);
+  assert.throws(() => resolvePublicOrigin("http://tianyan.omnihex.xyz"), /exact HTTPS origin/u);
+  assert.throws(() => resolvePublicOrigin("http://198.44.179.34:4193"), /TIANYAN_ALLOW_INSECURE_REVIEW_ORIGIN/u);
+  assert.throws(() => resolvePublicOrigin("http://tianyan.omnihex.xyz:4193", true), /exact HTTPS origin/u);
+  assert.equal(resolvePublicOrigin("http://198.44.179.34:4193", true), "http://198.44.179.34:4193");
+  assert.throws(() => resolvePublicOrigin("https://tianyan.omnihex.xyz/path"), /exact HTTPS origin/u);
+  assert.equal(originIsAllowed("https://tianyan.omnihex.xyz", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
+  assert.equal(originIsAllowed("https://evil.example", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), false);
+  assert.equal(originIsAllowed("http://127.0.0.1:4191", { port: 4193, publicOrigin: "https://tianyan.omnihex.xyz" }), true);
+  assert.equal(publicOriginUsesSecureCookies("https://tianyan.omnihex.xyz"), true);
+  assert.equal(publicOriginUsesSecureCookies("http://198.44.179.34:4193"), false);
+  assert.equal(publicOriginUsesSecureCookies(null), false);
+});
+
+test("temporary HTTP IP review access never emits a Secure cookie", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-http-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: "http://198.44.179.34:4193", sessionSecret: "fixed-session-secret" });
+  const loginResponse = response();
+  await access.handle(request("username=reviewer&password=correct-horse-battery-staple", { "content-type": "application/x-www-form-urlencoded" }), loginResponse, new URL("http://198.44.179.34:4193/__review/login"));
+  assert.equal(loginResponse.status, 303);
+  assert.doesNotMatch(String(loginResponse.headers["set-cookie"]), /; Secure/u);
+});
+
+test("review access is disabled by default and rejects partial configuration", () => {
+  assert.equal(createReviewAccess({ username: "", passwordFile: "", publicOrigin: null, sessionSecret: "session" }).enabled, false);
+  assert.throws(() => createReviewAccess({ username: "reviewer", passwordFile: "", publicOrigin: null, sessionSecret: "session" }), /requires both/u);
+});
+
+test("review access reads a dedicated password file and never accepts a wrong cookie", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-access-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: "https://tianyan.omnihex.xyz", sessionSecret: "fixed-session-secret" });
+  assert.equal(access.enabled, true);
+  assert.equal(access.isAuthorized({ headers: { cookie: "tianyan_review_access=wrong" } }), false);
+  assert.equal(access.isAuthorized({ headers: { cookie: "tianyan_review_access=fixed-session-secret" } }), true);
+});
+
+test("review login emits a Secure cookie for the HTTPS review origin and logout expires it", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-login-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: "https://tianyan.omnihex.xyz", sessionSecret: "fixed-session-secret" });
+  const login = request("username=reviewer&password=correct-horse-battery-staple", { "content-type": "application/x-www-form-urlencoded" });
+  const loginResponse = response();
+  assert.equal(await access.handle(login, loginResponse, new URL("https://tianyan.omnihex.xyz/__review/login")), true);
+  assert.equal(loginResponse.status, 303);
+  assert.match(String(loginResponse.headers["set-cookie"]), /HttpOnly; SameSite=Strict; Path=\/; Secure/u);
+  const logoutResponse = response();
+  assert.equal(await access.handle(request("", { cookie: "tianyan_review_access=fixed-session-secret" }), logoutResponse, new URL("https://tianyan.omnihex.xyz/__review/logout")), true);
+  assert.match(String(logoutResponse.headers["set-cookie"]), /Max-Age=0; Secure/u);
+});
+
+test("review logout has an explicit confirmation page and stays inaccessible without a session", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "tianyan-review-logout-"));
+  const passwordFile = path.join(root, "password");
+  writeFileSync(passwordFile, "correct-horse-battery-staple\n", { mode: 0o600 });
+  const access = createReviewAccess({ username: "reviewer", passwordFile, publicOrigin: null, sessionSecret: "fixed-session-secret" });
+  const authorized = request("", { cookie: "tianyan_review_access=fixed-session-secret" });
+  authorized.method = "GET";
+  const page = response();
+  assert.equal(await access.handle(authorized, page, new URL("http://127.0.0.1:4193/__review/logout")), true);
+  assert.equal(page.status, 200);
+  assert.match(page.body, /确认退出/u);
+  const anonymous = request("", {});
+  anonymous.method = "GET";
+  const redirect = response();
+  assert.equal(await access.handle(anonymous, redirect, new URL("http://127.0.0.1:4193/__review/logout")), true);
+  assert.equal(redirect.status, 302);
+});
+
+function request(body: string, headers: Record<string, string>) {
+  const stream = Readable.from([body]) as Readable & { method: string; headers: Record<string, string> };
+  stream.method = body ? "POST" : "POST";
+  stream.headers = headers;
+  return stream;
+}
+
+function response() {
+  return {
+    status: 0,
+    headers: {} as Record<string, unknown>,
+    body: "",
+    writeHead(status: number, headers: Record<string, unknown>) { this.status = status; this.headers = headers; },
+    end(body = "") { this.body = String(body); }
+  };
+}

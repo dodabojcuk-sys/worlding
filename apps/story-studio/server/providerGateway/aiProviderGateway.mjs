@@ -118,12 +118,19 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
         });
         throw error;
       }
-      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : boundedInteger(maxOutputTokensCap, 1, profile.maxOutputTokens);
+      // A deployment cap may only lower a model profile's own ceiling; the two
+      // are composed by clamping so a bounded review deployment cannot crash a
+      // dispatch just because its cap exceeds the selected profile's limit.
+      // Per-run requests above the effective cap are still rejected, not
+      // silently rewritten.
+      const configuredTokenCap = maxOutputTokensCap == null ? profile.maxOutputTokens : Math.min(boundedInteger(maxOutputTokensCap, 1, 8_192), profile.maxOutputTokens);
       const maxOutputTokens = boundedInteger(input?.maxOutputTokens ?? configuredTokenCap, 1, configuredTokenCap);
+      const timeoutMs = input?.timeoutMs == null ? profile.timeoutMs : boundedInteger(input.timeoutMs, 50, 120_000);
       if (adapter.status().configured !== true) return adapter.openChatStream({
         modelId: profile.modelId, messages, maxOutputTokens, temperature: profile.temperature,
-        timeoutMs: profile.timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
-        ...(tools.length ? { tools, toolChoice } : {})
+        timeoutMs, signal: input?.signal, responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text", enableThinking: profile.enableThinking,
+        ...(tools.length ? { tools, toolChoice } : {}),
+        ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
       });
       const reservation = reserveBudget(budgetLedger, { ...input, authorizationReceiptId: input?.authorizationReceiptId ?? defaultAuthorizationReceiptId }, "generation", profile.id);
       let receipt = null;
@@ -137,24 +144,31 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
           reservationId: reservation?.reservation?.reservationId ?? null,
           receiptEnvelopeId: receipt?.envelopeId ?? null
         });
-        const stream = await adapter.openChatStream({
-          modelId: profile.modelId,
-          messages,
-          maxOutputTokens,
-          temperature: profile.temperature,
-          timeoutMs: profile.timeoutMs,
-          signal: input?.signal,
-          responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
-          enableThinking: profile.enableThinking,
-          ...(tools.length ? { tools, toolChoice } : {})
-        });
-        enteredTransport = true;
-        await notifyProviderLifecycle(onProviderLifecycle, {
+        const onTransportDispatch = async () => {
+          if (enteredTransport) return;
+          enteredTransport = true;
+          await notifyProviderLifecycle(onProviderLifecycle, {
           phase: "dispatched",
           requestKey: reservation?.reservation?.idempotencyKey ?? input?.idempotencyKey ?? null,
           reservationId: reservation?.reservation?.reservationId ?? null,
           receiptEnvelopeId: receipt?.envelopeId ?? null
         });
+        };
+        const stream = await adapter.openChatStream({
+          onTransportDispatch,
+          onRequestShape: input?.onRequestShape,
+          modelId: profile.modelId,
+          messages,
+          maxOutputTokens,
+          temperature: profile.temperature,
+          timeoutMs,
+          signal: input?.signal,
+          responseFormat: input?.responseFormat === "json-object" ? "json-object" : "text",
+          enableThinking: profile.enableThinking,
+          ...(tools.length ? { tools, toolChoice } : {}),
+          ...(input?.nonStreaming === true ? { nonStreaming: true } : {})
+        });
+        await onTransportDispatch(); // Legacy adapters signal on successful open.
         if (!reservation && !receipt) return stream;
         return Object.freeze({
           traceId: stream.traceId,
@@ -266,17 +280,27 @@ export function createAiProviderGateway({ adapters, profiles = DEFAULT_MODEL_PRO
       const modelId = selectStructuredChatModel(modelIds);
       const providerId = typeof options.providerId === "string" && adapterMap.has(options.providerId) ? options.providerId : "siliconflow";
       const matchingProfile = frozenProfiles.find((profile) => profile.providerId === providerId && profile.modelId === modelId);
-      activeProfiles = [matchingProfile || validateProfile({
+      const chosen = matchingProfile || validateProfile({
         id: `${providerId}-session-structured`,
         label: `${modelId} · 当前账户`,
         purpose: "structured-story",
         providerId,
         modelId,
-        maxOutputTokens: 2_400,
+        // Reasoning-style models spend part of this budget on invisible
+        // reasoning tokens before the structured answer (measured: GLM-5.3
+        // spent 1900 reasoning tokens on one intake call); 2400 truncated
+        // real envelopes, so discovered session models get the same ceiling
+        // the product path already enforces.
+        maxOutputTokens: 4_096,
         temperature: 0.25,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         enableThinking: false
-      })];
+      });
+      // Keep a local fake adapter's profile resolvable when the host enabled
+      // it, so fake-transport dispatches survive a later discovered-model
+      // selection instead of failing profile lookup.
+      const preservedFake = frozenProfiles.filter((profile) => profile.providerId === "local-fake");
+      activeProfiles = [chosen, ...preservedFake];
       return publicProfile(activeProfiles[0]);
     },
     clearDiscoveredModel() {
@@ -414,7 +438,7 @@ function persistReceiptFailure(store, receipt, error) {
   if (!store || !receipt) return;
   const code = typeof error?.code === "string" ? error.code : "transport-failed";
   const replayStatus = code === "timeout" ? "timeout" : (code === "cancelled" || error?.name === "AbortError") ? "cancelled" : "transport_failed";
-  try { store.markFailure({ envelopeId: receipt.envelopeId, replayStatus, errorClassification: code }); } catch { /* never replace the Provider error */ }
+  try { store.markFailure({ envelopeId: receipt.envelopeId, replayStatus, errorClassification: code, errorDiagnostic: error?.diagnostic ?? null }); } catch { /* never replace the Provider error */ }
 }
 
 function completeBudgetFailure(ledger, reservation, error) {
@@ -564,7 +588,7 @@ function validateTools(value) {
 
 function validateToolChoice(value, tools) {
   if (!tools.length) {
-    if (value != null) throw providerGatewayError("invalid-request");
+    if (value != null && value !== "none") throw providerGatewayError("invalid-request");
     return null;
   }
   if (value == null || value === "auto") return "auto";

@@ -212,3 +212,22 @@ test("Selection references carry only a stable owner range and content hash", ()
   assert.equal("selectedText" in selection, false);
   assert.equal("content" in selection, false);
 });
+
+test("Grounded answers accept author-premise candidates with empty source references", () => {
+  const raw = JSON.stringify({
+    summary: "按你本次提出的前提（封闸夜运药与守闸冲突），可以沿两个方向展开：一是职责之争，二是救急优先。均为构思候选，不是已确认事实。",
+    claims: [
+      { statement: "方向一：守闸人依职责拒绝夜间开闸。", status: "candidate", sourceRefs: [], uncertaintyReason: "来自作者本次前提，尚未确认。" },
+      { statement: "方向二：为送药临时 partial 开闸并押运随行。", status: "candidate", sourceRefs: [], uncertaintyReason: "来自作者本次前提，尚未确认。" }
+    ],
+    status: "candidate",
+    sourceRefs: [],
+    uncertaintyReason: "全部内容基于作者本次提出的创作前提。",
+    includedSources: [],
+    excludedSources: []
+  });
+  const answer = parseAndNormalizeTianyiGroundedAnswer(raw, { includedSourceRefs: [], excludedSources: [] });
+  assert.equal(answer.status, "candidate");
+  assert.equal(answer.claims.length, 2);
+  assert.deepEqual(answer.includedSources, []);
+});

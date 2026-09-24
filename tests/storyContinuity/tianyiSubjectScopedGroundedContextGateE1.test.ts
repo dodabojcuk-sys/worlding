@@ -136,12 +136,13 @@ test("E1 subject-scoped grounded packet is deterministic, leak-free, receipt-equ
     assert.deepEqual(await ownerInventory(fixture.rootPath), preflightBefore, "invalid access must allocate no Session or Receipt");
     assert.equal(gateway.calls(), 0, "invalid access must make zero provider calls");
 
-    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.e1.session-open" });
+    const opened = await tianyi.openTianyiSession({ projectId: fixture.projectId, operationId: "operation.e1.session-open", scope: { kind: "project" } });
     const request: TianyiGroundedContextRequest = {
       version: "story-tianyi-grounded-context-request/v1",
       projectId: fixture.projectId,
       sessionId: opened.sessionId,
       taskKind: "grounded-answer",
+      scope: { kind: "project" },
       accessMode: "character",
       subjectRef: fixture.subjectRef,
       sceneRef: fixture.sceneRef,

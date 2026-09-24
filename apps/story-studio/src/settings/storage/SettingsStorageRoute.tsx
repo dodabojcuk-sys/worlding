@@ -25,8 +25,15 @@ import { LocalFolderProvider } from "../../lib/storageProvider";
 import { AgentSettingsSection, type ProviderProfileSaveResult, type ProviderProfileUpdate } from "../agent/AgentSettingsSection";
 import { SettingsTransferSection } from "./SettingsTransferSection";
 import { SettingsStorageSection } from "./SettingsStorageSection";
+import { useI18n } from "../../product-shell/i18n/I18nProvider";
+import { resolveInitialShellTheme, type ShellTheme } from "../../product-shell/theme/theme";
 
 type SettingsSectionId = "storage" | "transfer" | "agent";
+type MobileSettingsPage = "appearance" | "storage" | "transfer" | "agent-provider" | "agent-permissions" | null;
+const mobilePageFromPath = (): MobileSettingsPage => {
+  const page = window.location.pathname.split("/")[2];
+  return ["appearance", "storage", "transfer", "agent-provider", "agent-permissions"].includes(page ?? "") ? page as MobileSettingsPage : null;
+};
 type SettingsNavItem = { id: string; label: string; section: SettingsSectionId; targetId: string };
 
 const workspaceNavigation: ReadonlyArray<{ group: string; items: ReadonlyArray<SettingsNavItem> }> = [
@@ -41,7 +48,14 @@ const workspaceNavigation: ReadonlyArray<{ group: string; items: ReadonlyArray<S
 ];
 
 /** Independent utility route. It composes settings adapters without mounting the product Shell. */
-export function SettingsStorageRoute(props: { presentation?: "utility" | "workspace" } = {}) {
+export function SettingsStorageRoute(props: { presentation?: "utility" | "workspace" | "mobile" } = {}) {
+  const { locale, setLocale } = useI18n();
+  const [appearance, setAppearance] = useState<ShellTheme>(resolveInitialShellTheme);
+  const chooseAppearance = (next: ShellTheme) => {
+    setAppearance(next);
+    try { window.localStorage.setItem("tianyan.shell.theme", next); } catch { /* current session remains usable */ }
+    window.dispatchEvent(new CustomEvent("tianyan-shell-theme-change", { detail: next }));
+  };
   const presentation = props.presentation ?? "utility";
   const storageProvider = useRef(new LocalFolderProvider()).current;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -52,6 +66,8 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("storage");
   const [activeNavItem, setActiveNavItem] = useState("storage");
+  const [mobilePage, setMobilePage] = useState<MobileSettingsPage>(mobilePageFromPath);
+  const [mobileTab, setMobileTab] = useState<"settings" | "sync" | "about">("settings");
   const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const withToken = useCallback(<T,>(action: (token: string) => Promise<T>) => storageProvider.withWriteAccess(action), [storageProvider]);
 
@@ -90,6 +106,19 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeSection, pendingTargetId]);
+
+  useEffect(() => {
+    const restore = () => setMobilePage(mobilePageFromPath());
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+
+  const openMobilePage = (page: Exclude<MobileSettingsPage, null>) => {
+    window.history.pushState({}, "", `/settings/${page}`);
+    setMobilePage(page);
+    setActiveSection(page === "storage" ? "storage" : page === "transfer" ? "transfer" : "agent");
+    window.dispatchEvent(new Event("tianyan-mobile-route-change"));
+  };
 
   const openSettingsItem = (item: SettingsNavItem) => {
     setActiveSection(item.section);
@@ -157,12 +186,18 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
     input.click();
   });
 
-  return <main className={`settings-utility-route ${presentation === "workspace" ? "settings-workspace-route" : ""}`} data-route="settings-storage" data-settings-route={presentation}>
+  return <main className={`settings-utility-route ${presentation === "workspace" || presentation === "mobile" ? "settings-workspace-route" : ""}`} data-route="settings-storage" data-settings-route={presentation} data-mobile-page={mobilePage ?? "home"}>
     <div className="settings-utility-content">
       {presentation === "utility" && <header className="settings-utility-heading">
         {presentation === "utility" && <a className="settings-back-link" href="/world"><ArrowLeft aria-hidden="true" />返回作品</a>}
         <div className="settings-heading-copy"><p>设置</p><h1>本地工作区设置</h1><span><strong>{project?.title ? `当前作品：${project.title}` : "尚未打开作品"}</strong> 配置只通过既有 Workspace、Provider 与权限 owner 生效。</span></div>
       </header>}
+      {presentation === "mobile" && !mobilePage && <div className="mobile-settings-home" aria-label="设置首页">
+        <div className="mobile-settings-profile"><span aria-hidden="true">我</span><div><strong>个人中心</strong><small>当前设备上的偏好与工作区配置</small></div></div>
+        <div className="mobile-settings-tabs" role="tablist" aria-label="个人中心分类"><button type="button" role="tab" aria-selected={mobileTab === "settings"} onClick={() => setMobileTab("settings")}>设置</button><button type="button" role="tab" aria-selected={mobileTab === "sync"} onClick={() => setMobileTab("sync")}>同步与备份</button><button type="button" role="tab" aria-selected={mobileTab === "about"} onClick={() => setMobileTab("about")}>关于</button></div>
+        {mobileTab === "settings" ? <><p className="mobile-settings-group">模型接入</p><div className="mobile-settings-list"><button type="button" onClick={() => openMobilePage("agent-provider")}>API / Provider 配置 <span>{modelStatus?.profile.profile?.displayName ?? "未配置"} ›</span></button><button type="button" onClick={() => openMobilePage("agent-permissions")}>默认权限 <span>查看现有配置 ›</span></button></div><p className="mobile-settings-group">读法与工作区</p><div className="mobile-settings-list"><button type="button" onClick={() => openMobilePage("appearance")}>外观与语言 <span>本机偏好 ›</span></button><button type="button" onClick={() => openMobilePage("storage")}>存储与备份 <span>当前作品 ›</span></button><button type="button" onClick={() => openMobilePage("transfer")}>导入与导出 <span>工程包 ›</span></button></div><p className="mobile-settings-note">语音、通知与云同步尚未接入；这里没有可操作开关。</p></> : mobileTab === "sync" ? <><p className="mobile-settings-group">同步与备份</p><div className="mobile-settings-list"><button type="button" onClick={() => openMobilePage("storage")}>本地备份 <span>查看 ›</span></button><div>跨设备同步 <span>尚未实现</span></div></div><p className="mobile-settings-note">本机存储不表示作品已经同步到其他设备。</p></> : <><p className="mobile-settings-group">关于</p><div className="mobile-settings-list"><div>天衍 Story Studio <span>当前本地版本</span></div><div>手机创作端 <span>与桌面共用项目和领域服务</span></div></div></>}
+      </div>}
+      {(presentation !== "mobile" || mobilePage) && <>
       <div className="settings-workspace-layout">
         {presentation === "workspace" && <aside className="settings-workspace-nav" aria-label="设置目录">
           <p>设置目录</p>
@@ -172,17 +207,18 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
           </section>)}</nav>
         </aside>}
         <div className="settings-workspace-sections">
-          {(presentation === "utility" || activeSection === "storage") && <section id="settings-section-storage" aria-label="存储与备份"><SettingsStorageSection
+          {(presentation !== "mobile" || mobilePage === "appearance") && <section className="settings-appearance" aria-label="外观与语言"><h2>外观与语言</h2><div><label>主题<select aria-label="主题" value={appearance} onChange={(event) => chooseAppearance(event.target.value as ShellTheme)}><option value="cloud-ink">云砚</option><option value="night-paper">夜纸</option></select></label><label>语言<select aria-label="语言" value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}><option value="zh-CN">中文</option><option value="en-US">English</option></select></label></div><small>当前选择保存在本机；切换不会改变作品或模型设置。</small></section>}
+          {(presentation === "utility" || presentation === "mobile" ? mobilePage === "storage" || presentation === "utility" : activeSection === "storage") && <section id="settings-section-storage" aria-label="存储与备份"><SettingsStorageSection
             projectId={project?.id ?? null}
             onReveal={() => project ? withToken(() => revealStorageProject(project.id)) : Promise.reject(new Error("请先打开项目。"))}
             onBackup={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
           /></section>}
-          {(presentation === "utility" || activeSection === "transfer") && <section id="settings-section-transfer" aria-label="导入与导出"><SettingsTransferSection
+          {(presentation === "utility" || mobilePage === "transfer" || presentation === "workspace" && activeSection === "transfer") && <section id="settings-section-transfer" aria-label="导入与导出"><SettingsTransferSection
             hasProject={Boolean(project)}
             onExport={() => project ? withToken((token) => exportStorageProject({ projectId: project.id, token })) : Promise.reject(new Error("请先打开项目。"))}
             onImport={importPackage}
           /></section>}
-          {(presentation === "utility" || activeSection === "agent") && <section id="settings-section-agent" aria-label="模型与 Agent"><AgentSettingsSection
+          {(presentation === "utility" || presentation === "mobile" && mobilePage?.startsWith("agent-") || presentation === "workspace" && activeSection === "agent") && <section id="settings-section-agent" aria-label="模型与 Agent"><AgentSettingsSection
             status={modelStatus}
             permissionState={permissionState}
             busy={runtimeBusy}
@@ -199,6 +235,7 @@ export function SettingsStorageRoute(props: { presentation?: "utility" | "worksp
           /></section>}
         </div>
       </div>
+      </>}
     </div>
     <input ref={fileInput} type="file" accept=".tianyan,application/json" hidden aria-hidden="true" />
   </main>;

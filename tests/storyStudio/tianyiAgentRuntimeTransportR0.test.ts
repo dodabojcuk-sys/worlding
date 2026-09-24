@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { terminateChildProcess } from "../../apps/story-studio/scripts/bounded-process-teardown.mjs";
 import { createStoryStudioWorkspaceOperations } from "../../src/storyControlSurface/storyStudioWorkspaceOperations.ts";
+import { createStoryStudioEventReference } from "../../src/storyContracts/storyStudioEventReference.ts";
 
 test("Tianyi Agent transport preserves an honest unconfigured run through Session/Archive and restart", async () => {
   const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-agent-transport-"));
@@ -14,16 +15,42 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
   const token = "tianyi-agent-transport-token";
   const port = 4300 + Math.floor(Math.random() * 400);
   const baseUrl = `http://127.0.0.1:${port}`;
-  createStoryStudioWorkspaceOperations({ rootPath, stateFilePath }).createProject({ title: "Agent 夹具", folderSlug: "agent-fixture" });
+  const operations = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+  operations.createProject({ title: "Agent 夹具", folderSlug: "agent-fixture" });
+  operations.createProject({ title: "其他 Agent 夹具", folderSlug: "other-agent-fixture" });
+  const anchor = operations.createPlanningEvent({ projectId: "agent-fixture", title: "共同起点", body: "共同起点" });
+  const branchEvent = operations.createPlanningEvent({ projectId: "agent-fixture", title: "支线事件", body: "仅此支线" });
+  const otherEvent = operations.createPlanningEvent({ projectId: "agent-fixture", title: "其他支线事件", body: "不能进入当前请求" });
+  const main = operations.createStoryUnit({ projectId: "agent-fixture", title: "主线单元", kind: "main", linkedEntityIds: [anchor.id] });
+  const branch = operations.createStoryUnit({ projectId: "agent-fixture", title: "当前支线", kind: "branch", parentUnitId: main.id, branchPointEventId: anchor.id, linkedEntityIds: [branchEvent.id] });
+  operations.createStoryUnit({ projectId: "agent-fixture", title: "其他支线", kind: "branch", parentUnitId: main.id, branchPointEventId: anchor.id, linkedEntityIds: [otherEvent.id] });
+  const scope = { kind: "event-line", storylineKey: `branch.${branch.id}` };
   let server = startServer(rootPath, stateFilePath, token, port);
   try {
     await waitForServer(baseUrl, server);
     const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
-    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-fixture", operationId: "operation.agent.open" }, headers);
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-fixture", operationId: "operation.agent.open", scope }, headers);
     assert.equal(opened.status, 200);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const workVersionId = "work-version.unversioned";
-    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
+    const missingScope = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, task: "不明范围请求", currentPage: "/tianyi", operationId: "operation.agent.missing-scope" }, headers);
+    assert.equal(missingScope.status, 400);
+    assert.match(await missingScope.text(), /范围/u);
+    const wrongScope = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope: { kind: "event-line", storylineKey: "branch.foreign" } }, task: "错误事件线请求", currentPage: "/tianyi", operationId: "operation.agent.wrong-scope" }, headers);
+    assert.equal(wrongScope.status, 400);
+    const wrongProject = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "other-agent-fixture", workVersionId, sessionId, contextRequest: { scope }, task: "借用其他项目的 Session", currentPage: "/tianyi", operationId: "operation.agent.wrong-project" }, headers);
+    assert.equal(wrongProject.status, 400, "a Session id cannot be borrowed across projects");
+    const otherReference = createStoryStudioEventReference({ projectId: "agent-fixture", event: otherEvent, requestedUse: "constraint" });
+    const crossedEvent = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope, productMode: "world", activeOwner: { kind: "project", id: "agent-fixture" }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [otherReference] }, task: "越线依据", currentPage: "/tianyi", operationId: "operation.agent.crossed-event" }, headers);
+    assert.equal(crossedEvent.status, 201);
+    const crossedRun = (await crossedEvent.json() as { data: any }).data;
+    const crossedApproval = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-fixture", workVersionId, sessionId, runId: crossedRun.runId, stepId: crossedRun.plan[0].stepId, operationId: "operation.agent.crossed-event.approve" }, headers);
+    assert.equal(crossedApproval.status, 200);
+    const crossedProjection = (await crossedApproval.json() as { data: any }).data;
+    assert.equal(crossedProjection.status, "failed", "out-of-line evidence fails before model dispatch");
+    assert.match(crossedProjection.error.message, /不属于所选事件线/u);
+    const branchReference = createStoryStudioEventReference({ projectId: "agent-fixture", event: branchEvent, requestedUse: "constraint" });
+    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-fixture", workVersionId, sessionId, contextRequest: { scope, productMode: "world", activeOwner: { kind: "project", id: "agent-fixture" }, selection: { documentId: null, objectId: branchEvent.id, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [], eventRefs: [branchReference] }, task: "检查角色知识边界", currentPage: "/tianyi", operationId: "operation.agent.start" }, headers);
     assert.equal(started.status, 201);
     const startProjection = (await started.json() as { data: any }).data;
     assert.equal(startProjection.status, "awaiting_author");
@@ -32,6 +59,8 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
     assert.equal(approved.status, 200);
     const contextProjection = (await approved.json() as { data: any }).data;
     assert.equal(contextProjection.contextManifest.sessionId, sessionId);
+    assert.deepEqual(contextProjection.contextManifest.scope, scope, "the actual Agent request keeps the Session line scope");
+    assert.equal(contextProjection.contextManifest.sourceRefs.some((source: any) => source.label === "其他支线事件"), false, "the Agent context excludes the other line");
     const analyzed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-fixture", workVersionId, sessionId, runId: startProjection.runId, operationId: "operation.agent.analyze" }, { ...headers, accept: "application/x-ndjson" });
     assert.equal(analyzed.status, 200);
     const analyzedMessages = (await analyzed.text()).trim().split("\n").map((line) => JSON.parse(line) as { type: string; data?: any });
@@ -49,6 +78,7 @@ test("Tianyi Agent transport preserves an honest unconfigured run through Sessio
     assert.equal(recovered.status, 200);
     const recoveredProjection = (await recovered.json() as { data: any }).data;
     assert.equal(recoveredProjection.runId, startProjection.runId);
+    assert.deepEqual(recoveredProjection.contextRequest.scope, scope, "Run scope survives restart independently of navigation");
     assert.equal(recoveredProjection.status, "failed");
     assert.equal(recoveredProjection.error.category, "provider-unavailable");
     assert.equal(recoveredProjection.resultSummary, null);
@@ -69,10 +99,10 @@ test("Tianyi Agent transport streams Pi fake-provider events before its durable 
   try {
     await waitForServer(baseUrl, server);
     const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
-    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-stream", operationId: "operation.agent.stream.open" }, headers);
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-stream", operationId: "operation.agent.stream.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const workVersionId = "work-version.unversioned";
-    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-stream", workVersionId, sessionId, task: "检查引用边界", currentPage: "/tianyi", operationId: "operation.agent.stream.start" }, headers);
+    const started = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-stream", workVersionId, sessionId, contextRequest: { scope: { kind: "project" } }, task: "检查引用边界", currentPage: "/tianyi", operationId: "operation.agent.stream.start" }, headers);
     const startProjection = (await started.json() as { data: any }).data;
     const approved = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-stream", workVersionId, sessionId, runId: startProjection.runId, stepId: startProjection.plan[0].stepId, operationId: "operation.agent.stream.approve" }, headers);
     assert.equal(approved.status, 200);
@@ -107,12 +137,12 @@ test("simulation fake adapter cannot expose native product tools or write an art
     await waitForServer(baseUrl, server);
     const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
     const openSession = async (operationId: string) => {
-      const response = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-tool-boundary", operationId }, headers);
+      const response = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "agent-tool-boundary", operationId, scope: { kind: "project" } }, headers);
       return (await response.json() as { data: { sessionId: string } }).data.sessionId;
     };
     const requestTool = async (sessionId: string, suffix: string) => {
       const workVersionId = "work-version.unversioned";
-      const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId, sessionId, task: "创建普通剧本产物", currentPage: "/creation", operationId: `operation.tool.${suffix}.start` }, headers);
+      const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId, sessionId, contextRequest: { scope: { kind: "project" } }, task: "创建普通剧本产物", currentPage: "/creation", operationId: `operation.tool.${suffix}.start` }, headers);
       const started = (await startedResponse.json() as { data: any }).data;
       await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-tool-boundary", workVersionId, sessionId, runId: started.runId, stepId: started.plan[0].stepId, operationId: `operation.tool.${suffix}.context` }, headers);
       const streamed = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/stream`, { projectId: "agent-tool-boundary", workVersionId, sessionId, runId: started.runId, operationId: `operation.tool.${suffix}.request` }, { ...headers, accept: "application/x-ndjson" });
@@ -136,7 +166,7 @@ test("simulation fake adapter cannot expose native product tools or write an art
     assert.deepEqual(await readdir(path.join(rootPath, "agent-tool-boundary", "artifacts")).catch(() => []), [], "cancellation before approval must leave no partial artifact file");
 
     const staleSessionId = await openSession("operation.tool.stale.session");
-    const staleStart = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId: "work-version.other", sessionId: staleSessionId, task: "越界产物", currentPage: "/creation", operationId: "operation.tool.stale.start" }, headers);
+    const staleStart = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "agent-tool-boundary", workVersionId: "work-version.other", sessionId: staleSessionId, contextRequest: { scope: { kind: "project" } }, task: "越界产物", currentPage: "/creation", operationId: "operation.tool.stale.start" }, headers);
     const staleProjection = (await staleStart.json() as { data: any }).data;
     const staleApproval = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/approve`, { projectId: "agent-tool-boundary", workVersionId: "work-version.other", sessionId: staleSessionId, runId: staleProjection.runId, stepId: staleProjection.plan[0].stepId, operationId: "operation.tool.stale.context" }, headers);
     assert.equal(staleApproval.status, 200);
@@ -173,14 +203,14 @@ test("Story Intake streams one allowlisted Pi tool into a durable candidate-only
   try {
     await waitForServer(baseUrl, server);
     const headers = { "content-type": "application/json", "x-world-os-local-control-token": token, origin: baseUrl };
-    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "story-intake", operationId: "operation.story-intake.open" }, headers);
+    const opened = await post(`${baseUrl}/__local/story-studio/tianyi/session/open`, { projectId: "story-intake", operationId: "operation.story-intake.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const text = "林昭在雾港灯塔亲眼看见守夜钟失踪。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟。旧城航线因此中断，林昭决定追查守夜钟的去向。";
     const capturedResponse = await post(`${baseUrl}/__local/story-studio/tianyi/creative/capture`, { projectId: "story-intake", sessionId, operationId: "operation.story-intake.capture", submissionId: "submission.story-intake", text, collaborate: false }, headers);
     assert.equal(capturedResponse.status, 200);
     const source = (await capturedResponse.json() as { data: { source: { sessionId: string; eventId: string; contentHash: string } } }).data.source;
     const workVersionId = "work-version.unversioned";
-    const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "story-intake", workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "operation.story-intake.start" }, headers);
+    const startedResponse = await post(`${baseUrl}/__local/story-studio/tianyi-agent/run/start`, { projectId: "story-intake", workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "operation.story-intake.start" }, headers);
     assert.equal(startedResponse.status, 201);
     const started = (await startedResponse.json() as { data: any }).data;
     assert.equal(started.status, "running");

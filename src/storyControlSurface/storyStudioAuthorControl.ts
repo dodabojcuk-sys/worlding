@@ -156,6 +156,8 @@ type PersistedAuthorChangeSet = {
   source: PersistedReviewSource;
   /** Frozen on the Change Set so a retry never reads a mutable planning note. */
   sourceKnowledgeSubjects?: string[];
+  /** Author-selected Nuwa scene, frozen before application; never a public-knowledge grant. */
+  sourceSceneResult?: string;
   sourceScene?: { id: string; relativeId: string; title: string };
   baseline: {
     snapshotHash: string;
@@ -523,7 +525,7 @@ export function createStoryStudioAuthorControl(input: {
     const candidates = reviewInput.result.nuwa.candidates.map((candidate) => ({
       id: requireText(candidate.id, "Candidate identifier", 100),
       title: requireText(candidate.title, "Candidate title", 160),
-      summary: requireText(candidate.after || candidate.change, "Candidate summary", 800),
+      summary: requireText((candidate.after || candidate.change).slice(0, 800), "Candidate summary", 800),
       status: "awaiting" as const,
       rejectionReason: null,
       confirmationReceipt: null
@@ -578,7 +580,13 @@ export function createStoryStudioAuthorControl(input: {
     const candidates = artifact.candidates.map((item) => item.id === candidate.id
       ? { ...item, status: decisionInput.decision, rejectionReason, confirmationReceipt }
       : item);
-    if (decisionInput.decision === "accepted" && candidates.some((item) => item.id !== candidate.id && item.status === "accepted")) {
+    // An N1 handoff packages independently selected steps in one review. They
+    // are separate actions to confirm, unlike alternative routes in other
+    // Candidate Reviews, where only one route may be accepted.
+    const independentN1Steps = artifact.result.contextReceiptId?.startsWith("nuwa-n1-handoff.")
+      && artifact.result.nuwaRunId?.startsWith("nuwa-run-")
+      && artifact.candidates.every((item) => item.id.startsWith("nuwa-n1-candidate.nuwa-n1-step."));
+    if (decisionInput.decision === "accepted" && !independentN1Steps && candidates.some((item) => item.id !== candidate.id && item.status === "accepted")) {
       throw new Error("Candidate Review already contains an accepted route.");
     }
     const next: PersistedCandidateReview = {
@@ -885,6 +893,8 @@ export function createStoryStudioAuthorControl(input: {
       const sourceKnowledgeSubjects = review.source.kind === "planning-event"
         ? workspace.readWorldObject({ projectId: changeInput.projectId, objectId: review.source.id }).knowledgeSubjects
         : [];
+      const sourcePlanning = review.source.kind === "planning-event" ? workspace.readWorldObject({ projectId: changeInput.projectId, objectId: review.source.id }) : null;
+      const sourceSceneResult = sourcePlanning?.tags.some((tag) => tag === "女娲候选" || tag === "女娲自动执行") ? sourcePlanning.body : null;
       const artifact: PersistedAuthorChangeSet = {
         version: CHANGE_SET_VERSION,
         changeSetId,
@@ -892,6 +902,7 @@ export function createStoryStudioAuthorControl(input: {
         projectId: changeInput.projectId,
         workVersionId: changeInput.workVersionId ?? null,
         source: review.source,
+        ...(sourceSceneResult != null ? { sourceSceneResult } : {}),
         ...(sourceKnowledgeSubjects.length ? { sourceKnowledgeSubjects: [...sourceKnowledgeSubjects].sort() } : {}),
         baseline: { snapshotHash: review.snapshotHash, sourceRevisionToken: review.source.revisionToken, objectRevisions },
         affectedNoteIds,
@@ -2005,6 +2016,7 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     ...versionBinding,
     source: artifact.source,
     ...(artifact.sourceKnowledgeSubjects ? { sourceKnowledgeSubjects: artifact.sourceKnowledgeSubjects } : {}),
+    ...(artifact.sourceSceneResult !== undefined ? { sourceSceneResult: artifact.sourceSceneResult } : {}),
     baseline: artifact.baseline,
     affectedNoteIds: artifact.affectedNoteIds,
     structuredChanges: artifact.structuredChanges,
@@ -2035,8 +2047,8 @@ function buildApplyIntent(artifact: PersistedAuthorChangeSet): PersistedApplyInt
     projectId: artifact.projectId,
     applyOperationKey
   }).slice(0, 24)}`;
-  const title = `${artifact.source.title} · ${artifact.authorDecision.label}`;
-  const body = eventMarkdown(artifact, "");
+  const title = artifact.sourceSceneResult !== undefined ? artifact.source.title : `${artifact.source.title} · ${artifact.authorDecision.label}`;
+  const body = artifact.sourceSceneResult ?? eventMarkdown(artifact, "");
   const provenance = {
     sourceChangeSetId: artifact.changeSetId,
     sourceChangeSetRevision: changeSetRevision,

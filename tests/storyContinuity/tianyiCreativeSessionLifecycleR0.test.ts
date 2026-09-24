@@ -35,6 +35,9 @@ test("Creative lifecycle preserves safe points, provider-unavailable recovery, s
     const recovered = await operations.recoverTianyiCreativeSession({ projectId, sessionId: opened.sessionId, operationId: "creative-lifecycle-recover" });
     assert.equal(recovered.projection.originals[0]?.text, sourceText);
     assert.ok(recovered.projection.lastSafePoint);
+    const metadata = await operations.readTianyiSessionMetadata({ projectId, sessionId: opened.sessionId });
+    const originalMessage = metadata.visibleMessages.find((message) => message.eventId === captured.source.eventId);
+    assert.equal(originalMessage?.contentHash, captured.source.contentHash, "message extraction must reuse the immutable original source, not append a new author message");
     const extracted = await operations.extractTianyiCreativeProjection({ projectId, sessionId: opened.sessionId, operationId: "creative-lifecycle-extract", source: captured.source, fixture });
     assert.equal(extracted.projection.lifecycle, "review-ready");
     assert.equal(extracted.projection.summaryState, "current");
@@ -69,5 +72,62 @@ test("Creative lifecycle preserves safe points, provider-unavailable recovery, s
     assert.equal((await operations.finalizeTianyiSessionClose({ projectId, sessionId: opened.sessionId, operationId: "operation.creative-close.creative-lifecycle-complete" })).closed, true);
   } finally {
     await rm(rootPath, { recursive: true, force: true });
+  }
+});
+
+
+test("conversation rename is project scoped, revision checked, idempotent and not a visible message", async () => {
+  const rootPath = await mkdtemp(path.join(tmpdir(), "tianyi-rename-"));
+  const stateFilePath = path.join(rootPath, "state.json");
+  try {
+    const projects = createStoryStudioWorkspaceOperations({ rootPath, stateFilePath });
+    for (const projectId of ["rename-a", "rename-b"]) projects.createProject({ title: projectId, folderSlug: projectId });
+    const operations = createStoryStudioTianyiOperations({ rootPath, stateFilePath, now: () => "2026-09-22T23:00:00.000Z" });
+    const a = await operations.openTianyiSession({ projectId: "rename-a", operationId: "open-a" });
+    const b = await operations.openTianyiSession({ projectId: "rename-b", operationId: "open-b" });
+    const input = { projectId: "rename-a", sessionId: a.sessionId, expectedContentHash: a.contentHash!, title: "第一幕", operationId: "rename-1" };
+    const renamed = await operations.renameTianyiSession(input);
+    assert.equal(renamed.title, "第一幕");
+    assert.equal(renamed.visibleMessages.length, 0);
+    assert.equal((await operations.renameTianyiSession(input)).eventCount, renamed.eventCount);
+    await assert.rejects(operations.renameTianyiSession({ ...input, title: "覆盖", operationId: "rename-2" }), /changed/u);
+    const second = await operations.readTianyiSessionMetadata({ projectId: "rename-b", sessionId: b.sessionId });
+    assert.ok(second && !Array.isArray(second));
+    assert.equal(second.title, null);
+    const before = projects.getBootstrap();
+    projects.renameProject({ projectId: "rename-a", title: "改名项目", expectedTitle: "rename-a" });
+    assert.equal(projects.listProjects().find((p) => p.id === "rename-a")?.title, "改名项目");
+    assert.equal(projects.getBootstrap().activeProject?.id, before.activeProject?.id);
+    assert.throws(() => projects.renameProject({ projectId: "rename-a", title: "过期覆盖", expectedTitle: "rename-a" }), /changed/u);
+  } finally { await rm(rootPath, { recursive: true, force: true }); }
+});
+
+test("browser reopen retains scoped conversation choices and migrates tab hints without reviving a cleared choice", async () => {
+  const recovery = await import("../../apps/story-studio/src/product-shell/runtime/tianyiShellSessionRecovery.ts");
+  const store = () => {
+    const data = new Map<string, string>();
+    return { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); }, removeItem: (key: string) => { data.delete(key); } };
+  };
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const localStorage = store();
+  const sessionStorage = store();
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage, sessionStorage } });
+  try {
+    sessionStorage.setItem(recovery.tianyiConversationStorageKey("A"), "session.1");
+    assert.equal(recovery.readSelectedConversation("A"), "session.1");
+    recovery.retainSelectedConversation("B", "session.2");
+    const drafts = ["A", "B"].flatMap((project) => ["session.1", "session.2"].map((session) => [recovery.tianyiComposerDraftStorageKey(project, "creative", session), `${project}/${session}`]));
+    for (const [key, value] of drafts) recovery.retainBrowserRecovery(key, value);
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage, sessionStorage: store() } });
+    assert.equal(recovery.readSelectedConversation("A"), "session.1");
+    assert.equal(recovery.readSelectedConversation("B"), "session.2");
+    for (const [key, value] of drafts) assert.equal(recovery.readBrowserRecovery(key), value);
+    assert.equal(recovery.readBrowserRecovery(recovery.tianyiComposerDraftStorageKey("A", "creative", "session.3")), null);
+    recovery.retainSelectedConversation("A", null);
+    assert.equal(recovery.readSelectedConversation("A"), null);
+    assert.equal(recovery.readSelectedConversation("B"), "session.2");
+  } finally {
+    if (original) Object.defineProperty(globalThis, "window", original);
+    else Reflect.deleteProperty(globalThis, "window");
   }
 });

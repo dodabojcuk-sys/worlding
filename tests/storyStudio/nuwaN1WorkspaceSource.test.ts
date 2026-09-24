@@ -13,8 +13,16 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(outlet, /props\.destination\.id === "nuwa"/u);
   assert.match(outlet, /<NuwaN1Workspace runtime=\{props\.runtime\}/u);
   assert.match(workspace, /选择 2–3 位正式角色/u);
-  assert.match(workspace, /本地工程演练 · 0 Provider/u);
+  assert.match(workspace, /本地工程演练 · 真实 Provider 0 次/u);
   assert.match(workspace, /上下文检查器/u);
+  assert.match(workspace, /女娲控制区/u);
+  assert.match(workspace, /推演设置/u);
+  assert.match(workspace, /剧情脉络线/u);
+  assert.match(workspace, /上一个单元/u);
+  assert.match(workspace, /节点推进/u);
+  assert.match(workspace, /预测 \/ 决策点/u);
+  assert.match(workspace, /查看角色 \$\{actor\?\.title/u, "a message identity opens the existing context sidebar by stable character identity");
+  assert.match(workspace, /心理状态<\/dt><dd>未接入/u, "the sidebar does not fabricate an emotion system");
   assert.match(workspace, /送入待确认/u);
   assert.match(workspace, /加入后续步骤/u);
   assert.match(workspace, /开始第一步/u, "a newly-created ready Run has a reachable first transition");
@@ -30,8 +38,11 @@ test("Nuwa N1 mounts a bounded author rehearsal surface at the real Nuwa workspa
   assert.match(transport, /operationId: string/u, "mutating Nuwa operations carry an idempotency identity");
   assert.match(transport, /selectedStepIds/u, "candidate handoff is limited to author-selected results");
   assert.match(transport, /providerCalls: 0/u);
-  assert.match(styles, /\.nuwa-n1-composer \{ position: sticky/u);
-  assert.match(styles, /@media \(max-width: 84rem\)/u);
+  assert.match(styles, /@container nuwa-primary \(max-width: 680px\)/u);
+  assert.doesNotMatch(styles, /nuwa-n1-director-card \{[^}]*z-index/u);
+  assert.match(styles, /\.nuwa-n1-story-map/u);
+  assert.match(styles, /\.nuwa-n1-inspector\.is-open/u);
+  assert.match(styles, /nuwa-n1-inspector\.is-drawer/u);
 });
 
 test("MULTI-B1 lets an author bind a Nuwa Run to an explicit active IF version", () => {
@@ -100,7 +111,7 @@ test("Nuwa N2A exposes author-owned character basis and per-character scene goal
   assert.doesNotMatch(adapter, /private_notes|profile\.fields/u, "the adapter cannot inspect unrelated author profile fields");
 });
 
-test("Nuwa N2B keeps attention permission-first, deterministic and visible at the actual tool boundary", () => {
+test("Nuwa N2B keeps attention permission-first, deterministic and author-side at the actual tool boundary", () => {
   const attention = source("src/storyIntelligence/nuwaN1Attention.ts");
   const runtime = source("src/storyIntelligence/nuwaN1Runtime.ts");
   const workspace = source("apps/story-studio/src/components/nuwa/NuwaN1Workspace.tsx");
@@ -110,7 +121,9 @@ test("Nuwa N2B keeps attention permission-first, deterministic and visible at th
   assert.match(attention, /current-scene-required/u);
   assert.match(runtime, /required attention sources exceed budget before dispatch/u);
   assert.match(runtime, /excludedKnowledgeCount: canonicalActor\.unknownFactIds\.length/u);
-  assert.match(adapter, /attention: context\.attention/u);
+  assert.match(runtime, /const attention = selectNuwaN1Attention/u, "the compiled Run context still owns the selection so the author inspector can show why a subset was chosen");
+  assert.match(adapter, /excluded: \{ count: context\.excludedKnowledgeCount/u, "the role sees the bounded blind-spot count, not the excluded identities");
+  assert.doesNotMatch(adapter, /attention: context\.attention/u, "ranking, byte arithmetic and the algorithm identity never cross into the Provider payload");
   assert.match(workspace, /UTF-8 保守估算/u);
   assert.match(workspace, /权限排除（身份隐藏）/u);
 });
@@ -137,11 +150,19 @@ test("Nuwa N3A keeps author content primary while preserving exact permission an
 
   assert.match(workspace, /本轮上下文预览/u);
   assert.match(workspace, /本步骤使用的依据/u);
-  assert.match(workspace, /假服务用于验证数据流；真实 Provider 0 次/u);
+  assert.match(workspace, /<details className="nuwa-n1-technical">/u, "request counts belong in progressive technical detail");
+  assert.match(workspace, /本地工程演练 · 真实 Provider 0 次/u);
+  assert.match(workspace, /排演进行中或已暂停；完成或停止后可送入待确认/u);
+  assert.match(workspace, /nuwa-n1-selection-bar/u, "candidate handoff is presented with explicit selection controls");
+  assert.match(workspace, /nuwa-n1-command-tools/u, "scene settings and auxiliary views have an on-demand toolbar entry");
   assert.match(workspace, /已授权自动应用/u);
   assert.match(workspace, /普通候选/u);
   assert.match(workspace, /发生的结果/u);
-  assert.match(workspace, /查看本步骤依据与执行详情/u);
+  assert.match(workspace, /查看来源与依据/u);
+  assert.match(workspace, /作者输入 · 非角色对白/u);
+  assert.match(workspace, /tianyan-nuwa-open-structure/u, "story structure opens the shared directory without changing the Run scope");
+  assert.match(workspace, /cueDrafts: \{ \.\.\.cueDrafts, \[cueTarget\]: cue \}/u, "recipient switching persists separate unsent drafts");
+  assert.match(workspace, /selectionMode \? "is-selecting"/u, "bulk choice controls appear only in selection mode");
   assert.match(workspace, /不是实际计费 token/u);
   assert.match(workspace, /本次排演方式/u);
   assert.match(workspace, /本批未配置合法关系类型，没有补造关系/u);

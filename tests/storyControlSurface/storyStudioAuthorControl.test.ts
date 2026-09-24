@@ -131,6 +131,34 @@ test("Golden Loop Candidate Review persists rejection and acceptance receipts wi
   }
 });
 
+test("N1 selected steps can each be accepted while alternative routes remain exclusive", () => {
+  const fixture = createFixture();
+  try {
+    const before = readMarkdownTree(fixture.projectPath);
+    const result = {
+      version: "tianyan-golden-loop-candidate/v1" as const,
+      status: "candidate" as const,
+      contextPack: { id: "nuwa-n1-handoff.test-steps", sources: [], budgets: { maximumSources: 16, maximumCharacters: 16000 } },
+      contextReceiptId: "nuwa-n1-handoff.test-steps",
+      nuwaRunId: "nuwa-run-test-steps",
+      tianyi: { facts: [] },
+      nuwa: { candidates: [1, 2, 3].map((step) => ({ id: `nuwa-n1-candidate.nuwa-n1-step.${step}`, title: `步骤 ${step}`, change: `行动 ${step}`, after: `结果 ${step}` })) },
+      provider: { profileId: "profile" }
+    };
+    const review = fixture.control.createCandidateReview({ projectId: fixture.projectId, result, minimumCandidates: 1, createdAt: "2026-08-11T08:00:00.000Z" });
+    for (const step of [1, 2]) fixture.control.decideCandidateReview({
+      projectId: fixture.projectId, reviewId: review.id, candidateId: `nuwa-n1-candidate.nuwa-n1-step.${step}`,
+      decision: "accepted", confirmationReceipt: { planningEventId: `event-planning-${step}`, impactReviewId: `impact-review-${step}` },
+      decidedAt: `2026-08-11T08:0${step}:00.000Z`
+    });
+    const persisted = fixture.control.readCandidateReview({ projectId: fixture.projectId, reviewId: review.id });
+    assert.deepEqual(persisted?.candidates.map((candidate) => candidate.status), ["accepted", "accepted", "awaiting"]);
+    assert.deepEqual(readMarkdownTree(fixture.projectPath), before);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("Candidate Review history derives superseded runs and persists explicit abandonment without Canon writes", () => {
   const fixture = createFixture();
   try {

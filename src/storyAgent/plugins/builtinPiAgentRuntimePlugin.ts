@@ -29,7 +29,7 @@ export type PiTextStreamEvent =
 export type PiProviderUsage = { promptTokens: number; completionTokens: number; totalTokens: number };
 export type PiTextProviderEvent =
   | { type: "response-metadata"; responseModelId: string }
-  | { type: "chunk"; text: string; finishReason: string | null; usage: PiProviderUsage | null }
+  | { type: "chunk"; text: string; reasoningBytes?: number; finishReason: string | null; usage: PiProviderUsage | null }
   | { type: "tool-call-start"; id: string; name: string; index: number }
   | { type: "tool-call-delta"; id: string; name: string; index: number; argumentsDelta: string }
   | { type: "tool-call-end"; id: string; name: string; index: number; argumentsJson: string; arguments: Record<string, unknown> }
@@ -64,7 +64,7 @@ export type PiTextAgentRequest = {
   tools?: readonly PiTextAgentTool[];
   requiredToolName?: string | null;
   authorizeTool?(input: { toolName: string; arguments: Record<string, unknown> }): Promise<{ allowed: boolean; reason?: string; approvalRequired?: boolean; approvalReceiptId?: string }>;
-  openProviderStream(input: { agentRunId: string; messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
+  openProviderStream(input: { agentRunId: string; messages: PiGatewayMessage[]; tools: Array<{ name: string; description: string; parameters: Record<string, unknown> }>; toolChoice?: "auto" | "required" | "none" | { type: "function"; function: { name: string } }; maxOutputTokens: number; providerCall: number; retry: boolean; signal?: AbortSignal }): Promise<PiTextProviderStream>;
   onEvent?(event: PiTextStreamEvent): Promise<void> | void;
 };
 export type PiTextAgentResult = { text: string; providerCalls: number; traceId: string | null; responseModelId: string | null; usage: PiProviderUsage | null; latencyMs: number };
@@ -192,6 +192,7 @@ async function bridgeProviderStream(input: { stream: { push(event: unknown): voi
     const provider = await input.request.openProviderStream({
       agentRunId: input.request.runId,
       messages: input.messages,
+      maxOutputTokens: input.request.maxOutputTokens,
       tools: (input.request.tools ?? []).map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false } })),
       ...(input.providerCall === 1 && input.request.requiredToolName
         ? { toolChoice: { type: "function" as const, function: { name: input.request.requiredToolName } } }

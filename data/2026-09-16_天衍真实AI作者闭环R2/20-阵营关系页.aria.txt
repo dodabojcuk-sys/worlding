@@ -1,0 +1,108 @@
+- navigation "全局空间":
+  - button "前往世界":
+    - strong: 天衍
+    - text: Worlding
+  - button "收起空间轨"
+  - button "世界"
+  - button "天意"
+  - button "事件线"
+  - button "多元"
+  - button "女娲"
+  - button "资料"
+  - button "创作"
+  - button "数据"
+  - separator
+  - button "合册"
+  - button "设置"
+  - button "个人中心"
+- banner "运行状态":
+  - button "选择当前作品与版本":
+    - strong: 阵营验收（合成）
+    - text: 当前作品主线 · r1
+  - button "全局搜索": 全局搜索 ⌘K
+  - button "切换语言": 中 / EN
+  - button "切换主题": 云砚
+  - text: 本地 未连接
+  - button "关闭工程目录" [pressed]: 目录
+  - button "待确认"
+  - button "打开天意助手": 天意助手
+- complementary "工程目录":
+  - heading "目录" [level=2]
+  - tablist "工程目录":
+    - tab "已分类 8" [selected]:
+      - text: 已分类
+      - strong: "8"
+    - tab "待确认 0":
+      - text: 待确认
+      - strong: "0"
+  - navigation "已分类目录树":
+    - button "目录"
+    - list:
+      - listitem "故事结构，1":
+        - text: 故事结构
+        - strong: "1"
+      - listitem "信息资料，7":
+        - text: 信息资料
+        - strong: "7"
+      - listitem "设定，0":
+        - text: 设定
+        - strong: "0"
+      - listitem "来源，0":
+        - text: 来源
+        - strong: "0"
+      - listitem "创意，0":
+        - text: 创意
+        - strong: "0"
+- main "聚焦关系查看":
+  - navigation "资料工作区导航":
+    - text: 资料
+    - link "资料库":
+      - /url: /library
+    - link "地图":
+      - /url: /library?libraryView=map
+    - link "关系":
+      - /url: /library?libraryView=relations
+  - button "返回来源"
+  - strong: 人物关系
+  - text: 当前状态 · 当前作品主线 · r1
+  - group "关系显示方式":
+    - button "关系图" [pressed]
+    - button "列表"
+  - textbox "搜索人物或地点":
+    - /placeholder: 搜索人物或地点并聚焦
+  - group: 筛选
+  - button "建立关系"
+  - text: 当前显示 7 / 7 条已确认关系
+  - region "对象关系图":
+    - text: 拖动平移，滚轮缩放
+    - button "缩小关系图"
+    - button "放大关系图"
+    - button "适配"
+    - button "成员"
+    - button "成员"
+    - button "成员"
+    - button "成员"
+    - button "成员"
+    - button "成员"
+    - button "林昭 人物":
+      - strong: 林昭
+      - text: 人物
+    - button "程野 人物":
+      - strong: 程野
+      - text: 人物
+    - button "顾澜 人物":
+      - strong: 顾澜
+      - text: 人物
+    - button "东港行 对象":
+      - strong: 东港行
+      - text: 对象
+    - button "北闸会 对象":
+      - strong: 北闸会
+      - text: 对象
+    - button "潮汛义团 对象":
+      - strong: 潮汛义团
+      - text: 对象
+    - paragraph: 选择对象或关系，查看详情与依据。
+  - text: 范围：全局已确认关系 7 条。
+- complementary "页面工具":
+  - button "页面工具"

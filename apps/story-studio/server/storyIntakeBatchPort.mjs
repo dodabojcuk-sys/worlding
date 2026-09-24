@@ -10,6 +10,53 @@ const PREVIEW_VERSION = "tianyan-story-intake-batch-preview/v1";
 const ENTITY_TYPES = new Set(["character", "item", "location"]);
 
 export function createStoryIntakeBatchPort({ rootPath, operations, relationOperations, tianyiAgentRuntime, tianyiCreativeEventPort, creationSourceSelectionPort }) {
+  async function knowledgeContext(input) {
+    const run = await tianyiAgentRuntime.getRunProjection(input);
+    const envelope = run?.storyIntakeEnvelope;
+    if (!envelope || envelope.projectId !== input.projectId || envelope.sessionId !== input.sessionId || envelope.runId !== input.runId || run.workVersionId !== input.workVersionId) throw conflictError("知情候选不属于当前作品或原运行。");
+    const candidate = envelope.candidates.find((item) => item.candidateId === input.candidateId && item.type === "event");
+    if (!candidate || candidate.lifecycleStatus !== "confirmed" || candidate.formalApplication?.owner !== "story-studio-event-owner") throw conflictError("请先正式采纳原 Event 候选，再确认知情依据。");
+    // A relation to a character alone never grants knowledge. Only an
+    // explicit shared-observation sentence can propose its linked people.
+    const excerpt = candidate.sourceEvidence.excerpt;
+    if (!/(?:均|都|共同|同时)(?:亲眼)?(?:看见|看到|目睹|观察到)/u.test(excerpt)) throw conflictError("原文没有明确的共同观察表述；不能推断角色知情。");
+    const linked = candidate.proposedRelations.filter((link) => link.relation === "involves")
+      .map((link) => envelope.candidates.find((item) => item.candidateId === link.targetCandidateId && item.type === "character"))
+      .filter(Boolean);
+    if (linked.length < 2 || linked.length > 3 || new Set(linked.map((item) => item.candidateId)).size !== linked.length) throw conflictError("共同观察的角色范围不明确；不能自动建议知情。");
+    const observers = linked.map((item) => {
+      const objectId = item.formalApplication?.objectId;
+      const character = objectId ? operations.readWorldObject({ projectId: input.projectId, objectId }) : null;
+      if (!character || character.type !== "character" || character.status === "archived") throw conflictError("共同观察角色已变化；请重新审阅身份。");
+      return { id: character.id, label: character.title };
+    });
+    const event = operations.readWorldObject({ projectId: input.projectId, objectId: candidate.formalApplication.objectId });
+    if (!event || event.type !== "event" || event.status !== "committed" || !event.title.startsWith(candidate.proposedTitle)) throw conflictError("正式 Event 与原候选不匹配；不能写入知情依据。");
+    const source = `${candidate.sourceRef.sessionId}:${candidate.sourceRef.eventId}:${candidate.sourceRef.contentHash}`;
+    const sourceTag = `知情来源：${candidate.sourceRef.eventId}:${candidate.sourceRef.contentHash.slice(0, 12)}`;
+    const confirmedObserverIds = observers.filter((observer) => event.tags.includes(`目击：${observer.id}`) && event.tags.includes(sourceTag)).map((observer) => observer.id);
+    return { candidate, event, excerpt, observers, source, sourceTag, confirmedObserverIds };
+  }
+
+  async function previewKnowledge(input) {
+    const value = await knowledgeContext(input);
+    return { candidateId: value.candidate.candidateId, eventId: value.event.id, eventRevision: value.event.revisionToken, fact: value.candidate.proposedTitle, excerpt: value.excerpt, source: value.source, observers: value.observers, confirmedObserverIds: value.confirmedObserverIds };
+  }
+
+  async function confirmKnowledge(input) {
+    const value = await knowledgeContext(input);
+    const ids = Array.isArray(input.observerIds) ? input.observerIds.map(String) : [];
+    if (!ids.length || new Set(ids).size !== ids.length || ids.some((id) => !value.observers.some((observer) => observer.id === id))) throw conflictError("请明确选择原文中共同观察的角色。");
+    const requestedTags = ids.map((id) => `目击：${id}`);
+    if (value.event.tags.includes(value.sourceTag) && ids.length === value.confirmedObserverIds.length && ids.every((id) => value.confirmedObserverIds.includes(id))) return previewKnowledge(input);
+    if (input.expectedEventRevision !== value.event.revisionToken) throw conflictError("Event 已在预览后变化；未写入知情依据，请刷新审阅。");
+    if (value.event.tags.includes(value.sourceTag)) throw conflictError("原知情确认已有不同范围；请检查现存记录，不能静默扩大角色权限。");
+    const body = `${value.event.body.trimEnd()}\n\n## 作者确认的共同观察知情依据\n\n- 事实：${value.candidate.proposedTitle}\n- 原文：${value.excerpt}\n- 来源消息：${value.source}\n- 目击角色：${ids.join("、")}\n`;
+    const updated = operations.updateWorldObject({ projectId: input.projectId, objectId: value.event.id, expectedHash: value.event.revisionToken, title: value.event.title, status: value.event.status, aliases: value.event.aliases, tags: [...value.event.tags, value.sourceTag, ...requestedTags], body });
+    if (updated.conflict) throw conflictError("Event 写入时发生修订冲突；未覆盖后来修改。");
+    return previewKnowledge(input);
+  }
+
   async function context(input) {
     const project = operations.listProjects().find((item) => item.id === input.projectId);
     if (!project) throw new Error("当前作品已不存在或未选择。");
@@ -41,6 +88,9 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
     const value = await context(input);
     const { envelope, candidates, currentBase, position, excludedRelationKeys, relationBindings, entityBindings, activeRelations } = value;
     const conflicts = [];
+    if (currentBase.workVersionId === "work-version.unversioned" && candidates.some((candidate) => candidate.type === "event" || candidate.type === "narrative_path_membership")) {
+      conflicts.push("当前项目尚未建立主故事版本；请在这里建立主故事版本后继续采纳同一批候选。此次不会写入任何选中内容。");
+    }
     if (!sameBaseVersion(envelope.baseVersion, currentBase)) conflicts.push("基础版本已变化；请重新整理后再确认。");
     const compensatedCandidateIds = new Set(findReceipts(input.projectId, (receipt) => receipt.status === "undone" && receipt.envelopeId === envelope.envelopeId).flatMap((receipt) => receipt.candidateIds));
     if (candidates.some((candidate) => candidate.lifecycleStatus === "rejected")) conflicts.push("选择范围包含已拒绝候选；请先恢复或移出范围。");
@@ -80,6 +130,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
     const previewId = `story-intake-preview.${digest({
       envelopeId: envelope.envelopeId,
       baseVersion: canonicalBaseVersion(envelope.baseVersion),
+      candidateContent: digest(candidates),
       candidateIds: candidates.map((candidate) => candidate.candidateId),
       excludedRelationKeys,
       relationBindings,
@@ -96,6 +147,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       runId: input.runId,
       envelopeId: envelope.envelopeId,
       baseVersion: envelope.baseVersion,
+      targetVersion: currentBase,
       candidateIds: candidates.map((candidate) => candidate.candidateId),
       excludedRelationKeys,
       relationBindings,
@@ -123,8 +175,32 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
         findActiveReceipt(input.projectId, envelope.envelopeId, candidates.map((candidate) => candidate.candidateId), excludedRelationKeys, relationBindings, entityBindings)
         || findActiveReceiptForCandidateScope(input.projectId, envelope.envelopeId, candidates.map((candidate) => candidate.candidateId))
         || findRecoveryReceiptForCandidateScope(input.projectId, envelope.envelopeId, candidates.map((candidate) => candidate.candidateId))
-      )
+      ),
+      resumeReceipt: publicReceipt(findReceipts(input.projectId, (receipt) => receipt.status === "undone" && receipt.envelopeId === envelope.envelopeId && JSON.stringify(receipt.candidateIds) === JSON.stringify(candidates.map((candidate) => candidate.candidateId)))
+        .sort((left, right) => String(right.undoneAt).localeCompare(String(left.undoneAt)))[0] ?? null)
     };
+  }
+
+  async function prepareVersion(input) {
+    const project = operations.listProjects().find((item) => item.id === input.projectId);
+    if (!project) throw new Error("当前作品已不存在或未选择。");
+    const run = await tianyiAgentRuntime.getRunProjection(input);
+    const envelope = run?.storyIntakeEnvelope;
+    if (!envelope || envelope.projectId !== input.projectId || envelope.sessionId !== input.sessionId || envelope.runId !== input.runId || run.workVersionId !== input.workVersionId) throw new Error("候选批次不属于当前作品或运行。");
+    if (envelope.candidates.some((candidate) => candidate.formalApplication || candidate.lifecycleStatus === "confirmed")) throw conflictError("仍有正式写入未恢复，先按原回执完成恢复。");
+    if (findReceipts(input.projectId, (receipt) => receipt.envelopeId === envelope.envelopeId && ["applying", "compensating", "undoing", "recovery-required", "active"].includes(receipt.status)).length) throw conflictError("此批次仍有有效或待恢复回执，不能重新选择版本。");
+    let root = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
+    if (input.action === "create-root") {
+      if (root) throw conflictError("当前作品已有主故事版本，请明确选择已有版本。");
+      creationSourceSelectionPort.createRoot(input.projectId);
+      root = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
+    } else if (input.action !== "select-root" || !root || root.identity.workVersionId !== input.selectedWorkVersionId) {
+      throw conflictError("请选择当前作品中确实存在的主故事版本。");
+    }
+    if (!root || root.identity.status !== "active") throw conflictError("主故事版本不可用；候选未被改写。");
+    const baseVersion = { workVersionId: root.identity.workVersionId, revision: root.identity.currentRevision, manifestId: root.identity.headManifestId };
+    const nextRun = await tianyiAgentRuntime.rebaseStoryIntakeAfterUndo({ ...input, baseVersion, operationId: input.operationId });
+    return { run: nextRun, targetVersion: baseVersion };
   }
 
   async function confirm(input) {
@@ -132,9 +208,16 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
     if (existing?.status === "active" || existing?.status === "undone") return { run: await tianyiAgentRuntime.getRunProjection(input), receipt: publicReceipt(existing) };
     if (existing?.status === "failed-compensated") throw conflictError("上次相同操作失败但已完整补偿；请重新查看影响后使用新的确认操作。");
     if (existing) {
-      await compensateReceiptAndRebase(existing, input, "interrupted");
-      writeReceipt({ ...existing, status: "failed-compensated", failure: existing.failure ?? "进程在批次完成前中断", compensatedAt: new Date().toISOString() });
-      throw conflictError("上次相同操作未完成，已按持久化日志补偿；请重新查看影响后再确认。");
+      try {
+        writeReceipt({ ...existing, status: "compensating" });
+        await compensateReceiptAndRebase(existing, input, "interrupted");
+        writeReceipt({ ...existing, status: "failed-compensated", items: compensatedItems(existing.items), failure: existing.failure ?? "进程在批次完成前中断", compensatedAt: new Date().toISOString() });
+        throw conflictError("上次相同操作未完成，已按持久化日志补偿；请重新查看影响后再确认。");
+      } catch (cause) {
+        if (readReceipt(input.projectId, existing.receiptId)?.status === "failed-compensated") throw cause;
+        writeReceipt({ ...existing, status: "recovery-required", compensationFailure: safeMessage(cause) });
+        throw conflictError(`上次确认仍需恢复，已保留现场：${safeMessage(cause)}`);
+      }
     }
     const before = await context(input);
     const planned = await preview(input);
@@ -148,6 +231,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       previewId: planned.previewId,
       projectId: input.projectId,
       workVersionId: input.workVersionId,
+      targetWorkVersionId: before.currentBase.workVersionId,
       sessionId: input.sessionId,
       runId: input.runId,
       envelopeId: before.envelope.envelopeId,
@@ -172,7 +256,8 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
     const endpointApplications = new Map();
     const entityBindingsByCandidateId = new Map(before.entityBindings.map((binding) => [binding.candidateId, binding]));
     const eventCandidates = before.candidates.filter((candidate) => candidate.type === "event");
-    const compensatedCandidateIds = new Set(findReceipts(input.projectId, (candidateReceipt) => candidateReceipt.status === "undone" && candidateReceipt.envelopeId === before.envelope.envelopeId).flatMap((candidateReceipt) => candidateReceipt.candidateIds));
+    const compensatedCandidateIds = new Set(findReceipts(input.projectId, (candidateReceipt) => candidateReceipt.status === "undone" && candidateReceipt.envelopeId === before.envelope.envelopeId)
+      .flatMap((candidateReceipt) => candidateReceipt.items.filter((item) => item.owner === "story-studio-event-owner" && item.undoState === "undone").map((item) => item.candidateId)));
     try {
       for (const candidate of before.candidates.filter((item) => ENTITY_TYPES.has(item.type))) {
         const entityOperationId = childOperation(input.operationId, "entity", candidate.candidateId);
@@ -236,22 +321,24 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       const unitCandidate = before.candidates.find((candidate) => candidate.type === "story_unit") || null;
       if (unitCandidate) {
       const sourceRef = { sourceKind: "tianyi-intent", ownerId: "tianyi.agent-runtime", entityId: before.envelope.envelopeId, entityVersion: before.envelope.sourceRef.contentHash, capturedAt: now };
+      const adoptedEventIds = [...eventApplications.values()].map((application) => application.objectId);
       const existingRootUnit = planned.storyUnit.targetId ? operations.readStoryUnit({ projectId: input.projectId, unitId: planned.storyUnit.targetId }) : null;
       if (existingRootUnit && existingRootUnit.version !== planned.storyUnit.targetVersion) throw conflictError("目标 Story Unit 在预览后已变化；没有继续写入，请重新查看影响。");
       if (existingRootUnit) {
-        receipt.undo.storyUnit = { id: existingRootUnit.id, mode: "restore", summary: existingRootUnit.summary, sourceRefs: existingRootUnit.sourceRefs, sourceVersionRef: existingRootUnit.sourceVersionRef };
+        receipt.undo.storyUnit = { id: existingRootUnit.id, mode: "restore", summary: existingRootUnit.summary, sourceRefs: existingRootUnit.sourceRefs, sourceVersionRef: existingRootUnit.sourceVersionRef, linkedEntityIds: existingRootUnit.linkedEntityIds };
         writeReceipt(receipt);
-        const updated = operations.updateStoryUnit({ projectId: input.projectId, unitId: existingRootUnit.id, expectedVersion: existingRootUnit.version, summary: [existingRootUnit.summary, unitCandidate.summary].filter(Boolean).join("\n\n"), sourceVersionRef: `${before.envelope.baseVersion.workVersionId}@r${before.envelope.baseVersion.revision}`, sourceRefs: [...existingRootUnit.sourceRefs, sourceRef] });
+        const updated = operations.updateStoryUnit({ projectId: input.projectId, unitId: existingRootUnit.id, expectedVersion: existingRootUnit.version, summary: [existingRootUnit.summary, unitCandidate.summary].filter(Boolean).join("\n\n"), sourceVersionRef: `${before.envelope.baseVersion.workVersionId}@r${before.envelope.baseVersion.revision}`, sourceRefs: [...existingRootUnit.sourceRefs, sourceRef], linkedEntityIds: [...new Set([...existingRootUnit.linkedEntityIds, ...adoptedEventIds])] });
         if (updated.conflict) throw new Error("Story Unit 在确认前已变化；已停止后续结构写入。");
         storyUnit = updated.unit;
       } else {
         const unitIntent = { owner: "story-unit-owner", candidateId: unitCandidate.candidateId, title: unitCandidate.proposedTitle, beforeTargetIds: operations.listStoryUnits({ projectId: input.projectId }).map((unit) => unit.id), completed: false };
         receipt.intents.push(unitIntent);
         writeReceipt(receipt);
-        storyUnit = operations.createStoryUnit({ projectId: input.projectId, title: unitCandidate.proposedTitle, summary: unitCandidate.summary, lifecycle: "active", sourceVersionRef: `${before.envelope.baseVersion.workVersionId}@r${before.envelope.baseVersion.revision}`, sourceRefs: [sourceRef] });
+        storyUnit = operations.createStoryUnit({ projectId: input.projectId, title: unitCandidate.proposedTitle, summary: unitCandidate.summary, lifecycle: "active", sourceVersionRef: `${before.envelope.baseVersion.workVersionId}@r${before.envelope.baseVersion.revision}`, sourceRefs: [sourceRef], linkedEntityIds: adoptedEventIds });
         receipt.undo.storyUnit = { id: storyUnit.id, mode: "archive" };
         unitIntent.completed = true;
       }
+      receipt.undo.storyUnit.writtenVersion = storyUnit.version;
       writeReceipt(receipt);
       const application = { owner: "story-unit-owner", objectId: storyUnit.id, proposalId: null, receiptId: `story-unit-receipt.${digest({ operationId: input.operationId, candidateId: unitCandidate.candidateId, version: storyUnit.version })}`, appliedAt: now };
       run = await tianyiAgentRuntime.recordStoryIntakeApplication({ ...input, candidateId: unitCandidate.candidateId, application, operationId: childOperation(input.operationId, "unit", unitCandidate.candidateId) });
@@ -263,15 +350,15 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       if (membership) {
       storyUnit = storyUnit || (planned.storyUnit.targetId ? operations.readStoryUnit({ projectId: input.projectId, unitId: planned.storyUnit.targetId }) : null);
       if (!storyUnit || eventApplications.size === 0) throw new Error("叙事编排缺少已验证的 Event 或 Story Unit；未创建路径位置。");
-      let read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: input.workVersionId, narrativePathId: storyUnit.id });
+      let read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: before.currentBase.workVersionId, narrativePathId: storyUnit.id });
       const createOperationId = childOperation(input.operationId, "arrangement-create", storyUnit.id);
       const insertOperationIds = eventCandidates.map((candidate) => childOperation(input.operationId, "arrangement-insert", `${membership.candidateId}:${candidate.candidateId}`));
       if (!read.arrangement) {
         receipt.undo.arrangement = { storyUnitId: storyUnit.id, beforeRevision: 0, receiptIds: [], createdByBatch: true, createOperationId, insertOperationIds };
         writeReceipt(receipt);
-        const created = operations.createNarrativeArrangement({ projectId: input.projectId, workVersionId: input.workVersionId, narrativePathId: storyUnit.id, ownerStoryUnitId: storyUnit.id, expectedOwnerVersion: storyUnit.version, expectedRevision: 0, operationId: createOperationId, authorActionId: childOperation(input.operationId, "author", "arrangement-create"), createdAt: now });
+        const created = operations.createNarrativeArrangement({ projectId: input.projectId, workVersionId: before.currentBase.workVersionId, narrativePathId: storyUnit.id, ownerStoryUnitId: storyUnit.id, expectedOwnerVersion: storyUnit.version, expectedRevision: 0, operationId: createOperationId, authorActionId: childOperation(input.operationId, "author", "arrangement-create"), createdAt: now });
         if (created.conflict) throw new Error(`NarrativeArrangement 创建冲突：${created.code}`);
-        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: input.workVersionId, narrativePathId: storyUnit.id });
+        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: before.currentBase.workVersionId, narrativePathId: storyUnit.id });
       } else {
         receipt.undo.arrangement = { storyUnitId: storyUnit.id, beforeRevision: read.arrangement.currentRevision, receiptIds: [], createdByBatch: false, createOperationId: null, insertOperationIds };
         writeReceipt(receipt);
@@ -281,16 +368,22 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
         const eventApplication = eventApplications.get(eventCandidate.candidateId);
         const insertOperationId = childOperation(input.operationId, "arrangement-insert", `${membership.candidateId}:${eventCandidate.candidateId}`);
         const beforeRevision = read.arrangement.currentRevision;
-        const inserted = operations.insertNarrativePlacement({ projectId: input.projectId, workVersionId: input.workVersionId, narrativePathId: storyUnit.id, expectedOwnerVersion: read.ownerVersion, expectedRevision: beforeRevision, operationId: insertOperationId, authorActionId: childOperation(input.operationId, "author", `arrangement-insert:${eventCandidate.candidateId}`), sourceKind: "author-action", sourceRef: `story-intake:${before.envelope.envelopeId}`, createdAt: now, eventId: eventApplication.objectId, storyUnitId: storyUnit.id, role: "primary", position: { kind: before.position } });
+        const inserted = operations.insertNarrativePlacement({ projectId: input.projectId, workVersionId: before.currentBase.workVersionId, narrativePathId: storyUnit.id, expectedOwnerVersion: read.ownerVersion, expectedRevision: beforeRevision, operationId: insertOperationId, authorActionId: childOperation(input.operationId, "author", `arrangement-insert:${eventCandidate.candidateId}`), sourceKind: "author-action", sourceRef: `story-intake:${before.envelope.envelopeId}`, createdAt: now, eventId: eventApplication.objectId, storyUnitId: storyUnit.id, role: "primary", position: { kind: before.position } });
         if (inserted.conflict || !inserted.receipt) throw new Error(`NarrativeArrangement 写入冲突：${inserted.code}`);
         receipt.undo.arrangement.receiptIds.push(inserted.receipt.receiptId);
         writeReceipt(receipt);
-        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: input.workVersionId, narrativePathId: storyUnit.id });
+        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: before.currentBase.workVersionId, narrativePathId: storyUnit.id });
       }
       const application = { owner: "narrative-arrangement-owner", objectId: storyUnit.id, proposalId: null, receiptId: receipt.undo.arrangement.receiptIds[0], appliedAt: now };
       run = await tianyiAgentRuntime.recordStoryIntakeApplication({ ...input, candidateId: membership.candidateId, application, operationId: childOperation(input.operationId, "arrangement", membership.candidateId) });
       receipt.items.push(receiptItem(membership, application.owner, application.objectId, application.receiptId));
       writeReceipt(receipt);
+      }
+
+      if (receipt.undo.storyUnit) {
+        // Arrangement writes can advance the Story Unit owner revision.
+        receipt.undo.storyUnit.writtenVersion = operations.readStoryUnit({ projectId: input.projectId, unitId: receipt.undo.storyUnit.id }).version;
+        writeReceipt(receipt);
       }
 
       for (const relation of before.activeRelations) {
@@ -329,7 +422,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
         writeReceipt(receipt);
         throw conflictError(`批次写入失败，自动补偿也未完成；已保留恢复日志并阻止继续确认。原始错误：${safeMessage(cause)}；补偿错误：${safeMessage(compensationCause)}`);
       }
-      receipt = { ...receipt, status: "failed-compensated", failure: safeMessage(cause), compensatedAt: new Date().toISOString() };
+      receipt = { ...receipt, status: "failed-compensated", items: compensatedItems(receipt.items), failure: safeMessage(cause), compensatedAt: new Date().toISOString() };
       writeReceipt(receipt);
       throw conflictError(`批次写入失败，已撤销本次已完成的步骤：${safeMessage(cause)}`);
     }
@@ -347,35 +440,67 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       }
     }
     writeReceipt({ ...receipt, status: "undoing" });
-    let run = await compensateReceipt(receipt, input);
-    const currentRoot = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
-    if (!currentRoot) throw new Error("撤销已完成，但当前主版本不可读；已停止候选重验证。");
-    const rebasedVersion = { workVersionId: currentRoot.identity.workVersionId, revision: currentRoot.identity.currentRevision, manifestId: currentRoot.identity.headManifestId };
-    run = await tianyiAgentRuntime.rebaseStoryIntakeAfterUndo({ ...input, baseVersion: rebasedVersion, operationId: childOperation(input.operationId, "rebase", receipt.envelopeId) });
-    const now = new Date().toISOString();
-    const undone = { ...receipt, status: "undone", undoResultBaseRevision: rebasedVersion.revision, items: receipt.items.map((item) => ({ ...item, undoState: item.undoState === "not-required" ? "not-required" : "undone" })), undoneAt: now };
-    writeReceipt(undone);
-    return { run, receipt: publicReceipt(undone) };
+    try {
+      let run = await compensateReceipt(receipt, input);
+      const currentRoot = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
+      const rebasedVersion = currentRoot
+        ? { workVersionId: currentRoot.identity.workVersionId, revision: currentRoot.identity.currentRevision, manifestId: currentRoot.identity.headManifestId }
+        : { workVersionId: "work-version.unversioned", revision: 0, manifestId: null };
+      run = await tianyiAgentRuntime.rebaseStoryIntakeAfterUndo({ ...input, baseVersion: rebasedVersion, operationId: childOperation(input.operationId, "rebase", receipt.envelopeId) });
+      const now = new Date().toISOString();
+      const undone = { ...receipt, status: "undone", undoResultBaseRevision: rebasedVersion.revision, items: receipt.items.map((item) => ({ ...item, undoState: item.undoState === "not-required" ? "not-required" : "undone" })), undoneAt: now };
+      writeReceipt(undone);
+      return { run, receipt: publicReceipt(undone) };
+    } catch (cause) {
+      writeReceipt({ ...receipt, status: "recovery-required", compensationFailure: safeMessage(cause) });
+      throw cause;
+    }
   }
 
   async function compensateReceipt(receipt, input) {
     let run = await tianyiAgentRuntime.getRunProjection(input);
     if (!run?.storyIntakeEnvelope || run.storyIntakeEnvelope.envelopeId !== receipt.envelopeId) throw new Error("原候选批次已丢失；已停止补偿，未猜测写入目标。");
+    // Check every owned object before changing any of them. An interrupted
+    // intent may have reached the Owner before its completion bit was saved.
+    for (const intent of receipt.intents?.filter((item) => item.owner === "story-workspace-object" && item.mode !== "link-existing") ?? []) {
+      const currentCandidate = run.storyIntakeEnvelope.candidates.find((candidate) => candidate.candidateId === intent.candidateId);
+      const exists = operations.listWorldObjects({ projectId: input.projectId, type: intent.objectType }).some((object) => object.id === intent.targetId);
+      const current = exists ? operations.readWorldObject({ projectId: input.projectId, objectId: intent.targetId }) : null;
+      const recorded = currentCandidate?.formalApplication?.objectId === intent.targetId && currentCandidate.formalApplication.proposalId === intent.proposalId;
+      const owned = current && exactIntentProvenance(current, intent);
+      if (!intent.completed && !recorded && !owned) continue;
+      if (!current || !owned || current.title !== intent.title || current.body.trimEnd() !== intent.expectedObject.body.trimEnd() || JSON.stringify(current.tags) !== JSON.stringify(intent.expectedObject.tags) || JSON.stringify(current.aliases) !== JSON.stringify(intent.expectedObject.aliases) || ![intent.expectedObject.status, "archived"].includes(current.status)) throw conflictError(`对象 ${intent.title} 已在失败后变化；已保留现场，不能撤销。`);
+    }
+    if (receipt.undo.storyUnit && !receipt.undo.storyUnit.writtenVersion) throw conflictError("旧批次回执缺少 Story Unit 写入修订，无法证明后来没有修改；已保留现场，不能撤销。");
+    if (receipt.undo.storyUnit?.writtenVersion) {
+      const target = receipt.undo.storyUnit;
+      const current = operations.readStoryUnit({ projectId: input.projectId, unitId: target.id });
+      if (!current || (current.lifecycle !== "archived" && current.version !== target.writtenVersion)) throw conflictError("Story Unit 已在失败后变化；已保留现场，不能撤销。");
+    }
+    if (!receipt.undo.storyUnit) {
+      for (const intent of receipt.intents?.filter((item) => item.owner === "story-unit-owner") ?? []) {
+        const created = operations.listStoryUnits({ projectId: input.projectId }).find((unit) => !intent.beforeTargetIds.includes(unit.id) && unit.title === intent.title && unit.lifecycle !== "archived");
+        if (!created) continue;
+        const sourceCandidate = run.storyIntakeEnvelope.candidates.find((candidate) => candidate.candidateId === intent.candidateId);
+        const expectedEventIds = run.storyIntakeEnvelope.candidates.filter((candidate) => candidate.type === "event" && candidate.formalApplication?.owner === "story-studio-event-owner").map((candidate) => candidate.formalApplication.objectId).sort();
+        if (!sourceCandidate || created.summary !== sourceCandidate.summary || created.createdAt !== created.updatedAt || created.sourceRefs.length !== 1 || created.sourceRefs[0]?.entityId !== receipt.envelopeId || JSON.stringify(created.linkedEntityIds) !== JSON.stringify(expectedEventIds)) throw conflictError("中断后新建的 Story Unit 已变化或来源不符；已保留现场，不能撤销。");
+      }
+    }
     const now = new Date().toISOString();
     if (receipt.undo.arrangement) {
       const target = receipt.undo.arrangement;
-      let read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.workVersionId, narrativePathId: target.storyUnitId });
+      let read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.targetWorkVersionId ?? receipt.workVersionId, narrativePathId: target.storyUnitId });
       const baselineRevision = target.createdByBatch ? 1 : target.beforeRevision;
       const rollbackOperationId = childOperation(input.operationId, "arrangement-rollback", target.storyUnitId);
       if (read.arrangement && read.arrangement.currentRevision !== baselineRevision) {
-        const rolled = operations.rollbackNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.workVersionId, narrativePathId: target.storyUnitId, expectedOwnerVersion: read.ownerVersion, expectedRevision: read.arrangement.currentRevision, operationId: rollbackOperationId, authorActionId: childOperation(input.operationId, "author", "arrangement-rollback"), sourceKind: "author-action", sourceRef: `batch-receipt:${receipt.receiptId}`, createdAt: now, targetRevision: baselineRevision });
+        const rolled = operations.rollbackNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.targetWorkVersionId ?? receipt.workVersionId, narrativePathId: target.storyUnitId, expectedOwnerVersion: read.ownerVersion, expectedRevision: read.arrangement.currentRevision, operationId: rollbackOperationId, authorActionId: childOperation(input.operationId, "author", "arrangement-rollback"), sourceKind: "author-action", sourceRef: `batch-receipt:${receipt.receiptId}`, createdAt: now, targetRevision: baselineRevision });
         if (rolled.conflict) throw new Error(`NarrativeArrangement 撤销冲突：${rolled.code}`);
       }
       if (target.createdByBatch && target.createOperationId) {
-        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.workVersionId, narrativePathId: target.storyUnitId });
+        read = operations.readNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.targetWorkVersionId ?? receipt.workVersionId, narrativePathId: target.storyUnitId });
         if (read.arrangement) {
           const insertOperationIds = target.insertOperationIds ?? [target.insertOperationId].filter(Boolean);
-          const discarded = operations.discardNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.workVersionId, narrativePathId: target.storyUnitId, expectedOwnerVersion: read.ownerVersion, expectedRevision: read.arrangement.currentRevision, expectedCreateOperationId: target.createOperationId, allowedOperationIds: [target.createOperationId, ...insertOperationIds, rollbackOperationId].filter(Boolean) });
+          const discarded = operations.discardNarrativeArrangement({ projectId: input.projectId, workVersionId: receipt.targetWorkVersionId ?? receipt.workVersionId, narrativePathId: target.storyUnitId, expectedOwnerVersion: read.ownerVersion, expectedRevision: read.arrangement.currentRevision, expectedCreateOperationId: target.createOperationId, allowedOperationIds: [target.createOperationId, ...insertOperationIds, rollbackOperationId].filter(Boolean) });
           if (discarded.conflict) throw new Error(`NarrativeArrangement 新建补偿冲突：${discarded.code}`);
         }
       }
@@ -395,6 +520,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       const candidate = run.storyIntakeEnvelope.candidates.find((item) => item.candidateId === candidateId);
       if (!candidate) continue;
       const currentBase = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
+      if (!currentBase) continue; // An Event cannot have been formally adopted without a root.
       tianyiCreativeEventPort.undo(input.projectId, { sessionId: receipt.sessionId, candidateId: candidate.candidateId, expectedCurrentRevision: currentBase?.identity.currentRevision }, legacyProjection(run.storyIntakeEnvelope, candidate));
     }
     if (receipt.undo.storyUnit) {
@@ -403,7 +529,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       if (current && !(target.mode === "archive" && current.lifecycle === "archived")) {
         const reverted = target.mode === "archive"
           ? operations.archiveStoryUnit({ projectId: input.projectId, unitId: current.id, expectedVersion: current.version })
-          : operations.updateStoryUnit({ projectId: input.projectId, unitId: current.id, expectedVersion: current.version, summary: target.summary, sourceRefs: target.sourceRefs, sourceVersionRef: target.sourceVersionRef });
+          : operations.updateStoryUnit({ projectId: input.projectId, unitId: current.id, expectedVersion: current.version, summary: target.summary, sourceRefs: target.sourceRefs, sourceVersionRef: target.sourceVersionRef, linkedEntityIds: target.linkedEntityIds });
         if (reverted.conflict) throw new Error("Story Unit 撤销时版本已变化；已停止后续撤销。");
       }
     }
@@ -428,7 +554,9 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
       const exactApplicationWasRecorded = currentCandidate?.formalApplication?.owner === "story-workspace-object"
         && currentCandidate.formalApplication.objectId === intent.targetId
         && currentCandidate.formalApplication.proposalId === intent.proposalId;
-      if (!intent.completed && !exactApplicationWasRecorded) continue;
+      const exists = operations.listWorldObjects({ projectId: input.projectId, type: intent.objectType }).some((object) => object.id === intent.targetId);
+      const currentObject = exists ? operations.readWorldObject({ projectId: input.projectId, objectId: intent.targetId }) : null;
+      if (!intent.completed && !exactApplicationWasRecorded && !(currentObject && exactIntentProvenance(currentObject, intent))) continue;
       const archived = operations.archiveAgentProposalObjectOnce({ projectId: input.projectId, targetObjectId: intent.targetId, objectType: intent.objectType, proposalId: intent.proposalId, proposalRevision: 1, operationId: intent.operationId, title: intent.title, ...intent.expectedObject });
       if (archived.conflict) throw new Error(`对象 ${intent.title} 的精确路径、版本或提案来源已变化；已停止补偿。`);
       if (currentCandidate?.formalApplication?.owner === "story-workspace-object" && currentCandidate.formalApplication.objectId === intent.targetId) {
@@ -450,8 +578,9 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
   async function compensateReceiptAndRebase(receipt, input, reason) {
     let run = await compensateReceipt(receipt, input);
     const currentRoot = creationSourceSelectionPort.resolveRootWorkVersion(input.projectId);
-    if (!currentRoot) throw new Error("批次已补偿，但当前主版本不可读；已停止候选重验证。");
-    const rebasedVersion = { workVersionId: currentRoot.identity.workVersionId, revision: currentRoot.identity.currentRevision, manifestId: currentRoot.identity.headManifestId };
+    const rebasedVersion = currentRoot
+      ? { workVersionId: currentRoot.identity.workVersionId, revision: currentRoot.identity.currentRevision, manifestId: currentRoot.identity.headManifestId }
+      : { workVersionId: "work-version.unversioned", revision: 0, manifestId: null };
     run = await tianyiAgentRuntime.rebaseStoryIntakeAfterUndo({ ...input, workVersionId: receipt.workVersionId, sessionId: receipt.sessionId, runId: receipt.runId, baseVersion: rebasedVersion, operationId: childOperation(input.operationId, "rebase", `${reason}-${receipt.envelopeId}`) });
     return run;
   }
@@ -476,7 +605,7 @@ export function createStoryIntakeBatchPort({ rootPath, operations, relationOpera
   }
   function readReceipt(projectId, receiptId) { const file = receiptPath(projectId, receiptId); return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null; }
   function writeReceipt(receipt) { const file = receiptPath(receipt.projectId, receipt.receiptId); mkdirSync(path.dirname(file), { recursive: true }); const temporary = `${file}.tmp`; writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 }); renameSync(temporary, file); }
-  return Object.freeze({ preview, confirm, undo });
+  return Object.freeze({ preview, confirm, undo, prepareVersion, previewKnowledge, confirmKnowledge });
 }
 
 function itemPreview(candidate, entityBinding = null) {
@@ -494,6 +623,7 @@ function legacyProjection(envelope, candidate) {
   return { summaryState: "current", originals: [{ ...source, text: candidate.sourceEvidence.excerpt }], candidates: [{ candidateId: candidate.candidateId, kind: "event", title: candidate.proposedTitle, summary: candidate.summary, uncertainties: candidate.uncertainties, sourceExcerpt: candidate.sourceEvidence.excerpt, targetOwnerKind: "candidate-review", state: "pending", reviewStatus: "pending", sourceRefs: [source], duplicateHints: [], revision: 1, ownerReceipt: null }] };
 }
 function receiptItem(candidate, owner, targetId, receiptId) { return { candidateId: candidate.candidateId, type: candidate.type, title: candidate.proposedName || candidate.proposedTitle || "未命名候选", owner, targetId, receiptId, undoState: "available" }; }
+function compensatedItems(items) { return items.map((item) => ({ ...item, undoState: item.undoState === "not-required" ? "not-required" : "undone" })); }
 function relationLinks(candidates, allCandidates) {
   const selected = new Set(candidates.map((candidate) => candidate.candidateId));
   const byId = new Map(allCandidates.map((candidate) => [candidate.candidateId, candidate]));
@@ -572,5 +702,10 @@ function safeMessage(cause) { return cause instanceof Error ? cause.message : "�
 function receiptIdFor(operationId) { return `story-intake-batch.${digest(operationId)}`; }
 function childOperation(operationId, role, target) { return `story-intake-batch.${role}.${digest({ operationId, target })}`; }
 function sameBaseVersion(left, right) { return left.workVersionId === right.workVersionId && left.revision === right.revision && left.manifestId === right.manifestId; }
+function exactIntentProvenance(object, intent) {
+  return JSON.stringify(object.properties?.agent_proposal_ids) === JSON.stringify([intent.proposalId])
+    && JSON.stringify(object.properties?.agent_proposal_operation_ids) === JSON.stringify([intent.operationId])
+    && JSON.stringify(object.properties?.agent_proposal_revisions) === JSON.stringify(["1"]);
+}
 function digest(value) { return createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value), "utf8").digest("hex").slice(0, 32); }
 function publicReceipt(receipt) { if (!receipt) return null; const { undo: _undo, intents: _intents, workVersionId: _workVersionId, failure: _failure, compensatedAt: _compensatedAt, compensationFailure: _compensationFailure, ...projection } = receipt; return receipt.status === "recovery-required" ? { ...projection, recoveryMessage: "上次确认未完整结束；请先按这张精确回执恢复并撤销，再重新查看影响。" } : projection; }

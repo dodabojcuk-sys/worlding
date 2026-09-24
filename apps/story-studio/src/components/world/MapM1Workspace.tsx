@@ -418,6 +418,13 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     setMaps((current) => current.map((item) => item.id === previous.id ? document : item));
     setBusy(true);
     void props.runtime.withConnection((token) => updateVisualDocument({ projectId, relativePath: previous.relativePath, expectedHash: previous.contentHash, document, token })).then((next) => {
+      if (next.conflict) {
+        setMaps((current) => current.map((item) => item.id === previous.id ? previous : item));
+        setBusy(false);
+        setMessage(`${failure}地图已在其他页面更新，请刷新后重试。`);
+        after?.failure?.();
+        return;
+      }
       setMaps((current) => current.map((item) => item.id === previous.id ? next.document as MapDocument : item)); setBusy(false); setMessage(success); after?.success?.();
     }).catch((error: unknown) => { setMaps((current) => current.map((item) => item.id === previous.id ? previous : item)); setBusy(false); setMessage(error instanceof Error ? error.message : failure); after?.failure?.(); });
   };
@@ -624,7 +631,22 @@ export function MapM1Workspace(props: { runtime: TianyanShellRuntimeState; onOpe
     const box = stageRef.current?.getBoundingClientRect(); if (!box?.width || !box.height) { setMessage("地图舞台尚未就绪；没有保存不准确的标记位置。"); return; } const marker = map.content.markers.find((item) => item.objectId === location.id);
     const x = Math.round(((event.clientX - box.left) / box.width) * 1000) / 10; const y = Math.round(((event.clientY - box.top) / box.height) * 1000) / 10;
     const document: MapDocument = { ...map, content: { ...map.content, markers: marker ? map.content.markers.map((item) => item.id === marker.id ? { ...item, x, y } : item) : [...map.content.markers, { id: `marker.${location.id}`, objectId: location.id, layerId: "layer.main", x, y, color: "#147d78", labelMode: "always" }] } };
-    setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId: projectId!, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then((next) => { setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item)); setMessage("布局已保存；地点事实、关系与角色记忆未被改写。"); }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。")).finally(() => setBusy(false));
+    setBusy(true); void props.runtime.withConnection((token) => updateVisualDocument({ projectId: projectId!, relativePath: map.relativePath, expectedHash: map.contentHash, document, token })).then(async (next) => {
+      if (next.conflict) {
+        await refresh(projectId!, workVersionId);
+        setMessage("布局未保存：地图已在其他页面更新，已重新读取，请再次选择位置。");
+        return;
+      }
+      setMaps((current) => current.map((item) => item.id === map.id ? next.document as MapDocument : item));
+      setMessage("布局已保存；地点事实、关系与角色记忆未被改写。");
+    }).catch(async (error: unknown) => {
+      if (error instanceof Error && error.message.startsWith("地图已在其他页面更新")) {
+        try { await refresh(projectId!, workVersionId); } catch { /* Preserve the conflict result even if the follow-up read also fails. */ }
+        setMessage("布局未保存：地图已在其他页面更新，已重新读取，请再次选择位置。");
+        return;
+      }
+      setMessage(error instanceof Error ? error.message : "布局保存冲突，请刷新后重试。");
+    }).finally(() => setBusy(false));
   };
   const handleCanvasClick = (event: MouseEvent<HTMLElement>) => {
     if (suppressCanvasClick.current) { suppressCanvasClick.current = false; return; }
