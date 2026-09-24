@@ -58,7 +58,7 @@ export function WorkspaceRunRecords(props: {
   const showModeling = props.scope === "all" || props.scope === "event-line";
   const listedNuwaRuns = props.scope === "nuwa" ? (nuwa ?? []).filter((run) => run.runId !== props.currentRunId) : nuwa ?? [];
   return <section className="shell-run-records" role="dialog" aria-modal="true" aria-label={props.scope === "all" ? "任务与运行" : props.scope === "current" ? "当前排演记录" : "当前功能运行记录"}>
-    <header><div><small>当前项目 · 已有记录</small><h2>{props.scope === "all" ? "任务与运行" : props.scope === "current" ? "当前排演" : "功能历史"}</h2></div><button type="button" ref={closeRef} onClick={props.onClose} aria-label="关闭运行记录"><X /></button></header>
+    <header><div><small>当前项目 · 已有记录</small><h2>{props.scope === "all" ? "任务与运行" : props.scope === "current" ? "当前排演" : "功能历史"}</h2></div><button type="button" ref={closeRef} onClick={props.onClose} aria-label="关闭运行记录"><X aria-hidden="true" />关闭</button></header>
     {!projectId ? <p>先选择项目。</p> : <>
       {error ? <p role="alert">{error}</p> : null}
       {loading ? <p role="status">正在读取当前项目的运行记录…</p> : null}

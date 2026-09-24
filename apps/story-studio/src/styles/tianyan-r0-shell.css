@@ -1755,7 +1755,7 @@ input:focus-visible {
 .shell-run-records > header { display: flex; justify-content: space-between; align-items: start; gap: .5rem; }
 .shell-run-records h2, .shell-run-records h3 { margin: .1rem 0 .5rem; font-size: .9rem; }
 .shell-run-records small, .shell-run-records-scope { color: var(--color-text-muted); font-size: .72rem; }
-.shell-run-records > header button { border: 0; background: transparent; cursor: pointer; }
+.shell-run-records > header button { display:inline-flex; align-items:center; gap:.25rem; min-block-size:2.25rem; padding:.3rem .5rem; border:1px solid var(--color-border); border-radius:.3rem; background:var(--color-surface); color:var(--color-text); cursor:pointer; }
 .shell-run-records > header svg { width: 1rem; }
 .shell-run-records section { border-block-start: 1px solid var(--color-border); padding-block: .65rem; }
 .shell-run-records ol { list-style: none; margin: 0; padding: 0; }

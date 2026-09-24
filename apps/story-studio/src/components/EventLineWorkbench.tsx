@@ -924,6 +924,7 @@ export function EventLineWorkbench(props: {
   const tianyiReturn = tianyiReturnTarget(window.location.search);
 
   return <section className="workbench event-line-workbench" data-testid="event-line-workbench" data-event-observation-renderer={advancedView ? projectionMode : eventTask === "time" ? "TemporalCanvas" : eventTask === "audit" ? "EvidenceAuditMatrix" : "EventGraphCanvas"} data-projection-mode={projectionMode} data-knowledge-projection-state={knowledgeProjectionState}>
+    {new URLSearchParams(window.location.search).has("journeyReturn") ? <button type="button" className="event-line-map-return" onClick={() => { const target = new URLSearchParams(window.location.search).get("journeyReturn") ?? ""; window.location.assign(`/event-line${target ? `?${target}` : ""}`); }}>返回事件线目录</button> : null}
     {mapReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(mapReturn)}>返回地点地图</button> : null}
     {relationReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(relationReturn)}>返回关系查看</button> : null}
     {tianyiReturn ? <button type="button" className="event-line-map-return" onClick={() => window.location.assign(tianyiReturn)}>返回天意问题</button> : null}
@@ -1514,7 +1515,7 @@ function canonReadFailureLabel(kind: CanonReadFailureKind): string {
   } as Record<CanonReadFailureKind, string>)[kind];
 }
 
-function authorEventBody(value: string): string[] {
+export function authorEventBody(value: string): string[] {
   const paragraphs = value
     .split(/\r?\n/u)
     .map((line) => line.trim())

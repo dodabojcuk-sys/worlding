@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { runNormalEventCreationAction, type NormalEventCreationState } from "../../lib/localTransport";
-import { archiveStoryUnit, confirmRelationCandidate, createNarrativeArrangement, createRelationCandidate, createStoryCollectionPoint, createStoryModelingRunTransport, createStoryUnit, createWorldObject, dissolveStoryCollectionPoint, executeStoryModelingRunTransport, getBootstrap, getCreationSourcePortState, getNarrativeArrangement, getObjectCatalog, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, insertNarrativePlacement, listRelations, listRelationTypes, listStoryLogicReviews, listStoryModelingRuns, listStoryUnits, listTemporalProjectionRuns, moveNarrativePlacement, planStoryModeling, rejectRelationCandidate, removeNarrativePlacement, reviewStoryLogicFinding, stopStoryModelingRunTransport, updateObjectCatalog, updateRelationCandidate, updateStoryCollectionPoint, updateStoryUnit, type NarrativeArrangementRead, type NarrativeArrangementWriteResult, type NarrativePlacementRole, type NarrativePositionIntent, type RelationRecord, type RelationTypeDefinition, type StoryCollectionPoint, type StoryLogicReviewProjection, type StoryModelingPlanProjection, type StoryModelingRunProjection, type StoryUnit, type VerifiedCanonEventListRead, type WorldObject } from "../../lib/localTransport";
+import { archiveStoryUnit, confirmRelationCandidate, createNarrativeArrangement, createRelationCandidate, createStoryCollectionPoint, createStoryModelingRunTransport, createStoryUnit, createWorldObject, dissolveStoryCollectionPoint, executeStoryModelingRunTransport, getBootstrap, getCreationSourcePortState, getNarrativeArrangement, getNuwaN1Bootstrap, getObjectCatalog, getTemporalGraphRevision, getTemporalProjectionByRevision, getVerifiedCanonEvent, getVerifiedCanonEventList, getWorldLibrary, insertNarrativePlacement, listRelations, listRelationTypes, listStoryLogicReviews, listStoryModelingRuns, listStoryUnits, listTemporalProjectionRuns, moveNarrativePlacement, planStoryModeling, rejectRelationCandidate, removeNarrativePlacement, reviewStoryLogicFinding, stopStoryModelingRunTransport, updateObjectCatalog, updateRelationCandidate, updateStoryCollectionPoint, updateStoryUnit, type NarrativeArrangementRead, type NarrativeArrangementWriteResult, type NarrativePlacementRole, type NarrativePositionIntent, type RelationRecord, type RelationTypeDefinition, type StoryCollectionPoint, type StoryLogicReviewProjection, type StoryModelingPlanProjection, type StoryModelingRunProjection, type StoryUnit, type VerifiedCanonEventListRead, type WorldObject, type NuwaN1Storyline } from "../../lib/localTransport";
 import { eventWorkspaceProjectionSummaries, type EventLineEventSummary } from "../eventLineCommittedEvents";
 import { EventLineWorkbench, type EventDraftInput } from "../EventLineWorkbench";
 import type { TianyanShellRuntimeState } from "../../product-shell/runtime/TianyanShellRuntime";
@@ -10,6 +10,7 @@ import { useI18n } from "../../product-shell/i18n/I18nProvider";
 import type { PerspectiveObjectRef } from "../../../../../src/storyContracts/eventPerspectiveProjection.ts";
 import { TianyiEventLineCandidateTrajectory } from "../tianyi/workspace/TianyiEventLineCandidateTrajectory";
 import type { TianyiKnowledgeViewContext } from "../tianyi/sidebar/TianyiSidebar";
+import { EventLineJourney } from "./EventLineJourney";
 
 /** Adapter for the established Event projection and Workspace write command. */
 export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState; onOpenTianyi(reference?: StoryStudioEventReference | StoryStudioEventReference[], initialDraft?: string, predictionSourceLabels?: string[], predictionSourceUnitSummary?: string, knowledgeView?: TianyiKnowledgeViewContext): void; selectedEventId?: string | null }) {
@@ -17,6 +18,7 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
   const navigationStartedAt = useRef(performance.now());
   const firstFeedbackAt = useRef(performance.now());
   const [interactiveAt, setInteractiveAt] = useState<number | null>(null);
+  const [storylines, setStorylines] = useState<NuwaN1Storyline[]>([]);
   const [state, setState] = useState<{ projectId: string | null; title: string; events: EventLineEventSummary[]; storyUnits: StoryUnit[]; perspectiveObjects: PerspectiveObjectRef[]; modelingRuns: StoryModelingRunProjection[]; logicReviews: StoryLogicReviewProjection[]; list: VerifiedCanonEventListRead | { status: "loading" }; unit: string | null; relations: RelationRecord[]; relationTypes: RelationTypeDefinition[]; narrative: NarrativeArrangementRead | null; narratives: NarrativeArrangementRead[] }>({ projectId: null, title: "", events: [], storyUnits: [], perspectiveObjects: [], modelingRuns: [], logicReviews: [], list: { status: "loading" }, unit: null, relations: [], relationTypes: [], narrative: null, narratives: [] });
   const [loadState, setLoadState] = useState<"loading" | "ready" | "empty" | "error">("loading");
   const load = useCallback(async () => {
@@ -66,6 +68,13 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     }
   }, [props.runtime.project, props.runtime.workVersionId]);
   useEffect(() => { void load().catch(() => undefined); }, [load]);
+  useEffect(() => {
+    const projectId = props.runtime.project?.id;
+    if (!projectId) { setStorylines([]); return; }
+    let active = true;
+    void getNuwaN1Bootstrap(projectId).then((bootstrap) => { if (active) setStorylines(bootstrap.storylines); }).catch(() => { if (active) setStorylines([]); });
+    return () => { active = false; };
+  }, [props.runtime.project?.id]);
   useEffect(() => {
     const refresh = (event: Event) => {
       const detail = (event as CustomEvent<{ projectId?: string }>).detail;
@@ -207,6 +216,16 @@ export function R0EventLineProjection(props: { runtime: TianyanShellRuntimeState
     window.history.pushState({}, "", `/tianyi?${params.toString()}`);
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
+  const route = new URLSearchParams(window.location.search);
+  const legacyOverview = route.has("eventAdvanced") || route.has("eventView") || route.has("eventId") || route.has("eventRender") || route.has("eventTask") && route.get("eventTask") !== "story";
+  if (!legacyOverview && !tianyiCandidateActive) return <EventLineJourney projectId={state.projectId} workVersionId={props.runtime.workVersionId ?? state.narratives[0]?.projection.workVersionId ?? null} storylines={storylines} units={state.storyUnits} events={state.events} narratives={state.narratives} onOverview={(location) => {
+    const params = new URLSearchParams();
+    params.set("eventAdvanced", "spine");
+    params.set("journeyReturn", new URLSearchParams({ ...(location.lineKey ? { line: location.lineKey } : {}), ...(location.unitId ? { unit: location.unitId } : {}), ...(location.eventId ? { node: location.eventId } : {}) }).toString());
+    if (location.lineKey && !location.lineKey.startsWith("unit:")) params.set("eventStoryline", location.lineKey);
+    if (location.eventId) params.set("eventId", location.eventId);
+    window.location.assign(`/event-line?${params.toString()}`);
+  }} />;
   return <div className="tianyi-event-line-golden-loop" data-tianyi-candidate-active={tianyiCandidateActive} data-load-phase="interactive" data-navigation-started-at={navigationStartedAt.current.toFixed(1)} data-first-feedback-at={firstFeedbackAt.current.toFixed(1)} data-interactive-at={interactiveAt?.toFixed(1) ?? "pending"}><EventLineWorkbench embedded projectId={state.projectId} workVersionId={props.runtime.workVersionId ?? state.narratives[0]?.projection.workVersionId ?? null} projectTitle={state.title} events={state.events} storyUnits={state.storyUnits} narrativeArrangement={state.narrative} narrativeArrangements={state.narratives} perspectiveObjects={state.perspectiveObjects} modelingRuns={state.modelingRuns} logicReviews={state.logicReviews} relations={state.relations} relationTypes={state.relationTypes} listState={state.list} onReadEvent={(eventId) => getVerifiedCanonEvent(state.projectId!, eventId, props.runtime.workVersionId ?? undefined)} onRetry={() => void load().catch(() => undefined)} goldenLoop={null} renderCandidateOverlay={tianyiCandidateActive ? (onClose) => <TianyiEventLineCandidateTrajectory runtime={props.runtime} onReturn={returnToTianyi} onClose={onClose} onChanged={() => void load().catch(() => undefined)} /> : undefined} rejectedCandidateIds={[]} acceptedCandidateIds={[]} currentFocusLabel={state.title} currentUnitLabel={state.unit} selectedEventId={props.selectedEventId ?? undefined} onOpenTianyi={props.onOpenTianyi} onReadTemporalProjectionCache={readTemporalProjectionCache} onPlanStoryModeling={planModeling} onExecuteStoryModeling={runModeling} onStopStoryModeling={(runId) => props.runtime.withConnection((token) => stopStoryModelingRunTransport({ projectId: state.projectId!, runId, token })).then(async (run) => { await load(); return run; })} onReviewLogicFinding={(finding) => props.runtime.withConnection((token) => reviewStoryLogicFinding({ projectId: state.projectId!, findingId: finding.findingId, source: finding.source, evidenceRefs: finding.evidenceRefs, authorStatus: finding.authorStatus, token })).then(async (record) => { await load(); return record; })} onInsertNarrativePlacement={state.narratives.length ? insertPlacement : undefined} onMoveNarrativePlacement={state.narratives.length ? movePlacement : undefined} onRemoveNarrativePlacement={state.narratives.length ? removePlacement : undefined} onSaveEvent={saveDraftEvent} onNormalCreationAction={runNormalCreation} onTrashDraftEvent={trashDraftEvent} onCreateUnit={createUnit} onRenameUnit={renameUnit} onArchiveUnit={archiveUnitById} onCreateCollectionPoint={createCollectionPoint} onUpdateCollectionPoint={updateCollectionPoint} onDissolveCollectionPoint={dissolveCollectionPoint} onCreateGraphRelation={({ sourceEventId, targetEventId, relationTypeId, sourceRef }) => {
     const type = state.relationTypes.find((candidate) => candidate.relationTypeId === relationTypeId) ?? state.relationTypes[0];
     if (!type) throw new Error("A relation type is required before linking events; no relation was written.");
