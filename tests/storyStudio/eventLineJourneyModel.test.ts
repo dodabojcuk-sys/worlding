@@ -21,6 +21,8 @@ test("three storylines keep same-name units and empty units scoped by stable ide
   assert.equal(lines[2]?.units[0]?.linkedEntityIds.length, 0);
   assert.equal(lines.filter((line) => line.units.some((unit) => unit.linkedEntityIds.includes("event.shared"))).length, 2);
   assert.equal(lines[0]?.units[1]?.title, "长名称单元：河岸上的一次复杂而未结束的等待");
+  const orphan = { ...units[0]!, id: "orphan.1", title: "尚未关联事件线的单元" };
+  assert.equal(eventLineJourneyLines(storylines, [...units, orphan]).length, 3, "An unlinked unit must not masquerade as a storyline.");
 });
 
 test("journey URLs preserve line, unit, and event identity independently", () => {
