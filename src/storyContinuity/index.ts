@@ -14,6 +14,7 @@ export * from "./tianyiGroundedEvidenceRetrieval.ts";
 export * from "./tianyiGroundedAnswer.ts";
 export * from "./tianyiGroundedAnswerOperation.ts";
 export * from "./tianyiSessionOperations.ts";
+export * from "./tianyiSessionScope.ts";
 export * from "./tianyiMemoryOperations.ts";
 export * from "./tianyiResumeOperations.ts";
 export * from "./continuityOperations.ts";

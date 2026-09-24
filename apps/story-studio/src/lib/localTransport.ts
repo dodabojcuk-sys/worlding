@@ -402,6 +402,7 @@ export type TianyiGroundedContextRequest = {
   sceneRef: TianyiObjectContextRef | null;
   explicitRefs: TianyiObjectContextRef[];
   eventRefs?: StoryStudioEventReference[];
+  scope?: TianyiSessionScope;
   knowledgeView?: { observerId: string; observerLabel: string; hiddenEventCount: number };
 };
 
@@ -1244,7 +1245,8 @@ export type TianyiOwnerResult = { owner: string; attempted: boolean; saved: bool
 export type TianyiMemoryCandidate = { version: "tianyi-memory-candidate/v1"; candidateId: string; statement: string; scope: TianyiMemoryScope; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; sources: Array<{ id: string; hash: string; kind?: "story-source" | "archive-message"; sessionId?: string | null; state?: "current" | "stale" | "deleted" | "missing" }>; runtimeInvolvement: "deterministic-fixture"; sessionId: string; operationId: string; personaRevision: number; relationshipPolicyRevision: number; currentState?: "current" | "stale" };
 export type TianyiStoppingPointCandidate = { version: "tianyi-stopping-point-candidate/v1"; candidateId: string; sourceId: string; sourceHash: string; statement: string; unresolvedThreadIds: string[]; sessionId: string; operationId: string };
 export type TianyiVisibleMessage = { contentHash?: string; eventId: string; sequence: number; actor: "author" | "tianyi"; recordedAt: string; visibleContent: string; receiptId: string | null };
-export type TianyiSessionMetadata = { id: string; title?: string | null; contentHash: string | null; eventCount: number; openedAt: string; closed: boolean; retentionMode: "normal" | "temporary"; recoverable: boolean; packEligible: boolean; candidateCount: number; memoryCandidates: TianyiMemoryCandidate[]; stoppingPointCandidates: TianyiStoppingPointCandidate[]; decidedCandidateIds: string[]; visibleMessages: TianyiVisibleMessage[]; groundedAttempts: Array<{ submissionId: string; questionAttemptKey: string; question: string; profileId: string; state: "PREPARED" | "PROVIDER_UNCERTAIN" | "RESULT_STAGED" | "RECEIPT_COMMITTED_UNACKNOWLEDGED" | "COMPLETED"; retryRequired: boolean }> };
+export type TianyiSessionScope = { kind: "project" } | { kind: "event-line"; storylineKey: string };
+export type TianyiSessionMetadata = { id: string; title?: string | null; scope?: TianyiSessionScope | null; contentHash: string | null; eventCount: number; openedAt: string; closed: boolean; retentionMode: "normal" | "temporary"; recoverable: boolean; packEligible: boolean; candidateCount: number; memoryCandidates: TianyiMemoryCandidate[]; stoppingPointCandidates: TianyiStoppingPointCandidate[]; decidedCandidateIds: string[]; visibleMessages: TianyiVisibleMessage[]; groundedAttempts: Array<{ submissionId: string; questionAttemptKey: string; question: string; profileId: string; state: "PREPARED" | "PROVIDER_UNCERTAIN" | "RESULT_STAGED" | "RECEIPT_COMMITTED_UNACKNOWLEDGED" | "COMPLETED"; retryRequired: boolean }> };
 export type TianyiQuestionOperation = { status: "current" | "stale" | "blocked" | "partial"; ownerResults: TianyiOwnerResult[]; receiptId: string; question: null | { status: "current" | "stale" | "blocked"; projectionFingerprint: string; currentProjectionFingerprint: string; currentVisibleResponse: string | null; visibleResponse: string; classifications: TianyiResponseClassification[]; memoryCandidates: Array<{ statement: string; scope: TianyiMemoryScope; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; sourceRefs: string[] }>; failure: null | string; receipt: TianyiContextReceipt } };
 export type TianyiMemoryItem = { world_os: string; id: string; type: "tianyi-memory"; agent_id: string; scope: TianyiMemoryScope; project_id: string; kind: TianyiMemoryKind; sensitivity: TianyiMemorySensitivity; approval_state: "candidate" | "author-approved" | "rejected"; model_involvement: string; created_revision: number; last_confirmed_revision: number; review_after: string; expires_after: string; state: "active" | "revoked"; source_refs: string[]; knowledge_subject_refs: string[]; body: string };
 export type TianyiMemoryRecord = { value: TianyiMemoryItem; contentHash: string; byteLength: number };
@@ -3306,8 +3308,13 @@ export async function getTianyiProjectResume(projectId: string, agentId: string,
   return tianyiRequest("project-resume", token, { projectId, agentId });
 }
 
-export async function openTianyiSession(projectId: string, operationId: string, token: string, retentionMode: "normal" | "temporary" = "normal"): Promise<{ sessionId: string; contentHash: string | null; alreadyCompleted: boolean; conflict?: boolean; retentionMode: "normal" | "temporary"; archiveWriteCount: number }> {
-  return tianyiRequest("session/open", token, { projectId, operationId, retentionMode });
+export async function openTianyiSession(projectId: string, operationId: string, token: string, retentionMode: "normal" | "temporary" = "normal", scope?: TianyiSessionScope): Promise<{ sessionId: string; contentHash: string | null; alreadyCompleted: boolean; conflict?: boolean; retentionMode: "normal" | "temporary"; archiveWriteCount: number }> {
+  return tianyiRequest("session/open", token, { projectId, operationId, retentionMode, ...(scope ? { scope } : {}) });
+}
+
+export async function selectTianyiSessionScope(input: { projectId: string; sessionId: string; scope: TianyiSessionScope; operationId: string; token: string }): Promise<TianyiSessionMetadata> {
+  const { token, ...body } = input;
+  return tianyiRequest("session/select-scope", token, body);
 }
 
 export async function runTianyiQuestion(input: { projectId: string; sessionId: string; operationId: string; request: { authorQuery: string } | { boundedAction: string }; contextRequest: TianyiContextRequest; archiveMessageRefs?: TianyiArchiveMessageRef[]; token: string }): Promise<TianyiQuestionOperation & { retentionMode?: "temporary"; archiveWriteCount?: number; receiptWriteCount?: number }> {

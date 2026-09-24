@@ -140,6 +140,7 @@ export type GlobalMemoryGrant = {
 export const INTERACTION_EVENT_TYPES = [
   "session-opened",
   "session-renamed",
+  "session-scope-selected",
   "author-message",
   "creative-response",
   "creative-summary-revised",

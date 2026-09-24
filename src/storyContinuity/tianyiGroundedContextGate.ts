@@ -1,4 +1,5 @@
 import { sha256, stableJson } from "./continuityValidation.ts";
+import { normalizeTianyiSessionScope, type TianyiSessionScope } from "./tianyiSessionScope.ts";
 import {
   normalizeStoryStudioEventReference,
   storyStudioEventReferenceKey,
@@ -44,6 +45,8 @@ export type TianyiGroundedContextRequest = {
   explicitRefs: TianyiObjectContextRef[];
   /** Optional only to preserve replay of pre-Phase 1B archived requests. */
   eventRefs?: StoryStudioEventReference[];
+  /** Absent only when reading archived pre-scope requests. */
+  scope?: TianyiSessionScope;
 };
 
 export type TianyiGroundedResolvedCandidate = {
@@ -84,6 +87,7 @@ export type TianyiGroundedSourceManifest = {
     sceneRef: string | null;
     explicitRefs: string[];
     eventRefs?: string[];
+    scope?: TianyiSessionScope;
   };
   hardBudget: number;
   included: TianyiGroundedSourceManifestEntry[];
@@ -112,9 +116,12 @@ const LANE_PRIORITY: Record<TianyiGroundedSourceLane, number> = {
 export function normalizeTianyiGroundedContextRequest(value: unknown): TianyiGroundedContextRequest {
   const input = plainObject(value, "Tianyi grounded context request");
   const hasEventRefs = Object.prototype.hasOwnProperty.call(input, "eventRefs");
+  const hasScope = Object.prototype.hasOwnProperty.call(input, "scope");
   exactOneOf(input, [
     ["version", "projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs"],
-    ["version", "projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs"]
+    ["version", "projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs"],
+    ["version", "projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "scope"],
+    ["version", "projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs", "scope"]
   ], "Tianyi grounded context request");
   if (input.version !== TIANYI_GROUNDED_CONTEXT_REQUEST_VERSION) throw new Error("Tianyi grounded context request version is invalid.");
   const projectId = requireProjectId(input.projectId);
@@ -126,6 +133,7 @@ export function normalizeTianyiGroundedContextRequest(value: unknown): TianyiGro
   if (!Array.isArray(input.explicitRefs) || input.explicitRefs.length > 5) throw new Error("Tianyi grounded explicit references are invalid.");
   const explicitRefs = input.explicitRefs.map(normalizeTianyiObjectContextRef);
   const eventRefs = hasEventRefs ? normalizeEventReferences(input.eventRefs) : undefined;
+  const scope = hasScope ? normalizeTianyiSessionScope(input.scope) : undefined;
 
   if (input.accessMode === "character") {
     if (!subjectRef || subjectRef.ownerType !== "markdown-object" || subjectRef.objectType !== "character") {
@@ -157,7 +165,8 @@ export function normalizeTianyiGroundedContextRequest(value: unknown): TianyiGro
     subjectRef,
     sceneRef,
     explicitRefs,
-    ...(eventRefs ? { eventRefs } : {})
+    ...(eventRefs ? { eventRefs } : {}),
+    ...(scope ? { scope } : {})
   };
 }
 
@@ -246,7 +255,8 @@ export function compileTianyiGroundedContext(input: {
       subjectRef: request.subjectRef ? tianyiObjectContextRefKey(request.subjectRef) : null,
       sceneRef: request.sceneRef ? tianyiObjectContextRefKey(request.sceneRef) : null,
       explicitRefs: request.explicitRefs.map(tianyiObjectContextRefKey),
-      ...(request.eventRefs ? { eventRefs: request.eventRefs.map(storyStudioEventReferenceKey) } : {})
+      ...(request.eventRefs ? { eventRefs: request.eventRefs.map(storyStudioEventReferenceKey) } : {}),
+      ...(request.scope ? { scope: request.scope } : {})
     },
     hardBudget,
     included,
@@ -281,9 +291,12 @@ export function normalizeTianyiGroundedSourceManifest(value: unknown): TianyiGro
   if (input.version !== TIANYI_GROUNDED_SOURCE_MANIFEST_VERSION) throw new Error("Tianyi grounded source manifest version is invalid.");
   const requestInput = plainObject(input.request, "Tianyi grounded source manifest request");
   const hasEventRefs = Object.prototype.hasOwnProperty.call(requestInput, "eventRefs");
+  const hasScope = Object.prototype.hasOwnProperty.call(requestInput, "scope");
   exactOneOf(requestInput, [
     ["projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs"],
-    ["projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs"]
+    ["projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs"],
+    ["projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "scope"],
+    ["projectId", "sessionId", "taskKind", "accessMode", "subjectRef", "sceneRef", "explicitRefs", "eventRefs", "scope"]
   ], "Tianyi grounded source manifest request");
   const projectId = requireProjectId(requestInput.projectId);
   const request = {
@@ -294,7 +307,8 @@ export function normalizeTianyiGroundedSourceManifest(value: unknown): TianyiGro
     subjectRef: requestInput.subjectRef === null ? null : requireSourceKey(requestInput.subjectRef),
     sceneRef: requestInput.sceneRef === null ? null : requireSourceKey(requestInput.sceneRef),
     explicitRefs: stringArray(requestInput.explicitRefs, 5, requireSourceKey, "Tianyi grounded explicit source references"),
-    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT, requireSourceKey, "Tianyi grounded explicit event references") } : {})
+    ...(hasEventRefs ? { eventRefs: stringArray(requestInput.eventRefs, TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT, requireSourceKey, "Tianyi grounded explicit event references") } : {}),
+    ...(hasScope ? { scope: normalizeTianyiSessionScope(requestInput.scope) } : {})
   };
   if (request.accessMode === "author" && request.subjectRef !== null) throw new Error("Author manifest cannot carry a subject.");
   if (request.accessMode === "character" && request.subjectRef === null) throw new Error("Character manifest requires a subject.");

@@ -71,6 +71,7 @@ import {
   allocateReceiptId,
   createReceipt,
   normalizeContextReceipt,
+  normalizeTianyiSessionScope,
   readReceipt,
   tianyiObjectContextRefKey
 } from "../../../src/storyContinuity/index.ts";
@@ -549,6 +550,18 @@ const preservedTianyiProductTools = createTianyiProductTools({
   }
 });
 void preservedTianyiProductTools;
+async function requireTianyiAgentScope(projectId, sessionId, rawScope) {
+  try {
+    const scope = normalizeTianyiSessionScope(rawScope);
+    const session = await tianyi.readTianyiSessionMetadata({ projectId, sessionId });
+    if (!session?.scope) throw new Error("历史天意对话尚未选择范围；请补选后再发送 Agent 请求。");
+    if (session.scope.kind !== scope.kind || (scope.kind === "event-line" && session.scope.storylineKey !== scope.storylineKey)) throw new Error("Agent 请求范围与此对话保存范围不一致；请新建对话。");
+    return { scope, eventIds: tianyi.validateTianyiScope(projectId, scope) };
+  } catch (cause) {
+    throw productError(cause instanceof Error ? cause.message : "Agent 请求范围无效。", 400);
+  }
+}
+
 const tianyiAgentRuntime = createTianyiAgentRuntimePort({
   persistence: {
     appendEvent: (event) => tianyi.appendTianyiAgentRuntimeEvent({
@@ -573,6 +586,10 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
     const rawRequest = input.contextRequest && typeof input.contextRequest === "object"
       ? input.contextRequest
       : { productMode: "world", activeOwner: { kind: "project", id: input.projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] };
+    // Historic persisted Runs may lack scope; new run/start requests are
+    // checked below. Never infer an old Run's target from current navigation.
+    const selectedScope = rawRequest.scope === undefined ? null : await requireTianyiAgentScope(input.projectId, input.sessionId, rawRequest.scope);
+    if (selectedScope?.eventIds && Array.isArray(rawRequest.eventRefs) && rawRequest.eventRefs.some((ref) => !selectedScope.eventIds.has(ref?.eventId))) throw new Error("Agent 事件依据不属于所选事件线。");
     if (rawRequest.knowledgeView?.contextAccess === "character" || rawRequest.knowledgeView?.contextAccess === "display-only") {
       throw new Error("角色或读者视角不能进入作者 Agent ContextPack；请使用带稳定 SubjectRef 的依据问答。");
     }
@@ -590,7 +607,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
         eventRefs: Array.isArray(rawRequest.eventRefs) ? rawRequest.eventRefs.filter((ref) => !hiddenEventIds.has(ref?.eventId)) : []
       }
       : rawRequest;
-    const { knowledgeView: _knowledgeView, storyIntake: _storyIntake, ...requestedOwnerContext } = request;
+    const { knowledgeView: _knowledgeView, storyIntake: _storyIntake, scope: _scope, ...requestedOwnerContext } = request;
     const ownerContextRequest = Object.keys(requestedOwnerContext).length ? requestedOwnerContext : { productMode: "world", activeOwner: { kind: "project", id: input.projectId }, selection: { documentId: null, objectId: null, timelinePointId: null }, sourceRefs: [], memorySelections: [], enabledSkillRefs: [] };
     const projection = await tianyi.getTianyiContextProjection({ projectId: input.projectId, contextRequest: ownerContextRequest });
     const archive = await tianyi.readTianyiSessionEvents({ projectId: input.projectId, sessionId: input.sessionId, startSequence: 1, limit: 200 });
@@ -649,6 +666,7 @@ const tianyiAgentRuntime = createTianyiAgentRuntimePort({
       projectId: input.projectId,
       workVersionId: input.workVersionId,
       sessionId: input.sessionId,
+      ...(selectedScope ? { scope: selectedScope.scope } : {}),
       currentPage: input.currentPage,
       selectedObjectIds: [projection.selection.objectId].filter(Boolean),
       sourceRefs,
@@ -4658,6 +4676,7 @@ async function handleTianyiAgentRuntimeRequest(request, response, url) {
   if (route === "run/start") {
     requireAllowedKeys(body, ["projectId", "workVersionId", "sessionId", "task", "currentPage", "contextRequest", "permissionProfile", "operationId"]);
     requireProject(body.projectId);
+    await requireTianyiAgentScope(body.projectId, body.sessionId, body.contextRequest?.scope);
     sendJson(response, 201, { data: await tianyiAgentRuntime.startRun(body) });
     return;
   }
@@ -4832,7 +4851,8 @@ async function handleTianyiRequest(request, response, url) {
     "story-modeling/logic-reviews/review": [["projectId", "findingId", "source", "evidenceRefs", "authorStatus"], () => tianyi.reviewStoryLogicFinding(body)],
     "project-resume": [["projectId", "agentId"], () => tianyi.getTianyiProjectResume(body)],
     "context-projection": [["projectId", "contextRequest"], () => tianyi.getTianyiContextProjection(body)],
-    "session/open": [["projectId", "operationId", "retentionMode"], () => tianyi.openTianyiSession(body)],
+    "session/open": [["projectId", "operationId", "retentionMode", "scope"], () => tianyi.openTianyiSession(body)],
+    "session/select-scope": [["projectId", "sessionId", "scope", "operationId"], () => tianyi.selectTianyiSessionScope(body)],
     "question": [["projectId", "sessionId", "operationId", "request", "contextRequest", "archiveMessageRefs"], () => tianyi.runTianyiQuestion(body)],
     "creative/capture": [["projectId", "sessionId", "operationId", "submissionId", "text", "collaborate"], () => tianyi.captureTianyiCreativeAuthorSource(body)],
     "creative/extract": [["projectId", "sessionId", "operationId", "source", "fixture"], () => tianyi.extractTianyiCreativeProjection(body)],

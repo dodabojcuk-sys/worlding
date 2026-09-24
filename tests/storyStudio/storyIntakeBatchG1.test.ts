@@ -73,13 +73,13 @@ test("an explicit Story Intake scope reaches existing Owners, persists its recei
   let server = startServer(rootPath, stateFilePath, token, port);
   try {
     await waitForServer(base);
-    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "batch.open" }, headers);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "batch.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const text = "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。";
     const captured = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "batch.capture", submissionId: "batch.source", text, collaborate: false }, headers);
     const source = (await captured.json() as { data: { source: unknown } }).data.source;
     const workVersionId = rootVersion.identity.workVersionId;
-    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "batch.start" }, headers);
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "batch.start" }, headers);
     const runId = (await started.json() as { data: { runId: string } }).data.runId;
     await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "batch.context" }, headers);
     const streamed = await post(`${base}/__local/story-studio/tianyi-agent/run/stream`, { projectId, workVersionId, sessionId, runId, operationId: "batch.stream" }, { ...headers, accept: "application/x-ndjson" });
@@ -395,12 +395,12 @@ test("an omitted or missing relation candidate endpoint can bind one existing pr
   try {
     server = startServer(rootPath, stateFilePath, token, port);
     await waitForServer(base);
-    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "existing-binding.open" }, headers);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "existing-binding.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const captured = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "existing-binding.capture", submissionId: "existing-binding.source", text: "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。", collaborate: false }, headers);
     const source = (await captured.json() as { data: { source: unknown } }).data.source;
     const workVersionId = rootVersion.identity.workVersionId;
-    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "existing-binding.start" }, headers);
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "existing-binding.start" }, headers);
     const runId = (await started.json() as { data: { runId: string } }).data.runId;
     await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "existing-binding.context" }, headers);
     const streamed = await post(`${base}/__local/story-studio/tianyi-agent/run/stream`, { projectId, workVersionId, sessionId, runId, operationId: "existing-binding.stream" }, { ...headers, accept: "application/x-ndjson" });
@@ -484,13 +484,13 @@ test("an empty project can establish its first root and adopt the same selected 
   let server = startServer(rootPath, stateFilePath, token, port);
   try {
     await waitForServer(base);
-    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "first.open" }, headers);
+    const opened = await post(`${base}/__local/story-studio/tianyi/session/open`, { projectId, operationId: "first.open", scope: { kind: "project" } }, headers);
     const sessionId = (await opened.json() as { data: { sessionId: string } }).data.sessionId;
     const text = "林昭在雾港灯塔亲眼看见守夜钟失踪。海风卷进钟楼，旧城航线在午夜同时中断。阿芜从码头工人口中得知此事，却误以为顾澜偷走了钟；顾澜当时正在封锁线外修理引航灯，没有人能证明她进入过钟楼。林昭决定先追查守夜钟的去向，再查明航线中断是否与钟声有关。第二天清晨，潮汐记录出现一段被人为改写的空白，旧码头与灯塔之间形成两条互相矛盾的目击路径。";
     const capture = await post(`${base}/__local/story-studio/tianyi/creative/capture`, { projectId, sessionId, operationId: "first.capture", submissionId: "first.source", text, collaborate: false }, headers);
     const source = (await capture.json() as { data: { source: unknown } }).data.source;
     const workVersionId = "work-version.unversioned";
-    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "first.start" }, headers);
+    const started = await post(`${base}/__local/story-studio/tianyi-agent/run/start`, { projectId, workVersionId, sessionId, task: "整理为故事候选", currentPage: "/tianyi", contextRequest: { scope: { kind: "project" }, storyIntake: { version: "tianyan-story-intake-request/v1", sourceRef: source } }, permissionProfile: "conservative", operationId: "first.start" }, headers);
     assert.equal(started.status, 201, await started.clone().text());
     const runId = (await started.json() as { data: { runId: string } }).data.runId;
     await post(`${base}/__local/story-studio/tianyi-agent/run/continue`, { projectId, workVersionId, sessionId, runId, operationId: "first.context" }, headers);

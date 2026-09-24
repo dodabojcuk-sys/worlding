@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeResult, AgentRuntimeStreamEvent } from "./agentRuntimePlugin.ts";
 import type { TianyiSimulationContextPack } from "./tianyiSimulationSourceContract.ts";
+import type { TianyiSessionScope } from "../storyContinuity/tianyiSessionScope.ts";
 import { confirmStoryIntakeCandidate, migrateStoryIntakeEnvelopeV1, rebaseStoryIntakeEnvelopeAfterUndo, undoStoryIntakeCandidateApplication, updateStoryIntakeCandidateLifecycle, type StoryIntakeBaseVersion, type StoryIntakeCandidate, type StoryIntakeEnvelope, type StoryIntakeLifecycleStatus, type StoryIntakeSourceRef } from "../storyContracts/storyIntakeEnvelope.ts";
 
 export type TianyiAgentRunStatus =
@@ -21,6 +22,7 @@ export type TianyiAgentContextManifest = {
   projectId: string;
   workVersionId: string;
   sessionId: string;
+  scope?: TianyiSessionScope;
   currentPage: string;
   selectedObjectIds: string[];
   sourceRefs: Array<{ id: string; label: string; hash: string; state: "current" | "stale" | "excluded" }>;

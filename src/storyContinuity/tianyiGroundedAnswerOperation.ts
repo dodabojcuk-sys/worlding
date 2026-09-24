@@ -160,6 +160,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
   gateway: TianyiGroundedModelGateway;
   now?: () => string;
   compileGroundedContext(request: TianyiGroundedContextRequest): Promise<TianyiCompiledGroundedContext>;
+  validateRequestScope?(request: TianyiGroundedContextRequest): Promise<void>;
   onFaultMilestone?(milestone: TianyiGroundedFaultMilestone, questionAttemptKey: string): void | Promise<void>;
   maxProviderDispatches?: 1 | 2;
 }) {
@@ -181,6 +182,7 @@ export function createTianyiGroundedAnswerOperations(dependencies: {
     const profileId = machineId(input.profileId, "Model profile identifier");
     const question = boundedText(input.question, "Author question", 4_000);
     const contextRequest = normalizeTianyiGroundedContextRequest(input.contextRequest);
+    await dependencies.validateRequestScope?.(contextRequest);
     const profile = dependencies.gateway.metadata().profiles.find((item) => item.id === profileId);
     if (!profile) throw new Error("Selected model profile is unavailable.");
 
@@ -712,6 +714,7 @@ function buildGroundedMessages(question: string, compiled: TianyiCompiledGrounde
         "The author's current input may itself be a creative premise (author intent), not a fact query. When the author proposes settings, plot directions, or revisions: discuss and develop them under that stated premise, mark everything derived from it as candidate or inference with an uncertainty reason, and keep the premise separate from confirmed facts. The premise itself needs no source reference; such answers use status candidate or inference and never fact.",
         "Preserve explicit constraints and negations. Do not turn a conditional conclusion into an unconditional claim.",
         `Context manifest digest: ${compiled.manifest.digest}`,
+        ...(compiled.manifest.request.scope ? [`Requested discussion scope: ${JSON.stringify(compiled.manifest.request.scope)}. Treat only evidence admitted for this scope as story facts.`] : []),
         `Return exactly one JSON object with this schema: ${schema}`,
         "Put the complete author-facing answer in summary. It must answer the author's request directly; never use summary to restate or describe the task. Preserve requested headings, numbering, and readable prose inside that string.",
         "Use claims only to classify atomic assertions from that answer. Claims do not replace or hide the author-facing answer.",

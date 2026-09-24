@@ -8,6 +8,7 @@ import type { StoryModelingGateway } from "../storyAgent/storyModelingGateway.ts
 import type { StoryModelingPrice } from "../storyContracts/storyModeling.ts";
 import {
   assertStoryStudioEventReferenceEligibility,
+  createStoryStudioEventReference,
   normalizeStoryStudioEventReference,
   storyStudioEventReferenceKey,
   type StoryStudioEventReference
@@ -70,6 +71,9 @@ import {
   , normalizeTianyiGroundedContextRequest
   , tianyiObjectContextRefKey
   , normalizeTianyiObjectContextRefs
+  , tianyiSessionScopeFromEvents
+  , type TianyiSessionScope
+  , TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT
 } from "../storyContinuity/index.ts";
 
 export function createStoryStudioTianyiOperations(options: {
@@ -193,6 +197,7 @@ export function createStoryStudioTianyiOperations(options: {
     resolveArchiveMessages: (projectId, refs) => resolveArchiveRecallMessages(projectContext(projectId), refs),
     localControlToken: options.localControlToken,
     modelGateway: options.modelGateway
+    , validateScope: validateTianyiScope
   });
   const memories = createTianyiMemoryOperations({ rootPath: options.rootPath, agentId, now: options.now });
   const resume = createTianyiResumeOperations({ rootPath: options.rootPath, agentId, readSource: readSourceTarget });
@@ -202,6 +207,15 @@ export function createStoryStudioTianyiOperations(options: {
     now: options.now,
     gateway: options.modelGateway,
     compileGroundedContext,
+    validateRequestScope: async (request) => {
+      if (!request.scope) throw new Error("发送前请选择当前天意对话的项目或事件线范围。");
+      validateTianyiScope(request.projectId, request.scope);
+      const session = await readSession(projectContext(request.projectId), request.sessionId);
+      if (!session) throw new Error("当前项目不存在这条天意对话。");
+      const saved = tianyiSessionScopeFromEvents(session.value);
+      if (!saved) throw new Error("历史对话尚未选择范围；请先明确补选，不会自动绑定当前浏览线。");
+      if (stableJson(saved) !== stableJson(request.scope)) throw new Error("本次请求范围与对话保存范围不一致；请新建对话。");
+    },
     ...(options.groundedAnswerMaxProviderDispatches ? { maxProviderDispatches: options.groundedAnswerMaxProviderDispatches } : {})
   }) : null;
 
@@ -514,18 +528,44 @@ export function createStoryStudioTianyiOperations(options: {
     return { receipt: receipt.value, contentHash: receipt.contentHash, currentStatus: receipt.value.version === "story-tianyi-context-receipt/v3" || receipt.value.version === "story-tianyi-context-receipt/v4" || receipt.value.version === "story-tianyi-context-receipt/v5" ? (receipt.value.stale ? "stale" : "current") : deriveReceiptCurrentStatus(receipt.value, projection), sourceDetails, archiveMessageDetails };
   }
 
-  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), ...predictions, ...temporalProjections, ...storyModeling, getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, findLatestStoryIntakeRun, listStoryIntakeRuns, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
+  return { ...sessions, ...memories, ...resume, ...(grounded ?? {}), ...predictions, ...temporalProjections, ...storyModeling, validateTianyiScope, getTianyiIdentity, getTianyiContextProjection, resolveTianyiObjectContextRefs, readTianyiReceipt, listTianyiReceipts, listTianyiStoppingPoints, revokeTianyiStoppingPoint, restoreTianyiStoppingPoint, hardDeleteTianyiStoppingPoint, listTianyiStoppingPointRevisions, listTianyiTombstones, readTianyiSessionEvents, appendTianyiAgentRuntimeEvent, readTianyiAgentRuntimeEvents, findLatestStoryIntakeRun, listStoryIntakeRuns, rebuildTianyiArchiveRecall, searchTianyiArchiveRecall, invalidateTianyiArchiveRecall, hardDeleteTianyiArchiveMessage, hardDeleteTianyiSession, exportTianyiPack, stageTianyiPack };
 
   function projectContext(projectId: string) { return { rootPath: options.rootPath, agentId, scope: "project" as const, projectId: requireProjectId(projectId) }; }
 
+  function validateTianyiScope(projectId: string, scope: TianyiSessionScope): Set<string> | null {
+    const units = workspace.listStoryUnits({ projectId: requireProjectId(projectId) }).filter((unit) => unit.lifecycle !== "archived");
+    if (scope.kind === "project") return null;
+    const selected = scope.storylineKey === "primary"
+      ? units.filter((unit) => unit.kind === "main")
+      : units.filter((unit) => unit.kind === "branch" && `branch.${unit.id}` === scope.storylineKey);
+    if (!selected.length) throw new Error("所选事件线不属于当前项目或已不可用，请重新选择。");
+    return new Set(selected.flatMap((unit) => unit.linkedEntityIds));
+  }
+
   async function compileGroundedContext(rawRequest: TianyiGroundedContextRequest) {
     const request = normalizeTianyiGroundedContextRequest(rawRequest);
+    const lineEventIds = request.scope ? validateTianyiScope(request.projectId, request.scope) : null;
+    if (lineEventIds && (request.eventRefs ?? []).some((reference) => !lineEventIds.has(reference.eventId))) throw new Error("引用事件不属于所选事件线；未发送模型请求。");
+    // The line itself supplies bounded, verified formal Event evidence. An
+    // empty explicit selection must not silently turn a line discussion into
+    // a project-wide answer, nor may candidate Events gain Canon authority.
+    const scopedEventRefs = [...(request.eventRefs ?? [])];
+    if (lineEventIds) for (const eventId of lineEventIds) {
+      if (scopedEventRefs.length >= TIANYI_GROUNDED_EVENT_REFERENCE_LIMIT) break;
+      if (scopedEventRefs.some((reference) => reference.eventId === eventId)) continue;
+      try {
+        const event = workspace.readWorldObject({ projectId: request.projectId, objectId: eventId });
+        if (event.type !== "event" || event.status !== "committed" || !options.verifyCanonEventRead?.({ projectId: request.projectId, eventId })) continue;
+        scopedEventRefs.push(createStoryStudioEventReference({ projectId: request.projectId, event, requestedUse: "constraint" }));
+      } catch { /* a removed or inaccessible Event is never substituted */ }
+    }
+    const scopedRequest = lineEventIds ? { ...request, eventRefs: scopedEventRefs } : request;
     const candidates: TianyiGroundedResolvedCandidate[] = [];
     if (request.sceneRef) candidates.push(resolveGroundedObjectCandidate(request, request.sceneRef, "scene"));
     if (request.subjectRef) candidates.push(resolveGroundedObjectCandidate(request, request.subjectRef, "subject"));
     for (const ref of request.explicitRefs) candidates.push(resolveGroundedObjectCandidate(request, ref, "evidence"));
     const explicitRuleIds = new Set(request.explicitRefs.filter((ref) => ref.ownerType === "markdown-object" && ref.objectType === "rule").map((ref) => ref.stableId));
-    for (const reference of request.eventRefs ?? []) candidates.push(resolveGroundedEventCandidate(request, reference));
+    for (const reference of scopedEventRefs) candidates.push(resolveGroundedEventCandidate(scopedRequest, reference));
 
     const scene = request.sceneRef?.ownerType === "markdown-writing"
       ? safeReadWriting(request.projectId, request.sceneRef.ownerId)
@@ -558,7 +598,7 @@ export function createStoryStudioTianyiOperations(options: {
       listGlobalMemoryGrants(projectContext(request.projectId))
     ]);
     const grantsByMemoryId = new Map(grants.map((grant) => [grant.value.memoryId, grant]));
-    const taskRefs = groundedTaskRefs(request);
+    const taskRefs = groundedTaskRefs(scopedRequest);
     for (const memory of [...projectMemories, ...globalMemories]) {
       const grant = memory.value.scope === "author-global" ? grantsByMemoryId.get(memory.value.id) : null;
       const grantCurrent = memory.value.scope === "project"

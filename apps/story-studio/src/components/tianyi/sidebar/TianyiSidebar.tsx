@@ -10,6 +10,7 @@ import {
   handoffTianyiAgentCandidate,
   listTemporalProjectionRuns,
   openTianyiSession,
+  selectTianyiSessionScope,
   recoverTianyiAgentRun,
   streamTianyiGroundedAnswer,
   startTianyiAgentRun,
@@ -18,7 +19,8 @@ import {
   cancelTianyiAgentRun,
   streamTianyiAgentRun,
   type TianyiAgentRunProjection,
-  type TianyiSessionMetadata
+  type TianyiSessionMetadata,
+  type TianyiSessionScope
 } from "../../../lib/localTransport";
 import { useI18n } from "../../../product-shell/i18n/I18nProvider";
 import type { TianyanShellRuntimeState } from "../../../product-shell/runtime/TianyanShellRuntime";
@@ -30,6 +32,7 @@ import { TianyiWorkPanel } from "./TianyiWorkPanel";
 import { TianyiModeSwitch, type TianyiSidebarMode } from "./TianyiModeSwitch";
 import { agentPermissionProfileForIntent, createTianyiSubmitGate, currentTianyiAgentStep, shouldCommitTianyiAgentRunProjection, tianyiAgentRunStorageKey } from "../tianyiAgentRunViewModel";
 import { TianyiAdoptionPanel } from "../workspace/TianyiAdoptionPanel";
+import { TianyiSessionScopeChoice } from "../TianyiSessionScopeChoice";
 import { MapAiCollaborationPanel, type TianyiMapEditContext } from "./MapAiCollaborationPanel";
 
 export type TianyiKnowledgeViewContext = CharacterKnowledgeHandoff;
@@ -63,6 +66,7 @@ export function TianyiSidebar(props: {
   const [mode, setMode] = useState<TianyiSidebarMode>("work");
   const [task, setTask] = useState<CapabilityMenuItem | null>(null);
   const [session, setSession] = useState<TianyiSessionMetadata | null>(null);
+  const [scopeSelection, setScopeSelection] = useState<TianyiSessionScope | null>(null);
   const [run, setRun] = useState<TianyiAgentRunProjection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -80,6 +84,7 @@ export function TianyiSidebar(props: {
   const streamController = useRef<AbortController | null>(null);
   const stopping = useRef(false);
   const project = props.runtime.project;
+  useEffect(() => { setScopeSelection(null); }, [project?.id, props.runtime.tianyiConversationId]);
   const workVersionId = props.runtime.workVersionId ?? "work-version.unversioned";
   const contextRequest = useMemo(() => props.contextRequest ?? (project ? {
     productMode: props.workspace === "nuwa" ? "intelligence" as const : "world" as const,
@@ -184,8 +189,19 @@ export function TianyiSidebar(props: {
   };
   const ensureConversation = async () => {
     if (!project) throw new Error(t("tianyi.noActiveProject"));
-    if (props.runtime.tianyiConversationId) return props.runtime.tianyiConversationId;
-    const opened = await props.runtime.withConnection((token) => openTianyiSession(project.id, operationId("open-session"), token));
+    if (props.runtime.tianyiConversationId) {
+      const sessionId = props.runtime.tianyiConversationId;
+      const read = await props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, sessionId, token));
+      const current = Array.isArray(read) ? read.find((item) => item.id === sessionId) : read;
+      if (!current) throw new Error("当前项目不存在这条天意对话。");
+      if (!current.scope) {
+        if (!scopeSelection) throw new Error("历史对话请先明确补选项目或事件线范围；草稿仍保留。");
+        setSession(await props.runtime.withConnection((token) => selectTianyiSessionScope({ projectId: project.id, sessionId, scope: scopeSelection, operationId: operationId("select-scope"), token })));
+      }
+      return sessionId;
+    }
+    if (!scopeSelection) throw new Error("新对话请先明确选择项目讨论或事件线；草稿仍保留。");
+    const opened = await props.runtime.withConnection((token) => openTianyiSession(project.id, operationId("open-session"), token, "normal", scopeSelection));
     props.runtime.setTianyiConversationId(opened.sessionId);
     return opened.sessionId;
   };
@@ -204,6 +220,9 @@ export function TianyiSidebar(props: {
     setBusy(true); setError("");
     try {
       const sessionId = await ensureConversation();
+      const scopeRead = await props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, sessionId, token));
+      const requestScope = (Array.isArray(scopeRead) ? scopeRead.find((item) => item.id === sessionId) : scopeRead)?.scope;
+      if (!requestScope) throw new Error("天意对话范围尚未保存；没有发送模型请求。");
       const selectedModelId = props.runtime.modelStatus?.profile.profile?.modelId;
       const profileId = props.runtime.modelStatus?.profiles.find((item) => item.modelId === selectedModelId)?.id;
       if (!profileId) throw new Error(t("tianyi.providerUnavailable"));
@@ -222,6 +241,7 @@ export function TianyiSidebar(props: {
           subjectRef: roleContext?.subjectRef ?? null,
           sceneRef: null,
           explicitRefs: [],
+          scope: requestScope,
           ...(contextRequest.eventRefs?.length ? { eventRefs: contextRequest.eventRefs } : {})
         },
         token
@@ -240,8 +260,11 @@ export function TianyiSidebar(props: {
     setBusy(true); setError("");
     try {
       const sessionId = await ensureConversation();
+      const scopeMetadata = await props.runtime.withConnection((token) => getTianyiSessionMetadata(project.id, sessionId, token));
+      const requestScope = (Array.isArray(scopeMetadata) ? scopeMetadata.find((item) => item.id === sessionId) : scopeMetadata)?.scope;
+      if (!requestScope) throw new Error("天意对话范围尚未保存；没有发送模型请求。");
       const taskText = [task ? t(task.labelKey as TranslationKey) : "", props.runtime.pageAgentTaskDraft.trim(), t(`tianyi.simulation.scopeTask.${scope}` as TranslationKey), t(`tianyi.simulation.freedomTask.${freedom}` as TranslationKey)].filter(Boolean).join("\n");
-      const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
+      const projection = await props.runtime.withConnection((token) => startTianyiAgentRun({ projectId: project.id, workVersionId, sessionId, task: taskText, currentPage: window.location.pathname, contextRequest: { ...contextRequest, scope: requestScope }, permissionProfile: agentPermissionProfile, operationId: operationId("agent-start"), token }));
       window.sessionStorage.setItem(tianyiAgentRunStorageKey(project.id, workVersionId, sessionId), projection.runId);
       props.runtime.setActivePageAgentRunId(projection.runId);
       commitRunProjection(projection); setTask(null); props.runtime.setPageAgentTaskDraft("");
@@ -342,6 +365,7 @@ export function TianyiSidebar(props: {
       {!contextRequest?.mapEdit ? <TianyiModeSwitch mode={mode} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} agentRunning={agentRunning} onMode={setMode} /> : <span className="tianyi-map-mode-label">{t("tianyi.mapCollaboration")}</span>}
       <button type="button" aria-label={t("panel.closeTianyiAgent")} title={t("panel.closeTianyiAgent")} onClick={props.onClose}><X aria-hidden="true" /></button>
     </header>
+    <div className="tianyi-session-scope-bar"><TianyiSessionScopeChoice projectId={project?.id ?? null} value={session?.id === props.runtime.tianyiConversationId && session.scope ? session.scope : scopeSelection} onChange={setScopeSelection} disabled={busy || Boolean(session?.id === props.runtime.tianyiConversationId && session.scope)} /><small>{session?.id === props.runtime.tianyiConversationId && session.scope ? "对话范围已保存；换线请新建对话。" : "发送前明确选择范围。"}</small></div>
     <section className="tianyi-sidebar-stage">
       {contextRequest?.knowledgeView ? <p className="tianyi-knowledge-scope" data-testid="page-agent-knowledge-scope" data-context-access={contextRequest.knowledgeView.contextAccess}><strong>{contextRequest.knowledgeView.observerLabel}</strong> · {roleContext ? t("tianyi.characterContextScope") : displayOnlyContext ? t("tianyi.readerContextScope") : t("tianyi.knowledgeScope")}{contextRequest.knowledgeView.hiddenEventCount ? `；${t("tianyi.knowledgeExcluded").replace("{count}", String(contextRequest.knowledgeView.hiddenEventCount))}` : ""}</p> : null}
       {contextRequest?.mapEdit ? <MapAiCollaborationPanel key={`${project?.id}:${contextRequest.mapEdit.mapId}:${contextRequest.mapEdit.baseContentHash}`} runtime={props.runtime} context={contextRequest.mapEdit} ensureConversation={ensureConversation} /> : mode === "work" ? <><TianyiAdoptionPanel runtime={props.runtime} compact /><TianyiWorkPanel projectReady={Boolean(project)} providerReady={providerReady && !displayOnlyContext} agentAvailable={props.agentAvailable && !roleContext && !displayOnlyContext} session={session} draft={props.runtime.workComposerDraft} busy={busy} error={error} pageAgentRunRetained={agentRunning} onDraft={props.runtime.setWorkComposerDraft} onSubmit={submitWork} onOpenSettings={props.onOpenSettings} onSwitchToAgent={() => setMode("agent")} /></> : <TianyiAgentPanel runtime={props.runtime} eventRefs={contextRequest?.eventRefs ?? []} sourceLabels={contextRequest?.predictionSourceLabels} sourceUnitSummary={contextRequest?.predictionSourceUnitSummary} temporalRun={temporalRunCard} generalRun={generalAgentRun} composer={agentComposer} error={error} />}
